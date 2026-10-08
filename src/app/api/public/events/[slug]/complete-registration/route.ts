@@ -308,6 +308,22 @@ const completionSchema = z.object({
   },
 );
 
+type StoredPricing = {
+  pricingTier: { price: unknown; currency: string } | null;
+  ticketType: { price: unknown; currency: string } | null;
+};
+
+/** The price the loaded registration already carries: its tier, else its type. */
+function storedPrice(registration: StoredPricing): number {
+  if (registration.pricingTier) return Number(registration.pricingTier.price);
+  return Number(registration.ticketType?.price ?? 0);
+}
+
+function storedCurrency(registration: StoredPricing): string {
+  if (registration.pricingTier) return registration.pricingTier.currency;
+  return registration.ticketType?.currency ?? "USD";
+}
+
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const { slug } = await params;
@@ -709,12 +725,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Prefer the type/tier just resolved on this request — the loaded
       // `registration` predates it and would price a freshly-typed
       // registration at 0.
-      const finalPrice = resolvedType
-        ? (resolvedPrice ?? 0)
-        : registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType?.price ?? 0);
-      const finalCurrency = resolvedType
-        ? (resolvedTier?.currency ?? resolvedType.currency)
-        : registration.pricingTier ? registration.pricingTier.currency : registration.ticketType?.currency ?? "USD";
+      const finalPrice = resolvedType ? (resolvedPrice ?? 0) : storedPrice(registration);
+      const finalCurrency = resolvedType ? (resolvedTier?.currency ?? resolvedType.currency) : storedCurrency(registration);
 
       await sendRegistrationConfirmation({
         ...buildEventConfirmationFields(registration.event),
@@ -759,12 +771,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         status: flipToPending ? "PENDING" : registration.status,
         // Drives the Pay Now step on the confirmation page — must reflect the
         // type resolved on THIS request, else a paid completion looks free.
-        ticketPrice: resolvedType
-          ? (resolvedPrice ?? 0)
-          : registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType?.price ?? 0),
-        ticketCurrency: resolvedType
-          ? (resolvedTier?.currency ?? resolvedType.currency)
-          : registration.pricingTier ? registration.pricingTier.currency : registration.ticketType?.currency ?? "USD",
+        ticketPrice: resolvedType ? (resolvedPrice ?? 0) : storedPrice(registration),
+        ticketCurrency: resolvedType ? (resolvedTier?.currency ?? resolvedType.currency) : storedCurrency(registration),
       },
     });
     });

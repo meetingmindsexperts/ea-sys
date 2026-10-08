@@ -28,13 +28,31 @@ function threadTitle(t: CrmInboxThreadRow): string {
   return t.counterpartyName || t.counterpartyEmail;
 }
 
+function messageSender(message: CrmInboxMessageRow, inbound: boolean): string {
+  if (inbound) return message.fromName || message.fromEmail;
+  if (message.sentBy) return `${message.sentBy.firstName} ${message.sentBy.lastName}`.trim();
+  return message.fromName || "You";
+}
+
+function MessageBody({ message }: { message: CrmInboxMessageRow }) {
+  if (message.textBody) return <p className="whitespace-pre-wrap break-words">{message.textBody}</p>;
+  if (message.htmlBody) {
+    return (
+      // Sender-authored HTML — sandboxed: no scripts, no same-origin access.
+      <iframe
+        sandbox=""
+        srcDoc={message.htmlBody}
+        title="Email content"
+        className="h-64 w-full rounded border-0 bg-white"
+      />
+    );
+  }
+  return <p className="text-muted-foreground italic">(no content)</p>;
+}
+
 function MessageBubble({ message }: { message: CrmInboxMessageRow }) {
   const inbound = message.direction === "INBOUND";
-  const sender = inbound
-    ? message.fromName || message.fromEmail
-    : message.sentBy
-      ? `${message.sentBy.firstName} ${message.sentBy.lastName}`.trim()
-      : message.fromName || "You";
+  const sender = messageSender(message, inbound);
 
   return (
     <div className={`flex ${inbound ? "justify-start" : "justify-end"}`}>
@@ -61,19 +79,7 @@ function MessageBubble({ message }: { message: CrmInboxMessageRow }) {
           </p>
         )}
 
-        {message.textBody ? (
-          <p className="whitespace-pre-wrap break-words">{message.textBody}</p>
-        ) : message.htmlBody ? (
-          // Sender-authored HTML — sandboxed: no scripts, no same-origin access.
-          <iframe
-            sandbox=""
-            srcDoc={message.htmlBody}
-            title="Email content"
-            className="h-64 w-full rounded border-0 bg-white"
-          />
-        ) : (
-          <p className="text-muted-foreground italic">(no content)</p>
-        )}
+        <MessageBody message={message} />
 
         {(message.attachments?.length ?? 0) > 0 && (
           <ul className="mt-2 space-y-1 border-t pt-2">
@@ -179,16 +185,18 @@ export function CrmInbox() {
 
       {/* ── Conversation ─────────────────────────────────────────────────── */}
       <div className="flex flex-col overflow-hidden rounded-lg border bg-card">
-        {!selectedId ? (
+        {!selectedId && (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
             <Inbox className="h-10 w-10 opacity-30" />
             Select a conversation
           </div>
-        ) : detailLoading || !thread ? (
+        )}
+        {!!selectedId && (detailLoading || !thread) && (
           <div className="flex flex-1 items-center justify-center p-8">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : (
+        )}
+        {!!selectedId && !detailLoading && thread && (
           <>
             <div className="border-b px-4 py-3">
               <p className="truncate text-sm font-semibold">{thread.subject}</p>

@@ -15,6 +15,13 @@ import { toast } from "sonner";
 
 type TagMode = "add" | "remove" | "replace";
 
+const MODE_LABELS: Record<TagMode, string> = { add: "Add", remove: "Remove", replace: "Replace" };
+const MODE_FIELD_LABELS: Record<TagMode, string> = {
+  add: "Tags to add",
+  remove: "Tags to remove",
+  replace: "Replace with",
+};
+
 const TAG_COLORS = [
   "bg-sky-50 text-sky-700 border-sky-200",
   "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -109,7 +116,7 @@ export function BulkTagDialog({
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                {m === "add" ? "Add" : m === "remove" ? "Remove" : "Replace"}
+                {MODE_LABELS[m]}
               </button>
             ))}
           </div>
@@ -163,7 +170,7 @@ export function BulkTagDialog({
 
           <div className="space-y-1.5">
             <Label className="text-xs text-gray-500 font-medium">
-              {mode === "add" ? "Tags to add" : mode === "remove" ? "Tags to remove" : "Replace with"}
+              {MODE_FIELD_LABELS[mode]}
             </Label>
             <TagInput
               value={tags}

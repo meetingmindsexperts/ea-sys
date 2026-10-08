@@ -70,10 +70,15 @@ export interface InboundTickResult {
   failures: number;
 }
 
+function addressObjects(v: AddressObject | AddressObject[] | undefined): AddressObject[] {
+  if (Array.isArray(v)) return v;
+  return v ? [v] : [];
+}
+
 /** Flatten mailparser's to/cc shapes into plain addresses. */
 function recipientAddresses(parsed: ParsedMail): string[] {
   const collect = (v: AddressObject | AddressObject[] | undefined): string[] =>
-    (Array.isArray(v) ? v : v ? [v] : []).flatMap((a) =>
+    addressObjects(v).flatMap((a) =>
       a.value.map((x) => x.address ?? "").filter(Boolean),
     );
   return [...collect(parsed.to), ...collect(parsed.cc)];
@@ -102,6 +107,13 @@ export function failedVerdict(parsed: ParsedMail): string | null {
     if (s.toUpperCase() === "FAIL") return `${h}:FAIL`;
   }
   return null;
+}
+
+/** A header that may arrive as a string or a list of strings, as one string. */
+function headerText(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw)) return raw.join(" ");
+  return "";
 }
 
 function emailDomain(addr: string): string {
@@ -133,7 +145,7 @@ export function verifySender(
   const cpDomain = emailDomain(counterpartyEmail);
 
   const authRaw = parsed.headers.get("authentication-results");
-  const auth = typeof authRaw === "string" ? authRaw : Array.isArray(authRaw) ? authRaw.join(" ") : "";
+  const auth = headerText(authRaw);
   if (/dmarc\s*=\s*fail/i.test(auth)) return { verified: false, reason: "dmarc-fail" };
 
   if (!fromDomain || !cpDomain || fromDomain !== cpDomain) {

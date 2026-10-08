@@ -83,11 +83,23 @@ function Empty({ text }: { text: string }) {
   return <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">{text}</div>;
 }
 
+function subjectLabel(r: ApprovalRequestRow): string {
+  if (r.subjectType === "BUDGET") return "Budget";
+  if (r.subjectType !== "SPEND_REQUEST") return "Reallocation";
+  return r.spendRequest?.kind === "AMENDMENT" ? "Amount change" : "Spend request";
+}
+
+function approvedMessage(r: ApprovalRequestRow): string {
+  if (r.subjectType === "BUDGET") return "Approved. The budget is active.";
+  if (r.subjectType !== "SPEND_REQUEST") return "Approved. The amount is moved.";
+  return r.spendRequest?.supplierApproved ? "Approved." : "Approved; the order waits until the supplier is approved.";
+}
+
 function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: boolean }) {
   const decide = useDecideApproval();
   const [note, setNote] = useState("");
   const [pending, setPending] = useState<"APPROVED" | "REJECTED" | null>(null);
-  const subject = r.subjectType === "BUDGET" ? "Budget" : r.subjectType === "SPEND_REQUEST" ? (r.spendRequest?.kind === "AMENDMENT" ? "Amount change" : "Spend request") : "Reallocation";
+  const subject = subjectLabel(r);
   const sr = r.spendRequest;
   const cur = r.currency ?? r.budget?.reportingCurrency ?? "";
   const { data: session } = useSession();
@@ -121,9 +133,7 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
         return;
       }
       toast.success(
-        decision === "APPROVED"
-          ? r.subjectType === "BUDGET" ? "Approved. The budget is active." : r.subjectType === "SPEND_REQUEST" ? (sr?.supplierApproved ? "Approved." : "Approved; the order waits until the supplier is approved.") : "Approved. The amount is moved."
-          : "Rejected.",
+        decision === "APPROVED" ? approvedMessage(r) : "Rejected.",
       );
     } catch (err) {
       toast.error((err as Error).message);
@@ -141,11 +151,13 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
             {sr?.exception && <Badge variant="secondary" className="bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100"><ShieldAlert className="mr-1 h-3 w-3" /> Over budget</Badge>}
             {multiLevel && r.status === "PENDING" && <Badge variant="secondary">{`Level ${chain.currentLevel} of ${chain.levels.length}`}</Badge>}
             {asDelegate && <Badge variant="secondary" className="bg-primary/10 text-primary">{`Standing in for ${openStep?.assigneeName ?? "the approver"}`}</Badge>}
-            {sr ? (
+            {sr && (
               <Link href={`/procurement/requests/${sr.id}`} className="font-medium hover:underline">{`${sr.requestNo} · ${sr.title}`}</Link>
-            ) : r.budget ? (
+            )}
+            {!sr && r.budget && (
               <Link href={`/procurement/budgets/${r.budget.id}`} className="font-medium hover:underline">{`${r.budget.eventCode} · v${r.budget.versionNo}`}</Link>
-            ) : (
+            )}
+            {!sr && !r.budget && (
               <span className="font-medium text-muted-foreground">budget no longer exists</span>
             )}
             {sr && r.budget && <Link href={`/procurement/budgets/${r.budget.id}`} className="text-sm text-muted-foreground hover:underline">{`${r.budget.eventCode} · v${r.budget.versionNo}`}</Link>}

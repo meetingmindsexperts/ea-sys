@@ -1,7 +1,6 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
-import { NESTED_TERNARY_BASELINE } from "./eslint.nested-ternary-baseline.mjs";
 
 const eslintConfig = defineConfig([
   ...nextVitals,
@@ -265,13 +264,12 @@ const eslintConfig = defineConfig([
 
   // ── One level of ternary, never more (owner, Oct 8, 2026) ────────────────
   //
-  // `a ? b : c` is fine. `a ? b : c ? d : e` is not: write if/else, a small
-  // lookup table, or (in JSX) a little component. The files that still hold
-  // one are exempt by name in eslint.nested-ternary-baseline.mjs, a list that
-  // only shrinks.
+  // `a ? b : c` is fine. `a ? b : c ? d : e` is not: write a small helper
+  // with early returns, a lookup table, or (in JSX) a little component. All
+  // 512 existing ones were rewritten the same day, so there is no exception
+  // list.
   {
     files: ["src/**/*.{ts,tsx}", "worker/**/*.ts", "scripts/**/*.{ts,mjs}"],
-    ignores: NESTED_TERNARY_BASELINE,
     rules: {
       "no-nested-ternary": "error",
     },

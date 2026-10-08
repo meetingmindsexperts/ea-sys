@@ -172,15 +172,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           })
         : null;
       const sendingCme = !surveyId || target?.gatesCertificates === true;
-      const answered = sendingCme
-        ? registration.surveyCompletedAt !== null
-        : target
-          ? await hasAnswered({
-              survey: { id: target.id, gatesCertificates: false, responseMode: target.responseMode },
-              registration: { id: registrationId, surveyCompletedAt: registration.surveyCompletedAt },
-              timezone: event.timezone,
-            })
-          : false;
+      let answered = false;
+      if (sendingCme) {
+        answered = registration.surveyCompletedAt !== null;
+      } else if (target) {
+        answered = await hasAnswered({
+          survey: { id: target.id, gatesCertificates: false, responseMode: target.responseMode },
+          registration: { id: registrationId, surveyCompletedAt: registration.surveyCompletedAt },
+          timezone: event.timezone,
+        });
+      }
       if (answered) {
         const daily = !sendingCme && target?.responseMode === "ONCE_PER_DAY";
         apiLogger.warn({ msg: "registration-email:survey-invitation-already-completed", eventId, registrationId, surveyId, daily });

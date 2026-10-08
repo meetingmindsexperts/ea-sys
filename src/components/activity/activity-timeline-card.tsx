@@ -69,6 +69,24 @@ function auditLabel(action: string | undefined): string {
   return AUDIT_LABELS[action] ?? action.replace(/_/g, " ").toLowerCase();
 }
 
+function itemSubline(item: ActivityItem) {
+  if (item.kind === "email") return <>To {item.to}</>;
+  if (item.kind === "certificate") {
+    return (
+      <>
+        {item.serial}
+        {item.pdfUrl ? "" : " · PDF not yet rendered"}
+      </>
+    );
+  }
+  return (
+    <>
+      {item.actor ? `by ${item.actor}` : "automated / self-service"}
+      {item.ipAddress ? ` · ${item.ipAddress}` : ""}
+    </>
+  );
+}
+
 function iconFor(item: ActivityItem) {
   if (item.kind === "certificate") return Award;
   if (item.kind === "email") return Mail;
@@ -220,19 +238,7 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 truncate">
-                    {item.kind === "email" ? (
-                      <>To {item.to}</>
-                    ) : item.kind === "certificate" ? (
-                      <>
-                        {item.serial}
-                        {item.pdfUrl ? "" : " · PDF not yet rendered"}
-                      </>
-                    ) : (
-                      <>
-                        {item.actor ? `by ${item.actor}` : "automated / self-service"}
-                        {item.ipAddress ? ` · ${item.ipAddress}` : ""}
-                      </>
-                    )}
+                    {itemSubline(item)}
                   </p>
                   {item.kind === "audit" && item.diffs && item.diffs.length > 0 && (
                     <ul className="mt-1.5 space-y-0.5">

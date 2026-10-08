@@ -33,18 +33,20 @@ export default function CrmDealPage() {
         </Link>
       </Button>
 
-      {isLoading ? (
+      {isLoading && (
         <div className="flex items-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading deal…
         </div>
-      ) : isError || !deal ? (
+      )}
+      {!isLoading && (isError || !deal) && (
         <div className="rounded-lg border bg-muted/20 p-8 text-center">
           <p className="text-sm text-muted-foreground">
             This deal could not be found — it may have been removed.
           </p>
         </div>
-      ) : (
+      )}
+      {!isLoading && !isError && deal && (
         <DealDetailBody deal={deal} canWrite={canWrite} onClosed={() => router.push("/crm/deals")} />
       )}
     </div>

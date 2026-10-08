@@ -200,6 +200,12 @@ type EmployeeRow = {
 };
 
 /** Prisma `Decimal` to a plain number. Day counts are small; precision is safe. */
+/** undefined in the patch keeps the stored exit date; anything else replaces it. */
+function resultingExitDate(patched: string | null | undefined, stored: Date | null) {
+  if (patched !== undefined) return patched;
+  return stored ? toCalendarDate(stored) : null;
+}
+
 function num(value: unknown): number {
   return typeof value === "number" ? value : Number(value ?? 0);
 }
@@ -351,12 +357,7 @@ export async function updateEmployee(
 
   const p = input.patch;
   const joining = p.joiningDate ?? toCalendarDate(existing.joiningDate);
-  const exit =
-    p.exitDate === undefined
-      ? existing.exitDate
-        ? toCalendarDate(existing.exitDate)
-        : null
-      : p.exitDate;
+  const exit = resultingExitDate(p.exitDate, existing.exitDate);
 
   if (!isCalendarDate(joining) || (exit && !isCalendarDate(exit))) {
     return { ok: false, code: "INVALID_DATE", message: "That is not a valid date." };

@@ -91,6 +91,15 @@ const STEP_CLASS: Record<AgentStepRow["outcome"], string> = {
 
 const ALL_OUTCOMES = "all";
 
+type ListView = "loading" | "error" | "empty" | "list";
+
+function listView(isLoading: boolean, isError: boolean, empty: boolean): ListView {
+  if (isLoading) return "loading";
+  if (isError) return "error";
+  if (empty) return "empty";
+  return "list";
+}
+
 function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     year: "numeric",
@@ -166,6 +175,7 @@ export default function AgentMessagesPage() {
   const total = data?.total ?? 0;
   const limit = data?.limit ?? 25;
   const totalPages = Math.max(1, Math.ceil(total / limit));
+  const view = listView(isLoading, isError, (data?.runs.length ?? 0) === 0);
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
@@ -236,22 +246,25 @@ export default function AgentMessagesPage() {
         {query && <span>matching “{query}”</span>}
       </div>
 
-      {isLoading ? (
+      {view === "loading" && (
         <div className="flex items-center justify-center py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" />
           Loading messages…
         </div>
-      ) : isError ? (
+      )}
+      {view === "error" && (
         <div className="rounded-lg border border-red-300 bg-red-50 p-6 text-center text-sm text-red-800">
           Couldn’t load agent messages. Please try again.
         </div>
-      ) : (data?.runs.length ?? 0) === 0 ? (
+      )}
+      {view === "empty" && (
         <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
           {query || outcome !== ALL_OUTCOMES
             ? "No conversations match your filters."
             : "No agent messages recorded yet."}
         </div>
-      ) : (
+      )}
+      {view === "list" && (
         <ul className="space-y-3">
           {data!.runs.map((row) => {
             const isOpen = expanded[row.id];

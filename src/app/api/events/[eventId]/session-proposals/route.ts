@@ -82,6 +82,11 @@ const PROPOSAL_INCLUDE = {
   theme: { select: { id: true, name: true } },
 } as const;
 
+function proposalStatusWhere(isSubmitter: boolean, status: SessionProposalStatus | undefined) {
+  if (isSubmitter) return status ? { status } : {};
+  return status && status !== "DRAFT" ? { status } : { status: { not: SessionProposalStatus.DRAFT } };
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [{ eventId }, session] = await Promise.all([params, auth()]);
@@ -114,13 +119,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // A DRAFT is the submitter's private work-in-progress — only the owning
     // SUBMITTER sees their drafts (the abstracts draft-visibility rule).
-    const statusWhere = isSubmitter
-      ? status
-        ? { status }
-        : {}
-      : status && status !== "DRAFT"
-        ? { status }
-        : { status: { not: SessionProposalStatus.DRAFT } };
+    const statusWhere = proposalStatusWhere(isSubmitter, status);
 
     const where = {
       eventId,

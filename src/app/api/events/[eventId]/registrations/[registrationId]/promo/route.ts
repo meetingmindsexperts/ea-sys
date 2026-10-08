@@ -45,6 +45,12 @@ function statusFor(code: ApplyPromoErrorCode): number {
   }
 }
 
+function removeStatusFor(code: string): number {
+  if (code === "REGISTRATION_NOT_FOUND") return 404;
+  if (code === "ALREADY_SETTLED") return 400;
+  return 500;
+}
+
 async function authorize(eventId: string) {
   const session = await auth();
   if (!session?.user) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
@@ -116,7 +122,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     return await runWithTenantLane(authd.session.user.organizationId, { route: "registrations:promo", userId: authd.session.user.id }, async () => {
     const result = await removePromoCodeFromRegistration({ registrationId, eventId, source: "rest" });
     if (!result.ok) {
-      const status = result.code === "REGISTRATION_NOT_FOUND" ? 404 : result.code === "ALREADY_SETTLED" ? 400 : 500;
+      const status = removeStatusFor(result.code);
       return NextResponse.json({ error: result.message, code: result.code }, { status });
     }
 

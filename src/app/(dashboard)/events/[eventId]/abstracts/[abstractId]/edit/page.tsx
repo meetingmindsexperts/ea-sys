@@ -59,6 +59,18 @@ interface Track {
 const editableStatuses = ["DRAFT", "SUBMITTED", "REVISION_REQUESTED"];
 
 /** Strip HTML tags for legacy content */
+function wordCountClass(blocked: boolean, over: boolean): string {
+  if (blocked) return "text-red-500 font-medium";
+  if (over) return "text-amber-600 font-medium";
+  return "text-muted-foreground";
+}
+
+function saveHint(status: string): string {
+  if (status === "DRAFT") return "Save as draft or submit when ready.";
+  if (status === "REVISION_REQUESTED") return "Address the reviewer feedback and resubmit.";
+  return "Save your changes.";
+}
+
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
@@ -289,7 +301,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                   className="text-base h-12 font-medium"
                   disabled={!canEdit}
                 />
-                <p className={`text-xs text-right ${titleBlocked ? "text-red-500 font-medium" : overTitleWords ? "text-amber-600 font-medium" : "text-muted-foreground"}`}>
+                <p className={`text-xs text-right ${wordCountClass(titleBlocked, overTitleWords)}`}>
                   {titleWords} / {limits.maxTitleWords} words
                   {overTitleWords && (titleBlocked ? " (over the limit)" : " (over the current limit, kept as-is)")}
                 </p>
@@ -310,7 +322,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 className="resize-y min-h-[300px] text-base leading-relaxed"
                 disabled={!canEdit}
               />
-              <p className={`text-xs text-right ${contentBlocked ? "text-red-500 font-medium" : overWords ? "text-amber-600 font-medium" : "text-muted-foreground"}`}>
+              <p className={`text-xs text-right ${wordCountClass(contentBlocked, overWords)}`}>
                 {contentWords} / {limits.maxContentWords} words
                 {overWords && (contentBlocked ? " (over the limit)" : " (over the current limit, kept as-is)")}
               </p>
@@ -400,11 +412,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                   </Button>
                 )}
                 <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
-                  {status === "DRAFT"
-                    ? "Save as draft or submit when ready."
-                    : status === "REVISION_REQUESTED"
-                      ? "Address the reviewer feedback and resubmit."
-                      : "Save your changes."}
+                  {saveHint(status)}
                 </p>
               </CardContent>
             </Card>

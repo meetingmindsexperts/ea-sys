@@ -401,6 +401,12 @@ function CopyField({ label, value }: { label: string; value: string }) {
   );
 }
 
+function streamStatusClass(streamStatus: string | undefined): string {
+  if (streamStatus === "ACTIVE") return "bg-green-50 text-green-700 border-green-200";
+  if (streamStatus === "ENDED") return "bg-gray-50 text-gray-600 border-gray-200";
+  return "bg-amber-50 text-amber-700 border-amber-200";
+}
+
 function StreamingInfoCard({
   eventId,
   streamKey,
@@ -437,13 +443,7 @@ function StreamingInfoCard({
         <span className="text-xs font-medium">Live Streaming</span>
         <Badge
           variant="outline"
-          className={`text-xs ${
-            streamStatus === "ACTIVE"
-              ? "bg-green-50 text-green-700 border-green-200"
-              : streamStatus === "ENDED"
-                ? "bg-gray-50 text-gray-600 border-gray-200"
-                : "bg-amber-50 text-amber-700 border-amber-200"
-          }`}
+          className={`text-xs ${streamStatusClass(streamStatus)}`}
         >
           {streamStatus === "ACTIVE" && (
             <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />

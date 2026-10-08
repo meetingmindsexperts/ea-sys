@@ -112,9 +112,10 @@ export function ReviewCriteriaSettings({ eventId }: ReviewCriteriaSettingsProps)
         </div>
       )}
 
-      {isLoading ? (
+      {isLoading && (
         <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : (criteria as Criterion[]).length === 0 ? (
+      )}
+      {!isLoading && ((criteria as Criterion[]).length === 0 ? (
         <p className="text-sm text-muted-foreground italic">
           No review criteria configured. Add criteria below to enable structured scoring.
           Without criteria, reviewers use a single 0–100 score.
@@ -196,7 +197,7 @@ export function ReviewCriteriaSettings({ eventId }: ReviewCriteriaSettingsProps)
             </li>
           ))}
         </ul>
-      )}
+      ))}
 
       {/* Add new criterion */}
       <div className="flex gap-2">

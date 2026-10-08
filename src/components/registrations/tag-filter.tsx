@@ -36,6 +36,12 @@ import {
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 
+function tagFilterSummary(selected: string[]): string {
+  if (selected.length === 0) return "Filter by tag";
+  if (selected.length === 1) return selected[0];
+  return `${selected.length} tags`;
+}
+
 interface TagFilterProps {
   tags: Array<{ tag: string; count: number }> | undefined;
   isLoading: boolean;
@@ -56,12 +62,7 @@ export function TagFilter({
 
   const allTags = tags ?? [];
   const selectedSet = new Set(selected);
-  const summary =
-    selected.length === 0
-      ? "Filter by tag"
-      : selected.length === 1
-        ? selected[0]
-        : `${selected.length} tags`;
+  const summary = tagFilterSummary(selected);
 
   const toggle = (tag: string) => {
     onChange(

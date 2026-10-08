@@ -39,15 +39,14 @@ export async function resolveThankYouSurvey(event: { id: string; settings: unkno
     where: { id: surveyId, eventId: event.id },
     select: { id: true, name: true, isActive: true, gatesCertificates: true, config: true, responseMode: true },
   });
-  const reason = !row
-    ? "not-found"
-    : row.gatesCertificates
-      ? "cme-survey"
-      : !row.isActive
-        ? "closed"
-        : !parseStoredSurveyConfig(row.config, { eventId: event.id, surveyId: row.id })
-          ? "no-questions"
-          : null;
+  const skipReason = () => {
+    if (!row) return "not-found";
+    if (row.gatesCertificates) return "cme-survey";
+    if (!row.isActive) return "closed";
+    if (!parseStoredSurveyConfig(row.config, { eventId: event.id, surveyId: row.id })) return "no-questions";
+    return null;
+  };
+  const reason = skipReason();
   if (!row || reason) {
     apiLogger.warn({ msg: "webinar-thank-you:survey-skipped", eventId: event.id, surveyId, reason });
     return null;

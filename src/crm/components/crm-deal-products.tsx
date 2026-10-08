@@ -80,10 +80,8 @@ export function DealProducts({ dealId, canWrite }: { dealId: string; canWrite: b
           <span className="text-base font-bold tabular-nums text-primary">
             {total !== null ? (
               formatDealValue(total, currency)
-            ) : mixedCurrency ? (
-              <span className="text-muted-foreground">— (mixed currencies)</span>
             ) : (
-              <span className="text-muted-foreground">—</span>
+              <span className="text-muted-foreground">{mixedCurrency ? "— (mixed currencies)" : "—"}</span>
             )}
           </span>
         </div>

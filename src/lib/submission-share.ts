@@ -225,10 +225,15 @@ function projectPerson(out: SharedItem, p: PersonRow, on: Set<string>): void {
   if (on.has("authorPhone")) out.authorPhone = p.phone ?? null;
 }
 
+function themeLabel(row: AbstractShareRow): string | null {
+  if (!row.theme) return null;
+  return row.subTheme ? `${row.theme.name} › ${row.subTheme.name}` : row.theme.name;
+}
+
 export function projectAbstract(row: AbstractShareRow, on: Set<string>): SharedItem {
   const out: SharedItem = { number: formatAbstractSerial(row.serialId), title: row.title };
   if (on.has("content")) out.body = row.content;
-  if (on.has("theme")) out.theme = row.theme ? (row.subTheme ? `${row.theme.name} › ${row.subTheme.name}` : row.theme.name) : null;
+  if (on.has("theme")) out.theme = themeLabel(row);
   if (on.has("track")) out.track = row.track?.name ?? null;
   if (on.has("presentationType")) out.presentationType = row.presentationType ? (PRESENTATION_LABEL[row.presentationType] ?? row.presentationType) : null;
   if (on.has("specialty")) out.specialty = row.specialty;

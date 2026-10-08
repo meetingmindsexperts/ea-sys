@@ -586,6 +586,18 @@ function formatSessionWindow(
 }
 
 // ── Sticky status bar — always visible summary + primary action ────
+const STATUS_BAR_CLASS: Record<WebinarStatus, string> = {
+  live: "border-red-200 bg-red-50/90 shadow-md backdrop-blur-sm",
+  ended: "border-gray-200 bg-card/95 shadow-md backdrop-blur-sm",
+  scheduled: "border-blue-200 bg-blue-50/90 shadow-md backdrop-blur-sm",
+};
+
+function StatusBarIcon({ status }: { status: WebinarStatus }) {
+  if (status === "live") return <CircleDot className="h-4 w-4 text-red-600 animate-pulse" />;
+  if (status === "ended") return <CheckCircle className="h-4 w-4 text-gray-500" />;
+  return <Clock className="h-4 w-4 text-blue-600" />;
+}
+
 function WebinarStatusBar({
   eventId,
   status,
@@ -728,29 +740,37 @@ function WebinarStatusBar({
   const hasRecording = zoom.recordingStatus === "AVAILABLE" && zoom.recordingUrl;
   const sessionWindow = formatSessionWindow(anchor?.startTime, anchor?.endTime, eventTz);
 
+  // Room already open (or no anchor to open) → plain link, nothing
+  // to confirm. Room closed → confirm, because starting alone
+  // leaves every attendee in the waiting room.
+  const renderStartAsHost = (startUrl: string) =>
+    roomOpen || !anchor ? (
+      <Button asChild>
+        <a href={startUrl} target="_blank" rel="noopener noreferrer">
+          <PlayCircle className="h-4 w-4 mr-2" />
+          Start as Host
+        </a>
+      </Button>
+    ) : (
+      <Button onClick={() => setConfirmStartOpen(true)}>
+        <PlayCircle className="h-4 w-4 mr-2" />
+        Start as Host
+      </Button>
+    );
+
   return (
     <Card
       className={
         // /90 tints + backdrop blur: the bar is sticky, so content scrolling
         // beneath it must not bleed through; shadow-md lifts it off the page.
-        status === "live"
-          ? "border-red-200 bg-red-50/90 shadow-md backdrop-blur-sm"
-          : status === "ended"
-            ? "border-gray-200 bg-card/95 shadow-md backdrop-blur-sm"
-            : "border-blue-200 bg-blue-50/90 shadow-md backdrop-blur-sm"
+        STATUS_BAR_CLASS[status]
       }
     >
       <CardContent className="py-4">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           {/* Status pill */}
           <div className="flex items-center gap-2 shrink-0">
-            {status === "live" ? (
-              <CircleDot className="h-4 w-4 text-red-600 animate-pulse" />
-            ) : status === "ended" ? (
-              <CheckCircle className="h-4 w-4 text-gray-500" />
-            ) : (
-              <Clock className="h-4 w-4 text-blue-600" />
-            )}
+            <StatusBarIcon status={status} />
             <StatusBadge status={status} />
           </div>
 
@@ -821,24 +841,8 @@ function WebinarStatusBar({
                   Watch Replay
                 </a>
               </Button>
-            ) : zoom.startUrl ? (
-              // Room already open (or no anchor to open) → plain link, nothing
-              // to confirm. Room closed → confirm, because starting alone
-              // leaves every attendee in the waiting room.
-              roomOpen || !anchor ? (
-                <Button asChild>
-                  <a href={zoom.startUrl} target="_blank" rel="noopener noreferrer">
-                    <PlayCircle className="h-4 w-4 mr-2" />
-                    Start as Host
-                  </a>
-                </Button>
-              ) : (
-                <Button onClick={() => setConfirmStartOpen(true)}>
-                  <PlayCircle className="h-4 w-4 mr-2" />
-                  Start as Host
-                </Button>
-              )
             ) : null}
+            {!(status === "ended" && hasRecording) && zoom.startUrl ? renderStartAsHost(zoom.startUrl) : null}
             {eventSlug && anchor ? (
               <Button asChild variant="outline" size="icon" title="Open public session page">
                 <Link
@@ -1036,6 +1040,18 @@ function OverviewCard({
 }
 
 // ── Global refresh button — fires recording + attendance + engagement in parallel
+function refreshAllTitle(hasZoom: boolean, sessionEnded: boolean): string {
+  if (!hasZoom) return "Attach a Zoom webinar first";
+  if (!sessionEnded) return "Session hasn't ended — some sources will be pending";
+  return "Refresh recording + attendance + polls/Q&A";
+}
+
+function afterSessionTitle(hasZoom: boolean, sessionEnded: boolean): string | undefined {
+  if (!hasZoom) return "Attach a Zoom webinar first";
+  if (!sessionEnded) return "Available after the session ends";
+  return undefined;
+}
+
 function GlobalRefreshButton({
   eventId,
   sessionEnded,
@@ -1115,13 +1131,7 @@ function GlobalRefreshButton({
       size="default"
       onClick={handleRefresh}
       disabled={pending || !canRefresh}
-      title={
-        !hasZoom
-          ? "Attach a Zoom webinar first"
-          : !sessionEnded
-            ? "Session hasn't ended — some sources will be pending"
-            : "Refresh recording + attendance + polls/Q&A"
-      }
+      title={refreshAllTitle(hasZoom, sessionEnded)}
     >
       {pending ? (
         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1195,7 +1205,8 @@ function EmailSequenceCard({
       <CardContent>
         {isLoading ? (
           <CardLoading />
-        ) : rows.length === 0 ? (
+        ) : null}
+        {!isLoading && rows.length === 0 ? (
           <CardEmpty
             message={
               hasZoom
@@ -1203,13 +1214,14 @@ function EmailSequenceCard({
                 : "No sequence rows queued yet. Attach a Zoom webinar first — the sequence needs a join link to render."
             }
           />
-        ) : (
+        ) : null}
+        {!isLoading && rows.length > 0 ? (
           <div className="divide-y">
             {rows.map((row) => (
               <SequenceRowView key={row.id} row={row} />
             ))}
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -1249,13 +1261,15 @@ function SequenceRowView({ row }: { row: WebinarSequenceRow }) {
               <span className="text-red-600 ml-1">({row.failureCount} failed)</span>
             ) : null}
           </div>
-        ) : row.status === "FAILED" && row.lastError ? (
+        ) : null}
+        {!(row.status === "SENT" && row.totalCount != null) && row.status === "FAILED" && row.lastError ? (
           <div className="text-red-600 truncate max-w-[240px]" title={row.lastError}>
             {row.lastError}
           </div>
-        ) : (
+        ) : null}
+        {!(row.status === "SENT" && row.totalCount != null) && !(row.status === "FAILED" && row.lastError) ? (
           <StatusPill status={row.status} />
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -1364,13 +1378,7 @@ function RecordingCard({
             size="sm"
             onClick={handleFetch}
             disabled={fetchRecording.isPending || !canFetch}
-            title={
-              !zoom
-                ? "Attach a Zoom webinar first"
-                : !sessionEnded
-                  ? "Available after the session ends"
-                  : undefined
-            }
+            title={afterSessionTitle(!!zoom, sessionEnded)}
           >
             {fetchRecording.isPending ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1384,7 +1392,8 @@ function RecordingCard({
       <CardContent>
         {!zoom ? (
           <CardEmpty message="No Zoom webinar attached yet." />
-        ) : zoom.recordingStatus === "AVAILABLE" && zoom.recordingUrl ? (
+        ) : null}
+        {zoom && zoom.recordingStatus === "AVAILABLE" && zoom.recordingUrl ? (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -1455,7 +1464,8 @@ function RecordingCard({
               </Button>
             </div>
           </div>
-        ) : zoom.recordingStatus === "PENDING" ? (
+        ) : null}
+        {zoom && zoom.recordingStatus === "PENDING" ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-6 text-center">
             <Loader2 className="h-6 w-6 text-amber-600 animate-spin mx-auto mb-2" />
             <p className="text-sm font-medium">Recording processing</p>
@@ -1463,7 +1473,8 @@ function RecordingCard({
               Zoom is still finalizing the recording. The cron worker will keep polling every 5 min for up to 7 days.
             </p>
           </div>
-        ) : zoom.recordingStatus === "FAILED" ? (
+        ) : null}
+        {zoom && zoom.recordingStatus === "FAILED" ? (
           <div className="rounded-lg border border-red-200 bg-red-50/50 p-6 text-center">
             <XCircle className="h-6 w-6 text-red-600 mx-auto mb-2" />
             <p className="text-sm font-medium">Fetch failed</p>
@@ -1471,7 +1482,8 @@ function RecordingCard({
               Click Refetch to try again. Clicking Refetch resets the status so the cron can retry too.
             </p>
           </div>
-        ) : zoom.recordingStatus === "EXPIRED" ? (
+        ) : null}
+        {zoom && zoom.recordingStatus === "EXPIRED" ? (
           <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-6 text-center">
             <XCircle className="h-6 w-6 text-gray-500 mx-auto mb-2" />
             <p className="text-sm font-medium">Fetch window expired</p>
@@ -1479,14 +1491,15 @@ function RecordingCard({
               More than 7 days have passed since the session. Click Refetch to try one more time if the recording is still on Zoom.
             </p>
           </div>
-        ) : (
+        ) : null}
+        {zoom && !(zoom.recordingStatus === "AVAILABLE" && zoom.recordingUrl) && zoom.recordingStatus !== "PENDING" && zoom.recordingStatus !== "FAILED" && zoom.recordingStatus !== "EXPIRED" ? (
           // NOT_REQUESTED — session not ended yet, or cloud recording is off
           <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
             {sessionEnded
               ? "Cloud recording not yet polled. Click Refetch to start."
               : "Recording will be fetched automatically after the session ends (if cloud recording is enabled)."}
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -1569,13 +1582,7 @@ function AttendanceCard({
               size="sm"
               onClick={handleSync}
               disabled={sync.isPending || !canSync}
-              title={
-                !hasZoom
-                  ? "Attach a Zoom webinar first"
-                  : !sessionEnded
-                    ? "Available after the session ends"
-                    : undefined
-              }
+              title={afterSessionTitle(hasZoom, sessionEnded)}
             >
               {sync.isPending ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1590,11 +1597,14 @@ function AttendanceCard({
       <CardContent>
         {isLoading ? (
           <CardLoading />
-        ) : !hasZoom ? (
+        ) : null}
+        {!isLoading && !hasZoom ? (
           <CardEmpty message="No Zoom webinar attached yet." />
-        ) : !sessionEnded && rows.length === 0 ? (
+        ) : null}
+        {!isLoading && hasZoom && !sessionEnded && rows.length === 0 ? (
           <CardEmpty message="Attendance will appear here after the session ends and Zoom finalizes the participant report (typically ~30 min)." />
-        ) : (
+        ) : null}
+        {!isLoading && hasZoom && !(!sessionEnded && rows.length === 0) ? (
           <div className="space-y-6">
             {/* KPI grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1640,7 +1650,7 @@ function AttendanceCard({
               </div>
             )}
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -1825,13 +1835,16 @@ function PanelistsCard({
       <CardContent className="space-y-4">
         {!hasZoom ? (
           <CardEmpty message="No Zoom webinar attached yet." />
-        ) : isLoading ? (
+        ) : null}
+        {hasZoom && isLoading ? (
           <CardLoading />
-        ) : error ? (
+        ) : null}
+        {hasZoom && !isLoading && error ? (
           <div className="rounded-lg border border-red-200 bg-red-50/50 p-4 text-sm text-red-700">
             {error instanceof Error ? error.message : "Failed to load panelists"}
           </div>
-        ) : (
+        ) : null}
+        {hasZoom && !isLoading && !error ? (
           <>
             <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
               <Input
@@ -1938,7 +1951,7 @@ function PanelistsCard({
               </div>
             )}
           </>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -2003,13 +2016,7 @@ function PollsCard({
             size="sm"
             onClick={handleSync}
             disabled={sync.isPending || !canSync}
-            title={
-              !hasZoom
-                ? "Attach a Zoom webinar first"
-                : !sessionEnded
-                  ? "Available after the session ends"
-                  : undefined
-            }
+            title={afterSessionTitle(hasZoom, sessionEnded)}
           >
             {sync.isPending ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -2023,9 +2030,11 @@ function PollsCard({
       <CardContent>
         {!hasZoom ? (
           <CardEmpty message="No Zoom webinar attached yet." />
-        ) : isLoading ? (
+        ) : null}
+        {hasZoom && isLoading ? (
           <CardLoading />
-        ) : polls.length === 0 ? (
+        ) : null}
+        {hasZoom && !isLoading && polls.length === 0 ? (
           <CardEmpty
             message={
               sessionEnded
@@ -2033,13 +2042,14 @@ function PollsCard({
                 : "Poll results will appear here after the session ends."
             }
           />
-        ) : (
+        ) : null}
+        {hasZoom && !isLoading && polls.length > 0 ? (
           <div className="space-y-6">
             {polls.map((poll) => (
               <PollView key={poll.id} poll={poll} />
             ))}
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -2143,9 +2153,11 @@ function QaCard({
       <CardContent>
         {!hasZoom ? (
           <CardEmpty message="No Zoom webinar attached yet." />
-        ) : isLoading ? (
+        ) : null}
+        {hasZoom && isLoading ? (
           <CardLoading />
-        ) : questions.length === 0 ? (
+        ) : null}
+        {hasZoom && !isLoading && questions.length === 0 ? (
           <CardEmpty
             message={
               sessionEnded
@@ -2153,7 +2165,8 @@ function QaCard({
                 : "Q&A will appear here after the session ends."
             }
           />
-        ) : (
+        ) : null}
+        {hasZoom && !isLoading && questions.length > 0 ? (
           <div className="space-y-3">
             <Input
               placeholder="Search questions…"
@@ -2192,7 +2205,7 @@ function QaCard({
               </div>
             )}
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -2217,9 +2230,11 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
       <CardContent>
         {isLoading ? (
           <CardLoading />
-        ) : !data || data.total === 0 ? (
+        ) : null}
+        {!isLoading && (!data || data.total === 0) ? (
           <CardEmpty message="No attendees on the page right now." />
-        ) : (
+        ) : null}
+        {!isLoading && data && data.total !== 0 ? (
           <>
             <div className="mb-4 flex gap-3">
               <div className="flex-1 rounded-lg border p-3 text-center">
@@ -2255,7 +2270,7 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
               ))}
             </div>
           </>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -2723,6 +2738,10 @@ function ViewerQuestionsPanel({ eventId, upvote }: { eventId: string; upvote: bo
 const STREAM_START_RETRIES = 5;
 const STREAM_START_RETRY_MS = 30_000;
 
+function customStreamToggledText(open: boolean): string {
+  return open ? "Custom stream started" : "Custom stream stopped";
+}
+
 /** After a room toggle in custom-stream mode, say what happened to the stream. */
 function announceStreamResult(
   stream: { ok: true; alreadyLive?: true } | { ok: false; error: string } | undefined,
@@ -2731,7 +2750,7 @@ function announceStreamResult(
   if (!stream) return;
   if (stream.ok) {
     toast.success(
-      stream.alreadyLive ? "The stream was already running" : open ? "Custom stream started" : "Custom stream stopped",
+      stream.alreadyLive ? "The stream was already running" : customStreamToggledText(open),
     );
     return;
   }
@@ -2749,6 +2768,12 @@ function announceStreamResult(
  * Closed by default so the console does not load hls.js or poll the stream
  * until someone asks. Starts muted, like the attendee player.
  */
+function streamArrivalLabel(state: "checking" | "active" | "idle" | "ended"): { text: string; tone: string } {
+  if (state === "active") return { text: "Stream is arriving", tone: "bg-green-100 text-green-800" };
+  if (state === "checking") return { text: "Checking…", tone: "bg-slate-100 text-slate-700" };
+  return { text: "No stream yet", tone: "bg-amber-100 text-amber-800" };
+}
+
 function StreamPreview({
   eventId,
   eventSlug,
@@ -2774,12 +2799,7 @@ function StreamPreview({
     setSample(s);
   }, []);
 
-  const label =
-    state === "active"
-      ? { text: "Stream is arriving", tone: "bg-green-100 text-green-800" }
-      : state === "checking"
-        ? { text: "Checking…", tone: "bg-slate-100 text-slate-700" }
-        : { text: "No stream yet", tone: "bg-amber-100 text-amber-800" };
+  const label = streamArrivalLabel(state);
 
   return (
     <div className="space-y-2 border-t pt-3">
@@ -2853,6 +2873,12 @@ function StreamPreview({
   );
 }
 
+const STREAM_ACTION_SUCCESS: Record<"sync" | "start" | "stop", string> = {
+  sync: "Stream settings sent to Zoom",
+  start: "Zoom is starting the stream; attendees see it within about 20 seconds",
+  stop: "Stream stopped",
+};
+
 function LobbyCard({
   eventId,
   eventSlug,
@@ -2876,13 +2902,7 @@ function LobbyCard({
         });
         return;
       }
-      toast.success(
-        action === "sync"
-          ? "Stream settings sent to Zoom"
-          : action === "start"
-            ? "Zoom is starting the stream; attendees see it within about 20 seconds"
-            : "Stream stopped",
-      );
+      toast.success(STREAM_ACTION_SUCCESS[action]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Stream control failed");
     }

@@ -257,6 +257,11 @@ function DraggableDeal({
   );
 }
 
+const CLOSED_STATUS_ACCENT: Record<string, string> = {
+  WON: "border-l-2 border-l-emerald-400",
+  LOST: "border-l-2 border-l-rose-300",
+};
+
 function DealCard({
   deal,
   onOpen,
@@ -274,12 +279,7 @@ function DealCard({
   const ownerName = personName(deal.owner);
   // A subtle left accent for closed deals (seen in the Won/Lost columns + archived
   // view) — status you can read at a glance without parsing a badge.
-  const statusAccent =
-    deal.status === "WON"
-      ? "border-l-2 border-l-emerald-400"
-      : deal.status === "LOST"
-        ? "border-l-2 border-l-rose-300"
-        : "";
+  const statusAccent = CLOSED_STATUS_ACCENT[deal.status] ?? "";
 
   return (
     <div

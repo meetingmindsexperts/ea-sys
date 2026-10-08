@@ -52,13 +52,25 @@ function tag(c: Candidate): string {
   return c.procurementAccess ? "no approval access" : "no Budgets access";
 }
 
+function approvalCeiling(approval: Candidate["approval"]): number | null {
+  if (approval === "unlimited") return Number.POSITIVE_INFINITY;
+  if (approval === "limited") return 1;
+  return null;
+}
+
+function levelLabel(isBudget: boolean, isFinal: boolean, i: number): string {
+  if (isBudget) return "Approver";
+  if (isFinal) return `Level ${i + 1}: final approver`;
+  return `Level ${i + 1}`;
+}
+
 function toPeople(candidates: Candidate[]): ChainPerson[] {
   return candidates.map((c) => ({
     id: c.id,
     name: c.name,
     role: c.role,
     active: true,
-    ceilingAed: c.approval === "unlimited" ? Number.POSITIVE_INFINITY : c.approval === "limited" ? 1 : null,
+    ceilingAed: approvalCeiling(c.approval),
     settles: c.settles,
     hasProcurementAccess: c.procurementAccess,
   }));
@@ -193,14 +205,18 @@ function ChainEditor({ kind, saved, candidates }: { kind: ChainKind; saved: Chai
   // A new level goes in before the final approver, who stays last.
   const addLevel = () => setLevels((prev) => [...prev.slice(0, -1), "", prev[prev.length - 1]]);
   const removeLevel = (i: number) => setLevels((prev) => prev.filter((_, j) => j !== i));
-  const finalName = levels[levels.length - 1] ? nameOf(levels[levels.length - 1]) : isBudget ? "the budget approver" : "the final approver";
+  const finalApproverName = () => {
+    if (levels[levels.length - 1]) return nameOf(levels[levels.length - 1]);
+    return isBudget ? "the budget approver" : "the final approver";
+  };
+  const finalName = finalApproverName();
 
   return (
     <div className="space-y-4">
       <ol className="space-y-2">
         {levels.map((id, i) => {
           const isFinal = i === levels.length - 1;
-          const label = isBudget ? "Approver" : isFinal ? `Level ${i + 1}: final approver` : `Level ${i + 1}`;
+          const label = levelLabel(isBudget, isFinal, i);
           return (
             <li key={i} className="space-y-2">
               <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/50 p-3">

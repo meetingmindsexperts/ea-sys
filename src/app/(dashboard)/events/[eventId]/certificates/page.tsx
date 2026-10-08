@@ -1717,11 +1717,7 @@ export default function CertificatesPage() {
                             </span>
                           )}
                           <span className="text-muted-foreground/70">
-                            {r.status === "COMPLETED"
-                              ? "sent"
-                              : r.status === "CANCELLED"
-                                ? "cancelled"
-                                : "ended"}{" "}
+                            {runEndedVerb(r.status)}{" "}
                             {finishedAt
                               ? new Date(finishedAt).toLocaleString(undefined, {
                                   dateStyle: "short",
@@ -1931,7 +1927,8 @@ export default function CertificatesPage() {
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Loader2 className="h-4 w-4 animate-spin" /> Computing eligible recipients…
                         </div>
-                      ) : eligibilityQuery.data ? (
+                      ) : null}
+                      {!eligibilityQuery.isLoading && eligibilityQuery.data ? (
                         <div className="space-y-3">
                           <div className="rounded-md border bg-primary/5 p-3">
                             <p className="font-medium">
@@ -2379,6 +2376,12 @@ interface RunListRowLike {
 }
 
 /** The template ids a run issues — bundle list first, legacy pointer fallback. */
+function runEndedVerb(status: string): string {
+  if (status === "COMPLETED") return "sent";
+  if (status === "CANCELLED") return "cancelled";
+  return "ended";
+}
+
 function runTemplateIdSet(r: RunListRowLike): string[] {
   if (r.templateIds?.length) return r.templateIds;
   return r.certificateTemplate ? [r.certificateTemplate.id] : [];

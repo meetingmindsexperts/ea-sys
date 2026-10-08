@@ -181,7 +181,7 @@ export async function updateBudgetProduct(input: UpdateBudgetProductInput) {
     const product = await db.budgetProduct.findFirst({ where: { id: input.productId, organizationId: input.organizationId }, select: BUDGET_PRODUCT_SELECT });
     if (!product) return fail("PRODUCT_NOT_FOUND", "The product was not found.");
     const onlyActivity = fields.length === 1 && input.isActive !== undefined;
-    const action = onlyActivity ? (input.isActive ? "RESTORE" : "ARCHIVE") : "UPDATE";
+    const action = productAuditAction(onlyActivity, input.isActive);
     await db.auditLog
       .create({
         data: {
@@ -206,6 +206,11 @@ export async function updateBudgetProduct(input: UpdateBudgetProductInput) {
     apiLogger.error({ msg: "procurement/products:update-failed", err, productId: input.productId });
     return fail("UNKNOWN", "Could not save the product.");
   }
+}
+
+function productAuditAction(onlyActivity: boolean, isActive: boolean | undefined): "RESTORE" | "ARCHIVE" | "UPDATE" {
+  if (!onlyActivity) return "UPDATE";
+  return isActive ? "RESTORE" : "ARCHIVE";
 }
 
 function fail(code: BudgetProductErrorCode, message: string) {

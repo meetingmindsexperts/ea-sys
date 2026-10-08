@@ -33,12 +33,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bud
   if (!g.ok) return g.response;
   const base = { organizationId: g.orgId, actorUserId: g.user.id, source: "ui" as const, budgetId };
   return runWithTenant(g.orgId, async () => {
-    const result =
-      parsed.data.action === "freeze" ? await freezeBudget(base)
-      : parsed.data.action === "unfreeze" ? await unfreezeBudget({ ...base, reason: parsed.data.reason ?? "" })
-      : parsed.data.action === "close" ? await closeBudget({ ...base, varianceNotes: parsed.data.varianceNotes, reportingToAedRate: parsed.data.reportingToAedRate })
-      : parsed.data.action === "sign-off" ? await signOffBudget(base)
-      : await reopenBudget({ ...base, reason: parsed.data.reason ?? "" });
+    const transition = async () => {
+      if (parsed.data.action === "freeze") return freezeBudget(base);
+      if (parsed.data.action === "unfreeze") return unfreezeBudget({ ...base, reason: parsed.data.reason ?? "" });
+      if (parsed.data.action === "close") return closeBudget({ ...base, varianceNotes: parsed.data.varianceNotes, reportingToAedRate: parsed.data.reportingToAedRate });
+      if (parsed.data.action === "sign-off") return signOffBudget(base);
+      return reopenBudget({ ...base, reason: parsed.data.reason ?? "" });
+    };
+    const result = await transition();
     if (!result.ok) return rejected("procurement/budgets/[budgetId]/transition", g.user.id, result, HTTP_STATUS_FOR_BUDGET_ERROR);
     return NextResponse.json({ budget: result.budget });
   });

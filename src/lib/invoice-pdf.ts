@@ -125,6 +125,11 @@ const INVOICE_NOTES = [
   "Please ensure you mention your invoice reference in your bank transfer. Once you have processed the bank transfer please provide us the SWIFT message copy for the same from the bank in order for us to be able to allocate the payment.",
 ];
 
+function discountLabelFor(discountCode: string | null, discountAmount: number): string | null {
+  if (discountCode) return `Discount (${discountCode})`;
+  return discountAmount ? "Discount" : null;
+}
+
 export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> {
   const logoBuffer = await loadLocalLogo(data.logoPath);
 
@@ -254,11 +259,7 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
         currency: data.currency,
         subtotal: data.price,
         discountAmount: data.discountAmount || 0,
-        discountLabel: data.discountCode
-          ? `Discount (${data.discountCode})`
-          : data.discountAmount
-          ? "Discount"
-          : null,
+        discountLabel: discountLabelFor(data.discountCode, data.discountAmount),
         taxRate: data.taxRate,
         taxLabel: data.taxLabel,
         totalLabel: isPaid ? "TOTAL PAID" : "TOTAL OUTSTANDING",

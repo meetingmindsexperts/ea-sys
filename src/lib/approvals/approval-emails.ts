@@ -115,11 +115,10 @@ export function buildApprovalEmail(input: ApprovalEmailInput): { subject: string
     }
   }
 
-  const exceptionLine = input.exception
-    ? input.chainLine
-      ? "Over-budget exception: it goes through every level and ends with the final approver."
-      : "Over-budget exception: only the final approver decides it."
-    : null;
+  const exceptionRoute = input.chainLine
+    ? "Over-budget exception: it goes through every level and ends with the final approver."
+    : "Over-budget exception: only the final approver decides it.";
+  const exceptionLine = input.exception ? exceptionRoute : null;
   const chainLine = input.kind !== "decided" && input.chainLine?.trim() ? input.chainLine.trim() : null;
   const note = input.kind === "decided" && input.note?.trim() ? input.note.trim() : null;
 

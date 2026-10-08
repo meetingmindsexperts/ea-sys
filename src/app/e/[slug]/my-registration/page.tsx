@@ -112,6 +112,23 @@ const statusColors: Record<string, string> = {
   CHECKED_IN: "bg-purple-100 text-purple-800",
 };
 
+function confirmedPaymentMessage(s: {
+  isGroupCovered: boolean;
+  isPaid: boolean;
+  isSponsored: boolean;
+  isRefunded: boolean;
+  isComplimentary: boolean;
+  group: { billingAccount: { name: string } } | null | undefined;
+}): string {
+  if (s.isGroupCovered && !s.isPaid) {
+    return `Part of a group registration — the fee is billed to ${s.group?.billingAccount.name ?? "your company"}. No payment is due from you.`;
+  }
+  if (s.isSponsored) return "Sponsored registration — no payment required.";
+  if (s.isRefunded) return "This registration's payment was refunded. Contact the organizer if you have questions.";
+  if (s.isComplimentary) return "Complimentary registration — no payment required.";
+  return "Payment received. You're all set!";
+}
+
 export default function EventMyRegistrationPage() {
   const params = useParams();
   const slug = params.slug as string;
@@ -317,6 +334,447 @@ export default function EventMyRegistrationPage() {
 
   const locationParts = [event?.venue, event?.city, event?.country].filter(Boolean);
 
+  const renderContent = () => {
+    if (isError) {
+      return (
+        <div className="bg-white rounded-xl border border-red-200 p-8 text-center space-y-4">
+          <AlertCircle className="h-10 w-10 text-red-400 mx-auto" />
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Couldn&apos;t load your registration</h2>
+            <p className="text-slate-500 text-sm">
+              Something went wrong loading your registration details. Your registration is
+              safe — please try again in a moment.
+            </p>
+          </div>
+          <div className="flex items-center justify-center pt-2">
+            <Button onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Try again
+            </Button>
+          </div>
+        </div>
+      );
+    }
+    if (registrations.length === 0) {
+      return (
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center space-y-4">
+          <AlertCircle className="h-10 w-10 text-slate-300 mx-auto" />
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Not registered yet</h2>
+            <p className="text-slate-500 text-sm">
+              You haven&apos;t registered for{event?.name ? <> <strong>{event.name}</strong></> : " this event"} yet.
+            </p>
+          </div>
+          <div className="flex items-center justify-center pt-2">
+            <Button asChild>
+              <a href={`/e/${slug}/register`}>Register for this event</a>
+            </Button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-6">
+        {registrations.map((reg) => {
+          const isEditing = editingId === reg.id;
+          const price = readRegistrationBasePrice(reg);
+          const currency = reg.pricingTier?.currency ?? reg.ticketType?.currency ?? "USD";
+          // Review L2: the SAME shared money math the server uses
+          // (computeRegistrationFinancials — pure + client-safe), instead
+          // of a hand-rolled copy that could drift from what Stripe
+          // actually charges.
+          const regFin = computeRegistrationFinancials({
+            subtotal: price,
+            discount: Number(reg.discountAmount ?? 0),
+            taxRate: reg.event.taxRate != null ? Number(reg.event.taxRate) : null,
+            taxLabel: reg.event.taxLabel ?? null,
+            currency,
+            totalPaid: 0,
+          });
+          const netPrice = regFin.taxableBase;
+          const regDiscount = regFin.subtotal - regFin.taxableBase; // display cap: never exceeds the price
+          const isPaid = reg.paymentStatus === "PAID";
+          const isComplimentary = reg.paymentStatus === "COMPLIMENTARY" || netPrice === 0;
+          // INCLUSIVE = sponsor paid offline; REFUNDED = re-payment needs the
+          // organizer. Neither may show a live Pay Now (mirrors the server-side
+          // NO_PAYMENT_DUE_STATUSES gate on the checkout route).
+          const isSponsored = reg.paymentStatus === "INCLUSIVE";
+          const isRefunded = reg.paymentStatus === "REFUNDED";
+          const isConfirmed = reg.status === "CONFIRMED";
+          // Group member: the company pays via the consolidated invoice —
+          // never show Pay Now (mirrors the checkout COVERED_BY_GROUP gate).
+          const isGroupCovered = !!reg.groupId;
+          const showPayment =
+            !isPaid && !isComplimentary && !isSponsored && !isRefunded && !isGroupCovered && reg.status !== "CANCELLED";
+          // A promo discounting to net 0 hides the payment block, but the
+          // reg is still OUTSTANDING (paymentStatus stays UNPAID) — keep
+          // the Remove control reachable so the registrant can undo a
+          // mistaken code themselves (July-1 review MED). True
+          // COMPLIMENTARY / PAID / sponsored / refunded regs never show it.
+          const promoRemovableWhileFree =
+            !!reg.promoCode &&
+            !showPayment &&
+            netPrice === 0 &&
+            reg.paymentStatus !== "COMPLIMENTARY" &&
+            !isPaid && !isSponsored && !isRefunded &&
+            reg.status !== "CANCELLED";
+          const regTaxRate = regFin.taxRate;
+          const regTaxAmount = regFin.taxAmount;
+          const regTotal = regFin.total;
+          const regHasTax = regFin.taxRate > 0;
+          const regTaxLabel = regFin.taxLabel;
+
+          return (
+            <Card key={reg.id} className="overflow-hidden">
+              {/* Status bar */}
+              <div className="px-6 py-4 border-b bg-slate-50/50">
+                <div className="flex gap-2">
+                  <Badge className={statusColors[reg.status]} variant="outline">{reg.status}</Badge>
+                  <Badge variant="outline">{reg.ticketType?.name ?? "—"}</Badge>
+                  {reg.pricingTier && <Badge variant="secondary">{reg.pricingTier.name}</Badge>}
+                </div>
+              </div>
+
+              <CardContent className="p-6 space-y-6">
+                {/* Confirmation / Payment */}
+                {(isConfirmed || isPaid || isSponsored || isRefunded || isGroupCovered) && !showPayment && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle className="h-6 w-6 text-green-600 shrink-0" />
+                      <div>
+                        <p className="font-semibold text-green-800">Registration Confirmed</p>
+                        <p className="text-sm text-green-700">
+                          {confirmedPaymentMessage({ isGroupCovered, isPaid, isSponsored, isRefunded, isComplimentary, group: reg.group })}
+                        </p>
+                      </div>
+                    </div>
+                    {isPaid && price > 0 && (
+                      <InvoiceDownloadButtons
+                        registrationId={reg.id}
+                        eventSlug={slug}
+                      />
+                    )}
+                    {promoRemovableWhileFree && (
+                      <div className="text-sm text-right shrink-0">
+                        <p className="font-medium text-emerald-700">
+                          Promo code {reg.promoCode!.code} applied
+                        </p>
+                        <button
+                          type="button"
+                          className="text-green-700 underline underline-offset-2 hover:text-green-900 disabled:opacity-50"
+                          disabled={promoBusy === reg.id}
+                          onClick={() => handleRemovePromo(reg.id)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {showPayment && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <CreditCard className="h-6 w-6 text-amber-600 shrink-0" />
+                        <div>
+                          <p className="font-semibold text-amber-800">Payment Required</p>
+                          <div className="text-sm text-amber-700 space-y-0.5">
+                            <p>Subtotal: {formatCurrency(price, currency)}</p>
+                            {regDiscount > 0 && (
+                              <p className="text-emerald-700">
+                                Promo{reg.promoCode?.code ? ` ${reg.promoCode.code}` : ""}: −{formatCurrency(regDiscount, currency)}
+                              </p>
+                            )}
+                            {regHasTax && (
+                              <p>{regTaxLabel} ({regTaxRate}%): {formatCurrency(regTaxAmount, currency)}</p>
+                            )}
+                            <p className="font-semibold">Total Due: {formatCurrency(regTotal, currency)}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <Button className="btn-gradient" disabled={checkoutLoading === reg.id} onClick={async () => {
+                        setCheckoutLoading(reg.id);
+                        try {
+                          const res = await fetch(`/api/public/events/${reg.event.slug}/checkout`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ registrationId: reg.id }),
+                          });
+                          const data = await res.json();
+                          if (!res.ok) { toast.error(data.error || "Failed"); setCheckoutLoading(null); return; }
+                          window.location.href = data.checkoutUrl;
+                        } catch (err) {
+                          console.error("[MyRegistration] Checkout failed:", err);
+                          toast.error("Something went wrong.");
+                          setCheckoutLoading(null);
+                        }
+                      }}>
+                        {checkoutLoading === reg.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />} Pay Now
+                      </Button>
+                    </div>
+
+                    {/* Promo code — apply/remove before paying */}
+                    <div className="border-t border-amber-200 pt-3">
+                      {reg.promoCode ? (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium text-emerald-700">Promo code {reg.promoCode.code} applied</span>
+                          <button
+                            type="button"
+                            className="text-amber-700 underline underline-offset-2 hover:text-amber-900 disabled:opacity-50"
+                            disabled={promoBusy === reg.id}
+                            onClick={() => handleRemovePromo(reg.id)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            placeholder="Have a promo code?"
+                            value={promoInput[reg.id] ?? ""}
+                            onChange={(e) => setPromoInput((p) => ({ ...p, [reg.id]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyPromo(reg.id); } }}
+                            disabled={promoBusy === reg.id}
+                            className="h-9 max-w-[220px] bg-white uppercase placeholder:normal-case"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9"
+                            disabled={promoBusy === reg.id || !(promoInput[reg.id] ?? "").trim()}
+                            onClick={() => handleApplyPromo(reg.id)}
+                          >
+                            {promoBusy === reg.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Payments */}
+                {isPaid && reg.payments.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-semibold text-slate-700">Payment History</h3>
+                    {reg.payments.map((p) => (
+                      <div key={p.id} className="flex items-center justify-between text-sm bg-slate-50 rounded-lg p-3">
+                        <div>
+                          <span className="font-medium">{formatCurrency(Number(p.amount), p.currency)}</span>
+                          <span className="text-muted-foreground ml-2">{format(new Date(p.createdAt), "MMM d, yyyy")}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge className="bg-green-100 text-green-800" variant="outline">{p.status}</Badge>
+                          {p.receiptUrl && (
+                            <a href={p.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1 text-xs">
+                              <ExternalLink className="h-3 w-3" /> Receipt
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Registration ID + Barcode + Quote */}
+                <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3 gap-4">
+                  <div className="flex items-center gap-6">
+                    {reg.serialId != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Registration ID</p>
+                        <p className="font-mono text-sm font-semibold tracking-wider">
+                          {formatSerialId(reg.serialId)}
+                        </p>
+                      </div>
+                    )}
+                    {reg.qrCode && (
+                      <div className="flex items-start gap-3">
+                        <Barcode className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Entry Barcode</p>
+                          {/* Scannable Code 128 image (matches the printed
+                              badge). The endpoint 404s when no barcode
+                              exists, but we gate on the value so it's only
+                              requested when present. `unoptimized` — the
+                              PNG is already small and must NOT pass through
+                              Next's optimizer, which would re-encode it and
+                              risk blurring the bars enough to break scanning. */}
+                          <Image
+                            src={`/api/registrant/registrations/${reg.id}/barcode`}
+                            alt="Entry barcode"
+                            width={260}
+                            height={64}
+                            unoptimized
+                            className="h-16 w-auto max-w-[260px] rounded bg-white p-2 border border-slate-200"
+                          />
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Show this at the registration desk for check-in.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={resendConfirmation.isPending}
+                      onClick={() => resendConfirmation.mutate(reg.id)}
+                    >
+                      {resendConfirmation.isPending && resendConfirmation.variables === reg.id ? (
+                        <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Sending…</>
+                      ) : (
+                        <><Mail className="mr-2 h-3.5 w-3.5" /> Email me confirmation</>
+                      )}
+                    </Button>
+                    {price > 0 && (
+                      <Button variant="outline" size="sm" asChild>
+                        {/*
+                          Public unauth-tolerant route — when the user's
+                          JWT session lapses on a stale tab, the
+                          previous auth-required route returned JSON 401
+                          and the browser saved it as `quote.json`.
+                          `/document` serves the latest finalized
+                          document (PAID Invoice if it exists, else
+                          Quote PDF) with the correct attachment headers
+                          regardless of session state. Registration
+                          CUIDs are unguessable + slug+id must match
+                          + 30 req/hr/IP rate-limited.
+                        */}
+                        <a
+                          href={`/api/public/events/${slug}/registrations/${reg.id}/document`}
+                          download
+                        >
+                          <Download className="mr-2 h-3.5 w-3.5" /> Quote
+                        </a>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Personal Details */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-slate-700">Personal Details</h3>
+                    {!isEditing ? (
+                      <Button variant="outline" size="sm" onClick={() => startEdit(reg)}>
+                        <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+                      </Button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => saveEdit(reg.id)} disabled={updateMutation.isPending} className="bg-green-600 hover:bg-green-700">
+                          <Save className="mr-2 h-3.5 w-3.5" /> {updateMutation.isPending ? "Saving..." : "Save"}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setEditingId(null)} disabled={updateMutation.isPending}>
+                          <X className="mr-2 h-3.5 w-3.5" /> Cancel
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {isEditing ? (
+                    <div className="grid gap-4">
+                      <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
+                        <div className="space-y-1"><Label className="text-xs">Title</Label><TitleSelect value={editData.title || ""} onChange={(v) => setEditData({ ...editData, title: v })} /></div>
+                        <div className="space-y-1"><Label className="text-xs">First Name</Label><Input value={editData.firstName || ""} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} /></div>
+                        <div className="space-y-1"><Label className="text-xs">Last Name</Label><Input value={editData.lastName || ""} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} /></div>
+                      </div>
+                      <div className="space-y-1"><Label className="text-xs">Email</Label><Input value={reg.attendee.email} disabled className="bg-muted" /></div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Additional Email</Label>
+                        <Input
+                          type="email"
+                          placeholder="alternate@example.com"
+                          value={editData.additionalEmail || ""}
+                          onChange={(e) => setEditData({ ...editData, additionalEmail: e.target.value })}
+                        />
+                        <p className="text-[11px] text-muted-foreground">Optional. We&apos;ll also send registration emails here.</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1"><Label className="text-xs">Organization</Label><Input value={editData.organization || ""} onChange={(e) => setEditData({ ...editData, organization: e.target.value })} /></div>
+                        <div className="space-y-1"><Label className="text-xs">Position</Label><Input value={editData.jobTitle || ""} onChange={(e) => setEditData({ ...editData, jobTitle: e.target.value })} /></div>
+                      </div>
+                      <div className="space-y-1"><Label className="text-xs">Phone</Label><Input value={editData.phone || ""} onChange={(e) => setEditData({ ...editData, phone: e.target.value })} /></div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1"><Label className="text-xs">Country</Label><CountrySelect value={editData.country || ""} onChange={(v) => setEditData({ ...editData, country: v })} /></div>
+                        <div className="space-y-1"><Label className="text-xs">City</Label><Input value={editData.city || ""} onChange={(e) => setEditData({ ...editData, city: e.target.value })} /></div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1"><Label className="text-xs">Specialty</Label><SpecialtySelect value={editData.specialty || ""} onChange={(v) => setEditData({ ...editData, specialty: v })} /></div>
+                        <div className="space-y-1"><Label className="text-xs">Role</Label><RoleSelect value={editData.role || ""} onChange={(v) => setEditData({ ...editData, role: v })} /></div>
+                      </div>
+                      <div className="space-y-1"><Label className="text-xs">Dietary Requirements</Label><Input value={editData.dietaryReqs || ""} onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })} /></div>
+                      {(editData.associationName || editData.memberId) && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1"><Label className="text-xs">Association Name</Label><Input value={editData.associationName || ""} onChange={(e) => setEditData({ ...editData, associationName: e.target.value })} placeholder="e.g. AMA" /></div>
+                          <div className="space-y-1"><Label className="text-xs">Member ID</Label><Input value={editData.memberId || ""} onChange={(e) => setEditData({ ...editData, memberId: e.target.value })} placeholder="e.g. MEM-12345" /></div>
+                        </div>
+                      )}
+                      {/* Show it when the person HAS one, rather than
+                          re-deriving the policy here. The old name match
+                          meant a "Resident" registrant whose organizer
+                          collected a student ID could never see or edit
+                          it on their own portal — the value existed and
+                          the row simply never rendered. */}
+                      {(editData.studentId || editData.studentIdExpiry) && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1"><Label className="text-xs">Student ID</Label><Input value={editData.studentId || ""} onChange={(e) => setEditData({ ...editData, studentId: e.target.value })} placeholder="e.g. STU-2024-001" /></div>
+                          <div className="space-y-1"><Label className="text-xs">Student ID Expiry</Label><Input type="date" value={editData.studentIdExpiry || ""} onChange={(e) => setEditData({ ...editData, studentIdExpiry: e.target.value })} /></div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div><span className="text-muted-foreground">Name</span><p className="font-medium">{[reg.attendee.title, reg.attendee.firstName, reg.attendee.lastName].filter(Boolean).join(" ")}</p></div>
+                      <div><span className="text-muted-foreground">Email</span><p className="font-medium">{reg.attendee.email}</p></div>
+                      {reg.attendee.organization && <div><span className="text-muted-foreground">Organization</span><p className="font-medium">{reg.attendee.organization}</p></div>}
+                      {reg.attendee.jobTitle && <div><span className="text-muted-foreground">Position</span><p className="font-medium">{reg.attendee.jobTitle}</p></div>}
+                      {reg.attendee.phone && <div><span className="text-muted-foreground">Phone</span><p className="font-medium">{reg.attendee.phone}</p></div>}
+                      {reg.attendee.country && <div><span className="text-muted-foreground">Location</span><p className="font-medium">{[reg.attendee.city, reg.attendee.country].filter(Boolean).join(", ")}</p></div>}
+                      {reg.attendee.specialty && <div><span className="text-muted-foreground">Specialty</span><p className="font-medium">{reg.attendee.specialty}</p></div>}
+                      {reg.attendee.dietaryReqs && <div><span className="text-muted-foreground">Dietary Requirements</span><p className="font-medium">{reg.attendee.dietaryReqs}</p></div>}
+                      {(reg.attendee.associationName || reg.attendee.memberId) && (
+                        <>
+                          <div><span className="text-muted-foreground">Association</span><p className="font-medium">{reg.attendee.associationName || "—"}</p></div>
+                          <div><span className="text-muted-foreground">Member ID</span><p className="font-medium">{reg.attendee.memberId || "—"}</p></div>
+                        </>
+                      )}
+                      {(reg.attendee.studentId || reg.attendee.studentIdExpiry) && (
+                        <>
+                          <div><span className="text-muted-foreground">Student ID</span><p className="font-medium">{reg.attendee.studentId || "—"}</p></div>
+                          <div><span className="text-muted-foreground">Student ID Expiry</span><p className="font-medium">{reg.attendee.studentIdExpiry ? new Date(reg.attendee.studentIdExpiry).toLocaleDateString() : "—"}</p></div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderFooter = () => {
+    if (event?.footerHtml) {
+      return (
+        <div className="w-full border-t border-slate-200/60 bg-white text-center py-6">
+          {/* Footer content constrained to the BODY's width (max-w-5xl). */}
+          <div className="prose prose-slate max-w-5xl mx-auto px-4 sm:px-6 [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
+        </div>
+      );
+    }
+    if (event) {
+      return (
+        <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6 text-sm text-slate-500">
+          © {new Date().getFullYear()} {event.organization.name} · {event.name}
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
       {/* Top bar — account context + sign out. Kept slim so it doesn't
@@ -374,441 +832,12 @@ export default function EventMyRegistrationPage() {
 
       {/* Content */}
       <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8">
-        {isError ? (
-          <div className="bg-white rounded-xl border border-red-200 p-8 text-center space-y-4">
-            <AlertCircle className="h-10 w-10 text-red-400 mx-auto" />
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900 mb-2">Couldn&apos;t load your registration</h2>
-              <p className="text-slate-500 text-sm">
-                Something went wrong loading your registration details. Your registration is
-                safe — please try again in a moment.
-              </p>
-            </div>
-            <div className="flex items-center justify-center pt-2">
-              <Button onClick={() => refetch()}>
-                <RefreshCw className="mr-2 h-4 w-4" /> Try again
-              </Button>
-            </div>
-          </div>
-        ) : registrations.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center space-y-4">
-            <AlertCircle className="h-10 w-10 text-slate-300 mx-auto" />
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900 mb-2">Not registered yet</h2>
-              <p className="text-slate-500 text-sm">
-                You haven&apos;t registered for{event?.name ? <> <strong>{event.name}</strong></> : " this event"} yet.
-              </p>
-            </div>
-            <div className="flex items-center justify-center pt-2">
-              <Button asChild>
-                <a href={`/e/${slug}/register`}>Register for this event</a>
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {registrations.map((reg) => {
-              const isEditing = editingId === reg.id;
-              const price = readRegistrationBasePrice(reg);
-              const currency = reg.pricingTier?.currency ?? reg.ticketType?.currency ?? "USD";
-              // Review L2: the SAME shared money math the server uses
-              // (computeRegistrationFinancials — pure + client-safe), instead
-              // of a hand-rolled copy that could drift from what Stripe
-              // actually charges.
-              const regFin = computeRegistrationFinancials({
-                subtotal: price,
-                discount: Number(reg.discountAmount ?? 0),
-                taxRate: reg.event.taxRate != null ? Number(reg.event.taxRate) : null,
-                taxLabel: reg.event.taxLabel ?? null,
-                currency,
-                totalPaid: 0,
-              });
-              const netPrice = regFin.taxableBase;
-              const regDiscount = regFin.subtotal - regFin.taxableBase; // display cap: never exceeds the price
-              const isPaid = reg.paymentStatus === "PAID";
-              const isComplimentary = reg.paymentStatus === "COMPLIMENTARY" || netPrice === 0;
-              // INCLUSIVE = sponsor paid offline; REFUNDED = re-payment needs the
-              // organizer. Neither may show a live Pay Now (mirrors the server-side
-              // NO_PAYMENT_DUE_STATUSES gate on the checkout route).
-              const isSponsored = reg.paymentStatus === "INCLUSIVE";
-              const isRefunded = reg.paymentStatus === "REFUNDED";
-              const isConfirmed = reg.status === "CONFIRMED";
-              // Group member: the company pays via the consolidated invoice —
-              // never show Pay Now (mirrors the checkout COVERED_BY_GROUP gate).
-              const isGroupCovered = !!reg.groupId;
-              const showPayment =
-                !isPaid && !isComplimentary && !isSponsored && !isRefunded && !isGroupCovered && reg.status !== "CANCELLED";
-              // A promo discounting to net 0 hides the payment block, but the
-              // reg is still OUTSTANDING (paymentStatus stays UNPAID) — keep
-              // the Remove control reachable so the registrant can undo a
-              // mistaken code themselves (July-1 review MED). True
-              // COMPLIMENTARY / PAID / sponsored / refunded regs never show it.
-              const promoRemovableWhileFree =
-                !!reg.promoCode &&
-                !showPayment &&
-                netPrice === 0 &&
-                reg.paymentStatus !== "COMPLIMENTARY" &&
-                !isPaid && !isSponsored && !isRefunded &&
-                reg.status !== "CANCELLED";
-              const regTaxRate = regFin.taxRate;
-              const regTaxAmount = regFin.taxAmount;
-              const regTotal = regFin.total;
-              const regHasTax = regFin.taxRate > 0;
-              const regTaxLabel = regFin.taxLabel;
-
-              return (
-                <Card key={reg.id} className="overflow-hidden">
-                  {/* Status bar */}
-                  <div className="px-6 py-4 border-b bg-slate-50/50">
-                    <div className="flex gap-2">
-                      <Badge className={statusColors[reg.status]} variant="outline">{reg.status}</Badge>
-                      <Badge variant="outline">{reg.ticketType?.name ?? "—"}</Badge>
-                      {reg.pricingTier && <Badge variant="secondary">{reg.pricingTier.name}</Badge>}
-                    </div>
-                  </div>
-
-                  <CardContent className="p-6 space-y-6">
-                    {/* Confirmation / Payment */}
-                    {(isConfirmed || isPaid || isSponsored || isRefunded || isGroupCovered) && !showPayment && (
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <CheckCircle className="h-6 w-6 text-green-600 shrink-0" />
-                          <div>
-                            <p className="font-semibold text-green-800">Registration Confirmed</p>
-                            <p className="text-sm text-green-700">
-                              {isGroupCovered && !isPaid
-                                ? `Part of a group registration — the fee is billed to ${reg.group?.billingAccount.name ?? "your company"}. No payment is due from you.`
-                                : isSponsored
-                                ? "Sponsored registration — no payment required."
-                                : isRefunded
-                                  ? "This registration's payment was refunded. Contact the organizer if you have questions."
-                                  : isComplimentary
-                                    ? "Complimentary registration — no payment required."
-                                    : "Payment received. You're all set!"}
-                            </p>
-                          </div>
-                        </div>
-                        {isPaid && price > 0 && (
-                          <InvoiceDownloadButtons
-                            registrationId={reg.id}
-                            eventSlug={slug}
-                          />
-                        )}
-                        {promoRemovableWhileFree && (
-                          <div className="text-sm text-right shrink-0">
-                            <p className="font-medium text-emerald-700">
-                              Promo code {reg.promoCode!.code} applied
-                            </p>
-                            <button
-                              type="button"
-                              className="text-green-700 underline underline-offset-2 hover:text-green-900 disabled:opacity-50"
-                              disabled={promoBusy === reg.id}
-                              onClick={() => handleRemovePromo(reg.id)}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {showPayment && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <CreditCard className="h-6 w-6 text-amber-600 shrink-0" />
-                            <div>
-                              <p className="font-semibold text-amber-800">Payment Required</p>
-                              <div className="text-sm text-amber-700 space-y-0.5">
-                                <p>Subtotal: {formatCurrency(price, currency)}</p>
-                                {regDiscount > 0 && (
-                                  <p className="text-emerald-700">
-                                    Promo{reg.promoCode?.code ? ` ${reg.promoCode.code}` : ""}: −{formatCurrency(regDiscount, currency)}
-                                  </p>
-                                )}
-                                {regHasTax && (
-                                  <p>{regTaxLabel} ({regTaxRate}%): {formatCurrency(regTaxAmount, currency)}</p>
-                                )}
-                                <p className="font-semibold">Total Due: {formatCurrency(regTotal, currency)}</p>
-                              </div>
-                            </div>
-                          </div>
-                          <Button className="btn-gradient" disabled={checkoutLoading === reg.id} onClick={async () => {
-                            setCheckoutLoading(reg.id);
-                            try {
-                              const res = await fetch(`/api/public/events/${reg.event.slug}/checkout`, {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ registrationId: reg.id }),
-                              });
-                              const data = await res.json();
-                              if (!res.ok) { toast.error(data.error || "Failed"); setCheckoutLoading(null); return; }
-                              window.location.href = data.checkoutUrl;
-                            } catch (err) {
-                              console.error("[MyRegistration] Checkout failed:", err);
-                              toast.error("Something went wrong.");
-                              setCheckoutLoading(null);
-                            }
-                          }}>
-                            {checkoutLoading === reg.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />} Pay Now
-                          </Button>
-                        </div>
-
-                        {/* Promo code — apply/remove before paying */}
-                        <div className="border-t border-amber-200 pt-3">
-                          {reg.promoCode ? (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="font-medium text-emerald-700">Promo code {reg.promoCode.code} applied</span>
-                              <button
-                                type="button"
-                                className="text-amber-700 underline underline-offset-2 hover:text-amber-900 disabled:opacity-50"
-                                disabled={promoBusy === reg.id}
-                                onClick={() => handleRemovePromo(reg.id)}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <Input
-                                placeholder="Have a promo code?"
-                                value={promoInput[reg.id] ?? ""}
-                                onChange={(e) => setPromoInput((p) => ({ ...p, [reg.id]: e.target.value }))}
-                                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyPromo(reg.id); } }}
-                                disabled={promoBusy === reg.id}
-                                className="h-9 max-w-[220px] bg-white uppercase placeholder:normal-case"
-                              />
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-9"
-                                disabled={promoBusy === reg.id || !(promoInput[reg.id] ?? "").trim()}
-                                onClick={() => handleApplyPromo(reg.id)}
-                              >
-                                {promoBusy === reg.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Payments */}
-                    {isPaid && reg.payments.length > 0 && (
-                      <div className="space-y-2">
-                        <h3 className="text-sm font-semibold text-slate-700">Payment History</h3>
-                        {reg.payments.map((p) => (
-                          <div key={p.id} className="flex items-center justify-between text-sm bg-slate-50 rounded-lg p-3">
-                            <div>
-                              <span className="font-medium">{formatCurrency(Number(p.amount), p.currency)}</span>
-                              <span className="text-muted-foreground ml-2">{format(new Date(p.createdAt), "MMM d, yyyy")}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge className="bg-green-100 text-green-800" variant="outline">{p.status}</Badge>
-                              {p.receiptUrl && (
-                                <a href={p.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1 text-xs">
-                                  <ExternalLink className="h-3 w-3" /> Receipt
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Registration ID + Barcode + Quote */}
-                    <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3 gap-4">
-                      <div className="flex items-center gap-6">
-                        {reg.serialId != null && (
-                          <div>
-                            <p className="text-xs text-muted-foreground">Registration ID</p>
-                            <p className="font-mono text-sm font-semibold tracking-wider">
-                              {formatSerialId(reg.serialId)}
-                            </p>
-                          </div>
-                        )}
-                        {reg.qrCode && (
-                          <div className="flex items-start gap-3">
-                            <Barcode className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" />
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">Entry Barcode</p>
-                              {/* Scannable Code 128 image (matches the printed
-                                  badge). The endpoint 404s when no barcode
-                                  exists, but we gate on the value so it's only
-                                  requested when present. `unoptimized` — the
-                                  PNG is already small and must NOT pass through
-                                  Next's optimizer, which would re-encode it and
-                                  risk blurring the bars enough to break scanning. */}
-                              <Image
-                                src={`/api/registrant/registrations/${reg.id}/barcode`}
-                                alt="Entry barcode"
-                                width={260}
-                                height={64}
-                                unoptimized
-                                className="h-16 w-auto max-w-[260px] rounded bg-white p-2 border border-slate-200"
-                              />
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                Show this at the registration desk for check-in.
-                              </p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={resendConfirmation.isPending}
-                          onClick={() => resendConfirmation.mutate(reg.id)}
-                        >
-                          {resendConfirmation.isPending && resendConfirmation.variables === reg.id ? (
-                            <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Sending…</>
-                          ) : (
-                            <><Mail className="mr-2 h-3.5 w-3.5" /> Email me confirmation</>
-                          )}
-                        </Button>
-                        {price > 0 && (
-                          <Button variant="outline" size="sm" asChild>
-                            {/*
-                              Public unauth-tolerant route — when the user's
-                              JWT session lapses on a stale tab, the
-                              previous auth-required route returned JSON 401
-                              and the browser saved it as `quote.json`.
-                              `/document` serves the latest finalized
-                              document (PAID Invoice if it exists, else
-                              Quote PDF) with the correct attachment headers
-                              regardless of session state. Registration
-                              CUIDs are unguessable + slug+id must match
-                              + 30 req/hr/IP rate-limited.
-                            */}
-                            <a
-                              href={`/api/public/events/${slug}/registrations/${reg.id}/document`}
-                              download
-                            >
-                              <Download className="mr-2 h-3.5 w-3.5" /> Quote
-                            </a>
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Personal Details */}
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-semibold text-slate-700">Personal Details</h3>
-                        {!isEditing ? (
-                          <Button variant="outline" size="sm" onClick={() => startEdit(reg)}>
-                            <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
-                          </Button>
-                        ) : (
-                          <div className="flex gap-2">
-                            <Button size="sm" onClick={() => saveEdit(reg.id)} disabled={updateMutation.isPending} className="bg-green-600 hover:bg-green-700">
-                              <Save className="mr-2 h-3.5 w-3.5" /> {updateMutation.isPending ? "Saving..." : "Save"}
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => setEditingId(null)} disabled={updateMutation.isPending}>
-                              <X className="mr-2 h-3.5 w-3.5" /> Cancel
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-
-                      {isEditing ? (
-                        <div className="grid gap-4">
-                          <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
-                            <div className="space-y-1"><Label className="text-xs">Title</Label><TitleSelect value={editData.title || ""} onChange={(v) => setEditData({ ...editData, title: v })} /></div>
-                            <div className="space-y-1"><Label className="text-xs">First Name</Label><Input value={editData.firstName || ""} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} /></div>
-                            <div className="space-y-1"><Label className="text-xs">Last Name</Label><Input value={editData.lastName || ""} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} /></div>
-                          </div>
-                          <div className="space-y-1"><Label className="text-xs">Email</Label><Input value={reg.attendee.email} disabled className="bg-muted" /></div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Additional Email</Label>
-                            <Input
-                              type="email"
-                              placeholder="alternate@example.com"
-                              value={editData.additionalEmail || ""}
-                              onChange={(e) => setEditData({ ...editData, additionalEmail: e.target.value })}
-                            />
-                            <p className="text-[11px] text-muted-foreground">Optional. We&apos;ll also send registration emails here.</p>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1"><Label className="text-xs">Organization</Label><Input value={editData.organization || ""} onChange={(e) => setEditData({ ...editData, organization: e.target.value })} /></div>
-                            <div className="space-y-1"><Label className="text-xs">Position</Label><Input value={editData.jobTitle || ""} onChange={(e) => setEditData({ ...editData, jobTitle: e.target.value })} /></div>
-                          </div>
-                          <div className="space-y-1"><Label className="text-xs">Phone</Label><Input value={editData.phone || ""} onChange={(e) => setEditData({ ...editData, phone: e.target.value })} /></div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1"><Label className="text-xs">Country</Label><CountrySelect value={editData.country || ""} onChange={(v) => setEditData({ ...editData, country: v })} /></div>
-                            <div className="space-y-1"><Label className="text-xs">City</Label><Input value={editData.city || ""} onChange={(e) => setEditData({ ...editData, city: e.target.value })} /></div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1"><Label className="text-xs">Specialty</Label><SpecialtySelect value={editData.specialty || ""} onChange={(v) => setEditData({ ...editData, specialty: v })} /></div>
-                            <div className="space-y-1"><Label className="text-xs">Role</Label><RoleSelect value={editData.role || ""} onChange={(v) => setEditData({ ...editData, role: v })} /></div>
-                          </div>
-                          <div className="space-y-1"><Label className="text-xs">Dietary Requirements</Label><Input value={editData.dietaryReqs || ""} onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })} /></div>
-                          {(editData.associationName || editData.memberId) && (
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1"><Label className="text-xs">Association Name</Label><Input value={editData.associationName || ""} onChange={(e) => setEditData({ ...editData, associationName: e.target.value })} placeholder="e.g. AMA" /></div>
-                              <div className="space-y-1"><Label className="text-xs">Member ID</Label><Input value={editData.memberId || ""} onChange={(e) => setEditData({ ...editData, memberId: e.target.value })} placeholder="e.g. MEM-12345" /></div>
-                            </div>
-                          )}
-                          {/* Show it when the person HAS one, rather than
-                              re-deriving the policy here. The old name match
-                              meant a "Resident" registrant whose organizer
-                              collected a student ID could never see or edit
-                              it on their own portal — the value existed and
-                              the row simply never rendered. */}
-                          {(editData.studentId || editData.studentIdExpiry) && (
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1"><Label className="text-xs">Student ID</Label><Input value={editData.studentId || ""} onChange={(e) => setEditData({ ...editData, studentId: e.target.value })} placeholder="e.g. STU-2024-001" /></div>
-                              <div className="space-y-1"><Label className="text-xs">Student ID Expiry</Label><Input type="date" value={editData.studentIdExpiry || ""} onChange={(e) => setEditData({ ...editData, studentIdExpiry: e.target.value })} /></div>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                          <div><span className="text-muted-foreground">Name</span><p className="font-medium">{[reg.attendee.title, reg.attendee.firstName, reg.attendee.lastName].filter(Boolean).join(" ")}</p></div>
-                          <div><span className="text-muted-foreground">Email</span><p className="font-medium">{reg.attendee.email}</p></div>
-                          {reg.attendee.organization && <div><span className="text-muted-foreground">Organization</span><p className="font-medium">{reg.attendee.organization}</p></div>}
-                          {reg.attendee.jobTitle && <div><span className="text-muted-foreground">Position</span><p className="font-medium">{reg.attendee.jobTitle}</p></div>}
-                          {reg.attendee.phone && <div><span className="text-muted-foreground">Phone</span><p className="font-medium">{reg.attendee.phone}</p></div>}
-                          {reg.attendee.country && <div><span className="text-muted-foreground">Location</span><p className="font-medium">{[reg.attendee.city, reg.attendee.country].filter(Boolean).join(", ")}</p></div>}
-                          {reg.attendee.specialty && <div><span className="text-muted-foreground">Specialty</span><p className="font-medium">{reg.attendee.specialty}</p></div>}
-                          {reg.attendee.dietaryReqs && <div><span className="text-muted-foreground">Dietary Requirements</span><p className="font-medium">{reg.attendee.dietaryReqs}</p></div>}
-                          {(reg.attendee.associationName || reg.attendee.memberId) && (
-                            <>
-                              <div><span className="text-muted-foreground">Association</span><p className="font-medium">{reg.attendee.associationName || "—"}</p></div>
-                              <div><span className="text-muted-foreground">Member ID</span><p className="font-medium">{reg.attendee.memberId || "—"}</p></div>
-                            </>
-                          )}
-                          {(reg.attendee.studentId || reg.attendee.studentIdExpiry) && (
-                            <>
-                              <div><span className="text-muted-foreground">Student ID</span><p className="font-medium">{reg.attendee.studentId || "—"}</p></div>
-                              <div><span className="text-muted-foreground">Student ID Expiry</span><p className="font-medium">{reg.attendee.studentIdExpiry ? new Date(reg.attendee.studentIdExpiry).toLocaleDateString() : "—"}</p></div>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+        {renderContent()}
       </div>
 
       {/* Footer — use configured event footer when set, otherwise a minimal
           org-attribution bar so the page always has a bottom edge. */}
-      {event?.footerHtml ? (
-        <div className="w-full border-t border-slate-200/60 bg-white text-center py-6">
-          {/* Footer content constrained to the BODY's width (max-w-5xl). */}
-          <div className="prose prose-slate max-w-5xl mx-auto px-4 sm:px-6 [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
-            dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
-        </div>
-      ) : event ? (
-        <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6 text-sm text-slate-500">
-          © {new Date().getFullYear()} {event.organization.name} · {event.name}
-        </div>
-      ) : null}
+      {renderFooter()}
     </div>
   );
 }

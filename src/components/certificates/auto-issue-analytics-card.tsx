@@ -49,6 +49,13 @@ interface AutoIssueAnalytics {
   }>;
 }
 
+const TONE_CLASS: Record<"default" | "good" | "warn" | "bad", string> = {
+  default: "text-foreground",
+  good: "text-emerald-600",
+  warn: "text-amber-600",
+  bad: "text-red-600",
+};
+
 function StatTile({
   label,
   value,
@@ -58,14 +65,7 @@ function StatTile({
   value: number;
   tone?: "default" | "good" | "warn" | "bad";
 }) {
-  const toneClass =
-    tone === "good"
-      ? "text-emerald-600"
-      : tone === "warn"
-        ? "text-amber-600"
-        : tone === "bad"
-          ? "text-red-600"
-          : "text-foreground";
+  const toneClass = TONE_CLASS[tone];
   return (
     <div className="rounded-md border px-3 py-2">
       <div className={`text-xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
@@ -130,11 +130,13 @@ export function AutoIssueAnalyticsCard({ eventId }: { eventId: string }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {isLoading ? (
+        {isLoading && (
           <div className="text-sm text-muted-foreground">Loading…</div>
-        ) : isError || !data ? (
+        )}
+        {!isLoading && (isError || !data) && (
           <div className="text-sm text-red-600">Couldn&apos;t load auto-issue analytics.</div>
-        ) : data.templates.configured === 0 ? (
+        )}
+        {!isLoading && !isError && data && (data.templates.configured === 0 ? (
           <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
             No templates are set to auto-issue on survey completion. Open a template in the
             Templates tab and enable &ldquo;Auto-issue on survey&rdquo; with a tag to start
@@ -207,7 +209,7 @@ export function AutoIssueAnalyticsCard({ eventId }: { eventId: string }) {
               </div>
             )}
           </>
-        )}
+        ))}
       </CardContent>
     </Card>
   );

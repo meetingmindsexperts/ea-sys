@@ -148,6 +148,11 @@ export interface BadgeTypeField {
   customValue: string;
 }
 
+function badgeSelectValue(isCustom: boolean, isPreset: boolean, value: string): string {
+  if (isCustom) return CUSTOM_BADGE_TYPE;
+  return isPreset ? value : BADGE_TYPE_FALLBACK;
+}
+
 /**
  * Resolve how the Badge Type control should render.
  *
@@ -180,11 +185,7 @@ export function resolveBadgeTypeField(args: {
 
   return {
     isCustom,
-    selectValue: isCustom
-      ? CUSTOM_BADGE_TYPE
-      : isPreset
-        ? value
-        : BADGE_TYPE_FALLBACK,
+    selectValue: badgeSelectValue(isCustom, isPreset, value),
     customValue: isCustom ? value : "",
   };
 }

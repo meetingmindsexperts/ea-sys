@@ -107,11 +107,8 @@ const listRsvps: ToolExecutor = async (input, ctx) => {
 
       const responded = allInvites.filter((i) => i.status === "RESPONDED").length;
       // The truncation flag must compare against the FILTERED total (R2 M9).
-      const filteredTotal = statusFilter
-        ? statusFilter === "RESPONDED"
-          ? responded
-          : allInvites.length - responded
-        : allInvites.length;
+      const matchingStatus = statusFilter === "RESPONDED" ? responded : allInvites.length - responded;
+      const filteredTotal = statusFilter ? matchingStatus : allInvites.length;
 
       return {
         event: event.name,

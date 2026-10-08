@@ -66,6 +66,11 @@ export function redactSupplier(row: SupplierRow, canSeeFinancials: boolean): Sup
   return { ...row, taxRegistrationNo: null, bankDetails: null, financialsRedacted: true };
 }
 
+function supplierAuditAction(onlyActivity: boolean, isActive: boolean | undefined): "RESTORE" | "DEACTIVATE" | "UPDATE" {
+  if (!onlyActivity) return "UPDATE";
+  return isActive ? "RESTORE" : "DEACTIVATE";
+}
+
 function fail(code: SupplierErrorCode, message: string, ctx: Record<string, unknown> = {}, meta?: Record<string, unknown>): SupplierResult<never> {
   apiLogger.warn({ msg: "procurement/suppliers:rejected", code, ...ctx });
   return { ok: false, code, message, ...(meta ? { meta } : {}) };
@@ -293,7 +298,7 @@ export async function updateSupplier(input: UpdateSupplierInput): Promise<Suppli
     await audit({
       userId: input.actorUserId,
       organizationId: input.organizationId,
-      action: onlyActivity ? (input.isActive ? "RESTORE" : "DEACTIVATE") : "UPDATE",
+      action: supplierAuditAction(onlyActivity, input.isActive),
       entityId: supplier.id,
       changes: {
         source: input.source,

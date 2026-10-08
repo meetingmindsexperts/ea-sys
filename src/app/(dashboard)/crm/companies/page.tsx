@@ -92,6 +92,8 @@ function CompaniesInner() {
 
   const onSort = (key: string) => set(nextSort(sortKey, dir, key));
 
+  const view = listView(isLoading, isError, rows.length === 0);
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -181,27 +183,17 @@ function CompaniesInner() {
           while rows sit behind the cap (review H5). */}
       <ListTruncationBanner meta={companiesMeta} shown={rows.length} noun="companies" />
 
-      {isLoading ? (
+      {view === "loading" && (
         <CrmTableSkeleton rows={6} cols={7} />
-      ) : isError ? (
+      )}
+      {view === "error" && (
         <CrmLoadError what="accounts" onRetry={() => refetch()} />
-      ) : rows.length === 0 ? (
+      )}
+      {view === "empty" && (
         <CrmEmptyState
           icon={Building2}
-          title={
-            showArchived
-              ? "No archived companies"
-              : q
-                ? "No companies match that search"
-                : "No companies yet"
-          }
-          description={
-            showArchived
-              ? "Accounts you archive will show up here, ready to restore."
-              : q
-                ? "Try a different search term."
-                : "Sponsors, exhibitors, hospitals and societies — the accounts you sell to."
-          }
+          title={emptyCopy(showArchived, !!q).title}
+          description={emptyCopy(showArchived, !!q).description}
           action={
             canWrite && !showArchived && !q ? (
               <Button onClick={() => setCreateOpen(true)}>
@@ -211,7 +203,8 @@ function CompaniesInner() {
             ) : undefined
           }
         />
-      ) : (
+      )}
+      {view === "list" && (
         <div className="overflow-hidden rounded-xl border">
           <Table>
             <TableHeader>
@@ -304,6 +297,21 @@ function makeComparator(key: string, dir: SortDir) {
     else if (key === "deals") cmp = (a._count?.deals ?? 0) - (b._count?.deals ?? 0);
     return cmp * mult;
   };
+}
+
+type ListView = "loading" | "error" | "empty" | "list";
+
+function listView(isLoading: boolean, isError: boolean, empty: boolean): ListView {
+  if (isLoading) return "loading";
+  if (isError) return "error";
+  if (empty) return "empty";
+  return "list";
+}
+
+function emptyCopy(archived: boolean, searching: boolean): { title: string; description: string } {
+  if (archived) return { title: "No archived companies", description: "Accounts you archive will show up here, ready to restore." };
+  if (searching) return { title: "No companies match that search", description: "Try a different search term." };
+  return { title: "No companies yet", description: "Sponsors, exhibitors, hospitals and societies — the accounts you sell to." };
 }
 
 export default function CrmCompaniesPage() {

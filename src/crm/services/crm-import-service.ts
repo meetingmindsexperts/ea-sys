@@ -116,6 +116,12 @@ interface ImportCtx {
  * lose the per-row try/catch, and one bad row killing a 5,000-row file is a far
  * worse trade than a slower import.
  */
+function importCloseStamps(outcome: "WON" | "LOST" | null, closedDate: Date | null | undefined) {
+  if (outcome === "WON") return { wonAt: closedDate ?? null, lostAt: null };
+  if (outcome === "LOST") return { lostAt: closedDate ?? null, wonAt: null };
+  return { wonAt: null, lostAt: null };
+}
+
 function indexBy<T>(rows: T[], key: (row: T) => string | null | undefined): Map<string, T> {
   const map = new Map<string, T>();
   for (const row of rows) {
@@ -985,12 +991,7 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
       // used to, so a LOST deal re-imported from an export with no Closed-date
       // column took the preserve branch below and silently ignored a corrected
       // reason — while the row was still reported as "updated".
-      const closeStamps =
-        outcome === "WON"
-          ? { wonAt: row.closedDate ?? null, lostAt: null }
-          : outcome === "LOST"
-            ? { lostAt: row.closedDate ?? null, wonAt: null }
-            : { wonAt: null, lostAt: null };
+      const closeStamps = importCloseStamps(outcome, row.closedDate);
       const lostReasonWrite =
         outcome === "LOST"
           ? ifColumn(cols.index.lostReason, "lostReason", row.lostReason ?? null)

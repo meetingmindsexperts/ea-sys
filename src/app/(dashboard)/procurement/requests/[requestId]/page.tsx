@@ -97,7 +97,7 @@ export default function SpendRequestPage() {
             <Field k="VAT" v={r.taxRatePercent === null ? `${cur} ${money2(r.taxAmount)} (entered by hand)` : `${cur} ${money2(r.taxAmount)} at ${Number(r.taxRatePercent)}%`} />
             {cur !== rep && <Field k={`In ${rep}`} v={`${rep} ${money2(r.amountReporting)}${r.fxRateToReporting ? ` at ${r.fxRateToReporting}` : ""}`} />}
             {r.amountAed && <Field k="For the ceiling" v={`AED ${money2(r.amountAed)}`} />}
-            <Field k="Vendor" v={r.supplier ? `${r.supplier.displayName}${r.supplier.approvalStatus !== "APPROVED" ? ` (supplier ${r.supplier.approvalStatus.toLowerCase()})` : ""}` : r.proposedVendorName ? `${r.proposedVendorName} (proposed, not on the supplier list)` : "Not given"} />
+            <Field k="Vendor" v={vendorLabel(r)} />
             <Field k="Needed by" v={r.neededBy ?? "Not given"} />
             <Field k="Sourcing" v={r.sourcingMethod ? SOURCING_LABEL[r.sourcingMethod] : "Not stated"} />
             <Field k="Priority" v={PRIORITY_LABEL[r.priority]} />
@@ -294,7 +294,7 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
         {cur !== rep && <Field k={`Committed in ${rep}`} v={`${rep} ${money2(o.amountReporting)} at ${o.fxRateToReporting}`} />}
         <Field k="Issued" v={`${fmtWhen(o.approvedAt)}`} />
         <Field k="Supplier" v={`${o.supplier.displayName} (${o.supplier.code})`} />
-        <Field k="Sent to supplier" v={o.sentToSupplierAt ? fmtWhen(o.sentToSupplierAt) : sendFailed ? "Tried and failed" : hasEmail ? "Not yet" : "Not yet; the supplier has no contact email"} />
+        <Field k="Sent to supplier" v={sentToSupplierLabel(o.sentToSupplierAt, sendFailed, hasEmail)} />
         {o.receivedAt && <Field k="Received" v={fmtWhen(o.receivedAt)} />}
         {o.fulfillmentStatus === "PARTIALLY_RECEIVED" && <Field k="Received" v="Partly" />}
         {o.receiptNeedsSecondPerson && o.fulfillmentStatus === "RECEIVED" && <Field k="Second person" v={o.receiptConfirmedAt ? `Confirmed ${fmtWhen(o.receiptConfirmedAt)}${r.receiptConfirmedByApprover ? ` by ${r.receiptConfirmedByApprover.name ?? "someone"}, who also approved this purchase` : ""}` : "Awaiting confirmation (AED 50,000 or more)"} />}
@@ -360,7 +360,7 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setPrompt(null)} disabled={receive.isPending}>Not yet</Button>
-              <Button onClick={() => void run(receive, { extent, expectedVersion: o.version }, (c) => (extent === "FULL" ? (c.receiptNeedsSecondPerson ? "Marked received; a second person confirms it." : "Marked received.") : "Marked partly received."), () => setPrompt(null))} disabled={receive.isPending}>
+              <Button onClick={() => void run(receive, { extent, expectedVersion: o.version }, (c) => receivedMessage(extent, c.receiptNeedsSecondPerson), () => setPrompt(null))} disabled={receive.isPending}>
                 {receive.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Record
               </Button>
             </DialogFooter>
@@ -484,14 +484,16 @@ function QuotesSection({ r, editable, onAdd }: { r: SpendRequestDetailRow; edita
                 </div>
                 {q.notes && <div className="mt-1 whitespace-pre-line text-xs">{q.notes}</div>}
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                  {q.fileUrl ? (
+                  {!!q.fileUrl && (
                     <>
                       <a href={`/api/procurement/requests/${r.id}/quotes/${q.id}/file`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><Paperclip className="h-3 w-3" /> {q.fileName ?? "Quote file"}{q.fileSize ? ` (${Math.max(1, Math.round(q.fileSize / 1024))} KB)` : ""}</a>
                       {editable && <button type="button" className="text-muted-foreground hover:text-destructive" onClick={() => void dropFile(q.id)} disabled={removeFile.isPending}>remove file</button>}
                     </>
-                  ) : editable ? (
+                  )}
+                  {!q.fileUrl && editable && (
                     <button type="button" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground" onClick={() => pickFile(q.id)} disabled={upload.isPending}><Paperclip className="h-3 w-3" /> {upload.isPending && target === q.id ? "Uploading…" : "Attach the quote file (PDF, PNG or JPEG, 10 MB)"}</button>
-                  ) : (
+                  )}
+                  {!q.fileUrl && !editable && (
                     <span className="text-muted-foreground">No file attached</span>
                   )}
                 </div>
@@ -564,7 +566,7 @@ function ChainTrail({ createdAt, chain, steps }: { createdAt: string; chain: Non
         return (
           <li
             key={level.userId + i}
-            className={`rounded-md px-2 py-1 ${s?.status === "APPROVED" ? "bg-emerald-50 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100" : s?.status === "REJECTED" ? "bg-red-50 text-red-900 dark:bg-red-950 dark:text-red-100" : s?.status === "PENDING" ? "bg-primary/10 text-foreground" : "bg-muted/60 text-muted-foreground"}`}
+            className={`rounded-md px-2 py-1 ${chainStepTone(s?.status)}`}
           >
             {`Level ${i + 1}, ${who}: ${state}`}
             {s?.note && <span className="text-foreground">{` · ${s.note}`}</span>}
@@ -576,6 +578,29 @@ function ChainTrail({ createdAt, chain, steps }: { createdAt: string; chain: Non
 }
 
 /** The reporting currency floats against AED (EUR, GBP): the rate is asked for here and decides who approves. */
+function vendorLabel(r: SpendRequestDetailRow): string {
+  if (r.supplier) return `${r.supplier.displayName}${r.supplier.approvalStatus !== "APPROVED" ? ` (supplier ${r.supplier.approvalStatus.toLowerCase()})` : ""}`;
+  return r.proposedVendorName ? `${r.proposedVendorName} (proposed, not on the supplier list)` : "Not given";
+}
+
+function sentToSupplierLabel(sentAt: string | null | undefined, sendFailed: boolean, hasEmail: boolean): string {
+  if (sentAt) return fmtWhen(sentAt);
+  if (sendFailed) return "Tried and failed";
+  return hasEmail ? "Not yet" : "Not yet; the supplier has no contact email";
+}
+
+function receivedMessage(extent: "PARTIAL" | "FULL", needsSecondPerson: boolean): string {
+  if (extent !== "FULL") return "Marked partly received.";
+  return needsSecondPerson ? "Marked received; a second person confirms it." : "Marked received.";
+}
+
+function chainStepTone(status: string | undefined): string {
+  if (status === "APPROVED") return "bg-emerald-50 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100";
+  if (status === "REJECTED") return "bg-red-50 text-red-900 dark:bg-red-950 dark:text-red-100";
+  if (status === "PENDING") return "bg-primary/10 text-foreground";
+  return "bg-muted/60 text-muted-foreground";
+}
+
 function needsAedRate(r: SpendRequestDetailRow): boolean {
   const rep = r.budget?.reportingCurrency;
   return !!rep && AED_PEG_RATES[rep] === undefined;

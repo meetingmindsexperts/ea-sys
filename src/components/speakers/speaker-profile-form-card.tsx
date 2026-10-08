@@ -171,9 +171,10 @@ export function SpeakerProfileFormCard({ eventId, speakerId }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {loading ? (
+        {loading && (
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        ) : !form ? (
+        )}
+        {!loading && (!form ? (
           <>
             <p className="text-sm text-muted-foreground">
               Send the speaker a personalized link to upload their photo and passport
@@ -218,7 +219,7 @@ export function SpeakerProfileFormCard({ eventId, speakerId }: Props) {
               </p>
             )}
           </>
-        )}
+        ))}
       </CardContent>
 
       {/* Send dialog — preview + personalize before anything goes out. */}

@@ -481,14 +481,15 @@ export default function LogsPage() {
         ref={logsContainerRef}
         className="flex-1 overflow-y-auto px-6 py-4 relative z-10 scroll-smooth"
       >
-        {loading ? (
+        {loading && (
           <div className="flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-3">
               <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
               <p className="text-cyan-400/60 font-mono text-sm">Loading logs...</p>
             </div>
           </div>
-        ) : logs.length === 0 ? (
+        )}
+        {!loading && logs.length === 0 && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <Terminal className="w-12 h-12 text-cyan-400/30 mx-auto mb-3" />
@@ -500,7 +501,8 @@ export default function LogsPage() {
               )}
             </div>
           </div>
-        ) : (
+        )}
+        {!loading && logs.length > 0 && (
           <div className="space-y-2 pb-20">
             {/* Truncation is stated, not hidden. Showing 500 of 5,231 rows while
                 implying you are looking at everything is how an operator draws a
@@ -672,8 +674,11 @@ function LogArchivesPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const fmtSize = (b: number) =>
-    b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`;
+  const fmtSize = (b: number) => {
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+    return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  };
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
@@ -689,11 +694,13 @@ function LogArchivesPanel({ onClose }: { onClose: () => void }) {
           Monthly gzip archives of the database logs. The current + previous month stay live; older months are archived here.
         </div>
         <div className="flex-1 overflow-y-auto p-3">
-          {archives === null ? (
+          {archives === null && (
             <div className="flex items-center gap-2 text-cyan-400/60 text-xs py-6 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
-          ) : archives.length === 0 ? (
+          )}
+          {archives !== null && archives.length === 0 && (
             <div className="text-cyan-400/50 text-xs py-6 text-center">No archives yet — nothing older than the previous month.</div>
-          ) : (
+          )}
+          {archives !== null && archives.length > 0 && (
             <ul className="space-y-1.5">
               {archives.map((a) => (
                 <li key={a.name} className="flex items-center justify-between rounded border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs">

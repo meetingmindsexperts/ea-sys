@@ -126,6 +126,11 @@ function pct(n: number | null): string {
   return n == null ? "unknown" : `${n.toFixed(1)}%`;
 }
 
+function verdictFor(findings: Finding[]): Verdict {
+  if (findings.some((f) => f.severity === "critical")) return "critical";
+  return findings.length > 0 ? "warn" : "ok";
+}
+
 /**
  * Pure verdict engine. Exported for tests — this is the part that must never
  * drift, so it is unit-pinned rather than exercised only through the send path.
@@ -463,11 +468,7 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
     });
   }
 
-  const verdict: Verdict = findings.some((f) => f.severity === "critical")
-    ? "critical"
-    : findings.length > 0
-      ? "warn"
-      : "ok";
+  const verdict = verdictFor(findings);
 
   return { verdict, findings, unavailable };
 }
@@ -491,6 +492,8 @@ Rules:
 - If there are problems, lead with the most serious one and restate it in plain words.
 - ONLY use what is listed below. Never invent a consequence, an affected group, or a downstream effect that is not stated. You are given job names and counts; you are NOT told what any job does or who it emails, so do not guess. "The X job did not run" is the whole truth available to you — "which means customers did not receive Y" is a fabrication.
 - Two or three sentences. Never more.`;
+
+const VERDICT_LABEL: Record<Verdict, string> = { ok: "OK", warn: "NEEDS ATTENTION", critical: "CRITICAL" };
 
 /**
  * Ask the model for a plain-English opener.
@@ -516,12 +519,7 @@ export async function buildAiSummary(
     const config = getModelConfig("helpChat", "anthropic");
     const provider = getAiProvider("anthropic");
 
-    const verdictLabel =
-      assessment.verdict === "ok"
-        ? "OK"
-        : assessment.verdict === "warn"
-          ? "NEEDS ATTENTION"
-          : "CRITICAL";
+    const verdictLabel = VERDICT_LABEL[assessment.verdict];
 
     const problems =
       assessment.findings.length === 0

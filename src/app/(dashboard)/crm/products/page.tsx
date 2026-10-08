@@ -25,6 +25,20 @@ import { formatDealValue, PRODUCT_SOURCE_LABELS, type CrmProductRow } from "@/cr
 
 const ALL_CATEGORIES = "__all__";
 
+type ListView = "loading" | "error" | "empty" | "list";
+
+function listView(isLoading: boolean, isError: boolean, empty: boolean): ListView {
+  if (isLoading) return "loading";
+  if (isError) return "error";
+  if (empty) return "empty";
+  return "list";
+}
+
+function emptyProductsTitle(noProducts: boolean, archived: boolean): string {
+  if (!noProducts) return "No products match";
+  return archived ? "No archived products" : "No products yet";
+}
+
 export default function CrmProductsPage() {
   const canWrite = useCan("crm.write") === "allowed";
 
@@ -48,6 +62,8 @@ export default function CrmProductsPage() {
       return true;
     });
   }, [products, q, category]);
+
+  const view = listView(isLoading, isError, rows.length === 0);
 
   return (
     <div className="space-y-4 p-6">
@@ -91,14 +107,16 @@ export default function CrmProductsPage() {
         </Button>
       </div>
 
-      {isLoading ? (
+      {view === "loading" && (
         <CrmTableSkeleton />
-      ) : isError ? (
+      )}
+      {view === "error" && (
         <CrmLoadError what="products" onRetry={() => refetch()} />
-      ) : rows.length === 0 ? (
+      )}
+      {view === "empty" && (
         <CrmEmptyState
           icon={Package}
-          title={products.length === 0 ? (showArchived ? "No archived products" : "No products yet") : "No products match"}
+          title={emptyProductsTitle(products.length === 0, showArchived)}
           description={
             products.length === 0
               ? "Your catalog seeds on first load — reload in a moment, or add one."
@@ -113,7 +131,8 @@ export default function CrmProductsPage() {
             ) : undefined
           }
         />
-      ) : (
+      )}
+      {view === "list" && (
         <div className="overflow-hidden rounded-lg border">
           <Table>
             <TableHeader>

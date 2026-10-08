@@ -79,6 +79,12 @@ interface Speaker {
 
 type AssigneeType = "registration" | "speaker";
 
+function emptyPickerMessage(search: string, totalCount: number, entityLabel: string): string {
+  if (search) return `No ${entityLabel}s match your search.`;
+  if (totalCount > 0) return `All ${entityLabel}s already have accommodation assigned.`;
+  return `No ${entityLabel}s for this event yet.`;
+}
+
 interface AssignAccommodationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -295,18 +301,15 @@ export function AssignAccommodationDialog({
               />
             </div>
             <ScrollArea className="h-[200px] border rounded-md">
-              {loading ? (
+              {loading && (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
-              ) : currentList.length === 0 ? (
+              )}
+              {!loading && (currentList.length === 0 ? (
                 <div className="text-center py-8 text-sm text-muted-foreground">
                   <BedDouble className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                  {debouncedSearch
-                    ? `No ${entityLabel}s match your search.`
-                    : totalCount > 0
-                    ? `All ${entityLabel}s already have accommodation assigned.`
-                    : `No ${entityLabel}s for this event yet.`}
+                  {emptyPickerMessage(debouncedSearch, totalCount, entityLabel)}
                 </div>
               ) : (
                 <div className="p-1 space-y-1">
@@ -359,7 +362,7 @@ export function AssignAccommodationDialog({
                         </button>
                       ))}
                 </div>
-              )}
+              ))}
             </ScrollArea>
           </div>
 

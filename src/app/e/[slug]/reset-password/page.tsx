@@ -207,6 +207,63 @@ function EventResetPasswordInner() {
 
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
+  const renderBody = () => {
+    if (isValidating) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      );
+    }
+    if (!isLinkValid) {
+      return (
+        <div className="space-y-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-sm text-red-900">
+              This reset link is invalid or has expired. Reset links are valid for 1 hour.
+            </p>
+          </div>
+          <Link href={`/e/${slug}/forgot-password`}>
+            <Button variant="outline" className="w-full">Request a new link</Button>
+          </Link>
+        </div>
+      );
+    }
+    return (
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <FormField control={form.control} name="password"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-sm font-medium text-slate-600">New password</FormLabel>
+                <FormControl>
+                  <Input type="password" placeholder="At least 6 characters" className="text-base" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+          <FormField control={form.control} name="confirmPassword"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-sm font-medium text-slate-600">Confirm password</FormLabel>
+                <FormControl>
+                  <Input type="password" placeholder="Re-enter password" className="text-base" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+          <Button type="submit" className="w-full btn-gradient font-semibold h-11 text-base" disabled={isLoading}>
+            {isLoading ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Resetting…</>
+            ) : (
+              "Reset password"
+            )}
+          </Button>
+        </form>
+      </Form>
+    );
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
       {/* Banner — same pattern as /e/[slug]/login + forgot-password */}
@@ -251,54 +308,7 @@ function EventResetPasswordInner() {
               </div>
             </div>
 
-            {isValidating ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              </div>
-            ) : !isLinkValid ? (
-              <div className="space-y-4">
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <p className="text-sm text-red-900">
-                    This reset link is invalid or has expired. Reset links are valid for 1 hour.
-                  </p>
-                </div>
-                <Link href={`/e/${slug}/forgot-password`}>
-                  <Button variant="outline" className="w-full">Request a new link</Button>
-                </Link>
-              </div>
-            ) : (
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <FormField control={form.control} name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-sm font-medium text-slate-600">New password</FormLabel>
-                        <FormControl>
-                          <Input type="password" placeholder="At least 6 characters" className="text-base" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  <FormField control={form.control} name="confirmPassword"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-sm font-medium text-slate-600">Confirm password</FormLabel>
-                        <FormControl>
-                          <Input type="password" placeholder="Re-enter password" className="text-base" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  <Button type="submit" className="w-full btn-gradient font-semibold h-11 text-base" disabled={isLoading}>
-                    {isLoading ? (
-                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Resetting…</>
-                    ) : (
-                      "Reset password"
-                    )}
-                  </Button>
-                </form>
-              </Form>
-            )}
+            {renderBody()}
           </div>
 
           <div className="bg-slate-50 border-t border-slate-100 px-8 py-6 mt-2">

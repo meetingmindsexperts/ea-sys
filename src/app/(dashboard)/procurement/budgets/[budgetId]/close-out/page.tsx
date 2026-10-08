@@ -126,15 +126,29 @@ export default function CloseOutPage() {
         </div>
         <p className="mt-1 text-sm text-muted-foreground">{`${b.event?.name ?? b.eventCode} · ${b.reportingCurrency}`}</p>
       </div>
-      {b.status === "CLOSED" ? (
+      {b.status === "CLOSED" && (
         <ClosedView b={b} canSettle={canSettle} canAdmin={canAdmin} />
-      ) : b.status === "ACTIVE" || b.status === "FROZEN" ? (
+      )}
+      {(b.status === "ACTIVE" || b.status === "FROZEN") && (
         canAuthor ? <CloseForm b={b} /> : <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">The close-out is the author&apos;s: an organiser or above writes the variance notes and closes the version.</div>
-      ) : (
+      )}
+      {b.status !== "CLOSED" && b.status !== "ACTIVE" && b.status !== "FROZEN" && (
         <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Only the active or frozen version closes. This one is {b.status.toLowerCase().replace("_", " ")}.</div>
       )}
     </div>
   );
+}
+
+/** Over plan reads amber, under plan green, on plan muted. */
+function varianceTone(variance: string | number): string {
+  const n = Number(variance);
+  if (n > 0) return "text-amber-700 dark:text-amber-400";
+  return n < 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground";
+}
+
+function closeRowClass(isContingency: boolean, needsNote: boolean): string | undefined {
+  if (isContingency) return "bg-muted/40";
+  return needsNote ? "bg-amber-50/60 dark:bg-amber-950/30" : undefined;
 }
 
 function CloseForm({ b }: { b: BudgetRow }) {
@@ -242,7 +256,7 @@ function CloseForm({ b }: { b: BudgetRow }) {
                 const r = rowByKey.get(l.lineKey);
                 const needs = flagged.has(l.lineKey);
                 return (
-                  <TableRow key={l.id} className={l.isContingency ? "bg-muted/40" : needs ? "bg-amber-50/60 dark:bg-amber-950/30" : undefined}>
+                  <TableRow key={l.id} className={closeRowClass(l.isContingency, needs)}>
                     <TableCell className="text-xs text-muted-foreground"><CategoryLabel code={l.category.code} name={l.category.name} stacked /></TableCell>
                     <TableCell>{l.description}</TableCell>
                     <TableCell className="text-right tabular-nums">{money2(l.planned)}</TableCell>
@@ -251,7 +265,7 @@ function CloseForm({ b }: { b: BudgetRow }) {
                     <TableCell className="text-right tabular-nums">
                       {r ? (
                         <>
-                          <div className={Number(r.variance) > 0 ? "text-amber-700 dark:text-amber-400" : Number(r.variance) < 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}>{signed2(r.variance)}</div>
+                          <div className={varianceTone(r.variance)}>{signed2(r.variance)}</div>
                           <div className="text-xs text-muted-foreground">{r.variancePercent === null ? "–" : `${r.variancePercent > 0 ? "+" : ""}${r.variancePercent}%`}</div>
                         </>
                       ) : "–"}
@@ -403,7 +417,7 @@ function ClosedView({ b, canSettle, canAdmin }: { b: BudgetRow; canSettle: boole
                 <TableCell className="text-right tabular-nums">{money2(v.planned)}</TableCell>
                 <TableCell className={`text-right tabular-nums ${v.committed === undefined ? "text-muted-foreground" : committedTone(v.committed, v.planned)}`}>{v.committed === undefined ? "–" : money2(v.committed)}</TableCell>
                 <TableCell className="text-right tabular-nums">{money2(v.actual)}</TableCell>
-                <TableCell className={`text-right tabular-nums ${Number(v.variance) > 0 ? "text-amber-700 dark:text-amber-400" : Number(v.variance) < 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}>{signed2(v.variance)}</TableCell>
+                <TableCell className={`text-right tabular-nums ${varianceTone(v.variance)}`}>{signed2(v.variance)}</TableCell>
               </TableRow>
             ))}
             {byCategory.length === 0 && <TableRow><TableCell colSpan={5} className="py-6 text-center text-muted-foreground">No category totals were recorded.</TableCell></TableRow>}

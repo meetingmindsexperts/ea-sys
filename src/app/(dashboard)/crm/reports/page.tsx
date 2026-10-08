@@ -103,7 +103,7 @@ function ReportsInner() {
       min: get("min"),
       max: get("max"),
     })) {
-      if (v) qs.set(k === "event" ? "eventId" : k === "owner" ? "ownerId" : k === "dealType" ? "dealTypeId" : k, v);
+      if (v) qs.set(exportParamName(k), v);
     }
     const s = qs.toString();
     return `/api/crm/deals/export${s ? `?${s}` : ""}`;
@@ -194,11 +194,13 @@ function ReportsInner() {
         </div>
       </div>
 
-      {isError ? (
+      {isError && (
         <CrmLoadError what="the report" onRetry={() => refetch()} />
-      ) : isLoading || !report ? (
+      )}
+      {!isError && (isLoading || !report) && (
         <ReportSkeleton />
-      ) : (
+      )}
+      {!isError && !isLoading && report && (
         <>
           {/* ── KPI strip ────────────────────────────────────────────────────── */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -454,6 +456,14 @@ function ReportSkeleton() {
       </div>
     </div>
   );
+}
+
+/** The export endpoint names its id filters differently from the page's URL keys. */
+function exportParamName(key: string): string {
+  if (key === "event") return "eventId";
+  if (key === "owner") return "ownerId";
+  if (key === "dealType") return "dealTypeId";
+  return key;
 }
 
 export default function CrmReportsPage() {

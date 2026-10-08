@@ -55,6 +55,11 @@ export interface CreditNotePDFData {
   notes: string | null;
 }
 
+function discountLabelFor(discountCode: string | null, discountAmount: number): string | null {
+  if (discountCode) return `Discount (${discountCode})`;
+  return discountAmount ? "Discount" : null;
+}
+
 /**
  * Credit-note PDF. Shares the invoice/quote branded layout
  * (`@/lib/pdf/document-layout`) — logo + 3-column header + info boxes + line
@@ -136,11 +141,7 @@ export async function generateCreditNotePDF(data: CreditNotePDFData): Promise<Bu
         currency: data.currency,
         subtotal: data.price,
         discountAmount: data.discountAmount || 0,
-        discountLabel: data.discountCode
-          ? `Discount (${data.discountCode})`
-          : data.discountAmount
-          ? "Discount"
-          : null,
+        discountLabel: discountLabelFor(data.discountCode, data.discountAmount),
         taxRate: data.taxRate,
         taxLabel: data.taxLabel,
         totalLabel: "TOTAL CREDIT",

@@ -25,6 +25,15 @@ function preview(html: string): string {
   return text.length > 160 ? text.slice(0, 160) + "…" : text;
 }
 
+type ListView = "loading" | "error" | "empty" | "list";
+
+function listView(isLoading: boolean, isError: boolean, empty: boolean): ListView {
+  if (isLoading) return "loading";
+  if (isError) return "error";
+  if (empty) return "empty";
+  return "list";
+}
+
 export default function CrmTemplatesPage() {
   const canWrite = useCan("crm.write") === "allowed";
   const canDelete = useCan("crm.delete") === "allowed";
@@ -33,6 +42,8 @@ export default function CrmTemplatesPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   const { data: templates = [], isLoading, isError, refetch } = useCrmEmailTemplates(showArchived);
+
+  const view = listView(isLoading, isError, templates.length === 0);
 
   return (
     <div className="space-y-4 p-6">
@@ -59,15 +70,17 @@ export default function CrmTemplatesPage() {
         </div>
       </div>
 
-      {isLoading ? (
+      {view === "loading" && (
         <div className="flex items-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading templates…
         </div>
-      ) : isError ? (
+      )}
+      {view === "error" && (
         // An error must never render as "no templates" — M6.
         <CrmLoadError what="templates" onRetry={() => refetch()} />
-      ) : templates.length === 0 ? (
+      )}
+      {view === "empty" && (
         <CrmEmptyState
           icon={FileText}
           title={showArchived ? "No archived templates" : "No templates yet"}
@@ -85,7 +98,8 @@ export default function CrmTemplatesPage() {
             ) : undefined
           }
         />
-      ) : (
+      )}
+      {view === "list" && (
         <ul className="space-y-3">
           {templates.map((t) => (
             <TemplateRow key={t.id} template={t} canWrite={canWrite} canDelete={canDelete} />

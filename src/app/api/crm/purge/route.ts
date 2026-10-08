@@ -33,6 +33,16 @@ const purgeSchema = z.discriminatedUnion("scope", [
   }),
 ]);
 
+function purgeRecord(
+  base: { organizationId: string; userId: string | null },
+  entity: "deal" | "company" | "contact",
+  id: string,
+) {
+  if (entity === "deal") return purgeDeal({ ...base, dealId: id });
+  if (entity === "company") return purgeCompany({ ...base, companyId: id });
+  return purgeCrmContact({ ...base, crmContactId: id });
+}
+
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmPurge(req);
   if (error) return error;
@@ -50,12 +60,7 @@ export async function POST(req: Request) {
 
   if (parsed.data.scope === "record") {
     const { entity, id } = parsed.data;
-    const result =
-      entity === "deal"
-        ? await purgeDeal({ ...base, dealId: id })
-        : entity === "company"
-          ? await purgeCompany({ ...base, companyId: id })
-          : await purgeCrmContact({ ...base, crmContactId: id });
+    const result = await purgeRecord(base, entity, id);
     if (!result.ok) return crmErrorResponse(result);
 
     apiLogger.info({ msg: "crm/purge:record", entity, id, userId: ctx.userId, ip });

@@ -57,6 +57,12 @@ const EMPTY = {
   country: "", taxNumber: "", notes: "",
 };
 
+function saveButtonLabel(saving: boolean, isEditing: boolean): string {
+  if (saving) return "Saving…";
+  if (isEditing) return "Save changes";
+  return "Create";
+}
+
 export function BillingAccountsCard() {
   const { data: accounts = [], isLoading } = useBillingAccounts({ includeInactive: "1" });
   const create = useCreateBillingAccount();
@@ -153,9 +159,10 @@ export function BillingAccountsCard() {
         </div>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isLoading && (
           <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
-        ) : accounts.length === 0 ? (
+        )}
+        {!isLoading && (accounts.length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">
             No billing accounts yet. Add one to bill a registration to an
             institution or company instead of the attendee.
@@ -243,7 +250,7 @@ export function BillingAccountsCard() {
               ))}
             </TableBody>
           </Table>
-        )}
+        ))}
       </CardContent>
 
       <EventsAttachmentDialog
@@ -340,7 +347,7 @@ export function BillingAccountsCard() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
             <Button onClick={submit} disabled={saving}>
-              {saving ? "Saving…" : editing ? "Save changes" : "Create"}
+              {saveButtonLabel(saving, editing !== null)}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -518,9 +525,10 @@ function EventsAttachmentDialog({
           Registration. A payer can be attached to many events — it&apos;s
           the same logical row, just made available per event.
         </p>
-        {loadingDetail || loadingEvents ? (
+        {(loadingDetail || loadingEvents) && (
           <p className="text-sm text-muted-foreground py-6 text-center">Loading…</p>
-        ) : events.length === 0 ? (
+        )}
+        {!loadingDetail && !loadingEvents && (events.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center">
             No events in this organization yet.
           </p>
@@ -556,7 +564,7 @@ function EventsAttachmentDialog({
               );
             })}
           </div>
-        )}
+        ))}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Done</Button>
         </DialogFooter>

@@ -515,15 +515,15 @@ export function BulkEmailDialog({
     open && isAbstracts,
   );
   const abstractServerCount = isAbstracts ? (serverCountQuery.data?.count ?? null) : null;
-  const displayCount = isAbstracts
-    ? (abstractServerCount ?? recipientCount)
-    : resolvesToMatching
-      ? recipientCountFor
-        ? recipientCountFor(effectiveFilters)
-        : recipientCount
-      : isRegistrations && recipientCountFor
-        ? recipientCountFor({ ...effectiveFilters, onlyIds: effectiveRecipientIds })
-        : recipientCount;
+  const computeDisplayCount = () => {
+    if (isAbstracts) return abstractServerCount ?? recipientCount;
+    if (resolvesToMatching) return recipientCountFor ? recipientCountFor(effectiveFilters) : recipientCount;
+    if (isRegistrations && recipientCountFor) {
+      return recipientCountFor({ ...effectiveFilters, onlyIds: effectiveRecipientIds });
+    }
+    return recipientCount;
+  };
+  const displayCount = computeDisplayCount();
 
   // Certificate cover-email source picker — copies the chosen source into
   // the editable Subject/Message fields. A later manual edit simply diverges
@@ -646,6 +646,21 @@ export function BulkEmailDialog({
       return;
     }
 
+    const payloadSubject = () => {
+      if (isCustom) return customSubject.trim();
+      if (isCertificate || isReminder) return customSubject.trim() || undefined;
+      return undefined;
+    };
+    const payloadMessage = () => {
+      if (isCustom) return customMessage.trim();
+      if (emailType === "invitation" || isCertificate || isReminder) return customMessage.trim() || undefined;
+      return undefined;
+    };
+    const statusFilterFields = () => {
+      if (isAbstracts) return abstractStatus !== "all" ? { status: abstractStatus } : {};
+      return statusFilter && statusFilter !== "all" ? { status: statusFilter } : {};
+    };
+
     const payload = {
       recipientType,
       recipientIds: useFixedList ? effectiveRecipientIds : undefined,
@@ -654,27 +669,13 @@ export function BulkEmailDialog({
       emailType: isSavedTemplate ? "template" : emailType,
       // Certificate sends accept an OPTIONAL subject/message override —
       // blank uses the event's certificate Email Template.
-      customSubject: isCustom
-        ? customSubject.trim()
-        : isCertificate || isReminder
-        ? customSubject.trim() || undefined
-        : undefined,
-      customMessage: isCustom
-        ? customMessage.trim()
-        : emailType === "invitation" || isCertificate || isReminder
-        ? customMessage.trim() || undefined
-        : undefined,
+      customSubject: payloadSubject(),
+      customMessage: payloadMessage(),
       attachments: attachmentFiles.length > 0 ? await uploadEmailAttachments(eventId, attachmentFiles) : undefined,
       filters: {
         // Abstracts: the in-dialog status picker (already resolved against the
         // type, so the server's INVALID_FILTER guard is a backstop, not a path).
-        ...(isAbstracts
-          ? abstractStatus !== "all"
-            ? { status: abstractStatus }
-            : {}
-          : statusFilter && statusFilter !== "all"
-            ? { status: statusFilter }
-            : {}),
+        ...statusFilterFields(),
         // W2-F4 — local Select drives the value; falls back to the prop
         // when the consumer pre-seeds it. Only meaningful for the
         // registrations recipient type.
@@ -778,6 +779,45 @@ export function BulkEmailDialog({
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) resetForm();
     onOpenChange(newOpen);
+  };
+
+  const messageLabel = () => {
+    if (isCustom) return "Message";
+    if (isCertificate || isReminder) return "Message (optional)";
+    return "Personal Message (optional)";
+  };
+
+  const messagePlaceholder = () => {
+    if (isCustom) return "Write your email message...";
+    if (isCertificate) {
+      return "Leave blank to use the certificate cover email (tokens like {{recipientName}} and {{certificateList}} work here)…";
+    }
+    return "Add a personal note to the invitation...";
+  };
+
+  const sendButtonContent = () => {
+    if (bulkEmail.isPending || scheduleEmail.isPending) {
+      return (
+        <>
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          {sendMode === "later" ? "Scheduling..." : "Sending..."}
+        </>
+      );
+    }
+    if (sendMode === "later") {
+      return (
+        <>
+          <Calendar className="mr-2 h-4 w-4" />
+          Schedule Email
+        </>
+      );
+    }
+    return (
+      <>
+        <Send className="mr-2 h-4 w-4" />
+        Send Emails
+      </>
+    );
   };
 
   return (
@@ -981,17 +1021,11 @@ export function BulkEmailDialog({
           {(isCustom || emailType === "invitation" || isCertificate || isReminder) && (
             <div className="space-y-2">
               <Label htmlFor="bulk-message">
-                {isCustom ? "Message" : isCertificate || isReminder ? "Message (optional)" : "Personal Message (optional)"}
+                {messageLabel()}
               </Label>
               <Textarea
                 id="bulk-message"
-                placeholder={
-                  isCustom
-                    ? "Write your email message..."
-                    : isCertificate
-                    ? "Leave blank to use the certificate cover email (tokens like {{recipientName}} and {{certificateList}} work here)…"
-                    : "Add a personal note to the invitation..."
-                }
+                placeholder={messagePlaceholder()}
                 value={customMessage}
                 onChange={(e) => setCustomMessage(e.target.value)}
                 rows={6}
@@ -1593,22 +1627,7 @@ export function BulkEmailDialog({
               (isAbstracts && (abstractServerCount == null || abstractServerCount === 0))
             }
           >
-            {bulkEmail.isPending || scheduleEmail.isPending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {sendMode === "later" ? "Scheduling..." : "Sending..."}
-              </>
-            ) : sendMode === "later" ? (
-              <>
-                <Calendar className="mr-2 h-4 w-4" />
-                Schedule Email
-              </>
-            ) : (
-              <>
-                <Send className="mr-2 h-4 w-4" />
-                Send Emails
-              </>
-            )}
+            {sendButtonContent()}
           </Button>
         </DialogFooter>
       </DialogContent>

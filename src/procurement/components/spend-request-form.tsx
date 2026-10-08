@@ -86,6 +86,34 @@ function rateIsDerived(requestCurrency: string, reportingCurrency: string): bool
   return AED_PEG_RATES[requestCurrency] !== undefined && AED_PEG_RATES[reportingCurrency] !== undefined;
 }
 
+/** The rate is the statement; the amount rides along only in by-hand mode. */
+function payloadTaxRate(taxByHand: boolean, rate: string): string | null {
+  if (taxByHand) return null;
+  return rate === "" ? "0" : rate;
+}
+
+function budgetPlaceholder(pending: boolean, openCount: number): string {
+  if (pending) return "Loading…";
+  return openCount ? "Pick the active budget" : "No active budget";
+}
+
+function linePlaceholder(hasBudget: boolean, pending: boolean): string {
+  if (!hasBudget) return "Pick a budget first";
+  return pending ? "Loading lines…" : "Pick the line";
+}
+
+function vatNote(taxByHand: boolean, computedTax: string | null, ratePercent: string, currency: string): string {
+  if (taxByHand) return "The VAT amount is being entered by hand, so no rate is recorded and the purchase order shows none.";
+  if (computedTax !== null) return `VAT at ${Number(ratePercent)}% is ${currency || ""} ${computedTax}. The order and its PDF quote this rate.`;
+  return "State the rate and the VAT is worked out from the amount.";
+}
+
+function supplierEmailNote(supplierHasEmail: boolean, hasSupplier: boolean): string {
+  if (supplierHasEmail) return "The PDF goes to the supplier's contact the moment the order is issued. Off, and someone sends it from the request page.";
+  if (hasSupplier) return "This supplier has no contact email on the Suppliers page, so the order can only be sent by hand.";
+  return "Pick a supplier from the list to email the order automatically; a proposed vendor has no address yet.";
+}
+
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -131,7 +159,7 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
       justification: f.justification.trim() || null,
       amount: f.amount,
       // The rate is the statement; the amount rides along only in by-hand mode.
-      taxRatePercent: f.taxByHand ? null : f.taxRatePercent === "" ? "0" : f.taxRatePercent,
+      taxRatePercent: payloadTaxRate(f.taxByHand, f.taxRatePercent),
       taxAmount: f.taxByHand ? f.taxAmount || null : null,
       currency,
       fxRateToReporting: derived ? null : f.fxRateToReporting,
@@ -167,7 +195,7 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
             <div className="space-y-1">
               <Label htmlFor="sr-budget">Event budget</Label>
               <Select value={f.budgetId} onValueChange={(v) => { set("budgetId", v); set("lineKey", ""); set("currency", ""); }}>
-                <SelectTrigger id="sr-budget" className="w-full"><SelectValue placeholder={budgets.isPending ? "Loading…" : openBudgets.length ? "Pick the active budget" : "No active budget"} /></SelectTrigger>
+                <SelectTrigger id="sr-budget" className="w-full"><SelectValue placeholder={budgetPlaceholder(budgets.isPending, openBudgets.length)} /></SelectTrigger>
                 <SelectContent>
                   {openBudgets.map((b) => (
                     <SelectItem key={b.id} value={b.id}>{`${b.eventCode} · v${b.versionNo}${b.event?.name ? ` · ${b.event.name}` : ""}${b.status === "FROZEN" ? " (frozen)" : ""}`}</SelectItem>
@@ -189,7 +217,7 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
                 }}
                 disabled={!f.budgetId || budget.isPending}
               >
-                <SelectTrigger id="sr-line" className="w-full"><SelectValue placeholder={!f.budgetId ? "Pick a budget first" : budget.isPending ? "Loading lines…" : "Pick the line"} /></SelectTrigger>
+                <SelectTrigger id="sr-line" className="w-full"><SelectValue placeholder={linePlaceholder(!!f.budgetId, budget.isPending)} /></SelectTrigger>
                 <SelectContent>
                   {lines.map((l) => (
                     <SelectItem key={l.lineKey} value={l.lineKey}>{`${l.category.code} · ${l.description}${l.isContingency ? " (contingency)" : ""} · ${reporting} ${money2(l.remaining)} left`}</SelectItem>
@@ -244,11 +272,7 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs">
             <span className="text-muted-foreground">
-              {f.taxByHand
-                ? "The VAT amount is being entered by hand, so no rate is recorded and the purchase order shows none."
-                : computedTax !== null
-                  ? `VAT at ${Number(f.taxRatePercent)}% is ${currency || ""} ${computedTax}. The order and its PDF quote this rate.`
-                  : "State the rate and the VAT is worked out from the amount."}
+              {vatNote(f.taxByHand, computedTax, f.taxRatePercent, currency)}
             </span>
             <button
               type="button"
@@ -283,11 +307,7 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
             <div className="space-y-0.5">
               <Label htmlFor="sr-email">Email the purchase order to the supplier when it is issued</Label>
               <p className="text-xs text-muted-foreground">
-                {supplierHasEmail
-                  ? "The PDF goes to the supplier's contact the moment the order is issued. Off, and someone sends it from the request page."
-                  : f.supplierId
-                    ? "This supplier has no contact email on the Suppliers page, so the order can only be sent by hand."
-                    : "Pick a supplier from the list to email the order automatically; a proposed vendor has no address yet."}
+                {supplierEmailNote(supplierHasEmail, !!f.supplierId)}
               </p>
             </div>
           </div>
@@ -332,22 +352,35 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
       <aside className="space-y-3 lg:sticky lg:top-4 lg:self-start">
         <div className="rounded-lg border bg-card p-4">
           <h2 className="text-sm font-semibold">Budget check</h2>
-          {!f.budgetId || !f.lineKey ? (
-            <p className="mt-2 text-sm text-muted-foreground">Pick a budget and a line to see what it has left.</p>
-          ) : !query ? (
-            <LinePanel reporting={reporting} line={selectedLine ?? null} />
-          ) : preview.isPending ? (
-            <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Checking…</div>
-          ) : preview.isError ? (
-            <p className="mt-2 text-sm text-destructive">{(preview.error as Error).message}</p>
-          ) : preview.data ? (
-            <PreviewPanel p={preview.data} />
-          ) : null}
+          <BudgetCheckBody
+            hasLine={!!f.budgetId && !!f.lineKey}
+            hasQuery={!!query}
+            preview={preview}
+            reporting={reporting}
+            selectedLine={selectedLine}
+          />
         </div>
         <p className="px-1 text-xs text-muted-foreground">Amounts are ex-VAT; the VAT is recorded beside them and never folded into a total. The check is run again when you submit.</p>
       </aside>
     </div>
   );
+}
+
+function BudgetCheckBody({ hasLine, hasQuery, preview, reporting, selectedLine }: {
+  hasLine: boolean;
+  hasQuery: boolean;
+  preview: ReturnType<typeof useBudgetCheckPreview>;
+  reporting: string;
+  selectedLine: Parameters<typeof LinePanel>[0]["line"] | undefined;
+}) {
+  if (!hasLine) return <p className="mt-2 text-sm text-muted-foreground">Pick a budget and a line to see what it has left.</p>;
+  if (!hasQuery) return <LinePanel reporting={reporting} line={selectedLine ?? null} />;
+  if (preview.isPending) {
+    return <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Checking…</div>;
+  }
+  if (preview.isError) return <p className="mt-2 text-sm text-destructive">{(preview.error as Error).message}</p>;
+  if (preview.data) return <PreviewPanel p={preview.data} />;
+  return null;
 }
 
 function LinePanel({ reporting, line }: { reporting: string; line: { description: string; planned: string; committedOpen: string; actual: string; remaining: string } | null }) {
@@ -364,7 +397,29 @@ function LinePanel({ reporting, line }: { reporting: string; line: { description
   );
 }
 
-function PreviewPanel({ p }: { p: NonNullable<ReturnType<typeof useBudgetCheckPreview>["data"]> }) {
+type PreviewData = NonNullable<ReturnType<typeof useBudgetCheckPreview>["data"]>;
+
+function exceptionNote(p: PreviewData): string {
+  if (p.route.ok && p.route.chainNames) return "This goes over the line: it is marked as an over-budget exception for every approver in the chain, and it needs your justification.";
+  if (p.check.status === "FROZEN") return "The budget is frozen and this goes over the line: it is routed to the final approver as an exception and needs your justification.";
+  return "This goes over the line: it is never allowed through quietly, it is routed to the final approver as an exception, and it needs your justification.";
+}
+
+function RouteNote({ p, cur }: { p: PreviewData; cur: string }) {
+  const route = p.route;
+  if (route.ok && route.chainNames && route.chainNames.length > 1) {
+    return <span>{`Approved in order by ${route.chainNames.join(", then ")}. The order is issued after the last approval.`}</span>;
+  }
+  if (route.ok) {
+    return <span>{`Goes to ${route.approverName ?? "the assigned approver"}${p.amountAed && !route.chainNames ? ` (AED ${money2(p.amountAed)} for the ceiling)` : ""}.`}</span>;
+  }
+  if (route.code === "RATE_REQUIRED") {
+    return <span>{`${cur} floats against AED: the rate is asked for when you submit, and decides who approves.`}</span>;
+  }
+  return <span className="flex items-start gap-1 text-destructive"><TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />{route.message}</span>;
+}
+
+function PreviewPanel({ p }: { p: PreviewData }) {
   const cur = p.budget.reportingCurrency;
   return (
     <div className="mt-2 space-y-3 text-sm">
@@ -378,21 +433,11 @@ function PreviewPanel({ p }: { p: NonNullable<ReturnType<typeof useBudgetCheckPr
       {p.check.exception && (
         <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{p.route.ok && p.route.chainNames ? "This goes over the line: it is marked as an over-budget exception for every approver in the chain, and it needs your justification." : p.check.status === "FROZEN" ? "The budget is frozen and this goes over the line: it is routed to the final approver as an exception and needs your justification." : "This goes over the line: it is never allowed through quietly, it is routed to the final approver as an exception, and it needs your justification."}</span>
+          <span>{exceptionNote(p)}</span>
         </div>
       )}
       <div className="rounded-md bg-muted/50 p-2 text-xs">
-        {p.route.ok ? (
-          p.route.chainNames && p.route.chainNames.length > 1 ? (
-            <span>{`Approved in order by ${p.route.chainNames.join(", then ")}. The order is issued after the last approval.`}</span>
-          ) : (
-            <span>{`Goes to ${p.route.approverName ?? "the assigned approver"}${p.amountAed && !p.route.chainNames ? ` (AED ${money2(p.amountAed)} for the ceiling)` : ""}.`}</span>
-          )
-        ) : p.route.code === "RATE_REQUIRED" ? (
-          <span>{`${cur} floats against AED: the rate is asked for when you submit, and decides who approves.`}</span>
-        ) : (
-          <span className="flex items-start gap-1 text-destructive"><TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />{p.route.message}</span>
-        )}
+        <RouteNote p={p} cur={cur} />
       </div>
       {p.openRequests.length > 0 && (
         <div className="space-y-1">

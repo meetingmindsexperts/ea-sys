@@ -246,6 +246,24 @@ function monthLabel(key: string): string {
   return new Date(Date.UTC(y!, m! - 1, 1)).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
+function closedAt(row: BreakdownDealRow): Date | null {
+  if (row.status === "WON") return row.wonAt;
+  if (row.status === "LOST") return row.lostAt;
+  return null;
+}
+
+/** closedMonth counts closed deals only; lostReason counts lost deals only. */
+function eligibleRows(rows: BreakdownDealRow[], dimension: CrmReportDimension): BreakdownDealRow[] {
+  if (dimension === "closedMonth") return rows.filter((r) => r.status !== "OPEN");
+  if (dimension === "lostReason") return rows.filter((r) => r.status === "LOST");
+  return rows;
+}
+
+function compareKeys(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 function bucketKeyFor(row: BreakdownDealRow, dimension: CrmReportDimension): string {
   switch (dimension) {
     case "pipeline":
@@ -263,7 +281,7 @@ function bucketKeyFor(row: BreakdownDealRow, dimension: CrmReportDimension): str
     case "expectedCloseMonth":
       return monthKey(row.expectedClose);
     case "closedMonth":
-      return monthKey(row.status === "WON" ? row.wonAt : row.status === "LOST" ? row.lostAt : null);
+      return monthKey(closedAt(row));
   }
 }
 
@@ -322,12 +340,7 @@ export function bucketDeals(
   opts: { canSeeValues: boolean; labels?: BreakdownLabels },
 ): BreakdownRow[] {
   const labels = opts.labels ?? {};
-  const eligible =
-    dimension === "closedMonth"
-      ? rows.filter((r) => r.status !== "OPEN")
-      : dimension === "lostReason"
-        ? rows.filter((r) => r.status === "LOST")
-        : rows;
+  const eligible = eligibleRows(rows, dimension);
 
   const groups = new Map<string, BreakdownDealRow[]>();
   for (const r of eligible) {
@@ -374,7 +387,7 @@ export function bucketDeals(
   return out.sort((a, b) => {
     if (a.key === NONE_KEY) return 1;
     if (b.key === NONE_KEY) return -1;
-    if (byMonth) return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+    if (byMonth) return compareKeys(a.key, b.key);
     if (b.totalCount !== a.totalCount) return b.totalCount - a.totalCount;
     return a.label.localeCompare(b.label);
   });

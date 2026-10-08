@@ -21,6 +21,16 @@ const createTaskSchema = z.object({
 });
 
 /** GET /api/crm/tasks — "My Tasks" (default) or the whole org's, due-date first. */
+function ownerFilter(
+  ownerId: string | undefined,
+  scope: string | null,
+  userId: string | null,
+): { ownerId?: string } {
+  if (ownerId) return { ownerId };
+  if (scope === "all") return {};
+  return userId ? { ownerId: userId } : {};
+}
+
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
@@ -41,7 +51,7 @@ export async function GET(req: Request) {
         archivedAt: isArchivedView(searchParams.get("archived")) ? { not: null } : null,
         // An explicit owner filter wins over the mine/all scope — picking a rep is
         // a deliberate "show me THEIR tasks" that shouldn't be re-narrowed to me.
-        ...(ownerId ? { ownerId } : scope === "all" ? {} : ctx.userId ? { ownerId: ctx.userId } : {}),
+        ...ownerFilter(ownerId, scope, ctx.userId),
         ...(status === "all" ? {} : { status: status === "DONE" ? "DONE" : "OPEN" }),
         ...(dueRange ? { dueAt: dueRange } : {}),
       },

@@ -91,11 +91,12 @@ export function SharedViewsDialog({ eventId, open, onOpenChange }: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        {isLoading || !data ? (
+        {(isLoading || !data) && (
           <div className="flex justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : editing.mode === "list" ? (
+        )}
+        {!isLoading && data && (editing.mode === "list" ? (
           <ViewList data={data} onNew={(preset) => setEditing({ mode: "new", preset })} onEdit={(id) => setEditing({ mode: "edit", id })} onClose={() => close(false)} />
         ) : (
           <ViewEditor
@@ -109,7 +110,7 @@ export function SharedViewsDialog({ eventId, open, onOpenChange }: Props) {
             onBack={() => setEditing({ mode: "list" })}
             onSaved={(id) => setEditing({ mode: "edit", id })}
           />
-        )}
+        ))}
       </DialogContent>
     </Dialog>
   );

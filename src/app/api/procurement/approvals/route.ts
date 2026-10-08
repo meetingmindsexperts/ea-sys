@@ -7,6 +7,7 @@
  * second call.
  */
 import { NextResponse, type NextRequest } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requiresFinalApprover } from "@/lib/approvals/approvals-service";
@@ -21,21 +22,29 @@ function readMove(payload: unknown): Move | null {
   return p && typeof p.fromLineKey === "string" && typeof p.toLineKey === "string" && typeof p.amount === "string" ? { fromLineKey: p.fromLineKey, toLineKey: p.toLineKey, amount: p.amount } : null;
 }
 
+function parseScope(raw: string | null): "mine" | "decided" | "inbox" {
+  if (raw === "mine") return "mine";
+  if (raw === "decided") return "decided";
+  return "inbox";
+}
+
+function scopeWhere(scope: "mine" | "decided" | "inbox", userId: string): Prisma.ApprovalRequestWhereInput {
+  if (scope === "mine") return { requesterUserId: userId };
+  // PENDING too: a chain level the caller approved, still waiting on the next level.
+  if (scope === "decided") return { status: { in: ["APPROVED", "REJECTED", "PENDING"] }, steps: { some: { decidedByUserId: userId } } };
+  return { status: "PENDING", steps: { some: { status: "PENDING", OR: [{ assigneeUserId: userId }, { delegateUserId: userId }] } } };
+}
+
 export async function GET(req: NextRequest) {
   const g = await procurementGuard({ route: "procurement/approvals", need: "view" });
   if (!g.ok) return g.response;
   const raw = req.nextUrl.searchParams.get("scope");
-  const scope = raw === "mine" ? "mine" : raw === "decided" ? "decided" : "inbox";
+  const scope = parseScope(raw);
   return runWithTenant(g.orgId, () => guardedRead("procurement/approvals", g.user.id, async () => {
     const requests = await db.approvalRequest.findMany({
       where: {
         organizationId: g.orgId,
-        ...(scope === "mine"
-          ? { requesterUserId: g.user.id }
-          : scope === "decided"
-            ? // PENDING too: a chain level the caller approved, still waiting on the next level.
-              { status: { in: ["APPROVED", "REJECTED", "PENDING"] }, steps: { some: { decidedByUserId: g.user.id } } }
-            : { status: "PENDING", steps: { some: { status: "PENDING", OR: [{ assigneeUserId: g.user.id }, { delegateUserId: g.user.id }] } } }),
+        ...scopeWhere(scope, g.user.id),
       },
       select: {
         id: true, subjectType: true, subjectId: true, amountAed: true, amount: true, currency: true, status: true, requesterUserId: true, reason: true, payload: true, decidedAt: true, createdAt: true,

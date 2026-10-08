@@ -78,6 +78,13 @@ import {
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
 
 /** Strip HTML tags for display (handles legacy HTML content) */
+function presentationTypeLabel(type: string): string {
+  if (type === "ORAL") return "Oral";
+  if (type === "POSTER") return "Poster";
+  if (type === "VIDEO") return "Video";
+  return "Workshop";
+}
+
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
@@ -997,10 +1004,7 @@ export default function AbstractsPage() {
                         </Badge>
                         {abstract.presentationType && (
                           <Badge variant="secondary" className="text-xs">
-                            {abstract.presentationType === "ORAL" ? "Oral"
-                              : abstract.presentationType === "POSTER" ? "Poster"
-                              : abstract.presentationType === "VIDEO" ? "Video"
-                              : "Workshop"}
+                            {presentationTypeLabel(abstract.presentationType)}
                           </Badge>
                         )}
                         {abstract.theme && (
@@ -1077,7 +1081,8 @@ export default function AbstractsPage() {
                             {editableStatuses.includes(abstract.status) ? "Edit" : "View"}
                           </Link>
                         </Button>
-                      ) : canReview ? (
+                      ) : null}
+                      {!isSubmitter && canReview ? (
                         // Admin / Reviewer actions
                         <>
                           {isAbstractManager && (

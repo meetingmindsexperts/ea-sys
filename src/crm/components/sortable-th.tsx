@@ -18,6 +18,16 @@ import { cn } from "@/lib/utils";
 
 export type SortDir = "asc" | "desc";
 
+function ariaSort(active: boolean, dir: SortDir): "ascending" | "descending" | "none" {
+  if (!active) return "none";
+  return dir === "asc" ? "ascending" : "descending";
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active) return <ChevronsUpDown className="h-3.5 w-3.5 opacity-40" />;
+  return dir === "asc" ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />;
+}
+
 export function SortableTh({
   label,
   sortKey,
@@ -36,7 +46,7 @@ export function SortableTh({
   const active = activeKey === sortKey;
   return (
     <TableHead
-      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+      aria-sort={ariaSort(active, dir)}
       className={align === "right" ? "text-right" : undefined}
     >
       <button
@@ -49,15 +59,7 @@ export function SortableTh({
         )}
       >
         {label}
-        {active ? (
-          dir === "asc" ? (
-            <ChevronUp className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5" />
-          )
-        ) : (
-          <ChevronsUpDown className="h-3.5 w-3.5 opacity-40" />
-        )}
+        <SortIcon active={active} dir={dir} />
       </button>
     </TableHead>
   );

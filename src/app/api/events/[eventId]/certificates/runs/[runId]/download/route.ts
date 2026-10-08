@@ -42,6 +42,11 @@ interface RouteParams {
 const MAX_ZIP_CERTS = 500;
 const MAX_ZIP_BYTES = 300 * 1024 * 1024; // 300 MB of raw PDF bytes
 
+function templateIdsOfRun(run: { templateIds: string[]; certificateTemplateId: string | null }): string[] {
+  if (run.templateIds.length) return run.templateIds;
+  return run.certificateTemplateId ? [run.certificateTemplateId] : [];
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   let eventId: string | undefined;
   let runId: string | undefined;
@@ -119,11 +124,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         },
       }),
     );
-    const runTemplateIds = run.templateIds.length
-      ? run.templateIds
-      : run.certificateTemplateId
-        ? [run.certificateTemplateId]
-        : [];
+    const runTemplateIds = templateIdsOfRun(run);
 
     // Resolve every item's cert rows first so the count cap applies to the
     // real cert total (an item can carry several certs in the bundle model).

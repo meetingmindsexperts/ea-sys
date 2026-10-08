@@ -67,6 +67,12 @@ function mimeFor(storedPath: string): string {
   return MIME_BY_EXT[ext] ?? "application/octet-stream";
 }
 
+function modeLabel(): string {
+  if (VERIFY_ONLY) return "VERIFY ONLY";
+  if (WRITE) return "WRITE";
+  return "DRY RUN";
+}
+
 async function main() {
   const bucket = process.env.S3_UPLOADS_BUCKET;
   if (!bucket) {
@@ -170,7 +176,7 @@ async function main() {
 
   console.log("");
   console.log(`bucket:          ${bucket}`);
-  console.log(`mode:            ${VERIFY_ONLY ? "VERIFY ONLY" : WRITE ? "WRITE" : "DRY RUN"}`);
+  console.log(`mode:            ${modeLabel()}`);
   console.log(`${WRITE && !VERIFY_ONLY ? "copied" : "outstanding"}:      ${copied} files, ${(totalBytes / 1024 / 1024).toFixed(1)} MB`);
   console.log(`already present: ${skipped}`);
   if (mismatched > 0) console.log(`size mismatches: ${mismatched} (re-copied)`);

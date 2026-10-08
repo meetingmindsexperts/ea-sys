@@ -206,6 +206,17 @@ async function isFinalApprover(client: Db, organizationId: string, userId: strin
   return row?.procurementApproveUnlimited === true;
 }
 /** Why the request's own rate was refused, with the band it must sit in (a rail, not a price). */
+/** undefined keeps the stored figure (as money), null clears it, a value replaces it. */
+function givenOrStoredMoney<G>(given: G | undefined, stored: MoneyInput | null | undefined): G | ReturnType<typeof money> | null {
+  if (given !== undefined) return given;
+  return (stored ?? null) === null ? null : money(stored);
+}
+
+function decisionAuditAction(decision: "APPROVED" | "REJECTED", kind: "SUBMISSION" | "AMENDMENT"): string {
+  if (decision === "APPROVED") return kind === "AMENDMENT" ? "AMENDMENT_APPROVED" : "APPROVE";
+  return kind === "AMENDMENT" ? "AMENDMENT_REJECTED" : "REJECT";
+}
+
 function requestRateRefusal(requestCurrency: string, reportingCurrency: string, reason: "missing" | "invalid" | "out-of-band"): string {
   const req = requestCurrency.toUpperCase();
   const rep = reportingCurrency.toUpperCase();
@@ -557,7 +568,7 @@ export async function updateSpendRequest(input: UpdateSpendRequestInput): Promis
     lineKey: input.lineKey !== undefined ? input.lineKey : r.lineKey,
     supplierId: input.supplierId !== undefined ? input.supplierId : r.supplierId,
     currency: input.currency ?? r.currency,
-    fxRateToReporting: input.fxRateToReporting !== undefined ? input.fxRateToReporting : r.fxRateToReporting === null ? null : money(r.fxRateToReporting),
+    fxRateToReporting: givenOrStoredMoney(input.fxRateToReporting, r.fxRateToReporting),
     categoryId: input.categoryId !== undefined ? input.categoryId : r.categoryId,
   };
   const refs = await resolveDraftRefs(db, input.organizationId, merged, ctx);
@@ -567,7 +578,7 @@ export async function updateSpendRequest(input: UpdateSpendRequestInput): Promis
   // Both VAT fields are rewritten from the MERGED state on every edit, never
   // conditionally: change the amount alone and the tax must follow, or the
   // stored pair stops meaning the rate it claims.
-  const mergedRate = input.taxRatePercent !== undefined ? input.taxRatePercent : (r.taxRatePercent ?? null) === null ? null : money(r.taxRatePercent!);
+  const mergedRate = givenOrStoredMoney(input.taxRatePercent, r.taxRatePercent);
   const tax = resolveTax(amount, mergedRate, input.taxAmount !== undefined ? input.taxAmount : r.taxAmount);
   const data: Prisma.SpendRequestUncheckedUpdateManyInput = {
     budgetId: refs.budget.id,
@@ -770,7 +781,7 @@ export async function decideSpendRequest(input: { organizationId: string; decide
       await audit(tx, {
         userId: input.decider.id,
         organizationId: input.organizationId,
-        action: input.decision === "APPROVED" ? (payload.kind === "AMENDMENT" ? "AMENDMENT_APPROVED" : "APPROVE") : (payload.kind === "AMENDMENT" ? "AMENDMENT_REJECTED" : "REJECT"),
+        action: decisionAuditAction(input.decision, payload.kind),
         entityId: r.id,
         changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, note: input.note?.trim() || null, landing: input.decision === "APPROVED" ? landing : null, ...(payload.kind === "AMENDMENT" ? { previousAmount: payload.previousAmount, nextAmount: payload.nextAmount } : {}) },
       });
@@ -823,7 +834,7 @@ export async function amendSpendRequest(input: { organizationId: string; actor: 
   // The rate follows the amount. A request booked at 5% that rises to 60,000
   // owes 3,000, not the 750 it owed before, and nobody should have to restate
   // that. An amend may still replace the rate, or drop to a typed amount.
-  const amendRate = input.taxRatePercent !== undefined ? input.taxRatePercent : (r.taxRatePercent ?? null) === null ? null : money(r.taxRatePercent!);
+  const amendRate = givenOrStoredMoney(input.taxRatePercent, r.taxRatePercent);
   const nextTaxPair = resolveTax(amount, amendRate, input.taxAmount ?? r.taxAmount);
   const nextTax = nextTaxPair.taxAmount;
   const budget = await db.eventBudget.findFirst({ where: { id: r.budgetId, organizationId: input.organizationId }, select: { id: true, status: true, reportingCurrency: true } });

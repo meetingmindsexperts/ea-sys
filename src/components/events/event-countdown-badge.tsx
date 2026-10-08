@@ -1,5 +1,13 @@
 import { eventCountdown } from "@/lib/event-time";
 
+function countdownTone(onDark: boolean, ongoing: boolean, urgent: boolean): string {
+  if (onDark && ongoing) return "bg-emerald-400 text-emerald-950 border-emerald-300 shadow-sm";
+  if (onDark) return "bg-amber-400 text-amber-950 border-amber-300 shadow-sm";
+  if (ongoing) return "bg-green-50 text-green-700 border-green-200";
+  if (urgent) return "bg-amber-50 text-amber-700 border-amber-200";
+  return "bg-muted text-muted-foreground border-border";
+}
+
 /**
  * "12 days to go" / "Day 2 of 3" / "Ended 5 days ago".
  *
@@ -43,15 +51,7 @@ export function EventCountdownBadge({
   // gold (or emerald while the event is live) rather than tinted — a translucent
   // white pill disappears into the gradient, which defeats the point of putting
   // the countdown at the top of the page.
-  const tone = onDark
-    ? c.phase === "ongoing"
-      ? "bg-emerald-400 text-emerald-950 border-emerald-300 shadow-sm"
-      : "bg-amber-400 text-amber-950 border-amber-300 shadow-sm"
-    : c.phase === "ongoing"
-      ? "bg-green-50 text-green-700 border-green-200"
-      : urgent
-        ? "bg-amber-50 text-amber-700 border-amber-200"
-        : "bg-muted text-muted-foreground border-border";
+  const tone = countdownTone(onDark, c.phase === "ongoing", urgent);
 
   const sizing =
     size === "lg"

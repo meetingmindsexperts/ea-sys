@@ -52,6 +52,17 @@ const BLANK = "__blank__";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Split a comma/space/semicolon-separated address field into valid + invalid. */
+function recipientListState(
+  isLoading: boolean,
+  isError: boolean,
+  count: number,
+): "loading" | "error" | "empty" | "list" {
+  if (isLoading) return "loading";
+  if (isError) return "error";
+  if (count === 0) return "empty";
+  return "list";
+}
+
 function parseAddressField(raw: string): { emails: string[]; invalid: string[] } {
   const emails: string[] = [];
   const invalid: string[] = [];
@@ -112,6 +123,7 @@ export function CrmEmailDialog({
     attachments.reduce((s, a) => s + a.size, 0) + selectedDocs.reduce((s, d) => s + d.size, 0);
   const totalFileCount = attachments.length + selectedDocs.length;
   const isDeal = data?.target.kind === "deal";
+  const listState = recipientListState(isLoading, isError, recipients.length);
 
   function resetAndClose() {
     setSubject("");
@@ -290,19 +302,20 @@ export function CrmEmailDialog({
               )}
             </div>
 
-            {isLoading ? (
-              <div className="h-40 animate-pulse rounded-md border bg-muted/30" />
-            ) : isError ? (
+            {listState === "loading" && <div className="h-40 animate-pulse rounded-md border bg-muted/30" />}
+            {listState === "error" && (
               <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
                 Couldn&apos;t load the contact list. Close and try again.
               </p>
-            ) : recipients.length === 0 ? (
+            )}
+            {listState === "empty" && (
               <p className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
                 {isDeal
                   ? "No contacts on this deal yet. Add the people you're talking to first."
                   : "No sponsor contacts for this event yet. Add contacts to its deals first."}
               </p>
-            ) : (
+            )}
+            {listState === "list" && (
               <ScrollArea className="h-52 rounded-md border">
                 <ul className="divide-y">
                   {recipients.map((r) => {

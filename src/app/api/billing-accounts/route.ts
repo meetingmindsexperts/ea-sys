@@ -87,6 +87,12 @@ export async function GET(req: Request) {
   }
 }
 
+function createStatusForCode(code: string): number {
+  if (code === "DUPLICATE_NAME") return 409;
+  if (code === "NAME_REQUIRED") return 400;
+  return 500;
+}
+
 export async function POST(req: Request) {
   try {
     const session = await auth();
@@ -121,8 +127,7 @@ export async function POST(req: Request) {
     });
 
     if (!result.ok) {
-      const status =
-        result.code === "DUPLICATE_NAME" ? 409 : result.code === "NAME_REQUIRED" ? 400 : 500;
+      const status = createStatusForCode(result.code);
       return NextResponse.json(
         { error: result.message, code: result.code, ...(result.meta ?? {}) },
         { status },

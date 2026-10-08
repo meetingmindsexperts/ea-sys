@@ -60,14 +60,14 @@ export function readEventCmeSettings(settings: unknown): EventCmeSettings {
   return cme as EventCmeSettings;
 }
 
+function cmeHoursNumber(cmeHours: PreviewEventRow["cmeHours"]): number | null {
+  if (cmeHours == null) return null;
+  return typeof cmeHours === "number" ? cmeHours : cmeHours.toNumber();
+}
+
 export function buildEventContext(event: PreviewEventRow): CertificateEventContext {
   const cme = readEventCmeSettings(event.settings);
-  const hours =
-    event.cmeHours == null
-      ? null
-      : typeof event.cmeHours === "number"
-        ? event.cmeHours
-        : event.cmeHours.toNumber();
+  const hours = cmeHoursNumber(event.cmeHours);
 
   return {
     name: event.name,

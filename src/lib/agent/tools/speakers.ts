@@ -226,6 +226,13 @@ const listSpeakerAgreements: ToolExecutor = async (input, ctx) => {
 };
 
 
+function companionCascadeNote(companion: string): string | undefined {
+  if (companion === "kept") return "The speaker's companion registration (badge + entry barcode) was KEPT. Pass cancelCompanionRegistration: true to revoke it.";
+  if (companion === "real-registration") return "This speaker is linked to a REAL registration (not an auto companion) — review/cancel it separately if they are no longer attending.";
+  if (companion === "cancel-failed") return "The companion registration could NOT be cancelled — it is still active; check the logs.";
+  return undefined;
+}
+
 const updateSpeaker: ToolExecutor = async (input, ctx) => {
   try {
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
@@ -336,14 +343,7 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
         companionRegistration: {
           outcome: companionCascade.companion,
           registrationId: companionCascade.registrationId ?? null,
-          note:
-            companionCascade.companion === "kept"
-              ? "The speaker's companion registration (badge + entry barcode) was KEPT. Pass cancelCompanionRegistration: true to revoke it."
-              : companionCascade.companion === "real-registration"
-                ? "This speaker is linked to a REAL registration (not an auto companion) — review/cancel it separately if they are no longer attending."
-                : companionCascade.companion === "cancel-failed"
-                  ? "The companion registration could NOT be cancelled — it is still active; check the logs."
-                  : undefined,
+          note: companionCascadeNote(companionCascade.companion),
         },
       }),
     };

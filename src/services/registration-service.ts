@@ -1248,6 +1248,10 @@ export type UpdateRegistrationResult =
       httpStatus?: number;
     };
 
+function toDateOrNull(value: string | Date | null): Date | null {
+  return value ? new Date(value) : null;
+}
+
 /**
  * Update a registration — statuses, payer, type/tier (repriced), attendance
  * mode, badge/DTCM, billing block, notes, and attendee fields — atomically,
@@ -1664,7 +1668,7 @@ export async function updateRegistration(
         memberId: attendee.memberId !== undefined ? (attendee.memberId || null) : a.memberId,
         studentId: attendee.studentId !== undefined ? (attendee.studentId || null) : a.studentId,
         studentIdExpiry: attendee.studentIdExpiry !== undefined
-          ? (attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null)
+          ? toDateOrNull(attendee.studentIdExpiry)
           : a.studentIdExpiry,
       });
     }

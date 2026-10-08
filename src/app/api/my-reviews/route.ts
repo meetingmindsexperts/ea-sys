@@ -27,6 +27,11 @@ import { apiLogger } from "@/lib/logger";
  * on master (RLS off) it is unaffected. See docs/MULTI_TENANCY.md §13.
  */
 
+function submissionStatusOf(sub: { updatedAt: Date } | null | undefined, abstractSubmittedAt: Date) {
+  if (!sub) return "PENDING";
+  return sub.updatedAt.getTime() < abstractSubmittedAt.getTime() ? "NEEDS_UPDATE" : "SUBMITTED";
+}
+
 export async function GET() {
   try {
     const session = await auth();
@@ -151,11 +156,7 @@ export async function GET() {
               stale: sub.updatedAt.getTime() < row.submittedAt.getTime(),
             }
           : null,
-        submissionStatus: !sub
-          ? "PENDING"
-          : sub.updatedAt.getTime() < row.submittedAt.getTime()
-            ? "NEEDS_UPDATE"
-            : "SUBMITTED",
+        submissionStatus: submissionStatusOf(sub, row.submittedAt),
       };
     });
 

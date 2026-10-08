@@ -92,13 +92,15 @@ export function QuoteEditorDialog({
         {/* The form seeds its fields once, on mount, so it must never mount on a
             draft left in the cache by an earlier open: wait for THIS open's fetch.
             (The card also remounts the dialog per open; review M3.) */}
-        {draftQuery.isError ? (
+        {draftQuery.isError && (
           <p className="py-6 text-sm text-destructive">Could not load the quote details. Close this and try again.</p>
-        ) : !draftQuery.isFetchedAfterMount || !draftQuery.data ? (
+        )}
+        {!draftQuery.isError && (!draftQuery.isFetchedAfterMount || !draftQuery.data) && (
           <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Preparing the quote…
           </div>
-        ) : (
+        )}
+        {!draftQuery.isError && draftQuery.isFetchedAfterMount && draftQuery.data && (
           <QuoteEditorForm
             dealId={dealId}
             quote={quote}

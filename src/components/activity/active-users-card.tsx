@@ -88,7 +88,7 @@ export function ActiveUsersCard() {
       </CardHeader>
 
       <CardContent>
-        {isError ? (
+        {isError && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-center">
             <p className="text-sm font-medium text-destructive">Couldn&apos;t load active users.</p>
             <button
@@ -98,9 +98,11 @@ export function ActiveUsersCard() {
               Try again
             </button>
           </div>
-        ) : isLoading ? (
+        )}
+        {!isError && isLoading && (
           <div className="py-6 text-center text-sm text-muted-foreground">Loading&hellip;</div>
-        ) : !data || data.users.length === 0 ? (
+        )}
+        {!isError && !isLoading && (!data || data.users.length === 0 ? (
           <div className="py-6 text-center text-sm text-muted-foreground">
             No team members in this organisation.
           </div>
@@ -140,7 +142,7 @@ export function ActiveUsersCard() {
               </li>
             ))}
           </ul>
-        )}
+        ))}
 
         <div className="mt-4 space-y-1.5 text-xs text-muted-foreground">
           <p>

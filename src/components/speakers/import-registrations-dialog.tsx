@@ -196,7 +196,7 @@ export function ImportRegistrationsDialog({
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {isLoading ? (
+                {isLoading && (
                   <tr>
                     <td
                       colSpan={6}
@@ -205,7 +205,8 @@ export function ImportRegistrationsDialog({
                       Loading…
                     </td>
                   </tr>
-                ) : registrations.length === 0 ? (
+                )}
+                {!isLoading && (registrations.length === 0 ? (
                   <tr>
                     <td
                       colSpan={6}
@@ -268,7 +269,7 @@ export function ImportRegistrationsDialog({
                       </td>
                     </tr>
                   ))
-                )}
+                ))}
               </tbody>
             </table>
           </div>

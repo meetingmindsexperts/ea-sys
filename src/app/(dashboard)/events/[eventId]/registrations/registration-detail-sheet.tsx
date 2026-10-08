@@ -1766,13 +1766,35 @@ export function RegistrationDetailSheet({
                 const typeChanged = editData.ticketTypeId !== (selectedRegistration.ticketType?.id ?? "");
                 const picked = editTiers.some((t) => t.id === editData.pricingTierId);
                 const needsTier = typeChanged && !picked;
+                const unpickedTierValue = typeChanged ? "" : editData.pricingTierId || "__base__";
+                const tierReadOnly = () => {
+                  if (promoBlocks) {
+                    return (
+                      <div className="text-sm">
+                        <span className="font-medium">{currentTierName ?? "Base price (no tier)"}</span>
+                        <span className="text-muted-foreground"> — remove the promo code to change the tier</span>
+                      </div>
+                    );
+                  }
+                  if (isEditing && typeChanged && editTiers.length === 0) {
+                    // L-A: switched to a flat (no-tier) type while a tier is set —
+                    // Save will drop the tier + price to the new type's base, so
+                    // don't show the stale old tier name as if it survives.
+                    return <div className="text-sm text-muted-foreground">Base price (no tier) — the new type has no tiers</div>;
+                  }
+                  return (
+                    <div className="text-sm font-medium">
+                      {currentTierName ?? <span className="text-muted-foreground">Base price (no tier)</span>}
+                    </div>
+                  );
+                };
                 return (
                   <div className="space-y-2">
                     <Label>Pricing Tier</Label>
                     {canEditTier ? (
                       <>
                         <Select
-                          value={picked ? editData.pricingTierId : typeChanged ? "" : editData.pricingTierId || "__base__"}
+                          value={picked ? editData.pricingTierId : unpickedTierValue}
                           onValueChange={(v) => setEditData((p) => ({ ...p, pricingTierId: v === "__base__" ? "" : v }))}
                           disabled={updateRegistration.isPending}
                         >
@@ -1802,21 +1824,7 @@ export function RegistrationDetailSheet({
                           </p>
                         )}
                       </>
-                    ) : promoBlocks ? (
-                      <div className="text-sm">
-                        <span className="font-medium">{currentTierName ?? "Base price (no tier)"}</span>
-                        <span className="text-muted-foreground"> — remove the promo code to change the tier</span>
-                      </div>
-                    ) : isEditing && typeChanged && editTiers.length === 0 ? (
-                      // L-A: switched to a flat (no-tier) type while a tier is set —
-                      // Save will drop the tier + price to the new type's base, so
-                      // don't show the stale old tier name as if it survives.
-                      <div className="text-sm text-muted-foreground">Base price (no tier) — the new type has no tiers</div>
-                    ) : (
-                      <div className="text-sm font-medium">
-                        {currentTierName ?? <span className="text-muted-foreground">Base price (no tier)</span>}
-                      </div>
-                    )}
+                    ) : tierReadOnly()}
                   </div>
                 );
               })()}
@@ -1890,24 +1898,35 @@ export function RegistrationDetailSheet({
                 // (no refund) reg doesn't look like the money vanished.
                 const cancelled = selectedRegistration.status === "CANCELLED";
                 const pending = !cancelled && f.hasOutstandingBalance;
+                const tone = (() => {
+                  if (cancelled) return cancelledCredit.needsCreditNote ? "red" : "slate";
+                  return pending ? "amber" : "emerald";
+                })();
+                const boxClass = {
+                  red: "border-red-300 bg-red-50/50",
+                  slate: "border-slate-300 bg-slate-50",
+                  amber: "border-amber-300 bg-amber-50/60",
+                  emerald: "border-emerald-200 bg-emerald-50/50",
+                }[tone];
+                const headingClass = {
+                  red: "text-red-700",
+                  slate: "text-slate-600",
+                  amber: "text-amber-800",
+                  emerald: "text-emerald-700",
+                }[tone];
+                const openTitle = pending ? "Payment Pending" : "Paid in Full";
                 return (
                   <div className={cn(
                     "rounded-xl border px-5 py-4 space-y-2",
-                    cancelled
-                      ? cancelledCredit.needsCreditNote
-                        ? "border-red-300 bg-red-50/50"
-                        : "border-slate-300 bg-slate-50"
-                      : pending ? "border-amber-300 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/50",
+                    boxClass,
                   )}>
                     <div className="flex items-center justify-between">
                       <h3 className={cn(
                         "flex items-center gap-2 text-sm font-semibold uppercase tracking-wide",
-                        cancelled
-                          ? cancelledCredit.needsCreditNote ? "text-red-700" : "text-slate-600"
-                          : pending ? "text-amber-800" : "text-emerald-700",
+                        headingClass,
                       )}>
                         <CreditCard className="h-4 w-4" />
-                        {cancelled ? "Cancelled" : pending ? "Payment Pending" : "Paid in Full"}
+                        {cancelled ? "Cancelled" : openTitle}
                       </h3>
                       <Badge
                         className={cn(
@@ -2229,6 +2248,30 @@ export function RegistrationDetailSheet({
                 // (and the quote/invoice PDF) can never disagree on VAT.
                 const f = selectedRegistration.financials;
                 const showFinancials = !!f && (f.total > 0 || f.totalPaid > 0);
+                const paymentNote = () => {
+                  if (selectedRegistration.paymentStatus === "COMPLIMENTARY") {
+                    return <p className="text-sm text-muted-foreground">Complimentary registration — no payment due.</p>;
+                  }
+                  if (selectedRegistration.paymentStatus === "INCLUSIVE") {
+                    return <p className="text-sm text-muted-foreground">Sponsor-paid registration — no payment due from attendee.</p>;
+                  }
+                  if (!(["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus)) {
+                    return <p className="text-sm text-muted-foreground">No payment due.</p>;
+                  }
+                  return financialsLoadedForId !== selectedRegistration.id ? (
+                    // Detail (with financials) still loading — don't flash the
+                    // "no price set yet" message before we actually know.
+                    <p className="text-sm text-muted-foreground">Loading payment details…</p>
+                  ) : (
+                    // NEVER say "free" for a registration that owes money. If we
+                    // land here the price genuinely hasn't resolved (no stamped
+                    // price / no pricing tier) — surface it as outstanding and
+                    // point the organizer at the tier picker above.
+                    <p className="text-sm font-medium text-amber-800">
+                      Payment outstanding — no price set yet. Choose a pricing tier above to set the amount owed.
+                    </p>
+                  );
+                };
                 // Cancelled → Amount Due 0, "Collected" (retained) not "Paid",
                 // never an amber Outstanding (mirrors the Details-tab block).
                 const cancelled = selectedRegistration.status === "CANCELLED";
@@ -2338,27 +2381,7 @@ export function RegistrationDetailSheet({
                           </div>
                         )}
                       </div>
-                    ) : selectedRegistration.paymentStatus === "COMPLIMENTARY" ? (
-                      <p className="text-sm text-muted-foreground">Complimentary registration — no payment due.</p>
-                    ) : selectedRegistration.paymentStatus === "INCLUSIVE" ? (
-                      <p className="text-sm text-muted-foreground">Sponsor-paid registration — no payment due from attendee.</p>
-                    ) : (["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus) ? (
-                      financialsLoadedForId !== selectedRegistration.id ? (
-                        // Detail (with financials) still loading — don't flash the
-                        // "no price set yet" message before we actually know.
-                        <p className="text-sm text-muted-foreground">Loading payment details…</p>
-                      ) : (
-                        // NEVER say "free" for a registration that owes money. If we
-                        // land here the price genuinely hasn't resolved (no stamped
-                        // price / no pricing tier) — surface it as outstanding and
-                        // point the organizer at the tier picker above.
-                        <p className="text-sm font-medium text-amber-800">
-                          Payment outstanding — no price set yet. Choose a pricing tier above to set the amount owed.
-                        </p>
-                      )
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No payment due.</p>
-                    )}
+                    ) : paymentNote()}
                     {/* Show sponsor attribution whenever sponsorId is set (even if
                         status is no longer INCLUSIVE — we don't auto-clear, so
                         admins can see the historical attribution). */}
@@ -2645,7 +2668,8 @@ export function RegistrationDetailSheet({
                           corresponding personal value on invoices + quotes.
                         </p>
                       </div>
-                    ) : customBilling ? (
+                    ) : null}
+                    {!isEditing && (customBilling ? (
                       <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
                         {(selectedRegistration.billingFirstName || selectedRegistration.billingLastName) && (
                           <div className="col-span-2">
@@ -2748,7 +2772,7 @@ export function RegistrationDetailSheet({
                           )}
                         </div>
                       </div>
-                    )}
+                    ))}
                   </section>
                 );
               })()}

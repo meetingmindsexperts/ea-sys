@@ -276,11 +276,12 @@ export function ImportContactsDialog({
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {isLoading ? (
+                {isLoading && (
                   <tr>
                     <td colSpan={5} className="text-center py-8 text-muted-foreground">Loading…</td>
                   </tr>
-                ) : contacts.length === 0 ? (
+                )}
+                {!isLoading && (contacts.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="text-center py-8 text-muted-foreground">
                       <Users className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -320,7 +321,7 @@ export function ImportContactsDialog({
                       </td>
                     </tr>
                   ))
-                )}
+                ))}
               </tbody>
             </table>
           </div>

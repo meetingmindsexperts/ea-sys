@@ -555,7 +555,7 @@ export async function upsertBudgetLine(input: UpsertBudgetLineInput): Promise<Bu
         planned: storedString(totals.planned),
         taxAmountPlanned: storedString(totals.taxAmountPlanned),
         taxCode: input.taxCode !== undefined ? input.taxCode : (existing?.taxCode ?? null),
-        taxRatePercent: input.taxRatePercent !== undefined ? (input.taxRatePercent === null ? null : money(input.taxRatePercent).toString()) : (existing?.taxRatePercent ?? null),
+        taxRatePercent: nextTaxRatePercent(input.taxRatePercent, existing?.taxRatePercent),
         serviceStart: input.serviceStart !== undefined ? input.serviceStart : (existing?.serviceStart ?? null),
         serviceEnd: input.serviceEnd !== undefined ? input.serviceEnd : (existing?.serviceEnd ?? null),
         sortOrder: input.sortOrder ?? existing?.sortOrder ?? 0,
@@ -622,6 +622,12 @@ export async function deleteBudgetLine(input: { organizationId: string; actorUse
 }
 
 // ── submit / decide / activate ───────────────────────────────────────────────
+
+/** undefined keeps the stored rate, null clears it, a value is normalised. */
+function nextTaxRatePercent<T>(given: MoneyInput | null | undefined, stored: T | null | undefined): string | T | null {
+  if (given === undefined) return stored ?? null;
+  return given === null ? null : money(given).toString();
+}
 
 /** The reason a rate was refused, in the caller's words (spec §7.3: one rate, never the requester's choice). */
 function rateRefusal(currency: string, r: Extract<RateResolution, { ok: false }>, purpose: string): string {

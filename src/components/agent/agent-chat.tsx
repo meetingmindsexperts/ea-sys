@@ -158,6 +158,12 @@ function loadMessages(eventId: string | null): ChatMessage[] {
 
 // ─── ToolChip ─────────────────────────────────────────────────────────────────
 
+function toolStatusClass(isDone: boolean, isError: unknown): string {
+  if (!isDone) return "bg-blue-50 border-blue-200 text-blue-700 animate-pulse";
+  if (isError) return "bg-red-50 border-red-200 text-red-700";
+  return "bg-green-50 border-green-200 text-green-700";
+}
+
 function ToolChip({
   name,
   input,
@@ -187,18 +193,11 @@ function ToolChip({
           "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors max-w-full",
           canExpand && "cursor-pointer",
           !canExpand && "cursor-default",
-          isDone
-            ? isError
-              ? "bg-red-50 border-red-200 text-red-700"
-              : "bg-green-50 border-green-200 text-green-700"
-            : "bg-blue-50 border-blue-200 text-blue-700 animate-pulse"
+          toolStatusClass(isDone, isError)
         )}
       >
-        {isDone ? (
-          isError ? <AlertCircle className="h-3 w-3 shrink-0" /> : <Check className="h-3 w-3 shrink-0" />
-        ) : (
-          <Wrench className="h-3 w-3 shrink-0" />
-        )}
+        {!isDone && <Wrench className="h-3 w-3 shrink-0" />}
+        {isDone && (isError ? <AlertCircle className="h-3 w-3 shrink-0" /> : <Check className="h-3 w-3 shrink-0" />)}
         <span className="truncate">{isDone ? (summary ?? label) : label + "…"}</span>
         {canExpand && (
           expanded ? (

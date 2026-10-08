@@ -68,6 +68,12 @@ type AuditRow = {
   event: { id: string; name: string } | null;
 };
 
+function entityTypeFilterFor(hrScope: boolean, procurementScope: boolean): Prisma.StringFilter {
+  if (hrScope) return { in: HR_TYPES };
+  if (procurementScope) return { in: PROCUREMENT_TYPES };
+  return { notIn: EXCLUDED_FROM_CHANGES };
+}
+
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 }
@@ -216,7 +222,8 @@ async function attachProcurementSubjects(rows: AuditRow[], orgId: string) {
         const fromRow = viaBudget(strOf(f.budgetId));
         if (fromRow) return fromRow;
         const code = strOf(f.eventCode);
-        return code ? (typeof f.versionNo === "number" ? `${code} v${f.versionNo}` : code) : null;
+        if (!code) return null;
+        return typeof f.versionNo === "number" ? `${code} v${f.versionNo}` : code;
       }
       case "BudgetLine":
       case "BudgetRevenueLine":
@@ -343,11 +350,7 @@ export async function GET(req: Request) {
     // WITHIN it. `{ equals: "Employee", notIn: [...] }` yields zero rows in
     // the default scope, which is the point: the filter cannot smuggle an HR
     // or a budget row past the exclusion.
-    const entityTypeFilter: Prisma.StringFilter = hrScope
-      ? { in: HR_TYPES }
-      : procurementScope
-        ? { in: PROCUREMENT_TYPES }
-        : { notIn: EXCLUDED_FROM_CHANGES };
+    const entityTypeFilter = entityTypeFilterFor(hrScope, procurementScope);
     if (entityType) entityTypeFilter.equals = entityType;
     where.entityType = entityTypeFilter;
 

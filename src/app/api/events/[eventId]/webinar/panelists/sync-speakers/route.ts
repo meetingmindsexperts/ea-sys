@@ -14,6 +14,12 @@ type RouteParams = { params: Promise<{ eventId: string }> };
 
 // POST — batch-sync all anchor-session speakers to Zoom as webinar panelists.
 // Speakers without an email are skipped; the response reports the counts.
+function nothingToAddReason(totalSpeakers: number, skippedAlreadyPanelist: number): string {
+  if (totalSpeakers === 0) return "No speakers assigned to the webinar session yet.";
+  if (skippedAlreadyPanelist > 0) return "All speakers are already panelists.";
+  return "All speakers are missing an email address.";
+}
+
 export async function POST(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId }] = await Promise.all([auth(), params]);
@@ -104,12 +110,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
         { eventId, totalSpeakers, skippedNoEmail, skippedAlreadyPanelist },
         "webinar-panelists:sync-speakers-nothing-to-add",
       );
-      const reason =
-        totalSpeakers === 0
-          ? "No speakers assigned to the webinar session yet."
-          : skippedAlreadyPanelist > 0
-            ? "All speakers are already panelists."
-            : "All speakers are missing an email address.";
+      const reason = nothingToAddReason(totalSpeakers, skippedAlreadyPanelist);
       return NextResponse.json({
         ok: true,
         added: 0,

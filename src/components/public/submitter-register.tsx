@@ -162,6 +162,12 @@ const registerSchema = z.object({
 
 type RegisterForm = z.infer<typeof registerSchema>;
 
+function stepSubheading(step: 1 | 2, hasExistingPerson: boolean): string {
+  if (step === 1) return "Create your account to get started.";
+  if (hasExistingPerson) return "Check your details to continue.";
+  return "Fill in your details to complete registration.";
+}
+
 /**
  * Branded chrome — event banner + info strip + footer — shared by every
  * render state of this page so the loading/error/success screens carry the
@@ -667,7 +673,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
           <div className="px-6 sm:px-10 py-6 border-b border-slate-100">
             <h2 className="text-2xl font-bold text-slate-900">{copy.pageHeading}</h2>
             <p className="text-base text-slate-500 mt-1">
-              {step === 1 ? "Create your account to get started." : existingPerson ? "Check your details to continue." : "Fill in your details to complete registration."}
+              {stepSubheading(step, Boolean(existingPerson))}
             </p>
             <div className="flex items-center gap-2 mt-4">
               <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold",

@@ -120,11 +120,12 @@ export function UserRolesDialog({ user, onClose, onSaved }: { user: Person | nul
             Each role adds what it grants to this person&apos;s base role. Nothing here takes access away.
           </DialogDescription>
         </DialogHeader>
-        {isLoading ? (
+        {isLoading && (
           <div className="flex justify-center py-6">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Loading" />
           </div>
-        ) : roles.length === 0 ? (
+        )}
+        {!isLoading && (roles.length === 0 ? (
           <p className="text-sm text-muted-foreground">No roles yet. Create one under Settings, Roles, Custom roles.</p>
         ) : (
           <div className="space-y-3 max-h-80 overflow-y-auto">
@@ -158,7 +159,7 @@ export function UserRolesDialog({ user, onClose, onSaved }: { user: Person | nul
               );
             })}
           </div>
-        )}
+        ))}
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel

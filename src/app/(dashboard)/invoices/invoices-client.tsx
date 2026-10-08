@@ -269,15 +269,17 @@ export default function OrgInvoicesClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {isLoading ? (
+                {isLoading && (
                   <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                     <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                   </td></tr>
-                ) : invoices.length === 0 ? (
+                )}
+                {!isLoading && invoices.length === 0 && (
                   <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                     No invoices match these filters.
                   </td></tr>
-                ) : (
+                )}
+                {!isLoading && invoices.length > 0 && (
                   invoices.map((inv) => (
                     <tr key={inv.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3 font-mono font-medium text-slate-900">{inv.invoiceNumber}</td>

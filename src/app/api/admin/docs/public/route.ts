@@ -36,6 +36,12 @@ export async function GET() {
   }
 }
 
+function statusForCode(code: string): number {
+  if (code === "NOT_FOUND") return 404;
+  if (code === "DISABLED") return 409;
+  return 400;
+}
+
 export async function POST(req: Request) {
   try {
     const session = await auth();
@@ -55,7 +61,7 @@ export async function POST(req: Request) {
 
     const result = await setDocPublic({ path: parsed.data.path, makePublic: parsed.data.public, userId: session.user.id });
     if (!result.ok) {
-      const status = result.code === "NOT_FOUND" ? 404 : result.code === "DISABLED" ? 409 : 400;
+      const status = statusForCode(result.code);
       return NextResponse.json({ error: result.message, code: result.code }, { status });
     }
     return NextResponse.json({ path: result.path, public: result.public });

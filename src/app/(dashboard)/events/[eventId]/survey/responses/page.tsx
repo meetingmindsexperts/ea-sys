@@ -387,11 +387,7 @@ function QuestionAggregateCard({ aggregate }: { aggregate: QuestionAggregate }) 
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <Badge variant="secondary" className="text-xs shrink-0">
-              {aggregate.type === "rating_1_to_5"
-                ? "Rating"
-                : aggregate.type === "single_select"
-                  ? "Select"
-                  : "Text"}
+              {aggregateTypeLabel(aggregate.type)}
             </Badge>
             <span className="text-sm font-medium truncate">{aggregate.label}</span>
           </div>
@@ -402,17 +398,22 @@ function QuestionAggregateCard({ aggregate }: { aggregate: QuestionAggregate }) 
       </CardHeader>
       <CardContent className="px-4 pb-4 pt-0 border-t">
         <div className="pt-3">
-          {aggregate.type === "rating_1_to_5" ? (
-            <RatingChart aggregate={aggregate} />
-          ) : aggregate.type === "single_select" ? (
-            <SelectChart aggregate={aggregate} />
-          ) : (
-            <TextResponses aggregate={aggregate} />
-          )}
+          <AggregateChart aggregate={aggregate} />
         </div>
       </CardContent>
     </Card>
   );
+}
+
+function aggregateTypeLabel(type: QuestionAggregate["type"]): string {
+  if (type === "rating_1_to_5") return "Rating";
+  return type === "single_select" ? "Select" : "Text";
+}
+
+function AggregateChart({ aggregate }: { aggregate: QuestionAggregate }) {
+  if (aggregate.type === "rating_1_to_5") return <RatingChart aggregate={aggregate} />;
+  if (aggregate.type === "single_select") return <SelectChart aggregate={aggregate} />;
+  return <TextResponses aggregate={aggregate} />;
 }
 
 function RatingChart({

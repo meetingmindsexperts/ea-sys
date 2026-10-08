@@ -443,14 +443,7 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
         successCount++;
       } else {
         failureCount++;
-        const errMsg =
-          outcome.status === "rejected"
-            ? outcome.reason instanceof Error
-              ? outcome.reason.message
-              : String(outcome.reason)
-            : outcome.value.ok
-              ? "send failed"
-              : outcome.value.error;
+        const errMsg = sendFailureMessage(outcome);
         errors.push({ email: r.email, error: errMsg });
         apiLogger.warn({
           msg: "crm-email:recipient-failed",
@@ -475,6 +468,13 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
 }
 
 /** Render + send to one recipient; records CRM history on the contact on success. */
+function sendFailureMessage(outcome: PromiseSettledResult<{ ok: true } | { ok: false; error: string }>): string {
+  if (outcome.status === "rejected") {
+    return outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+  }
+  return outcome.value.ok ? "send failed" : outcome.value.error;
+}
+
 async function sendOne(
   r: SponsorRecipient,
   ctx: {

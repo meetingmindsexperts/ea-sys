@@ -51,11 +51,13 @@ export function BudgetRevenueSection({ b, editable }: { b: BudgetRow; editable: 
           {`Planned revenue is typed per income account. Actual revenue is read from paid registrations and won CRM deals linked to this event. All figures without VAT, in ${cur}.`}
         </p>
       </div>
-      {isLoading ? (
+      {isLoading && (
         <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Reading registrations and deals…</div>
-      ) : isError || !data ? (
+      )}
+      {!isLoading && (isError || !data) && (
         <p className="py-4 text-sm text-destructive">{`Couldn't load the revenue: ${(error as Error)?.message ?? "unknown error"}`}</p>
-      ) : (
+      )}
+      {!isLoading && !isError && data && (
         <RevenueBody b={b} data={data} editable={editable} />
       )}
     </section>

@@ -124,6 +124,19 @@ const PROCUREMENT_ACTION_TYPES = [
 export type ActivityScope = "changes" | "hr" | "procurement";
 
 /** "Today" / "Yesterday" / "Mon, 12 Jul 2026" — the grouping key AND its label. */
+function entityTypeOptions(scope: ActivityScope) {
+  if (scope === "procurement") return PROCUREMENT_ENTITY_TYPES;
+  if (scope === "hr") return HR_ENTITY_TYPES;
+  return CHANGES_ENTITY_TYPES;
+}
+
+function emptyHint(filtered: boolean, scope: ActivityScope): string {
+  if (filtered) return "Try widening the time range or clearing a filter.";
+  if (scope === "hr") return "Employee, attendance, standing-rule and leave-year changes will appear here as they happen.";
+  if (scope === "procurement") return "Budgets, lines, spend requests, purchase orders, suppliers and catalogue changes will appear here as they happen.";
+  return "Actions across your events will appear here as they happen.";
+}
+
 function dayLabel(d: Date): string {
   if (isToday(d)) return "Today";
   if (isYesterday(d)) return "Yesterday";
@@ -264,7 +277,7 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
-                {(isProcurement ? PROCUREMENT_ENTITY_TYPES : isHr ? HR_ENTITY_TYPES : CHANGES_ENTITY_TYPES).map((e) => (
+                {entityTypeOptions(scope).map((e) => (
                   <SelectItem key={e.value} value={e.value}>
                     {e.label}
                   </SelectItem>
@@ -311,11 +324,12 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
       </Card>
 
       {/* ── Results ──────────────────────────────────────────────────────── */}
-      {isLoading ? (
+      {isLoading && (
         <div className="flex justify-center py-16">
           <ReloadingSpinner />
         </div>
-      ) : logs.length === 0 ? (
+      )}
+      {!isLoading && logs.length === 0 && (
         <Card>
           <CardContent className="py-16">
             <div className="text-center">
@@ -326,13 +340,7 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
                 {activeFilters > 0 ? "No activity matches these filters" : "No activity recorded yet"}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                {activeFilters > 0
-                  ? "Try widening the time range or clearing a filter."
-                  : isHr
-                    ? "Employee, attendance, standing-rule and leave-year changes will appear here as they happen."
-                    : isProcurement
-                      ? "Budgets, lines, spend requests, purchase orders, suppliers and catalogue changes will appear here as they happen."
-                      : "Actions across your events will appear here as they happen."}
+                {emptyHint(activeFilters > 0, scope)}
               </p>
               {activeFilters > 0 && (
                 <Button variant="outline" size="sm" onClick={clearAll} className="mt-4">
@@ -342,7 +350,8 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
             </div>
           </CardContent>
         </Card>
-      ) : (
+      )}
+      {!isLoading && logs.length > 0 && (
         <div className="space-y-5">
           {days.map((day) => (
             <div key={day.label}>

@@ -163,6 +163,11 @@ export async function sessionSheets(eventId: string): Promise<Sheet[]> {
   ];
 }
 
+function bookingGuestKind(b: { registration: unknown; speaker: unknown }): string {
+  if (b.registration) return "Registration";
+  return b.speaker ? "Speaker" : "";
+}
+
 export async function accommodationSheets(eventId: string, principal: Principal): Promise<Sheet[]> {
   const finance = can(principal, "finance.view");
   const [bookings, hotels] = await Promise.all([
@@ -203,7 +208,7 @@ export async function accommodationSheets(eventId: string, principal: Principal)
   const bookingRows = bookings.map((b) => {
     const guest = b.registration?.attendee ?? b.speaker;
     return [
-      b.id, guest ? person(guest) : "", guest?.email ?? "", b.registration ? "Registration" : b.speaker ? "Speaker" : "",
+      b.id, guest ? person(guest) : "", guest?.email ?? "", bookingGuestKind(b),
       b.registration?.serialId ?? "", b.roomType.hotel.name, b.roomType.name, iso(b.checkIn), iso(b.checkOut), b.guestCount,
       b.status, b.confirmationNo, ...(finance ? [money(b.totalPrice), b.currency] : []), b.specialRequests, iso(b.createdAt),
     ];

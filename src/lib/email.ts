@@ -325,6 +325,12 @@ function getSesClient(): SESv2Client {
  */
 // Exported only so the unit suite can call it directly with a fake client;
 // production callers always reach this via getSesClient() on first use.
+function credentialSourceLabel(hasSessionToken: boolean, keyPrefix: string): string {
+  if (hasSessionToken) return "temporary credentials (instance role / STS / SSO)";
+  if (keyPrefix === "AKIA") return "long-term IAM user key (env var or shared credentials file)";
+  return "unknown";
+}
+
 export async function logSesIdentityDiagnostic(client: SESv2Client): Promise<void> {
   try {
     const regionProvider = client.config.region;
@@ -341,11 +347,7 @@ export async function logSesIdentityDiagnostic(client: SESv2Client): Promise<voi
     const envKeySet = !!process.env.AWS_ACCESS_KEY_ID;
     const envKeyPrefix = envKeySet ? process.env.AWS_ACCESS_KEY_ID!.slice(0, 4) : null;
 
-    const source = hasSessionToken
-      ? "temporary credentials (instance role / STS / SSO)"
-      : keyPrefix === "AKIA"
-        ? "long-term IAM user key (env var or shared credentials file)"
-        : "unknown";
+    const source = credentialSourceLabel(hasSessionToken, keyPrefix);
 
     apiLogger.info({
       msg: "ses:identity-diagnostic",
@@ -1228,6 +1230,11 @@ export function normalizeBodyImages(html: string): string {
   });
 }
 
+function defaultFooterHtml(eventName: string | undefined): string {
+  if (eventName) return `<p>This email was sent regarding ${escapeHtml(eventName)}</p>`;
+  return `<p>Sent from MM Group Events</p>`;
+}
+
 /**
  * Wrap body HTML content with a consistent email layout including header image
  * and footer. Uses table-based layout for email client compatibility.
@@ -1266,9 +1273,7 @@ export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): str
 
   const footerContent = branding.emailFooterHtml
     ? normalizeBodyImages(branding.emailFooterHtml)
-    : branding.eventName
-      ? `<p>This email was sent regarding ${escapeHtml(branding.eventName)}</p>`
-      : `<p>Sent from MM Group Events</p>`;
+    : defaultFooterHtml(branding.eventName);
 
   return `<!DOCTYPE html>
 <html>
@@ -1864,6 +1869,12 @@ interface PreviewUserData {
   emailSignature?: string | null;
 }
 
+function previewConfirmationNumber(reg: { id: string; serialId: number | null } | undefined): string {
+  if (!reg) return "9999";
+  if (reg.serialId != null) return String(reg.serialId).padStart(3, "0");
+  return reg.id.slice(-8).toUpperCase();
+}
+
 /**
  * Build template-preview / test-email variables from REAL event data, so a
  * preview or test reflects the actual event (name, dates, venue, organizer,
@@ -1902,11 +1913,7 @@ export function buildEventPreviewVariables(
   // real send does (padded serial, else last-8 of the id). No registrations
   // yet → static "9999" placeholder.
   const reg = event.registrations?.[0];
-  const registrationId = reg
-    ? reg.serialId != null
-      ? String(reg.serialId).padStart(3, "0")
-      : reg.id.slice(-8).toUpperCase()
-    : "9999";
+  const registrationId = previewConfirmationNumber(reg);
 
   // Mirrors composeVenueLine in the cert cover resolver (venue, city — the
   // preview event select carries no country).

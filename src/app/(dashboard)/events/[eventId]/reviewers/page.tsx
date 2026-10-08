@@ -76,6 +76,11 @@ export default function ReviewersPage() {
   );
 }
 
+function triStateChecked(all: boolean, some: boolean): boolean | "indeterminate" {
+  if (all) return true;
+  return some ? "indeterminate" : false;
+}
+
 function Reviewers({ eventId }: { eventId: string }) {
 
   const { data, isLoading, isFetching } = useReviewers(eventId);
@@ -393,7 +398,7 @@ function Reviewers({ eventId }: { eventId: string }) {
           {reviewers.length > 0 && (
             <div className="flex items-center gap-2">
               <Checkbox
-                checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                checked={triStateChecked(allSelected, someSelected)}
                 onCheckedChange={toggleSelectAll}
                 aria-label="Select all reviewers"
               />

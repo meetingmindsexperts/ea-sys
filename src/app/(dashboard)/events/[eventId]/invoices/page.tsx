@@ -367,7 +367,8 @@ export default function EventInvoicesPage() {
 
           {invoicesLoading ? (
             <div className="flex justify-center py-12"><ReloadingSpinner /></div>
-          ) : filteredInvoices.length === 0 ? (
+          ) : null}
+          {!invoicesLoading && (filteredInvoices.length === 0 ? (
             <EmptyRow icon={<Receipt className="h-10 w-10" />} text="No invoices match your filters." />
           ) : (
             <div className="overflow-x-auto rounded-lg border">
@@ -416,7 +417,8 @@ export default function EventInvoicesPage() {
                               {inv.registration.attendee.email}
                             </div>
                           </div>
-                        ) : inv.group ? (
+                        ) : null}
+                        {!inv.registration && (inv.group ? (
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
                               <span className="truncate font-medium">{inv.group.billingAccount.name}</span>
@@ -430,7 +432,7 @@ export default function EventInvoicesPage() {
                           </div>
                         ) : (
                           <span className="text-muted-foreground">—</span>
-                        )}
+                        ))}
                       </TableCell>
                       <TableCell>
                         {(() => {
@@ -487,7 +489,7 @@ export default function EventInvoicesPage() {
                 </TableBody>
               </Table>
             </div>
-          )}
+          ))}
         </TabsContent>
 
         {/* ── Quotes ───────────────────────────────────────────────────── */}
@@ -511,7 +513,8 @@ export default function EventInvoicesPage() {
 
           {regsLoading ? (
             <div className="flex justify-center py-12"><ReloadingSpinner /></div>
-          ) : filteredQuotes.length === 0 ? (
+          ) : null}
+          {!regsLoading && (filteredQuotes.length === 0 ? (
             <EmptyRow icon={<FileText className="h-10 w-10" />} text="No priced registrations found." />
           ) : (
             <div className="overflow-x-auto rounded-lg border">
@@ -597,7 +600,7 @@ export default function EventInvoicesPage() {
                 </TableBody>
               </Table>
             </div>
-          )}
+          ))}
         </TabsContent>
       </Tabs>
     </div>

@@ -429,7 +429,8 @@ export default function SubmitterProfilePage() {
                 organizer for that.
               </div>
             </CardContent>
-          ) : form ? (
+          ) : null}
+          {editing && (form ? (
             <CardContent className="space-y-4">
               {/* Mandatory fields, in the owner-specified order (Aug 5, 2026):
                   Title | First | Last → Email (locked) | Mobile → Job title |
@@ -539,7 +540,7 @@ export default function SubmitterProfilePage() {
                 </Button>
               </div>
             </CardContent>
-          ) : null}
+          ) : null)}
         </Card>
 
       </div>

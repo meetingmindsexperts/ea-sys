@@ -49,6 +49,11 @@ import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
 import { useCrmStages } from "@/crm/hooks/use-crm-api";
 
+function websiteHref(website: string | null | undefined): string | null {
+  if (!website) return null;
+  return website.startsWith("http") ? website : `https://${website}`;
+}
+
 export function CompanyDetailBody({
   companyId,
   canWrite,
@@ -104,11 +109,7 @@ export function CompanyDetailBody({
     );
   }
 
-  const website = company.website
-    ? company.website.startsWith("http")
-      ? company.website
-      : `https://${company.website}`
-    : null;
+  const website = websiteHref(company.website);
   const location = [company.city, company.country].filter(Boolean).join(", ");
   const subtitle = [company.industry, location].filter(Boolean).join(" · ");
   const openDeals = company.deals.filter((d) => d.status === "OPEN").length;

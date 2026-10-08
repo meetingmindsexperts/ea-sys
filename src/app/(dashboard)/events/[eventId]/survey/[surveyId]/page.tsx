@@ -89,6 +89,18 @@ const QUESTION_TYPE_LABELS: Record<SurveyQuestion["type"], string> = {
 // Tiptap emits "<p></p>" (and similar) for an empty document — treat that
 // as empty so the public form falls back to its default copy. Used for both
 // the intro and the thank-you message.
+function editedSurveyTitle(surveyId: string | null | undefined, name: string): string {
+  if (!surveyId) return "New survey";
+  return name || "Survey";
+}
+
+function responseModeHint(responseCount: number, responseMode: string): string {
+  if (responseCount > 0) return "People have already answered, so this can no longer change.";
+  return responseMode === "ONCE_PER_DAY"
+    ? "For daily feedback at a multi-day event: one answer per person per day (event timezone). Each person's link keeps working until it expires, so they use the same link every day. It never lets anyone change an answer already given."
+    : "Each person answers once; their link stops working after they submit.";
+}
+
 function richTextIsEmpty(html: string): boolean {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim() === "";
 }
@@ -306,23 +318,16 @@ export default function SurveyBuilderPage() {
         // The CME survey is answered once, always; its route takes no mode.
         ...(!isCertificate && { responseMode }),
       };
-      const res = isCertificate
-        ? await fetch(`/api/events/${eventId}/surveys/certificate`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          })
-        : surveyId
-          ? await fetch(`/api/events/${eventId}/surveys/${surveyId}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
-            })
-          : await fetch(`/api/events/${eventId}/surveys`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
-            });
+      const target = (() => {
+        if (isCertificate) return { url: `/api/events/${eventId}/surveys/certificate`, method: "PUT" };
+        if (surveyId) return { url: `/api/events/${eventId}/surveys/${surveyId}`, method: "PUT" };
+        return { url: `/api/events/${eventId}/surveys`, method: "POST" };
+      })();
+      const res = await fetch(target.url, {
+        method: target.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.warn("survey:save-failed", res.status, data);
@@ -397,7 +402,7 @@ export default function SurveyBuilderPage() {
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
-            {isCertificate ? "Certificate (CME) survey" : surveyId ? name || "Survey" : "New survey"}
+            {isCertificate ? "Certificate (CME) survey" : editedSurveyTitle(surveyId, name)}
             {isCertificate && (
               <Badge variant="secondary" className="gap-1 text-xs">
                 <Lock className="h-3 w-3" />
@@ -534,11 +539,7 @@ export default function SurveyBuilderPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {responseCount > 0
-                  ? "People have already answered, so this can no longer change."
-                  : responseMode === "ONCE_PER_DAY"
-                    ? "For daily feedback at a multi-day event: one answer per person per day (event timezone). Each person's link keeps working until it expires, so they use the same link every day. It never lets anyone change an answer already given."
-                    : "Each person answers once; their link stops working after they submit."}
+                {responseModeHint(responseCount, responseMode)}
               </p>
             </div>
           )}

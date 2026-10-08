@@ -100,14 +100,16 @@ export function CrmActivityTimeline({
 
   return (
     <div className="space-y-3">
-      {isLoading ? (
+      {isLoading && (
         <p className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Loading history…
         </p>
-      ) : rows.length === 0 ? (
+      )}
+      {!isLoading && rows.length === 0 && (
         <p className="py-2 text-sm text-muted-foreground">No changes recorded yet.</p>
-      ) : (
+      )}
+      {!isLoading && rows.length > 0 && (
         <ul className="space-y-3">
           {rows.map((row) => {
             const meta = ACTION_ICON[row.action] ?? { icon: Pencil, className: "text-muted-foreground" };

@@ -327,12 +327,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // saved template gains the survey block as the send places it; with none
     // chosen the block previews empty, as it sends.
     const thankYouSurvey = slug === "webinar-thank-you" ? await resolveThankYouSurvey(eventRow) : null;
-    const eventTemplate =
-      slug === "survey-invitation"
-        ? ensurePersonalSurveyLink(loadedTemplate).template
-        : thankYouSurvey
-          ? withThankYouSurveyBlock(loadedTemplate)
-          : loadedTemplate;
+    let eventTemplate = loadedTemplate;
+    if (slug === "survey-invitation") eventTemplate = ensurePersonalSurveyLink(loadedTemplate).template;
+    else if (thankYouSurvey) eventTemplate = withThankYouSurveyBlock(loadedTemplate);
 
     const sampleVars = buildEventPreviewVariables(
       event,

@@ -111,6 +111,24 @@ const AVAILABLE_TOKENS: Array<{ token: string; description: string; sample: stri
 // Display canvas width — wider than the page so the operator can drop
 // boxes in the margin and slide them in. The browser scales pixels via
 // `displayScale = canvasWidthPx / pageWidthPt`.
+const ALIGN_ICONS: Record<TextBoxAlign, typeof AlignLeft> = {
+  left: AlignLeft,
+  center: AlignCenter,
+  right: AlignRight,
+};
+
+function previewFontFamily(font: string): string {
+  if (font.startsWith("Times")) return "Times, serif";
+  if (font.startsWith("Courier")) return "Courier, monospace";
+  return "Helvetica, Arial, sans-serif";
+}
+
+function alignToJustify(align: TextBoxAlign): string {
+  if (align === "center") return "center";
+  if (align === "right") return "flex-end";
+  return "flex-start";
+}
+
 const CANVAS_DISPLAY_WIDTH_PX = 800;
 
 // Alignment rulers (top + left edges of the canvas). Thickness in px; tick
@@ -814,11 +832,7 @@ export function CertificateCanvasEditor({
                       // standard fonts in the browser, so this is just a
                       // visual hint of family + style. Final glyph
                       // rendering happens server-side.
-                      fontFamily: box.font.startsWith("Times")
-                        ? "Times, serif"
-                        : box.font.startsWith("Courier")
-                          ? "Courier, monospace"
-                          : "Helvetica, Arial, sans-serif",
+                      fontFamily: previewFontFamily(box.font),
                       fontWeight: box.font.includes("Bold") ? 700 : 400,
                       fontStyle:
                         box.font.includes("Oblique") || box.font.includes("Italic")
@@ -826,12 +840,7 @@ export function CertificateCanvasEditor({
                           : "normal",
                       color: box.color,
                       textAlign: box.align,
-                      justifyContent:
-                        box.align === "center"
-                          ? "center"
-                          : box.align === "right"
-                            ? "flex-end"
-                            : "flex-start",
+                      justifyContent: alignToJustify(box.align),
                       lineHeight: 1,
                       whiteSpace: "nowrap",
                     }}
@@ -987,8 +996,7 @@ export function CertificateCanvasEditor({
                   <Label className="text-xs">Align</Label>
                   <div className="flex gap-1">
                     {(["left", "center", "right"] as const).map((a) => {
-                      const Icon =
-                        a === "left" ? AlignLeft : a === "center" ? AlignCenter : AlignRight;
+                      const Icon = ALIGN_ICONS[a];
                       return (
                         <Button
                           key={a}

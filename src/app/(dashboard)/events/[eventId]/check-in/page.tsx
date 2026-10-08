@@ -56,6 +56,18 @@ interface ScanResult {
 }
 
 
+const SCAN_BORDER_CLASS: Record<ScanResult["type"], string> = {
+  success: "border-green-200",
+  warning: "border-amber-200",
+  error: "border-red-200",
+};
+
+function ScanIcon({ type }: { type: ScanResult["type"] }) {
+  if (type === "success") return <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />;
+  if (type === "warning") return <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />;
+  return <XCircle className="h-5 w-5 text-red-500 shrink-0" />;
+}
+
 export default function CheckInPage() {
   const params = useParams();
   const router = useRouter();
@@ -362,21 +374,9 @@ export default function CheckInPage() {
               {recentScans.map((scan) => (
                 <div
                   key={scan.id}
-                  className={`flex items-center gap-3 rounded-lg border p-3 bg-white ${
-                    scan.type === "success"
-                      ? "border-green-200"
-                      : scan.type === "warning"
-                        ? "border-amber-200"
-                        : "border-red-200"
-                  }`}
+                  className={`flex items-center gap-3 rounded-lg border p-3 bg-white ${SCAN_BORDER_CLASS[scan.type]}`}
                 >
-                  {scan.type === "success" ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
-                  ) : scan.type === "warning" ? (
-                    <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
-                  ) : (
-                    <XCircle className="h-5 w-5 text-red-500 shrink-0" />
-                  )}
+                  <ScanIcon type={scan.type} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{scan.name}</p>
                     <p className="text-xs text-muted-foreground">{scan.message}</p>

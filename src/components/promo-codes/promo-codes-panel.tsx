@@ -261,9 +261,10 @@ export function PromoCodesPanel({ eventId }: Props) {
       </div>
 
       {/* List */}
-      {isLoading ? (
+      {isLoading && (
         <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
-      ) : (promoCodes as PromoCode[]).length === 0 ? (
+      )}
+      {!isLoading && ((promoCodes as PromoCode[]).length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <Tag className="h-10 w-10 mx-auto text-slate-300 mb-3" />
@@ -350,7 +351,7 @@ export function PromoCodesPanel({ eventId }: Props) {
             </Card>
           ))}
         </div>
-      )}
+      ))}
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

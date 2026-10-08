@@ -30,6 +30,18 @@ type PrefixedDocument = Document & {
   webkitFullscreenEnabled?: boolean;
 };
 
+function requestFullscreenFn(pel: PrefixedElement) {
+  if (typeof pel.requestFullscreen === "function") return () => pel.requestFullscreen();
+  if (typeof pel.webkitRequestFullscreen === "function") return () => pel.webkitRequestFullscreen?.();
+  return null;
+}
+
+function exitFullscreenFn(pdoc: PrefixedDocument) {
+  if (typeof pdoc.exitFullscreen === "function") return () => pdoc.exitFullscreen();
+  if (typeof pdoc.webkitExitFullscreen === "function") return () => pdoc.webkitExitFullscreen?.();
+  return null;
+}
+
 /**
  * The Fullscreen API for `el`, or null when this browser cannot make an
  * element fullscreen (iPhone Safari exposes it only on `<video>`, and a
@@ -45,20 +57,10 @@ export function resolveFullscreenApi(
 
   if (doc.fullscreenEnabled === false && pdoc.webkitFullscreenEnabled !== true) return null;
 
-  const request =
-    typeof pel.requestFullscreen === "function"
-      ? () => pel.requestFullscreen()
-      : typeof pel.webkitRequestFullscreen === "function"
-        ? () => pel.webkitRequestFullscreen?.()
-        : null;
+  const request = requestFullscreenFn(pel);
   if (!request) return null;
 
-  const exit =
-    typeof pdoc.exitFullscreen === "function"
-      ? () => pdoc.exitFullscreen()
-      : typeof pdoc.webkitExitFullscreen === "function"
-        ? () => pdoc.webkitExitFullscreen?.()
-        : null;
+  const exit = exitFullscreenFn(pdoc);
   if (!exit) return null;
 
   return {

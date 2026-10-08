@@ -108,6 +108,8 @@ function ActivityInner() {
     return `/api/crm/activity/export${s ? `?${s}` : ""}`;
   })();
 
+  const view = listView(isLoading, isError, rows.length === 0);
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -172,11 +174,13 @@ function ActivityInner() {
         )}
       </div>
 
-      {isLoading ? (
+      {view === "loading" && (
         <CrmListSkeleton rows={8} />
-      ) : isError ? (
+      )}
+      {view === "error" && (
         <CrmLoadError what="the activity log" onRetry={() => refetch()} />
-      ) : rows.length === 0 ? (
+      )}
+      {view === "empty" && (
         <CrmEmptyState
           icon={ActivityIcon}
           title={filtersActive ? "No activity matches these filters" : "No activity yet"}
@@ -186,7 +190,8 @@ function ActivityInner() {
               : "Deal moves, edits, emails and closes across the whole CRM show up here."
           }
         />
-      ) : (
+      )}
+      {view === "list" && (
         <div className="overflow-hidden rounded-xl border bg-card">
           <ul className="divide-y">
             {rows.map((row) => (
@@ -250,6 +255,15 @@ function ActivityRow({ row }: { row: CrmActivityFeedRow }) {
       </span>
     </li>
   );
+}
+
+type ListView = "loading" | "error" | "empty" | "list";
+
+function listView(isLoading: boolean, isError: boolean, empty: boolean): ListView {
+  if (isLoading) return "loading";
+  if (isError) return "error";
+  if (empty) return "empty";
+  return "list";
 }
 
 export default function CrmActivityPage() {

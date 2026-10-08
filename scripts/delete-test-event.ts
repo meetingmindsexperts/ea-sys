@@ -71,6 +71,16 @@ const COUNTED = [
   "eventStats", "registrationSerialCounter",
 ] as const;
 
+function orphanContactNote(left: number): string {
+  if (left !== 0) return "";
+  return deleteOrphanContacts ? "  → will be DELETED" : "  → kept (--delete-orphan-contacts to remove)";
+}
+
+function mediaFilesNote(count: number): string {
+  if (!count) return "";
+  return deleteFiles ? "  → will be unlinked" : "  → kept (--delete-files to remove)";
+}
+
 async function main() {
   if (!eventId || !expectName) {
     console.error(
@@ -175,12 +185,10 @@ async function main() {
     for (const c of contacts) {
       const left = c.eventIds.length - 1;
       console.log(`     ${c.email.padEnd(28)} ${left} event(s) left` +
-        (left === 0
-          ? deleteOrphanContacts ? "  → will be DELETED" : "  → kept (--delete-orphan-contacts to remove)"
-          : ""));
+        orphanContactNote(left));
     }
     console.log(`  media files on disk        ${media.length}` +
-      (media.length ? (deleteFiles ? "  → will be unlinked" : "  → kept (--delete-files to remove)") : ""));
+      mediaFilesNote(media.length));
 
     console.log(`\nRegistrations:`);
     for (const r of registrations) {

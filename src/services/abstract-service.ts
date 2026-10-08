@@ -412,6 +412,11 @@ export type SubmitAbstractReviewResult =
     }
   | { ok: false; code: SubmitAbstractReviewErrorCode; message: string };
 
+function submissionLogMessage(wasCreate: boolean, onBehalf: boolean): string {
+  if (wasCreate) return onBehalf ? "abstract-submission:created-on-behalf-of" : "abstract-submission:created";
+  return onBehalf ? "abstract-submission:updated-on-behalf-of" : "abstract-submission:updated";
+}
+
 /**
  * Create or update one reviewer's submission for an abstract.
  *
@@ -625,9 +630,7 @@ export async function submitAbstractReview(
     const wasCreate = submission.submittedAt.getTime() === submission.updatedAt.getTime();
     apiLogger.info(
       { eventId, abstractId, reviewerUserId, overallScore, ...(onBehalf && { onBehalfOf: true, actorUserId: actor.userId }) },
-      wasCreate
-        ? onBehalf ? "abstract-submission:created-on-behalf-of" : "abstract-submission:created"
-        : onBehalf ? "abstract-submission:updated-on-behalf-of" : "abstract-submission:updated",
+      submissionLogMessage(wasCreate, onBehalf),
     );
 
     db.auditLog

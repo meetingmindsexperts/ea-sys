@@ -188,6 +188,16 @@ const ROLE_META: Record<string, RoleMeta> = {
 
 const EXTRA_ROLE_LABELS: Record<string, string> = { MEMBER: "Member" };
 
+/** Header title when the user has no organisation name to show. */
+function portalTitle(role: string): string {
+  if (role === "REVIEWER") return "Reviewer Portal";
+  if (role === "SUBMITTER") return "Submitter Portal";
+  if (role === "REGISTRANT") return "Registration Portal";
+  if (role === "CRM_USER") return "CRM";
+  if (role === "HR_USER") return "HR";
+  return "Dashboard";
+}
+
 /** The display name of a role, as the header badge shows it ("Onsite Staff"). */
 export function roleLabelOf(role: string | null | undefined): string | null {
   if (!role) return null;
@@ -305,18 +315,7 @@ export function Header() {
           </div>
         ) : (
           <h1 className="text-lg font-semibold">
-            {session?.user?.organizationName ||
-              (role === "REVIEWER"
-                ? "Reviewer Portal"
-                : role === "SUBMITTER"
-                  ? "Submitter Portal"
-                  : role === "REGISTRANT"
-                    ? "Registration Portal"
-                    : role === "CRM_USER"
-                      ? "CRM"
-                      : role === "HR_USER"
-                        ? "HR"
-                        : "Dashboard")}
+            {session?.user?.organizationName || portalTitle(role)}
           </h1>
         )}
       </div>

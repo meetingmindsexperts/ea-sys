@@ -346,6 +346,246 @@ function GroupRegisterContent() {
 
   const closed = !event.groupRegistration.enabled || !event.registrationOpen || event.eventFull;
 
+  const renderBody = () => {
+    if (returnedPayment === "success") {
+      return (
+        <div className="rounded-xl border bg-white p-8 text-center">
+          <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500 mb-4" />
+          <h2 className="text-2xl font-semibold mb-2">Payment received</h2>
+          <p className="text-slate-600">
+            Thank you — your group registration is paid in full. A paid invoice is on its way to
+            the company and to you.
+          </p>
+          <p className="text-sm text-slate-500 mt-3">
+            Every member keeps the confirmation email they already received.
+          </p>
+        </div>
+      );
+    }
+    if (returnedPayment === "cancelled") {
+      return (
+        <div className="rounded-xl border bg-white p-8 text-center">
+          <h2 className="text-2xl font-semibold mb-2">Payment cancelled</h2>
+          <p className="text-slate-600">
+            No payment was taken and <strong>your group registration is safe</strong> — everyone
+            is still registered. You can pay by card now, or by bank transfer using the
+            consolidated invoice that was emailed to you.
+          </p>
+          {returnedGroupId ? (
+            <Button
+              className="mt-5"
+              onClick={() => payByCard(returnedGroupId)}
+              disabled={payingByCard}
+            >
+              {payingByCard ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Opening payment…</>
+              ) : (
+                <><CreditCard className="mr-2 h-4 w-4" /> Try card payment again</>
+              )}
+            </Button>
+          ) : null}
+        </div>
+      );
+    }
+    if (done) {
+      return (
+        <div className="rounded-xl border bg-white p-8 text-center">
+          <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500 mb-4" />
+          <h2 className="text-2xl font-semibold mb-2">Group registered!</h2>
+          <p className="text-slate-600 mb-1">
+            {done.memberCount} member{done.memberCount === 1 ? "" : "s"} registered — total <strong>{done.total}</strong>.
+          </p>
+          <p className="text-slate-600">
+            {done.invoiceNumber
+              ? <>Consolidated invoice <strong>{done.invoiceNumber}</strong> has been emailed to the company and to you.</>
+              : "The consolidated invoice will be emailed shortly."}
+          </p>
+          <p className="text-sm text-slate-500 mt-3">
+            Each member has received their own confirmation email. Registration is confirmed on receipt of payment.
+          </p>
+          <p className="text-sm mt-3">
+            <a href={`/e/${slug}/my-group`} className="text-cyan-700 underline underline-offset-2">
+              View your group
+            </a>{" "}
+            <span className="text-slate-500">— everyone&apos;s status, the invoice, and payment.</span>
+          </p>
+          {done.payable ? (
+            <div className="mt-6 border-t pt-6">
+              <p className="text-sm text-slate-600 mb-3">
+                Paying by card? Settle the whole group now — or ignore this and pay the invoice by
+                bank transfer.
+              </p>
+              <Button onClick={() => payByCard(done.groupId)} disabled={payingByCard}>
+                {payingByCard ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Opening payment…</>
+                ) : (
+                  <><CreditCard className="mr-2 h-4 w-4" /> Pay {done.total} by card</>
+                )}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+    if (closed) {
+      return (
+        <div className="rounded-xl border bg-white p-8 text-center">
+          <h2 className="text-xl font-semibold mb-2">Group registration is not open</h2>
+          <p className="text-slate-600">
+            {event.eventFull
+              ? "This event has reached its maximum number of attendees."
+              : "Group registration is not currently available for this event. Please contact the organizing team."}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-6">
+        {/* Coordinator */}
+        <section className="rounded-xl border bg-white p-6">
+          <h2 className="text-lg font-semibold mb-1">1. Your details (group coordinator)</h2>
+          <p className="text-sm text-slate-500 mb-4">
+            You manage this group. An account is created (or your existing account is used) so you can view and update the group later.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div><Label>First name *</Label><Input value={coFirst} onChange={(e) => setCoFirst(e.target.value)} /></div>
+            <div><Label>Last name *</Label><Input value={coLast} onChange={(e) => setCoLast(e.target.value)} /></div>
+            <div><Label>Email *</Label><Input type="email" value={coEmail} onChange={(e) => setCoEmail(e.target.value)} /></div>
+            <div><Label>Password *</Label><Input type="password" value={coPassword} onChange={(e) => setCoPassword(e.target.value)} placeholder="Min 8 characters" /></div>
+          </div>
+          <label className="mt-4 flex items-center gap-2 text-sm">
+            <Checkbox checked={attending} onCheckedChange={(v) => setAttending(v === true)} />
+            I am attending the event myself (my details become member #1)
+          </label>
+        </section>
+
+        {/* Payer */}
+        <section className="rounded-xl border bg-white p-6">
+          <h2 className="text-lg font-semibold mb-1 inline-flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-slate-400" /> 2. Who pays (company / institution)
+          </h2>
+          <p className="text-sm text-slate-500 mb-4">
+            The consolidated invoice is issued to this payer. Members are never asked to pay individually.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2"><Label>Company / institution name *</Label><Input value={payer.name} onChange={(e) => setPayer({ ...payer, name: e.target.value })} /></div>
+            <div><Label>Contact person</Label><Input value={payer.contactName} onChange={(e) => setPayer({ ...payer, contactName: e.target.value })} /></div>
+            <div><Label>Billing email</Label><Input type="email" value={payer.email} onChange={(e) => setPayer({ ...payer, email: e.target.value })} /></div>
+            <div><Label>Phone</Label><Input value={payer.phone} onChange={(e) => setPayer({ ...payer, phone: e.target.value })} /></div>
+            <div><Label>Tax / VAT number</Label><Input value={payer.taxNumber} onChange={(e) => setPayer({ ...payer, taxNumber: e.target.value })} /></div>
+            <div className="sm:col-span-2"><Label>Address</Label><Input value={payer.address} onChange={(e) => setPayer({ ...payer, address: e.target.value })} /></div>
+            <div><Label>City</Label><Input value={payer.city} onChange={(e) => setPayer({ ...payer, city: e.target.value })} /></div>
+            <div><Label>Country</Label><CountrySelect value={payer.country} onChange={(v) => setPayer({ ...payer, country: v })} /></div>
+            <div><Label>PO / reference (optional)</Label><Input value={payerReference} onChange={(e) => setPayerReference(e.target.value)} placeholder="Printed on the invoice" /></div>
+            <div><Label>Promo code (optional)</Label><Input value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="If you were given one" autoCapitalize="characters" />
+              <p className="mt-1 text-xs text-slate-500">Applied as one discount on your invoice.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Members */}
+        <section className="rounded-xl border bg-white p-6">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-lg font-semibold">3. Group members</h2>
+            <span className="text-sm text-slate-500">{members.length} of max {maxMembers} (min {minMembers})</span>
+          </div>
+          <p className="text-sm text-slate-500 mb-4">Enter each attendee&apos;s details and pick their registration type.</p>
+
+          <div className="space-y-6">
+            {members.map((m, idx) => {
+              const isCoordinatorRow = attending && idx === 0;
+              const type = buyableTypes.find((t) => t.id === m.ticketTypeId);
+              const priceInfo = type ? livePrice(type) : null;
+              return (
+                <div key={idx} className="rounded-lg border border-slate-200 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-medium text-sm">
+                      Member {idx + 1}{isCoordinatorRow ? " — you" : ""}
+                    </span>
+                    {!isCoordinatorRow && members.length > 1 && (
+                      <Button variant="ghost" size="sm" onClick={() => removeMember(idx)}>
+                        <Trash2 className="h-4 w-4 text-slate-400" />
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div>
+                      <Label>Registration type *</Label>
+                      <Select value={m.ticketTypeId} onValueChange={(v) => updateMember(idx, { ticketTypeId: v })}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="Select type" /></SelectTrigger>
+                        <SelectContent>
+                          {buyableTypes.map((t) => {
+                            const p = livePrice(t);
+                            return (
+                              <SelectItem key={t.id} value={t.id}>
+                                {t.name}{p.tierName ? ` (${p.tierName})` : ""} — {t.currency ?? "USD"} {p.price.toFixed(2)}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                      {priceInfo && (
+                        <p className="text-xs text-slate-500 mt-1">{currency} {priceInfo.price.toFixed(2)}{priceInfo.tierName ? ` · ${priceInfo.tierName}` : ""}</p>
+                      )}
+                    </div>
+                    <div><Label>Title</Label><TitleSelect value={m.title} onChange={(v) => updateMember(idx, { title: v })} /></div>
+                    <div className="hidden lg:block" />
+                    <div><Label>First name *</Label><Input value={m.firstName} onChange={(e) => updateMember(idx, { firstName: e.target.value })} disabled={isCoordinatorRow} /></div>
+                    <div><Label>Last name *</Label><Input value={m.lastName} onChange={(e) => updateMember(idx, { lastName: e.target.value })} disabled={isCoordinatorRow} /></div>
+                    <div><Label>Email *</Label><Input type="email" value={m.email} onChange={(e) => updateMember(idx, { email: e.target.value })} disabled={isCoordinatorRow} /></div>
+                    <div><Label>Organization *</Label><Input value={m.organization} onChange={(e) => updateMember(idx, { organization: e.target.value })} /></div>
+                    <div><Label>Job title *</Label><Input value={m.jobTitle} onChange={(e) => updateMember(idx, { jobTitle: e.target.value })} /></div>
+                    <div><Label>Phone *</Label><Input value={m.phone} onChange={(e) => updateMember(idx, { phone: e.target.value })} /></div>
+                    <div><Label>City *</Label><Input value={m.city} onChange={(e) => updateMember(idx, { city: e.target.value })} /></div>
+                    <div><Label>Country *</Label><CountrySelect value={m.country} onChange={(v) => updateMember(idx, { country: v })} /></div>
+                    <div><Label>Role *</Label><RoleSelect value={m.role} onChange={(v) => updateMember(idx, { role: v })} /></div>
+                    <div><Label>Specialty *</Label><SpecialtySelect value={m.specialty} onChange={(v) => updateMember(idx, { specialty: v })} /></div>
+                    {m.specialty === "Others" && (
+                      <div><Label>Custom specialty *</Label><Input value={m.customSpecialty} onChange={(e) => updateMember(idx, { customSpecialty: e.target.value })} /></div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {members.length < maxMembers && (
+            <Button variant="outline" className="mt-4" onClick={addMember}>
+              <Plus className="h-4 w-4 mr-1" /> Add member
+            </Button>
+          )}
+        </section>
+
+        {/* Total + submit */}
+        <section className="rounded-xl border bg-white p-6">
+          <h2 className="text-lg font-semibold mb-4">4. Review &amp; submit</h2>
+          <div className="space-y-1 text-sm max-w-sm">
+            <div className="flex justify-between"><span className="text-slate-500">Subtotal ({members.length} member{members.length === 1 ? "" : "s"})</span><span>{currency} {totals.subtotal.toFixed(2)}</span></div>
+            {totals.rate > 0 && (
+              <div className="flex justify-between"><span className="text-slate-500">{event.taxLabel || "VAT"} ({totals.rate}%)</span><span>{currency} {totals.tax.toFixed(2)}</span></div>
+            )}
+            <div className="flex justify-between font-semibold text-base pt-1 border-t"><span>Total</span><span>{currency} {totals.total.toFixed(2)}</span></div>
+            {promoCode.trim() && (
+              /* No client-side discount preview: the server resolves the
+                 code and freezes the amount onto the invoice, and a
+                 preview that disagreed with the invoice would be worse
+                 than none. Say what will happen instead. */
+              <p className="pt-1 text-xs text-slate-500">
+                Promo code <span className="font-medium uppercase">{promoCode.trim()}</span> will be checked and, if valid, discounted on your invoice.
+              </p>
+            )}
+          </div>
+          <p className="text-sm text-slate-500 mt-4">
+            Submitting registers all members and emails the consolidated invoice to the payer. Payment is by bank transfer (details on the invoice); registration is confirmed on receipt of payment.
+          </p>
+          <Button className="mt-4" size="lg" onClick={handleSubmit} disabled={submitting}>
+            {submitting ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Registering group…</>) : `Register group (${members.length})`}
+          </Button>
+        </section>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <EventBannerBand banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} />
@@ -369,231 +609,7 @@ function GroupRegisterContent() {
           </div>
         </div>
 
-        {returnedPayment === "success" ? (
-          <div className="rounded-xl border bg-white p-8 text-center">
-            <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500 mb-4" />
-            <h2 className="text-2xl font-semibold mb-2">Payment received</h2>
-            <p className="text-slate-600">
-              Thank you — your group registration is paid in full. A paid invoice is on its way to
-              the company and to you.
-            </p>
-            <p className="text-sm text-slate-500 mt-3">
-              Every member keeps the confirmation email they already received.
-            </p>
-          </div>
-        ) : returnedPayment === "cancelled" ? (
-          <div className="rounded-xl border bg-white p-8 text-center">
-            <h2 className="text-2xl font-semibold mb-2">Payment cancelled</h2>
-            <p className="text-slate-600">
-              No payment was taken and <strong>your group registration is safe</strong> — everyone
-              is still registered. You can pay by card now, or by bank transfer using the
-              consolidated invoice that was emailed to you.
-            </p>
-            {returnedGroupId ? (
-              <Button
-                className="mt-5"
-                onClick={() => payByCard(returnedGroupId)}
-                disabled={payingByCard}
-              >
-                {payingByCard ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Opening payment…</>
-                ) : (
-                  <><CreditCard className="mr-2 h-4 w-4" /> Try card payment again</>
-                )}
-              </Button>
-            ) : null}
-          </div>
-        ) : done ? (
-          <div className="rounded-xl border bg-white p-8 text-center">
-            <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500 mb-4" />
-            <h2 className="text-2xl font-semibold mb-2">Group registered!</h2>
-            <p className="text-slate-600 mb-1">
-              {done.memberCount} member{done.memberCount === 1 ? "" : "s"} registered — total <strong>{done.total}</strong>.
-            </p>
-            <p className="text-slate-600">
-              {done.invoiceNumber
-                ? <>Consolidated invoice <strong>{done.invoiceNumber}</strong> has been emailed to the company and to you.</>
-                : "The consolidated invoice will be emailed shortly."}
-            </p>
-            <p className="text-sm text-slate-500 mt-3">
-              Each member has received their own confirmation email. Registration is confirmed on receipt of payment.
-            </p>
-            <p className="text-sm mt-3">
-              <a href={`/e/${slug}/my-group`} className="text-cyan-700 underline underline-offset-2">
-                View your group
-              </a>{" "}
-              <span className="text-slate-500">— everyone&apos;s status, the invoice, and payment.</span>
-            </p>
-            {done.payable ? (
-              <div className="mt-6 border-t pt-6">
-                <p className="text-sm text-slate-600 mb-3">
-                  Paying by card? Settle the whole group now — or ignore this and pay the invoice by
-                  bank transfer.
-                </p>
-                <Button onClick={() => payByCard(done.groupId)} disabled={payingByCard}>
-                  {payingByCard ? (
-                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Opening payment…</>
-                  ) : (
-                    <><CreditCard className="mr-2 h-4 w-4" /> Pay {done.total} by card</>
-                  )}
-                </Button>
-              </div>
-            ) : null}
-          </div>
-        ) : closed ? (
-          <div className="rounded-xl border bg-white p-8 text-center">
-            <h2 className="text-xl font-semibold mb-2">Group registration is not open</h2>
-            <p className="text-slate-600">
-              {event.eventFull
-                ? "This event has reached its maximum number of attendees."
-                : "Group registration is not currently available for this event. Please contact the organizing team."}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* Coordinator */}
-            <section className="rounded-xl border bg-white p-6">
-              <h2 className="text-lg font-semibold mb-1">1. Your details (group coordinator)</h2>
-              <p className="text-sm text-slate-500 mb-4">
-                You manage this group. An account is created (or your existing account is used) so you can view and update the group later.
-              </p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div><Label>First name *</Label><Input value={coFirst} onChange={(e) => setCoFirst(e.target.value)} /></div>
-                <div><Label>Last name *</Label><Input value={coLast} onChange={(e) => setCoLast(e.target.value)} /></div>
-                <div><Label>Email *</Label><Input type="email" value={coEmail} onChange={(e) => setCoEmail(e.target.value)} /></div>
-                <div><Label>Password *</Label><Input type="password" value={coPassword} onChange={(e) => setCoPassword(e.target.value)} placeholder="Min 8 characters" /></div>
-              </div>
-              <label className="mt-4 flex items-center gap-2 text-sm">
-                <Checkbox checked={attending} onCheckedChange={(v) => setAttending(v === true)} />
-                I am attending the event myself (my details become member #1)
-              </label>
-            </section>
-
-            {/* Payer */}
-            <section className="rounded-xl border bg-white p-6">
-              <h2 className="text-lg font-semibold mb-1 inline-flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-slate-400" /> 2. Who pays (company / institution)
-              </h2>
-              <p className="text-sm text-slate-500 mb-4">
-                The consolidated invoice is issued to this payer. Members are never asked to pay individually.
-              </p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2"><Label>Company / institution name *</Label><Input value={payer.name} onChange={(e) => setPayer({ ...payer, name: e.target.value })} /></div>
-                <div><Label>Contact person</Label><Input value={payer.contactName} onChange={(e) => setPayer({ ...payer, contactName: e.target.value })} /></div>
-                <div><Label>Billing email</Label><Input type="email" value={payer.email} onChange={(e) => setPayer({ ...payer, email: e.target.value })} /></div>
-                <div><Label>Phone</Label><Input value={payer.phone} onChange={(e) => setPayer({ ...payer, phone: e.target.value })} /></div>
-                <div><Label>Tax / VAT number</Label><Input value={payer.taxNumber} onChange={(e) => setPayer({ ...payer, taxNumber: e.target.value })} /></div>
-                <div className="sm:col-span-2"><Label>Address</Label><Input value={payer.address} onChange={(e) => setPayer({ ...payer, address: e.target.value })} /></div>
-                <div><Label>City</Label><Input value={payer.city} onChange={(e) => setPayer({ ...payer, city: e.target.value })} /></div>
-                <div><Label>Country</Label><CountrySelect value={payer.country} onChange={(v) => setPayer({ ...payer, country: v })} /></div>
-                <div><Label>PO / reference (optional)</Label><Input value={payerReference} onChange={(e) => setPayerReference(e.target.value)} placeholder="Printed on the invoice" /></div>
-                <div><Label>Promo code (optional)</Label><Input value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="If you were given one" autoCapitalize="characters" />
-                  <p className="mt-1 text-xs text-slate-500">Applied as one discount on your invoice.</p>
-                </div>
-              </div>
-            </section>
-
-            {/* Members */}
-            <section className="rounded-xl border bg-white p-6">
-              <div className="flex items-center justify-between mb-1">
-                <h2 className="text-lg font-semibold">3. Group members</h2>
-                <span className="text-sm text-slate-500">{members.length} of max {maxMembers} (min {minMembers})</span>
-              </div>
-              <p className="text-sm text-slate-500 mb-4">Enter each attendee&apos;s details and pick their registration type.</p>
-
-              <div className="space-y-6">
-                {members.map((m, idx) => {
-                  const isCoordinatorRow = attending && idx === 0;
-                  const type = buyableTypes.find((t) => t.id === m.ticketTypeId);
-                  const priceInfo = type ? livePrice(type) : null;
-                  return (
-                    <div key={idx} className="rounded-lg border border-slate-200 p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="font-medium text-sm">
-                          Member {idx + 1}{isCoordinatorRow ? " — you" : ""}
-                        </span>
-                        {!isCoordinatorRow && members.length > 1 && (
-                          <Button variant="ghost" size="sm" onClick={() => removeMember(idx)}>
-                            <Trash2 className="h-4 w-4 text-slate-400" />
-                          </Button>
-                        )}
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        <div>
-                          <Label>Registration type *</Label>
-                          <Select value={m.ticketTypeId} onValueChange={(v) => updateMember(idx, { ticketTypeId: v })}>
-                            <SelectTrigger className="w-full"><SelectValue placeholder="Select type" /></SelectTrigger>
-                            <SelectContent>
-                              {buyableTypes.map((t) => {
-                                const p = livePrice(t);
-                                return (
-                                  <SelectItem key={t.id} value={t.id}>
-                                    {t.name}{p.tierName ? ` (${p.tierName})` : ""} — {t.currency ?? "USD"} {p.price.toFixed(2)}
-                                  </SelectItem>
-                                );
-                              })}
-                            </SelectContent>
-                          </Select>
-                          {priceInfo && (
-                            <p className="text-xs text-slate-500 mt-1">{currency} {priceInfo.price.toFixed(2)}{priceInfo.tierName ? ` · ${priceInfo.tierName}` : ""}</p>
-                          )}
-                        </div>
-                        <div><Label>Title</Label><TitleSelect value={m.title} onChange={(v) => updateMember(idx, { title: v })} /></div>
-                        <div className="hidden lg:block" />
-                        <div><Label>First name *</Label><Input value={m.firstName} onChange={(e) => updateMember(idx, { firstName: e.target.value })} disabled={isCoordinatorRow} /></div>
-                        <div><Label>Last name *</Label><Input value={m.lastName} onChange={(e) => updateMember(idx, { lastName: e.target.value })} disabled={isCoordinatorRow} /></div>
-                        <div><Label>Email *</Label><Input type="email" value={m.email} onChange={(e) => updateMember(idx, { email: e.target.value })} disabled={isCoordinatorRow} /></div>
-                        <div><Label>Organization *</Label><Input value={m.organization} onChange={(e) => updateMember(idx, { organization: e.target.value })} /></div>
-                        <div><Label>Job title *</Label><Input value={m.jobTitle} onChange={(e) => updateMember(idx, { jobTitle: e.target.value })} /></div>
-                        <div><Label>Phone *</Label><Input value={m.phone} onChange={(e) => updateMember(idx, { phone: e.target.value })} /></div>
-                        <div><Label>City *</Label><Input value={m.city} onChange={(e) => updateMember(idx, { city: e.target.value })} /></div>
-                        <div><Label>Country *</Label><CountrySelect value={m.country} onChange={(v) => updateMember(idx, { country: v })} /></div>
-                        <div><Label>Role *</Label><RoleSelect value={m.role} onChange={(v) => updateMember(idx, { role: v })} /></div>
-                        <div><Label>Specialty *</Label><SpecialtySelect value={m.specialty} onChange={(v) => updateMember(idx, { specialty: v })} /></div>
-                        {m.specialty === "Others" && (
-                          <div><Label>Custom specialty *</Label><Input value={m.customSpecialty} onChange={(e) => updateMember(idx, { customSpecialty: e.target.value })} /></div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {members.length < maxMembers && (
-                <Button variant="outline" className="mt-4" onClick={addMember}>
-                  <Plus className="h-4 w-4 mr-1" /> Add member
-                </Button>
-              )}
-            </section>
-
-            {/* Total + submit */}
-            <section className="rounded-xl border bg-white p-6">
-              <h2 className="text-lg font-semibold mb-4">4. Review &amp; submit</h2>
-              <div className="space-y-1 text-sm max-w-sm">
-                <div className="flex justify-between"><span className="text-slate-500">Subtotal ({members.length} member{members.length === 1 ? "" : "s"})</span><span>{currency} {totals.subtotal.toFixed(2)}</span></div>
-                {totals.rate > 0 && (
-                  <div className="flex justify-between"><span className="text-slate-500">{event.taxLabel || "VAT"} ({totals.rate}%)</span><span>{currency} {totals.tax.toFixed(2)}</span></div>
-                )}
-                <div className="flex justify-between font-semibold text-base pt-1 border-t"><span>Total</span><span>{currency} {totals.total.toFixed(2)}</span></div>
-                {promoCode.trim() && (
-                  /* No client-side discount preview: the server resolves the
-                     code and freezes the amount onto the invoice, and a
-                     preview that disagreed with the invoice would be worse
-                     than none. Say what will happen instead. */
-                  <p className="pt-1 text-xs text-slate-500">
-                    Promo code <span className="font-medium uppercase">{promoCode.trim()}</span> will be checked and, if valid, discounted on your invoice.
-                  </p>
-                )}
-              </div>
-              <p className="text-sm text-slate-500 mt-4">
-                Submitting registers all members and emails the consolidated invoice to the payer. Payment is by bank transfer (details on the invoice); registration is confirmed on receipt of payment.
-              </p>
-              <Button className="mt-4" size="lg" onClick={handleSubmit} disabled={submitting}>
-                {submitting ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Registering group…</>) : `Register group (${members.length})`}
-              </Button>
-            </section>
-          </div>
-        )}
+        {renderBody()}
       </div>
     </div>
   );

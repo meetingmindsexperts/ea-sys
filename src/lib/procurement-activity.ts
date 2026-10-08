@@ -90,8 +90,13 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
 }
 
+function rawNumber(v: unknown): number {
+  if (typeof v === "number") return v;
+  return typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+}
+
 function num(v: unknown): number | null {
-  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  const n = rawNumber(v);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -195,6 +200,11 @@ function describeTransfer(row: ProcurementActivityRow): { title: string; detail:
   return null;
 }
 
+function reallocationAuthority(c: Record<string, unknown>): string | null {
+  if (c.authority === "OWNER") return "within the owner's ten percent";
+  return str(c.approvalRequestId) ? "an approved move" : null;
+}
+
 function describeEventBudget(row: ProcurementActivityRow, ctx: DescribeContext): { title: string; detail: string | null } {
   const c = row.changes ?? {};
   const note = withLabel("note", str(c.note));
@@ -230,7 +240,7 @@ function describeEventBudget(row: ProcurementActivityRow, ctx: DescribeContext):
       return { title: "Created as a new version", detail: parts(from ? `from version ${from}` : null, lines ? `${lines} ${lines === 1 ? "line" : "lines"} carried` : null) };
     }
     case "REALLOCATE": {
-      const how = c.authority === "OWNER" ? "within the owner's ten percent" : str(c.approvalRequestId) ? "an approved move" : null;
+      const how = reallocationAuthority(c);
       return { title: "Amount moved between lines", detail: parts(moveSentence(c, ctx), how, reason, note) };
     }
     case "REALLOCATION_REQUESTED":
@@ -306,6 +316,12 @@ function standingIn(c: Record<string, unknown>, ctx: DescribeContext): string | 
   return name ? `standing in for ${name}` : "as the final approver's stand-in";
 }
 
+function delegateVia(via: unknown): string | null {
+  if (via === "configured") return "chosen as their named delegate";
+  if (via === "next-tier") return "chosen from the next tier";
+  return null;
+}
+
 function describeApprovalRequest(row: ProcurementActivityRow, ctx: DescribeContext): { title: string; detail: string | null } {
   const c = row.changes ?? {};
   const aed = amount(c.amountAed) ? `AED ${amount(c.amountAed)}` : null;
@@ -342,7 +358,7 @@ function describeApprovalRequest(row: ProcurementActivityRow, ctx: DescribeConte
         detail: parts(
           hours !== null ? `after ${waitedPhrase(hours)} without a decision` : null,
           fromName ? `${fromName} can still decide it` : null,
-          c.via === "configured" ? "chosen as their named delegate" : c.via === "next-tier" ? "chosen from the next tier" : null,
+          delegateVia(c.via),
         ),
       };
     }
@@ -365,6 +381,12 @@ function describeApprovalRequest(row: ProcurementActivityRow, ctx: DescribeConte
     default:
       return { title: humanize(row.action), detail: null };
   }
+}
+
+function orderCancelledTitle(requestNow: unknown): string {
+  if (requestNow === "PENDING_APPROVAL") return "Purchase order cancelled, request back with the approver";
+  if (requestNow === "DRAFT") return "Purchase order cancelled, request back to draft";
+  return "Purchase order cancelled, request back to approved";
 }
 
 function describeSpendRequest(row: ProcurementActivityRow): { title: string; detail: string | null } {
@@ -414,7 +436,7 @@ function describeSpendRequest(row: ProcurementActivityRow): { title: string; det
       return { title: "Purchase order issued", detail: str(c.commitmentNo) };
     case "ORDER_CANCELLED":
       return {
-        title: c.requestNow === "PENDING_APPROVAL" ? "Purchase order cancelled, request back with the approver" : c.requestNow === "DRAFT" ? "Purchase order cancelled, request back to draft" : "Purchase order cancelled, request back to approved",
+        title: orderCancelledTitle(c.requestNow),
         detail: parts(str(c.commitmentNo), reason),
       };
     default:

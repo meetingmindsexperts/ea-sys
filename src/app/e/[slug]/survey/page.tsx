@@ -89,6 +89,23 @@ export default function PublicSurveyPage() {
   );
 }
 
+function surveyQueryString(mode: SurveyMode, token: string, retiredShareToken: string): string {
+  if (mode === "preview") return "preview=1";
+  return token ? `token=${encodeURIComponent(token)}` : `share=${encodeURIComponent(retiredShareToken)}`;
+}
+
+function renderSubmitLabel(submitting: boolean, isPreviewMode: boolean) {
+  if (submitting) {
+    return (
+      <>
+        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+        Submitting…
+      </>
+    );
+  }
+  return isPreviewMode ? "Submit disabled in preview" : "Submit feedback";
+}
+
 function CenteredSpinner() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-primary/[0.06] via-background to-muted/30">
@@ -140,12 +157,7 @@ function PublicSurveyClient() {
       });
       return;
     }
-    const qs =
-      mode === "preview"
-        ? "preview=1"
-        : token
-          ? `token=${encodeURIComponent(token)}`
-          : `share=${encodeURIComponent(retiredShareToken)}`;
+    const qs = surveyQueryString(mode, token, retiredShareToken);
     let cancelled = false;
     (async () => {
       try {
@@ -380,16 +392,7 @@ function PublicSurveyClient() {
               disabled={submitting || isPreviewMode}
               className="btn-gradient h-12 w-full rounded-xl text-base font-semibold shadow-lg shadow-primary/20 disabled:opacity-60 disabled:shadow-none sm:w-auto sm:px-10"
             >
-              {submitting ? (
-                <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Submitting…
-                </>
-              ) : isPreviewMode ? (
-                "Submit disabled in preview"
-              ) : (
-                "Submit feedback"
-              )}
+              {renderSubmitLabel(submitting, isPreviewMode)}
             </Button>
             {!isPreviewMode ? (
               <p className="text-xs text-muted-foreground">

@@ -68,6 +68,22 @@ interface Speaker {
   _count: { sessions: number; abstracts: number };
 }
 
+function bulkEmailLabel(selectedCount: number, statusFilter: string): string {
+  if (selectedCount > 0) return `Email (${selectedCount})`;
+  if (statusFilter !== "all") return `Email ${statusFilter.charAt(0) + statusFilter.slice(1).toLowerCase()}`;
+  return "Email All";
+}
+
+function triStateChecked(all: boolean, some: boolean): boolean | "indeterminate" {
+  if (all) return true;
+  return some ? "indeterminate" : false;
+}
+
+function bulkTagVerb(mode: string): string {
+  if (mode === "add") return "added to";
+  return mode === "remove" ? "removed from" : "replaced on";
+}
+
 export default function SpeakersPage() {
   const params = useParams();
   const router = useRouter();
@@ -210,7 +226,7 @@ export default function SpeakersPage() {
                   onClick={() => setBulkEmailOpen(true)}
                 >
                   <Send className="mr-2 h-4 w-4" />
-                  {selectedIds.size > 0 ? `Email (${selectedIds.size})` : statusFilter !== "all" ? `Email ${statusFilter.charAt(0) + statusFilter.slice(1).toLowerCase()}` : "Email All"}
+                  {bulkEmailLabel(selectedIds.size, statusFilter)}
                 </Button>
               )}
               {canImportSpeakers && <CSVImportButton eventId={eventId} entityType="speakers" />}
@@ -376,7 +392,7 @@ export default function SpeakersPage() {
                   {!isReviewer && canSelect && (
                     <TableHead className="w-10">
                       <Checkbox
-                        checked={allOnPageSelected ? true : someOnPageSelected ? "indeterminate" : false}
+                        checked={triStateChecked(allOnPageSelected, someOnPageSelected)}
                         onCheckedChange={toggleSelectAll}
                         aria-label="Select all speakers on this page"
                       />
@@ -547,7 +563,7 @@ export default function SpeakersPage() {
             tags,
             mode,
           });
-          const verb = mode === "add" ? "added to" : mode === "remove" ? "removed from" : "replaced on";
+          const verb = bulkTagVerb(mode);
           toast.success(`Tags ${verb} ${selectedIds.size} speaker${selectedIds.size !== 1 ? "s" : ""}`);
           setSelectedIds(new Set());
         }}

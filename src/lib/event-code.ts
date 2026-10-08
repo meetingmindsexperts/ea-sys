@@ -68,11 +68,17 @@ export async function eventCodeReferences(organizationId: string, eventId: strin
   return { budgets };
 }
 
+function targetColumns(target: unknown): string[] {
+  if (Array.isArray(target)) return target.map(String);
+  if (typeof target === "string") return [target];
+  return [];
+}
+
 /** The race backstop: a concurrent create slipped past the pre-check and the index refused it. */
 export function isEventCodeUniqueViolation(err: unknown): boolean {
   const e = err as { code?: string; meta?: { target?: unknown } } | null;
   if (!e || e.code !== "P2002") return false;
   const target = e.meta?.target;
-  const cols = Array.isArray(target) ? target.map(String) : typeof target === "string" ? [target] : [];
+  const cols = targetColumns(target);
   return cols.some((c) => c === "code" || c.includes("Event_organizationId_code"));
 }

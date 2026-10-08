@@ -120,11 +120,12 @@ export function SpeakerAgreementTemplateCard({ eventId }: Props) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {loading ? (
+        {loading && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading template...
           </div>
-        ) : template ? (
+        )}
+        {!loading && (template ? (
           <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
             <div className="flex items-start gap-3">
               <FileText className="h-5 w-5 mt-0.5 text-muted-foreground" />
@@ -168,7 +169,7 @@ export function SpeakerAgreementTemplateCard({ eventId }: Props) {
               <p className="text-xs text-muted-foreground">Max 2MB</p>
             </div>
           </div>
-        )}
+        ))}
 
         <input
           ref={fileInputRef}

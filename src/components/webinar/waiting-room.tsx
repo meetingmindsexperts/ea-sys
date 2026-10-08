@@ -72,6 +72,12 @@ function formatRemaining(ms: number): string {
 // ("Starting any moment") — the host is simply running late (review #6).
 const OVERDUE_AFTER_MS = 10 * 60_000;
 
+function countdownLabel(overdue: boolean, started: boolean): string {
+  if (overdue) return "Running a little late — you'll be admitted as soon as the host starts";
+  if (started) return "Starting any moment";
+  return "Starts in";
+}
+
 export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage, posterUrl, posterMobileUrl }: WaitingRoomProps) {
   const now = useNow();
   const remaining = new Date(startsAt).getTime() - now;
@@ -146,11 +152,7 @@ export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage, posterUrl, 
       <div className="rounded-lg border bg-white p-5 text-center">
         <div className="mb-1 flex items-center justify-center gap-2 text-sm font-medium text-slate-500">
           <Clock className="h-4 w-4" />
-          {overdue
-            ? "Running a little late — you'll be admitted as soon as the host starts"
-            : started
-              ? "Starting any moment"
-              : "Starts in"}
+          {countdownLabel(overdue, started)}
         </div>
         {!started && (
           <p className="text-2xl font-bold tabular-nums text-slate-900">

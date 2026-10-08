@@ -109,6 +109,22 @@ function lineLine(l: BudgetLineView): string {
   );
 }
 
+function writesRefusedReason(source: string | undefined, actorUserId: string | null | undefined): string {
+  if (source !== "agent") return "door";
+  return !actorUserId ? "no-user" : "role";
+}
+
+function supplierText(r: { supplier: { displayName: string } | null; proposedVendorName: string | null }): string {
+  if (r.supplier) return `, supplier ${r.supplier.displayName}`;
+  return r.proposedVendorName ? `, proposed vendor ${r.proposedVendorName}` : "";
+}
+
+/** Only a received order that needs a second person says where its receipt stands. */
+function receiptText(c: { receiptNeedsSecondPerson: boolean; fulfillmentStatus: string; receiptConfirmed: boolean }): string {
+  if (!(c.receiptNeedsSecondPerson && c.fulfillmentStatus === "RECEIVED")) return "";
+  return c.receiptConfirmed ? ", receipt confirmed" : ", receipt awaiting a second person";
+}
+
 function pctText(v: string | null): string {
   return v === null ? "no percent, no revenue" : `${v}%`;
 }
@@ -155,7 +171,7 @@ export function registerProcurementMcpTools(server: McpServer, organizationId: s
   if (!canWrite) {
     apiLogger.info({
       msg: "mcp:procurement-writes-not-registered",
-      reason: source !== "agent" ? "door" : !actorUserId ? "no-user" : "role",
+      reason: writesRefusedReason(source, actorUserId),
       role: actor.role,
       source,
       organizationId,
@@ -230,7 +246,7 @@ export function registerProcurementMcpTools(server: McpServer, organizationId: s
           `${r.requestNo} [${r.statusLabel}] ${r.title}: ${r.currency} ${r.amount} ex-VAT (VAT ${r.taxAmount}), event ${r.eventCode}` +
           (r.budget ? ` v${r.budget.versionNo}` : "") +
           `, check ${r.budgetCheckStatus}, raised by ${r.requesterName ?? "unknown"}` +
-          (r.supplier ? `, supplier ${r.supplier.displayName}` : r.proposedVendorName ? `, proposed vendor ${r.proposedVendorName}` : "") +
+          supplierText(r) +
           (r.order ? `, order ${r.order.commitmentNo} (${r.order.fulfillmentLabel})` : "") +
           `\n  ID: ${r.id}  lineKey: ${r.lineKey ?? "none"}`,
         ).join("\n");
@@ -252,7 +268,7 @@ export function registerProcurementMcpTools(server: McpServer, organizationId: s
         if (rows.length === 0) return "No purchase orders match.";
         return `${rows.length} purchase order(s):\n` + rows.map((c) =>
           `${c.commitmentNo} [${c.statusLabel}] ${c.supplier.displayName}: ${c.currency} ${c.amount} ex-VAT (VAT ${c.taxAmount}), event ${c.eventCode}` +
-          `, ${c.fulfillmentLabel}${c.receiptNeedsSecondPerson && c.fulfillmentStatus === "RECEIVED" ? (c.receiptConfirmed ? ", receipt confirmed" : ", receipt awaiting a second person") : ""}` +
+          `, ${c.fulfillmentLabel}${receiptText(c)}` +
           `, ${c.sentToSupplierAt ? "sent to supplier" : "not sent to supplier"}` +
           (c.spendRequest ? `, from ${c.spendRequest.requestNo} raised by ${c.requesterName ?? "unknown"}` : "") +
           `\n  ID: ${c.id}  lineKey: ${c.lineKey}`,

@@ -544,13 +544,7 @@ export async function moveDealStage(input: MoveDealStageInput): Promise<MoveDeal
       organizationId: input.organizationId,
       recipientId: deal.ownerId,
       actorId: input.userId,
-      type: toOutcome === "WON" ? "DEAL_WON" : toOutcome === "LOST" ? "DEAL_LOST" : "DEAL_STAGE_MOVED",
-      title:
-        toOutcome === "WON"
-          ? "Your deal was won"
-          : toOutcome === "LOST"
-            ? "Your deal was closed as lost"
-            : "Your deal moved stage",
+      ...stageMoveNotice(toOutcome),
       message: toOutcome
         ? `"${deal.name}" was closed as ${toOutcome.toLowerCase()}`
         : `"${deal.name}" moved to ${toStage.name}`,
@@ -701,6 +695,13 @@ export async function closeDeal(input: CloseDealInput): Promise<CloseDealResult>
 function stageOutcome(stage: { isTerminal: boolean; terminalOutcome: CrmStageOutcome | null }): CrmDealStatus | null {
   if (!stage.isTerminal) return null;
   return stage.terminalOutcome; // "WON" | "LOST" ⊂ CrmDealStatus
+}
+
+/** The owner's notification type and title for a stage move, by outcome. */
+function stageMoveNotice(outcome: CrmDealStatus | null) {
+  if (outcome === "WON") return { type: "DEAL_WON", title: "Your deal was won" } as const;
+  if (outcome === "LOST") return { type: "DEAL_LOST", title: "Your deal was closed as lost" } as const;
+  return { type: "DEAL_STAGE_MOVED", title: "Your deal moved stage" } as const;
 }
 
 function closeStamps(status: CrmDealStatus | null) {

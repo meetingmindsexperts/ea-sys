@@ -58,6 +58,26 @@ function money(value: unknown, currency: string): string {
   return Number.isFinite(n) ? `${currency} ${n.toLocaleString("en-US")}` : "—";
 }
 
+/** undefined leaves the field alone, null clears it, a string becomes a Date. */
+function optionalDate(value: string | null | undefined): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return new Date(value);
+}
+
+/** A money total that may be in several currencies, or carry none. */
+function mixedMoney(mixed: boolean, value: unknown, currency: string | null): string {
+  if (mixed) return "mixed currencies";
+  if (!currency) return "no value";
+  return money(value, currency);
+}
+
+function taskLinkLine(t: { deal: { name: string; id: string } | null; company: { name: string } | null }): string {
+  if (t.deal) return `\n  Deal: ${t.deal.name} (${t.deal.id})`;
+  if (t.company) return `\n  Account: ${t.company.name}`;
+  return "";
+}
+
 /** A bare number with thousands separators (currency printed once by the caller). */
 function fmtNum(n: number): string {
   return n.toLocaleString("en-US");
@@ -434,12 +454,7 @@ export function registerCrmMcpTools(
           name: input.name,
           dealValue: input.dealValue,
           currency: input.currency,
-          expectedClose:
-            input.expectedClose === undefined
-              ? undefined
-              : input.expectedClose === null
-                ? null
-                : new Date(input.expectedClose),
+          expectedClose: optionalDate(input.expectedClose),
           eventId: input.eventId,
           pipeline: input.pipeline,
           tags: input.tags,
@@ -604,7 +619,7 @@ export function registerCrmMcpTools(
               `\n  ID: ${t.id}` +
               (t.dueAt ? `\n  Due: ${t.dueAt.toISOString().split("T")[0]}` : "") +
               (t.owner ? `\n  Owner: ${t.owner.firstName} ${t.owner.lastName}` : "\n  Owner: unassigned") +
-              (t.deal ? `\n  Deal: ${t.deal.name} (${t.deal.id})` : t.company ? `\n  Account: ${t.company.name}` : ""),
+              taskLinkLine(t),
           )
           .join("\n\n");
       }),
@@ -717,14 +732,10 @@ export function registerCrmMcpTools(
         });
 
         const bucket = (b: { count: number; value: number | null; currency: string | null; mixed: boolean }) =>
-          `${b.count} deal(s) — ${b.mixed ? "mixed currencies" : b.currency ? money(b.value, b.currency) : "no value"}`;
+          `${b.count} deal(s) — ${mixedMoney(b.mixed, b.value, b.currency)}`;
 
         const stageLines = pipeline.stages.map((s) => `  ${s.stageName}: ${bucket(s)}`);
-        const openLine = pipeline.openMixed
-          ? "mixed currencies"
-          : pipeline.openCurrency
-            ? money(pipeline.openValue, pipeline.openCurrency)
-            : "no value";
+        const openLine = mixedMoney(pipeline.openMixed, pipeline.openValue, pipeline.openCurrency);
         const wl = `  WON: ${bucket({ count: winLoss.wonCount, value: winLoss.wonValue, currency: winLoss.wonCurrency ?? null, mixed: winLoss.wonMixed ?? false })}\n  LOST: ${bucket({ count: winLoss.lostCount, value: winLoss.lostValue, currency: winLoss.lostCurrency ?? null, mixed: winLoss.lostMixed ?? false })}\n  Win rate: ${winLoss.winRate === null ? "— (nothing closed yet)" : `${winLoss.winRate}%`}`;
         const repLines = reps
           .slice(0, 5)

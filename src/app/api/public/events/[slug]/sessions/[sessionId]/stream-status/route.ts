@@ -51,6 +51,11 @@ async function isAuthorizedViewer(
   return true;
 }
 
+function nextStreamStatus<T extends string>(isLive: boolean, current: T): T | "ACTIVE" | "ENDED" {
+  if (isLive) return "ACTIVE";
+  return current === "ACTIVE" ? "ENDED" : current;
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [{ slug, sessionId }, authSession] = await Promise.all([params, auth()]);
@@ -104,7 +109,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // transition of the stream (probe-cached, so at most ~1 write per actual
     // ACTIVE↔ENDED flip), not per request — an attacker polling harder cannot
     // amplify it.
-    const newStatus = isLive ? "ACTIVE" : (zoomMeeting.streamStatus === "ACTIVE" ? "ENDED" : zoomMeeting.streamStatus);
+    const newStatus = nextStreamStatus(isLive, zoomMeeting.streamStatus);
     if (newStatus !== zoomMeeting.streamStatus) {
       // The event binding in the where is load-bearing: this is a PUBLIC route,
       // and without it a crafted sessionId flips streamStatus on another org's

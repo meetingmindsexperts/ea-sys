@@ -115,11 +115,12 @@ export function Sidebar() {
                 alt={orgName || "Organization"}
                 className={cn("object-contain shrink-0", isCollapsed ? "h-8 w-8" : "h-9 max-w-[60px]")}
               />
-            ) : isCollapsed ? (
+            ) : null}
+            {!orgLogo && isCollapsed && (
               <span className="text-sm font-bold text-primary">
                 {(orgName || "E")[0]}
               </span>
-            ) : null}
+            )}
             {!isCollapsed && (
               <span className={cn(
                 "text-[11px] font-semibold text-primary/80 tracking-wide uppercase shrink-0 leading-tight line-clamp-2",
@@ -227,110 +228,110 @@ export function Sidebar() {
 
         {/* ── Navigation ───────────────────────────────────────────────────── */}
         <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
-          {isEventPage ? (
-            /* Event-scoped sections */
-            isCollapsed ? (
-              // Collapsed: flat list with tooltips
-              flatEventItems.map((item) => {
-                const isActive =
-                  item.href === `/events/${eventId}`
-                    ? pathname === `/events/${eventId}`
-                    : pathname.startsWith(item.href);
-                return (
-                  <Tooltip key={item.name}>
-                    <TooltipTrigger asChild>
-                      <Link
-                        href={item.href}
-                        className={cn(
-                          "flex items-center justify-center rounded-lg p-2 transition-colors",
-                          isActive
-                            ? "bg-primary text-primary-foreground"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                        )}
-                      >
-                        <item.icon className="h-5 w-5" />
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="font-medium">
+          {/* Event-scoped sections */}
+          {isEventPage && isCollapsed && (
+            // Collapsed: flat list with tooltips
+            flatEventItems.map((item) => {
+              const isActive =
+                item.href === `/events/${eventId}`
+                  ? pathname === `/events/${eventId}`
+                  : pathname.startsWith(item.href);
+              return (
+                <Tooltip key={item.name}>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={item.href}
+                      className={cn(
+                        "flex items-center justify-center rounded-lg p-2 transition-colors",
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      )}
+                    >
+                      <item.icon className="h-5 w-5" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="font-medium">
+                    {item.name}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })
+          )}
+          {isEventPage && !isCollapsed && (
+            // Expanded: sectioned with labels
+            visibleEventSections.map((section, si) => (
+              // Key by index, not label — TWO sections have an empty label
+              // (Overview at top, Analytics at bottom). Keying both as "top"
+              // collided, breaking React reconciliation so the Overview row
+              // leaked a duplicate on every client-side navigation.
+              <div key={`section-${si}`} className={cn(si > 0 && "pt-3")}>
+                {section.label && (
+                  <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                    {section.label}
+                  </p>
+                )}
+                {section.items.map((item) => {
+                  const href = `/events/${eventId}${item.href}`;
+                  const isActive =
+                    href === `/events/${eventId}`
+                      ? pathname === `/events/${eventId}`
+                      : pathname.startsWith(href);
+                  return (
+                    <Link
+                      key={item.name}
+                      href={href}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      )}
+                    >
+                      <item.icon className="h-4 w-4 shrink-0" />
                       {item.name}
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              })
-            ) : (
-              // Expanded: sectioned with labels
-              visibleEventSections.map((section, si) => (
-                // Key by index, not label — TWO sections have an empty label
-                // (Overview at top, Analytics at bottom). Keying both as "top"
-                // collided, breaking React reconciliation so the Overview row
-                // leaked a duplicate on every client-side navigation.
-                <div key={`section-${si}`} className={cn(si > 0 && "pt-3")}>
-                  {section.label && (
-                    <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                      {section.label}
-                    </p>
-                  )}
-                  {section.items.map((item) => {
-                    const href = `/events/${eventId}${item.href}`;
-                    const isActive =
-                      href === `/events/${eventId}`
-                        ? pathname === `/events/${eventId}`
-                        : pathname.startsWith(href);
-                    return (
-                      <Link
-                        key={item.name}
-                        href={href}
-                        className={cn(
-                          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                          isActive
-                            ? "bg-primary text-primary-foreground"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                        )}
-                      >
-                        <item.icon className="h-4 w-4 shrink-0" />
-                        {item.name}
-                      </Link>
-                    );
-                  })}
-                </div>
-              ))
-            )
-          ) : (
+                    </Link>
+                  );
+                })}
+              </div>
+            ))
+          )}
+          {!isEventPage && (
             /* Top-level nav */
             baseNavigation.map((item) => {
-              // An external item is a static file, not an app route: it must
-              // not be prefetched or client-navigated, and it never matches
-              // the active-highlight (pathname never equals it).
-              const isActive = !item.external && pathname.startsWith(item.href);
-              const navLink = (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  {...(item.external ? { target: "_blank", rel: "noopener noreferrer", prefetch: false } : {})}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    isCollapsed && "justify-center px-2",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  <item.icon className="h-5 w-5 shrink-0" />
-                  {!isCollapsed && item.name}
-                </Link>
-              );
+            // An external item is a static file, not an app route: it must
+            // not be prefetched or client-navigated, and it never matches
+            // the active-highlight (pathname never equals it).
+            const isActive = !item.external && pathname.startsWith(item.href);
+            const navLink = (
+              <Link
+                key={item.name}
+                href={item.href}
+                {...(item.external ? { target: "_blank", rel: "noopener noreferrer", prefetch: false } : {})}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  isCollapsed && "justify-center px-2",
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                <item.icon className="h-5 w-5 shrink-0" />
+                {!isCollapsed && item.name}
+              </Link>
+            );
 
-              if (isCollapsed) {
-                return (
-                  <Tooltip key={item.name}>
-                    <TooltipTrigger asChild>{navLink}</TooltipTrigger>
-                    <TooltipContent side="right" className="font-medium">
-                      {item.name}
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              }
-              return navLink;
+            if (isCollapsed) {
+              return (
+                <Tooltip key={item.name}>
+                  <TooltipTrigger asChild>{navLink}</TooltipTrigger>
+                  <TooltipContent side="right" className="font-medium">
+                    {item.name}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            }
+            return navLink;
             })
           )}
         </nav>

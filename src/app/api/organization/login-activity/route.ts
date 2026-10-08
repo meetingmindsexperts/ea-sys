@@ -50,6 +50,12 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
 
+function outcomeFilter(outcome: string | undefined): Prisma.LoginEventWhereInput {
+  if (outcome === "success") return { outcome: "SUCCESS" as const };
+  if (outcome === "failed") return { outcome: { not: "SUCCESS" as const } };
+  return {};
+}
+
 export async function GET(req: Request) {
   try {
     const session = await auth();
@@ -94,11 +100,7 @@ export async function GET(req: Request) {
       organizationId: org.orgId,
       createdAt: { gte: since },
       ...(userId ? { userId } : {}),
-      ...(outcome === "success"
-        ? { outcome: "SUCCESS" as const }
-        : outcome === "failed"
-          ? { outcome: { not: "SUCCESS" as const } }
-          : {}),
+      ...outcomeFilter(outcome),
     };
 
     const [total, rows] = await Promise.all([

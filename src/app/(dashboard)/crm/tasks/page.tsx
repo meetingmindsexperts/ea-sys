@@ -64,6 +64,8 @@ function TasksPageInner() {
   const overdue = tasks.filter((t) => t.dueAt && endOfDueDay(t.dueAt) < now && t.status === "OPEN");
   const rest = tasks.filter((t) => !overdue.includes(t));
 
+  const view = listView(isLoading, isError, tasks.length === 0);
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -118,29 +120,20 @@ function TasksPageInner() {
 
       {newTaskOpen && <CreateTaskDialog open={newTaskOpen} onOpenChange={setNewTaskOpen} />}
 
-      {isLoading ? (
+      {view === "loading" && (
         <CrmListSkeleton rows={5} />
-      ) : isError ? (
+      )}
+      {view === "error" && (
         <CrmLoadError what="tasks" onRetry={() => refetch()} />
-      ) : tasks.length === 0 ? (
+      )}
+      {view === "empty" && (
         <CrmEmptyState
           icon={CheckSquare}
-          title={
-            showArchived
-              ? "No archived tasks"
-              : status === "OPEN"
-                ? "Nothing outstanding"
-                : "Nothing completed yet"
-          }
-          description={
-            showArchived
-              ? "Tasks you archive will show up here, ready to restore."
-              : status === "OPEN"
-                ? "Add a follow-up from a deal to start tracking it here."
-                : "Completed follow-ups will appear here."
-          }
+          title={emptyTasksCopy(showArchived, status === "OPEN").title}
+          description={emptyTasksCopy(showArchived, status === "OPEN").description}
         />
-      ) : (
+      )}
+      {view === "list" && (
         <div className="space-y-6">
           {overdue.length > 0 && (
             <section className="space-y-2">
@@ -269,6 +262,21 @@ function TaskRow({
         ))}
     </div>
   );
+}
+
+type ListView = "loading" | "error" | "empty" | "list";
+
+function listView(isLoading: boolean, isError: boolean, empty: boolean): ListView {
+  if (isLoading) return "loading";
+  if (isError) return "error";
+  if (empty) return "empty";
+  return "list";
+}
+
+function emptyTasksCopy(archived: boolean, open: boolean): { title: string; description: string } {
+  if (archived) return { title: "No archived tasks", description: "Tasks you archive will show up here, ready to restore." };
+  if (open) return { title: "Nothing outstanding", description: "Add a follow-up from a deal to start tracking it here." };
+  return { title: "Nothing completed yet", description: "Completed follow-ups will appear here." };
 }
 
 export default function CrmTasksPage() {

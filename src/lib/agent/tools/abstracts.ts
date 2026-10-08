@@ -312,10 +312,11 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
     });
 
     if (!result.ok) {
-      const message =
-        result.code === "ABSTRACT_NOT_FOUND" ? `Abstract ${abstractId} not found`
-        : result.code === "USER_NOT_FOUND" ? `User ${userId} not found`
-        : result.message;
+      const notFound: Partial<Record<string, string>> = {
+        ABSTRACT_NOT_FOUND: `Abstract ${abstractId} not found`,
+        USER_NOT_FOUND: `User ${userId} not found`,
+      };
+      const message = notFound[result.code] ?? result.message;
       return { error: message, code: result.code };
     }
 
@@ -363,10 +364,11 @@ const unassignReviewerFromAbstract: ToolExecutor = async (input, ctx) => {
     });
 
     if (!result.ok) {
-      const message =
-        result.code === "ABSTRACT_NOT_FOUND" ? `Abstract ${abstractId} not found`
-        : result.code === "ASSIGNMENT_NOT_FOUND" ? `No assignment found for user ${userId} on abstract ${abstractId}`
-        : result.message;
+      const notFound: Partial<Record<string, string>> = {
+        ABSTRACT_NOT_FOUND: `Abstract ${abstractId} not found`,
+        ASSIGNMENT_NOT_FOUND: `No assignment found for user ${userId} on abstract ${abstractId}`,
+      };
+      const message = notFound[result.code] ?? result.message;
       return { error: message, code: result.code };
     }
 

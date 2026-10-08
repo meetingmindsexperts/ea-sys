@@ -557,11 +557,12 @@ export function SpeakerDetailSheet({
     <>
       <Sheet open={open} onOpenChange={handleOpenChange}>
         <SheetContent className="overflow-y-auto p-0 w-full sm:w-[700px]">
-          {loading ? (
+          {loading && (
             <div className="flex h-64 items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-          ) : speaker ? (
+          )}
+          {!loading && speaker ? (
             <>
               {/* Header */}
               <div className="sticky top-0 z-10 bg-gradient-to-r from-primary to-primary/70 px-6 py-4 text-white">

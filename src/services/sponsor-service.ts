@@ -155,6 +155,13 @@ export async function saveSponsors(input: {
           .map((e) => [e.id, e.sortOrder] as const),
       );
       let nextOrder = Math.max(-1, ...existingOrder.values()) + 1;
+      const sortOrderFor = (index: number, matchedId: string | null): number => {
+        // The client never has to keep counters in sync, which is what the
+        // JSON writer did.
+        if (mode === "replace") return index;
+        if (matchedId && existingOrder.has(matchedId)) return existingOrder.get(matchedId)!;
+        return nextOrder++;
+      };
 
       for (const [index, r] of rows.entries()) {
         const matchedId =
@@ -167,14 +174,7 @@ export async function saveSponsors(input: {
           logoUrl: r.logoUrl,
           websiteUrl: r.websiteUrl,
           description: r.description,
-          sortOrder:
-            mode === "replace"
-              ? // The client never has to keep counters in sync, which is what
-                // the JSON writer did.
-                index
-              : matchedId && existingOrder.has(matchedId)
-                ? existingOrder.get(matchedId)!
-                : nextOrder++,
+          sortOrder: sortOrderFor(index, matchedId),
         };
         const saved = matchedId
           ? await tx.sponsor.update({ where: { id: matchedId }, data, select: SPONSOR_SELECT })

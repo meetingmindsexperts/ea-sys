@@ -70,6 +70,10 @@ const TIER_ORDER: Record<SponsorTier, number> = {
 
 type EditableSponsor = SponsorEntry;
 
+function emptySponsorsText(canManage: boolean): string {
+  return canManage ? "No sponsors yet. Add one to get started." : "No sponsors yet.";
+}
+
 function makeId(): string {
   // Client-only cuid-lite — enough entropy to avoid collisions within a
   // single event's sponsor list.
@@ -257,7 +261,7 @@ function SponsorsEditor({
               <CardTitle>Sponsor list</CardTitle>
               <CardDescription>
                 {draft.length === 0
-                  ? canManage ? "No sponsors yet. Add one to get started." : "No sponsors yet."
+                  ? emptySponsorsText(canManage)
                   : `${draft.length} sponsor${draft.length === 1 ? "" : "s"}.${canManage ? " Use the arrows to reorder within a tier." : ""}`}
               </CardDescription>
             </div>

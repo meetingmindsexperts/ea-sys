@@ -56,6 +56,10 @@ export interface LookupResult {
   hits: LookupHit[];
 }
 
+function opaqueTokenFallback(trimmed: string): string[] {
+  return /^[A-Za-z0-9_-]{1,64}$/.test(trimmed) ? [trimmed] : [];
+}
+
 /**
  * Pull the id candidates out of whatever the operator pasted.
  *
@@ -81,12 +85,7 @@ export function extractIdCandidates(input: string): string[] {
   // a compact JSON line has no spaces either, and treating it as an id would
   // put an arbitrary blob into a database query. Letters, digits, `_` and `-`
   // still cover the real non-cuid cases (a Stripe `pi_…`, an invoice number).
-  const source =
-    matches.length > 0
-      ? matches
-      : /^[A-Za-z0-9_-]{1,64}$/.test(trimmed)
-        ? [trimmed]
-        : [];
+  const source = matches.length > 0 ? matches : opaqueTokenFallback(trimmed);
 
   const seen = new Set<string>();
   const out: string[] = [];

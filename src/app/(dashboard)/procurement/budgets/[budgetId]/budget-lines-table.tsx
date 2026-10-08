@@ -28,6 +28,8 @@ import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 export type LinesMode = "plan" | "forecast" | "read";
 
+const COLUMN_COUNT: Record<LinesMode, number> = { plan: 7, forecast: 9, read: 8 };
+
 /**
  * Reading order for the lines table: the money first, the noise last.
  *
@@ -64,7 +66,7 @@ export function BudgetLinesTable({ b, categories, mode }: { b: BudgetRow; catego
   const lines = sortLines(b.lines, b.naCategoryCodes);
   const cur = b.reportingCurrency;
   const planMode = mode === "plan";
-  const cols = planMode ? 7 : mode === "forecast" ? 9 : 8;
+  const cols = COLUMN_COUNT[mode];
 
   async function confirmDelete() {
     if (!deleting) return;
@@ -158,13 +160,18 @@ export function BudgetLinesTable({ b, categories, mode }: { b: BudgetRow; catego
   );
 }
 
+function lineRowClass(isContingency: boolean, dimmed: boolean | undefined): string | undefined {
+  if (isContingency) return "bg-muted/40";
+  return dimmed ? "bg-muted/20 text-muted-foreground" : undefined;
+}
+
 function LineRow({ l, cur, mode, dimmed, onEdit, onDelete }: { l: BudgetLineRow; cur: string; mode: LinesMode; dimmed?: boolean; onEdit: () => void; onDelete: () => void }) {
   const foreign = l.transactionCurrency !== cur;
   const remainingNeg = Number(l.remaining) < 0;
   const editable = mode !== "read" && !(mode === "plan" && l.isContingency);
   return (
     <TableRow
-      className={l.isContingency ? "bg-muted/40" : dimmed ? "bg-muted/20 text-muted-foreground" : undefined}
+      className={lineRowClass(l.isContingency, dimmed)}
       title={dimmed ? "This category is marked not applicable for this budget." : undefined}
     >
       <TableCell className="text-xs text-muted-foreground"><CategoryLabel code={l.category.code} name={l.category.name} stacked /></TableCell>

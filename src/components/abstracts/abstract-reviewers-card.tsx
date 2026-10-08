@@ -143,11 +143,12 @@ export function AbstractReviewersCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        {isLoading ? (
+        {isLoading && (
           <div className="flex items-center justify-center py-6">
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           </div>
-        ) : entries.length === 0 ? (
+        )}
+        {!isLoading && (entries.length === 0 ? (
           <p className="text-xs text-muted-foreground py-2">
             {poolEmpty ? (
               <>
@@ -173,16 +174,17 @@ export function AbstractReviewersCard({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className="text-sm font-medium truncate">{e.name || e.email}</span>
-                      {a?.hasSubmitted ? (
+                      {a?.hasSubmitted && (
                         <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">
                           <Check className="h-2.5 w-2.5 mr-0.5" />
                           {a.submission?.overallScore != null ? `${a.submission.overallScore}/100` : "Submitted"}
                         </Badge>
-                      ) : a ? (
+                      )}
+                      {a && !a.hasSubmitted && (
                         <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-300">
                           Pending
                         </Badge>
-                      ) : null}
+                      )}
                       {a?.conflictFlag && (
                         <Badge variant="outline" className="text-[10px] text-red-600 border-red-300">
                           <AlertTriangle className="h-2.5 w-2.5 mr-0.5" /> COI
@@ -250,7 +252,7 @@ export function AbstractReviewersCard({
               </div>
             );
           })
-        )}
+        ))}
       </CardContent>
     </Card>
   );

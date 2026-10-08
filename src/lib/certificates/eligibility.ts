@@ -269,6 +269,11 @@ export interface MultiEligibilityResult {
   }>;
 }
 
+function attendanceFirst(a: string, b: string): number {
+  if (a === b) return 0;
+  return a === "ATTENDANCE" ? -1 : 1;
+}
+
 /**
  * Eligibility for a multi-template issue: each template's pool is its STORED
  * tag's pool (minus already-issued-for-that-template), then entries are
@@ -304,9 +309,7 @@ export async function eligibleForTemplates(
   // Registration pools must be seeded BEFORE speaker entries try to link
   // into them — otherwise selection order (APPRECIATION template listed
   // first) would split one person into two items/emails.
-  const ordered = [...templates].sort((a, b) =>
-    a.category === b.category ? 0 : a.category === "ATTENDANCE" ? -1 : 1,
-  );
+  const ordered = [...templates].sort((a, b) => attendanceFirst(a.category, b.category));
 
   for (const t of ordered) {
     const tag = t.autoIssueTag?.trim() || null;

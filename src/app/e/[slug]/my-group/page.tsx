@@ -106,6 +106,44 @@ interface MyGroup {
   invoices: GroupInvoice[];
 }
 
+function renderBadgeCell(cancelled: boolean, badgeIssued: boolean) {
+  if (cancelled) return "—";
+  if (badgeIssued) {
+    return (
+      <span className="inline-flex items-center gap-1 text-emerald-700">
+        <BadgeCheck className="h-4 w-4" /> Issued
+      </span>
+    );
+  }
+  return (
+    <Hint text="This attendee's barcode hasn't been generated yet. It's sent automatically — no action needed from you.">
+      <span className="text-slate-400">Pending</span>
+    </Hint>
+  );
+}
+
+function renderStatusCell(cancelled: boolean, m: GroupMember) {
+  if (cancelled) return <Badge variant="outline">Cancelled</Badge>;
+  if (m.checkedIn) return <Badge className="bg-emerald-600">Checked in</Badge>;
+  return <Badge variant="secondary">{m.status.toLowerCase()}</Badge>;
+}
+
+function invoiceDateSuffix(inv: GroupInvoice): string {
+  if (inv.status === "PAID" && inv.paidDate) return ` · Paid ${format(new Date(inv.paidDate), "d MMM yyyy")}`;
+  return inv.dueDate ? ` · Due ${format(new Date(inv.dueDate), "d MMM yyyy")}` : "";
+}
+
+function invoiceBadgeVariant(status: string): "default" | "outline" | "secondary" {
+  if (status === "PAID") return "default";
+  return status === "CANCELLED" ? "outline" : "secondary";
+}
+
+function addedInvoiceNotice(r: AddGroupMembersResultShape): string {
+  if (!r.invoiceNumber) return " Your invoice will follow shortly.";
+  if (r.reissued) return ` Your invoice was replaced with ${r.invoiceNumber}, covering everyone.`;
+  return ` Invoice ${r.invoiceNumber} covers the new ${r.addedCount === 1 ? "attendee" : "attendees"}.`;
+}
+
 export default function MyGroupPage() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
@@ -366,24 +404,10 @@ export default function MyGroupPage() {
                         {m.tierName ? <span className="text-slate-500"> · {m.tierName}</span> : null}
                       </td>
                       <td className="px-6 py-3">
-                        {cancelled ? "—" : m.badgeIssued ? (
-                          <span className="inline-flex items-center gap-1 text-emerald-700">
-                            <BadgeCheck className="h-4 w-4" /> Issued
-                          </span>
-                        ) : (
-                          <Hint text="This attendee's barcode hasn't been generated yet. It's sent automatically — no action needed from you.">
-                            <span className="text-slate-400">Pending</span>
-                          </Hint>
-                        )}
+                        {renderBadgeCell(cancelled, m.badgeIssued)}
                       </td>
                       <td className="px-6 py-3">
-                        {cancelled ? (
-                          <Badge variant="outline">Cancelled</Badge>
-                        ) : m.checkedIn ? (
-                          <Badge className="bg-emerald-600">Checked in</Badge>
-                        ) : (
-                          <Badge variant="secondary">{m.status.toLowerCase()}</Badge>
-                        )}
+                        {renderStatusCell(cancelled, m)}
                       </td>
                       <td className="px-6 py-3 text-right tabular-nums">
                         {formatCurrency(m.price, group.currency)}
@@ -439,15 +463,11 @@ export default function MyGroupPage() {
                     <div className="font-medium">{inv.invoiceNumber}</div>
                     <div className="text-sm text-slate-500">
                       Issued {format(new Date(inv.issueDate), "d MMM yyyy")}
-                      {inv.status === "PAID" && inv.paidDate
-                        ? ` · Paid ${format(new Date(inv.paidDate), "d MMM yyyy")}`
-                        : inv.dueDate
-                          ? ` · Due ${format(new Date(inv.dueDate), "d MMM yyyy")}`
-                          : ""}
+                      {invoiceDateSuffix(inv)}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Badge variant={inv.status === "PAID" ? "default" : inv.status === "CANCELLED" ? "outline" : "secondary"}>
+                    <Badge variant={invoiceBadgeVariant(inv.status)}>
                       {inv.status.toLowerCase()}
                     </Badge>
                     <span className="tabular-nums">{formatCurrency(inv.total, inv.currency)}</span>
@@ -506,12 +526,7 @@ export default function MyGroupPage() {
         onAdded={(r: AddGroupMembersResultShape) => {
           refetch();
           setAddNotice(
-            `${r.addedCount} ${r.addedCount === 1 ? "person" : "people"} added.` +
-              (r.invoiceNumber
-                ? r.reissued
-                  ? ` Your invoice was replaced with ${r.invoiceNumber}, covering everyone.`
-                  : ` Invoice ${r.invoiceNumber} covers the new ${r.addedCount === 1 ? "attendee" : "attendees"}.`
-                : " Your invoice will follow shortly."),
+            `${r.addedCount} ${r.addedCount === 1 ? "person" : "people"} added.` + addedInvoiceNotice(r),
           );
           toast.success("Added to your group");
         }}

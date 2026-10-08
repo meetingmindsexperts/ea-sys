@@ -108,6 +108,13 @@ interface Payload {
   };
 }
 
+function rowSendTitle(deadlinePassed: boolean | undefined, residency: ResidencyClass, email: string | null): string {
+  if (deadlinePassed) return "Applications closed; extend the deadline to send again";
+  if (residency !== "overseas") return "Not eligible — correct the country on their profile first";
+  if (!email) return "No email address on file";
+  return "Send their link";
+}
+
 export default function TravelGrantsPage() {
   const params = useParams<{ eventId: string }>();
   const eventId = params?.eventId;
@@ -458,15 +465,7 @@ export default function TravelGrantsPage() {
                               !r.email ||
                               data.deadlinePassed === true
                             }
-                            title={
-                              data.deadlinePassed
-                                ? "Applications closed; extend the deadline to send again"
-                                : r.residency !== "overseas"
-                                  ? "Not eligible — correct the country on their profile first"
-                                  : !r.email
-                                    ? "No email address on file"
-                                    : "Send their link"
-                            }
+                            title={rowSendTitle(data.deadlinePassed, r.residency, r.email)}
                             onClick={() => openSend({ kind: "row", row: r })}
                           >
                             {busy === r.speakerId ? (
@@ -615,6 +614,13 @@ export default function TravelGrantsPage() {
   );
 }
 
+function statToneClass(tone: string | undefined): string {
+  if (tone === "emerald") return "text-emerald-600";
+  if (tone === "amber") return "text-amber-600";
+  if (tone === "rose") return "text-rose-600";
+  return "text-foreground";
+}
+
 function Stat({
   label,
   value,
@@ -627,14 +633,7 @@ function Stat({
   /** Shown on hover when the label had to shorten a list. */
   hint?: string;
 }) {
-  const colour =
-    tone === "emerald"
-      ? "text-emerald-600"
-      : tone === "amber"
-        ? "text-amber-600"
-        : tone === "rose"
-          ? "text-rose-600"
-          : "text-foreground";
+  const colour = statToneClass(tone);
   return (
     <div className="rounded-lg border bg-card p-4" title={hint}>
       <div className={`text-2xl font-semibold tabular-nums ${colour}`}>{value}</div>

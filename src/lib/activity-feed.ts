@@ -48,6 +48,12 @@ function actorLabel(user: { firstName: string | null; lastName: string | null } 
   return name || null;
 }
 
+function compareDescending(a: string, b: string): number {
+  if (a < b) return 1;
+  if (a > b) return -1;
+  return 0;
+}
+
 /** Collect + map activity for whichever of the two entities are present. */
 async function collect(
   speakerId: string | null,
@@ -190,7 +196,7 @@ async function collect(
   pushCerts(regCerts, "registration");
 
   // Newest first.
-  items.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  items.sort((a, b) => compareDescending(a.at, b.at));
   return items;
 }
 

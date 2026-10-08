@@ -15,6 +15,18 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { SurveyQuestion } from "@/lib/survey/schema";
 
+function numberBadgeClass(answered: boolean, hasError: boolean): string {
+  if (answered) return "bg-gradient-primary text-white shadow-sm shadow-primary/30";
+  if (hasError) return "bg-destructive/10 text-destructive";
+  return "bg-muted text-muted-foreground";
+}
+
+function ratingButtonClass(selected: boolean, hasError: boolean): string {
+  if (selected) return "btn-gradient scale-[1.04] shadow-md shadow-primary/25";
+  if (hasError) return "border border-destructive/50 text-destructive hover:bg-destructive/5";
+  return "border border-input bg-background text-foreground hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary";
+}
+
 export function QuestionCard({
   index,
   question,
@@ -42,13 +54,7 @@ export function QuestionCard({
       <div className="flex gap-3.5">
         {/* Number badge — fills with the brand gradient once answered */}
         <div
-          className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-all ${
-            answered
-              ? "bg-gradient-primary text-white shadow-sm shadow-primary/30"
-              : hasError
-                ? "bg-destructive/10 text-destructive"
-                : "bg-muted text-muted-foreground"
-          }`}
+          className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-all ${numberBadgeClass(answered, hasError)}`}
           aria-hidden
         >
           {answered ? <Check className="h-3.5 w-3.5" /> : index + 1}
@@ -132,13 +138,7 @@ function QuestionInput({
                   aria-label={String(n)}
                   disabled={disabled}
                   onClick={() => onChange(String(n))}
-                  className={`flex h-12 flex-1 items-center justify-center rounded-xl text-lg font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-60 ${
-                    selected
-                      ? "btn-gradient scale-[1.04] shadow-md shadow-primary/25"
-                      : hasError
-                        ? "border border-destructive/50 text-destructive hover:bg-destructive/5"
-                        : "border border-input bg-background text-foreground hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary"
-                  }`}
+                  className={`flex h-12 flex-1 items-center justify-center rounded-xl text-lg font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-60 ${ratingButtonClass(selected, hasError)}`}
                 >
                   {n}
                 </button>

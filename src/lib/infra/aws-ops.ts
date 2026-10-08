@@ -1428,6 +1428,12 @@ export function isMirrorArchiveKey(key: string): boolean {
   return MIRROR_ARCHIVE_KEY_RE.test(key);
 }
 
+function compareDescending(a: string, b: string): number {
+  if (a < b) return 1;
+  if (a > b) return -1;
+  return 0;
+}
+
 /**
  * Objects written under a stream's prefix in the last DR_BACKUPS_WINDOW_HOURS,
  * newest first, plus the prefix's total so the page can say how much it is
@@ -1451,7 +1457,7 @@ export async function listDrBackups(kind: DrBackupKind, now: number = Date.now()
         sizeBytes: o.Size ?? 0,
         lastModified: (o.LastModified as Date).toISOString(),
       }))
-      .sort((a, b) => (a.lastModified < b.lastModified ? 1 : a.lastModified > b.lastModified ? -1 : 0));
+      .sort((a, b) => compareDescending(a.lastModified, b.lastModified));
     return { status: "ok", ...base, objects, totalObjects: all.length, truncated: listed.truncated };
   } catch (err) {
     apiLogger.warn({ err, prefix }, "infra:dr-backups-list-failed");
@@ -1718,13 +1724,14 @@ async function readLogging(s3: S3Client, bucket: string): Promise<LoggingConfig>
   }
 }
 
+function accessLoggingCheck(logging: LoggingConfig): UploadsCheck {
+  if (logging.enabled === null) return { label: "Access logging", severity: "warn", ok: null, detail: logging.error };
+  if (logging.enabled) return { label: "Access logging", severity: "warn", ok: true, detail: `On, to ${logging.targetBucket}/${logging.targetPrefix}` };
+  return { label: "Access logging", severity: "warn", ok: false, detail: "Off: no per-request record of who fetched which file" };
+}
+
 async function fetchUploadsChecks(s3: S3Client, bucket: string, logging: LoggingConfig): Promise<UploadsCheck[]> {
-  const loggingCheck: UploadsCheck =
-    logging.enabled === null
-      ? { label: "Access logging", severity: "warn", ok: null, detail: logging.error }
-      : logging.enabled
-        ? { label: "Access logging", severity: "warn", ok: true, detail: `On, to ${logging.targetBucket}/${logging.targetPrefix}` }
-        : { label: "Access logging", severity: "warn", ok: false, detail: "Off: no per-request record of who fetched which file" };
+  const loggingCheck = accessLoggingCheck(logging);
   return Promise.all([
     check("Versioning", "critical", async () => {
       const out = await s3.send(new GetBucketVersioningCommand({ Bucket: bucket }));

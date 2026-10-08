@@ -39,6 +39,18 @@ export interface ApprovalChainView {
   candidates: ChainCandidate[];
 }
 
+function approvalReach(ceilingAed: number | null): ChainCandidate["approval"] {
+  if (ceilingAed === null) return null;
+  return ceilingAed === Number.POSITIVE_INFINITY ? "unlimited" : "limited";
+}
+
+/** The audit sentence for a saved chain, or for one turned off. */
+function chainSummary(turningOff: boolean, kind: ChainKind, levels: string[], names: Map<string, string>, standIn: string | null): string {
+  if (turningOff) return kind === "BUDGET" ? "Budgets go back to the approval limits." : "Spend requests go back to the approval limits.";
+  if (kind === "BUDGET") return `Budgets approved by ${names.get(levels[0]) ?? levels[0]}${standIn ? `; backup: ${standIn}` : ""}`;
+  return `${levels.map((id, i) => `${i + 1}. ${names.get(id) ?? id}`).join(", ")}${standIn ? `; stand-in at the last level: ${standIn}` : ""}`;
+}
+
 async function loadPeople(organizationId: string): Promise<ChainPerson[]> {
   const rows = await db.user.findMany({
     where: { organizationId, deactivatedAt: null, role: { in: [...TEAM_ROLES] } },
@@ -75,7 +87,7 @@ export async function getApprovalChain(organizationId: string): Promise<Approval
       id: p.id,
       name: p.name,
       role: p.role,
-      approval: p.ceilingAed === null ? null : p.ceilingAed === Number.POSITIVE_INFINITY ? "unlimited" : "limited",
+      approval: approvalReach(p.ceilingAed),
       settles: p.settles,
       procurementAccess: p.hasProcurementAccess,
     })),
@@ -100,11 +112,7 @@ export async function saveApprovalChain(input: { organizationId: string; actorUs
   }
   const names = new Map(people.map((p) => [p.id, p.name]));
   const standIn = input.config.standInUserId ? names.get(input.config.standInUserId) ?? input.config.standInUserId : null;
-  const summary = turningOff
-    ? input.kind === "BUDGET" ? "Budgets go back to the approval limits." : "Spend requests go back to the approval limits."
-    : input.kind === "BUDGET"
-      ? `Budgets approved by ${names.get(input.config.levels[0]) ?? input.config.levels[0]}${standIn ? `; backup: ${standIn}` : ""}`
-      : `${input.config.levels.map((id, i) => `${i + 1}. ${names.get(id) ?? id}`).join(", ")}${standIn ? `; stand-in at the last level: ${standIn}` : ""}`;
+  const summary = chainSummary(turningOff, input.kind, input.config.levels, names, standIn);
   try {
     await tenantTransaction(async (tx) => {
       const existing = await tx.approvalWorkflowDefinition.findFirst({ where: { organizationId: input.organizationId, subjectType: input.kind, name: DEFINITION_NAME[input.kind] }, select: { id: true } });

@@ -176,8 +176,10 @@ export async function buildTravelGrantRoster(
 
   // Consented first (the list an organizer acts on), then still-pending, then
   // everyone else. Alphabetical within each group.
-  const rank = (r: TravelGrantRosterRow) =>
-    r.grant?.status === "CONSENTED" ? 0 : r.grant?.status === "PENDING" ? 1 : 2;
+  const rank = (r: TravelGrantRosterRow) => {
+    if (r.grant?.status === "CONSENTED") return 0;
+    return r.grant?.status === "PENDING" ? 1 : 2;
+  };
   return [...bySpeaker.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
 

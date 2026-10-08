@@ -78,6 +78,11 @@ const bodySchema = z
     }
   });
 
+function runTemplateIds(run: { templateIds: string[]; certificateTemplateId: string | null }): string[] {
+  if (run.templateIds.length) return run.templateIds;
+  return run.certificateTemplateId ? [run.certificateTemplateId] : [];
+}
+
 export async function POST(req: Request, { params }: RouteParams) {
   let eventId: string | undefined;
   try {
@@ -243,11 +248,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       });
       const existing = nonTerminal.find((r) => {
-        const runIds = r.templateIds.length
-          ? r.templateIds
-          : r.certificateTemplateId
-            ? [r.certificateTemplateId]
-            : [];
+        const runIds = runTemplateIds(r);
         return runIds.some((id) => requestedIdSet.has(id));
       });
       if (existing) {

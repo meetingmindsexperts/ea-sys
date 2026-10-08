@@ -28,7 +28,8 @@ const CHANGE_LABEL: Record<CompareChange, { text: string; cls: string }> = {
 
 function deltaClass(v: string): string {
   const n = Number(v);
-  return n > 0 ? "text-amber-700 dark:text-amber-400" : n < 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground";
+  if (n > 0) return "text-amber-700 dark:text-amber-400";
+  return n < 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground";
 }
 
 export default function CompareVersionsPage() {

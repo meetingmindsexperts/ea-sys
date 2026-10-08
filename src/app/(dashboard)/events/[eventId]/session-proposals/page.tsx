@@ -114,6 +114,13 @@ interface ProposalRow {
   };
 }
 
+function emptyProposalsMessage(noRows: boolean, isSubmitter: boolean): string {
+  if (!noRows) return "No proposals match the current filters.";
+  return isSubmitter
+    ? "You haven't proposed a session yet."
+    : "No session proposals yet. Share the submitter registration link to start collecting proposals.";
+}
+
 function formatDate(value: string | null): string {
   if (!value) return "—";
   return new Date(value).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
@@ -430,23 +437,22 @@ export default function SessionProposalsPage() {
         <div className="flex items-center justify-center py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading proposals…
         </div>
-      ) : isError ? (
+      ) : null}
+      {!isLoading && isError ? (
         <Card className="border-red-200 bg-red-50/50">
           <CardContent className="py-8 text-center text-sm text-red-700">
             Couldn&apos;t load session proposals. Please refresh and try again.
           </CardContent>
         </Card>
-      ) : filtered.length === 0 ? (
+      ) : null}
+      {!isLoading && !isError && filtered.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            {rows.length === 0
-              ? isSubmitter
-                ? "You haven't proposed a session yet."
-                : "No session proposals yet. Share the submitter registration link to start collecting proposals."
-              : "No proposals match the current filters."}
+            {emptyProposalsMessage(rows.length === 0, isSubmitter)}
           </CardContent>
         </Card>
-      ) : (
+      ) : null}
+      {!isLoading && !isError && filtered.length > 0 ? (
         <Card>
           <Table>
             <TableHeader>
@@ -488,7 +494,7 @@ export default function SessionProposalsPage() {
             </TableBody>
           </Table>
         </Card>
-      )}
+      ) : null}
 
       {/* Detail sheet */}
       <Sheet open={!!selected} onOpenChange={(open) => { if (!open) { setSelected(null); setConfirmDelete(false); } }}>
@@ -571,7 +577,8 @@ export default function SessionProposalsPage() {
                               </Button>
                             )}
                         </>
-                      ) : canManage ? (
+                      ) : null}
+                      {!(selected.speaker.sourceRegistration && selected.speaker.sourceRegistration.status !== "CANCELLED") && (canManage ? (
                         <>
                           {selected.speaker.sourceRegistration?.status === "CANCELLED" && (
                             <div className="text-xs text-muted-foreground">
@@ -594,7 +601,7 @@ export default function SessionProposalsPage() {
                         </>
                       ) : (
                         <span className="text-xs text-muted-foreground">Not registered</span>
-                      )}
+                      ))}
                     </div>
                   </div>
                 )}
@@ -649,7 +656,8 @@ export default function SessionProposalsPage() {
                       >
                         Withdraw
                       </Button>
-                    ) : selected.status === "WITHDRAWN" ? (
+                    ) : null}
+                    {!(selected.status === "SUBMITTED") && selected.status === "WITHDRAWN" ? (
                       <Button
                         variant="outline"
                         size="sm"

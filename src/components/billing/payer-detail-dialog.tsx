@@ -107,11 +107,12 @@ export function PayerDetailDialog({
           <DialogTitle>{payer?.name ?? "Payer"}</DialogTitle>
         </DialogHeader>
 
-        {isLoading ? (
+        {isLoading && (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
           </div>
-        ) : isError ? (
+        )}
+        {!isLoading && isError && (
           <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
@@ -119,7 +120,8 @@ export function PayerDetailDialog({
               with the records — please try again.
             </span>
           </div>
-        ) : events.length === 0 ? (
+        )}
+        {!isLoading && !isError && (events.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
             {eventId
               ? "This payer isn't covering anyone at this event yet."
@@ -140,9 +142,8 @@ export function PayerDetailDialog({
                       </p>
                     )}
                   </div>
-                  {ev.attachedOnly ? (
-                    <Badge variant="outline">Nothing booked yet</Badge>
-                  ) : ev.totals.mixedCurrency ? (
+                  {ev.attachedOnly && <Badge variant="outline">Nothing booked yet</Badge>}
+                  {!ev.attachedOnly && (ev.totals.mixedCurrency ? (
                     <Badge variant="outline" className="text-amber-700">
                       Mixed currencies — see invoices
                     </Badge>
@@ -167,7 +168,7 @@ export function PayerDetailDialog({
                         )}
                       </span>
                     </div>
-                  )}
+                  ))}
                 </header>
 
                 {ev.totals.credited ? (
@@ -273,7 +274,7 @@ export function PayerDetailDialog({
               </section>
             ))}
           </div>
-        )}
+        ))}
       </DialogContent>
     </Dialog>
   );

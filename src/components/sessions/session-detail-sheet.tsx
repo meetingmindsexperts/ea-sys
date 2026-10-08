@@ -262,11 +262,12 @@ export function SessionDetailSheet({
           </SheetDescription>
         </SheetHeader>
 
-        {loading ? (
+        {loading && (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : session ? (
+        )}
+        {!loading && session ? (
           <div className="space-y-6 mt-4">
             {/* ── Status & Track ────────────────────────────────────── */}
             <div className="flex items-center gap-2 flex-wrap">
@@ -353,7 +354,7 @@ export function SessionDetailSheet({
                 <h4 className="text-sm font-medium">
                   Topics {session.topics.length > 0 && `(${session.topics.length})`}
                 </h4>
-                {!canWriteSessions ? null : !isEditing ? (
+                {canWriteSessions && (!isEditing ? (
                   <Button
                     variant="outline"
                     size="sm"
@@ -390,10 +391,10 @@ export function SessionDetailSheet({
                       Save
                     </Button>
                   </div>
-                )}
+                ))}
               </div>
 
-              {isEditing ? (
+              {isEditing && (
                 <div className="space-y-4">
                   {topicForms.map((topic, idx) => (
                     <div
@@ -467,7 +468,8 @@ export function SessionDetailSheet({
                     Add Topic
                   </Button>
                 </div>
-              ) : session.topics.length > 0 ? (
+              )}
+              {!isEditing && (session.topics.length > 0 ? (
                 <div className="space-y-2">
                   {session.topics.map((topic) => (
                     <div
@@ -504,7 +506,7 @@ export function SessionDetailSheet({
                 <p className="text-sm text-muted-foreground">
                   No topics added yet. Click &quot;Edit Topics&quot; to add topics and assign speakers.
                 </p>
-              )}
+              ))}
             </div>
           </div>
         ) : null}

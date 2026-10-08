@@ -91,9 +91,10 @@ export function AbstractThemesSettings({ eventId }: AbstractThemesSettingsProps)
         sub-themes the submitter must choose one.
       </p>
 
-      {isLoading ? (
+      {isLoading && (
         <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : (themes as Theme[]).length === 0 ? (
+      )}
+      {!isLoading && ((themes as Theme[]).length === 0 ? (
         <p className="text-sm text-muted-foreground italic">No themes configured yet.</p>
       ) : (
         <ul className="space-y-2">
@@ -162,7 +163,7 @@ export function AbstractThemesSettings({ eventId }: AbstractThemesSettingsProps)
             </li>
           ))}
         </ul>
-      )}
+      ))}
 
       {/* Add new theme */}
       <div className="flex gap-2">

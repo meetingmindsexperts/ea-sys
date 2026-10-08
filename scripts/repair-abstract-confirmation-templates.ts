@@ -44,6 +44,13 @@ interface Edit {
   apply: (html: string) => string | null; // null = anchor not found
 }
 
+/** Already repaired: unchanged. Anchor missing: null. Otherwise swap a for b. */
+function replaceUnlessDone(h: string, done: string, a: string, b: string): string | null {
+  if (h.includes(done)) return h;
+  if (!h.includes(a)) return null;
+  return h.replace(a, b);
+}
+
 /** Insert an "Abstract #" row immediately above whichever row shows the title. */
 const addAbstractNumberRow: Edit = {
   what: "add the Abstract # row",
@@ -81,7 +88,7 @@ const mehfRepairs: Edit[] = [
     apply: (h) => {
       const a = '<p>Paper Number:</p></td><td colspan="1" rowspan="1" style="padding: 8px 0px; font-weight: 500;"><p><strong>Submitted</strong></p>';
       const b = '<p>Paper Number:</p></td><td colspan="1" rowspan="1" style="padding: 8px 0px; font-weight: 500;"><p><strong>{{abstractNumber}}</strong></p>';
-      return h.includes("{{abstractNumber}}") ? h : h.includes(a) ? h.replace(a, b) : null;
+      return replaceUnlessDone(h, "{{abstractNumber}}", a, b);
     },
   },
   {
@@ -89,7 +96,7 @@ const mehfRepairs: Edit[] = [
     apply: (h) => {
       const a = '<p>Theme:</p></td><td colspan="1" rowspan="1" style="padding: 8px 0px; font-weight: 500;"><p><strong>Submitted</strong></p>';
       const b = '<p>Theme:</p></td><td colspan="1" rowspan="1" style="padding: 8px 0px; font-weight: 500;"><p><strong>{{theme}}</strong></p>';
-      return h.includes("{{theme}}") ? h : h.includes(a) ? h.replace(a, b) : null;
+      return replaceUnlessDone(h, "{{theme}}", a, b);
     },
   },
   {
@@ -97,7 +104,7 @@ const mehfRepairs: Edit[] = [
     apply: (h) => {
       const a = '<p>Presenting Author:</p></td><td colspan="1" rowspan="1"><p></p>';
       const b = '<p>Presenting Author:</p></td><td colspan="1" rowspan="1" style="padding: 8px 0px; font-weight: 500;"><p><strong>{{authorName}}</strong></p>';
-      return h.includes("{{authorName}}") ? h : h.includes(a) ? h.replace(a, b) : null;
+      return replaceUnlessDone(h, "{{authorName}}", a, b);
     },
   },
   {

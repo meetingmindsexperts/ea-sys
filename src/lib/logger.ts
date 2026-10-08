@@ -345,7 +345,8 @@ function forwardToSentry(module: string, args: unknown[]): void {
       } else if (typeof first === "object" && first !== null) {
         const obj = first as Record<string, unknown>;
         error = obj.err ?? obj.error;
-        message = typeof obj.msg === "string" ? obj.msg : (typeof args[1] === "string" ? args[1] : undefined);
+        const fallbackMessage = typeof args[1] === "string" ? args[1] : undefined;
+        message = typeof obj.msg === "string" ? obj.msg : fallbackMessage;
         // Copy all other fields as context, redacting known sensitive keys
         const REDACTED_KEYS = new Set(["password", "passwordHash", "token", "accessToken", "refreshToken", "authorization", "cookie"]);
         for (const [k, v] of Object.entries(obj)) {
@@ -437,7 +438,8 @@ function forwardToAdminAlert(module: string, args: unknown[]): void {
         errSignature = first.name && first.name !== "Error" ? first.name : "Error";
       } else if (typeof first === "object" && first !== null) {
         const obj = first as Record<string, unknown>;
-        message = typeof obj.msg === "string" ? obj.msg : (typeof args[1] === "string" ? args[1] : undefined);
+        const fallbackMessage = typeof args[1] === "string" ? args[1] : undefined;
+        message = typeof obj.msg === "string" ? obj.msg : fallbackMessage;
         // Extract a stable signature for dedupe — prefer awsErrorName
         // when present, then err.name, then a generic "error" string.
         const errInner = obj.err ?? obj.error;

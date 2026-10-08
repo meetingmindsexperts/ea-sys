@@ -93,6 +93,15 @@ function getAvatarBg(name: string): string {
 
 type TagMode = "add" | "remove" | "replace";
 
+const TAG_MODE_VERB: Record<TagMode, string> = { add: "added to", remove: "removed from", replace: "replaced on" };
+const TAG_MODE_BUTTON: Record<TagMode, string> = { add: "Add", remove: "Remove", replace: "Replace" };
+const TAG_MODE_FIELD_LABEL: Record<TagMode, string> = { add: "Tags to add", remove: "Tags to remove", replace: "Replace with" };
+
+function emptyContactsHint(filtered: boolean, canAdd: boolean): string {
+  if (filtered) return "Try adjusting your search or filters";
+  return canAdd ? "Import a CSV or add contacts manually" : "Contacts added by your team appear here";
+}
+
 export default function ContactsPage() {
   const { data: userSession } = useSession();
   const isAdmin = isOrgAdmin(userSession?.user?.role);
@@ -207,8 +216,7 @@ export default function ContactsPage() {
           tags: tagDialogValue,
           mode: tagDialogMode,
         });
-        const verb =
-          tagDialogMode === "add" ? "added to" : tagDialogMode === "remove" ? "removed from" : "replaced on";
+        const verb = TAG_MODE_VERB[tagDialogMode];
         toast.success(`Tags ${verb} ${selectedIds.size} contact${selectedIds.size !== 1 ? "s" : ""}`);
         setSelectedIds(new Set());
       }
@@ -507,7 +515,7 @@ export default function ContactsPage() {
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
+              {isLoading && (
                 <tr>
                   <td colSpan={6} className="text-center py-16">
                     <div className="flex flex-col items-center gap-2 text-gray-400">
@@ -516,7 +524,8 @@ export default function ContactsPage() {
                     </div>
                   </td>
                 </tr>
-              ) : contacts.length === 0 ? (
+              )}
+              {!isLoading && contacts.length === 0 && (
                 <tr>
                   <td colSpan={6} className="text-center py-16">
                     <div className="flex flex-col items-center gap-3">
@@ -528,11 +537,7 @@ export default function ContactsPage() {
                           {search || tagFilter.size > 0 ? "No contacts match" : "No contacts yet"}
                         </p>
                         <p className="text-xs text-gray-400">
-                          {search || tagFilter.size > 0
-                            ? "Try adjusting your search or filters"
-                            : canWriteContacts || canImportCsv
-                              ? "Import a CSV or add contacts manually"
-                              : "Contacts added by your team appear here"}
+                          {emptyContactsHint(!!search || tagFilter.size > 0, canWriteContacts || canImportCsv)}
                         </p>
                       </div>
                       {canWriteContacts && !search && tagFilter.size === 0 && (
@@ -546,7 +551,8 @@ export default function ContactsPage() {
                     </div>
                   </td>
                 </tr>
-              ) : (
+              )}
+              {!isLoading && contacts.length > 0 && (
                 contacts.map((contact) => {
                   const initials = `${contact.firstName[0] ?? ""}${contact.lastName[0] ?? ""}`.toUpperCase();
                   const avatarBg = getAvatarBg(`${contact.firstName}${contact.lastName}`);
@@ -755,7 +761,7 @@ export default function ContactsPage() {
                       : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
-                  {m === "add" ? "Add" : m === "remove" ? "Remove" : "Replace"}
+                  {TAG_MODE_BUTTON[m]}
                 </button>
               ))}
             </div>
@@ -811,7 +817,7 @@ export default function ContactsPage() {
 
             <div className="space-y-1.5">
               <Label className="text-xs text-gray-500 font-medium">
-                {tagDialogMode === "add" ? "Tags to add" : tagDialogMode === "remove" ? "Tags to remove" : "Replace with"}
+                {TAG_MODE_FIELD_LABEL[tagDialogMode]}
               </Label>
               <TagInput
                 value={tagDialogValue}

@@ -199,16 +199,18 @@ export function LoginActivityCard() {
           </div>
         )}
 
-        {isError ? (
+        {isError && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 p-6 text-center">
             <p className="text-sm text-destructive font-medium">Couldn&apos;t load sign-in activity.</p>
             <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
               Try again
             </Button>
           </div>
-        ) : isLoading ? (
+        )}
+        {!isError && isLoading && (
           <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
-        ) : !data || data.events.length === 0 ? (
+        )}
+        {!isError && !isLoading && (!data || data.events.length === 0 ? (
           <div className="py-10 text-center">
             <Clock className="h-8 w-8 mx-auto text-muted-foreground/40" />
             <p className="mt-2 text-sm text-muted-foreground">
@@ -313,7 +315,7 @@ export function LoginActivityCard() {
               actually is. Treat it as a &quot;does this look wrong?&quot; signal, not evidence.
             </p>
           </>
-        )}
+        ))}
       </CardContent>
     </Card>
   );

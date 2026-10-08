@@ -209,11 +209,8 @@ async function processRun(runId: string): Promise<RunTickResult> {
   // unchanged.
   if (run.reissue) return processReissueRun(run);
 
-  const templateIds = run.templateIds.length
-    ? run.templateIds
-    : run.certificateTemplateId
-      ? [run.certificateTemplateId]
-      : [];
+  const legacyTemplateIds = run.certificateTemplateId ? [run.certificateTemplateId] : [];
+  const templateIds = run.templateIds.length ? run.templateIds : legacyTemplateIds;
 
   // PENDING → RENDERING (atomic claim — only one cron can grab a
   // PENDING run; second cron loses the race + skips). Set lastTickAt

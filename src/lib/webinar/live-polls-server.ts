@@ -105,6 +105,10 @@ async function cachedTally(pollId: string, options: LivePollOption[]): Promise<P
   return tally;
 }
 
+function choiceList(choices: unknown): string[] {
+  return Array.isArray(choices) ? (choices as string[]) : [];
+}
+
 /**
  * The poll an attendee sees: the session's most recently launched poll, while
  * it is open, or after it closes if the producer shows its results. Nothing
@@ -144,7 +148,7 @@ export async function viewerPoll(args: {
     options,
     allowMultiple: poll.allowMultiple,
     status: poll.status as "OPEN" | "CLOSED",
-    myChoices: mine ? (Array.isArray(mine.choices) ? (mine.choices as string[]) : []) : null,
+    myChoices: mine ? choiceList(mine.choices) : null,
     results,
   };
 }

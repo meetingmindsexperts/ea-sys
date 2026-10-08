@@ -69,11 +69,13 @@ export default function ImportsPage() {
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading import history...
             </div>
-          ) : typedLogs.length === 0 ? (
+          ) : null}
+          {!isLoading && typedLogs.length === 0 ? (
             <div className="text-center py-12 text-sm text-muted-foreground">
               No imports yet for this event.
             </div>
-          ) : (
+          ) : null}
+          {!isLoading && typedLogs.length > 0 ? (
             <div className="border rounded-md overflow-auto">
               <Table>
                 <TableHeader>
@@ -126,7 +128,7 @@ export default function ImportsPage() {
                 </TableBody>
               </Table>
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 

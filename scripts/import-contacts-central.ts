@@ -95,6 +95,12 @@ function arg(name: string): string | undefined {
 }
 const flag = (name: string) => process.argv.includes(`--${name}`);
 
+function targetLabel(isLocal: boolean, isProd: boolean, host: string): string {
+  if (isLocal) return "LOCAL";
+  if (isProd) return "PRODUCTION";
+  return `remote (${host})`;
+}
+
 /**
  * Identify the target and gate on it.
  *
@@ -127,7 +133,7 @@ function resolveTarget(): { host: string; isProd: boolean; label: string } {
   return {
     host,
     isProd,
-    label: isLocal ? "LOCAL" : isProd ? "PRODUCTION" : `remote (${host})`,
+    label: targetLabel(isLocal, isProd, host),
   };
 }
 
@@ -506,11 +512,12 @@ async function main() {
     const orgArg = arg("org");
     const orgs = await db.organization.findMany({ select: { id: true, name: true, slug: true } });
     if (orgs.length === 0) throw new Error("[import-central] no Organization row found.");
-    const org = orgArg
-      ? orgs.find((o) => o.id === orgArg || o.slug === orgArg)
-      : orgs.length === 1
-        ? orgs[0]
-        : undefined;
+    const pickOrg = () => {
+      if (orgArg) return orgs.find((o) => o.id === orgArg || o.slug === orgArg);
+      if (orgs.length === 1) return orgs[0];
+      return undefined;
+    };
+    const org = pickOrg();
     if (!org) {
       throw new Error(
         orgArg

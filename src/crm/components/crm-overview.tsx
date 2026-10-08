@@ -63,6 +63,23 @@ function money(v: number | null, currency: string | null, mixed?: boolean): stri
 }
 
 /** Last instant of a due date's day — a task is overdue only once this has passed. */
+/** Which of a panel's four bodies to show: skeleton, error, empty state or rows. */
+function panelState(
+  q: { isLoading: boolean; isError: boolean },
+  count: number,
+): "loading" | "error" | "empty" | "list" {
+  if (q.isLoading) return "loading";
+  if (q.isError) return "error";
+  if (count === 0) return "empty";
+  return "list";
+}
+
+const KPI_TONE_CLASS: Record<"warn" | "danger" | "info", string> = {
+  danger: "text-destructive",
+  warn: "text-amber-600 dark:text-amber-500",
+  info: "text-sky-600 dark:text-sky-400",
+};
+
 function endOfDueDay(dueAt: string): Date {
   const e = new Date(dueAt);
   e.setHours(23, 59, 59, 999);
@@ -117,6 +134,9 @@ export function CrmOverview() {
 
   const unread = showInbox ? inboxQ.data?.unreadCount ?? 0 : 0;
   const winRate = report.data?.winLoss.winRate ?? null;
+  const dealsPanel = panelState(dealsQ, attentionDeals.length);
+  const tasksPanel = panelState(tasksQ, tasks.length);
+  const notifPanel = panelState(notifQ, notifQ.data?.notifications.length ?? 0);
 
   return (
     <div className="space-y-6 p-6">
@@ -198,17 +218,16 @@ export function CrmOverview() {
                 {attentionDeals.length}
               </span>
             </header>
-            {dealsQ.isLoading ? (
-              <PanelSkeleton rows={4} />
-            ) : dealsQ.isError ? (
-              <CrmLoadError what="deals" onRetry={() => dealsQ.refetch()} />
-            ) : attentionDeals.length === 0 ? (
+            {dealsPanel === "loading" && <PanelSkeleton rows={4} />}
+            {dealsPanel === "error" && <CrmLoadError what="deals" onRetry={() => dealsQ.refetch()} />}
+            {dealsPanel === "empty" && (
               <PanelEmpty
                 icon={Handshake}
                 title="Nothing slipping"
                 description="Open deals closing within a week — or already past their close date — show up here."
               />
-            ) : (
+            )}
+            {dealsPanel === "list" && (
               <ul className="divide-y">
                 {attentionDeals.slice(0, 6).map(({ deal, close }) => (
                   <AttentionDealRow
@@ -250,17 +269,16 @@ export function CrmOverview() {
                 <ArrowRight className="h-3.5 w-3.5" />
               </button>
             </header>
-            {tasksQ.isLoading ? (
-              <PanelSkeleton rows={4} />
-            ) : tasksQ.isError ? (
-              <CrmLoadError what="tasks" onRetry={() => tasksQ.refetch()} />
-            ) : tasks.length === 0 ? (
+            {tasksPanel === "loading" && <PanelSkeleton rows={4} />}
+            {tasksPanel === "error" && <CrmLoadError what="tasks" onRetry={() => tasksQ.refetch()} />}
+            {tasksPanel === "empty" && (
               <PanelEmpty
                 icon={CheckSquare}
                 title="Nothing outstanding"
                 description="Follow-ups you own show up here — add one from a deal to start tracking it."
               />
-            ) : (
+            )}
+            {tasksPanel === "list" && (
               <div>
                 {overdueTasks.length > 0 && (
                   <p className="border-b bg-destructive/5 px-3 py-1.5 text-xs font-semibold text-destructive">
@@ -303,17 +321,16 @@ export function CrmOverview() {
               <Badge className="ml-auto bg-sky-600 text-[10px]">{notifQ.data!.unreadCount} new</Badge>
             )}
           </header>
-          {notifQ.isLoading ? (
-            <PanelSkeleton rows={5} />
-          ) : notifQ.isError ? (
-            <CrmLoadError what="your activity" onRetry={() => notifQ.refetch()} />
-          ) : (notifQ.data?.notifications.length ?? 0) === 0 ? (
+          {notifPanel === "loading" && <PanelSkeleton rows={5} />}
+          {notifPanel === "error" && <CrmLoadError what="your activity" onRetry={() => notifQ.refetch()} />}
+          {notifPanel === "empty" && (
             <PanelEmpty
               icon={Bell}
               title="Nothing recent"
               description="Deal assignments, stage moves and task nudges land here."
             />
-          ) : (
+          )}
+          {notifPanel === "list" && (
             <ul className="divide-y">
               {notifQ.data!.notifications.slice(0, 8).map((n) => (
                 <li key={n.id}>
@@ -378,14 +395,7 @@ function KpiCard({
   loading?: boolean;
   onClick?: () => void;
 }) {
-  const toneCls =
-    tone === "danger"
-      ? "text-destructive"
-      : tone === "warn"
-        ? "text-amber-600 dark:text-amber-500"
-        : tone === "info"
-          ? "text-sky-600 dark:text-sky-400"
-          : "";
+  const toneCls = tone ? KPI_TONE_CLASS[tone] : "";
   const inner = (
     <>
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">

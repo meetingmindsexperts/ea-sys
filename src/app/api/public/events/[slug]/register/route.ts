@@ -126,6 +126,11 @@ interface RouteParams {
   params: Promise<{ slug: string }>;
 }
 
+function initialPaymentStatus(sponsorCovered: boolean, finalPrice: number): "INCLUSIVE" | "COMPLIMENTARY" | "UNPAID" {
+  if (sponsorCovered) return "INCLUSIVE";
+  return finalPrice === 0 ? "COMPLIMENTARY" : "UNPAID";
+}
+
 export async function POST(req: Request, { params }: RouteParams) {
   // Hoisted so the catch block's business-rejection log (M12) can name the
   // event even though the destructure happens inside the try.
@@ -559,11 +564,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       // Virtual uses the ticket's flat virtualPrice (null ⇒ in-person price);
       // pricing tiers apply to in-person only.
-      const originalPrice = isVirtual
-        ? Number(ticketType.virtualPrice ?? ticketType.price)
-        : pricingTier
-          ? Number(pricingTier.price)
-          : Number(ticketType.price);
+      let originalPrice: number;
+      if (isVirtual) originalPrice = Number(ticketType.virtualPrice ?? ticketType.price);
+      else if (pricingTier) originalPrice = Number(pricingTier.price);
+      else originalPrice = Number(ticketType.price);
       const effectiveApproval = pricingTier ? pricingTier.requiresApproval : ticketType.requiresApproval;
 
       // Promo code validation and redemption (inside transaction for atomicity)
@@ -673,7 +677,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           // signal — there was no payment. COMPLIMENTARY is the correct
           // "no money due" status, consistent with the service layer's
           // free-ticket default and the CSV import path.
-          paymentStatus: sponsorCovered ? "INCLUSIVE" : finalPrice === 0 ? "COMPLIMENTARY" : "UNPAID",
+          paymentStatus: initialPaymentStatus(sponsorCovered, finalPrice),
           ...(sponsorCovered && promoCodeRecord?.sponsorId ? { sponsorId: promoCodeRecord.sponsorId } : {}),
           qrCode: generatedBarcode,
           promoCodeId: promoCodeRecord?.id || null,

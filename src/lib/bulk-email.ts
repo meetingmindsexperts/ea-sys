@@ -859,6 +859,18 @@ export interface BulkEmailViability {
   respondedSurvey: { id: string; eventId: string; gatesCertificates: boolean; answered: "yes" | "no" } | null;
 }
 
+function cancelledAudienceNoun(emailType: string): string {
+  if (emailType === "certificate") return "Certificates";
+  if (emailType === "payment-reminder") return "Payment reminders";
+  return "Survey invitations";
+}
+
+/** The event's active row for the slug, else the built-in default; no slug, no template. */
+async function loadTemplateBySlug(eventId: string, slug: string | null | undefined) {
+  if (!slug) return null;
+  return (await loadActiveEventTemplateRow(eventId, slug)) || getDefaultTemplate(slug);
+}
+
 /**
  * Config-only viability checks — everything validatable WITHOUT resolving
  * recipients: recipient-type/emailType compatibility, custom subject+message,
@@ -954,12 +966,7 @@ export async function precheckBulkEmailViability(
     !isAllSentinel(filters.status) &&
     filters.status.toUpperCase() === "CANCELLED"
   ) {
-    const noun =
-      emailType === "certificate"
-        ? "Certificates"
-        : emailType === "payment-reminder"
-          ? "Payment reminders"
-          : "Survey invitations";
+    const noun = cancelledAudienceNoun(emailType);
     apiLogger.warn(
       { eventId, emailType, recipientType, status: filters.status },
       "bulk-email:cancelled-audience-rejected",
@@ -1101,12 +1108,7 @@ export async function precheckBulkEmailViability(
   // at fire time too, since executeBulkEmail calls this precheck.
   if (!rsvpCampaign && emailType !== "certificate") {
     const slug = emailType === "template" ? filters?.templateSlug : bulkTemplateSlugFor(emailType, recipientType);
-    const tpl =
-      emailType === "template"
-        ? savedTemplate
-        : slug
-          ? (await loadActiveEventTemplateRow(eventId, slug)) || getDefaultTemplate(slug)
-          : null;
+    const tpl = emailType === "template" ? savedTemplate : await loadTemplateBySlug(eventId, slug);
     if (templateUsesRsvpToken(tpl?.subject, tpl?.htmlContent, tpl?.textContent, customSubject, customMessage)) {
       apiLogger.warn({ msg: "bulk-email:rsvp-token-without-campaign", eventId, emailType, recipientType, templateSlug: slug });
       throw new BulkEmailError(
@@ -1185,6 +1187,14 @@ function buildWebinarCalendarEnrichment(args: {
       contentType: "text/calendar",
     },
   };
+}
+
+function bulkEntityTypeFor(recipientType: string): "SPEAKER" | "REGISTRATION" | "USER" | "OTHER" {
+  if (recipientType === "speakers") return "SPEAKER";
+  if (recipientType === "registrations") return "REGISTRATION";
+  if (recipientType === "reviewers") return "USER";
+  if (recipientType === "abstracts") return "SPEAKER";
+  return "OTHER";
 }
 
 /**
@@ -1289,19 +1299,19 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // sessionRole implies hasSession=yes naturally (the SessionSpeaker
     // join is required for either) so we let them combine without a
     // dedicated conflict check — Prisma ANDs them.
-    const agreementWhere =
-      filters?.agreementSigned === "signed"
-        ? { agreementAcceptedAt: { not: null } }
-        : filters?.agreementSigned === "unsigned"
-          ? { agreementAcceptedAt: null }
-          : {};
-    const sessionWhere = filters?.sessionRole
-      ? { sessions: { some: { role: filters.sessionRole } } }
-      : filters?.hasSession === "yes"
-        ? { sessions: { some: {} } }
-        : filters?.hasSession === "no"
-          ? { sessions: { none: {} } }
-          : {};
+    const agreementWhereFor = () => {
+      if (filters?.agreementSigned === "signed") return { agreementAcceptedAt: { not: null } };
+      if (filters?.agreementSigned === "unsigned") return { agreementAcceptedAt: null };
+      return {};
+    };
+    const agreementWhere = agreementWhereFor();
+    const sessionWhereFor = () => {
+      if (filters?.sessionRole) return { sessions: { some: { role: filters.sessionRole } } };
+      if (filters?.hasSession === "yes") return { sessions: { some: {} } };
+      if (filters?.hasSession === "no") return { sessions: { none: {} } };
+      return {};
+    };
+    const sessionWhere = sessionWhereFor();
     const speakers = await db.speaker.findMany({
       where: {
         eventId,
@@ -1400,6 +1410,16 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // paymentStatus may be a single value or a comma-separated multi-value
     // list (e.g. the Welcome-Paid tile → PAID,COMPLIMENTARY,INCLUSIVE).
     const paymentStatuses = parsePaymentStatusFilter(filters?.paymentStatus);
+    const paymentStatusWhere = () => {
+      if (paymentStatuses.length === 1) return { paymentStatus: paymentStatuses[0] };
+      if (paymentStatuses.length > 1) return { paymentStatus: { in: paymentStatuses } };
+      return {};
+    };
+    const ticketTypeWhere = () => {
+      if (filters?.ticketTypeIds?.length) return { ticketTypeId: { in: filters.ticketTypeIds } };
+      if (filters?.ticketTypeId) return { ticketTypeId: filters.ticketTypeId };
+      return {};
+    };
     const registrations = await db.registration.findMany({
       where: {
         eventId,
@@ -1415,16 +1435,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         // Group members are never dunned individually (review H2) — the payer
         // owes via the consolidated invoice. Shared predicate with the counts.
         ...(excludesGroupMembers(emailType) ? { groupId: null } : {}),
-        ...(paymentStatuses.length === 1
-          ? { paymentStatus: paymentStatuses[0] }
-          : paymentStatuses.length > 1
-            ? { paymentStatus: { in: paymentStatuses } }
-            : {}),
-        ...(filters?.ticketTypeIds?.length
-          ? { ticketTypeId: { in: filters.ticketTypeIds } }
-          : filters?.ticketTypeId
-            ? { ticketTypeId: filters.ticketTypeId }
-            : {}),
+        ...paymentStatusWhere(),
+        ...ticketTypeWhere(),
         ...(filters?.badgeTypes?.length ? { badgeType: { in: filters.badgeTypes } } : {}),
         // Tag filter — attendees with ANY of the requested tags. Relation
         // filter on the linked Attendee row.
@@ -1972,8 +1984,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // is minted or generated unless the text uses a token. Other audiences
     // leave the tokens unset, so the unresolved-token guard names them.
     let presenterAttachment: BulkEmailAttachment | undefined;
-    const presenterAuthorId =
-      recipientType === "speakers" ? recipient.id : recipientType === "abstracts" ? recipient.logEntityId : undefined;
+    const abstractAuthorId = recipientType === "abstracts" ? recipient.logEntityId : undefined;
+    const presenterAuthorId = recipientType === "speakers" ? recipient.id : abstractAuthorId;
     if (presenterAuthorId) {
       const presenter = await resolvePresenterAgreementForSend({
         eventId,
@@ -2435,16 +2447,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
             }
           }
 
-          const bulkEntityType =
-            recipientType === "speakers"
-              ? ("SPEAKER" as const)
-              : recipientType === "registrations"
-                ? ("REGISTRATION" as const)
-                : recipientType === "reviewers"
-                  ? ("USER" as const)
-                  : recipientType === "abstracts"
-                    ? ("SPEAKER" as const)
-                    : ("OTHER" as const);
+          const bulkEntityType = bulkEntityTypeFor(recipientType);
           const bccRecipients = [...bccSet]
             .filter((e) => e !== recipient.email.trim().toLowerCase())
             .map((email) => ({ email }));

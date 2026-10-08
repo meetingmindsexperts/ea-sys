@@ -100,11 +100,11 @@ export function CrmNotesCard({
           </div>
         )}
 
-        {notesLoading ? (
-          <p className="py-2 text-sm text-muted-foreground">Loading activity…</p>
-        ) : notes.length === 0 ? (
+        {notesLoading && <p className="py-2 text-sm text-muted-foreground">Loading activity…</p>}
+        {!notesLoading && notes.length === 0 && (
           <p className="py-2 text-sm text-muted-foreground">Nothing logged yet.</p>
-        ) : (
+        )}
+        {!notesLoading && notes.length > 0 && (
           <ul className="space-y-3">
             {notes.map((n) => {
               const isAuthor = !!currentUserId && n.authorId === currentUserId;

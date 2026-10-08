@@ -52,11 +52,9 @@ export function DtcmPoolCard({ eventId, enabled }: DtcmPoolCardProps) {
     <div
       className={cn(
         "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-4 py-2.5 text-sm",
-        isEmpty
-          ? "border-red-200 bg-red-50 text-red-800"
-          : isLow
-            ? "border-amber-200 bg-amber-50 text-amber-900"
-            : "bg-muted/40",
+        isEmpty && "border-red-200 bg-red-50 text-red-800",
+        !isEmpty && isLow && "border-amber-200 bg-amber-50 text-amber-900",
+        !isEmpty && !isLow && "bg-muted/40",
       )}
     >
       {isEmpty || isLow ? (

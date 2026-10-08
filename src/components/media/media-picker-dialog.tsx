@@ -171,12 +171,13 @@ export function MediaPickerDialog({
           </div>
 
           {/* Existing media grid */}
-          {loading ? (
+          {loading && (
             <div className="flex items-center justify-center h-40 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin mr-2" />
               Loading...
             </div>
-          ) : files.length === 0 ? (
+          )}
+          {!loading && (files.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
               <ImageIcon className="h-8 w-8 mb-2" />
               <p className="text-sm">No media yet — upload an image to get started.</p>
@@ -202,7 +203,7 @@ export function MediaPickerDialog({
                 </button>
               ))}
             </div>
-          )}
+          ))}
         </div>
       </DialogContent>
     </Dialog>

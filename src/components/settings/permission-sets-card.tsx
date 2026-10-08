@@ -59,6 +59,17 @@ const CARD_COPY: Record<"procurement" | "custom", { title: string; description: 
 
 const keysOf = (set: PermissionSetRow) => set.permissions.map((p) => p.permission);
 
+function editingKey(editing: Editing): string | null {
+  if (editing === null) return null;
+  if (editing === "new") return "new";
+  return editing.id;
+}
+
+function roleDialogTitle(isNew: boolean, isProcurement: boolean): string {
+  if (isNew) return isProcurement ? "New Budgets role" : "New role";
+  return isProcurement ? "Edit Budgets role" : "Edit role";
+}
+
 export function PermissionSetsCard({ kind }: { kind: "procurement" | "custom" }) {
   const qc = useQueryClient();
   const { data: allSets = [], isLoading } = usePermissionSets({ includeArchived: true });
@@ -168,13 +179,12 @@ export function PermissionSetsCard({ kind }: { kind: "procurement" | "custom" })
                   title={set.archivedAt ? "Restore this role" : "Archive: everyone holding it loses what it grants"}
                   onClick={() => toggleArchived(set)}
                 >
-                  {busyId === set.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : set.archivedAt ? (
+                  {busyId === set.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {busyId !== set.id && (set.archivedAt ? (
                     <Undo2 className="h-4 w-4" />
                   ) : (
                     <Archive className="h-4 w-4 text-amber-600" />
-                  )}
+                  ))}
                 </Button>
               </div>
             </div>
@@ -217,7 +227,7 @@ function PermissionSetDialog({
   // not an effect), so the boxes show the role being edited rather than
   // whichever one was opened last.
   const [prevKey, setPrevKey] = useState<string | null>(null);
-  const key = editing === null ? null : editing === "new" ? "new" : editing.id;
+  const key = editingKey(editing);
   if (key !== prevKey) {
     setPrevKey(key);
     setSearch("");
@@ -331,7 +341,7 @@ function PermissionSetDialog({
       <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {editing === "new" ? (kind === "procurement" ? "New Budgets role" : "New role") : kind === "procurement" ? "Edit Budgets role" : "Edit role"}
+            {roleDialogTitle(editing === "new", kind === "procurement")}
           </DialogTitle>
           <DialogDescription>
             Tick what this role lets someone do. People holding it pick the change up within five minutes; anything

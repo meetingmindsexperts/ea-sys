@@ -518,11 +518,7 @@ function IssuedCertificatesCardBody({
                       <span>
                         <span className="font-medium">{t.name}</span>
                         <span className="block text-xs text-muted-foreground">
-                          {!tag
-                            ? "no tag — set a tag on the template first (the tag decides who receives it)"
-                            : tagBlocked
-                              ? `requires tag "${tag}" — this person doesn't have it`
-                              : `tag: ${tag}`}
+                          {templateTagNote(tag, tagBlocked)}
                         </span>
                         {held && !tagBlocked && (
                           <span className="block text-xs text-amber-600">
@@ -593,6 +589,18 @@ function IssuedCertificatesCardBody({
       </Dialog>
     </div>
   );
+}
+
+function templateTagNote(tag: string | undefined, tagBlocked: boolean): string {
+  if (!tag) return "no tag — set a tag on the template first (the tag decides who receives it)";
+  if (tagBlocked) return `requires tag "${tag}" — this person doesn't have it`;
+  return `tag: ${tag}`;
+}
+
+function resendTitle(isRevoked: boolean, pdfUrl: string | null | undefined): string {
+  if (isRevoked) return "Can't resend a revoked cert";
+  if (!pdfUrl) return "PDF not rendered yet";
+  return "Resend delivery email";
 }
 
 interface CertRowProps {
@@ -685,13 +693,7 @@ function CertRow({ cert, isResending, onResend }: CertRowProps) {
           className="h-7 px-2 text-xs"
           onClick={onResend}
           disabled={isResending || isRevoked || !cert.pdfUrl}
-          title={
-            isRevoked
-              ? "Can't resend a revoked cert"
-              : !cert.pdfUrl
-                ? "PDF not rendered yet"
-                : "Resend delivery email"
-          }
+          title={resendTitle(isRevoked, cert.pdfUrl)}
         >
           {isResending ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

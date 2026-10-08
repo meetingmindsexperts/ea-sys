@@ -72,11 +72,8 @@ export async function resolveRepricing(input: {
   // unchanged (don't touch the column). For seat accounting the caller resolves
   // the effective next tier as `nextTierId ?? existing.pricingTierId` when it's
   // undefined.
-  const nextTierId: string | null | undefined = isSettingTier
-    ? pricingTierId ?? null
-    : isChangingType
-    ? null
-    : undefined;
+  const typeChangeTierId = isChangingType ? null : undefined;
+  const nextTierId: string | null | undefined = isSettingTier ? pricingTierId ?? null : typeChangeTierId;
 
   let originalPrice: number | undefined;
 

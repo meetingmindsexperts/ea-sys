@@ -346,9 +346,8 @@ function MessageBubble({
             : "bg-muted text-foreground",
         )}
       >
-        {isStreamingPlaceholder ? (
-          <TypingDots />
-        ) : isUser ? (
+        {isStreamingPlaceholder && <TypingDots />}
+        {!isStreamingPlaceholder && (isUser ? (
           // User turns are plain text — they typed it; render verbatim
           // so paste-formatting (line breaks etc.) survives.
           message.content
@@ -367,7 +366,7 @@ function MessageBubble({
               {message.content}
             </ReactMarkdown>
           </div>
-        )}
+        ))}
       </div>
     </div>
   );

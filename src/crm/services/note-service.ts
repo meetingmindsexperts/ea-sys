@@ -65,6 +65,13 @@ export type NoteErrorCode =
   | "UNKNOWN";
 
 type Fail = { ok: false; code: NoteErrorCode; message: string; meta?: Record<string, unknown> };
+
+/** A missing record fails as not found; an archived one is frozen (R2-M1: notes included). */
+function attachmentFailure(r: { archivedAt: Date | null } | null, notFound: Fail, archived: Fail): Fail | null {
+  if (!r) return notFound;
+  if (r.archivedAt) return archived;
+  return null;
+}
 export type NoteResult = { ok: true; note: CrmNote } | Fail;
 
 /** Every attachment id is bound to the caller's org before it is written. */
@@ -79,12 +86,11 @@ async function validateAttachments(
       db.crmDeal
         .findFirst({ where: { id: rel.dealId, organizationId }, select: { id: true, archivedAt: true } })
         .then((r) =>
-          !r
-            ? ({ ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" } as Fail)
-            : r.archivedAt
-              // R2-M1: an archived record is frozen — notes included.
-              ? ({ ok: false, code: "DEAL_ARCHIVED", message: "That deal was archived — restore it before adding notes" } as Fail)
-              : null,
+          attachmentFailure(
+            r,
+            { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" },
+            { ok: false, code: "DEAL_ARCHIVED", message: "That deal was archived — restore it before adding notes" },
+          ),
         ),
     );
   }
@@ -93,12 +99,11 @@ async function validateAttachments(
       db.crmCompany
         .findFirst({ where: { id: rel.companyId, organizationId }, select: { id: true, archivedAt: true } })
         .then((r) =>
-          !r
-            ? ({ ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" } as Fail)
-            : r.archivedAt
-              // R2-M1: an archived record is frozen — notes included.
-              ? ({ ok: false, code: "COMPANY_ARCHIVED", message: "That company was archived — restore it before adding notes" } as Fail)
-              : null,
+          attachmentFailure(
+            r,
+            { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" },
+            { ok: false, code: "COMPANY_ARCHIVED", message: "That company was archived — restore it before adding notes" },
+          ),
         ),
     );
   }
@@ -107,12 +112,11 @@ async function validateAttachments(
       db.crmContact
         .findFirst({ where: { id: rel.crmContactId, organizationId }, select: { id: true, archivedAt: true } })
         .then((r) =>
-          !r
-            ? ({ ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" } as Fail)
-            : r.archivedAt
-              // R2-M1: an archived record is frozen — notes included.
-              ? ({ ok: false, code: "CONTACT_ARCHIVED", message: "That contact was archived — restore it before adding notes" } as Fail)
-              : null,
+          attachmentFailure(
+            r,
+            { ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" },
+            { ok: false, code: "CONTACT_ARCHIVED", message: "That contact was archived — restore it before adding notes" },
+          ),
         ),
     );
   }

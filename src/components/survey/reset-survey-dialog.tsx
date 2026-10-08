@@ -43,6 +43,16 @@ interface Props {
   extraSurvey?: { id: string; name: string; daily?: boolean };
 }
 
+function resetDescription(personName: string, extraSurvey: Props["extraSurvey"]): string {
+  if (extraSurvey?.daily) {
+    return `${personName}'s answer to "${extraSurvey.name}" for today will be deleted and they can answer again today with the same link. Earlier days are kept, and their certificate survey is not affected.`;
+  }
+  if (extraSurvey) {
+    return `${personName}'s answers to "${extraSurvey.name}" will be deleted and they can answer it again. Their certificate survey is not affected.`;
+  }
+  return `${personName}'s answers will be deleted and they can take the survey again.`;
+}
+
 export function ResetSurveyDialog({ eventId, registrationId, personName, open, onOpenChange, onReset, extraSurvey }: Props) {
   const [pending, setPending] = useState(false);
 
@@ -91,11 +101,7 @@ export function ResetSurveyDialog({ eventId, registrationId, personName, open, o
         <DialogHeader>
           <DialogTitle>Reset survey?</DialogTitle>
           <DialogDescription>
-            {extraSurvey?.daily
-              ? `${personName}'s answer to "${extraSurvey.name}" for today will be deleted and they can answer again today with the same link. Earlier days are kept, and their certificate survey is not affected.`
-              : extraSurvey
-                ? `${personName}'s answers to "${extraSurvey.name}" will be deleted and they can answer it again. Their certificate survey is not affected.`
-                : `${personName}'s answers will be deleted and they can take the survey again.`}{" "}
+            {resetDescription(personName, extraSurvey)}{" "}
             {!extraSurvey?.daily && "Send them a new link afterwards from Send Email, Survey Invitation."}
           </DialogDescription>
         </DialogHeader>

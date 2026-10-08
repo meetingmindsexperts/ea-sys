@@ -173,6 +173,10 @@ const RESET_MS = {
 
 const PIN_PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "back", "0", "ok"] as const;
 
+function pinPadKeyLabel(k: (typeof PIN_PAD_KEYS)[number]): string {
+  return k === "ok" ? "OK" : k;
+}
+
 export default function KioskCheckInPage() {
   const params = useParams();
   const router = useRouter();
@@ -816,7 +820,7 @@ export default function KioskCheckInPage() {
                           : "bg-slate-100 hover:bg-slate-200"
                       }`}
                     >
-                      {k === "back" ? <Delete className="h-5 w-5" /> : k === "ok" ? "OK" : k}
+                      {k === "back" ? <Delete className="h-5 w-5" /> : pinPadKeyLabel(k)}
                     </button>
                   ))}
                 </div>

@@ -369,6 +369,11 @@ export async function resolveAuditOrganizationId(
   return null;
 }
 
+function asRowList<T>(raw: T | T[] | undefined): T[] {
+  if (Array.isArray(raw)) return raw;
+  return raw ? [raw] : [];
+}
+
 /**
  * Central org-stamp for AuditLog writes (the ONE choke point all 163 call
  * sites — including the 10 `tx.auditLog.create` sites — flow through).
@@ -402,7 +407,7 @@ function withAuditOrgStamp(
         },
         async createMany({ args, query }) {
           const raw = args.data as Record<string, unknown> | Record<string, unknown>[] | undefined;
-          const rows = Array.isArray(raw) ? raw : raw ? [raw] : [];
+          const rows = asRowList(raw);
           for (const row of rows) {
             row.organizationId = await resolveAuditOrganizationId(row, base);
           }

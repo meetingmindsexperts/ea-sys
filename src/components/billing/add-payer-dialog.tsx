@@ -30,6 +30,18 @@ const BLANK = {
   taxNumber: "",
 };
 
+function payerAddedMessage(res: {
+  billingAccount: { name: string };
+  reused: boolean;
+  needsReview: boolean;
+}): string {
+  if (res.reused) return `Using existing payer "${res.billingAccount.name}"`;
+  if (res.needsReview) {
+    return `Added "${res.billingAccount.name}" — flagged as a possible duplicate to review in Settings → Billing`;
+  }
+  return `Added payer "${res.billingAccount.name}"`;
+}
+
 interface AddPayerDialogProps {
   eventId: string;
   open: boolean;
@@ -76,13 +88,7 @@ export function AddPayerDialog({ eventId, open, onOpenChange, onCreated }: AddPa
         country: form.country || null,
         taxNumber: form.taxNumber || null,
       });
-      toast.success(
-        res.reused
-          ? `Using existing payer "${res.billingAccount.name}"`
-          : res.needsReview
-            ? `Added "${res.billingAccount.name}" — flagged as a possible duplicate to review in Settings → Billing`
-            : `Added payer "${res.billingAccount.name}"`,
-      );
+      toast.success(payerAddedMessage(res));
       onCreated(res.billingAccount);
       onOpenChange(false);
     } catch (e) {

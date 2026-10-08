@@ -100,6 +100,8 @@ function ContactsInner() {
   const rows = sortKey ? [...contacts].sort(makeComparator(sortKey, dir)) : contacts;
   const onSort = (key: string) => set(nextSort(sortKey, dir, key));
 
+  const view = listView(isLoading, isError, rows.length === 0);
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -230,27 +232,17 @@ function ContactsInner() {
           while rows sit behind the cap (review H5). */}
       <ListTruncationBanner meta={contactsMeta} shown={rows.length} noun="contacts" />
 
-      {isLoading ? (
+      {view === "loading" && (
         <CrmTableSkeleton rows={6} cols={8} />
-      ) : isError ? (
+      )}
+      {view === "error" && (
         <CrmLoadError what="contacts" onRetry={() => refetch()} />
-      ) : rows.length === 0 ? (
+      )}
+      {view === "empty" && (
         <CrmEmptyState
           icon={Users}
-          title={
-            showArchived
-              ? "No archived contacts"
-              : q
-                ? "Nobody matches that search"
-                : "No CRM contacts yet"
-          }
-          description={
-            showArchived
-              ? "Contacts you archive will show up here, ready to restore."
-              : q
-                ? "Try a different name or email."
-                : "Reps, exhibitor sales and procurement — the people you deal with."
-          }
+          title={emptyCopy(showArchived, !!q).title}
+          description={emptyCopy(showArchived, !!q).description}
           action={
             canWrite && !showArchived && !q ? (
               <Button onClick={() => setCreateOpen(true)}>
@@ -260,7 +252,8 @@ function ContactsInner() {
             ) : undefined
           }
         />
-      ) : (
+      )}
+      {view === "list" && (
         <div className="overflow-hidden rounded-xl border">
           <Table>
             <TableHeader>
@@ -376,6 +369,21 @@ function makeComparator(key: string, dir: SortDir) {
     }
     return cmp * mult;
   };
+}
+
+type ListView = "loading" | "error" | "empty" | "list";
+
+function listView(isLoading: boolean, isError: boolean, empty: boolean): ListView {
+  if (isLoading) return "loading";
+  if (isError) return "error";
+  if (empty) return "empty";
+  return "list";
+}
+
+function emptyCopy(archived: boolean, searching: boolean): { title: string; description: string } {
+  if (archived) return { title: "No archived contacts", description: "Contacts you archive will show up here, ready to restore." };
+  if (searching) return { title: "Nobody matches that search", description: "Try a different name or email." };
+  return { title: "No CRM contacts yet", description: "Reps, exhibitor sales and procurement — the people you deal with." };
 }
 
 export default function CrmContactsPage() {

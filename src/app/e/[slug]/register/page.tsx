@@ -89,6 +89,17 @@ interface TierGroup {
   availableCount: number;
 }
 
+function groupPriceLabel(group: TierGroup): string {
+  if (group.allFree) return "Free";
+  if (group.minPrice === group.maxPrice) return `${group.currency} ${group.minPrice}`;
+  return `${group.currency} ${group.minPrice} – ${group.maxPrice}`;
+}
+
+function regTypePriceLabel(rt: TierGroup["regTypes"][number]): string {
+  if (!rt.canPurchase) return "Closed";
+  return rt.price === 0 ? "Free" : `${rt.currency} ${rt.price}`;
+}
+
 export default function RegisterOverviewPage() {
   const params = useParams();
   const router = useRouter();
@@ -346,10 +357,7 @@ export default function RegisterOverviewPage() {
                       </div>
                       <div className="text-right">
                         <p className="text-lg font-bold text-slate-900">
-                          {group.allFree ? "Free"
-                            : group.minPrice === group.maxPrice
-                            ? `${group.currency} ${group.minPrice}`
-                            : `${group.currency} ${group.minPrice} – ${group.maxPrice}`}
+                          {groupPriceLabel(group)}
                         </p>
                       </div>
                     </div>
@@ -368,7 +376,7 @@ export default function RegisterOverviewPage() {
                             </div>
                             {(!group.allFree || !rt.canPurchase) && (
                               <span className={cn("text-sm font-semibold", rt.canPurchase ? "text-slate-900" : "text-slate-400")}>
-                                {rt.canPurchase ? (rt.price === 0 ? "Free" : `${rt.currency} ${rt.price}`) : "Closed"}
+                                {regTypePriceLabel(rt)}
                               </span>
                             )}
                           </div>

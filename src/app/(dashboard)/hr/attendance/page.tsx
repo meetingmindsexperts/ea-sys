@@ -141,6 +141,26 @@ const CODE_STYLE: Record<string, string> = {
 };
 const DERIVED_STYLE = "text-muted-foreground/50";
 
+type GridCell = { code: string; derived: boolean; ruleId?: string };
+
+function dayHeaderTone(holiday: boolean, weekend: boolean): string {
+  if (holiday) return "text-slate-500";
+  return weekend ? "text-muted-foreground/60" : "";
+}
+
+function cellLabel(c: GridCell, outside: boolean): string {
+  if (outside) return "";
+  return c.code === "OFF" ? "OFF" : c.code;
+}
+
+function cellStyle(c: GridCell, outside: boolean): string {
+  if (outside) return "opacity-0";
+  if (!c.derived) return CODE_STYLE[c.code] ?? "bg-muted";
+  if (c.ruleId) return `${CODE_STYLE[c.code] ?? ""} opacity-60`;
+  if (c.code === "PH") return CODE_STYLE.PH;
+  return DERIVED_STYLE;
+}
+
 /**
  * One person's write held at the 15-day full-pay sick limit.
  *
@@ -251,6 +271,16 @@ export default function HrAttendancePage() {
       rules: ruleLikes,
       employeeId: employee.id,
     });
+  }
+
+  /** The tooltip reason for one grid cell. */
+  function cellWhy(c: GridCell, outside: boolean, date: CalendarDate): string {
+    if (outside) return "not employed";
+    if (c.ruleId) return ruleById.get(c.ruleId)?.label ?? "from a rule";
+    if (!c.derived) return "recorded";
+    if (c.code === "PH") return holidays.get(date) ?? "public holiday";
+    if (c.code === "OFF") return "weekend";
+    return "present (assumed)";
   }
 
   /* ------------------------------------------------------------ selection */
@@ -698,7 +728,7 @@ export default function HrAttendancePage() {
                       <th
                         key={d}
                         className={`w-7 px-0 py-1.5 text-center font-mono text-[10px] font-normal tabular-nums ${
-                          hol ? "text-slate-500" : weekend ? "text-muted-foreground/60" : ""
+                          dayHeaderTone(!!hol, weekend)
                         }`}
                         title={hol ? `${d} — ${hol}` : d}
                       >
@@ -722,28 +752,9 @@ export default function HrAttendancePage() {
                       const c = cellFor(e, d);
                       const outside = c.code === "NOT_EMPLOYED";
                       const selected = selectedKeys.has(`${e.id}|${d}`);
-                      const label =
-                        outside ? "" : c.code === "OFF" ? "OFF" : c.code;
-                      const style = outside
-                        ? "opacity-0"
-                        : c.derived
-                          ? c.ruleId
-                            ? `${CODE_STYLE[c.code] ?? ""} opacity-60`
-                            : c.code === "PH"
-                              ? CODE_STYLE.PH
-                              : DERIVED_STYLE
-                          : (CODE_STYLE[c.code] ?? "bg-muted");
-                      const why = outside
-                        ? "not employed"
-                        : c.ruleId
-                          ? ruleById.get(c.ruleId)?.label ?? "from a rule"
-                          : !c.derived
-                            ? "recorded"
-                            : c.code === "PH"
-                              ? holidays.get(d) ?? "public holiday"
-                              : c.code === "OFF"
-                                ? "weekend"
-                                : "present (assumed)";
+                      const label = cellLabel(c, outside);
+                      const style = cellStyle(c, outside);
+                      const why = cellWhy(c, outside, d);
                       return (
                         <td key={d} className="p-0 text-center">
                           <div

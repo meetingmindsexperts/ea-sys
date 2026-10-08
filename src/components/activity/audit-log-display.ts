@@ -163,6 +163,12 @@ function fmtRange(from: unknown, to: unknown): string {
   return f === t ? `on ${f}` : `${f} to ${t}`;
 }
 
+function addedOrRemoved(action: string): "added" | "removed" | null {
+  if (action === "CREATE") return "added";
+  if (action === "DELETE") return "removed";
+  return null;
+}
+
 function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
@@ -209,8 +215,7 @@ export function describeHrAuditAction(log: AuditLogLike): string | null {
       return null;
     }
     case "AttendanceRule": {
-      const verb =
-        log.action === "CREATE" ? "added" : log.action === "DELETE" ? "removed" : null;
+      const verb = addedOrRemoved(log.action);
       if (!verb) return null;
       // A DELETE row written before the snapshot fix (Aug 31, 2026) carries
       // nulls for all of these. Say only what was recorded: "one person" for a
@@ -234,8 +239,7 @@ export function describeHrAuditAction(log: AuditLogLike): string | null {
       return `Leave year ${year ?? "?"} carry-over: ${granted} granted, ${skipped} skipped${cappedNote}`;
     }
     case "PublicHoliday": {
-      const verb =
-        log.action === "CREATE" ? "added" : log.action === "DELETE" ? "removed" : null;
+      const verb = addedOrRemoved(log.action);
       if (!verb) return null;
       const label = str(c.label) ?? "holiday";
       return `Public holiday ${verb}: ${label}, ${fmtCal(c.date)}`;

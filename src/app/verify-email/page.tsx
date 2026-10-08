@@ -13,6 +13,12 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react";
  *
  * The fetch is JS-triggered, so email link-scanners (no JS) won't auto-verify.
  */
+const VERIFY_HEADINGS: Record<"verifying" | "success" | "error", string> = {
+  verifying: "Verifying…",
+  success: "Email verified",
+  error: "Verification failed",
+};
+
 function VerifyEmailInner() {
   const params = useSearchParams();
   const token = params.get("token");
@@ -61,7 +67,7 @@ function VerifyEmailInner() {
           {state === "error" && <XCircle className="h-7 w-7 text-red-500" />}
         </div>
         <h1 className="text-xl font-semibold text-slate-900">
-          {state === "verifying" ? "Verifying…" : state === "success" ? "Email verified" : "Verification failed"}
+          {VERIFY_HEADINGS[state]}
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-600">{message}</p>
         {state !== "verifying" && (

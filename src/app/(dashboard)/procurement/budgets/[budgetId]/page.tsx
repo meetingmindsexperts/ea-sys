@@ -52,6 +52,12 @@ import { ArrowLeft, ArrowLeftRight, Check, CheckCheck, ClipboardCheck, Download,
 type Confirm = "discard" | "freeze" | "signoff" | "newversion" | null;
 type Prompt = "unfreeze" | "reopen" | null;
 
+function linesModeFor(canAuthor: boolean, status: BudgetRow["status"]): LinesMode {
+  if (canAuthor && status === "DRAFT") return "plan";
+  if (canAuthor && (status === "ACTIVE" || status === "FROZEN")) return "forecast";
+  return "read";
+}
+
 export default function BudgetEditorPage() {
   const { budgetId } = useParams<{ budgetId: string }>();
   const router = useRouter();
@@ -85,7 +91,7 @@ export default function BudgetEditorPage() {
 
   const cur = b.reportingCurrency;
   const open = b.status !== "CLOSED" && b.status !== "ARCHIVED";
-  const mode: LinesMode = canAuthor && b.status === "DRAFT" ? "plan" : canAuthor && (b.status === "ACTIVE" || b.status === "FROZEN") ? "forecast" : "read";
+  const mode: LinesMode = linesModeFor(canAuthor, b.status);
   const pendingMoves = mine.filter((r) => r.subjectId === b.id && r.subjectType === "BUDGET_REALLOCATION" && r.status === "PENDING").length;
 
   function failed(err: unknown) {
@@ -314,6 +320,18 @@ function Note({ children }: { children: React.ReactNode }) {
  * rule the submit runs), not applicable (marked), or open (neither, so it blocks
  * submission). Marking goes through the header write with the version lock.
  */
+function categoriesHint(editable: boolean, openCount: number): string {
+  if (!editable) return "Grey chips were marked not applicable.";
+  if (openCount > 0) return `${openCount} still need${openCount === 1 ? "s" : ""} a planned amount or the not-applicable mark before submission.`;
+  return "Every category has a planned amount or is marked not applicable.";
+}
+
+function chipLook(isNa: boolean, isCovered: boolean): { cls: string; title: string } {
+  if (isNa) return { cls: "border-border bg-muted text-muted-foreground line-through", title: "Marked not applicable" };
+  if (isCovered) return { cls: "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100", title: "Has a line with a planned amount" };
+  return { cls: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100", title: "No planned amount yet and not marked not applicable" };
+}
+
 function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; categories: BudgetCategoryRow[]; editable: boolean; onFailed: (err: unknown) => void }) {
   const update = useUpdateBudgetHeader(b.id);
   const [pendingCode, setPendingCode] = useState<string | null>(null);
@@ -364,11 +382,7 @@ function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; 
         <div className="text-sm font-medium">Categories</div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="text-xs text-muted-foreground">
-            {editable
-              ? open.length > 0
-                ? `${open.length} still need${open.length === 1 ? "s" : ""} a planned amount or the not-applicable mark before submission.`
-                : "Every category has a planned amount or is marked not applicable."
-              : "Grey chips were marked not applicable."}
+            {categoriesHint(editable, open.length)}
           </div>
           {editable && open.length > 1 && (
             <Button
@@ -389,12 +403,7 @@ function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; 
         {cats.map((c) => {
           const isNa = na.has(c.code);
           const isCovered = covered.has(c.id);
-          const cls = isNa
-            ? "border-border bg-muted text-muted-foreground line-through"
-            : isCovered
-              ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
-              : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100";
-          const title = isNa ? "Marked not applicable" : isCovered ? "Has a line with a planned amount" : "No planned amount yet and not marked not applicable";
+          const { cls, title } = chipLook(isNa, isCovered);
           return editable ? (
             <button
               key={c.id}

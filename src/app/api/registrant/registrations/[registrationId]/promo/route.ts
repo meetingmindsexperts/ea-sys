@@ -43,6 +43,12 @@ function statusFor(code: ApplyPromoErrorCode): number {
 }
 
 /** Resolve + ownership-check the registration; returns its eventId. */
+function removeStatusFor(code: string): number {
+  if (code === "REGISTRATION_NOT_FOUND") return 404;
+  if (code === "ALREADY_SETTLED") return 400;
+  return 500;
+}
+
 async function ownedRegistration(registrationId: string, userId: string, email: string) {
   return db.registration.findFirst({
     where: {
@@ -132,7 +138,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     const result = await removePromoCodeFromRegistration({ registrationId, eventId: reg.eventId, source: "registrant" });
     if (!result.ok) {
-      const status = result.code === "REGISTRATION_NOT_FOUND" ? 404 : result.code === "ALREADY_SETTLED" ? 400 : 500;
+      const status = removeStatusFor(result.code);
       return NextResponse.json({ error: result.message, code: result.code }, { status });
     }
 

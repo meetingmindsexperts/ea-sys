@@ -494,12 +494,12 @@ export default function CommunicationsPage() {
     }).length;
   }
 
-  const recipientCountFor =
-    activeAudience === "registrations"
-      ? countRegistrations
-      : activeAudience === "speakers"
-        ? countSpeakers
-        : undefined;
+  function pickRecipientCounter() {
+    if (activeAudience === "registrations") return countRegistrations;
+    if (activeAudience === "speakers") return countSpeakers;
+    return undefined;
+  }
+  const recipientCountFor = pickRecipientCounter();
 
   function openEmailDialog(audience: RecipientType) {
     setActiveAudience(audience);

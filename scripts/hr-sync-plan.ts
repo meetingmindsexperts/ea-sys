@@ -143,7 +143,13 @@ export function isAppOwned(entry: { source: string }): boolean {
   return entry.source !== "import";
 }
 
-const byDate = <T extends { date: CalendarDate }>(a: T, b: T) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+function compareAscending(a: CalendarDate, b: CalendarDate): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+const byDate = <T extends { date: CalendarDate }>(a: T, b: T) => compareAscending(a.date, b.date);
 
 export function planEntrySync(app: AppEntry[], workbook: WorkbookDay[]): EntryPlan {
   const plan: EntryPlan = { add: [], change: [], remove: [], appOnly: [], conflicts: [] };

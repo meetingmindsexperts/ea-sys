@@ -607,6 +607,25 @@ function ParallelBlock({
  * dispatcher so a non-parallel day renders byte-for-byte as it did before the
  * parallel-block work.
  */
+function renderTopicSpeakers(topic: Topic, session: Session) {
+  if (topic.speakers.length > 0) {
+    return (
+      <p className="text-sm text-slate-500 mt-1">
+        {topic.speakers
+          .map(({ speaker }) =>
+            formatPersonName(speaker.title, speaker.firstName, speaker.lastName),
+          )
+          .join(", ")}
+      </p>
+    );
+  }
+  const showTba = topicNeedsTba({
+    topicSpeakerCount: topic.speakers.length,
+    sessionShowsTba: sessionNeedsTba(session),
+  });
+  return showTba ? <p className="text-sm text-slate-400 mt-1 italic">{TBA_LABEL}</p> : null;
+}
+
 function SessionRow({ session, timezone }: { session: Session; timezone: string }) {
   if (isBreakSessionType(session.type)) {
     return <BreakBand session={session} timezone={timezone} />;
@@ -880,20 +899,7 @@ function SessionCard({
                             <p className="text-base font-medium text-slate-800 leading-snug">
                               {topic.title}
                             </p>
-                            {topic.speakers.length > 0 ? (
-                              <p className="text-sm text-slate-500 mt-1">
-                                {topic.speakers
-                                  .map(({ speaker }) =>
-                                    formatPersonName(speaker.title, speaker.firstName, speaker.lastName),
-                                  )
-                                  .join(", ")}
-                              </p>
-                            ) : topicNeedsTba({
-                                topicSpeakerCount: topic.speakers.length,
-                                sessionShowsTba: sessionNeedsTba(session),
-                              }) ? (
-                              <p className="text-sm text-slate-400 mt-1 italic">{TBA_LABEL}</p>
-                            ) : null}
+                            {renderTopicSpeakers(topic, session)}
                           </div>
                         </li>
                       );

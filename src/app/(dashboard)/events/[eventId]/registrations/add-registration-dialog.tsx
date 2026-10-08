@@ -72,6 +72,10 @@ const initialFormData: {
   notes: "",
 };
 
+function clearedComplimentary(status: PaymentStatus): PaymentStatus {
+  return status === "COMPLIMENTARY" ? "UNASSIGNED" : status;
+}
+
 export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationDialogProps) {
   const queryClient = useQueryClient();
   // Cached by the registrations page behind this dialog, so no extra fetch.
@@ -200,11 +204,7 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
                     setFormData((prev) => ({
                       ...prev,
                       ticketTypeId,
-                      paymentStatus: isFree
-                        ? "COMPLIMENTARY"
-                        : prev.paymentStatus === "COMPLIMENTARY"
-                          ? "UNASSIGNED"
-                          : prev.paymentStatus,
+                      paymentStatus: isFree ? "COMPLIMENTARY" : clearedComplimentary(prev.paymentStatus),
                     }));
                   }}
                 >

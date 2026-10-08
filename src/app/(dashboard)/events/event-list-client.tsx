@@ -111,6 +111,11 @@ function getEventYear(date: string | Date): number {
   return d.getUTCFullYear();
 }
 
+function ariaSortFor(active: boolean, order: string): "ascending" | "descending" | "none" {
+  if (!active) return "none";
+  return order === "asc" ? "ascending" : "descending";
+}
+
 function SortIndicator({
   field,
   active,
@@ -322,7 +327,7 @@ export function EventListClient({
                     href={sortHref("name")}
                     scroll={false}
                     className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
-                    aria-sort={sortField === "name" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                    aria-sort={ariaSortFor(sortField === "name", sortOrder)}
                   >
                     Event
                     <SortIndicator field="name" active={sortField} order={sortOrder} />
@@ -333,7 +338,7 @@ export function EventListClient({
                     href={sortHref("startDate")}
                     scroll={false}
                     className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
-                    aria-sort={sortField === "startDate" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                    aria-sort={ariaSortFor(sortField === "startDate", sortOrder)}
                   >
                     Date
                     <SortIndicator field="startDate" active={sortField} order={sortOrder} />

@@ -16,6 +16,11 @@ import type { BudgetProductRow } from "@/procurement/hooks/use-procurement-api";
 
 const MAX_SHOWN = 80;
 
+function pickerLabel(current: BudgetProductRow | null, loading: boolean | undefined): string {
+  if (current) return `${current.sku} · ${current.name}`;
+  return loading ? "Loading the catalogue" : "Pick from the catalogue";
+}
+
 export function ProductPicker({ products, loading, value, onPick, onClear }: {
   products: BudgetProductRow[];
   loading?: boolean;
@@ -60,7 +65,7 @@ export function ProductPicker({ products, loading, value, onPick, onClear }: {
           >
             <span className="flex min-w-0 items-center gap-2">
               {current ? <Package className="h-4 w-4 shrink-0 text-muted-foreground" /> : <Search className="h-4 w-4 shrink-0" />}
-              <span className="truncate">{current ? `${current.sku} · ${current.name}` : loading ? "Loading the catalogue" : "Pick from the catalogue"}</span>
+              <span className="truncate">{pickerLabel(current, loading)}</span>
             </span>
             <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
           </Button>

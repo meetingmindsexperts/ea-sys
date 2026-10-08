@@ -88,44 +88,48 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
       const decidedBy = `ORGANIZER:${session.user.id}`;
       const now = new Date();
-      const data =
-        next === "PENDING"
-          ? {
-              // Reopen: the author's own answer is withdrawn so the form accepts a new one.
-              status: "PENDING" as const,
-              signedName: null,
-              submittedAt: null,
-              submittedIp: null,
-              countryAtConsent: null,
-              fullName: null,
-              institution: null,
-              termsSnapshot: null,
-              decidedBy,
-            }
-          : next === "CONSENTED"
-            ? {
-                status: "CONSENTED" as const,
-                // No e-signature: the organizer answered for them, and the row says so.
-                signedName: null,
-                submittedAt: now,
-                submittedIp: ip,
-                countryAtConsent: before.speaker.country ?? null,
-                fullName: [before.speaker.firstName, before.speaker.lastName].filter(Boolean).join(" "),
-                institution: before.speaker.organization ?? null,
-                termsSnapshot: event.travelGrantTermsHtml?.trim() || DEFAULT_TRAVEL_GRANT_TERMS_HTML,
-                decidedBy,
-              }
-            : {
-                status: "DECLINED" as const,
-                signedName: null,
-                submittedAt: now,
-                submittedIp: ip,
-                countryAtConsent: null,
-                fullName: null,
-                institution: null,
-                termsSnapshot: null,
-                decidedBy,
-              };
+      const buildData = () => {
+        if (next === "PENDING") {
+          return {
+            // Reopen: the author's own answer is withdrawn so the form accepts a new one.
+            status: "PENDING" as const,
+            signedName: null,
+            submittedAt: null,
+            submittedIp: null,
+            countryAtConsent: null,
+            fullName: null,
+            institution: null,
+            termsSnapshot: null,
+            decidedBy,
+          };
+        }
+        if (next === "CONSENTED") {
+          return {
+            status: "CONSENTED" as const,
+            // No e-signature: the organizer answered for them, and the row says so.
+            signedName: null,
+            submittedAt: now,
+            submittedIp: ip,
+            countryAtConsent: before.speaker.country ?? null,
+            fullName: [before.speaker.firstName, before.speaker.lastName].filter(Boolean).join(" "),
+            institution: before.speaker.organization ?? null,
+            termsSnapshot: event.travelGrantTermsHtml?.trim() || DEFAULT_TRAVEL_GRANT_TERMS_HTML,
+            decidedBy,
+          };
+        }
+        return {
+          status: "DECLINED" as const,
+          signedName: null,
+          submittedAt: now,
+          submittedIp: ip,
+          countryAtConsent: null,
+          fullName: null,
+          institution: null,
+          termsSnapshot: null,
+          decidedBy,
+        };
+      };
+      const data = buildData();
 
       // Bound to { id, eventId } on the write itself (defence #1).
       const { count } = await db.travelGrant.updateMany({ where: { id: grantId, eventId }, data });

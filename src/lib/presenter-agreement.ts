@@ -160,6 +160,11 @@ export function mergePresenterAgreementHtml(html: string, ctx: PresenterAgreemen
   });
 }
 
+function formatEventDateRange(start: string, end: string): string {
+  if (!start) return "";
+  return end && end !== start ? ` — ${start} to ${end}` : ` — ${start}`;
+}
+
 /**
  * Build the merge context for a presenter (abstract author) — the author's
  * identity, the event, and the set of abstracts they've submitted for it.
@@ -211,7 +216,7 @@ export async function buildPresenterAgreementContext(
   const tz = resolveTimezone(event.timezone);
   const start = formatDateInTz(event.startDate, tz);
   const end = formatDateInTz(event.endDate, tz);
-  const eventDateRange = start ? (end && end !== start ? ` — ${start} to ${end}` : ` — ${start}`) : "";
+  const eventDateRange = formatEventDateRange(start, end);
 
   const titles = abstracts.map((a) => a.title).filter(Boolean);
   const types = Array.from(

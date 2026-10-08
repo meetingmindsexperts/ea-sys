@@ -383,6 +383,15 @@ export interface EventSpeakerProfile {
   submitterSource?: string | null;
 }
 
+function submitterSourceStamp(
+  existingSource: string | null | undefined,
+  incomingSource: string | null | undefined,
+): { submitterSource?: string } {
+  if (!incomingSource) return {};
+  if (existingSource && existingSource !== incomingSource) return { submitterSource: "both" };
+  return { submitterSource: incomingSource };
+}
+
 /**
  * Find-or-create the Speaker for `(eventId, email)` and link it to `userId`,
  * returning the speaker id. **Transaction-aware** — the caller passes its own
@@ -422,12 +431,7 @@ export async function upsertEventSpeaker(
     // 2026) — first door stamps it; using the OTHER door later widens to
     // "both" (the surfaces are independent: a person can submit abstracts
     // AND session proposals, each via its own register link).
-    const sourceStamp =
-      profile.submitterSource
-        ? existing.submitterSource && existing.submitterSource !== profile.submitterSource
-          ? { submitterSource: "both" }
-          : { submitterSource: profile.submitterSource }
-        : {};
+    const sourceStamp = submitterSourceStamp(existing.submitterSource, profile.submitterSource);
     await tx.speaker.update({
       where: { id: existing.id },
       // Sign-in flow: only ensure the link. Sign-up flow: refresh the profile

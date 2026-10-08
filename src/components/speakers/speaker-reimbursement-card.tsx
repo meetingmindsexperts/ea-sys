@@ -360,9 +360,10 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {loading ? (
+        {loading && (
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        ) : !row ? (
+        )}
+        {!loading && (!row ? (
           <>
             <p className="text-sm text-muted-foreground">
               No reimbursement form yet. Send the speaker a personalized link to claim their
@@ -453,7 +454,7 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
               </Button>
             </div>
           </>
-        )}
+        ))}
         {!loading && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
             <span className="text-muted-foreground">Honorarium / speaker fee</span>

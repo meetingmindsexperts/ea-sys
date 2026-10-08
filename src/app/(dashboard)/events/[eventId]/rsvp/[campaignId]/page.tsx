@@ -456,6 +456,20 @@ export default function RsvpCampaignConsole() {
 
   const respondedCount = invites.filter((i) => i.status === "RESPONDED").length;
 
+  function sendDialogTitle(): string {
+    if (sendInvite) return `Email ${sendInvite.inviteeName}`;
+    return sendTarget === "pending" ? "Remind pending invitees" : "Email RSVP invitations";
+  }
+
+  function sendDialogDescription(): string {
+    if (sendInvite) {
+      return `Sends only to ${sendInvite.inviteeName} (${sendInvite.inviteeEmail}) with their personal RSVP link.`;
+    }
+    return sendTarget === "pending"
+      ? `Sends to the ${invites.filter((i) => i.status === "PENDING").length} invitee(s) who haven't responded yet.`
+      : `Sends to all ${invites.length} invitee(s). Each gets their own personalized RSVP link.`;
+  }
+
   return (
     <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -823,20 +837,12 @@ export default function RsvpCampaignConsole() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {sendInvite
-                ? `Email ${sendInvite.inviteeName}`
-                : sendTarget === "pending"
-                  ? "Remind pending invitees"
-                  : "Email RSVP invitations"}
+              {sendDialogTitle()}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              {sendInvite
-                ? `Sends only to ${sendInvite.inviteeName} (${sendInvite.inviteeEmail}) with their personal RSVP link.`
-                : sendTarget === "pending"
-                  ? `Sends to the ${invites.filter((i) => i.status === "PENDING").length} invitee(s) who haven't responded yet.`
-                  : `Sends to all ${invites.length} invitee(s). Each gets their own personalized RSVP link.`}
+              {sendDialogDescription()}
             </p>
             <div>
               <Label>Email template</Label>

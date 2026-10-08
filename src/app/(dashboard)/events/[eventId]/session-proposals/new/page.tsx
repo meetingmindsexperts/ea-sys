@@ -44,6 +44,11 @@ interface SpeakerRow {
   email: string;
 }
 
+function savedToastMessage(status: "DRAFT" | "SUBMITTED" | "KEEP"): string {
+  if (status === "SUBMITTED") return "Proposal submitted!";
+  return status === "DRAFT" ? "Draft saved" : "Proposal updated";
+}
+
 function ProposalForm() {
   const params = useParams<{ eventId: string }>();
   const eventId = params.eventId;
@@ -149,7 +154,7 @@ function ProposalForm() {
     };
     const onSuccess = () => {
       toast.success(
-        status === "SUBMITTED" ? "Proposal submitted!" : status === "DRAFT" ? "Draft saved" : "Proposal updated",
+        savedToastMessage(status),
       );
       router.push(`/events/${eventId}/session-proposals`);
     };
@@ -207,14 +212,16 @@ function ProposalForm() {
         <div className="flex items-center justify-center py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading proposal…
         </div>
-      ) : deadlinePassed && !editId ? (
+      ) : null}
+      {!loadingEdit && deadlinePassed && !editId ? (
         <Card className="border-amber-200 bg-amber-50/50">
           <CardContent className="py-8 text-sm text-amber-800">
             The session proposal deadline has passed — new proposals can no longer be
             submitted. Please contact the organizing team if you have a question.
           </CardContent>
         </Card>
-      ) : editLocked ? (
+      ) : null}
+      {!loadingEdit && !(deadlinePassed && !editId) && editLocked ? (
         <div className="space-y-4">
           <Card className="border-amber-200 bg-amber-50/50">
             <CardContent className="py-6 text-sm text-amber-800">
@@ -250,7 +257,8 @@ function ProposalForm() {
             </CardContent>
           </Card>
         </div>
-      ) : (
+      ) : null}
+      {!loadingEdit && !(deadlinePassed && !editId) && !editLocked ? (
         <>
           {!isSubmitter && !editId && (
             <Card>
@@ -382,7 +390,7 @@ function ProposalForm() {
             </>
           )}
         </>
-      )}
+      ) : null}
     </div>
   );
 }

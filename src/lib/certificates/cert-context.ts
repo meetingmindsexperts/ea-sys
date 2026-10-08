@@ -13,6 +13,12 @@ import { db } from "@/lib/db";
 import { formatPersonName } from "@/lib/utils";
 import type { CertificateData, AccreditationEntry } from "./types";
 
+function targetFields(target: unknown): unknown[] {
+  if (Array.isArray(target)) return target;
+  if (typeof target === "string") return [target];
+  return [];
+}
+
 /**
  * Did a P2002 fire on the GLOBAL `IssuedCertificate.serial` unique index
  * (cross-event serial collision) rather than the per-template recipient
@@ -27,7 +33,7 @@ import type { CertificateData, AccreditationEntry } from "./types";
 export function isSerialCollision(err: unknown): boolean {
   if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== "P2002") return false;
   const target = err.meta?.target;
-  const fields = Array.isArray(target) ? target : typeof target === "string" ? [target] : [];
+  const fields = targetFields(target);
   return fields.some((f) => String(f).toLowerCase().includes("serial"));
 }
 

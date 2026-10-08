@@ -13,11 +13,19 @@ import { useBudgetActivity } from "@/procurement/hooks/use-procurement-api";
 
 const INITIAL = 12;
 
+function logState(isPending: boolean, isError: boolean, count: number): "loading" | "error" | "empty" | "list" {
+  if (isPending) return "loading";
+  if (isError) return "error";
+  if (count === 0) return "empty";
+  return "list";
+}
+
 export function BudgetActivityCard({ budgetId }: { budgetId: string }) {
   const q = useBudgetActivity(budgetId);
   const [showAll, setShowAll] = useState(false);
   const items = q.data?.items ?? [];
   const visible = showAll ? items : items.slice(0, INITIAL);
+  const state = logState(q.isPending, q.isError, items.length);
 
   return (
     <section className="rounded-lg border bg-card" aria-label="Activity">
@@ -31,13 +39,14 @@ export function BudgetActivityCard({ budgetId }: { budgetId: string }) {
           </span>
         )}
       </div>
-      {q.isPending ? (
+      {state === "loading" && (
         <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading the log</div>
-      ) : q.isError ? (
+      )}
+      {state === "error" && (
         <p className="px-4 py-6 text-sm text-destructive">{`Could not load the activity log. ${q.error instanceof Error ? q.error.message : ""}`}</p>
-      ) : items.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-muted-foreground">Nothing recorded yet.</p>
-      ) : (
+      )}
+      {state === "empty" && <p className="px-4 py-6 text-sm text-muted-foreground">Nothing recorded yet.</p>}
+      {state === "list" && (
         <ol className="divide-y">
           {visible.map((it) => (
             <li key={it.id} className="grid gap-1 px-4 py-3 text-sm sm:grid-cols-[11rem_1fr]">

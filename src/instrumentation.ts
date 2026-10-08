@@ -61,11 +61,17 @@ export async function register() {
   }
 }
 
+function errorMessageOf(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return "";
+}
+
 export const onRequestError = async (
   ...args: Parameters<typeof import("@sentry/nextjs").captureRequestError>
 ) => {
   const [err] = args;
-  const message = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  const message = errorMessageOf(err);
   // Malformed Next-Router-State-Tree headers come from stale clients, bots, and
   // proxies stripping/mutating headers. Nothing we can fix server-side, and
   // Sentry would otherwise alert on every hit.

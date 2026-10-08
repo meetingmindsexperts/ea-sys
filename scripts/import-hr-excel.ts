@@ -43,6 +43,12 @@ function arg(name: string): string | undefined {
 const WRITE = process.argv.includes("--write");
 const SYNC = process.argv.includes("--sync");
 
+function varianceLabel(kind: string): string {
+  if (kind === "expected") return "EXPECTED";
+  if (kind === "workbook-inconsistent") return "WORKBOOK";
+  return "UNEXPECTED";
+}
+
 function printReconciliation(rec: Reconciliation) {
   console.log("\nReconciliation against the workbook's Leave Summary");
   console.log("=".repeat(88));
@@ -57,7 +63,7 @@ function printReconciliation(rec: Reconciliation) {
   if (rec.variances.length > 0) {
     console.log("\nVariances:");
     for (const v of rec.variances) {
-      const label = v.kind === "expected" ? "EXPECTED" : v.kind === "workbook-inconsistent" ? "WORKBOOK" : "UNEXPECTED";
+      const label = varianceLabel(v.kind);
       console.log(`  ${label.padEnd(10)} ${v.text}`);
     }
     console.log("\nEMP002 is the one expected variance: the workbook credits a comp-off for a");

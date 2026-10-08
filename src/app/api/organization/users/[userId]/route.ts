@@ -133,6 +133,18 @@ function protectsRoleAdmin(target: { id: string; role: string }, organizationId:
   return !callerManagesRoles && can(principalFromUser({ id: target.id, role: target.role, organizationId }), "roles.manage");
 }
 
+function deactivationUpdate(deactivated: boolean | undefined) {
+  if (deactivated === undefined) return {};
+  if (!deactivated) return { deactivatedAt: null };
+  return {
+    deactivatedAt: new Date(),
+    // Kill every live session immediately rather than waiting for
+    // the next periodic check. Staff are re-validated on every
+    // request, so this takes effect on their next click.
+    tokenVersion: { increment: 1 },
+  };
+}
+
 export async function PUT(req: Request, { params }: RouteParams) {
   try {
     const { userId } = await params;
@@ -500,17 +512,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(clearStaleDelegate ? { procurementDelegateUserId: null } : {}),
           // `deactivated` is the API's boolean; the column is a timestamp, so
           // the trail records WHEN, not merely that it happened.
-          ...(deactivated === undefined
-            ? {}
-            : deactivated
-              ? {
-                  deactivatedAt: new Date(),
-                  // Kill every live session immediately rather than waiting for
-                  // the next periodic check. Staff are re-validated on every
-                  // request, so this takes effect on their next click.
-                  tokenVersion: { increment: 1 },
-                }
-              : { deactivatedAt: null }),
+          ...deactivationUpdate(deactivated),
         },
         select: {
           id: true,

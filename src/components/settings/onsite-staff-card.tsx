@@ -191,15 +191,17 @@ export function OnsiteStaffCard() {
         </Button>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isLoading && (
           <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
           </div>
-        ) : isError ? (
+        )}
+        {!isLoading && isError && (
           <div className="flex h-24 items-center justify-center text-sm text-destructive">
             Couldn&apos;t load temp staff. Refresh and try again.
           </div>
-        ) : staff.length === 0 ? (
+        )}
+        {!isLoading && !isError && (staff.length === 0 ? (
           <div className="flex h-24 flex-col items-center justify-center gap-1 text-center text-sm text-muted-foreground">
             <span>No temp staff yet.</span>
             <span>Add one and assign them to an event — they&apos;ll see only that event.</span>
@@ -263,7 +265,7 @@ export function OnsiteStaffCard() {
               </div>
             ))}
           </div>
-        )}
+        ))}
       </CardContent>
 
       <AddTempStaffDialog
@@ -337,9 +339,10 @@ function ManageEventsPopover({
           </div>
         </div>
         <div className="max-h-64 overflow-y-auto p-1">
-          {events.length === 0 ? (
+          {events.length === 0 && (
             <div className="p-3 text-center text-xs text-muted-foreground">No events yet.</div>
-          ) : filtered.length === 0 ? (
+          )}
+          {events.length > 0 && (filtered.length === 0 ? (
             <div className="p-3 text-center text-xs text-muted-foreground">No events match your search.</div>
           ) : (
             filtered.map((e) => {
@@ -358,7 +361,7 @@ function ManageEventsPopover({
                 </button>
               );
             })
-          )}
+          ))}
         </div>
       </PopoverContent>
     </Popover>

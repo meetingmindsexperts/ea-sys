@@ -215,7 +215,7 @@ export default function HrSummaryPage() {
                       itself, or the next person to read it calls it a bug. It is
                       checked FIRST because an agreement outranks the first-year
                       rule, which is what makes a negotiated leaver's year work. */}
-                  {balance.annual.entitlementOverridden ? (
+                  {balance.annual.entitlementOverridden && (
                     <span
                       className="inline-flex items-center gap-1"
                       title="Agreed with management, not the standard rule"
@@ -223,9 +223,11 @@ export default function HrSummaryPage() {
                       <Days value={balance.annual.entitlement} />
                       <Badge variant="outline" className="text-[10px]">agreed</Badge>
                     </span>
-                  ) : balance.hasCompletedFirstYear ? (
+                  )}
+                  {!balance.annual.entitlementOverridden && balance.hasCompletedFirstYear && (
                     <Days value={balance.annual.entitlement} />
-                  ) : (
+                  )}
+                  {!balance.annual.entitlementOverridden && !balance.hasCompletedFirstYear && (
                     <Badge variant="outline" className="text-[10px]">
                       first year
                     </Badge>

@@ -85,6 +85,11 @@ function isItemOpen(d: { rsvpDeadline: Date | null; startsAt: Date }, now: numbe
  * catering headcount. A flag that is displayed but not enforced is worse than
  * no flag, because the UI actively lies about system state.
  */
+function dietaryForAudit(collectDietary: boolean, dietary: string | undefined): string | null | undefined {
+  if (!collectDietary) return undefined;
+  return dietary ? dietary.trim() : null;
+}
+
 function campaignClosed(campaign: { isActive: boolean }): boolean {
   return !campaign.isActive;
 }
@@ -526,11 +531,7 @@ export async function POST(req: Request, { params }: RouteParams) {
                 guestCount: guestFor(d.guestCount),
               })),
               ignoredItemIds,
-              dietary: invite.campaign.collectDietary
-                ? parsed.data.dietary
-                  ? parsed.data.dietary.trim()
-                  : null
-                : undefined,
+              dietary: dietaryForAudit(invite.campaign.collectDietary, parsed.data.dietary),
               ip,
             },
             ipAddress: ip,

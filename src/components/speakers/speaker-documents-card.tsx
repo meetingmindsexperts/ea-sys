@@ -158,7 +158,7 @@ export function SpeakerDocumentsCard({
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
                 Signed agreement
               </p>
-              {signedAgreement ? (
+              {signedAgreement && (
                 <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <FileSignature className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
@@ -206,14 +206,15 @@ export function SpeakerDocumentsCard({
                     )}
                   </div>
                 </div>
-              ) : canWrite ? (
+              )}
+              {!signedAgreement && (canWrite ? (
                 <p className="text-xs text-muted-foreground mb-2">
                   Upload the signed copy the speaker returned (kept for future reference —
                   this does not change the agreement status above).
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground mb-2">No signed agreement uploaded.</p>
-              )}
+              ))}
               {canWrite && (
                 <>
                   <input

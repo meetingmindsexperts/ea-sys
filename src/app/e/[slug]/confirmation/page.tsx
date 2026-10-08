@@ -58,6 +58,16 @@ interface PaymentInfo {
   promoCode?: string | null;
 }
 
+function registrationSerial(serialIdParam: string | null, serialId: number | null | undefined): string | null {
+  if (serialIdParam) return serialIdParam.padStart(3, "0");
+  return serialId != null ? String(serialId).padStart(3, "0") : null;
+}
+
+function confirmationHeadline(isPending: boolean, firstName: string | null): string {
+  if (isPending) return firstName ? `Registration submitted, ${firstName}!` : "Registration Submitted";
+  return firstName ? `You're registered, ${firstName}!` : "Registration Confirmed!";
+}
+
 function ConfirmationContent() {
   const searchParams = useSearchParams();
   const params = useParams();
@@ -269,11 +279,7 @@ function ConfirmationContent() {
 
   // Registration ID = the short per-event serial (e.g. "001"); the long
   // registration code (cuid) is shown separately as the Confirmation number.
-  const serial = serialIdParam
-    ? serialIdParam.padStart(3, "0")
-    : paymentInfo?.serialId != null
-      ? String(paymentInfo.serialId).padStart(3, "0")
-      : null;
+  const serial = registrationSerial(serialIdParam, paymentInfo?.serialId);
   // Derive payment display from server-fetched data only — URL params are not trusted
   const ticketPrice = paymentInfo?.ticketPrice ?? 0;
   const ticketCurrency = paymentInfo?.ticketCurrency ?? "USD";
@@ -289,6 +295,171 @@ function ConfirmationContent() {
   // Registration status: prefer server data, fall back to URL param
   const registrationStatus = paymentInfo?.registrationStatus ?? statusParam;
   const isPending = registrationStatus === "PENDING";
+
+  const renderPaymentState = () => {
+    if (isPaid) {
+      return (
+        /* Payment Complete */
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">Payment Complete</p>
+                <p className="text-xs text-emerald-600 mt-0.5">
+                  {ticketCurrency} {(hasTax ? totalDue : ticketPrice).toFixed(2)} — A receipt has been sent to your email.
+                </p>
+              </div>
+            </div>
+            {registrationId && slug && (
+              <Button variant="outline" size="sm" asChild>
+                <a
+                  href={`/api/public/events/${slug}/registrations/${registrationId}/document`}
+                  download
+                >
+                  <FileText className="mr-2 h-3.5 w-3.5" /> Download Invoice
+                </a>
+              </Button>
+            )}
+          </div>
+        </div>
+      );
+    }
+    if (polling) {
+      return (
+        /* Processing payment */
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-5 w-5 text-blue-600 animate-spin shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-blue-800">Processing Payment...</p>
+              <p className="text-xs text-blue-600 mt-0.5">
+                This may take a few moments. Please don&apos;t close this page.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return (
+      /* Pay Now / Pay Later */
+      <div className="space-y-3">
+        {paymentParam === "cancelled" && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+            <p className="text-xs text-amber-700">Payment was cancelled. You can try again below.</p>
+          </div>
+        )}
+
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <CreditCard className="h-4 w-4 text-slate-500" />
+            <span className="text-sm font-medium text-slate-700">Payment Due</span>
+          </div>
+          {hasTax || discountAmount > 0 ? (
+            <div className="space-y-1.5 mb-3">
+              {discountAmount > 0 && originalPrice !== null ? (
+                <>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">Subtotal</span>
+                    <span className="text-slate-900">{ticketCurrency} {originalPrice.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-emerald-600">Discount{promoCodeUsed ? ` (${promoCodeUsed})` : ""}</span>
+                    <span className="text-emerald-600">-{ticketCurrency} {discountAmount.toFixed(2)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">Subtotal</span>
+                  <span className="text-slate-900">{ticketCurrency} {ticketPrice.toFixed(2)}</span>
+                </div>
+              )}
+              {hasTax && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">{taxLabel} ({taxRate}%)</span>
+                  <span className="text-slate-900">{ticketCurrency} {taxAmount.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="border-t border-slate-200 pt-1.5 flex items-center justify-between text-sm">
+                <span className="font-semibold text-slate-700">Total Due</span>
+                <span className="font-bold text-slate-900">{ticketCurrency} {totalDue.toFixed(2)}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-slate-600">Amount</span>
+              <span className="text-sm font-bold text-slate-900">
+                {ticketCurrency} {ticketPrice.toFixed(2)}
+              </span>
+            </div>
+          )}
+          {paymentInfo?.ticketName && (
+            <p className="text-xs text-slate-500 mb-3">{paymentInfo.ticketName}</p>
+          )}
+
+          {/* Promo code — apply/remove before paying (mirrors the
+              my-registration portal; the organizer may have emailed
+              a code after registration) */}
+          <div className="border-t border-slate-200 pt-3 mb-3">
+            {promoCodeUsed ? (
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium text-emerald-600">Promo code {promoCodeUsed} applied</span>
+                <button
+                  type="button"
+                  className="text-slate-500 underline underline-offset-2 hover:text-slate-700 disabled:opacity-50"
+                  disabled={promoBusy}
+                  onClick={handleRemovePromo}
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Have a promo code?"
+                  value={promoInput}
+                  onChange={(e) => setPromoInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyPromo(); } }}
+                  disabled={promoBusy}
+                  className="h-9 bg-white uppercase placeholder:normal-case"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 shrink-0"
+                  disabled={promoBusy || !promoInput.trim()}
+                  onClick={handleApplyPromo}
+                >
+                  {promoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Button
+              onClick={handlePayNow}
+              disabled={checkoutLoading}
+              className="w-full h-10 rounded-lg font-medium btn-gradient"
+            >
+              {checkoutLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <CreditCard className="h-4 w-4 mr-2" />
+              )}
+              Pay Now
+            </Button>
+            <p className="text-xs text-center text-slate-400">
+              Or pay later using the link in your confirmation email.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">
@@ -349,9 +520,7 @@ function ConfirmationContent() {
               </div>
 
               <h1 className="text-2xl font-bold text-slate-900 mb-1">
-                {isPending
-                  ? (firstName ? `Registration submitted, ${firstName}!` : "Registration Submitted")
-                  : (firstName ? `You're registered, ${firstName}!` : "Registration Confirmed!")}
+                {confirmationHeadline(isPending, firstName)}
               </h1>
               <p className="text-slate-500 text-sm leading-relaxed">
                 {isPending
@@ -378,162 +547,7 @@ function ConfirmationContent() {
             {/* Payment Section — only for paid tickets */}
             {hasPaidTicket && !loadingPayment && (
               <div className="mx-6 mb-5">
-                {isPaid ? (
-                  /* Payment Complete */
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
-                          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-emerald-800">Payment Complete</p>
-                          <p className="text-xs text-emerald-600 mt-0.5">
-                            {ticketCurrency} {(hasTax ? totalDue : ticketPrice).toFixed(2)} — A receipt has been sent to your email.
-                          </p>
-                        </div>
-                      </div>
-                      {registrationId && slug && (
-                        <Button variant="outline" size="sm" asChild>
-                          <a
-                            href={`/api/public/events/${slug}/registrations/${registrationId}/document`}
-                            download
-                          >
-                            <FileText className="mr-2 h-3.5 w-3.5" /> Download Invoice
-                          </a>
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ) : polling ? (
-                  /* Processing payment */
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                    <div className="flex items-center gap-3">
-                      <Loader2 className="h-5 w-5 text-blue-600 animate-spin shrink-0" />
-                      <div>
-                        <p className="text-sm font-semibold text-blue-800">Processing Payment...</p>
-                        <p className="text-xs text-blue-600 mt-0.5">
-                          This may take a few moments. Please don&apos;t close this page.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* Pay Now / Pay Later */
-                  <div className="space-y-3">
-                    {paymentParam === "cancelled" && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2">
-                        <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                        <p className="text-xs text-amber-700">Payment was cancelled. You can try again below.</p>
-                      </div>
-                    )}
-
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <CreditCard className="h-4 w-4 text-slate-500" />
-                        <span className="text-sm font-medium text-slate-700">Payment Due</span>
-                      </div>
-                      {hasTax || discountAmount > 0 ? (
-                        <div className="space-y-1.5 mb-3">
-                          {discountAmount > 0 && originalPrice !== null ? (
-                            <>
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="text-slate-600">Subtotal</span>
-                                <span className="text-slate-900">{ticketCurrency} {originalPrice.toFixed(2)}</span>
-                              </div>
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="text-emerald-600">Discount{promoCodeUsed ? ` (${promoCodeUsed})` : ""}</span>
-                                <span className="text-emerald-600">-{ticketCurrency} {discountAmount.toFixed(2)}</span>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-600">Subtotal</span>
-                              <span className="text-slate-900">{ticketCurrency} {ticketPrice.toFixed(2)}</span>
-                            </div>
-                          )}
-                          {hasTax && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-600">{taxLabel} ({taxRate}%)</span>
-                              <span className="text-slate-900">{ticketCurrency} {taxAmount.toFixed(2)}</span>
-                            </div>
-                          )}
-                          <div className="border-t border-slate-200 pt-1.5 flex items-center justify-between text-sm">
-                            <span className="font-semibold text-slate-700">Total Due</span>
-                            <span className="font-bold text-slate-900">{ticketCurrency} {totalDue.toFixed(2)}</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="text-sm text-slate-600">Amount</span>
-                          <span className="text-sm font-bold text-slate-900">
-                            {ticketCurrency} {ticketPrice.toFixed(2)}
-                          </span>
-                        </div>
-                      )}
-                      {paymentInfo?.ticketName && (
-                        <p className="text-xs text-slate-500 mb-3">{paymentInfo.ticketName}</p>
-                      )}
-
-                      {/* Promo code — apply/remove before paying (mirrors the
-                          my-registration portal; the organizer may have emailed
-                          a code after registration) */}
-                      <div className="border-t border-slate-200 pt-3 mb-3">
-                        {promoCodeUsed ? (
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="font-medium text-emerald-600">Promo code {promoCodeUsed} applied</span>
-                            <button
-                              type="button"
-                              className="text-slate-500 underline underline-offset-2 hover:text-slate-700 disabled:opacity-50"
-                              disabled={promoBusy}
-                              onClick={handleRemovePromo}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <Input
-                              placeholder="Have a promo code?"
-                              value={promoInput}
-                              onChange={(e) => setPromoInput(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyPromo(); } }}
-                              disabled={promoBusy}
-                              className="h-9 bg-white uppercase placeholder:normal-case"
-                            />
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-9 shrink-0"
-                              disabled={promoBusy || !promoInput.trim()}
-                              onClick={handleApplyPromo}
-                            >
-                              {promoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="space-y-2">
-                        <Button
-                          onClick={handlePayNow}
-                          disabled={checkoutLoading}
-                          className="w-full h-10 rounded-lg font-medium btn-gradient"
-                        >
-                          {checkoutLoading ? (
-                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                          ) : (
-                            <CreditCard className="h-4 w-4 mr-2" />
-                          )}
-                          Pay Now
-                        </Button>
-                        <p className="text-xs text-center text-slate-400">
-                          Or pay later using the link in your confirmation email.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {renderPaymentState()}
               </div>
             )}
 

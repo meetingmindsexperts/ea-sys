@@ -42,6 +42,11 @@ export interface PublicEventScopeOptions {
   allowIdFallback?: boolean;
 }
 
+function tenantOrgScope(res: Awaited<ReturnType<typeof resolveTenantOrg>>): { organizationId?: string } {
+  if (res.source === "unknown-enforced") return { organizationId: UNRESOLVED_TENANT_SENTINEL };
+  return res.orgId ? { organizationId: res.orgId } : {};
+}
+
 /**
  * Core builder for callers that already extracted the Host header (server
  * components / `generateMetadata`, which have no Request object).
@@ -53,11 +58,7 @@ export async function publicEventWhereForHost(
 ): Promise<Prisma.EventWhereInput> {
   const res = await resolveTenantOrg(normalizeHost(host));
   return {
-    ...(res.source === "unknown-enforced"
-      ? { organizationId: UNRESOLVED_TENANT_SENTINEL }
-      : res.orgId
-        ? { organizationId: res.orgId }
-        : {}),
+    ...tenantOrgScope(res),
     ...(opts.allowIdFallback ? { OR: [{ slug }, { id: slug }] } : { slug }),
     ...(opts.statuses ? { status: { in: opts.statuses } } : {}),
   };

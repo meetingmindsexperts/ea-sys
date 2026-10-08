@@ -53,6 +53,12 @@ function statusFor(code: ApplyPromoErrorCode): number {
 }
 
 /** Resolve the registration bound to the tenant-scoped event slug (never by id alone). */
+function removeStatusFor(code: string): number {
+  if (code === "REGISTRATION_NOT_FOUND") return 404;
+  if (code === "ALREADY_SETTLED") return 400;
+  return 500;
+}
+
 async function slugBoundRegistration(req: Request, slug: string, registrationId: string) {
   return db.registration.findFirst({
     where: { id: registrationId, event: await publicEventWhere(req, slug) },
@@ -145,7 +151,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const result = await removePromoCodeFromRegistration({ registrationId, eventId: reg.eventId, source: "public" });
     if (!result.ok) {
       apiLogger.warn({ msg: "public/promo:remove-rejected", registrationId, code: result.code });
-      const status = result.code === "REGISTRATION_NOT_FOUND" ? 404 : result.code === "ALREADY_SETTLED" ? 400 : 500;
+      const status = removeStatusFor(result.code);
       return NextResponse.json({ error: result.message, code: result.code }, { status });
     }
 

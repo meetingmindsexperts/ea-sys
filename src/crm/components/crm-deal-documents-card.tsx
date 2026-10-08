@@ -35,6 +35,11 @@ import { uploadSizeHint } from "@/lib/utils";
 
 const MAX_SIZE = 10 * 1024 * 1024;
 
+function uploadToastMessage(kind: "PROSPECTUS" | "OTHER", replacing: boolean): string {
+  if (kind !== "PROSPECTUS") return "Document added";
+  return replacing ? "Prospectus replaced" : "Prospectus uploaded";
+}
+
 function DocRow({
   doc,
   dealId,
@@ -210,7 +215,7 @@ export function CrmDealDocumentsCard({
     const replacing = kind === "PROSPECTUS" && !!prospectus;
     await upload.mutateAsync({ file, kind, label: kind === "OTHER" ? label.trim() || undefined : undefined });
     toast.success(
-      kind === "PROSPECTUS" ? (replacing ? "Prospectus replaced" : "Prospectus uploaded") : "Document added",
+      uploadToastMessage(kind, replacing),
       // Said after the upload succeeds, not before: the file is already saved,
       // this is only a nudge for next time.
       { description: uploadSizeHint(file.size) ?? undefined },

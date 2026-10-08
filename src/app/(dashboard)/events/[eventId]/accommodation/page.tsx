@@ -101,6 +101,12 @@ interface Accommodation {
   };
 }
 
+function bookingGuestName(booking: Accommodation): string {
+  if (booking.registration) return `${booking.registration.attendee.firstName} ${booking.registration.attendee.lastName}`;
+  if (booking.speaker) return `${booking.speaker.firstName} ${booking.speaker.lastName}`;
+  return "Unknown";
+}
+
 export default function AccommodationPage() {
   const params = useParams();
   const eventId = params.eventId as string;
@@ -885,11 +891,7 @@ export default function AccommodationPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-semibold">
-                            {booking.registration
-                              ? `${booking.registration.attendee.firstName} ${booking.registration.attendee.lastName}`
-                              : booking.speaker
-                              ? `${booking.speaker.firstName} ${booking.speaker.lastName}`
-                              : "Unknown"}
+                            {bookingGuestName(booking)}
                           </h3>
                           {booking.speaker && !booking.registration && (
                             <Badge variant="secondary" className="text-[10px]">Speaker</Badge>

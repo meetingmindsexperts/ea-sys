@@ -144,6 +144,17 @@ export function budgetCsvColumns(reportingCurrency: string): string[] {
 
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
+function belowTargetCell(target: unknown, belowTarget: boolean): string {
+  if (target === null) return "";
+  return belowTarget ? "yes" : "no";
+}
+
+function hiddenOrRevenueRows(revenue: ExportRevenueOption | undefined, cur: string): unknown[][] {
+  if (revenue === undefined) return [];
+  if (revenue === "hidden") return [[], ["Revenue", "Not included: revenue and margin need finance access"]];
+  return revenueRows(revenue, cur);
+}
+
 function revenueRows(r: ExportRevenue, cur: string): unknown[][] {
   const lines = [...r.lines].sort((x, y) => x.sortOrder - y.sortOrder || x.lineKey.localeCompare(y.lineKey));
   const target = r.targetMarginPercent;
@@ -169,7 +180,7 @@ function revenueRows(r: ExportRevenue, cur: string): unknown[][] {
     [`Margin (${cur})`, fmt(r.margin.plannedMargin), fmt(r.margin.forecastMargin)],
     ["Margin %", r.margin.plannedMarginPercent ?? "", r.margin.forecastMarginPercent ?? ""],
     ["Target margin %", target ?? ""],
-    ["Forecast below target", target === null ? "" : r.margin.belowTarget ? "yes" : "no"],
+    ["Forecast below target", belowTargetCell(target, r.margin.belowTarget)],
   ];
 }
 
@@ -234,8 +245,7 @@ export function buildBudgetCsv(b: ExportBudget, exportedAt: Date, opts: { revenu
     ["Lines", lines.length],
   ];
 
-  const revenue: unknown[][] =
-    opts.revenue === undefined ? [] : opts.revenue === "hidden" ? [[], ["Revenue", "Not included: revenue and margin need finance access"]] : revenueRows(opts.revenue, cur);
+  const revenue: unknown[][] = hiddenOrRevenueRows(opts.revenue, cur);
 
   return toCsv([...header, ...table, ...totals, ...revenue]);
 }

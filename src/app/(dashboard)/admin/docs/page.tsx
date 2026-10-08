@@ -312,6 +312,44 @@ export default function AdminDocsPage() {
     );
   }
 
+  const renderContent = () => {
+    if (!activePath) {
+      return (
+        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+          Select a file on the left to view.
+        </div>
+      );
+    }
+    if (fileQuery.isLoading) {
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+    if (fileQuery.isError) {
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="rounded border border-red-300 bg-red-50 p-4 text-red-800 max-w-md text-center">
+            <AlertTriangle className="h-5 w-5 inline mr-1" />
+            Failed to load <code className="text-xs">{activePath}</code>.
+          </div>
+        </div>
+      );
+    }
+    if (!fileQuery.data) return null;
+    return (
+      <FileViewer
+        file={fileQuery.data.file}
+        onCopyPath={copyPath}
+        publicLinks={publicQuery.data?.enabled ?? false}
+        isPublic={publicPaths.has(fileQuery.data.file.path)}
+        savingPublic={savingPublic}
+        onSetPublic={(on) => void setPublic(fileQuery.data!.file.path, on)}
+      />
+    );
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-7rem)] gap-3">
       <div>
@@ -352,17 +390,19 @@ export default function AdminDocsPage() {
               />
             ) : (
               <>
-                {treeQuery.isLoading ? (
+                {treeQuery.isLoading && (
                   <div className="flex items-center gap-2 px-2 py-3 text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     <span>Loading tree…</span>
                   </div>
-                ) : treeQuery.isError ? (
+                )}
+                {!treeQuery.isLoading && treeQuery.isError && (
                   <div className="rounded border border-red-300 bg-red-50 p-3 text-red-800">
                     <AlertTriangle className="h-4 w-4 inline mr-1" />
                     Failed to load docs tree.
                   </div>
-                ) : (
+                )}
+                {!treeQuery.isLoading && !treeQuery.isError && (
                   <Tree
                     nodes={treeQuery.data?.tree ?? []}
                     activePath={activePath}
@@ -377,31 +417,7 @@ export default function AdminDocsPage() {
 
         {/* ── Right: content ──────────────────────────────────────────── */}
         <main className="rounded-lg border bg-card overflow-hidden flex flex-col min-w-0">
-          {!activePath ? (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-              Select a file on the left to view.
-            </div>
-          ) : fileQuery.isLoading ? (
-            <div className="flex-1 flex items-center justify-center">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : fileQuery.isError ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="rounded border border-red-300 bg-red-50 p-4 text-red-800 max-w-md text-center">
-                <AlertTriangle className="h-5 w-5 inline mr-1" />
-                Failed to load <code className="text-xs">{activePath}</code>.
-              </div>
-            </div>
-          ) : fileQuery.data ? (
-            <FileViewer
-              file={fileQuery.data.file}
-              onCopyPath={copyPath}
-              publicLinks={publicQuery.data?.enabled ?? false}
-              isPublic={publicPaths.has(fileQuery.data.file.path)}
-              savingPublic={savingPublic}
-              onSetPublic={(on) => void setPublic(fileQuery.data!.file.path, on)}
-            />
-          ) : null}
+          {renderContent()}
         </main>
       </div>
     </div>

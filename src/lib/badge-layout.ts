@@ -340,6 +340,12 @@ export function readBadgeLayout(event: {
   };
 }
 
+function badgeAlignX(layout: BadgeLayout): number {
+  if (layout.align === "left") return 0;
+  if (layout.align === "right") return A4_W - layout.widthPt;
+  return (A4_W - layout.widthPt) / 2;
+}
+
 /**
  * Top-left corner of the badge on the sheet.
  *
@@ -350,12 +356,7 @@ export function readBadgeLayout(event: {
  * mean left, which is worse than a clipped preview that explains itself.
  */
 export function resolveBadgeOrigin(layout: BadgeLayout): { x: number; y: number } {
-  const alignX =
-    layout.align === "left"
-      ? 0
-      : layout.align === "right"
-        ? A4_W - layout.widthPt
-        : (A4_W - layout.widthPt) / 2;
+  const alignX = badgeAlignX(layout);
 
   return {
     x: alignX + layout.offsetXPt,

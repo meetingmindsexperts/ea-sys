@@ -187,6 +187,12 @@ export type DuplicateEmailTemplateResult =
   | { ok: true; template: CreatedEmailTemplate; source: { id: string | null; slug: string; name: string }; unknownTokens: string[] }
   | { ok: false; code: "SOURCE_NOT_FOUND" | "NO_FREE_SLUG" | "INVALID_NAME"; message: string };
 
+/** A typed name is used as is on the first try; every other try is numbered. */
+function copyNameForTry(typedName: string | undefined, sourceName: string, n: number): string {
+  if (!typedName) return copyName(sourceName, n);
+  return n === 1 ? typedName : copyName(typedName, n);
+}
+
 export async function duplicateEmailTemplate(args: {
   eventId: string;
   /** Exactly one of the two: the dashboard sends the row id, the agent the slug. */
@@ -215,7 +221,7 @@ export async function duplicateEmailTemplate(args: {
   for (let n = 1; n <= MAX_COPY_NUMBER; n++) {
     const slug = typedName && n === 1 ? baseSlug : copySlug(baseSlug, n);
     if (!isCustomTemplateSlug(slug)) continue;
-    const name = typedName ? (n === 1 ? typedName : copyName(typedName, n)) : copyName(source.name, n);
+    const name = copyNameForTry(typedName, source.name, n);
     const result = await createCustomEmailTemplate({
       eventId, slug, name,
       subject: source.subject, htmlContent: source.htmlContent, textContent: source.textContent,

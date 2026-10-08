@@ -67,6 +67,12 @@ interface RouteParams {
   params: Promise<{ eventId: string; abstractId: string }>;
 }
 
+// An explicit sub-theme wins; otherwise a theme change clears the stale one.
+function subThemeUpdate(subThemeId: string | null | undefined, clearStaleSubTheme: boolean) {
+  if (subThemeId !== undefined) return { subThemeId };
+  return clearStaleSubTheme ? { subThemeId: null } : {};
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, abstractId }] = await Promise.all([auth(), params]);
@@ -431,11 +437,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
     // Sub-theme required to submit when the RESULTING theme has any.
     if (isSubmission) {
-      const resultingSubThemeId = clearStaleSubTheme
-        ? null
-        : data.subThemeId !== undefined
-          ? data.subThemeId
-          : existingAbstract.subThemeId;
+      let resultingSubThemeId = data.subThemeId !== undefined ? data.subThemeId : existingAbstract.subThemeId;
+      if (clearStaleSubTheme) resultingSubThemeId = null;
       if (!resultingSubThemeId && resultingThemeIdForSub) {
         const subCount = await db.abstractSubTheme.count({ where: { themeId: resultingThemeIdForSub } });
         if (isSubThemeMissing(subCount > 0, resultingSubThemeId)) {
@@ -506,11 +509,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.content && { content: data.content }),
         ...(data.trackId !== undefined && { trackId: data.trackId }),
         ...(data.themeId !== undefined && { themeId: data.themeId }),
-        ...(data.subThemeId !== undefined
-          ? { subThemeId: data.subThemeId }
-          : clearStaleSubTheme
-            ? { subThemeId: null }
-            : {}),
+        ...subThemeUpdate(data.subThemeId, clearStaleSubTheme),
         ...(data.specialty !== undefined && { specialty: data.specialty || null }),
         ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
         ...(data.coAuthors !== undefined && { coAuthors: normalizeCoAuthors(data.coAuthors) }),
@@ -581,11 +580,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.content && { content: data.content }),
         ...(data.trackId !== undefined && { trackId: data.trackId }),
         ...(data.themeId !== undefined && { themeId: data.themeId }),
-        ...(data.subThemeId !== undefined
-          ? { subThemeId: data.subThemeId }
-          : clearStaleSubTheme
-            ? { subThemeId: null }
-            : {}),
+        ...subThemeUpdate(data.subThemeId, clearStaleSubTheme),
         ...(data.specialty !== undefined && { specialty: data.specialty || null }),
         ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
         ...(data.coAuthors !== undefined && { coAuthors: normalizeCoAuthors(data.coAuthors) }),

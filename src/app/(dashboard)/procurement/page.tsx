@@ -307,8 +307,13 @@ function BudgetListRow({ b, eventName }: { b: BudgetRow; eventName?: string }) {
       <TableCell className="text-right tabular-nums">{b.reportingCurrency} {money2(b.plannedExpenseTotal)}</TableCell>
       <TableCell className="text-right tabular-nums">{money2(b.contingencyAmount)} <span className="text-xs text-muted-foreground">({Number(b.contingencyPercent)}%)</span></TableCell>
       <TableCell className="text-right tabular-nums">{money2(b.forecastTotal)}</TableCell>
-      <TableCell className="tabular-nums">{b.recordedAttendance ?? b.expectedAttendance ?? "–"}{b.recordedAttendance !== null && b.recordedAttendance !== undefined ? " recorded" : b.expectedAttendance !== null ? " expected" : ""}</TableCell>
+      <TableCell className="tabular-nums">{b.recordedAttendance ?? b.expectedAttendance ?? "–"}{attendanceSuffix(b.recordedAttendance, b.expectedAttendance)}</TableCell>
       <TableCell className="text-xs text-muted-foreground">{updated ? new Date(updated).toLocaleDateString("en-GB") : "draft"}</TableCell>
     </TableRow>
   );
+}
+
+function attendanceSuffix(recorded: number | null | undefined, expected: number | null | undefined): string {
+  if (recorded !== null && recorded !== undefined) return " recorded";
+  return expected !== null ? " expected" : "";
 }

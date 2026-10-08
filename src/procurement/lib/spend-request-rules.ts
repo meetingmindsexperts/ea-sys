@@ -59,6 +59,13 @@ export const FLOATING_PAIR_BAND = { min: "0.5", max: "2" } as const;
  * the lowest tier. The rate to AED for the ceiling is a separate question the
  * budget's `resolveReportingToAedRate` answers.
  */
+/** The floating side's implied rate to AED, or null when neither side is pegged. */
+function impliedRateToAed(rate: Decimal, reqPeg: string | undefined, repPeg: string | undefined): Decimal | null {
+  if (repPeg !== undefined) return rate.mul(money(repPeg));
+  if (reqPeg !== undefined) return money(reqPeg).div(rate);
+  return null;
+}
+
 export function resolveRequestToReportingRate(requestCurrency: string, reportingCurrency: string, given: MoneyInput | null | undefined): RequestRateResolution {
   const req = requestCurrency.toUpperCase();
   const rep = reportingCurrency.toUpperCase();
@@ -70,7 +77,7 @@ export function resolveRequestToReportingRate(requestCurrency: string, reporting
   const rate = money(given);
   if (!rate.isFinite() || rate.lte(0)) return { ok: false, reason: "invalid" };
   // The floating side's implied rate to AED: request floating means given x peg(reporting); reporting floating means peg(request) / given.
-  const implied = repPeg !== undefined ? rate.mul(money(repPeg)) : reqPeg !== undefined ? money(reqPeg).div(rate) : null;
+  const implied = impliedRateToAed(rate, reqPeg, repPeg);
   const band = implied === null ? FLOATING_PAIR_BAND : FLOATING_TO_AED_BAND;
   const judged = implied ?? rate;
   if (judged.lt(band.min) || judged.gt(band.max)) return { ok: false, reason: "out-of-band" };

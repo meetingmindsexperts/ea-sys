@@ -262,11 +262,12 @@ function ScheduledEmailsListBody({ eventId }: Props) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isLoading && (
           <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
             Loading…
           </div>
-        ) : scheduledEmails.length === 0 ? (
+        )}
+        {!isLoading && (scheduledEmails.length === 0 ? (
           <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
             No scheduled emails yet. Use the audience cards above and choose &ldquo;Schedule for later&rdquo;.
           </div>
@@ -377,7 +378,7 @@ function ScheduledEmailsListBody({ eventId }: Props) {
             </Table>
           </TooltipProvider>
           </>
-        )}
+        ))}
       </CardContent>
 
       <ScheduledEmailEditDialog

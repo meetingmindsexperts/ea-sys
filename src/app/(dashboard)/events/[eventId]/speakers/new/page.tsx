@@ -130,12 +130,11 @@ export default function NewSpeakerPage() {
           : [];
         const formLines = formErrors ?? [];
         const detailLines = [...perFieldLines, ...formLines];
-        const message =
-          detailLines.length > 0
-            ? `${data.error ?? "Invalid input"} — ${detailLines.join("; ")}`
-            : data.code
-              ? `${data.error ?? "Failed to create speaker"} (${data.code})`
-              : data.error || "Failed to create speaker";
+        const message = (() => {
+          if (detailLines.length > 0) return `${data.error ?? "Invalid input"} — ${detailLines.join("; ")}`;
+          if (data.code) return `${data.error ?? "Failed to create speaker"} (${data.code})`;
+          return data.error || "Failed to create speaker";
+        })();
         console.error("[speaker-create] server rejected payload", {
           status: res.status,
           error: data.error,

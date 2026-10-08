@@ -101,6 +101,8 @@ function DealsPageInner() {
   const isLoading = stagesLoading || dealsLoading;
   const filtersActive = anyActive(FILTER_KEYS);
 
+  const view = boardView(isLoading, !!(stagesError || dealsError), stages.length === 0, deals.length === 0);
+
   return (
     <div className="space-y-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -228,9 +230,10 @@ function DealsPageInner() {
         )}
       </div>
 
-      {isLoading ? (
+      {view === "loading" && (
         <CrmBoardSkeleton columns={stages.length || 5} />
-      ) : stagesError || dealsError ? (
+      )}
+      {view === "error" && (
         // A failed board fetch must never render as an empty pipeline — M6.
         <CrmLoadError
           what="the deals board"
@@ -239,29 +242,19 @@ function DealsPageInner() {
             void refetchDeals();
           }}
         />
-      ) : stages.length === 0 ? (
+      )}
+      {view === "noStages" && (
         <CrmEmptyState
           icon={Handshake}
           title="No pipeline stages yet"
           description="The pipeline seeds a default set of stages on first use — reload in a moment if this persists."
         />
-      ) : deals.length === 0 ? (
+      )}
+      {view === "empty" && (
         <CrmEmptyState
           icon={Handshake}
-          title={
-            archivedView
-              ? "No archived deals"
-              : filtersActive
-                ? "No deals match these filters"
-                : "No deals yet"
-          }
-          description={
-            archivedView
-              ? "Deals you archive will show up here, ready to restore."
-              : filtersActive
-                ? "Try clearing a filter to widen the view."
-                : "Track a sponsorship or exhibitor opportunity against an event."
-          }
+          title={emptyDealsCopy(archivedView, filtersActive).title}
+          description={emptyDealsCopy(archivedView, filtersActive).description}
           action={
             canWrite && !archivedView && !filtersActive ? (
               <Button className="btn-gradient text-white shadow-sm" onClick={() => setCreateOpen(true)}>
@@ -271,7 +264,8 @@ function DealsPageInner() {
             ) : undefined
           }
         />
-      ) : (
+      )}
+      {view === "board" && (
         <>
           <ListTruncationBanner meta={dealsMeta} shown={deals.length} noun="deals" />
           <p className="text-xs text-muted-foreground tabular-nums">
@@ -311,6 +305,22 @@ function DealsPageInner() {
       />
     </div>
   );
+}
+
+function emptyDealsCopy(archived: boolean, filtered: boolean): { title: string; description: string } {
+  if (archived) return { title: "No archived deals", description: "Deals you archive will show up here, ready to restore." };
+  if (filtered) return { title: "No deals match these filters", description: "Try clearing a filter to widen the view." };
+  return { title: "No deals yet", description: "Track a sponsorship or exhibitor opportunity against an event." };
+}
+
+type BoardView = "loading" | "error" | "noStages" | "empty" | "board";
+
+function boardView(isLoading: boolean, failed: boolean, noStages: boolean, noDeals: boolean): BoardView {
+  if (isLoading) return "loading";
+  if (failed) return "error";
+  if (noStages) return "noStages";
+  if (noDeals) return "empty";
+  return "board";
 }
 
 export default function CrmDealsPage() {

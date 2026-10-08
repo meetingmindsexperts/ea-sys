@@ -160,6 +160,16 @@ export async function GET(_req: Request, { params }: RouteParams) {
   }
 }
 
+const UPDATE_ERROR_STATUS: Record<string, number> = {
+  NOT_FOUND: 404,
+  DUPLICATE_NAME: 409,
+  NAME_REQUIRED: 400,
+};
+
+function updateStatusForCode(code: string): number {
+  return UPDATE_ERROR_STATUS[code] ?? 500;
+}
+
 export async function PATCH(req: Request, { params }: RouteParams) {
   try {
     const [{ billingAccountId }, session] = await Promise.all([params, auth()]);
@@ -196,14 +206,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     });
 
     if (!result.ok) {
-      const status =
-        result.code === "NOT_FOUND"
-          ? 404
-          : result.code === "DUPLICATE_NAME"
-          ? 409
-          : result.code === "NAME_REQUIRED"
-          ? 400
-          : 500;
+      const status = updateStatusForCode(result.code);
       return NextResponse.json(
         { error: result.message, code: result.code, ...(result.meta ?? {}) },
         { status },

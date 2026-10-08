@@ -143,7 +143,8 @@ export default function EventMediaPage() {
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
-      ) : mediaFiles.length === 0 ? (
+      ) : null}
+      {!isLoading && (mediaFiles.length === 0 ? (
         <div className="text-center py-12">
           <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-50 flex items-center justify-center">
             <ImageIcon className="h-7 w-7 text-slate-400" />
@@ -294,7 +295,7 @@ export default function EventMediaPage() {
             </div>
           )}
         </>
-      )}
+      ))}
     </div>
   );
 }

@@ -156,6 +156,18 @@ function sumWeights(
   return roundDays(total);
 }
 
+/** A year's entitlement: nothing outside employment, an agreement outranks the first-year gate. */
+function yearEntitlement(
+  employedInYear: boolean,
+  overridden: boolean,
+  override: number | null | undefined,
+  completedFirstYear: boolean,
+): number {
+  if (!employedInYear) return 0;
+  if (overridden) return roundDays(override as number);
+  return completedFirstYear ? HR_ANNUAL_ENTITLEMENT_DAYS : 0;
+}
+
 function tier(used: number, limit: number): SickTier {
   return { used: roundDays(used), limit, remaining: roundDays(limit - used) };
 }
@@ -193,13 +205,12 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
   // An agreement is about a year the person worked in. It outranks the
   // first-year gate, not the employment window: it cannot make a year they
   // were never employed in worth anything.
-  const entitlement = !employedInYear
-    ? 0
-    : overridden
-      ? roundDays(employee.annualEntitlementDays as number)
-      : completedFirstYear
-        ? HR_ANNUAL_ENTITLEMENT_DAYS
-        : 0;
+  const entitlement = yearEntitlement(
+    employedInYear,
+    overridden,
+    employee.annualEntitlementDays,
+    completedFirstYear,
+  );
   // The go-live seeds belong to ONE year. A grant written by the year-end roll
   // always wins; otherwise the seed counts only in its own year, and any other
   // year carries nothing in (review H6: before this, 1 January re-applied the

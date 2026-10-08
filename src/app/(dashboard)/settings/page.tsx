@@ -180,6 +180,11 @@ const dateFormats = [
   { value: "YYYY-MM-DD", label: "YYYY-MM-DD (ISO)" },
 ];
 
+function userSubmitLabel(editing: boolean, deliveryMode: string): string {
+  if (editing) return "Save Changes";
+  return deliveryMode === "password" ? "Create Account" : "Send Invitation";
+}
+
 export default function SettingsPage() {
   const { hrEnabled, procurementEnabled, customRolesEnabled } = useRuntimeFlags();
   const rolesTabEnabled = procurementEnabled || customRolesEnabled;
@@ -1165,11 +1170,7 @@ export default function SettingsPage() {
                             {isSubmittingUser && (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                             )}
-                            {editingUser
-                              ? "Save Changes"
-                              : userFormData.deliveryMode === "password"
-                                ? "Create Account"
-                                : "Send Invitation"}
+                            {userSubmitLabel(!!editingUser, userFormData.deliveryMode)}
                           </Button>
                         </div>
                       </form>
@@ -1730,11 +1731,13 @@ function ApiKeysCard() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isLoading && (
             <p className="text-sm text-muted-foreground py-4 text-center">Loading…</p>
-          ) : (apiKeys as ApiKeyRow[]).length === 0 ? (
+          )}
+          {!isLoading && (apiKeys as ApiKeyRow[]).length === 0 && (
             <p className="text-sm text-muted-foreground py-4 text-center">No API keys yet.</p>
-          ) : (
+          )}
+          {!isLoading && (apiKeys as ApiKeyRow[]).length > 0 && (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1952,14 +1955,16 @@ function OAuthClientsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isLoading && (
           <p className="text-sm text-muted-foreground py-4 text-center">Loading…</p>
-        ) : clients.length === 0 ? (
+        )}
+        {!isLoading && clients.length === 0 && (
           <p className="text-sm text-muted-foreground py-4 text-center">
             No OAuth connections yet. They appear after someone connects EA-SYS via
             their claude.ai integrations panel.
           </p>
-        ) : (
+        )}
+        {!isLoading && clients.length > 0 && (
           <Table>
             <TableHeader>
               <TableRow>

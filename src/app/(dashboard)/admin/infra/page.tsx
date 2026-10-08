@@ -154,15 +154,58 @@ function deriveIssues(s: Snapshot): Issue[] {
   }
 
   // Critical first, then warnings — the order you want to read them in.
-  return out.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "critical" ? -1 : 1));
+  return out.sort(bySeverity);
+}
+
+function bySeverity(a: { severity: string }, b: { severity: string }): number {
+  if (a.severity === b.severity) return 0;
+  return a.severity === "critical" ? -1 : 1;
+}
+
+/** Red above `red`, amber above `amber`, otherwise no tone. */
+function thresholdTone(v: number, red: number, amber: number): string {
+  if (v > red) return "text-red-600";
+  return v > amber ? "text-amber-600" : "";
+}
+
+function bannerClass(criticalCount: number, warnCount: number): string {
+  if (criticalCount > 0) return "border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-900";
+  if (warnCount > 0) return "border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900";
+  return "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 dark:border-emerald-900";
+}
+
+function bannerHeadingClass(clean: boolean, criticalCount: number): string {
+  if (clean) return "text-emerald-700 dark:text-emerald-400";
+  return criticalCount ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400";
+}
+
+function bannerHeadline(clean: boolean, criticalCount: number, warnCount: number): string {
+  if (clean) return "All systems operational";
+  if (criticalCount > 0) {
+    return `${criticalCount} critical ${criticalCount === 1 ? "issue" : "issues"}${warnCount ? ` · ${warnCount} warning${warnCount === 1 ? "" : "s"}` : ""}`;
+  }
+  return `${warnCount} warning${warnCount === 1 ? "" : "s"}`;
+}
+
+function deployStateColor(state: string): string {
+  if (state === "success") return "text-emerald-600";
+  if (state === "failure") return "text-red-600";
+  if (state === "cancelled") return "text-muted-foreground";
+  return "text-amber-600";
+}
+
+function JobStatus({ status, lastError }: { status: string | null; lastError: string | null }) {
+  if (status === "OK") return <span className="text-emerald-600 text-xs font-medium">OK</span>;
+  if (status === "FAILED") return <span className="text-red-600 text-xs font-medium" title={lastError || ""}>FAILED</span>;
+  return <span className="text-muted-foreground text-xs">awaiting first run</span>;
 }
 
 /** Colour a metric by what the number MEANS, not just print it. */
 function metricTone(label: string, v: number | null): string {
   if (v == null) return "";
-  if (label === "Memory") return v > 85 ? "text-red-600" : v > 70 ? "text-amber-600" : "";
-  if (label === "Disk") return v > 80 ? "text-red-600" : v > 65 ? "text-amber-600" : "";
-  if (label === "CPU") return v > 85 ? "text-red-600" : v > 60 ? "text-amber-600" : "";
+  if (label === "Memory") return thresholdTone(v, 85, 70);
+  if (label === "Disk") return thresholdTone(v, 80, 65);
+  if (label === "CPU") return thresholdTone(v, 85, 60);
   if (label === "CPU credits") return v < 40 ? "text-amber-600" : "";
   if (label === "Status check") return v > 0 ? "text-red-600" : "";
   return "";
@@ -315,11 +358,13 @@ export default function InfraPage() {
         </div>
       </div>
 
-      {loading ? (
+      {loading && (
         <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
-      ) : error ? (
+      )}
+      {!loading && !!error && (
         <p className="text-sm text-red-600">{error}</p>
-      ) : snap ? (
+      )}
+      {!loading && !error && snap && (
         <>
         {(() => {
           const issues = deriveIssues(snap);
@@ -328,13 +373,7 @@ export default function InfraPage() {
           const clean = issues.length === 0;
           return (
             <div
-              className={`rounded-lg border-2 p-4 ${
-                criticals.length > 0
-                  ? "border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-900"
-                  : warns.length > 0
-                    ? "border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900"
-                    : "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 dark:border-emerald-900"
-              }`}
+              className={`rounded-lg border-2 p-4 ${bannerClass(criticals.length, warns.length)}`}
             >
               <div className="flex items-start gap-3">
                 {clean ? (
@@ -343,12 +382,8 @@ export default function InfraPage() {
                   <ShieldAlert className={`h-8 w-8 shrink-0 ${criticals.length ? "text-red-600" : "text-amber-600"}`} />
                 )}
                 <div className="min-w-0 flex-1">
-                  <h2 className={`text-lg font-bold leading-tight ${clean ? "text-emerald-700 dark:text-emerald-400" : criticals.length ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
-                    {clean
-                      ? "All systems operational"
-                      : criticals.length > 0
-                        ? `${criticals.length} critical ${criticals.length === 1 ? "issue" : "issues"}${warns.length ? ` · ${warns.length} warning${warns.length === 1 ? "" : "s"}` : ""}`
-                        : `${warns.length} warning${warns.length === 1 ? "" : "s"}`}
+                  <h2 className={`text-lg font-bold leading-tight ${bannerHeadingClass(clean, criticals.length)}`}>
+                    {bannerHeadline(clean, criticals.length, warns.length)}
                   </h2>
 
                   {clean ? (
@@ -871,7 +906,7 @@ export default function InfraPage() {
                     <p className="text-sm text-muted-foreground">No recent runs.</p>
                   ) : snap.deploys.runs.map((r, i) => {
                     const state = r.status !== "completed" ? r.status : (r.conclusion || "");
-                    const color = state === "success" ? "text-emerald-600" : state === "failure" ? "text-red-600" : state === "cancelled" ? "text-muted-foreground" : "text-amber-600";
+                    const color = deployStateColor(state);
                     return (
                       <a key={i} href={r.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between gap-2 py-1 hover:bg-muted/40 rounded px-1 text-sm">
                         <span className="truncate flex-1">{r.title}</span>
@@ -918,11 +953,7 @@ export default function InfraPage() {
                           <td className="p-1.5 text-xs text-muted-foreground whitespace-nowrap">{j.cadence || "—"}</td>
                           <td className="p-1.5 text-muted-foreground whitespace-nowrap">{ago(j.lastRunAt)}</td>
                           <td className="p-1.5">
-                            {j.lastStatus === "OK"
-                              ? <span className="text-emerald-600 text-xs font-medium">OK</span>
-                              : j.lastStatus === "FAILED"
-                                ? <span className="text-red-600 text-xs font-medium" title={j.lastError || ""}>FAILED</span>
-                                : <span className="text-muted-foreground text-xs">awaiting first run</span>}
+                            <JobStatus status={j.lastStatus} lastError={j.lastError} />
                           </td>
                           <td className="p-1.5 text-right text-muted-foreground whitespace-nowrap">{j.lastDurationMs == null ? "—" : `${j.lastDurationMs} ms`}</td>
                           <td className="p-1.5 text-right">{j.ok24h}</td>
@@ -978,7 +1009,7 @@ export default function InfraPage() {
           </Card>
         </div>
         </>
-      ) : null}
+      )}
     </div>
   );
 }

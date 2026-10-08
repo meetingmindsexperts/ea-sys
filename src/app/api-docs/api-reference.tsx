@@ -55,6 +55,12 @@ function typeLabel(schema: JsonObj, spec: JsonObj): string {
   return "any";
 }
 
+function sampleString(key: string): string {
+  if (key === "firstName") return "Jane";
+  if (key === "lastName") return "Doe";
+  return "string";
+}
+
 /** Build a minimal JSON example object from a schema's required fields. */
 function sampleBody(schema: JsonObj, spec: JsonObj): Record<string, unknown> {
   const ref = asStr(schema["$ref"]);
@@ -70,7 +76,7 @@ function sampleBody(schema: JsonObj, spec: JsonObj): Record<string, unknown> {
     else if (t === "integer" || t === "number") out[key] = 1;
     else if (t === "boolean") out[key] = true;
     else if (t === "array") out[key] = [];
-    else out[key] = key === "firstName" ? "Jane" : key === "lastName" ? "Doe" : "string";
+    else out[key] = sampleString(key);
   }
   return out;
 }

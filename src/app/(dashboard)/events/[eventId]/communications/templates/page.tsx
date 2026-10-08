@@ -519,7 +519,8 @@ export default function EmailTemplatesPage() {
             <p className="text-muted-foreground">No email templates found. They will be created automatically.</p>
           </CardContent>
         </Card>
-      ) : filtered.length === 0 ? (
+      ) : null}
+      {templates.length > 0 && filtered.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />

@@ -27,6 +27,12 @@ const duplicateSchema = z.object({ name: z.string().trim().min(1).max(200).optio
 
 const ROUTE = "events/[eventId]/email-templates/[templateId]/duplicate:POST";
 
+function statusForCode(code: string): number {
+  if (code === "SOURCE_NOT_FOUND") return 404;
+  if (code === "NO_FREE_SLUG") return 409;
+  return 400;
+}
+
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const [{ eventId, templateId }, session] = await Promise.all([params, auth()]);
@@ -67,7 +73,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const result = await duplicateEmailTemplate({ eventId, sourceId: templateId, name: parsed.data.name });
     if (!result.ok) {
-      const status = result.code === "SOURCE_NOT_FOUND" ? 404 : result.code === "NO_FREE_SLUG" ? 409 : 400;
+      const status = statusForCode(result.code);
       apiLogger.warn({ msg: "email-template-duplicate:refused", code: result.code, eventId, templateId, userId: session.user.id });
       return NextResponse.json({ error: result.message, code: result.code }, { status });
     }

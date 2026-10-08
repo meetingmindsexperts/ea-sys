@@ -44,7 +44,10 @@ export function LivePollCard({
   const open = poll.status === "OPEN";
 
   const toggle = (id: string) =>
-    setPicked((prev) => (poll.allowMultiple ? (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]) : [id]));
+    setPicked((prev) => {
+      if (!poll.allowMultiple) return [id];
+      return prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
+    });
 
   const submit = async () => {
     if (picked.length === 0) return;
@@ -72,6 +75,79 @@ export function LivePollCard({
     }
   };
 
+  const renderPollBody = () => {
+    if (poll.results && (!open || answered || !canAnswer)) {
+      return (
+        <ul className="space-y-2">
+          {poll.options.map((o) => {
+            const pct = percentOf(poll.results!.counts[o.id] ?? 0, poll.results!.voters);
+            const mine = poll.myChoices?.includes(o.id);
+            return (
+              <li key={o.id} className="space-y-1">
+                <div className="flex justify-between gap-2 text-xs">
+                  <span className={mine ? "font-semibold text-primary" : ""}>
+                    {o.label}
+                    {mine ? " (your answer)" : ""}
+                  </span>
+                  <span className="tabular-nums text-muted-foreground">{pct}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+                </div>
+              </li>
+            );
+          })}
+          <li className="text-xs text-muted-foreground">
+            {poll.results.voters} {poll.results.voters === 1 ? "answer" : "answers"}
+          </li>
+        </ul>
+      );
+    }
+    if (answered) {
+      return (
+        <p className="flex items-center gap-2 text-sm text-green-700">
+          <CheckCircle2 className="h-4 w-4" />
+          Thanks, your answer was recorded.
+        </p>
+      );
+    }
+    if (open && canAnswer) {
+      return (
+        <div className="space-y-2">
+          {poll.allowMultiple && <p className="text-xs text-muted-foreground">Choose all that apply.</p>}
+          <div className="space-y-1.5" role={poll.allowMultiple ? "group" : "radiogroup"} aria-label={poll.question}>
+            {poll.options.map((o) => {
+              const on = picked.includes(o.id);
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  role={poll.allowMultiple ? "checkbox" : "radio"}
+                  aria-checked={on}
+                  onClick={() => toggle(o.id)}
+                  disabled={sending}
+                  className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${on ? "border-primary bg-primary/10 font-medium" : "hover:bg-muted"}`}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+          <Button size="sm" className="w-full" onClick={() => void submit()} disabled={sending || picked.length === 0}>
+            {sending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Submit answer
+          </Button>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+      );
+    }
+    return (
+      <p className="text-xs text-muted-foreground">
+        {open ? "Registered attendees can answer this poll." : "This poll has closed."}
+      </p>
+    );
+  };
+
   return (
     <Card className="border-primary/40 py-4">
       <CardContent className="space-y-3 px-4 py-2">
@@ -82,67 +158,7 @@ export function LivePollCard({
         <p className="text-sm font-medium whitespace-pre-wrap break-words">{poll.question}</p>
 
         {/* Results never replace the question for someone who can still answer. */}
-        {poll.results && (!open || answered || !canAnswer) ? (
-          <ul className="space-y-2">
-            {poll.options.map((o) => {
-              const pct = percentOf(poll.results!.counts[o.id] ?? 0, poll.results!.voters);
-              const mine = poll.myChoices?.includes(o.id);
-              return (
-                <li key={o.id} className="space-y-1">
-                  <div className="flex justify-between gap-2 text-xs">
-                    <span className={mine ? "font-semibold text-primary" : ""}>
-                      {o.label}
-                      {mine ? " (your answer)" : ""}
-                    </span>
-                    <span className="tabular-nums text-muted-foreground">{pct}%</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
-                  </div>
-                </li>
-              );
-            })}
-            <li className="text-xs text-muted-foreground">
-              {poll.results.voters} {poll.results.voters === 1 ? "answer" : "answers"}
-            </li>
-          </ul>
-        ) : answered ? (
-          <p className="flex items-center gap-2 text-sm text-green-700">
-            <CheckCircle2 className="h-4 w-4" />
-            Thanks, your answer was recorded.
-          </p>
-        ) : open && canAnswer ? (
-          <div className="space-y-2">
-            {poll.allowMultiple && <p className="text-xs text-muted-foreground">Choose all that apply.</p>}
-            <div className="space-y-1.5" role={poll.allowMultiple ? "group" : "radiogroup"} aria-label={poll.question}>
-              {poll.options.map((o) => {
-                const on = picked.includes(o.id);
-                return (
-                  <button
-                    key={o.id}
-                    type="button"
-                    role={poll.allowMultiple ? "checkbox" : "radio"}
-                    aria-checked={on}
-                    onClick={() => toggle(o.id)}
-                    disabled={sending}
-                    className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${on ? "border-primary bg-primary/10 font-medium" : "hover:bg-muted"}`}
-                  >
-                    {o.label}
-                  </button>
-                );
-              })}
-            </div>
-            <Button size="sm" className="w-full" onClick={() => void submit()} disabled={sending || picked.length === 0}>
-              {sending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Submit answer
-            </Button>
-            {error && <p className="text-xs text-red-600">{error}</p>}
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            {open ? "Registered attendees can answer this poll." : "This poll has closed."}
-          </p>
-        )}
+        {renderPollBody()}
       </CardContent>
     </Card>
   );

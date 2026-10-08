@@ -399,6 +399,10 @@ export async function decideApprovalRequest(db: Db, input: DecideApprovalInput) 
 
 type RequestWithSteps = Prisma.ApprovalRequestGetPayload<{ include: { steps: true } }>;
 
+function decisionAuditAction(decision: DecideApprovalInput["decision"]): "APPROVAL_GRANTED" | "APPROVAL_REJECTED" {
+  return decision === "APPROVED" ? "APPROVAL_GRANTED" : "APPROVAL_REJECTED";
+}
+
 /**
  * One level of a chained request. Approving a level before the last opens the
  * next level's step and leaves the request PENDING, so the caller sees
@@ -460,7 +464,7 @@ async function decideChainLevel(db: Db, input: DecideApprovalInput, request: Req
       data: {
         userId: input.decider.id,
         organizationId: input.organizationId,
-        action: advancing ? "APPROVAL_LEVEL_APPROVED" : input.decision === "APPROVED" ? "APPROVAL_GRANTED" : "APPROVAL_REJECTED",
+        action: advancing ? "APPROVAL_LEVEL_APPROVED" : decisionAuditAction(input.decision),
         entityType: "ApprovalRequest",
         entityId: request.id,
         changes: {

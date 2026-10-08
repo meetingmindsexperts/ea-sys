@@ -47,6 +47,12 @@ const PICKABLE_STATUSES = [
   "WITHDRAWN",
 ] as const;
 
+function selectAllState(ticked: number, total: number): boolean | "indeterminate" {
+  if (ticked === 0) return false;
+  if (ticked === total) return true;
+  return "indeterminate";
+}
+
 export interface AbstractSelection {
   /** Abstract ids; empty means "everyone in `status`". */
   ids: string[];
@@ -217,9 +223,7 @@ export function AbstractPickerDialog({
               {visible.length > 0 && (
                 <label className="sticky top-0 flex cursor-pointer items-center gap-2 border-b bg-muted/60 px-2.5 py-2 text-xs font-medium">
                   <Checkbox
-                    checked={
-                      visibleTicked === 0 ? false : visibleTicked === visible.length ? true : "indeterminate"
-                    }
+                    checked={selectAllState(visibleTicked, visible.length)}
                     onCheckedChange={(c) => toggleAllVisible(c === true)}
                     aria-label="Select all matching abstracts"
                   />

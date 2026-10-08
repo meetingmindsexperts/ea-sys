@@ -86,6 +86,11 @@ interface ArchivesResponse {
 /** The finished mirror archive the confirm dialog is about to mint a link for. */
 type PendingDownload = { obj: BackupObject };
 
+function archiveButtonLabel(buildActive: boolean, status: string | undefined): string {
+  if (!buildActive) return "Build archive";
+  return status === "RUNNING" ? "Building…" : "Queued…";
+}
+
 function takenLabel(iso: string): string {
   return new Date(iso).toLocaleString("en-GB", {
     timeZone: "Asia/Dubai",
@@ -321,7 +326,7 @@ export default function BackupsPage() {
           </div>
           <Button size="sm" onClick={() => void requestArchive()} disabled={requesting || buildActive}>
             {requesting || buildActive ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Archive className="h-4 w-4 mr-1.5" />}
-            {buildActive ? (archives?.active?.status === "RUNNING" ? "Building…" : "Queued…") : "Build archive"}
+            {archiveButtonLabel(buildActive, archives?.active?.status)}
           </Button>
         </div>
         <p className="px-4 pt-3 text-xs text-muted-foreground">

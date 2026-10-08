@@ -83,6 +83,25 @@ function fmtDate(iso: string, timezone: string | null | undefined): string {
   return `${formatted} ${tzLabel(d, tz)}`;
 }
 
+function rsvpQuestion(manyItems: boolean, single: boolean): string {
+  if (!manyItems) return "Will you be attending?";
+  return single ? "Which one will you attend?" : "Which of these will you attend?";
+}
+
+function rsvpHelperText(manyItems: boolean, single: boolean): string {
+  if (!manyItems) return "Tick the box if you’ll join, or choose “I won’t be able to attend” below.";
+  return single
+    ? "Choose one option, or select “I won’t be able to attend” below."
+    : "Tick everything you’ll join, or choose “I won’t be able to attend” below.";
+}
+
+function rsvpChoiceHint(manyItems: boolean, single: boolean): string {
+  if (!manyItems) return "Tick the box, or select “I won’t be able to attend”.";
+  return single
+    ? "Choose one, or select “I won’t be able to attend”."
+    : "Pick at least one, or select “I won’t be able to attend”.";
+}
+
 export default function RsvpPage() {
   const { slug, token } = useParams<{ slug: string; token: string }>();
   const [data, setData] = useState<RsvpData | null>(null);
@@ -247,16 +266,8 @@ export default function RsvpPage() {
   // Require an explicit choice: at least one item picked, or "I won't attend".
   const hasChoice = notAttending || items.some((d) => d.attending);
 
-  const question = !manyItems
-    ? "Will you be attending?"
-    : single
-      ? "Which one will you attend?"
-      : "Which of these will you attend?";
-  const helper = !manyItems
-    ? "Tick the box if you’ll join, or choose “I won’t be able to attend” below."
-    : single
-      ? "Choose one option, or select “I won’t be able to attend” below."
-      : "Tick everything you’ll join, or choose “I won’t be able to attend” below.";
+  const question = rsvpQuestion(manyItems, single);
+  const helper = rsvpHelperText(manyItems, single);
   const declineLabel = manyItems
     ? "I won’t be able to attend any of these"
     : "I won’t be able to attend";
@@ -433,11 +444,7 @@ export default function RsvpPage() {
             </Button>
             {!hasChoice && !allClosed && (
               <p className="text-xs text-slate-400 text-center -mt-2">
-                {manyItems
-                  ? single
-                    ? "Choose one, or select “I won’t be able to attend”."
-                    : "Pick at least one, or select “I won’t be able to attend”."
-                  : "Tick the box, or select “I won’t be able to attend”."}
+                {rsvpChoiceHint(manyItems, single)}
               </p>
             )}
           </div>

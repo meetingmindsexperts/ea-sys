@@ -39,6 +39,12 @@ interface Person {
   speakerId?: string;
 }
 
+function selectAllChecked(allSelected: boolean, selectedCount: number): boolean | "indeterminate" {
+  if (allSelected) return true;
+  if (selectedCount > 0) return "indeterminate";
+  return false;
+}
+
 export function ImportInviteesDialog({
   eventId,
   campaignId,
@@ -136,7 +142,7 @@ export function ImportInviteesDialog({
     })();
   }, [open, eventId]);
 
-  const people = source === "registrations" ? regs : source === "speakers" ? speakers : submitters;
+  const people = { registrations: regs, speakers, submitters }[source];
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return people;
@@ -258,20 +264,19 @@ export function ImportInviteesDialog({
         </div>
 
         <div className="border rounded-lg max-h-[45vh] overflow-y-auto divide-y">
-          {loading ? (
+          {loading && (
             <div className="py-10 flex justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
-          ) : filtered.length === 0 ? (
+          )}
+          {!loading && (filtered.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">No people found.</div>
           ) : (
             <>
               {addable.length > 0 && (
                 <label className="flex items-center gap-3 px-3 py-2 cursor-pointer bg-muted/30 hover:bg-muted/50">
                   <Checkbox
-                    checked={
-                      allAddableSelected ? true : addableSelectedCount > 0 ? "indeterminate" : false
-                    }
+                    checked={selectAllChecked(allAddableSelected, addableSelectedCount)}
                     // Radix reports a click on an indeterminate box as `true`,
                     // so "some picked" → "all picked", then → none.
                     onCheckedChange={(v) => toggleSelectAll(v === true)}
@@ -308,7 +313,7 @@ export function ImportInviteesDialog({
               );
               })}
             </>
-          )}
+          ))}
         </div>
 
         <DialogFooter>

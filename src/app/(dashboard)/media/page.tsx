@@ -216,11 +216,12 @@ function MediaLibrary() {
       </div>
 
       {/* Media Grid */}
-      {isLoading ? (
+      {isLoading && (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
-      ) : total === 0 ? (
+      )}
+      {!isLoading && total === 0 && (
         <div className="text-center py-12">
           <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-50 flex items-center justify-center">
             <ImageIcon className="h-7 w-7 text-slate-400" />
@@ -228,7 +229,8 @@ function MediaLibrary() {
           <p className="text-sm text-slate-500">No images uploaded yet</p>
           <p className="text-xs text-slate-400 mt-1">Upload images to use in your email templates</p>
         </div>
-      ) : (
+      )}
+      {!isLoading && total !== 0 && (
         <>
           <div className="flex items-center justify-between">
             <p className="text-xs text-slate-500">

@@ -25,6 +25,11 @@ import { findStripeRefundForAttempt } from "@/lib/refund-reconciliation";
 
 const truncateError = (err: unknown) => String(err instanceof Error ? err.message : err).slice(0, 500);
 
+function failedSliceError(rollbackApplied: boolean, err: unknown): string {
+  if (rollbackApplied) return truncateError(err);
+  return `Rollback did not apply: ${truncateError(err)}`;
+}
+
 // ── issueCreditNoteForRegistration ───────────────────────────────────────────
 
 export type PaymentSource = "rest" | "mcp" | "agent" | "api" | "system";
@@ -465,9 +470,7 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
         const status = j === args.failedAttemptIndex ? failedStatus : "FAILED";
         const error =
           j === args.failedAttemptIndex
-            ? rollbackApplied
-              ? truncateError(args.err)
-              : `Rollback did not apply: ${truncateError(args.err)}`
+            ? failedSliceError(rollbackApplied, args.err)
             : "Aborted: an earlier refund slice failed (booking rolled back)";
         await db.refundAttempt
           .update({ where: { id: attempts[j].id }, data: { status, error } })

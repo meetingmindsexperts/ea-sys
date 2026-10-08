@@ -45,6 +45,11 @@ const sendSchema = z
     message: "Provide either speakerIds or target, not both.",
   });
 
+function answeredBy(grant: { decidedBy: string | null; submittedAt: Date | null } | null | undefined): string {
+  if (grant?.decidedBy) return "organiser";
+  return grant?.submittedAt ? "author" : "";
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId }] = await Promise.all([auth(), params]);
@@ -136,7 +141,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             csvCell(r.grant?.status ?? "NOT_INVITED"),
             csvCell(r.grant?.signedName ?? ""),
             csvCell(r.grant?.submittedAt ? r.grant.submittedAt.toISOString() : ""),
-            csvCell(r.grant?.decidedBy ? "organiser" : r.grant?.submittedAt ? "author" : ""),
+            csvCell(answeredBy(r.grant)),
             csvCell(String(r.abstractCount)),
           ].join(","),
         );

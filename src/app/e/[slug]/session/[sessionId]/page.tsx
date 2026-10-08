@@ -206,6 +206,29 @@ const SPONSOR_TIER_LABELS: Record<string, string> = {
 
 // ── Page ────────────────────────────────────────────────────────
 
+function mainContentClass(isWebinarEvent: boolean, backgroundUrl: string | null | undefined): string {
+  if (!isWebinarEvent) return "mx-auto max-w-[1920px] space-y-6 px-4 py-6 lg:px-6";
+  // An uploaded background shows in full (owner, Oct 7, 2026):
+  // no frosted panel over it; the cards keep their own white.
+  if (backgroundUrl) return "mx-4 my-6 max-w-[1920px] space-y-6 px-4 py-6 lg:mx-6 lg:px-6 min-[1968px]:mx-auto";
+  return "mx-4 my-6 max-w-[1920px] space-y-6 rounded-2xl lg:mx-6 min-[1968px]:mx-auto bg-white/85 px-4 py-6 shadow-sm backdrop-blur-sm lg:px-6";
+}
+
+function joinCtaTitle(isLive: boolean, playsStream: boolean): string {
+  if (isLive) return "Live now";
+  return playsStream ? "Starting soon" : "Ready to join";
+}
+
+function joinCtaHint(s: { playsStream: boolean; isLive: boolean; canEmbed: boolean; isWebinar: boolean }): string {
+  if (s.playsStream) {
+    return s.isLive
+      ? `Watch the ${s.isWebinar ? "webinar" : "session"} below.`
+      : "The live stream appears below when it starts.";
+  }
+  if (s.canEmbed) return `Join the ${s.isWebinar ? "webinar" : "meeting"} without leaving this page.`;
+  return `This ${s.isWebinar ? "webinar" : "meeting"} will open in Zoom.`;
+}
+
 export default function PublicSessionPage() {
   const params = useParams<{ slug: string; sessionId: string }>();
   const { slug, sessionId } = params;
@@ -618,15 +641,7 @@ export default function PublicSessionPage() {
           right (owner, Oct 2, 2026), capped so an ultra-wide monitor does not
           stretch it. Reading tabs (details, sponsors) keep a text width. */}
       <div
-        className={
-          !isWebinarEvent
-            ? "mx-auto max-w-[1920px] space-y-6 px-4 py-6 lg:px-6"
-            : backgroundUrl
-              ? // An uploaded background shows in full (owner, Oct 7, 2026):
-                // no frosted panel over it; the cards keep their own white.
-                "mx-4 my-6 max-w-[1920px] space-y-6 px-4 py-6 lg:mx-6 lg:px-6 min-[1968px]:mx-auto"
-              : "mx-4 my-6 max-w-[1920px] space-y-6 rounded-2xl lg:mx-6 min-[1968px]:mx-auto bg-white/85 px-4 py-6 shadow-sm backdrop-blur-sm lg:px-6"
-        }
+        className={mainContentClass(isWebinarEvent, backgroundUrl)}
       >
         {/* Session title + metadata; on a webinar the uploaded logo sits to
             its left (owner, Oct 6, 2026). Over a background image it gets its
@@ -1411,6 +1426,50 @@ function StickyCta({
       joinInfo.meetingType === "WEBINAR_SERIES";
     const canEmbed = joinInfo.mode === "sdk" && joinInfo.sdkKey && joinInfo.signature;
 
+    const renderJoinAction = () => {
+      if (playsStream) return null;
+      if (isJoining) {
+        return (
+          <div className="flex items-center gap-2">
+            <Badge className="bg-green-100 text-green-800 border-green-200">
+              In meeting
+            </Badge>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onLeave}
+              title="Unmount the embed and return to the session page"
+            >
+              Leave
+            </Button>
+          </div>
+        );
+      }
+      if (canEmbed) {
+        return (
+          <Button
+            size="lg"
+            className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+            onClick={onJoin}
+          >
+            <Video className="h-4 w-4" />
+            {isWebinar ? "Join Webinar" : "Join Meeting"}
+          </Button>
+        );
+      }
+      return (
+        <Button
+          size="lg"
+          className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+          onClick={() => window.open(joinInfo.joinUrl, "_blank")}
+        >
+          <Video className="h-4 w-4" />
+          {isWebinar ? "Join Webinar" : "Join Meeting"}
+          <ExternalLink className="h-4 w-4" />
+        </Button>
+      );
+    };
+
     return (
       <Card className="border-blue-200 bg-blue-50/70 shadow-sm">
         <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
@@ -1426,52 +1485,13 @@ function StickyCta({
           </div>
           <div className="flex-1 text-center sm:text-left">
             <p className="font-semibold">
-              {isLive ? "Live now" : playsStream ? "Starting soon" : "Ready to join"}
+              {joinCtaTitle(isLive, playsStream)}
             </p>
             <p className="text-xs text-muted-foreground">
-              {playsStream
-                ? isLive
-                  ? `Watch the ${isWebinar ? "webinar" : "session"} below.`
-                  : "The live stream appears below when it starts."
-                : canEmbed
-                ? `Join the ${isWebinar ? "webinar" : "meeting"} without leaving this page.`
-                : `This ${isWebinar ? "webinar" : "meeting"} will open in Zoom.`}
+              {joinCtaHint({ playsStream, isLive, canEmbed: Boolean(canEmbed), isWebinar })}
             </p>
           </div>
-          {playsStream ? null : isJoining ? (
-            <div className="flex items-center gap-2">
-              <Badge className="bg-green-100 text-green-800 border-green-200">
-                In meeting
-              </Badge>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onLeave}
-                title="Unmount the embed and return to the session page"
-              >
-                Leave
-              </Button>
-            </div>
-          ) : canEmbed ? (
-            <Button
-              size="lg"
-              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={onJoin}
-            >
-              <Video className="h-4 w-4" />
-              {isWebinar ? "Join Webinar" : "Join Meeting"}
-            </Button>
-          ) : (
-            <Button
-              size="lg"
-              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={() => window.open(joinInfo.joinUrl, "_blank")}
-            >
-              <Video className="h-4 w-4" />
-              {isWebinar ? "Join Webinar" : "Join Meeting"}
-              <ExternalLink className="h-4 w-4" />
-            </Button>
-          )}
+          {renderJoinAction()}
         </CardContent>
       </Card>
     );

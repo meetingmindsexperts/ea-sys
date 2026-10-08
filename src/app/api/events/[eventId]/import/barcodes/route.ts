@@ -22,6 +22,11 @@ function findCol(headers: string[], names: string[]): number {
   return -1;
 }
 
+function rowIdentifier(registrationId: string | undefined, email: string | undefined): string {
+  if (registrationId) return ` (ID: ${registrationId})`;
+  return email ? ` (email: ${email})` : "";
+}
+
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const [{ eventId }, session] = await Promise.all([params, auth()]);
@@ -184,7 +189,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         }
 
         if (!registration) {
-          errors.push(`Row ${rowNum}: Registration not found${registrationId ? ` (ID: ${registrationId})` : email ? ` (email: ${email})` : ""}`);
+          errors.push(`Row ${rowNum}: Registration not found${rowIdentifier(registrationId, email)}`);
           continue;
         }
 

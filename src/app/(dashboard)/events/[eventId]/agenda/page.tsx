@@ -283,6 +283,11 @@ function sessionToForm(s: Session, eventTz: string): typeof DEFAULT_SESSION_FORM
 // Renders an already-timezone-resolved YYYY-MM-DD calendar date. The
 // local-midnight parse + local render round-trips to the same calendar
 // date in any browser timezone, so this is safe viewer-side.
+function sessionDialogTitle(editing: boolean, isBreak: boolean): string {
+  if (editing) return isBreak ? "Edit Break Item" : "Edit Session";
+  return isBreak ? "Add Break Item" : "Create Session";
+}
+
 function formatDateDisplay(dateStr: string) {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", {
     weekday: "long",
@@ -562,6 +567,10 @@ export default function AgendaPage() {
     // Use sessionRoles if any exist; otherwise fall back to legacy speakerIds
     const hasRoles = !breakItem && sessionRoles.length > 0;
     const hasLegacySpeakers = !breakItem && speakerIds.length > 0;
+    // A break item clears a leftover value on edit; on create there is nothing to clear.
+    const breakClear = editingSession ? null : undefined;
+    const parsedCapacity = rest.capacity ? parseInt(rest.capacity) : undefined;
+    const legacyOrEmptyRoles = hasLegacySpeakers ? { speakerIds } : { sessionRoles: [] };
 
     sessionMutation.mutate({
       data: {
@@ -584,21 +593,11 @@ export default function AgendaPage() {
         // Break items are deliberately track-less (they render as a
         // full-width band, not inside a track column). On edit, `null`
         // clears a track left over from before the conversion.
-        trackId: breakItem
-          ? editingSession
-            ? null
-            : undefined
-          : rest.trackId || undefined,
+        trackId: breakItem ? breakClear : rest.trackId || undefined,
         // Same clear for a leftover abstract link (review M4) and capacity
         // (review L2) — a break item keeps neither.
         ...(breakItem && editingSession ? { abstractId: null } : {}),
-        capacity: breakItem
-          ? editingSession
-            ? null
-            : undefined
-          : rest.capacity
-            ? parseInt(rest.capacity)
-            : undefined,
+        capacity: breakItem ? breakClear : parsedCapacity,
         // The datetime-local values are wall-clock times in the EVENT's
         // timezone (that's how the form displays them), so they must be
         // interpreted in that zone — not the browser's.
@@ -609,11 +608,7 @@ export default function AgendaPage() {
         // A break item always submits empty lists — the server refuses a
         // break item that would end up with speakers/topics, and this is
         // the explicit clear when converting an existing session.
-        ...(hasRoles
-          ? { sessionRoles }
-          : hasLegacySpeakers
-            ? { speakerIds }
-            : { sessionRoles: [] }),
+        ...(hasRoles ? { sessionRoles } : legacyOrEmptyRoles),
         topics: !breakItem && topics.length > 0
           ? topics.map((t, i) => ({
               ...(t.id ? { id: t.id } : {}),
@@ -1304,9 +1299,7 @@ export default function AgendaPage() {
           <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                {editingSession
-                  ? isBreakForm ? "Edit Break Item" : "Edit Session"
-                  : isBreakForm ? "Add Break Item" : "Create Session"}
+                {sessionDialogTitle(!!editingSession, isBreakForm)}
               </DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSessionSubmit} className="space-y-4 pt-1">

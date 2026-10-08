@@ -43,6 +43,15 @@ interface QueriesResponse {
   limit: number;
 }
 
+type ListView = "loading" | "error" | "empty" | "list";
+
+function listView(isLoading: boolean, isError: boolean, empty: boolean): ListView {
+  if (isLoading) return "loading";
+  if (isError) return "error";
+  if (empty) return "empty";
+  return "list";
+}
+
 function formatWhen(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString(undefined, {
@@ -105,6 +114,7 @@ export default function HelpQueriesPage() {
   const total = data?.total ?? 0;
   const limit = data?.limit ?? 25;
   const totalPages = Math.max(1, Math.ceil(total / limit));
+  const view = listView(isLoading, isError, (data?.queries.length ?? 0) === 0);
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
@@ -158,22 +168,25 @@ export default function HelpQueriesPage() {
       </div>
 
       {/* List */}
-      {isLoading ? (
+      {view === "loading" && (
         <div className="flex items-center justify-center py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" />
           Loading queries…
         </div>
-      ) : isError ? (
+      )}
+      {view === "error" && (
         <div className="rounded-lg border border-red-300 bg-red-50 p-6 text-center text-sm text-red-800">
           Couldn’t load help-assistant queries. Please try again.
         </div>
-      ) : (data?.queries.length ?? 0) === 0 ? (
+      )}
+      {view === "empty" && (
         <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
           {query
             ? "No queries match your search."
             : "No help-assistant queries captured yet."}
         </div>
-      ) : (
+      )}
+      {view === "list" && (
         <ul className="space-y-3">
           {data!.queries.map((row) => {
             const isOpen = expanded[row.id];

@@ -62,8 +62,14 @@ export const SOURCING_LABEL: Record<"SINGLE_QUOTE" | "COMPETITIVE_QUOTES" | "EXI
   SOLE_SOURCE: "Sole source",
 };
 
+const PRIORITY_BADGE_CLASS: Record<"LOW" | "HIGH" | "URGENT", string> = {
+  URGENT: "bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100",
+  HIGH: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
+  LOW: "bg-muted text-muted-foreground",
+};
+
 export function PriorityBadge({ priority }: { priority: keyof typeof PRIORITY_LABEL }) {
   if (priority === "NORMAL") return null;
-  const cls = priority === "URGENT" ? "bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100" : priority === "HIGH" ? "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100" : "bg-muted text-muted-foreground";
+  const cls = PRIORITY_BADGE_CLASS[priority];
   return <Badge variant="secondary" className={cls}>{PRIORITY_LABEL[priority]}</Badge>;
 }

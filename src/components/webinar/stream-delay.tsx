@@ -163,27 +163,40 @@ export function StreamDelay({
       new Date(ms),
     );
 
+  const renderOurDelay = () => {
+    if (!playing) {
+      return (
+        <span className="text-muted-foreground">shown once the stream plays</span>
+      );
+    }
+    if (ours !== null) {
+      return (
+        <>
+          <span className="font-mono tabular-nums">{formatDelay(ours)}</span>
+          <span className="text-xs text-muted-foreground">from our server receiving the video to this screen</span>
+        </>
+      );
+    }
+    if (sample?.behindEdgeS != null) {
+      return (
+        <>
+          <span className="font-mono tabular-nums">about {sample.behindEdgeS.toFixed(1)} s</span>
+          <span className="text-xs text-muted-foreground">
+            behind the newest chunk (the stream carries no arrival times, so this is an estimate)
+          </span>
+        </>
+      );
+    }
+    return (
+      <span className="text-muted-foreground">measuring…</span>
+    );
+  };
+
   return (
     <div className="space-y-3 rounded-md bg-muted/40 p-3 text-sm">
       <div className="flex flex-wrap items-baseline gap-x-2">
         <span className="font-medium">Our delay:</span>
-        {!playing ? (
-          <span className="text-muted-foreground">shown once the stream plays</span>
-        ) : ours !== null ? (
-          <>
-            <span className="font-mono tabular-nums">{formatDelay(ours)}</span>
-            <span className="text-xs text-muted-foreground">from our server receiving the video to this screen</span>
-          </>
-        ) : sample?.behindEdgeS != null ? (
-          <>
-            <span className="font-mono tabular-nums">about {sample.behindEdgeS.toFixed(1)} s</span>
-            <span className="text-xs text-muted-foreground">
-              behind the newest chunk (the stream carries no arrival times, so this is an estimate)
-            </span>
-          </>
-        ) : (
-          <span className="text-muted-foreground">measuring…</span>
-        )}
+        {renderOurDelay()}
       </div>
 
       <div className="space-y-2 border-t pt-3">

@@ -114,6 +114,16 @@ const DEFAULT_PAGE_SIZE = 20;
  * (the same helper the CSV's "Total Paid" / "Amount Due" use, so the table and
  * the export cannot disagree). Absent for a role that cannot see money.
  */
+function selectAllCheckedState(all: boolean, some: boolean): boolean | "indeterminate" {
+  if (all) return true;
+  return some ? "indeterminate" : false;
+}
+
+function bulkTagVerb(mode: string): string {
+  if (mode === "add") return "added to";
+  return mode === "remove" ? "removed from" : "replaced on";
+}
+
 function RowMoney({ money }: { money: Registration["rowMoney"] }) {
   const paid = !!money && money.totalPaid > 0;
   const due = !!money && money.amountDue > 0;
@@ -823,7 +833,7 @@ export default function RegistrationsPage() {
                   {!isReviewer && !isDeskOperator && (
                     <TableHead className="w-10">
                       <Checkbox
-                        checked={allOnPageSelected ? true : someOnPageSelected ? "indeterminate" : false}
+                        checked={selectAllCheckedState(allOnPageSelected, someOnPageSelected)}
                         onCheckedChange={toggleSelectAll}
                         aria-label="Select all registrations on this page"
                       />
@@ -951,7 +961,8 @@ export default function RegistrationsPage() {
                           <Badge variant="outline" className="bg-sky-50 text-sky-800 border-sky-200">
                             {registration.billingAccount.name}
                           </Badge>
-                        ) : registration.billingAccount?.name ? (
+                        ) : null}
+                        {registration.billingAccount?.name && canOpenPayer ? (
                           <button
                             onClick={(e) => {
                               // The row opens the registration sheet; without
@@ -971,9 +982,10 @@ export default function RegistrationsPage() {
                               {registration.billingAccount.name}
                             </Badge>
                           </button>
-                        ) : (
+                        ) : null}
+                        {!registration.billingAccount?.name ? (
                           <span className="text-sm text-muted-foreground">-</span>
-                        )}
+                        ) : null}
                       </TableCell>
                     )}
                     <TableCell>
@@ -1167,7 +1179,7 @@ export default function RegistrationsPage() {
             tags,
             mode,
           });
-          const verb = mode === "add" ? "added to" : mode === "remove" ? "removed from" : "replaced on";
+          const verb = bulkTagVerb(mode);
           toast.success(`Tags ${verb} ${selectedIds.size} registration${selectedIds.size !== 1 ? "s" : ""}`);
           setSelectedIds(new Set());
         }}

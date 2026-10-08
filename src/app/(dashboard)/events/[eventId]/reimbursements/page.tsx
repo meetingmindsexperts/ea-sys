@@ -107,6 +107,11 @@ interface ReimbursementRow {
   documents: DocumentRow[];
 }
 
+function triStateChecked(all: boolean, some: boolean): boolean | "indeterminate" {
+  if (all) return true;
+  return some ? "indeterminate" : false;
+}
+
 export default function ReimbursementsPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const { data: event } = useEvent(eventId);
@@ -638,7 +643,8 @@ export default function ReimbursementsPage() {
         <div className="py-16 text-center text-muted-foreground">
           <Loader2 className="h-6 w-6 mx-auto animate-spin" />
         </div>
-      ) : rows.length === 0 ? (
+      ) : null}
+      {!loading && (rows.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             <Banknote className="h-10 w-10 mx-auto mb-3 opacity-40" />
@@ -842,7 +848,7 @@ export default function ReimbursementsPage() {
             </div>
           </CardContent>
         </Card>
-      )}
+      ))}
 
       {/* Add speakers */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
@@ -860,7 +866,7 @@ export default function ReimbursementsPage() {
               <label className="flex items-center gap-3 px-3 py-2 cursor-pointer bg-muted/30 hover:bg-muted/50">
                 <Checkbox
                   checked={
-                    allAddableSelected ? true : addableSelectedCount > 0 ? "indeterminate" : false
+                    triStateChecked(allAddableSelected, addableSelectedCount > 0)
                   }
                   // Radix reports a click on an indeterminate box as `true`,
                   // so "some picked" → "all picked", then → none.

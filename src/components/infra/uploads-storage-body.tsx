@@ -10,6 +10,27 @@ import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { DrArtifact, UploadsStorage } from "@/lib/infra/aws-ops";
 import { ago, bytesFmt, fmtTime, num } from "./format";
 
+type StorageCheck = UploadsStorage["checks"][number];
+
+function severityClass(severity: StorageCheck["severity"]): string {
+  if (severity === "critical") return "text-red-600";
+  if (severity === "warn") return "text-amber-600";
+  return "text-muted-foreground";
+}
+
+function checkIcon(c: StorageCheck) {
+  if (c.ok === true) return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />;
+  if (c.ok === false) return <AlertTriangle className={`h-3.5 w-3.5 shrink-0 ${severityClass(c.severity)}`} />;
+  return <span className="inline-block h-3.5 w-3.5 text-center text-xs leading-none text-muted-foreground shrink-0">?</span>;
+}
+
+function accessLogLine(a: UploadsStorage["accessLogs"]): string {
+  if (a.enabled === null) return `Access logs: ${a.error ?? "not readable"}`;
+  if (!a.enabled) return "Access logs: off. Per-request records of who fetched which file are not being kept.";
+  if (a.error) return `Access logs: on, to ${a.targetBucket}/${a.targetPrefix}, but the log bucket is ${a.error}`;
+  return `Access logs: on, to ${a.targetBucket}/${a.targetPrefix} · newest ${ago(a.newestLogAt)} · ${num(a.logObjects24h)} file(s) in 24h`;
+}
+
 export function UploadsStorageBody({ u, mirror }: { u: UploadsStorage; mirror: DrArtifact | null }) {
   // The mirror never deletes, so it must hold every source object old enough to
   // have been synced; fewer than that is missing data, not lag.
@@ -86,10 +107,7 @@ export function UploadsStorageBody({ u, mirror }: { u: UploadsStorage; mirror: D
         <div className="text-xs font-medium mb-1">Configuration</div>
         <div className="space-y-1">
           {u.checks.map((c) => {
-            const icon =
-              c.ok === true ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              : c.ok === false ? <AlertTriangle className={`h-3.5 w-3.5 shrink-0 ${c.severity === "critical" ? "text-red-600" : c.severity === "warn" ? "text-amber-600" : "text-muted-foreground"}`} />
-              : <span className="inline-block h-3.5 w-3.5 text-center text-xs leading-none text-muted-foreground shrink-0">?</span>;
+            const icon = checkIcon(c);
             return (
               <div key={c.label} className="flex items-start gap-1.5 text-xs">
                 <span className="mt-0.5">{icon}</span>
@@ -102,13 +120,7 @@ export function UploadsStorageBody({ u, mirror }: { u: UploadsStorage; mirror: D
       </div>
 
       <p className="text-xs text-muted-foreground">
-        {a.enabled === null
-          ? `Access logs: ${a.error ?? "not readable"}`
-          : !a.enabled
-            ? "Access logs: off. Per-request records of who fetched which file are not being kept."
-            : a.error
-              ? `Access logs: on, to ${a.targetBucket}/${a.targetPrefix}, but the log bucket is ${a.error}`
-              : `Access logs: on, to ${a.targetBucket}/${a.targetPrefix} · newest ${ago(a.newestLogAt)} · ${num(a.logObjects24h)} file(s) in 24h`}
+        {accessLogLine(a)}
       </p>
     </div>
   );

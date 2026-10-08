@@ -91,6 +91,13 @@ function text(value: string | null): string | null {
   return t === "" ? null : t;
 }
 
+function recogniseSheetStatus(typed: string): SheetStatus | null {
+  if (typed === "ACTIVE") return "ACTIVE";
+  if (typed.startsWith("RESIGN")) return "RESIGNED";
+  if (typed.startsWith("TERMINAT")) return "TERMINATED";
+  return null;
+}
+
 /**
  * The sheet's Employment Status, reconciled with its Exit Date.
  *
@@ -105,11 +112,7 @@ export function statusFromSheet(
   today: CalendarDate,
 ): SheetStatus {
   const typed = (status ?? "").trim().toUpperCase();
-  const recognised: SheetStatus | null =
-    typed === "ACTIVE" ? "ACTIVE"
-    : typed.startsWith("RESIGN") ? "RESIGNED"
-    : typed.startsWith("TERMINAT") ? "TERMINATED"
-    : null;
+  const recognised = recogniseSheetStatus(typed);
   if (exitDate && exitDate < today) {
     return recognised && recognised !== "ACTIVE" ? recognised : "RESIGNED";
   }
