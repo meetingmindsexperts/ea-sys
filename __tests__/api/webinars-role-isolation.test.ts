@@ -36,7 +36,6 @@ vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/api-key", () => ({ validateApiKey: vi.fn() }));
 vi.mock("@/lib/email", () => ({ DEFAULT_TEMPLATES: [] }));
-vi.mock("@/app/api/events/[eventId]/tickets/route", () => ({ DEFAULT_REG_TYPES: [], DEFAULT_TIER_NAMES: [] }));
 vi.mock("@/lib/default-terms", () => ({ DEFAULT_REGISTRATION_TERMS_HTML: "", DEFAULT_SPEAKER_AGREEMENT_HTML: "" }));
 vi.mock("@/lib/webinar-provisioner", () => ({ provisionWebinar: vi.fn().mockResolvedValue(undefined) }));
 

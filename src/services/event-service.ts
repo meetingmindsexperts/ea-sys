@@ -20,7 +20,7 @@
  * caller; the service trusts its already-validated input.
  */
 
-import type { Event, EventStatus, EventType } from "@prisma/client";
+import { Prisma, type Event, type EventStatus, type EventType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -63,7 +63,7 @@ export interface CreateEventInput {
 }
 
 export type CreateEventErrorCode =
-  | "INVALID_NAME"
+  | "INVALID_SLUG"
   | "INVALID_DATE_RANGE"
   | "SLUG_TAKEN"
   | "EVENT_CODE_TAKEN";
@@ -75,6 +75,9 @@ export type CreateEventResult =
 /** How many `-n` suffixes to try before giving up on a slug. */
 const SLUG_SUFFIX_ATTEMPTS = 10;
 
+/** Inserts tried when a concurrent create wins a unique index (P2002). */
+const CREATE_ATTEMPTS = 3;
+
 // ── Service ──────────────────────────────────────────────────────────────────
 
 export function createEvent(input: CreateEventInput): Promise<CreateEventResult> {
@@ -82,14 +85,43 @@ export function createEvent(input: CreateEventInput): Promise<CreateEventResult>
 }
 
 async function createEventInTenant(input: CreateEventInput): Promise<CreateEventResult> {
-  const { organizationId, userId, name, startDate, endDate, source } = input;
-
   if (input.endDate < input.startDate) {
     return fail("INVALID_DATE_RANGE", "endDate must be on or after startDate", input);
   }
 
-  const baseSlug = slugify(input.slug?.trim() || name);
-  if (!baseSlug) return fail("INVALID_NAME", "Could not generate a web address from the event name", input);
+  const baseSlug = resolveBaseSlug(input);
+  if (!baseSlug) return fail("INVALID_SLUG", "The requested web address has no usable characters (a-z, 0-9)", input);
+
+  // The slug and code checks are reads, so two creates of the same name can
+  // both pass them; the unique indexes catch the loser (P2002), which then
+  // re-resolves against the winner's row and tries again.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await insertEvent(input, baseSlug);
+    } catch (err) {
+      if (!isUniqueViolation(err) || attempt >= CREATE_ATTEMPTS) throw err;
+      apiLogger.warn({ msg: "event-service:unique-race-retry", attempt, organizationId: input.organizationId, source: input.source });
+    }
+  }
+}
+
+/**
+ * The web address to start from. A requested slug that slugifies to nothing is
+ * the caller's error; a NAME that does (Arabic only, say: `slugify` keeps a-z
+ * and 0-9) falls back to `event-<random>`, so the name never blocks the create.
+ */
+function resolveBaseSlug(input: CreateEventInput): string | null {
+  const requested = input.slug?.trim();
+  if (requested) return slugify(requested) || null;
+  return slugify(input.name) || `event-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
+}
+
+async function insertEvent(input: CreateEventInput, baseSlug: string): Promise<CreateEventResult> {
+  const { organizationId, userId, name, startDate, endDate, source } = input;
 
   const slug = await findFreeSlug(organizationId, baseSlug);
   if (!slug) {

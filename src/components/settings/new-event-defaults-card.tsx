@@ -16,12 +16,15 @@ import { MAX_DEFAULT_REG_TYPES, MAX_DEFAULT_REG_TYPE_NAME } from "@/lib/default-
  * service at creation, so no existing event or registration form changes.
  */
 export function NewEventDefaultsCard({ readOnly = false }: { readOnly?: boolean }) {
-  const { data: saved, isLoading } = useDefaultRegistrationTypes();
+  const { data: saved, isLoading, isError, refetch } = useDefaultRegistrationTypes();
   const update = useUpdateDefaultRegistrationTypes();
   // null = no unsaved edits; the list shown is then the saved one.
   const [edited, setNames] = useState<string[] | null>(null);
   const [draft, setDraft] = useState("");
   const names = edited ?? saved ?? [];
+  // Editing only once the saved list is in hand: Save sends the whole list, so
+  // editing a list that failed to load would replace the real one (review M1).
+  const canEdit = !readOnly && saved !== undefined;
 
   const dirty = JSON.stringify(names) !== JSON.stringify(saved ?? []);
   const full = names.length >= MAX_DEFAULT_REG_TYPES;
@@ -69,7 +72,15 @@ export function NewEventDefaultsCard({ readOnly = false }: { readOnly?: boolean 
       </CardHeader>
       <CardContent className="space-y-4">
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
-        {!isLoading && names.length === 0 && (
+        {isError && saved === undefined && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+            <p className="text-sm text-destructive">The list could not be loaded, so it cannot be edited yet.</p>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              Try again
+            </Button>
+          </div>
+        )}
+        {saved !== undefined && names.length === 0 && (
           <p className="text-sm text-muted-foreground">New events start with no registration types.</p>
         )}
         {names.length > 0 && (
@@ -78,7 +89,7 @@ export function NewEventDefaultsCard({ readOnly = false }: { readOnly?: boolean 
               <li key={name} className="flex items-center gap-2 px-3 py-2">
                 <span className="w-6 text-xs text-muted-foreground tabular-nums">{i + 1}</span>
                 <span className="flex-1 truncate text-sm">{name}</span>
-                {!readOnly && (
+                {canEdit && (
                   <>
                     <Button
                       variant="ghost"
@@ -116,7 +127,7 @@ export function NewEventDefaultsCard({ readOnly = false }: { readOnly?: boolean 
           </ol>
         )}
 
-        {!readOnly && (
+        {canEdit && (
           <>
             <div className="space-y-2">
               <Label htmlFor="new-reg-type">Add a registration type</Label>

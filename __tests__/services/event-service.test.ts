@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Prisma } from "@prisma/client";
 
 const { mockDb, mockApiLogger, mockResolveCode, mockProvision, mockRefreshStats } = vi.hoisted(() => ({
   mockDb: {
@@ -139,9 +140,39 @@ describe("createEvent", () => {
     expect(mockApiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ code: "INVALID_DATE_RANGE" }));
   });
 
-  it("refuses a name that makes no web address", async () => {
-    const res = await createEvent({ ...BASE, name: "!!!" });
-    expect(res).toMatchObject({ ok: false, code: "INVALID_NAME" });
+  it("a name with no Latin letters falls back to event-<random>", async () => {
+    const res = await createEvent({ ...BASE, name: "مؤتمر القلب" });
+    expect(res.ok).toBe(true);
+    expect(mockDb.event.create.mock.calls[0][0].data.slug).toMatch(/^event-[a-z0-9]{1,5}$/);
+  });
+
+  it("refuses a requested slug with no usable characters", async () => {
+    const res = await createEvent({ ...BASE, slug: "!!!" });
+    expect(res).toMatchObject({ ok: false, code: "INVALID_SLUG" });
+    expect(mockDb.event.create).not.toHaveBeenCalled();
+  });
+
+  it("retries when a concurrent create wins the unique index, then succeeds", async () => {
+    const race = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" });
+    mockDb.event.create.mockRejectedValueOnce(race);
+    mockDb.event.create.mockImplementationOnce(async ({ data }) => ({ id: "evt-2", ...data }));
+    const res = await createEvent(BASE);
+    expect(res).toMatchObject({ ok: true, event: { id: "evt-2" } });
+    expect(mockDb.event.create).toHaveBeenCalledTimes(2);
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "event-service:unique-race-retry", attempt: 1 }));
+  });
+
+  it("gives up after three races and rethrows", async () => {
+    const race = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" });
+    mockDb.event.create.mockRejectedValue(race);
+    await expect(createEvent(BASE)).rejects.toBe(race);
+    expect(mockDb.event.create).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry other database errors", async () => {
+    mockDb.event.create.mockRejectedValue(new Error("db down"));
+    await expect(createEvent(BASE)).rejects.toThrow("db down");
+    expect(mockDb.event.create).toHaveBeenCalledTimes(1);
   });
 
   it("refuses an explicit code that is taken, and uppercases it first", async () => {

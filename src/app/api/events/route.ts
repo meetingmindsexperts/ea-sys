@@ -173,7 +173,7 @@ export async function POST(req: Request) {
     });
     if (!result.ok) {
       // The service logs the refusal with its code.
-      const status = result.code === "INVALID_DATE_RANGE" || result.code === "INVALID_NAME" ? 400 : 409;
+      const status = result.code === "INVALID_DATE_RANGE" || result.code === "INVALID_SLUG" ? 400 : 409;
       return NextResponse.json({ error: result.message, code: result.code }, { status });
     }
 
