@@ -1,0 +1,44 @@
+// Online venue (docs/EVENT_BLUEPRINT_PLAN.md §5, phase 4 from Oct 8 2026): the
+// walkable 3D venue of an event at /e/<slug>/venue. Staff preview first; the
+// privacy notice is signed off before attendees are let in (plan §5.6).
+// Every table carries organizationId and a flat RLS policy
+// (prisma/rls/venue.sql). User ids are plain strings, as in the Blueprint.
+
+/// One person's activity in one event's venue: time per room, stand visits,
+/// questions, chats, photos. The page saves its whole summary about every 30
+/// seconds and on leaving; the row is replaced, never appended. The person's
+/// name is stored only when they chose to share it (the page's `named`).
+model VenueActivity {
+  id             String   @id @default(cuid())
+  eventId        String
+  organizationId String
+  userId         String
+  /// The page's activity document, sized and shaped on the server (venue-activity.ts).
+  data           Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([organizationId])
+}
+
+/// A safety report raised in the venue (mute, block, report). Append-only;
+/// each is also emailed to the event team's safety inbox (plan D7).
+model VenueReport {
+  id             String   @id @default(cuid())
+  eventId        String
+  organizationId String
+  reporterId     String
+  /// Reason, note, who was reported, their last lines, the room: shaped on the server.
+  data           Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, createdAt])
+  @@index([organizationId])
+}

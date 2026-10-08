@@ -102,3 +102,18 @@ export function isCustomRolesEnabled(): boolean {
 export function isBlueprintModuleEnabled(): boolean {
   return process.env.BLUEPRINT_MODULE_ENABLED === "true";
 }
+
+/**
+ * The events whose online venue may be served (docs/EVENT_BLUEPRINT_PLAN.md,
+ * phase 4). `VENUE_EVENT_SLUGS` is a comma-separated list of event slugs, e.g.
+ * "ehc26". Unset or empty means no venue anywhere. A list rather than a yes/no
+ * because the venue's rooms are EHC's, hand-built: shown under another event's
+ * name it would be wrong, until rooms come from the Blueprint (phase 6).
+ */
+export function isVenueEnabledFor(slug: string): boolean {
+  const list = (process.env.VENUE_EVENT_SLUGS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.includes(slug);
+}

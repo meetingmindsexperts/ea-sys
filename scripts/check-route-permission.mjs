@@ -74,6 +74,8 @@ const PRIMITIVES = [
   "canAdminProcurement",
   // The Event Blueprint gate: flag, session, organisation, then requirePermission.
   "blueprintGuard",
+  // The online venue gate: session, organisation, then requirePermission (events.read / events.update).
+  "venueGuard",
   // The agent's handler asks agent.use and every tool's key itself.
   "executeAgentRequest",
   // The platform operator door.

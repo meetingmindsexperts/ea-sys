@@ -14,6 +14,7 @@
 //                   queries, agent runs, import log, worker jobs, DR archive
 //   crm, hr, procurement   the three bounded modules, one file each
 //   blueprint       the Event Blueprint (intake brief before an event exists)
+//   venue           the online venue (per-person activity, safety reports)
 // Prisma reads the whole prisma/ folder because package.json sets
 // "prisma": { "schema": "prisma" }. This file keeps the generator and the
 // datasource so prisma/migrations stays beside the datasource, where

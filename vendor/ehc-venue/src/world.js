@@ -217,9 +217,19 @@ function buildWorld(R, Q) {
     const r = bannerR || (bannerR = A.alloc(220, 500)), x2 = A.x; x2.save(); x2.translate(r.x, r.y);
     const g = x2.createLinearGradient(0, 0, 0, 500); g.addColorStop(0, '#6d1624'); g.addColorStop(1, '#2a0a12'); x2.fillStyle = g; x2.fillRect(0, 0, 220, 500);
     x2.strokeStyle = 'rgba(200,164,106,.35)'; x2.lineWidth = 1.5; for (let k = 0; k < 7; k++) { x2.beginPath(); x2.arc(110, 520, 60 + k * 26, Math.PI, 0); x2.stroke(); }
-    x2.fillStyle = '#c8a46a'; x2.font = `600 13px ${FONT_BODY}`; x2.letterSpacing = '3px'; x2.fillText('ESH · 2026', 22, 40); x2.letterSpacing = '0px';
-    x2.fillStyle = '#f3ece4'; x2.font = `400 44px ${FONT_DISPLAY}`; ['Emirates', 'Hematology', 'Conference'].forEach((l, i) => x2.fillText(l, 20, 110 + i * 46));
-    x2.fillStyle = '#c8a46a'; x2.font = `400 64px ${FONT_DISPLAY}`; x2.fillText('2026', 20, 300);
+    // EA-SYS: the event's own name, wrapped to the banner (at most four lines, the type shrinking
+    // to fit), with a trailing year set large below it, instead of the words typed in by hand.
+    const words = EVENT.name.split(/\s+/).filter(Boolean), year = /^\d{4}$/.test(words[words.length - 1] || '') ? words.pop() : '';
+    let size = 44, lines = [];
+    for (; size >= 26; size -= 4) {
+      x2.font = `400 ${size}px ${FONT_DISPLAY}`; lines = []; let cur = '';
+      for (const w of words) { const t = cur ? cur + ' ' + w : w; if (x2.measureText(t).width <= 190) cur = t; else { if (cur) lines.push(cur); cur = w; } }
+      if (cur) lines.push(cur);
+      if (lines.length <= 4 && lines.every(l => x2.measureText(l).width <= 190)) break;
+    }
+    x2.fillStyle = '#c8a46a'; x2.font = `600 13px ${FONT_BODY}`; x2.letterSpacing = '3px'; x2.fillText('ESH · ' + (year || '2026'), 22, 40); x2.letterSpacing = '0px';
+    x2.fillStyle = '#f3ece4'; x2.font = `400 ${size}px ${FONT_DISPLAY}`; lines.slice(0, 4).forEach((l, i) => x2.fillText(l, 20, 110 + i * (size + 2)));
+    if (year) { x2.fillStyle = '#c8a46a'; x2.font = `400 64px ${FONT_DISPLAY}`; x2.fillText(year, 20, 300); }
     x2.fillStyle = 'rgba(243,236,228,.8)'; x2.font = `500 15px ${FONT_BODY}`; x2.fillText(EVENT.date, 22, 350); x2.fillText(EVENT.venue, 22, 372);
     x2.restore();
     quad('signs', x, 3.0, 0.6, 2.2, 5, 0, [1, 1, 1, 0], { mode: 'rect', r: r.uv });

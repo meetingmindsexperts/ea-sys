@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Online venue: the EHC 2026 venue, staff preview (October 8)
+
+- `/e/<slug>/venue`: the walkable 3D venue, for staff who can see the event,
+  only for events listed in `VENUE_EVENT_SLUGS` (unset = off everywhere). Its
+  signs show the event's real name, dates and venue from EA-SYS. The vendor's
+  code runs unchanged against an EA-SYS runtime (`public/venue-runtime.js`).
+- Activity per person (time per room, stand visits) and safety reports
+  (stored, emailed to info@meetingmindsgroup.com); the event team (who can
+  edit the event) sees everyone's activity and the reports and sets the
+  language filter. AI attendees use their pre-written answers; live
+  colleagues are off.
+- Attendees need the privacy sign-off and a sign-in path first (plan,
+  Progress).
+
 ### Event Blueprint: review fixes and the sidebar entry (October 8)
 
 - Independent review of steps 3 to 6: two HIGHs and every MED and LOW fixed

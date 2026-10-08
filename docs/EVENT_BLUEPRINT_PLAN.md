@@ -431,3 +431,19 @@ per event (D6), report inbox (D7).
   staff: writers only, 40 calls an hour per person, token usage logged per
   call. A per-organisation daily budget is the follow-up if the module is
   opened beyond staff or usage grows.
+- **Oct 8, 2026, venue phase 4 (plan's venue phase A) built: staff preview.**
+  Owner rulings: staff first (anyone who can see the event; the event team,
+  who can edit it, also sees everyone's activity and reports and sets the
+  language filter); name, dates and venue from EA-SYS; visits recorded now.
+  Served at `/e/<slug>/venue` only for slugs in `VENUE_EVENT_SLUGS` (unset =
+  nowhere: the rooms are EHC's). EHC 2026 in EA-SYS is `ehc26`, 10 to 12 April
+  2026, where the vendor's signs said 4 September. The vendor code runs
+  unchanged against `public/venue-runtime.js`, a stand-in for its host runtime
+  backed by `/api/venue/<eventId>/*`; AI attendees answer from their
+  pre-written lines and live colleagues are off. Tables `VenueActivity` (one
+  row per person per event) and `VenueReport` (append-only, emailed to the D7
+  inbox), RLS from day one.
+  **Gate before attendees are let in:** the privacy notice (UAE PDPL) is
+  signed off, because visits are recorded per person. Today only staff can
+  reach it. Attendee sign-in is also needed then: only 1 of EHC's 88
+  registrants has a login.
