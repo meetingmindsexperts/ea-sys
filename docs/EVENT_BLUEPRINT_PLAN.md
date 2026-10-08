@@ -15,6 +15,7 @@ folders and the external developer handover. Step 1 of section 6 is built: see
 | D5 | We change the vendor code ourselves (`platform.js`, `app.js`, the venue modules); no round trip to the external developer. |
 | D6 | **Organisers set up the venue rooms** themselves when a venue is needed, so the venue becomes data-driven (section 5.6) instead of a developer build per event. They do it in the Blueprint's Spaces step and layout sketch, which the venue is generated from. |
 | D7 | Venue safety reports go to **info@meetingmindsgroup.com**. |
+| D8 | **Rooms stay editable after approval** (owner, Oct 8, 2026): venues change, rooms are added or removed. Edits are saved with the version check, can be sent as a numbered update, and, for the online venue, regenerate it. A non-owner who edits counts as an editor, so cannot approve that blueprint's preview. The EA-SYS event created at approval is not updated from later brief edits (its venue is changed in the event's own settings). |
 
 ## 2. What we received
 
@@ -336,9 +337,8 @@ review before push.
 1. **AI limits for venue attendees** (section 5.4a): confirm the default caps
    (per attendee per hour, per event per day) before phase B.
 2. **Privacy sign-off** (UAE PDPL) before venue phase A collects activity.
-3. **Room changes after approval** (section 5.6): may organisers keep editing
-   the spaces on an approved blueprint (venue regenerates), or should a room
-   change after approval go back through the approver?
+3. ~~**Room changes after approval**~~ Answered Oct 8, 2026 (D8): organisers
+   keep editing the spaces on an approved blueprint, and the venue regenerates.
 
 Answered Oct 5, 2026: approver (D4), who changes the vendor code (D5), venue
 per event (D6), report inbox (D7).
