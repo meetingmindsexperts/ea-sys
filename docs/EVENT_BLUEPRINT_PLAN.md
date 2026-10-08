@@ -391,3 +391,12 @@ per event (D6), report inbox (D7).
   sends `{ task, input }`. Also: the step 3 page module timed out a repo-wide
   source scan in CI (unit job of run 37743218212, so step 3 did not deploy);
   the page is now JSON.
+- **Oct 8, 2026, step 5 built.** Owner rulings: the approver signs off both
+  the plan (creating the event) and the preview; emails go to the build team on
+  submit and update, and to the writer on progress. Verified on the standalone
+  build with AWS credentials disabled (the local database holds real
+  colleagues' addresses): submit minted `EB-261008-SFJ`, nine build-team sends
+  failed safely without blocking it, a Submitted-to-Building move was refused,
+  Submitted-to-In-review succeeded, and a deleted blueprint was not revived.
+  For step 6: the page's acknowledgement still says "Nothing is built until
+  you approve it here"; reword for the approver.

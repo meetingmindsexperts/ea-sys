@@ -963,6 +963,12 @@ const Platform = (() => {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type })); a.download = filename; document.body.append(a); a.click(); a.remove();
   };
 
+  // ----- EA-SYS workflow: the server owns status, reference and history. Each returns the
+  // blueprint as the server now has it (server-owned fields merged in).
+  P.submit = (id, body) => P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/submit', body);
+  P.stage = (id, to) => P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/stage', { to });
+  P.approve = (id, which) => P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/approve', { which });
+
   // ----- notify the build team (optional): API mode posts to your server; on claude.ai the saved
   // blueprint itself is the hand-off (the team reads it from storage).
   P.notify = async (event) => { if (P.mode === 'api') { try { await P._.call('POST', '/events', event); } catch (e) { } } };
@@ -1762,8 +1768,8 @@ const Platform = (() => {
     });
     wrap.append(ol);
     // approvals belong to the owner (a person), never to automation
-    if (S.status === 'plan_ready' && !S.approvals.plan) wrap.append(h('div', { class: 'approve' }, h('div', { text: 'The plan is ready. Read it, then approve it here so the build can start.' }), h('button', { class: 'primary', text: 'Approve the plan', onclick: () => approve('plan') })));
-    if (S.status === 'preview' && !S.approvals.preview) wrap.append(h('div', { class: 'approve' }, h('div', { text: 'Walk through the preview, then approve it for publishing.' }), h('button', { class: 'primary', text: 'Approve the preview', onclick: () => approve('preview') })));
+    if (Platform.mode !== 'api' && S.status === 'plan_ready' && !S.approvals.plan) wrap.append(h('div', { class: 'approve' }, h('div', { text: 'The plan is ready. Read it, then approve it here so the build can start.' }), h('button', { class: 'primary', text: 'Approve the plan', onclick: () => approve('plan') })));
+    if (Platform.mode !== 'api' && S.status === 'preview' && !S.approvals.preview) wrap.append(h('div', { class: 'approve' }, h('div', { text: 'Walk through the preview, then approve it for publishing.' }), h('button', { class: 'primary', text: 'Approve the preview', onclick: () => approve('preview') })));
     if (S.approvals.plan) wrap.append(h('div', { class: 'note', text: 'Plan approved by you on ' + fmtDate(S.approvals.plan) + '.' }));
     if (S.approvals.preview) wrap.append(h('div', { class: 'note', text: 'Preview approved by you on ' + fmtDate(S.approvals.preview) + '.' }));
     const hist = h('details', { class: 'hist' }, h('summary', { text: `Submission history (${S.submissions.length})` }), h('ul', null, S.submissions.map(x => h('li', null, h('b', { text: x.kind === 'update' ? `Update ${x.n}` : 'First submission' }), ` · ${fmtDate(x.at)} · ${x.kind === 'update' ? x.count + ' changes' : 'readiness ' + x.readiness + '%'}`))));
@@ -1771,7 +1777,9 @@ const Platform = (() => {
     if (Platform.isEditor) {
       const sel = h('select', { 'aria-label': 'Set status' }, STATUSES.map(([id, l]) => h('option', { value: id, text: l })));
       sel.value = S.status;
-      wrap.append(h('div', { class: 'teamctl' }, h('span', { class: 'help', text: 'Build team: update the stage' }), sel, h('button', { class: 'secondary', text: 'Update', onclick: () => { if (sel.value !== S.status) { S.status = sel.value; S.statusLog.push({ status: sel.value, at: Date.now() }); changed(); render(); toast('Stage updated'); } } })));
+      wrap.append(h('div', { class: 'teamctl' }, h('span', { class: 'help', text: 'Build team: update the stage' }), sel, h('button', { class: 'secondary', text: 'Update', onclick: async () => { if (sel.value === S.status) return;
+        if (Platform.mode === 'api') { try { applyServer(await Platform.stage(S.id, sel.value)); render(); toast('Stage updated'); } catch (e) { toast((e && e.message) || 'The stage could not be changed.'); sel.value = S.status; } return; } // EA-SYS: the server moves stages
+        S.status = sel.value; S.statusLog.push({ status: sel.value, at: Date.now() }); changed(); render(); toast('Stage updated'); } })));
     }
     return wrap;
   }
@@ -1781,13 +1789,29 @@ const Platform = (() => {
     changed(); remoteSave(); Platform.notify({ type: 'approval', which, blueprintId: S.id, ref: S.ref }); render(); toast(which === 'plan' ? 'Plan approved. The build can start.' : 'Preview approved.');
   }
   const makeRef = () => { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `EB-${String(d.getFullYear()).slice(2)}${p(d.getMonth() + 1)}${p(d.getDate())}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`; };
+  // EA-SYS: the server's status, reference and history replace the page's own copies.
+  function applyServer(v) { if (!plain(v)) return; S.status = v.status || S.status; S.ref = v.ref || S.ref; if (Array.isArray(v.statusLog)) S.statusLog = v.statusLog; if (Array.isArray(v.submissions)) S.submissions = v.submissions; if (plain(v.approvals)) S.approvals = v.approvals; }
   async function doSubmit(isUpdate) {
+    if (Platform.mode === 'api') return doSubmitApi(isUpdate);
     const sc = score(S), chg = pending(), now = Date.now();
     if (!isUpdate) { S.ref = S.ref || makeRef(); S.status = 'submitted'; S.statusLog.push({ status: 'submitted', at: now }); S.submissions.push({ kind: 'submission', n: 0, at: now, readiness: sc.pct, open: sc.blocking.map(x => x.label) }); }
     else { const n = S.submissions.filter(x => x.kind === 'update').length + 1; S.submissions.push({ kind: 'update', n, at: now, count: chg.length, changes: chg.slice(0, 80).map(c => c.text) }); S.statusLog.push({ status: 'update_' + n, at: now }); }
     S.baseline = snapshot(S);
     changed(); clearTimeout(saveT); if (Platform.mode !== 'local' && Platform.canWrite) { setSave('Saving…'); await remoteSave(); } else setSave('Saved on this device');
     Platform.notify({ type: isUpdate ? 'update' : 'submitted', blueprintId: S.id, ref: S.ref, title: S.basics.title, readiness: sc.pct });
+    ackView = { kind: isUpdate ? 'update' : 'submission', at: now, count: chg.length, readiness: sc.pct, open: sc.blocking.length, saved: saveState };
+    render(); window.scrollTo({ top: 0 });
+  }
+  // EA-SYS: save the latest edits, then the server submits (or records the update), mints the
+  // reference and emails the build team. Nothing changes on the page unless the server agrees.
+  async function doSubmitApi(isUpdate) {
+    const sc = score(S), chg = pending(), now = Date.now();
+    clearTimeout(saveT); while (saving) await new Promise(r => setTimeout(r, 150));
+    dirty = true; setSave('Saving…'); await remoteSave();
+    if (dirty) { toast('Couldn’t save the latest changes, so nothing was sent. Try again.'); return; }
+    try { applyServer(await Platform.submit(S.id, { readiness: sc.pct, open: sc.blocking.map(x => x.label).slice(0, 100), count: chg.length, changes: chg.slice(0, 80).map(c => c.text) })); }
+    catch (e) { toast((e && e.message) || 'Couldn’t send it. Try again.'); return; }
+    S.baseline = snapshot(S); changed(); clearTimeout(saveT); await remoteSave();
     ackView = { kind: isUpdate ? 'update' : 'submission', at: now, count: chg.length, readiness: sc.pct, open: sc.blocking.length, saved: saveState };
     render(); window.scrollTo({ top: 0 });
   }
@@ -2083,8 +2107,13 @@ ${words ? `\nThe organiser's own words:\n"""${words.slice(0, 20000)}"""` : ''}${
   }
   async function fetchBP(id) {
     let bp = null; try { bp = JSON.parse(localStorage.getItem('eb-' + id) || 'null'); } catch (e) { }
-    try { const v = await Platform.load(id); if (v && (!bp || (v.updated || 0) >= (bp.updated || 0))) bp = v; } catch (e) { }
+    try { const v = await Platform.load(id); if (v && (!bp || (v.updated || 0) >= (bp.updated || 0))) bp = v; }
+    catch (e) { if (Platform.mode === 'api' && e && e.status === 404) { forgetLocal(id); return null; } } // EA-SYS: gone on the server, so never revive the device copy
     return bp;
+  }
+  function forgetLocal(id) {
+    try { localStorage.removeItem('eb-' + id); if (localStorage.getItem('eb-cur') === id) localStorage.removeItem('eb-cur');
+      localStorage.setItem('eb-list', JSON.stringify(JSON.parse(localStorage.getItem('eb-list') || '[]').filter(x => x.id !== id))); } catch (e) { }
   }
   async function loadAndOpen(id) { const bp = await fetchBP(id); if (bp) openBlueprint(bp); else toast('Couldn’t open that blueprint.'); }
 

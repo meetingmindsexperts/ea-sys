@@ -27,12 +27,18 @@ vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/services/blueprint-service", () => mockService);
+vi.mock("@/services/blueprint-workflow-service", () => ({
+  submitBlueprint: vi.fn().mockResolvedValue({ ok: true, blueprint: {} }),
+  moveBlueprintStage: vi.fn().mockResolvedValue({ ok: true, blueprint: {} }),
+}));
 vi.mock("@/lib/blueprint/blueprint-ai", () => ({ runBlueprintAiTask: vi.fn().mockResolvedValue({ ok: true, answer: { spaces: [] } }) }));
 
 import { GET as listGET } from "@/app/api/blueprint/blueprints/route";
 import { PUT as savePUT } from "@/app/api/blueprint/blueprints/[id]/route";
 import { GET as meGET } from "@/app/api/blueprint/me/route";
 import { POST as aiPOST } from "@/app/api/blueprint/ai/json/route";
+import { POST as submitPOST } from "@/app/api/blueprint/blueprints/[id]/submit/route";
+import { POST as stagePOST } from "@/app/api/blueprint/blueprints/[id]/stage/route";
 
 const as = (role: string, organizationId: string | null = "org-1") =>
   mockAuth.mockResolvedValue({ user: { id: `u-${role}`, role, organizationId } });
@@ -104,5 +110,16 @@ describe("/api/blueprint gate", () => {
     as(role);
     const res = await aiPOST(new Request("http://localhost/api/blueprint/ai/json", { method: "POST", body: JSON.stringify({ task: "spaces", input: { brief: {} } }) }));
     expect(res.status).toBe(status);
+  });
+
+  it.each([
+    ["ADMIN", 200, 200],
+    ["ORGANIZER", 200, 403],
+    ["MEMBER", 403, 403],
+  ])("%s: submit %i, move a stage %i", async (role, submit, stage) => {
+    as(role);
+    const post = (body: unknown) => ({ method: "POST", body: JSON.stringify(body) });
+    expect((await submitPOST(new Request("http://localhost/x", post({ readiness: 50 })), params)).status).toBe(submit);
+    expect((await stagePOST(new Request("http://localhost/x", post({ to: "in_review" })), params)).status).toBe(stage);
   });
 });

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event Blueprint: the server owns the workflow (October 8)
+
+- Step 5 of `docs/EVENT_BLUEPRINT_PLAN.md`, dark. `POST .../submit` (writers):
+  Draft to Submitted with a server-minted reference (`EB-YYMMDD-XXX`), or an
+  update with its change list; `POST .../stage` (`blueprints.manage`): the build
+  team moves Submitted, In review and Plan ready, and Building and Preview.
+  Building and Live are reachable only by approval (step 6). Each change is a
+  guarded update with its history row in one transaction.
+- Emails (owner ruling): submitted and updates go to everyone who can move
+  stages, never the sender; stage moves go to the writer. A failed email is
+  logged and never undoes the change.
+- Page: submit, the build-team stage control and the history now come from
+  the server; the owner's own approve buttons are hidden until step 6 hands
+  them to the approver; a blueprint the server no longer has is forgotten
+  rather than revived from the browser's copy.
+
 ### Event Blueprint: AI with server-held prompts; the CI timeout fixed (October 8)
 
 - Step 4 of `docs/EVENT_BLUEPRINT_PLAN.md`. `POST /api/blueprint/ai/json`

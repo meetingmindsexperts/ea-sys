@@ -93,6 +93,12 @@ const Platform = (() => {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type })); a.download = filename; document.body.append(a); a.click(); a.remove();
   };
 
+  // ----- EA-SYS workflow: the server owns status, reference and history. Each returns the
+  // blueprint as the server now has it (server-owned fields merged in).
+  P.submit = (id, body) => P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/submit', body);
+  P.stage = (id, to) => P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/stage', { to });
+  P.approve = (id, which) => P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/approve', { which });
+
   // ----- notify the build team (optional): API mode posts to your server; on claude.ai the saved
   // blueprint itself is the hand-off (the team reads it from storage).
   P.notify = async (event) => { if (P.mode === 'api') { try { await P._.call('POST', '/events', event); } catch (e) { } } };
