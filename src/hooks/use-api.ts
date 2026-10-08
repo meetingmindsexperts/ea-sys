@@ -105,6 +105,7 @@ export const queryKeys = {
   registrationTypes: ["registration-types"] as const,
   notifications: ["notifications"] as const,
   organizations: ["organizations"] as const,
+  newEventDefaults: ["organization", "new-event-defaults"] as const,
   invoices: (eventId: string) => ["events", eventId, "invoices"] as const,
   registrationInvoices: (registrationId: string) => ["registrations", registrationId, "invoices"] as const,
   zoomCredentials: ["zoom", "credentials"] as const,
@@ -155,6 +156,32 @@ export function useOrganizations(enabled = false) {
     queryFn: () => fetchApi<OrgListItem[]>("/api/organizations"),
     enabled,
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+// ============ NEW EVENT DEFAULTS (per organisation) ============
+/** The registration types a new event starts with (Settings → General). */
+export function useDefaultRegistrationTypes() {
+  return useQuery({
+    queryKey: queryKeys.newEventDefaults,
+    queryFn: async () => {
+      const org = await fetchApi<{ settings?: { defaultRegistrationTypes?: unknown } }>("/api/organization");
+      const list = org.settings?.defaultRegistrationTypes;
+      return Array.isArray(list) ? list.filter((n): n is string => typeof n === "string") : [];
+    },
+  });
+}
+
+export function useUpdateDefaultRegistrationTypes() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (names: string[]) =>
+      fetchApi("/api/organization", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { defaultRegistrationTypes: names } }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.newEventDefaults }),
   });
 }
 

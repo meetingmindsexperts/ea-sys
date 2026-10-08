@@ -4,20 +4,14 @@ import { auth } from "@/lib/auth";
 import { resolveActingOrgId } from "@/lib/platform-operator";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
-import { slugify, deriveEventCode } from "@/lib/utils";
-import { resolveUniqueEventCode } from "@/lib/event-code";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { EVENT_LIST_SELECT } from "@/lib/event-visibility";
 import { isTeamRole } from "@/lib/auth-guards";
 import { principalFromApiKey, refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
 import { validateApiKey } from "@/lib/api-key";
-import { DEFAULT_TEMPLATES } from "@/lib/email";
-import { DEFAULT_REG_TYPES, DEFAULT_TIER_NAMES } from "@/app/api/events/[eventId]/tickets/route";
-import { DEFAULT_REGISTRATION_TERMS_HTML, DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
-import { provisionWebinar } from "@/lib/webinar-provisioner";
 import { eventOrderBy, parseEventSort } from "@/lib/event-sort";
-import { runWithTenant } from "@/lib/tenant-context";
+import { createEvent } from "@/services/event-service";
 
 const createEventSchema = z.object({
   name: z.string().min(2).max(255),
@@ -160,126 +154,30 @@ export async function POST(req: Request) {
     const outOfScope = refuseOutOfScope(gate.principal, "events.create", { eventType: eventType ?? "" }, { route: "events:POST" });
     if (outOfScope) return outOfScope;
 
-    // Create event slug
-    let slug = slugify(name);
-    const existingEvent = await db.event.findFirst({
-      where: {
-        organizationId: orgGuard.orgId,
-        slug,
-      },
-    });
-
-    if (existingEvent) {
-      slug = `${slug}-${Date.now()}`;
-    }
-
-    // event.code is the invoice-number prefix. Auto-derive if not supplied so
-    // invoice generation works without a second admin-UI visit.
-    // Event.code is unique per organisation since Phase 1 of the budget module
-    // (Sep 14, 2026): it is the QuickBooks Class label. An explicit code that
-    // is taken is a 409; a DERIVED code that is taken is dropped to null with a
-    // warning, because nobody typed it and the organiser sets one in Settings
-    // (the owner chose no automatic codes over invented suffixes).
-    const explicitCode = code?.trim().toUpperCase() || null;
-    const resolvedCode = await resolveUniqueEventCode({
+    const result = await createEvent({
       organizationId: orgGuard.orgId,
-      explicitCode,
-      derivedCode: explicitCode ? null : deriveEventCode(name),
+      userId: session.user.id,
+      name,
+      description,
+      eventType: eventType ?? null,
+      tag,
+      specialty,
+      code,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      venue,
+      address,
+      city,
+      country,
+      source: "rest",
     });
-    if (!resolvedCode.ok) {
-      apiLogger.warn({ msg: "events:code-taken", organizationId: orgGuard.orgId, code: explicitCode });
-      return NextResponse.json(
-        { error: `Event code ${explicitCode} is already used by another event in this organisation`, code: "EVENT_CODE_TAKEN" },
-        { status: 409 },
-      );
-    }
-    if (resolvedCode.derivedCollision) {
-      apiLogger.warn({
-        msg: "events:code-derivation-collision",
-        organizationId: orgGuard.orgId,
-        derivedCode: resolvedCode.derivedCollision,
-        hint: "Set the event code in Settings before creating a budget or issuing an invoice.",
-      });
+    if (!result.ok) {
+      // The service logs the refusal with its code.
+      const status = result.code === "INVALID_DATE_RANGE" || result.code === "INVALID_NAME" ? 400 : 409;
+      return NextResponse.json({ error: result.message, code: result.code }, { status });
     }
 
-    const event = await db.event.create({
-      data: {
-        organizationId: orgGuard.orgId,
-        name,
-        slug,
-        code: resolvedCode.code,
-        description: description || null,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        venue: venue || null,
-        address: address || null,
-        city: city || null,
-        country: country || null,
-        eventType: eventType || null,
-        tag: tag || null,
-        specialty: specialty || null,
-        registrationTermsHtml: DEFAULT_REGISTRATION_TERMS_HTML,
-        speakerAgreementHtml: DEFAULT_SPEAKER_AGREEMENT_HTML,
-      },
-    });
-
-    // Seed default email templates for this event (non-blocking)
-    db.emailTemplate.createMany({
-      data: DEFAULT_TEMPLATES.map((t) => ({
-        eventId: event.id,
-        slug: t.slug,
-        name: t.name,
-        subject: t.subject,
-        htmlContent: t.htmlContent,
-        textContent: t.textContent,
-      })),
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to seed email templates" }));
-
-    // Seed default registration types with pricing tiers (non-blocking)
-    // 5 types × 4 tiers = 20 combinations, all tiers inactive by default
-    const seedRegistrationTypes = () =>
-      Promise.all(
-      DEFAULT_REG_TYPES.map((rt) =>
-        db.ticketType.create({
-          data: {
-            eventId: event.id,
-            organizationId: event.organizationId,
-            name: rt.name,
-            isDefault: true,
-            isActive: true,
-            sortOrder: rt.sortOrder,
-            pricingTiers: {
-              create: DEFAULT_TIER_NAMES.map((tierName, i) => ({
-                organizationId: event.organizationId,
-                name: tierName,
-                price: 0,
-                currency: "USD",
-                isActive: false,
-                sortOrder: i,
-              })),
-            },
-          },
-        })
-      )
-    );
-    // Ticketing sweep: seed inside the tenant context so the RLS WITH CHECK on
-    // TicketType / PricingTier passes on the platform. A NULL-org event
-    // (shouldn't happen for a created event) runs unwrapped, preserving master
-    // behavior.
-    (event.organizationId
-      ? runWithTenant(event.organizationId, seedRegistrationTypes)
-      : seedRegistrationTypes()
-    ).catch((err) => apiLogger.error({ err, msg: "Failed to seed default registration types" }));
-
-    // Auto-provision webinar setup (anchor session + Zoom webinar + email
-    // sequence) — non-blocking. Idempotent; safe to re-run from the Webinar Console.
-    if (event.eventType === "WEBINAR") {
-      provisionWebinar(event.id, { actorUserId: session.user.id }).catch((err) =>
-        apiLogger.error({ err, eventId: event.id }, "webinar:auto-provision-failed"),
-      );
-    }
-
-    return NextResponse.json(event, { status: 201 });
+    return NextResponse.json(result.event, { status: 201 });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating event" });
     return NextResponse.json(

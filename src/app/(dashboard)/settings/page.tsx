@@ -81,6 +81,7 @@ import {
   queryKeys,
 } from "@/hooks/use-api";
 import { BillingSettingsCard } from "@/components/settings/billing-settings-card";
+import { NewEventDefaultsCard } from "@/components/settings/new-event-defaults-card";
 import { BillingAccountsCard } from "@/components/settings/billing-accounts-card";
 import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
@@ -985,6 +986,7 @@ export default function SettingsPage() {
               )}
             </CardContent>
           </Card>
+          <NewEventDefaultsCard readOnly={!canEditOrg} />
         </TabsContent>
 
         {/* Team Members */}

@@ -1,7 +1,8 @@
 # Event Blueprint and Online Venue: integration plan
 
-**Status: PLAN, NOT BUILT (Oct 5, 2026).** Written after reading both source
-folders and the external developer handover. Nothing here is implemented yet.
+**Status: IN BUILD (Oct 8, 2026).** Written Oct 5 after reading both source
+folders and the external developer handover. Step 1 of section 6 is built: see
+"Progress" at the end.
 
 ## 1. Owner decisions (Oct 5, 2026)
 
@@ -136,7 +137,8 @@ for the later stages.
   approval; approving again returns the existing event. Re-submissions after
   approval update the brief, not the event.
 - **Event creation goes through one service.** Today event creation lives in
-  two places (`src/app/api/events/route.ts` and the agent's `create_event`).
+  two places (`src/app/api/events/route.ts` and the agent's `create_event`;
+  clone and the EventsAir import copy rather than create, and stay separate).
   A third caller would break the no-duplication rule, so step 1 is extracting
   `event-service.createEvent()` and pointing both existing callers at it.
 - **What the event gets:**
@@ -340,3 +342,17 @@ review before push.
 
 Answered Oct 5, 2026: approver (D4), who changes the vendor code (D5), venue
 per event (D6), report inbox (D7).
+
+## Progress
+
+- **Oct 8, 2026, step 1 built.** `src/services/event-service.ts` is the one
+  creation path; the dashboard route and the agent tool call it. Two owner
+  rulings on the way: (a) every door gets the same result (templates,
+  registration types, audit row, `-1`/`-2` slugs); verified on the local copy
+  that only two test events were ever made through the agent, so nothing real
+  changed; (b) the starting registration types are per organisation
+  (Settings → General, `Organization.settings.defaultRegistrationTypes`,
+  empty = none), because the five medical names are one tenant's vocabulary.
+  Migration `20261008120000` gave existing organisations the old five. Front
+  door ruling: the Blueprint is added beside the existing ways to create an
+  event in v1, not instead of them.

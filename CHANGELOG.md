@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Events: one way to create an event; starting registration types per organisation (October 8)
+
+- **`event-service.createEvent()`** is now the only event-creation path for the
+  dashboard (`POST /api/events`) and the agent / MCP `create_event` tool, and
+  the next one, the Event Blueprint, will call it too (step 1 of
+  `docs/EVENT_BLUEPRINT_PLAN.md`). Every door now gets the same result: email
+  templates, the starting registration types, an audit row with its source,
+  stats, and webinar provisioning. A taken web address becomes `name-1`,
+  `name-2` (up to ten) instead of a timestamp suffix. Clone and the EventsAir
+  import keep their own copy mechanics.
+- **Starting registration types are per organisation** (Settings → General →
+  New event defaults), stored in `Organization.settings.defaultRegistrationTypes`;
+  an empty list means none. Until now the five medical types were hard-coded
+  for every tenant. Migration `20261008120000` wrote those five into every
+  organisation that existed, so MM Group is unchanged; an organisation created
+  later starts with none. Read only at event creation: existing events and
+  public registration forms are untouched.
+
 ### Security: Phase 6 review LOWs, and two more found on the way (October 7)
 
 - **New CI gate** `check-route-permission.mjs`: every API handler must ask a

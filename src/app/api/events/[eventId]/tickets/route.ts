@@ -10,14 +10,6 @@ import { redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 
-export const DEFAULT_REG_TYPES = [
-  { name: "Physician", sortOrder: 0 },
-  { name: "Allied Health", sortOrder: 1 },
-  { name: "Student", sortOrder: 2 },
-  { name: "Resident", sortOrder: 3 },
-  { name: "Member", sortOrder: 4 },
-];
-
 // Re-exported so existing importers keep working; the list itself lives with
 // the presenter-tier predicate, since the two have to agree.
 export { DEFAULT_TIER_NAMES } from "@/lib/presenter-tiers";

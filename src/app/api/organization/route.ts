@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { can } from "@/lib/permissions/can";
+import { DEFAULT_REG_TYPES_SETTING, defaultRegistrationTypesSchema } from "@/lib/default-registration-types";
 import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
 
 const updateOrganizationSchema = z.object({
@@ -18,6 +19,9 @@ const updateOrganizationSchema = z.object({
     dateFormat: z.string().max(50).optional(),
     currency: z.string().max(10).optional(),
     emailNotifications: z.boolean().optional(),
+    // The registration types a NEW event starts with; [] = none. Read only at
+    // event creation (event-service), never by existing events.
+    defaultRegistrationTypes: defaultRegistrationTypesSchema.optional(),
   }).optional(),
   // Billing / Invoice fields
   companyName: z.string().max(255).nullable().optional(),
@@ -33,7 +37,7 @@ const updateOrganizationSchema = z.object({
 });
 
 /** The organisation preferences the Settings screen reads and any staff member may see. */
-const ORG_GENERAL_SETTINGS = ["timezone", "dateFormat", "currency", "emailNotifications"] as const;
+const ORG_GENERAL_SETTINGS = ["timezone", "dateFormat", "currency", "emailNotifications", DEFAULT_REG_TYPES_SETTING] as const;
 
 export async function GET(req: Request) {
   try {

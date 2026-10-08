@@ -1,12 +1,10 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type EventStatus, type EventType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
-import { slugify, deriveEventCode } from "@/lib/utils";
-import { eventCodeReferences, isEventCodeTaken, resolveUniqueEventCode } from "@/lib/event-code";
-import { provisionWebinar } from "@/lib/webinar-provisioner";
-import { DEFAULT_REGISTRATION_TERMS_HTML, DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
+import { eventCodeReferences, isEventCodeTaken } from "@/lib/event-code";
+import { createEvent as createEventInService } from "@/services/event-service";
 import type { ToolExecutor } from "./_shared";
 
 const EVENT_TYPES = new Set(["CONFERENCE", "WEBINAR", "HYBRID"]);
@@ -143,29 +141,8 @@ const createEvent: ToolExecutor = async (input, ctx) => {
       return { error: `Invalid status. Must be one of: ${[...EVENT_STATUSES].join(", ")}` };
     }
 
-    // Slug generation: start from requested (or slugified name), then retry with
-    // -1, -2, ... up to 10 times if collides within this org. Fail loudly rather
-    // than silently creating a duplicate (which was the old POST-route behavior
-    // of appending Date.now() — confusing for humans).
-    const requestedSlug = input.slug ? slugify(String(input.slug)) : slugify(name);
-    if (!requestedSlug) return { error: "Could not generate a valid slug from name" };
-
-    let slug = requestedSlug;
-    for (let i = 0; i < 11; i++) {
-      const existing = await db.event.findFirst({
-        where: { organizationId: ctx.organizationId, slug },
-        select: { id: true },
-      });
-      if (!existing) break;
-      if (i === 10) {
-        return { error: `Slug "${requestedSlug}" is taken; tried 10 suffixes. Pass an explicit slug.` };
-      }
-      slug = `${requestedSlug}-${i + 1}`;
-    }
-
-    // Resolve event.code (invoice-number prefix). Caller can pass explicit; we
-    // validate + uppercase. If omitted, derive from name so invoice generation
-    // works out of the box without forcing a second admin-UI visit.
+    // Explicit invoice code: validated here, at the tool boundary. Uniqueness
+    // and derivation from the name are the service's.
     let explicitCode: string | null = null;
     if (input.code != null) {
       const raw = String(input.code).trim().toUpperCase();
@@ -176,89 +153,44 @@ const createEvent: ToolExecutor = async (input, ctx) => {
       }
       explicitCode = raw;
     }
-    // Unique per organisation since the budget module's Phase 1 (Sep 14, 2026).
-    // Explicit and taken: refuse. Derived and taken: null, the organiser sets
-    // one in Settings (owner decision: no invented suffixes).
-    const resolved = await resolveUniqueEventCode({
+
+    const result = await createEventInService({
       organizationId: ctx.organizationId,
-      explicitCode,
-      derivedCode: explicitCode ? null : deriveEventCode(name),
+      userId: ctx.userId,
+      name,
+      startDate,
+      endDate,
+      slug: input.slug ? String(input.slug) : null,
+      code: explicitCode,
+      description: input.description ? String(input.description).slice(0, 2000) : null,
+      timezone: input.timezone ? String(input.timezone) : null,
+      venue: input.venue ? String(input.venue).slice(0, 255) : null,
+      address: input.address ? String(input.address).slice(0, 500) : null,
+      city: input.city ? String(input.city).slice(0, 255) : null,
+      country: input.country ? String(input.country).slice(0, 255) : null,
+      eventType: (eventType as EventType | undefined) ?? null,
+      tag: input.tag ? String(input.tag).slice(0, 255) : null,
+      specialty: input.specialty ? String(input.specialty).slice(0, 255) : null,
+      // Dubai (DET/DTCM) compliance toggle — defaults off.
+      requiresDtcmBarcode: input.requiresDtcmBarcode === true,
+      status: status as EventStatus | undefined,
+      source: ctx.source,
     });
-    if (!resolved.ok) {
-      return { error: `Event code ${explicitCode} is already used by another event in this organisation`, code: "EVENT_CODE_TAKEN" };
-    }
-    if (resolved.derivedCollision) {
-      apiLogger.warn({
-        msg: "mcp:create_event:code-derivation-collision",
-        organizationId: ctx.organizationId,
-        derivedCode: resolved.derivedCollision,
-      });
-    }
-    const code = resolved.code;
+    if (!result.ok) return { error: result.message, code: result.code };
 
-    const event = await db.event.create({
-      data: {
-        organizationId: ctx.organizationId,
-        name,
-        slug,
-        code,
-        description: input.description ? String(input.description).slice(0, 2000) : null,
-        startDate,
-        endDate,
-        timezone: input.timezone ? String(input.timezone) : "Asia/Dubai",
-        venue: input.venue ? String(input.venue).slice(0, 255) : null,
-        address: input.address ? String(input.address).slice(0, 500) : null,
-        city: input.city ? String(input.city).slice(0, 255) : null,
-        country: input.country ? String(input.country).slice(0, 255) : null,
-        eventType: (eventType as never) ?? null,
-        tag: input.tag ? String(input.tag).slice(0, 255) : null,
-        specialty: input.specialty ? String(input.specialty).slice(0, 255) : null,
-        // Dubai (DET/DTCM) compliance toggle — defaults off.
-        requiresDtcmBarcode: input.requiresDtcmBarcode === true,
-        status: (status as never) ?? "DRAFT",
-        registrationTermsHtml: DEFAULT_REGISTRATION_TERMS_HTML,
-        speakerAgreementHtml: DEFAULT_SPEAKER_AGREEMENT_HTML,
-      },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        code: true,
-        status: true,
-        eventType: true,
-        startDate: true,
-        endDate: true,
-        timezone: true,
-        venue: true,
-      },
-    });
-
-    await db.auditLog.create({
-      data: {
-        eventId: event.id,
-        userId: ctx.userId,
-        action: "CREATE",
-        entityType: "Event",
-        entityId: event.id,
-        changes: {
-          source: ctx.source,
-          name: event.name,
-          slug: event.slug,
-          code: event.code,
-          eventType: event.eventType ?? null,
-        },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:create_event audit-log-failed"));
-
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(event.id);
-
-    // Fire-and-forget WEBINAR auto-provisioning (anchor session + Zoom + email sequence)
-    if (event.eventType === "WEBINAR") {
-      provisionWebinar(event.id, { actorUserId: ctx.userId }).catch((err) =>
-        apiLogger.error({ err, eventId: event.id }, "agent:create_event webinar-provision-failed"),
-      );
-    }
+    const created = result.event;
+    const event = {
+      id: created.id,
+      name: created.name,
+      slug: created.slug,
+      code: created.code,
+      status: created.status,
+      eventType: created.eventType,
+      startDate: created.startDate,
+      endDate: created.endDate,
+      timezone: created.timezone,
+      venue: created.venue,
+    };
 
     return { success: true, event };
     });
