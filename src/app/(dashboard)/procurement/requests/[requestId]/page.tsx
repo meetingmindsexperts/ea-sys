@@ -577,7 +577,6 @@ function ChainTrail({ createdAt, chain, steps }: { createdAt: string; chain: Non
   );
 }
 
-/** The reporting currency floats against AED (EUR, GBP): the rate is asked for here and decides who approves. */
 function vendorLabel(r: SpendRequestDetailRow): string {
   if (r.supplier) return `${r.supplier.displayName}${r.supplier.approvalStatus !== "APPROVED" ? ` (supplier ${r.supplier.approvalStatus.toLowerCase()})` : ""}`;
   return r.proposedVendorName ? `${r.proposedVendorName} (proposed, not on the supplier list)` : "Not given";
@@ -601,6 +600,7 @@ function chainStepTone(status: string | undefined): string {
   return "bg-muted/60 text-muted-foreground";
 }
 
+/** The reporting currency floats against AED (EUR, GBP): the rate is asked for here and decides who approves. */
 function needsAedRate(r: SpendRequestDetailRow): boolean {
   const rep = r.budget?.reportingCurrency;
   return !!rep && AED_PEG_RATES[rep] === undefined;

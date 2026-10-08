@@ -2375,13 +2375,13 @@ interface RunListRowLike {
   templateIds: string[];
 }
 
-/** The template ids a run issues — bundle list first, legacy pointer fallback. */
 function runEndedVerb(status: string): string {
   if (status === "COMPLETED") return "sent";
   if (status === "CANCELLED") return "cancelled";
   return "ended";
 }
 
+/** The template ids a run issues — bundle list first, legacy pointer fallback. */
 function runTemplateIdSet(r: RunListRowLike): string[] {
   if (r.templateIds?.length) return r.templateIds;
   return r.certificateTemplate ? [r.certificateTemplate.id] : [];

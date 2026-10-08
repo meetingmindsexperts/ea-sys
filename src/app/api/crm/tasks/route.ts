@@ -20,7 +20,6 @@ const createTaskSchema = z.object({
   dealId: z.string().min(1).optional().nullable(),
 });
 
-/** GET /api/crm/tasks — "My Tasks" (default) or the whole org's, due-date first. */
 function ownerFilter(
   ownerId: string | undefined,
   scope: string | null,
@@ -31,6 +30,7 @@ function ownerFilter(
   return userId ? { ownerId: userId } : {};
 }
 
+/** GET /api/crm/tasks — "My Tasks" (default) or the whole org's, due-date first. */
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;

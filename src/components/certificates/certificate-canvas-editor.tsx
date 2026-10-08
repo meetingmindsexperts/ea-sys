@@ -108,9 +108,6 @@ const AVAILABLE_TOKENS: Array<{ token: string; description: string; sample: stri
     sample: t.sample,
   }));
 
-// Display canvas width — wider than the page so the operator can drop
-// boxes in the margin and slide them in. The browser scales pixels via
-// `displayScale = canvasWidthPx / pageWidthPt`.
 const ALIGN_ICONS: Record<TextBoxAlign, typeof AlignLeft> = {
   left: AlignLeft,
   center: AlignCenter,
@@ -129,6 +126,9 @@ function alignToJustify(align: TextBoxAlign): string {
   return "flex-start";
 }
 
+// Display canvas width — wider than the page so the operator can drop
+// boxes in the margin and slide them in. The browser scales pixels via
+// `displayScale = canvasWidthPx / pageWidthPt`.
 const CANVAS_DISPLAY_WIDTH_PX = 800;
 
 // Alignment rulers (top + left edges of the canvas). Thickness in px; tick

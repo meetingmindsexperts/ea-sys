@@ -585,7 +585,6 @@ function formatSessionWindow(
   }
 }
 
-// ── Sticky status bar — always visible summary + primary action ────
 const STATUS_BAR_CLASS: Record<WebinarStatus, string> = {
   live: "border-red-200 bg-red-50/90 shadow-md backdrop-blur-sm",
   ended: "border-gray-200 bg-card/95 shadow-md backdrop-blur-sm",
@@ -598,6 +597,7 @@ function StatusBarIcon({ status }: { status: WebinarStatus }) {
   return <Clock className="h-4 w-4 text-blue-600" />;
 }
 
+// ── Sticky status bar — always visible summary + primary action ────
 function WebinarStatusBar({
   eventId,
   status,
@@ -1039,7 +1039,6 @@ function OverviewCard({
   );
 }
 
-// ── Global refresh button — fires recording + attendance + engagement in parallel
 function refreshAllTitle(hasZoom: boolean, sessionEnded: boolean): string {
   if (!hasZoom) return "Attach a Zoom webinar first";
   if (!sessionEnded) return "Session hasn't ended — some sources will be pending";
@@ -1052,6 +1051,7 @@ function afterSessionTitle(hasZoom: boolean, sessionEnded: boolean): string | un
   return undefined;
 }
 
+// ── Global refresh button — fires recording + attendance + engagement in parallel
 function GlobalRefreshButton({
   eventId,
   sessionEnded,
@@ -2761,6 +2761,12 @@ function announceStreamResult(
   );
 }
 
+function streamArrivalLabel(state: "checking" | "active" | "idle" | "ended"): { text: string; tone: string } {
+  if (state === "active") return { text: "Stream is arriving", tone: "bg-green-100 text-green-800" };
+  if (state === "checking") return { text: "Checking…", tone: "bg-slate-100 text-slate-700" };
+  return { text: "No stream yet", tone: "bg-amber-100 text-amber-800" };
+}
+
 /**
  * The producer's stream check (owner feedback, Oct 2, 2026): the same player
  * attendees get, inside the console, so the team sees whether the video is
@@ -2768,12 +2774,6 @@ function announceStreamResult(
  * Closed by default so the console does not load hls.js or poll the stream
  * until someone asks. Starts muted, like the attendee player.
  */
-function streamArrivalLabel(state: "checking" | "active" | "idle" | "ended"): { text: string; tone: string } {
-  if (state === "active") return { text: "Stream is arriving", tone: "bg-green-100 text-green-800" };
-  if (state === "checking") return { text: "Checking…", tone: "bg-slate-100 text-slate-700" };
-  return { text: "No stream yet", tone: "bg-amber-100 text-amber-800" };
-}
-
 function StreamPreview({
   eventId,
   eventSlug,

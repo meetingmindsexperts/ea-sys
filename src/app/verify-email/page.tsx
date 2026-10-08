@@ -5,6 +5,12 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
+const VERIFY_HEADINGS: Record<"verifying" | "success" | "error", string> = {
+  verifying: "Verifying…",
+  success: "Email verified",
+  error: "Verification failed",
+};
+
 /**
  * Email-verification landing. The link in the verify email opens this page; it
  * POSTs the token to /api/auth/verify-email once on load and shows the result.
@@ -13,12 +19,6 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react";
  *
  * The fetch is JS-triggered, so email link-scanners (no JS) won't auto-verify.
  */
-const VERIFY_HEADINGS: Record<"verifying" | "success" | "error", string> = {
-  verifying: "Verifying…",
-  success: "Email verified",
-  error: "Verification failed",
-};
-
 function VerifyEmailInner() {
   const params = useSearchParams();
   const token = params.get("token");

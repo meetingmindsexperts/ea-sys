@@ -77,7 +77,6 @@ import {
 } from "./abstract-enums";
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
 
-/** Strip HTML tags for display (handles legacy HTML content) */
 function presentationTypeLabel(type: string): string {
   if (type === "ORAL") return "Oral";
   if (type === "POSTER") return "Poster";
@@ -85,6 +84,7 @@ function presentationTypeLabel(type: string): string {
   return "Workshop";
 }
 
+/** Strip HTML tags for display (handles legacy HTML content) */
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }

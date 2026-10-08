@@ -86,9 +86,6 @@ const QUESTION_TYPE_LABELS: Record<SurveyQuestion["type"], string> = {
   text: "Free text",
 };
 
-// Tiptap emits "<p></p>" (and similar) for an empty document — treat that
-// as empty so the public form falls back to its default copy. Used for both
-// the intro and the thank-you message.
 function editedSurveyTitle(surveyId: string | null | undefined, name: string): string {
   if (!surveyId) return "New survey";
   return name || "Survey";
@@ -101,6 +98,9 @@ function responseModeHint(responseCount: number, responseMode: string): string {
     : "Each person answers once; their link stops working after they submit.";
 }
 
+// Tiptap emits "<p></p>" (and similar) for an empty document — treat that
+// as empty so the public form falls back to its default copy. Used for both
+// the intro and the thank-you message.
 function richTextIsEmpty(html: string): boolean {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim() === "";
 }

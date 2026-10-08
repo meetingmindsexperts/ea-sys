@@ -78,6 +78,12 @@ interface ImportCtx {
   dryRun: boolean;
 }
 
+function importCloseStamps(outcome: "WON" | "LOST" | null, closedDate: Date | null | undefined) {
+  if (outcome === "WON") return { wonAt: closedDate ?? null, lostAt: null };
+  if (outcome === "LOST") return { lostAt: closedDate ?? null, wonAt: null };
+  return { wonAt: null, lostAt: null };
+}
+
 /**
  * Index prefetched rows by a key, skipping rows whose key is null.
  *
@@ -116,12 +122,6 @@ interface ImportCtx {
  * lose the per-row try/catch, and one bad row killing a 5,000-row file is a far
  * worse trade than a slower import.
  */
-function importCloseStamps(outcome: "WON" | "LOST" | null, closedDate: Date | null | undefined) {
-  if (outcome === "WON") return { wonAt: closedDate ?? null, lostAt: null };
-  if (outcome === "LOST") return { lostAt: closedDate ?? null, wonAt: null };
-  return { wonAt: null, lostAt: null };
-}
-
 function indexBy<T>(rows: T[], key: (row: T) => string | null | undefined): Map<string, T> {
   const map = new Map<string, T>();
   for (const row of rows) {

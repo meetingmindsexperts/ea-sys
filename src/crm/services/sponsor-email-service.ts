@@ -467,7 +467,6 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
   return { ok: true, total: recipients.length, successCount, failureCount, errors };
 }
 
-/** Render + send to one recipient; records CRM history on the contact on success. */
 function sendFailureMessage(outcome: PromiseSettledResult<{ ok: true } | { ok: false; error: string }>): string {
   if (outcome.status === "rejected") {
     return outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
@@ -475,6 +474,7 @@ function sendFailureMessage(outcome: PromiseSettledResult<{ ok: true } | { ok: f
   return outcome.value.ok ? "send failed" : outcome.value.error;
 }
 
+/** Render + send to one recipient; records CRM history on the contact on success. */
 async function sendOne(
   r: SponsorRecipient,
   ctx: {

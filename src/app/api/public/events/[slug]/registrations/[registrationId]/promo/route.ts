@@ -52,13 +52,13 @@ function statusFor(code: ApplyPromoErrorCode): number {
   }
 }
 
-/** Resolve the registration bound to the tenant-scoped event slug (never by id alone). */
 function removeStatusFor(code: string): number {
   if (code === "REGISTRATION_NOT_FOUND") return 404;
   if (code === "ALREADY_SETTLED") return 400;
   return 500;
 }
 
+/** Resolve the registration bound to the tenant-scoped event slug (never by id alone). */
 async function slugBoundRegistration(req: Request, slug: string, registrationId: string) {
   return db.registration.findFirst({
     where: { id: registrationId, event: await publicEventWhere(req, slug) },

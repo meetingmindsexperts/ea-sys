@@ -12,14 +12,14 @@ import { sendPanelistInvite } from "@/lib/webinar-panelist-email";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
-// POST — batch-sync all anchor-session speakers to Zoom as webinar panelists.
-// Speakers without an email are skipped; the response reports the counts.
 function nothingToAddReason(totalSpeakers: number, skippedAlreadyPanelist: number): string {
   if (totalSpeakers === 0) return "No speakers assigned to the webinar session yet.";
   if (skippedAlreadyPanelist > 0) return "All speakers are already panelists.";
   return "All speakers are missing an email address.";
 }
 
+// POST — batch-sync all anchor-session speakers to Zoom as webinar panelists.
+// Speakers without an email are skipped; the response reports the counts.
 export async function POST(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId }] = await Promise.all([auth(), params]);

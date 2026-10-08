@@ -58,7 +58,6 @@ interface Track {
 
 const editableStatuses = ["DRAFT", "SUBMITTED", "REVISION_REQUESTED"];
 
-/** Strip HTML tags for legacy content */
 function wordCountClass(blocked: boolean, over: boolean): string {
   if (blocked) return "text-red-500 font-medium";
   if (over) return "text-amber-600 font-medium";
@@ -71,6 +70,7 @@ function saveHint(status: string): string {
   return "Save your changes.";
 }
 
+/** Strip HTML tags for legacy content */
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }

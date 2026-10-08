@@ -123,7 +123,6 @@ const PROCUREMENT_ACTION_TYPES = [
  */
 export type ActivityScope = "changes" | "hr" | "procurement";
 
-/** "Today" / "Yesterday" / "Mon, 12 Jul 2026" — the grouping key AND its label. */
 function entityTypeOptions(scope: ActivityScope) {
   if (scope === "procurement") return PROCUREMENT_ENTITY_TYPES;
   if (scope === "hr") return HR_ENTITY_TYPES;
@@ -137,6 +136,7 @@ function emptyHint(filtered: boolean, scope: ActivityScope): string {
   return "Actions across your events will appear here as they happen.";
 }
 
+/** "Today" / "Yesterday" / "Mon, 12 Jul 2026" — the grouping key AND its label. */
 function dayLabel(d: Date): string {
   if (isToday(d)) return "Today";
   if (isYesterday(d)) return "Yesterday";

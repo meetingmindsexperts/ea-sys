@@ -313,13 +313,6 @@ function Note({ children }: { children: React.ReactNode }) {
   return <p className="rounded-md bg-muted/60 p-2 text-xs text-muted-foreground">{children}</p>;
 }
 
-/**
- * Spec §6a: every top-level expense category has lines or is marked not
- * applicable before the budget submits. One chip per category: covered
- * (has a line with a planned amount; a blank line does not count, the same
- * rule the submit runs), not applicable (marked), or open (neither, so it blocks
- * submission). Marking goes through the header write with the version lock.
- */
 function categoriesHint(editable: boolean, openCount: number): string {
   if (!editable) return "Grey chips were marked not applicable.";
   if (openCount > 0) return `${openCount} still need${openCount === 1 ? "s" : ""} a planned amount or the not-applicable mark before submission.`;
@@ -332,6 +325,13 @@ function chipLook(isNa: boolean, isCovered: boolean): { cls: string; title: stri
   return { cls: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100", title: "No planned amount yet and not marked not applicable" };
 }
 
+/**
+ * Spec §6a: every top-level expense category has lines or is marked not
+ * applicable before the budget submits. One chip per category: covered
+ * (has a line with a planned amount; a blank line does not count, the same
+ * rule the submit runs), not applicable (marked), or open (neither, so it blocks
+ * submission). Marking goes through the header write with the version lock.
+ */
 function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; categories: BudgetCategoryRow[]; editable: boolean; onFailed: (err: unknown) => void }) {
   const update = useUpdateBudgetHeader(b.id);
   const [pendingCode, setPendingCode] = useState<string | null>(null);

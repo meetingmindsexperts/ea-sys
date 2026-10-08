@@ -42,13 +42,13 @@ function statusFor(code: ApplyPromoErrorCode): number {
   }
 }
 
-/** Resolve + ownership-check the registration; returns its eventId. */
 function removeStatusFor(code: string): number {
   if (code === "REGISTRATION_NOT_FOUND") return 404;
   if (code === "ALREADY_SETTLED") return 400;
   return 500;
 }
 
+/** Resolve + ownership-check the registration; returns its eventId. */
 async function ownedRegistration(registrationId: string, userId: string, email: string) {
   return db.registration.findFirst({
     where: {

@@ -51,7 +51,6 @@ const TOKENS = ["{{firstName}}", "{{lastName}}", "{{companyName}}", "{{eventName
 const BLANK = "__blank__";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Split a comma/space/semicolon-separated address field into valid + invalid. */
 function recipientListState(
   isLoading: boolean,
   isError: boolean,
@@ -63,6 +62,7 @@ function recipientListState(
   return "list";
 }
 
+/** Split a comma/space/semicolon-separated address field into valid + invalid. */
 function parseAddressField(raw: string): { emails: string[]; invalid: string[] } {
   const emails: string[] = [];
   const invalid: string[] = [];

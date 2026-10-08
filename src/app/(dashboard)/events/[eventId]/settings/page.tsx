@@ -166,9 +166,9 @@ interface Event {
   };
 }
 
-/** Convert a Date to `datetime-local` input value in Dubai timezone (UTC+4) */
 const BADGE_ALIGN_LABELS = { left: "Left", center: "Centre", right: "Right" } as const;
 
+/** Convert a Date to `datetime-local` input value in Dubai timezone (UTC+4) */
 function toDatetimeLocal(date: Date): string {
   const dubaiOffset = 4 * 60 * 60 * 1000; // UTC+4
   const dubai = new Date(date.getTime() + dubaiOffset);

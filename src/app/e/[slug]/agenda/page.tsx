@@ -602,11 +602,6 @@ function ParallelBlock({
 
 // ── Session Row Component ─────────────────────────────────────────────────
 
-/**
- * One row of the day: a break band or a full session card. Kept as the
- * dispatcher so a non-parallel day renders byte-for-byte as it did before the
- * parallel-block work.
- */
 function renderTopicSpeakers(topic: Topic, session: Session) {
   if (topic.speakers.length > 0) {
     return (
@@ -626,6 +621,11 @@ function renderTopicSpeakers(topic: Topic, session: Session) {
   return showTba ? <p className="text-sm text-slate-400 mt-1 italic">{TBA_LABEL}</p> : null;
 }
 
+/**
+ * One row of the day: a break band or a full session card. Kept as the
+ * dispatcher so a non-parallel day renders byte-for-byte as it did before the
+ * parallel-block work.
+ */
 function SessionRow({ session, timezone }: { session: Session; timezone: string }) {
   if (isBreakSessionType(session.type)) {
     return <BreakBand session={session} timezone={timezone} />;

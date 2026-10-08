@@ -109,11 +109,6 @@ import { resolvePastedIds } from "./resolve-pasted-ids";
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 
-/**
- * Collected vs outstanding for one row, from the server-computed `rowMoney`
- * (the same helper the CSV's "Total Paid" / "Amount Due" use, so the table and
- * the export cannot disagree). Absent for a role that cannot see money.
- */
 function selectAllCheckedState(all: boolean, some: boolean): boolean | "indeterminate" {
   if (all) return true;
   return some ? "indeterminate" : false;
@@ -124,6 +119,11 @@ function bulkTagVerb(mode: string): string {
   return mode === "remove" ? "removed from" : "replaced on";
 }
 
+/**
+ * Collected vs outstanding for one row, from the server-computed `rowMoney`
+ * (the same helper the CSV's "Total Paid" / "Amount Due" use, so the table and
+ * the export cannot disagree). Absent for a role that cannot see money.
+ */
 function RowMoney({ money }: { money: Registration["rowMoney"] }) {
   const paid = !!money && money.totalPaid > 0;
   const due = !!money && money.amountDue > 0;

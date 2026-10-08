@@ -280,14 +280,14 @@ function sessionToForm(s: Session, eventTz: string): typeof DEFAULT_SESSION_FORM
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-// Renders an already-timezone-resolved YYYY-MM-DD calendar date. The
-// local-midnight parse + local render round-trips to the same calendar
-// date in any browser timezone, so this is safe viewer-side.
 function sessionDialogTitle(editing: boolean, isBreak: boolean): string {
   if (editing) return isBreak ? "Edit Break Item" : "Edit Session";
   return isBreak ? "Add Break Item" : "Create Session";
 }
 
+// Renders an already-timezone-resolved YYYY-MM-DD calendar date. The
+// local-midnight parse + local render round-trips to the same calendar
+// date in any browser timezone, so this is safe viewer-side.
 function formatDateDisplay(dateStr: string) {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", {
     weekday: "long",

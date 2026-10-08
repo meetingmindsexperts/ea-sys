@@ -306,6 +306,12 @@ function getSesClient(): SESv2Client {
   return sesClient;
 }
 
+function credentialSourceLabel(hasSessionToken: boolean, keyPrefix: string): string {
+  if (hasSessionToken) return "temporary credentials (instance role / STS / SSO)";
+  if (keyPrefix === "AKIA") return "long-term IAM user key (env var or shared credentials file)";
+  return "unknown";
+}
+
 /**
  * One-shot diagnostic that runs the first time the SES client is constructed.
  * Resolves the SDK's credential provider chain and logs the key shape (no
@@ -325,12 +331,6 @@ function getSesClient(): SESv2Client {
  */
 // Exported only so the unit suite can call it directly with a fake client;
 // production callers always reach this via getSesClient() on first use.
-function credentialSourceLabel(hasSessionToken: boolean, keyPrefix: string): string {
-  if (hasSessionToken) return "temporary credentials (instance role / STS / SSO)";
-  if (keyPrefix === "AKIA") return "long-term IAM user key (env var or shared credentials file)";
-  return "unknown";
-}
-
 export async function logSesIdentityDiagnostic(client: SESv2Client): Promise<void> {
   try {
     const regionProvider = client.config.region;
