@@ -364,3 +364,23 @@ per event (D6), report inbox (D7).
   (the client approving the build team's work). Under D1 and D4 that becomes
   the separate approver's step, so those buttons are rewired in step 5, not
   reused as they are.
+- **Oct 8, 2026, step 3 built.** Vendored at `vendor/event-blueprint/`, served
+  at `/blueprint`, storage API at `/api/blueprint/*`, verified end to end on
+  the standalone build (create, save, reload from the server with local storage
+  wiped, upload a floor plan, save a template). Departures from section 4: (a)
+  the server checks structure (plain object, 256 KB, depth 8) and each field
+  it reads where it reads it, instead of a TypeScript copy of `sanitise()`,
+  which would drift from the vendor's; (b) uploads cap at 10 MB, nginx's
+  limit, not the vendor's 20 (the page's wording is corrected in step 4), and
+  are typed from their bytes and served under a sandboxing CSP; (c)
+  `ai: false` until step 4 moves the prompts to the server.
+  Also in step 3: the page's three fonts are self-hosted
+  (`public/blueprint-fonts/`, Latin subsets, 80 KB) instead of loaded from
+  Google, per the hermetic-build rule; and the page is built by either the
+  vendor's `build.py` or the same join in Node (`npm run blueprint:build`,
+  `-- --node`), owner's choice to keep Python with a Node fallback. Python
+  runs only on the machine that rebuilds the page, never on the server.
+  **Open for step 5:** when the server answers 404 for a blueprint the page
+  remembers (`eb-cur` in local storage), the page falls back to its local
+  copy, and its next save would re-create the row. `platform.js` should map a
+  404 to "gone", drop the local copy and return to the list.

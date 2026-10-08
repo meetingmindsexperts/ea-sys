@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Event Blueprint &amp; Online Venue — Developer Handover</title><style>
+:root{--ink:#1a1214;--muted:#5c5054;--line:#e4dcd6;--bg:#fbf8f5;--card:#fff;--accent:#8a1f30;--code:#f3ece4}
+@media (prefers-color-scheme:dark){:root{--ink:#f3ece4;--muted:#b9aca4;--line:#3a2e31;--bg:#141011;--card:#1c1517;--accent:#e0707f;--code:#2a2023}}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:980px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:30px;line-height:1.2;margin:0 0 6px}h2{font-size:22px;margin:40px 0 10px;padding-top:12px;border-top:1px solid var(--line)}
+p{margin:0 0 12px}a{color:var(--accent);overflow-wrap:anywhere}code{font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;background:var(--code);padding:1px 5px;border-radius:3px;word-break:break-word}
+table{border-collapse:collapse;width:100%;margin:8px 0 18px;font-size:14px;background:var(--card);display:block;overflow-x:auto}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border:1px solid var(--line)}th{background:var(--code);font-weight:600}
+ul,ol{padding-left:22px}li{margin:4px 0}li.task{list-style:none;margin-left:-22px}li.task input{margin-right:8px}
+@media print{body{background:#fff}h2{break-after:avoid}table{display:table}}
+</style></head>
+<body><main>
+<h1>Event Blueprint &amp; Online Venue — Developer Handover</h1>
+<p>5 October 2026 · Medhat Nassar, MM Group</p>
+<p><strong>Live pages</strong></p>
+<ul>
+<li>Event Blueprint: <a href="https://claude.ai/artifact/YYYi9hgRjDz6rENioXcLHG">https://claude.ai/artifact/YYYi9hgRjDz6rENioXcLHG</a></li>
+<li>EHC 2026 online venue: <a href="https://claude.ai/artifact/X3kng94BNpNVoTAEcLCXWE">https://claude.ai/artifact/X3kng94BNpNVoTAEcLCXWE</a></li>
+<li>This document (live version): <a href="https://claude.ai/artifact/DL2BqkLdijTfXTXg8gHBtA">https://claude.ai/artifact/DL2BqkLdijTfXTXg8gHBtA</a></li>
+</ul>
+<h2>1. Summary</h2>
+<p>Two working pages are live as private Claude artifacts and ready to move onto MM Group's own server: the <strong>Event Blueprint</strong> (a guided intake that turns any event idea or real event into a build-ready brief) and the <strong>EHC 2026 online venue</strong> (a walkable 3D twin of the Emirates Hematology Conference at Conrad Dubai). Both were written so the server move is a configuration change, not a rewrite.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Event Blueprint</th>
+<th>Online venue</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>What it does</td>
+<td>13-step brief for any event type, reality checks against published benchmarks, layout sketch, starter packs, submission tracking, section owners</td>
+<td>Walkable venue, AI attendees, live colleagues, avatar actions, four camera views, safety tools, language filter, sponsor activity, recordings on screens</td>
+</tr>
+<tr>
+<td>Size</td>
+<td>One HTML file, about 235 KB, no external libraries</td>
+<td>One HTML file, about 275 KB, custom WebGL 2 engine, no external libraries</td>
+</tr>
+<tr>
+<td>Runs today on</td>
+<td>Claude artifact (sign-in, shared data, AI, uploads)</td>
+<td>Claude artifact (AI, live presence, shared data)</td>
+</tr>
+<tr>
+<td>Server switch</td>
+<td><code>window.EVENT_BLUEPRINT_BACKEND</code></td>
+<td><code>window.EHC_TTS</code>, <code>window.EHC_SCREENS</code>, <code>window.EHC_FILTER</code>, <code>window.EHC_CONTACT</code>, data adapter to add</td>
+</tr>
+<tr>
+<td>Tests</td>
+<td>4 automated browser test suites</td>
+<td>9 automated browser test suites</td>
+</tr>
+</tbody>
+</table>
+<p>What the developers need to decide: where the API lives (likely next to EA-SYS), how users sign in, and which voice and video services to use. Section 9 lists these with a suggested order.</p>
+<h2>2. Event Blueprint: how it is built</h2>
+<p>The Blueprint is one self-contained HTML page built from five source files; everything outside the browser goes through a single adapter object, <code>Platform</code>, so moving to your server touches only that object.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>part1.html</code></td>
+<td>Markup and all CSS (light and dark themes, phone-first layout)</td>
+</tr>
+<tr>
+<td><code>data.js</code></td>
+<td>Event types, the 13 sections, examples per type, avatar options, ability lists, upload categories</td>
+</tr>
+<tr>
+<td><code>bench.js</code></td>
+<td>Benchmarks with their sources, reality checks, planning numbers, the to-scale layout sketch, starter packs, date and headcount parsing, memoisation</td>
+</tr>
+<tr>
+<td><code>platform.js</code></td>
+<td>The adapter: storage, AI, file uploads, identity, downloads, notifications, in three modes</td>
+</tr>
+<tr>
+<td><code>app.js</code></td>
+<td>State, sanitising, readiness scoring, change tracking, every section's UI, quick fill (talk it through, read documents), submission, tracker, templates, section owners</td>
+</tr>
+</tbody>
+</table>
+<p>A build script concatenates them into <code>dist/index.html</code>. There is no framework and no external library; the only network calls are the adapter's and, when a PDF is read, pdf.js from cdnjs.</p>
+<p><strong>State.</strong> One plain object per blueprint (<code>v: 2</code>), saved whole on every change (debounced 1 s) and kept in <code>localStorage</code> as a fallback. Top-level keys: <code>path</code>, <code>type</code>, <code>format</code>, <code>basics</code> (incl. <code>food</code>), <code>concept</code> (incl. AI <code>options</code>), <code>spaces</code> (name, purpose, layout, cap, area), <code>programme</code>, <code>people</code>, <code>avatars</code>, <code>partners</code>, <code>look</code>, <code>online</code>, <code>delivery</code>, <code>files</code> (incl. <code>uploads</code>), <code>sketch.rooms</code>, <code>checkAck</code>, <code>owners</code>, <code>notes</code>, plus workflow fields <code>status</code>, <code>ref</code>, <code>submissions</code>, <code>statusLog</code>, <code>approvals</code> and <code>baseline</code> (a snapshot at the last submission, used to list changes not yet sent). Every load, template and AI answer passes through <code>sanitise()</code>, which rebuilds the object field by field with fixed types and lengths.</p>
+<p><strong>Adapter modes.</strong></p>
+<ul>
+<li><strong>artifact</strong> (today): Claude's runtime gives sign-in (<code>user</code>), shared storage (<code>db</code>, rules: blueprints and templates readable and writable by Contributors), AI (<code>sample</code>), uploads (<code>assets</code>) and file saving (<code>downloads</code>).</li>
+<li><strong>api</strong> (your server): set <code>window.EVENT_BLUEPRINT_BACKEND = { api: 'https://…/api/blueprint', ai: true, files: true }</code> before the script; every call becomes a <code>fetch</code> with cookies to the endpoints in section 4.</li>
+<li><strong>local</strong>: no backend; everything stays on the device and the page says so in plain words.</li>
+</ul>
+<h2>3. Online venue: how it is built</h2>
+<p>The venue is a single page with its own small 3D engine (WebGL 2, no Three.js), split into eleven modules that a build script joins in a fixed order (<code>engine</code>, <code>textures</code>, <code>world</code>, <code>chars</code>, <code>physics</code>, <code>audio</code>, <code>filter</code>, <code>social</code>, <code>abilities</code>, <code>team</code>, <code>game</code>); only the people layer reaches outside the page.</p>
+<p>The loop in <code>game.js</code> runs physics at a fixed 60 Hz and draws as fast as the device allows, lowering resolution and then switching to Balanced quality when a phone struggles.</p>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>How it works</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Rendering</td>
+<td>Static geometry merged into a few batches (about 30 draw calls), instanced people with three levels of detail, nearest-12 point lights, ACES tone mapping, canvas-drawn textures</td>
+</tr>
+<tr>
+<td>Physics</td>
+<td>Capsule against boxes and circles, step-up, ground snapping, soft crowd push, a camera arm that never enters walls (600 random poses tested per view)</td>
+</tr>
+<tr>
+<td>Navigation</td>
+<td>1 m grid with A* and path smoothing, wall-crossing checks between cells, queue lines kept clear; 90 of 90 room-to-room routes arrive</td>
+</tr>
+<tr>
+<td>AI attendees</td>
+<td>Each crowd member gets a persona; replies come from Claude (<code>sample</code>, quick tier) with venue facts in the prompt, streamed and spoken sentence by sentence</td>
+</tr>
+<tr>
+<td>Live colleagues</td>
+<td>Presence through <code>room</code>: position, gesture, last line said; all incoming values clamped and rendered as text only</td>
+</tr>
+<tr>
+<td>Event team</td>
+<td>Mute and block (per device); append-only reports with a copy-to-send fallback; activity kept on the device and merged with the saved copy, names only with consent; a cancellable device check that is not counted as visits; recordings on screens. Panels behave as dialogs: focus moves in, Tab stays inside, Escape closes</td>
+</tr>
+<tr>
+<td>Crowd limits</td>
+<td>At most 8 speech bubbles on screen (the person you talk to first, then the nearest), sizes measured once per message; at most 2 other voices queued, the conversation partner always spoken</td>
+</tr>
+<tr>
+<td>Language filter</td>
+<td><code>filter.js</code> checks chat between attendees, before sending and before showing. English and Arabic (script and Latin spelling), disguised spellings (f.u.c.k, sh1t, f*ck), whole words so "cocktail" passes. Owner chooses mask or hide, extra and allowed words; settings live in <code>config/filter</code>. Three filtered messages from one person alert the viewer</td>
+</tr>
+</tbody>
+</table>
+<h2>4. API contract</h2>
+<p>The Blueprint already calls these endpoints when API mode is on; the venue endpoints are proposed to match what the page does today. All are JSON over HTTPS with the user's session cookie; the server, not the browser, holds the Claude API key.</p>
+<p><strong>Event Blueprint (already wired in <code>platform.js</code>)</strong></p>
+<table>
+<thead>
+<tr>
+<th>Method and path</th>
+<th>Sends</th>
+<th>Returns</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /me</code></td>
+<td>—</td>
+<td><code>{ id, isEditor }</code></td>
+<td>Who is signed in; <code>isEditor</code> shows the build-team stage control</td>
+</tr>
+<tr>
+<td><code>GET /blueprints</code></td>
+<td>—</td>
+<td><code>[blueprint]</code></td>
+<td>Only the signed-in owner's, newest first</td>
+</tr>
+<tr>
+<td><code>GET /blueprints/:id</code></td>
+<td>—</td>
+<td><code>blueprint</code></td>
+<td>404 when not the owner's (the server must check)</td>
+</tr>
+<tr>
+<td><code>PUT /blueprints/:id</code></td>
+<td><code>blueprint</code></td>
+<td><code>{ ok }</code></td>
+<td>Whole object; reject if <code>ownerId</code> differs from the session user</td>
+</tr>
+<tr>
+<td><code>GET /templates</code>, <code>PUT /templates/:id</code></td>
+<td><code>template</code></td>
+<td><code>[template]</code></td>
+<td>Templates are personal (owner-only list)</td>
+</tr>
+<tr>
+<td><code>POST /ai/json</code></td>
+<td><code>{ prompt, tier, images? }</code></td>
+<td>parsed JSON</td>
+<td>Server calls the Claude API; <code>tier</code> quick or default; images as base64</td>
+</tr>
+<tr>
+<td><code>POST /files</code> (multipart)</td>
+<td><code>file</code></td>
+<td><code>{ id, url, sizeBytes, contentType }</code></td>
+<td>20 MB cap; <code>GET</code> and <code>DELETE /files/:id</code></td>
+</tr>
+<tr>
+<td><code>POST /events</code></td>
+<td><code>{ type, blueprintId, ref, … }</code></td>
+<td><code>{ ok }</code></td>
+<td><code>submitted</code>, <code>update</code>, <code>approval</code>: send confirmation emails, notify the team</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Online venue (proposed)</strong></p>
+<table>
+<thead>
+<tr>
+<th>Method and path</th>
+<th>Sends</th>
+<th>Returns</th>
+<th>Replaces today's</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /venue/ai</code></td>
+<td><code>{ persona, turns }</code></td>
+<td>streamed text</td>
+<td><code>sample</code> (AI attendee replies)</td>
+</tr>
+<tr>
+<td><code>WS /venue/room</code></td>
+<td>presence updates</td>
+<td>everyone's presence</td>
+<td><code>room</code> (live colleagues)</td>
+</tr>
+<tr>
+<td><code>PUT /venue/activity/me</code></td>
+<td>activity document</td>
+<td><code>{ ok }</code></td>
+<td><code>db</code> <code>analytics/&lt;user&gt;</code></td>
+</tr>
+<tr>
+<td><code>GET /venue/activity</code></td>
+<td>—</td>
+<td>all activity</td>
+<td>owner-only report</td>
+</tr>
+<tr>
+<td><code>POST /venue/reports</code></td>
+<td>report</td>
+<td><code>{ ok }</code></td>
+<td><code>db</code> <code>reports/&lt;user&gt;/items/&lt;id&gt;</code> (append-only: one record per report, never read back)</td>
+</tr>
+<tr>
+<td><code>POST /tts</code></td>
+<td><code>{ text, voice, gender, lang }</code></td>
+<td>audio</td>
+<td><code>window.EHC_TTS</code> (natural voices)</td>
+</tr>
+<tr>
+<td><code>GET /venue/screens</code></td>
+<td>—</td>
+<td><code>{ screenId: { url, title } }</code></td>
+<td><code>window.EHC_SCREENS</code> or <code>screens.json</code></td>
+</tr>
+<tr>
+<td><code>GET /venue/config/filter</code></td>
+<td>—</td>
+<td><code>{ on, mode, extra, allow }</code></td>
+<td><code>window.EHC_FILTER</code> or db <code>config/filter</code></td>
+</tr>
+<tr>
+<td><code>PUT /venue/config/filter</code></td>
+<td>filter settings (event team only)</td>
+<td><code>{ ok }</code></td>
+<td>Language tab "Save for everyone"</td>
+</tr>
+</tbody>
+</table>
+<p><strong>EA-SYS hand-off.</strong> On <code>POST /events</code> with <code>type: 'submitted'</code>, the server creates or updates the event in EA-SYS from the blueprint (title, dates, venue, spaces, programme, partners) and writes back the EA-SYS event id and stage. The Blueprint's tracker already shows seven stages (Draft, Submitted, In review, Plan ready, Building, Preview, Live); EA-SYS stage changes should map onto these so the organiser sees progress without logging into anything else.</p>
+<h2>5. What moves to your server, and why</h2>
+<p>Five things only work fully once the pages run on your server, because the Claude hosting deliberately limits what an anonymous visitor can save or load.</p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>Limit today</th>
+<th>On your server</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Sponsor activity for every visitor</td>
+<td>Only signed-in Contributors can save data, so open-link visitors are not counted</td>
+<td>Every visitor counted; named records only with consent</td>
+</tr>
+<tr>
+<td>Safety reports from every visitor</td>
+<td>Open-link visitors can mute and block, but not send reports</td>
+<td>Everyone can report; reports reach the team by email or dashboard</td>
+</tr>
+<tr>
+<td>Ownership of blueprints</td>
+<td>Contributors with access could overwrite another person's blueprint (no planted code can run; the risk is data tampering)</td>
+<td>The server checks the owner on every write</td>
+</tr>
+<tr>
+<td>Full-length recordings</td>
+<td>Clips are published with the page, 15 MB each</td>
+<td>Streamed from your video host (any size), mapped per screen</td>
+</tr>
+<tr>
+<td>Natural voices</td>
+<td>Device voices only; quality varies by phone</td>
+<td>One neural voice service, same voice on every device, via <code>POST /tts</code></td>
+</tr>
+</tbody>
+</table>
+<p>Everything else (the 3D venue, AI attendees through your Claude API key, the Blueprint's checks and sketch) runs unchanged.</p>
+<h2>6. Security and privacy</h2>
+<p>Both pages treat every saved record, AI answer and live message as untrusted, and the first independent audit's two serious findings are fixed and re-tested; the server must now enforce ownership, which the browser cannot.</p>
+<ul>
+<li><strong>Sanitising.</strong> <code>sanitise()</code> in the Blueprint rebuilds every loaded blueprint and template with fixed types and lengths; sketch positions are numbers only, so nothing saved can reach the SVG as markup. Templates list only the owner's own.</li>
+<li><strong>AI answers.</strong> Wrong-shaped JSON is dropped with a "try again" note, never saved. AI text is shown with <code>textContent</code>, never as HTML.</li>
+<li><strong>Live presence.</strong> Incoming positions are clamped to the venue, colours must be <code>#rrggbb</code>, speech is capped at 280 characters and rendered as text.</li>
+<li><strong>Links.</strong> <code>javascript:</code> links are never made clickable; recording URLs must be <code>https</code> or same-site video files.</li>
+<li><strong>Spreadsheets.</strong> CSV exports prefix cells starting with <code>=</code>, <code>+</code>, <code>-</code> or <code>@</code>, so a name cannot run as a formula in Excel.</li>
+<li><strong>Consent.</strong> The welcome screen says visits are counted and kept with the attendee's sign-in, and sponsors see totals only unless the attendee ticks the box. The same choice sits in the Venue guide, so it can be changed at any time after entering.</li>
+<li><strong>Language.</strong> Chat between attendees is filtered before it is sent and again before it is shown, so an old or modified page cannot bypass it for others. Only the event team can save filter settings; the server should enforce that on <code>PUT /venue/config/filter</code>. The filter catches common words, not everything, so mute, block and report stay the backstop.</li>
+<li><strong>Server duties.</strong> Check the owner on every blueprint write; rate-limit <code>/ai/json</code> and <code>/venue/ai</code>; keep the Claude key server-side; store reports and activity with access limited to the event team.</li>
+</ul>
+<p><strong>UAE PDPL points to confirm with counsel:</strong> a privacy notice for the venue and Blueprint; the lawful basis for anonymous counting; retention periods for activity, reports and uploaded files; where the data is hosted; and how an attendee can ask for their data to be deleted.</p>
+<h2>7. Realistic avatars: what to ask a 3D artist for</h2>
+<p>Realistic people need rigged character files from a 3D artist or an avatar service; the engine then needs a glTF loader and a skinning shader added (today it draws stylised figures from simple shapes). Hand the artist this specification.</p>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Specification</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Format</td>
+<td>glTF 2.0 binary (<code>.glb</code>), one file per character plus shared animation files</td>
+</tr>
+<tr>
+<td>Orientation and scale</td>
+<td>Metres, Y up, facing +Z, feet at 0</td>
+</tr>
+<tr>
+<td>Rig</td>
+<td>Humanoid skeleton with Mixamo-style bone names, at most 60 bones, at most 4 bone weights per vertex</td>
+</tr>
+<tr>
+<td>Triangles (phones first)</td>
+<td>Near: up to 15,000 · middle distance: about 5,000 · far: about 1,500 (three levels of detail)</td>
+</tr>
+<tr>
+<td>Textures</td>
+<td>PBR metallic-roughness, 1024 × 1024 (2048 only for the face), KTX2 preferred, else JPEG or PNG</td>
+</tr>
+<tr>
+<td>File size</td>
+<td>Under 3 MB per character including textures</td>
+</tr>
+<tr>
+<td>Outfits</td>
+<td>Separate swappable meshes: business suit, smart casual, kandura with ghutra, abaya with shayla, evening wear, staff uniform, white coat</td>
+</tr>
+<tr>
+<td>Variety</td>
+<td>At least 8 faces and a full range of skin tones; hair as separate meshes</td>
+</tr>
+<tr>
+<td>Animations (in place, 30 fps)</td>
+<td>Idle, walk, run, sit down, seated idle, stand up, wave, clap, hand on heart, raise hand, point, nod, handshake, talk gestures, hold a cup, photo pose</td>
+</tr>
+<tr>
+<td>Lip movement (optional)</td>
+<td>Visemes as blend shapes (Oculus 15 set or ARKit 52)</td>
+</tr>
+<tr>
+<td>Rights</td>
+<td>Full commercial rights to modify and use on the web; any real person's likeness only with recorded consent</td>
+</tr>
+</tbody>
+</table>
+<h2>8. Testing</h2>
+<p>Thirteen automated browser test suites (Playwright with Chromium) cover both pages and run on every change; the one gap is real-device speed, because the test machine has no graphics card.</p>
+<table>
+<thead>
+<tr>
+<th>Suite</th>
+<th>Page</th>
+<th>What it proves</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>verify.py</code></td>
+<td>Venue</td>
+<td>15,000 random steps with no wall penetration over 0.6 mm, 13 of 13 doors passable, 600 camera poses never inside geometry, 24 of 24 points of interest open</td>
+</tr>
+<tr>
+<td><code>abil_test.py</code></td>
+<td>Venue</td>
+<td>Sit and stand, gestures and applause, both queues serve, 90 of 90 walk-me-there routes arrive with no teleports, follow stays about 2 m behind, photo saves</td>
+</tr>
+<tr>
+<td><code>social_test.py</code></td>
+<td>Venue</td>
+<td>AI attendee conversation and memory, live colleagues, hostile presence data clamped, no injected HTML</td>
+</tr>
+<tr>
+<td><code>view_test.py</code></td>
+<td>Venue</td>
+<td>Four camera views, eye view height and movement, voice ranking and sentence-by-sentence speech</td>
+</tr>
+<tr>
+<td><code>team_test.py</code></td>
+<td>Venue</td>
+<td>Mute, block, report (stored and refused cases), activity saved and reported, CSV safety, recordings play on screens, device check</td>
+</tr>
+<tr>
+<td><code>r1_test.py</code></td>
+<td>Venue</td>
+<td>Second audit round 1: identity only from the platform, reports append-only, activity kept across visits when reads are refused</td>
+</tr>
+<tr>
+<td><code>r2_test.py</code></td>
+<td>Venue</td>
+<td>Round 2: hostile activity records, videos pause and mute on leaving, photo during a queue, Venue guide layout on a phone</td>
+</tr>
+<tr>
+<td><code>lf_test.py</code></td>
+<td>Venue</td>
+<td>Language filter: masking in chat and bubbles, the three-strike alert, outgoing filtering, owner saves hide mode and extra words, attendees pick them up</td>
+</tr>
+<tr>
+<td><code>r3_test.py</code></td>
+<td>Venue</td>
+<td>Round 3: Escape and focus in every panel, device check cancels and adds no visits, 40 px tap targets, 20 talkers capped at 8 bubbles and 2 queued voices, report fallback</td>
+</tr>
+<tr>
+<td><code>s1_test.py</code></td>
+<td>Blueprint</td>
+<td>Talk it through with a PDF, uploads, submit with reference, change tracking, approvals, templates, device-only mode</td>
+</tr>
+<tr>
+<td><code>s3_test.py</code></td>
+<td>Blueprint</td>
+<td>Starter packs, reality checks per section, accept and reopen, layout sketch drag, rotate, keyboard and PNG</td>
+</tr>
+<tr>
+<td><code>r3_test.py</code></td>
+<td>Blueprint</td>
+<td>Round 3: no long tasks while typing with 40 spaces and 300 partners at 4x slower CPU, owner email changes tracked, same-name owners kept apart, owner form keys</td>
+</tr>
+<tr>
+<td>Audit scripts</td>
+<td>Blueprint</td>
+<td>The first audit's repro cases: tampered templates, malformed AI answers, dates, headcounts, performance, accessibility</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Known limits.</strong> Frame rates measured here are software-rendered and meaningless; use the venue's own "Check this device" button on real phones. Speech is checked by which voice is chosen, not by listening.</p>
+<h2>9. Open decisions and next steps</h2>
+<p>The server move is the next step; it needs four decisions from MM Group before any code is written, in this order.</p>
+<ol>
+<li><strong>Where the API lives.</strong> Next to EA-SYS (one sign-in, one database) or as a separate service that talks to EA-SYS.</li>
+<li><strong>How people sign in.</strong> EA-SYS accounts for organisers; for venue attendees, the registration link from EA-SYS or a one-time email code.</li>
+<li><strong>Which services to use.</strong> A video host for full-length recordings, and a neural voice service for <code>POST /tts</code>.</li>
+<li><strong>Privacy.</strong> Counsel signs off the PDPL points in section 6 before attendee activity is collected on your server.</li>
+</ol>
+<p>Then, in order:</p>
+<ul>
+<li class="task"><input type="checkbox" disabled> Implement the Blueprint endpoints in section 4 and switch on API mode</li>
+<li class="task"><input type="checkbox" disabled> Map Blueprint stages to EA-SYS stages and send <code>submitted</code> events into EA-SYS</li>
+<li class="task"><input type="checkbox" disabled> Add the venue endpoints and a data adapter in the venue, matching the Blueprint's</li>
+<li class="task"><input type="checkbox" disabled checked> Second independent audit of both pages, fixed in three rounds (see section 10)</li>
+<li class="task"><input type="checkbox" disabled> Walk the venue on an iPhone and a mid-range Android with "Check this device" and send the results</li>
+<li class="task"><input type="checkbox" disabled> Commission realistic avatars against section 7, if wanted</li>
+<li class="task"><input type="checkbox" disabled> Arabic right-to-left interface (agreed to come last)</li>
+</ul>
+<h2>10. Changes since the first handover</h2>
+<p>The second audit's findings are all fixed, in three rounds, and a language filter was added; the venue is now at version 7 and the Blueprint at version 6. Newest first:</p>
+<table>
+<thead>
+<tr>
+<th>Round</th>
+<th>Page</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3</td>
+<td>Blueprint</td>
+<td>Off-screen layout sketch no longer redraws while someone types; it catches up after a pause or when scrolled into view (long tasks of 140–390 ms at 4x slower CPU are gone)</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Blueprint</td>
+<td>Owner email-only changes appear in the change list; owners sharing a name are kept apart by email; long names wrap; Enter saves and Escape cancels the owner form, with focus returned</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Blueprint</td>
+<td>Reality-check source links and accepted-check toggles are at least 40 px tall on a phone</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Venue</td>
+<td>Every panel is a proper dialog: focus moves in, Tab stays inside, Escape closes the top one, tapping outside closes People and Event team</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Venue</td>
+<td>Device check has a Cancel button that works at once; its jumps between rooms are not counted as visits</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Venue</td>
+<td>All phone and chat buttons at least 40 px; consent text now accurate (visits kept with the sign-in, sponsors see totals unless the attendee opts in); the name-sharing choice is also in the Venue guide</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Venue</td>
+<td>Failed reports explain plainly, point to the event team (set <code>window.EHC_CONTACT</code> to show its email) and offer Copy report</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Venue</td>
+<td>At most 8 speech bubbles and 2 queued voices from others, so large crowds stay smooth</td>
+</tr>
+<tr>
+<td>—</td>
+<td>Venue</td>
+<td>Language filter for chat between attendees, with an owner Language tab (see section 3)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Venue</td>
+<td>Hostile activity records cannot break the owner report; recordings keep playing from the side of the plenary, pause and mute on leaving, and keep sound through an open panel</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Venue</td>
+<td>A photo taken while queuing keeps the place in the queue; Stop leaves it cleanly; Venue guide shows the current room with Walk and Go on one line</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Venue</td>
+<td>Identity comes only from the platform, never from what a page sends; reports are append-only records, so attendees can file them without read access</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Venue</td>
+<td>Activity totals are kept on the device and merged with the saved copy, so a refused read no longer wipes history; keys work while the consent box has focus; missing <code>screens.json</code> no longer logs errors</td>
+</tr>
+</tbody>
+</table>
+<p>One open item from round 3: the event team's contact email for the report fallback message.</p>
+</main></body></html>

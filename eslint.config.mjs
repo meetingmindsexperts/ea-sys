@@ -16,6 +16,10 @@ const eslintConfig = defineConfig([
     // public/pdfjs/ by scripts/copy-pdfjs-worker.mjs at postinstall.
     // Linting third-party minified code is noise; skip the folder.
     "public/pdfjs/**",
+    // The external developer's Event Blueprint, vendored with its own build
+    // and Playwright suites (docs/EVENT_BLUEPRINT_PLAN.md D5). Plain browser
+    // JS in their house style; the page EA-SYS serves is generated from it.
+    "vendor/**",
   ]),
 
   // ── Code that can never run ───────────────────────────────────────────────

@@ -72,6 +72,8 @@ const PRIMITIVES = [
   "canViewProcurement",
   "canAuthorBudgets",
   "canAdminProcurement",
+  // The Event Blueprint gate: flag, session, organisation, then requirePermission.
+  "blueprintGuard",
   // The agent's handler asks agent.use and every tool's key itself.
   "executeAgentRequest",
   // The platform operator door.

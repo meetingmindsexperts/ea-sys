@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event Blueprint: the page and its storage API, dark (October 8)
+
+- Step 3 of `docs/EVENT_BLUEPRINT_PLAN.md`. The vendor's Blueprint is
+  vendored at `vendor/event-blueprint/` (source, build, Playwright suites) and
+  served at **`/blueprint`** in its API mode; `node scripts/blueprint-build.mjs`
+  regenerates the page after any vendor change, and a test fails if the three
+  copies drift.
+- `/api/blueprint/*`: `me`, blueprints (list, read, save), templates, files.
+  One guard (`blueprintGuard`): module flag (404 off), session, organisation,
+  then the `blueprints.*` key. The server owns status, reference and history
+  and ignores them in a saved body; an id held by another organisation reads
+  as not found; editors of a submitted blueprint are recorded for approval.
+- Deliberate departures from the plan: structure is checked on the server
+  (object, 256 KB, depth 8) rather than porting the page's `sanitise()`;
+  uploads are typed by their bytes and capped at 10 MB (nginx), and served
+  sandboxed; AI stays off until the server owns the prompts (step 4).
+
 ### Event Blueprint: tables, policies, permissions and the module flag (October 8)
 
 - Step 2 of `docs/EVENT_BLUEPRINT_PLAN.md`, shipped dark behind

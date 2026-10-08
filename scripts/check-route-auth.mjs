@@ -115,6 +115,7 @@ const GUARD_MODULES = [
   "src/hr/lib/hr-roles.ts",
   "src/procurement/lib/procurement-roles.ts",
   "src/procurement/lib/route-helpers.ts",
+  "src/lib/blueprint/route-guard.ts",
 ];
 
 /**

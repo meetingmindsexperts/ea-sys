@@ -33,7 +33,8 @@ model Blueprint {
   status         BlueprintStatus @default(DRAFT)
   /// The reference shown to the team (`EB-261008-K3P`), assigned on first submit.
   ref            String?
-  /// Readiness 0-100 as the SERVER last computed it; approval never trusts the page's number.
+  /// Readiness 0-100 as the page last reported it, for the list only; approval
+  /// recomputes completeness on the server and never trusts this number.
   readiness      Int             @default(0)
   data           Json            @default("{}")
   /// The event created on approval. Unique: one blueprint, one event, ever.

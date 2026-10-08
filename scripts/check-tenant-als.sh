@@ -49,6 +49,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWEPT_ROUTE_DIRS=(
   "src/app/api/hr"                # HR module (Aug 27, 2026) — born swept, master-silo only
   "src/app/api/procurement"       # Budget & Procurement module (Sep 14, 2026), born swept, ships dark
+  "src/app/api/blueprint"         # Event Blueprint (Oct 8, 2026), born swept, ships dark; the wrap lives in blueprint-service
   "src/app/api/integrations"      # QuickBooks connector (Sep 22, 2026) — procurement-owned, own namespace so the Intuit redirect URI never has to move
   "src/app/api/registrant"        # Registrant portal — lane taken from the HOST (item 6 follow-on, Aug 21, 2026)
   "src/app/api/contacts"          # Contacts pilot (July 23, 2026)
