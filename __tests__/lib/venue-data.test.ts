@@ -20,10 +20,11 @@ describe("shapeActivity", () => {
 
 describe("shapeReport", () => {
   it("keeps a report with one of the page's reasons; the reporter is the session's", () => {
-    const r = shapeReport({ reason: "Offensive language", note: "x".repeat(700), by: "spoof", who: { name: "Lina", guest: true }, said: ["a", "b", "c", "d", "e", "f"] }, "u-1");
+    const r = shapeReport({ reason: "Offensive language", note: "x".repeat(700), by: "spoof", who: { name: "Lina", guest: true }, said: ["a", { t: 1, text: "b" }, { t: 2, text: "c" }, "d", { t: 3 }, "e", { text: "f" }] }, "u-1");
     expect(r).toMatchObject({ reason: "Offensive language", by: "u-1", who: { name: "Lina", guest: true } });
     expect((r!.note as string).length).toBe(600);
-    expect(r!.said).toEqual(["b", "c", "d", "e", "f"]);
+    // the page's `{ t, text }` objects keep their text; an entry with none is dropped (review M2)
+    expect(r!.said).toEqual([{ text: "b" }, { text: "c" }, { text: "d" }, { text: "e" }, { text: "f" }]);
   });
 
   it("refuses an unknown reason", () => {

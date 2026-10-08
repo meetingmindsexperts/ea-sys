@@ -62,4 +62,26 @@ describe("venue runtime", () => {
     const db = await (window.claude as Claude).use("db");
     await expect(db.collection("analytics").get()).rejects.toEqual({ code: "permission_denied" });
   });
+
+  it("tries a failed read again on the next use, instead of failing until a reload (review L6)", async () => {
+    let n = 0;
+    const window: Record<string, unknown> = { EHC_VENUE: { api: "/api/venue/e1", userId: "u-1", name: "", team: true } };
+    const fetch = async () => (++n === 1 ? { ok: false, status: 502, json: async () => ({}) } : { ok: true, status: 200, json: async () => ({ filter: { on: true }, screens: null }) });
+    new Function("window", "fetch", "document", "URL", SRC)(window, fetch, {}, URL);
+    const db = await (window.claude as Claude).use("db") as unknown as { doc: (p: string) => { get: () => Promise<{ exists: boolean; data: () => Doc }> } };
+    await expect(db.doc("config/filter").get()).rejects.toMatchObject({ status: 502 });
+    expect((await db.doc("config/filter").get()).data()).toEqual({ on: true });
+  });
+
+  it("sends a small save with keepalive so it outlives the page, and a large one the ordinary way (review L7)", async () => {
+    const seen: { method: string; keepalive: boolean }[] = [];
+    const window: Record<string, unknown> = { EHC_VENUE: { api: "/api/venue/e1", userId: "u-1", name: "", team: false } };
+    const fetch = async (_u: string, init: { method: string; keepalive: boolean }) => { seen.push({ method: init.method, keepalive: init.keepalive }); return { ok: true, status: 200, json: async () => ({}) }; };
+    new Function("window", "fetch", "document", "URL", SRC)(window, fetch, {}, URL);
+    const db = await (window.claude as Claude).use("db") as unknown as { doc: (p: string) => { get: () => Promise<unknown>; set: (d: unknown) => Promise<unknown> } };
+    await db.doc("analytics/u-1").set({ sessions: 1 });
+    await db.doc("analytics/u-1").set({ big: "x".repeat(70_000) });
+    await db.doc("analytics/u-1").get();
+    expect(seen).toEqual([{ method: "PUT", keepalive: true }, { method: "PUT", keepalive: false }, { method: "GET", keepalive: false }]);
+  });
 });

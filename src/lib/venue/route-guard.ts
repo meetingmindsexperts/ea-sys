@@ -76,17 +76,19 @@ export async function venueGuard(by: { id: string } | { slug: string }, route: s
     }
     const gate = requirePermission(session, "events.read", { route, eventId });
     if (!gate.ok) return { ok: false as const, response: gate.response };
-    const event = await db.event.findFirst({ where: gate.eventWhere, select: EVENT_SELECT });
-    if (!event || !event.organizationId) {
+    // The caller's own assignment row only: an ASSIGNED-scope grant asks whether they are on this event (review L3).
+    const row = await db.event.findFirst({ where: gate.eventWhere, select: { ...EVENT_SELECT, staffAssignments: { where: { userId: session.user.id }, select: { userId: true } } } });
+    if (!row || !row.organizationId) {
       apiLogger.warn({ msg: `${route}:event-not-visible`, userId: session.user.id, eventId });
       return { ok: false as const, response: notFound() };
     }
+    const { staffAssignments, ...event } = row;
     if (!isVenueEnabledFor(event.slug)) {
       apiLogger.warn({ msg: `${route}:venue-not-enabled`, userId: session.user.id, eventId, slug: event.slug });
       return { ok: false as const, response: notFound() };
     }
     const team = can(principalFromSession(session), "events.update", {
-      event: { organizationId: event.organizationId, eventType: event.eventType ?? "", staffUserIds: [] },
+      event: { organizationId: event.organizationId, eventType: event.eventType ?? "", staffUserIds: staffAssignments.map((a) => a.userId) },
     });
     if (opts.team && !team) {
       apiLogger.warn({ msg: `${route}:not-event-team`, userId: session.user.id, eventId });

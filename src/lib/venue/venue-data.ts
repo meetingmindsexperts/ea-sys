@@ -67,7 +67,9 @@ export function shapeReport(raw: unknown, reporterId: string): Record<string, un
     reason,
     note: str(r.note, 600),
     who: { id: str(who.id, 80) || null, peer: str(who.peer, 80) || null, name: str(who.name, 80), guest: who.guest === true },
-    said: (Array.isArray(r.said) ? r.said : []).slice(-5).map((s) => str(s, 300)),
+    // The page keeps a peer's lines as `{ t, text }` (social.js) and the team panel reads `.text`
+    // (team.js), so each is stored as `{ text }`; a bare string is accepted too (review M2).
+    said: (Array.isArray(r.said) ? r.said : []).map((s) => str(s && typeof s === "object" ? (s as Record<string, unknown>).text : s, 280)).filter(Boolean).slice(-5).map((text) => ({ text })),
     zone: str(r.zone, 60),
     by: reporterId,
   };

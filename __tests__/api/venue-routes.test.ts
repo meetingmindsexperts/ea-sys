@@ -32,9 +32,11 @@ vi.mock("@/services/venue-service", () => svc);
 import { GET as myGET, PUT as myPUT } from "@/app/api/venue/[eventId]/activity/me/route";
 import { GET as allGET } from "@/app/api/venue/[eventId]/activity/route";
 import { PUT as configPUT } from "@/app/api/venue/[eventId]/config/route";
+import { GET as reportsGET, POST as reportsPOST } from "@/app/api/venue/[eventId]/reports/route";
 
-const EVENT = { id: "evt-1", slug: "ehc26", name: "EHC", startDate: new Date(), endDate: new Date(), venue: null, timezone: "Asia/Dubai", eventType: "CONFERENCE", settings: {}, organizationId: "org-1" };
-const as = (role: string, organizationId: string | null = "org-1") => mockAuth.mockResolvedValue({ user: { id: `u-${role}`, role, organizationId } });
+const EVENT = { id: "evt-1", slug: "ehc26", name: "EHC", startDate: new Date(), endDate: new Date(), venue: null, timezone: "Asia/Dubai", eventType: "CONFERENCE", settings: {}, organizationId: "org-1", staffAssignments: [] as { userId: string }[] };
+const as = (role: string, organizationId: string | null = "org-1", grants: string[] = []) =>
+  mockAuth.mockResolvedValue({ user: { id: `u-${role}`, role, organizationId, procurementPermissions: grants } });
 const params = { params: Promise.resolve({ eventId: "evt-1" }) };
 const put = (handler: typeof myPUT, body: unknown) => handler(new Request("http://localhost/x", { method: "PUT", body: JSON.stringify(body) }), params);
 
@@ -86,5 +88,31 @@ describe("/api/venue gate", () => {
     as("MEMBER");
     expect((await put(configPUT, { filter: { on: false } })).status).toBe(403);
     expect(svc.saveFilter).not.toHaveBeenCalled();
+  });
+
+  it("only the event team lists the safety reports", async () => {
+    as("MEMBER");
+    expect((await reportsGET(new Request("http://localhost/x"), params)).status).toBe(403);
+    as("ORGANIZER");
+    expect((await reportsGET(new Request("http://localhost/x"), params)).status).toBe(200);
+  });
+
+  it("an editor of assigned events is on the team only for events they are assigned to (review L3)", async () => {
+    as("MEMBER", "org-1", ["events.update@ASSIGNED"]);
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, staffAssignments: [{ userId: "u-MEMBER" }] });
+    expect((await allGET(new Request("http://localhost/x"), params)).status).toBe(200);
+    // only the caller's own assignment row is read
+    expect(mockDb.event.findFirst.mock.calls[0][0].select.staffAssignments).toEqual({ where: { userId: "u-MEMBER" }, select: { userId: true } });
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, staffAssignments: [] });
+    expect((await allGET(new Request("http://localhost/x"), params)).status).toBe(403);
+  });
+
+  it("caps reports at 20 an hour per person, each one emailed", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u-rate-limit-test", role: "MEMBER", organizationId: "org-1" } });
+    const post = () => reportsPOST(new Request("http://localhost/x", { method: "POST", body: JSON.stringify({ reason: "Spam or selling" }) }), params);
+    for (let i = 0; i < 20; i++) expect((await post()).status).toBe(201);
+    expect((await post()).status).toBe(429);
+    expect(svc.createReport).toHaveBeenCalledTimes(20);
+    expect(svc.createReport.mock.calls[0][0]).toEqual({ organizationId: "org-1", eventId: "evt-1", userId: "u-rate-limit-test" });
   });
 });

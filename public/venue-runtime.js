@@ -24,11 +24,15 @@
   if (!V || typeof V.api !== "string") return;
 
   function call(method, path, body) {
+    var json = body === undefined ? undefined : JSON.stringify(body);
     return fetch(V.api + path, {
       method: method,
       credentials: "same-origin",
+      // A save sent as the page closes (the vendor's pagehide) must outlive the page (review L7).
+      // Browsers refuse a keepalive body over 64 KB, so a larger one goes the ordinary way.
+      keepalive: method === "PUT" && !!json && json.length < 60000,
       headers: body === undefined ? {} : { "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: json,
     }).then(function (r) {
       if (r.status === 403) throw { code: "permission_denied" };
       if (!r.ok) throw { code: "upstream_error", status: r.status };
@@ -40,11 +44,12 @@
     return { id: id, exists: data != null, data: function () { return data == null ? undefined : JSON.parse(JSON.stringify(data)); }, metadata: {} };
   }
 
-  // Settings and the team's report list are read once per page load.
+  // Settings and the team's report list are read once per page load; a failed read is not kept,
+  // so the next use tries again instead of failing until a reload (review L6).
   var configP = null;
-  function config() { return configP || (configP = call("GET", "/config")); }
+  function config() { return configP || (configP = call("GET", "/config").catch(function (e) { configP = null; throw e; })); }
   var reportsP = null;
-  function reports() { return reportsP || (reportsP = call("GET", "/reports").then(function (r) { return r.reports || []; })); }
+  function reports() { return reportsP || (reportsP = call("GET", "/reports").then(function (r) { return r.reports || []; }).catch(function (e) { reportsP = null; throw e; })); }
 
   function doc(path) {
     var parts = path.split("/");

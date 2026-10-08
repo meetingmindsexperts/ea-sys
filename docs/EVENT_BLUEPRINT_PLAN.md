@@ -455,3 +455,27 @@ per event (D6), report inbox (D7).
   section header carries a quiet owner and "Talk it through" toolbar, and the
   home page leads with the blueprints. Class names and button text the vendor
   suites use are unchanged, and all six suites pass.
+- **Oct 8, 2026, venue review.** Independent review of venue phase 4: 1 HIGH,
+  1 MED, 8 LOW; tenancy, RLS, identity, script injection, the migration and
+  logging were clean. Fixed: **H1** the team's Reports tab was always empty
+  (the runtime did not answer the bare `reports` collection; reports were
+  stored and emailed throughout). **M2** a report's "last lines" are kept as
+  `{ text }`, the shape the page writes and the team panel reads. **L3** an
+  editor of assigned events is on the team for the events they are assigned
+  to (their assignment now reaches `can()`). **L6** a failed settings or
+  reports read is retried on next use. **L7** the save on leaving is sent with
+  `keepalive` (bodies under 60 KB). **L10** tests for all of these, the page's
+  sign-in redirect, escaping and no-store, and the report email.
+  **Deferred, each with its trigger:**
+  - **L5, before a second event is listed in `VENUE_EVENT_SLUGS`:** the page
+    still says "EHC 2026", the ESH organiser and `ehc-2026-*.csv`; send
+    `short` and `organiser` in `EHC_EVENT` (or generate them in phase 6).
+  - **L8, before attendees are let in:** reports are capped at 20 an hour per
+    person, in memory; add a per-event cap (e.g. 100 an hour) on the emails to
+    the safety inbox.
+  - **L4, before the platform (multi-tenant) instance serves the venue:**
+    `VENUE_EVENT_SLUGS` matches the slug alone, and slugs are unique only per
+    organisation; key it by event id or `org/slug`.
+  - **L9, not acted on:** a body sent without `content-length` is read in full
+    before the 64 KB check, as on every route; the stored shape is bounded.
+

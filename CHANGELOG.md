@@ -13,6 +13,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   collection the vendor's team panel reads. Reports were stored and emailed
   throughout. `__tests__/lib/venue-runtime.test.ts` now drives the runtime the
   way the vendor page does.
+- The rest of the review (owner's pick: M2, L3, L6, L7 and tests): a report
+  keeps the reported person's last lines; an editor of assigned events sees
+  the team views for the events they are assigned to; a failed settings or
+  reports read is retried; the save on leaving the venue is not dropped.
+  Deferred with their triggers in the plan: per-event names (L5), a per-event
+  report cap (L8), event-id keyed venue list (L4).
 
 ### Event Blueprint: redesigned to match the dashboard (October 8)
 

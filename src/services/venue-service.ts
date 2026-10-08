@@ -96,7 +96,7 @@ export async function createReport(c: Caller, raw: unknown, ctxInfo: { eventName
 
 async function emailReport(item: Record<string, unknown>, info: { eventName: string; reporterName: string; reportId: string }, ctx: Record<string, unknown>) {
   const who = item.who as { name: string; guest: boolean };
-  const said = item.said as string[];
+  const said = (item.said as { text: string }[]).map((s) => s.text);
   const lines = [
     `Event: ${info.eventName}`,
     `Reason: ${item.reason}`,
