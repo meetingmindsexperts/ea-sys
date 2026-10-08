@@ -497,4 +497,21 @@ per event (D6), report inbox (D7).
   (`VENUE_ATTENDEE_MODEL`, Haiku 4.5, 300 tokens). The event team's panel has
   an "AI attendees" tab: on or off, and today's replies against the limit.
   Refusals become the page's pre-written answers.
+  **5C, live colleagues, built (inside EA-SYS).** Positions go up with
+  `POST /api/venue/<eventId>/presence` (the runtime sends at most 3 a second,
+  only when something changed, which keeps an office of staff behind one IP
+  well under nginx's 100 requests a second per IP); everyone else comes down a
+  server-sent event stream from `GET` on the same route (checked every 300 ms,
+  a keep-alive every 15 s under nginx's 60 s read timeout, `X-Accel-Buffering:
+  no`). Positions live in this process's memory (`presence-store.ts`) and drop
+  15 s after a tab's last update, or at once when its stream closes. A tab id
+  is bound to its signed-in user, so nobody can move another person's avatar;
+  every value is reshaped to the venue's ranges; caps of 4 tabs a person and
+  200 people an event. **Known limits, accepted for the staff preview:** during
+  a deploy the blue and green containers each keep their own view for the
+  minute both run; the stream is one Node process's work, so the WebSocket
+  container (and a capacity test) stays the plan before a large attendee
+  event. **For the privacy sign-off:** colleagues see each other's names (all
+  staff of the same organisation) and what they say nearby; nothing about
+  positions is stored.
 

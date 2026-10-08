@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Online venue: live colleagues (October 8)
+
+- People walking the same event's venue now see each other as avatars, with
+  their names, gestures and what they say nearby, live. Positions are kept in
+  memory only and vanish when someone closes the venue.
+- Runs inside EA-SYS (owner's choice for the staff preview): a stream from
+  `/api/venue/<eventId>/presence`, at most 3 position updates a second per
+  person. A separate realtime service stays the plan before a large event.
+
 ### Online venue: AI attendees reply with live AI (October 8)
 
 - In the venue, AI attendees now answer with live AI (the quick model), within

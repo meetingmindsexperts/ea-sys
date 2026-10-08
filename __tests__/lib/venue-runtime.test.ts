@@ -155,3 +155,80 @@ describe("venue runtime: AI attendees (phase 5B)", () => {
   });
 });
 
+describe("venue runtime: live colleagues (phase 5C)", () => {
+  type Room = { onPeers: (fn: (c: { peers: { peer: string; by: string; isMe: boolean }[] }) => void, close?: () => void) => void; presence: (p: unknown) => Promise<void>; peers: () => unknown[] };
+  class FakeEventSource {
+    static last: FakeEventSource;
+    readyState = 0;
+    onopen: (() => void) | null = null;
+    onmessage: ((e: { data: string }) => void) | null = null;
+    onerror: (() => void) | null = null;
+    closed = false;
+    constructor(public url: string) { FakeEventSource.last = this; }
+    close() { this.closed = true; this.readyState = 2; }
+  }
+
+  function bootLive() {
+    const posts: Record<string, unknown>[] = [];
+    const listeners: Record<string, () => void> = {};
+    const window: Record<string, unknown> = { EHC_VENUE: { api: "/api/venue/e1", userId: "u-me", name: "Wren", team: false }, addEventListener: (t: string, f: () => void) => { listeners[t] = f; } };
+    const fetch = async (_u: string, init: { body: string }) => { posts.push(JSON.parse(init.body)); return { ok: true, status: 200, json: async () => ({ ok: true }) }; };
+    new Function("window", "fetch", "document", "URL", "EventSource", "crypto", SRC)(window, fetch, {}, URL, FakeEventSource, globalThis.crypto);
+    const claude = window.claude as { use: (n: string) => Promise<unknown> };
+    return { claude, posts, listeners };
+  }
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("opens one stream per tab and hands the venue everyone, with names for the people list", async () => {
+    const { claude } = bootLive();
+    const room = (await claude.use("room")) as Room;
+    expect(await claude.use("room")).toBe(room);
+    const seen: { peer: string; by: string; isMe: boolean }[][] = [];
+    room.onPeers((c) => seen.push(c.peers));
+    expect(FakeEventSource.last.url).toMatch(/^\/api\/venue\/e1\/presence\?peer=[a-z0-9]{16}$/);
+    FakeEventSource.last.onmessage!({ data: JSON.stringify({ peers: [{ peer: "tabl", by: "u-lina", name: "Lina", isMe: false, sameTab: false, kind: "viewer", guest: false, presence: { x: 1 } }] }) });
+    expect(seen[0]).toMatchObject([{ peer: "tabl", by: "u-lina", isMe: false }]);
+    const user = (await claude.use("user")) as { profiles: (ids: string[]) => Promise<Record<string, { name: string; color: string }>> };
+    expect((await user.profiles(["u-lina"]))["u-lina"]).toMatchObject({ name: "Lina", color: expect.stringMatching(/^#[0-9a-f]{6}$/) });
+  });
+
+  it("sends at most 3 updates a second, always the latest", async () => {
+    const { claude, posts } = bootLive();
+    const room = (await claude.use("room")) as Room;
+    room.onPeers(() => {});
+    for (let i = 0; i < 10; i++) await room.presence({ x: i });
+    await wait(50);
+    expect(posts).toHaveLength(1);
+    await wait(400);
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toMatchObject({ presence: { x: 9 } });
+  });
+
+  it("after a reconnect, sends where this tab is again; on leaving, says so", async () => {
+    const { claude, posts, listeners } = bootLive();
+    const room = (await claude.use("room")) as Room;
+    room.onPeers(() => {});
+    await room.presence({ x: 4 });
+    await wait(400);
+    const before = posts.length;
+    FakeEventSource.last.onopen!();
+    await wait(400);
+    expect(posts.length).toBe(before + 1);
+    expect(posts.at(-1)).toMatchObject({ presence: { x: 4 } });
+    listeners.pagehide();
+    await wait(10);
+    expect(posts.at(-1)).toMatchObject({ leave: true });
+    expect(FakeEventSource.last.closed).toBe(true);
+  });
+
+  it("tells the venue when the stream gives up for good", async () => {
+    const { claude } = bootLive();
+    const room = (await claude.use("room")) as Room;
+    let closed = false;
+    room.onPeers(() => {}, () => { closed = true; });
+    FakeEventSource.last.readyState = 2;
+    FakeEventSource.last.onerror!();
+    expect(closed).toBe(true);
+  });
+});
+

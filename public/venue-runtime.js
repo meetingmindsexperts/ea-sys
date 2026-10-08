@@ -13,7 +13,9 @@
  *   sample     AI attendees' replies, streamed from /ai; the server writes the
  *              instructions and holds the limits (phase 5B). Null when the
  *              event team has switched AI attendees off.
- *   room       live colleagues: off in this phase
+ *   room       live colleagues: positions up to /presence (at most 3 a
+ *              second), everyone else down a server-sent event stream from
+ *              the same route (phase 5C)
  *
  * Identity never comes from here: every route takes the person from the
  * session, and this file only names what to read or write. The page that
@@ -97,9 +99,74 @@
     return q;
   }
 
+  /** A colleague's badge colour, the same in every tab (FNV-1a of the user id). */
+  var PALETTE = ["#2e9e6b", "#3a7bd5", "#c0563b", "#8e5cc2", "#c79a2b", "#1f8a9e", "#b84a7a", "#5a7d2a"];
+  function colorFor(id) {
+    var h = 2166136261;
+    for (var i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return PALETTE[(h >>> 0) % PALETTE.length];
+  }
+
+  // ----- live colleagues (phase 5C) -----
+  // One random id per tab; the server binds it to the signed-in user, so a tab can only move its own avatar.
+  var names = {};
+  var theRoom = null;
+  function makeRoom() {
+    var tab = Array.prototype.map.call(crypto.getRandomValues(new Uint8Array(16)), function (b) { return (b % 36).toString(36); }).join("");
+    var handler = null, onClose = null, es = null, list = Object.freeze([]);
+    var pending = null, last = null, sending = false, lastSent = 0, timer = null;
+    function flush() {
+      timer = null;
+      if (!pending || sending) return;
+      var wait = 333 - (Date.now() - lastSent);
+      if (wait > 0) { timer = setTimeout(flush, wait); return; }
+      var p = pending; pending = null; sending = true; lastSent = Date.now(); last = p;
+      // A refused update (too many tabs, venue full) only means others do not see this one; the walk goes on.
+      call("POST", "/presence", { peer: tab, presence: p }).catch(function () { return null; }).then(function () { sending = false; if (pending && !timer) flush(); });
+    }
+    function deliver() { if (handler) handler({ peers: list, joined: [], left: [], updated: [] }); }
+    function connect() {
+      es = new EventSource(V.api + "/presence?peer=" + tab);
+      // After a reconnect the server no longer has this tab: send where it is again.
+      es.onopen = function () { if (last && !pending) { pending = last; flush(); } };
+      es.onmessage = function (e) {
+        var d = null;
+        try { d = JSON.parse(e.data); } catch { return; }
+        var peers = d && Array.isArray(d.peers) ? d.peers : [];
+        list = Object.freeze(peers.map(function (p) {
+          if (typeof p.by === "string") names[p.by] = typeof p.name === "string" ? p.name : "";
+          return Object.freeze({ peer: p.peer, by: p.by, isMe: !!p.isMe, sameTab: !!p.sameTab, kind: p.kind, guest: !!p.guest, presence: Object.freeze(p.presence || {}), updatedAt: p.updatedAt });
+        }));
+        deliver();
+      };
+      // EventSource reconnects by itself; CLOSED means it gave up (signed out, venue switched off).
+      es.onerror = function () { if (es.readyState === 2 && onClose) onClose(); };
+    }
+    window.addEventListener("pagehide", function () {
+      if (es) es.close();
+      if (!last) return;
+      fetch(V.api + "/presence", { method: "POST", credentials: "same-origin", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ peer: tab, leave: true }) }).catch(function () { return null; });
+    });
+    return {
+      onPeers: function (fn, close) { handler = fn; onClose = close || null; if (es) deliver(); else connect(); return function () { handler = null; }; },
+      peers: function () { return list; },
+      presence: function (p) { pending = p; if (!timer) flush(); return Promise.resolve(); },
+      emit: function () { return Promise.resolve(); },
+      on: function () { return function () {}; },
+      connected: function () { return !!es && es.readyState === 1; },
+    };
+  }
+  function room() { return theRoom || (theRoom = makeRoom()); }
+
   var user = {
     id: function () { return Promise.resolve(V.userId); },
-    me: function () { return Promise.resolve({ id: V.userId, name: V.name || "", color: "#3a7bd5", avatarUrl: "", email: null, isOwner: !!V.team, canEdit: !!V.team }); },
+    me: function () { return Promise.resolve({ id: V.userId, name: V.name || "", color: colorFor(V.userId), avatarUrl: "", email: null, isOwner: !!V.team, canEdit: !!V.team }); },
+    // Colleagues' names come with their positions (staff of the same organisation, plan §5.4).
+    profiles: function (ids) {
+      var out = {};
+      [].concat(ids).forEach(function (id) { if (typeof id === "string") out[id] = { id: id, name: names[id] || "", color: colorFor(id) }; });
+      return Promise.resolve(out);
+    },
     isOwner: function () { return Promise.resolve(!!V.team); },
     canEdit: function () { return Promise.resolve(!!V.team); },
     can: function () { return Promise.resolve(true); },
@@ -167,7 +234,8 @@
       if (name === "db") return Promise.resolve(db);
       if (name === "downloads") return Promise.resolve(downloads);
       if (name === "sample") return Promise.resolve(V.ai === false ? null : sample);
-      return Promise.resolve(null); // room (live colleagues): off in this phase
+      if (name === "room") return Promise.resolve(typeof EventSource === "undefined" ? null : room());
+      return Promise.resolve(null);
     },
   };
 })();
