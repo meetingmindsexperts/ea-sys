@@ -447,3 +447,11 @@ per event (D6), report inbox (D7).
   signed off, because visits are recorded per person. Today only staff can
   reach it. Attendee sign-in is also needed then: only 1 of EHC's 88
   registrants has a login.
+- **Oct 8, 2026, Blueprint redesign.** Owner: "not user friendly, no visual
+  hierarchy". Two directions were shown side by side (a drafting-table look
+  and the dashboard's own); the owner chose the dashboard. Same flow and data:
+  the steps are grouped in four phases with a done, part-done or not-started
+  mark, the side panel lists what is left with the step each item is in, the
+  section header carries a quiet owner and "Talk it through" toolbar, and the
+  home page leads with the blueprints. Class names and button text the vendor
+  suites use are unchanged, and all six suites pass.

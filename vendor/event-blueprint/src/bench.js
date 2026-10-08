@@ -283,7 +283,7 @@ function roomStatus(r) {
 const xesc = (t) => String(t).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\uFFFE\uFFFF]/g, '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function sketchSVG(model, opts = {}) {
   const pad = 4, W = model.W + pad * 2, H = model.H + pad * 2 + 4, sel = opts.selected;
-  const col = opts.print ? { bg: '#ffffff', room: '#f7f6f4', ink: '#18161b', muted: '#77727c', line: '#cfcbc6', accent: '#8f1f33', soft: '#f5e6e9', bad: '#b3261e' } : { bg: 'var(--surface)', room: 'var(--surface-2)', ink: 'var(--ink)', muted: 'var(--muted)', line: 'var(--line-2)', accent: 'var(--accent)', soft: 'var(--accent-soft)', bad: 'var(--bad)' };
+  const col = opts.print ? { bg: '#ffffff', room: '#f3f7f9', ink: '#1b2a33', muted: '#677884', line: '#c5d3db', accent: '#007fa8', soft: '#e5f6fc', bad: '#b42318' } : { bg: 'var(--surface)', room: 'var(--surface-2)', ink: 'var(--ink)', muted: 'var(--muted)', line: 'var(--line-2)', accent: 'var(--accent)', soft: 'var(--accent-soft)', bad: 'var(--bad)' };
   const fs = (r) => Math.max(0.9, Math.min(2.2, Math.min(r.w, r.d) / 7));
   let g = '';
   for (const r of model.rooms) {
@@ -307,7 +307,7 @@ function sketchSVG(model, opts = {}) {
   }
   const sb = 10, sy = H - 2.2;
   const scale = `<g transform="translate(${pad} ${sy})"><line x1="0" y1="0" x2="${sb}" y2="0" stroke="${col.ink}" stroke-width="0.2"/><line x1="0" y1="-0.5" x2="0" y2="0.5" stroke="${col.ink}" stroke-width="0.2"/><line x1="${sb}" y1="-0.5" x2="${sb}" y2="0.5" stroke="${col.ink}" stroke-width="0.2"/><text x="${sb + 0.8}" y="0.45" font-size="1.2" fill="${col.muted}">10 m · sketch, not a measured plan</text></g>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${opts.px ? W * opts.px : '100%'}" ${opts.px ? `height="${H * opts.px}"` : ''} font-family="Onest, Segoe UI, sans-serif" role="img" aria-label="Layout sketch of ${model.rooms.length} spaces"><defs><pattern id="hatch" width="1" height="1" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="1" stroke="${col.muted}" stroke-width="0.25" opacity=".55"/></pattern></defs><rect width="${W}" height="${H}" fill="${col.bg}"/>${g}${scale}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${opts.px ? W * opts.px : '100%'}" ${opts.px ? `height="${H * opts.px}"` : ''} font-family="Geist, Segoe UI, sans-serif" role="img" aria-label="Layout sketch of ${model.rooms.length} spaces"><defs><pattern id="hatch" width="1" height="1" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="1" stroke="${col.muted}" stroke-width="0.25" opacity=".55"/></pattern></defs><rect width="${W}" height="${H}" fill="${col.bg}"/>${g}${scale}</svg>`;
 }
 
 // ----- starter packs: layouts for the template spaces, food service and planning notes per type

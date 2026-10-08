@@ -5,6 +5,7 @@ MOCK=open('tests/mock.js').read()
 PDFDIR=os.environ.get('PDFJS_DIR')  # optional: a local pdfjs-dist/build folder, so the PDF test runs offline
 async def routes(pg):
     await pg.route('**/fonts.googleapis.com/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))
+    await pg.route('**/blueprint-fonts/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))  # EA-SYS: fonts are served by EA-SYS, not by this bare test server
     async def cdn(route):
         name=route.request.url.split('/')[-1]
         if not PDFDIR: return await route.continue_()

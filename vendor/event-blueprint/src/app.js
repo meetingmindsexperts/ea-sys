@@ -216,21 +216,50 @@
     const sc = score(S), chg = new Set(pending().map(x => x.sec));
     $('ring').hidden = false; $('ringPct').textContent = sc.pct + '%'; $('ringArc').setAttribute('stroke-dashoffset', String(113.1 * (1 - sc.pct / 100)));
     $('subTitle').textContent = (S.basics.title || 'Untitled event') + (saveState ? ' · ' + saveState : '');
-    for (const el of document.querySelectorAll('[data-dot]')) { const id = el.dataset.dot, s = sc.sec[id]; el.className = 'dot ' + (id === 'review' ? (sc.blocking.length ? 'r' : sc.nice.length ? 'a' : 'g') : (s || 'g')) + (chg.has(id) ? ' chg' : ''); }
+    // EA-SYS: each section shows done, part done or not started; "N needed" only once it is started, so a new blueprint is calm, not red.
+    const marks = secMarks(sc), curId = ackView ? null : SECTIONS[step].id;
+    for (const el of document.querySelectorAll('[data-dot]')) { const id = el.dataset.dot, m = marks[id]; el.className = 'dot ' + (id === curId && m.st !== 'g' ? 'cur' : m.st); }
+    for (const el of document.querySelectorAll('[data-meta]')) { const id = el.dataset.meta, m = marks[id], ch = chg.has(id); el.className = 'rmeta' + (ch ? ' chg' : m.need ? ' need' : ''); el.textContent = ch ? 'changed' : m.need ? m.need + ' needed' : ''; }
+    const req = sc.c.filter(x => x.lvl === 'block'), done = req.filter(x => x.ok).length, slim = $('slimBar');
+    if (slim) slim.style.width = Math.round(done / Math.max(req.length, 1) * 100) + '%';
+    $('where').textContent = `${step + 1} of ${SECTIONS.length} · ` + (sc.blocking.length ? `${sc.blocking.length} required item${sc.blocking.length > 1 ? 's' : ''} left` : 'ready to submit');
     renderStatusBar(); renderSide(sc);
   }
+  // EA-SYS: the 13 sections in four phases (Oct 8, 2026 redesign), so the list reads as a plan instead of a wall of steps.
+  const GROUPS = [['The event', ['start', 'basics', 'concept']], ['The plan', ['spaces', 'programme', 'people']], ['The experience', ['avatars', 'partners', 'look', 'online']], ['Hand-over', ['delivery', 'files', 'review']]];
+  const groupOf = (id) => (GROUPS.find(g => g[1].includes(id)) || GROUPS[0])[0];
+  const secName = (s) => s.id === 'review' ? (S && S.status !== 'draft' ? 'Progress' : 'Review and submit') : s.n;
+  function secMarks(sc) {
+    const m = {};
+    for (const s of SECTIONS) {
+      const it = sc.c.filter(x => x.sec === s.id), ok = it.filter(x => x.ok).length, need = it.filter(x => !x.ok && x.lvl === 'block').length;
+      m[s.id] = s.id === 'review' ? { st: S.status !== 'draft' ? 'g' : 'r', need: 0 } : { st: ok === it.length ? 'g' : ok ? 'a' : 'r', need: ok ? need : 0 };
+    }
+    return m;
+  }
+  let navOpen = false;
+  function navItem(s, i, cls) {
+    const o = ownerOf(s.id), who = o ? o.name || o.email : '';
+    return h('button', { class: cls, 'aria-current': i === step && !ackView ? 'step' : null, onclick: () => { navOpen = false; goto(i); }, 'aria-label': secName(s) + (o ? ', owner ' + who : '') },
+      h('span', { class: 'dot', 'data-dot': s.id, 'aria-hidden': 'true' }), h('span', { text: secName(s) }),
+      h('span', { class: 'rr' }, h('span', { class: 'rmeta', 'data-meta': s.id }), o ? h('span', { class: 'oav', title: 'Owner: ' + who, text: initials(who) }) : null));
+  }
+  const navGroups = (cls) => GROUPS.map(([label, ids]) => h('div', { class: 'rgroup' }, h('div', { class: 'rgl', text: label }), ids.map(id => { const i = SECTIONS.findIndex(s => s.id === id); return navItem(SECTIONS[i], i, cls); })));
+  const navLabel = (el, lead, name, tail) => el.replaceChildren(lead, h('span', { class: 'nl', text: name }), tail || '');
   function renderNav() {
-    const st = $('steps'), rail = $('rail'); st.innerHTML = ''; rail.innerHTML = '';
-    SECTIONS.forEach((s, i) => {
-      const go = () => goto(i), cur = i === step && !ackView ? 'step' : null;
-      const o = ownerOf(s.id), badge = o ? h('span', { class: 'oav', title: 'Owner: ' + (o.name || o.email), text: initials(o.name || o.email) }) : null;
-      st.append(h('button', { class: 'step', 'aria-current': cur, onclick: go, 'aria-label': s.n + (o ? ', owner ' + (o.name || o.email) : '') }, h('span', { class: 'dot', 'data-dot': s.id }), s.n, badge));
-      rail.append(h('button', { 'aria-current': cur, onclick: go, 'aria-label': s.n + (o ? ', owner ' + (o.name || o.email) : '') }, h('span', { class: 'n', text: String(i + 1).padStart(2, '0') }), h('span', { class: 'dot', 'data-dot': s.id }), s.n, o ? h('span', { class: 'oav', text: initials(o.name || o.email) }) : null));
-    });
-    const cur = st.children[step]; if (cur) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
-    $('where').textContent = `${step + 1} of ${SECTIONS.length}`;
+    const st = $('steps'), rail = $('rail'), sec = SECTIONS[step], last = SECTIONS.length - 1;
+    rail.replaceChildren(...navGroups(''));
+    // Phone: one picker naming where you are, opening the same grouped list.
+    st.replaceChildren(
+      h('button', { type: 'button', class: 'secpick', 'aria-expanded': String(navOpen), 'aria-controls': 'stepList', onclick: () => { navOpen = !navOpen; renderNav(); updateChrome(); } },
+        h('span', null, h('span', { class: 'pk1', text: `${groupOf(sec.id)} · ${step + 1} of ${SECTIONS.length}` }), h('span', { class: 'pk2', text: secName(sec) })), h('span', { class: 'chev', 'aria-hidden': 'true', text: '▾' })),
+      h('div', { class: 'slim', 'aria-hidden': 'true' }, h('i', { id: 'slimBar' })),
+      h('div', { class: 'steplist', id: 'stepList', hidden: !navOpen }, navGroups('step')));
     $('prevBtn').style.visibility = step === 0 ? 'hidden' : 'visible';
-    $('nextBtn').textContent = step === SECTIONS.length - 2 ? 'Review and submit' : step === SECTIONS.length - 1 ? 'All blueprints' : 'Next';
+    if (step > 0) navLabel($('prevBtn'), '← ', 'Back: ' + secName(SECTIONS[step - 1]));
+    if (step === last) $('nextBtn').textContent = 'All blueprints';
+    else if (step === last - 1) $('nextBtn').textContent = S.status === 'draft' ? 'Review and submit →' : 'Progress →';
+    else navLabel($('nextBtn'), 'Next', ': ' + secName(SECTIONS[step + 1]), ' →');
   }
   function renderStatusBar() {
     const bar = $('statusBar'); if (!S || S.status === 'draft' && !S.baseline) { bar.hidden = true; return; }
@@ -243,19 +272,26 @@
   }
   function renderSide(sc) {
     const side = $('side'); side.innerHTML = ''; if (SECTIONS[step].id === 'review' || ackView) return;
-    const top = sc.blocking.slice(0, 6), n = pending().length;
+    // EA-SYS: one question answered: what is left before submitting, each item naming its section.
+    const req = sc.c.filter(x => x.lvl === 'block'), done = req.filter(x => x.ok).length, n = pending().length, st = STATUSES[Math.max(0, stIdx(S.status))];
+    const go = (id) => goto(SECTIONS.findIndex(s => s.id === id)), inSec = (id) => secName(SECTIONS.find(s => s.id === id));
+    const top = sc.blocking.slice(0, 8), rc = realityChecks(S).filter(c => c.lvl !== 'info' && !isAck(S, c));
     side.append(h('div', { class: 'ready' },
-      h('div', { class: 'eyebrow', text: 'Readiness' }), h('div', { class: 'big', text: sc.pct + '%' }), h('div', { class: 'bar' }, h('i', { style: `width:${sc.pct}%` })),
-      h('div', { class: 'note', text: sc.blocking.length ? `${sc.blocking.length} item${sc.blocking.length > 1 ? 's' : ''} needed before building` : sc.nice.length ? 'Ready to submit. Optional items would add detail.' : 'Complete. Ready to submit.' }),
-      top.length ? h('ul', { class: 'missing' }, top.map(x => h('li', null, h('span', { class: 'tag r', text: 'need' }), h('button', { onclick: () => goto(SECTIONS.findIndex(s => s.id === x.sec)), text: x.label })))) : null,
+      h('div', { class: 'rh' }, h('span', { class: 'eyebrow', text: S.status === 'draft' ? 'Ready to submit' : 'Blueprint' }), h('span', { class: 'pill s-' + S.status, text: st[1] })),
+      h('div', { class: 'big' }, String(done), h('small', { text: ` of ${req.length} required items` })),
+      h('div', { class: 'bar', role: 'progressbar', 'aria-label': 'Required items done', 'aria-valuemin': '0', 'aria-valuemax': String(req.length), 'aria-valuenow': String(done) }, h('i', { style: `width:${Math.round(done / Math.max(req.length, 1) * 100)}%` })),
+      h('div', { class: 'note', text: sc.blocking.length ? 'Still needed before the build team can start:' : sc.nice.length ? `Everything required is in. ${sc.nice.length} optional detail${sc.nice.length > 1 ? 's' : ''} would help the build team.` : 'Complete. Ready to submit.' }),
+      top.length ? h('ul', { class: 'missing' }, top.map(x => h('li', null, h('button', { onclick: () => go(x.sec), text: x.label }), h('span', { class: 'in', text: inSec(x.sec) })))) : null,
+      sc.blocking.length > top.length ? h('div', { class: 'moreline', text: `and ${sc.blocking.length - top.length} more` }) : null,
       n ? h('button', { class: 'secondary', text: `Send ${n} change${n > 1 ? 's' : ''}`, onclick: () => goto(SECTIONS.length - 1) }) : null,
-      (() => { const rc = realityChecks(S).filter(c => c.lvl !== 'info' && !isAck(S, c)); return rc.length ? h('div', { class: 'sidechk' }, h('div', { class: 'eyebrow', text: 'Reality checks' }), h('ul', { class: 'missing' }, rc.slice(0, 4).map(c => h('li', null, h('span', { class: 'tag ' + LVL[c.lvl][1], text: LVL[c.lvl][0] }), h('button', { onclick: () => goto(SECTIONS.findIndex(s => s.id === c.sec)), text: c.title }))))) : null; })()));
+      !n && !sc.blocking.length && S.status === 'draft' ? h('button', { class: 'secondary', text: 'Review and submit', onclick: () => goto(SECTIONS.length - 1) }) : null,
+      rc.length ? h('div', { class: 'sidechk' }, h('div', { class: 'eyebrow', text: 'Checks to look at' }), h('ul', { class: 'missing' }, rc.slice(0, 4).map(c => h('li', null, h('button', { onclick: () => go(c.sec), text: c.title }), h('span', { class: 'tag ' + LVL[c.lvl][1], text: LVL[c.lvl][0] }))))) : null));
   }
 
   // ---------- controls ----------
   let fieldN = 0;
   const linkLabel = (ctrl, id) => { if (!ctrl || !ctrl.nodeType) return; const single = ctrl.matches('input,textarea,select') ? ctrl : ctrl.matches('.rows') && ctrl.querySelectorAll('input,textarea,select').length === 1 ? ctrl.querySelector('input,textarea,select') : null; if (single) single.setAttribute('aria-labelledby', id); else if (ctrl.matches('.chips,.types,.cards,.rows,.sketch,div')) { if (!ctrl.getAttribute('role')) ctrl.setAttribute('role', 'group'); ctrl.setAttribute('aria-labelledby', id); } };
-  const field = (label, ctrl, o = {}) => { const id = 'lab' + (++fieldN); linkLabel(ctrl, id); return h('div', { class: 'f' }, h('div', { class: 'lab', id }, label, o.need ? h('span', { class: 'req need', text: 'Needed' }) : o.opt ? h('span', { class: 'req', text: 'Optional' }) : null), o.help ? h('div', { class: 'help', text: o.help }) : null, ctrl); };
+  const field = (label, ctrl, o = {}) => { const id = 'lab' + (++fieldN); linkLabel(ctrl, id); return h('div', { class: 'f' }, h('div', { class: 'lab', id }, label, o.need ? h('span', { class: 'req need', text: 'Required' }) : o.opt ? h('span', { class: 'req', text: 'optional' }) : null), o.help ? h('div', { class: 'help', text: o.help }) : null, ctrl); };
   const text = (p, ph, type = 'text') => { const el = h('input', { type, value: get(p) || '', placeholder: ph || '', id: 'f_' + p.replace(/\./g, '_') }); el.addEventListener('input', () => set(p, el.value)); return el; };
   const area = (p, ph, rows = 3) => { const el = h('textarea', { rows, placeholder: ph || '', id: 'f_' + p.replace(/\./g, '_') }); el.value = get(p) || ''; el.addEventListener('input', () => set(p, el.value)); return el; };
   function chips(p, opts, multi, after) {
@@ -506,7 +542,7 @@
     const pathCards = h('div', { class: 'cards c3' }, PATHS.map(p => h('button', { type: 'button', class: 'card', 'aria-pressed': String(S.path === p.id), onclick: () => { S.path = p.id; changed(); render(); } }, h('span', { class: 'ck', text: p.k }), h('span', { class: 'ct', text: p.t }), h('span', { class: 'cd', text: p.d }))));
     const typeGrid = h('div', { class: 'types' }, TYPES.map(t => h('button', { type: 'button', class: 'type', 'aria-pressed': String(S.type === t.id), onclick: () => { S.type = t.id; if (t.reg !== 'None' && !S.partners.regulated) S.partners.regulated = t.reg; if (!S.avatars.prefilled) prefillAvatars(); changed(); render(); } }, h('span', { class: 'tn', text: t.n }), h('span', { class: 'te', text: t.e }))));
     return [
-      h('div', { class: 'qfcard' }, h('div', null, h('div', { class: 'ct', text: 'Rather talk than type?' }), h('div', { class: 'cd', text: 'Describe the event in your own words, or add an agenda, brochure or floor plan. Everything is shown to you before anything is filled in.' })), h('button', { type: 'button', class: 'primary', text: 'Talk it through', onclick: openQF })),
+      h('div', { class: 'qfcard' }, h('div', null, h('div', { class: 'ct', text: 'Rather talk than type?' }), h('div', { class: 'cd', text: 'Describe the event in your own words, or add an agenda, brochure or floor plan. Everything is shown to you before anything is filled in.' })), h('button', { type: 'button', class: 'secondary', text: 'Talk it through', onclick: openQF })),
       field('Where are you starting from?', pathCards, { need: !S.path }),
       field('What kind of event is it?', typeGrid, { need: !S.type, help: 'This sets the examples and starting templates. You can change everything later.' }),
       S.type === 'other' ? field('Describe the event type', text('typeOther', 'e.g. A charity run with a finish-line festival'), { need: !S.typeOther.trim() }) : null,
@@ -1109,7 +1145,8 @@ ${words ? `\nThe organiser's own words:\n"""${words.slice(0, 20000)}"""` : ''}${
       : sec.id === 'review' ? (S.status === 'draft' ? 'Check it over, then submit. You get a reference number and can follow progress here.' : 'Track progress, approve the plan and preview, and send any changes.') : INTRO[sec.id];
     const title = sec.id === 'review' ? (S.status === 'draft' ? 'Review and submit' : 'Progress') : sec.t;
     const qfBtn = sec.id !== 'review' && sec.id !== 'start' ? h('button', { type: 'button', class: 'ghostbtn qfbtn', text: 'Talk it through', onclick: openQF }) : null;
-    main.append(h('section', { class: 'panel', 'aria-labelledby': 'secTitle' }, h('div', { class: 'phead' }, h('div', { class: 'phrow' }, h('div', { class: 'eyebrow', text: `Step ${step + 1} · ${sec.n}` }), qfBtn), h('h2', { id: 'secTitle', text: title }), intro ? h('p', { text: intro }) : null, sec.id !== 'review' ? ownerLine(sec) : null), h('div', { class: 'fields' }, R[sec.id](), LIVE_SECS.includes(sec.id) ? live('reality:' + sec.id) : null)));
+    const tools = sec.id !== 'review' ? h('div', { class: 'ptools' }, ownerLine(sec), qfBtn) : null;
+    main.append(h('section', { class: 'panel', 'aria-labelledby': 'secTitle' }, h('div', { class: 'phead' }, h('div', { class: 'eyebrow', text: `${groupOf(sec.id)} · Step ${step + 1} of ${SECTIONS.length}` }), h('h2', { id: 'secTitle', text: title }), intro ? h('p', { text: intro }) : null, tools), h('div', { class: 'fields' }, R[sec.id](), LIVE_SECS.includes(sec.id) ? live('reality:' + sec.id) : null)));
     renderNav(); updateChrome(); refreshLive(true);
     window.scrollTo(0, y);
   }
@@ -1134,21 +1171,22 @@ ${words ? `\nThe organiser's own words:\n"""${words.slice(0, 20000)}"""` : ''}${
     S = null; ackView = null; $('home').hidden = false; $('studio').hidden = true; $('nav').hidden = true; $('steps').hidden = true; $('homeBtn').hidden = true; $('ring').hidden = true; $('statusBar').hidden = true; $('subTitle').textContent = 'Plan any event, then build it'; saveState = '';
     try { localStorage.removeItem('eb-cur'); } catch (e) { }
     const home = $('home'); home.innerHTML = '';
-    home.append(h('div', { class: 'hero' }, h('div', { class: 'eyebrow', text: 'Event Blueprint' }), h('h1', { text: 'From an idea, or a real event, to a ready-to-build brief.' }),
-      h('p', { text: 'Launches, galas, festivals, conferences, weddings, exhibitions: answer guided questions once, or just talk it through. The page shows what is missing, helps shape the concept, and tracks your blueprint from submission to live.' }),
-      h('div', { class: 'actions' }, h('button', { class: 'primary', text: 'Start a new blueprint', onclick: () => newBlueprint() }), h('button', { class: 'secondary', text: 'Start by talking it through', onclick: () => { newBlueprint(); openQF(); } }))));
-    home.append(h('div', { class: 'flow' }, [['Describe', 'Talk it through, add documents, or fill in guided steps.'], ['Shape', 'Concept, spaces, programme, people, avatars and look, with templates and AI help.'], ['Submit', 'Get a reference number and a clear list of what happens next.'], ['Track', 'Follow each stage, approve the plan and preview, and send changes as updates.']].map(([b, t]) => h('div', null, h('b', { text: b }), t))));
-    const list = h('div', { class: 'saved' }); home.append(h('div', { class: 'f' }, h('h2', { style: 'font-size:28px', text: 'Your blueprints' }), list));
-    const tlist = h('div', { class: 'saved' }), tsec = h('div', { class: 'f', hidden: true }, h('h2', { style: 'font-size:28px', text: 'Templates' }), h('div', { class: 'help', text: 'Saved formats to start the next edition from.' }), tlist); home.append(tsec);
+    // EA-SYS: your blueprints first; how it works and templates beside them.
+    home.append(h('div', { class: 'hhead' }, h('div', null, h('h1', { text: 'Your blueprints' }), h('p', { text: 'Plan an event once, hand it to the build team, then follow it to live. Answer the guided steps, or just talk it through.' })),
+      h('div', { class: 'actions' }, h('button', { class: 'secondary', text: 'Start by talking it through', onclick: () => { newBlueprint(); openQF(); } }), h('button', { class: 'primary', text: 'Start a new blueprint', onclick: () => newBlueprint() }))));
+    const list = h('div', { class: 'saved' }), tlist = h('div', { class: 'saved' }), tsec = h('div', { class: 'hcard', hidden: true }, h('h2', { text: 'Templates' }), h('div', { class: 'help', text: 'Saved formats to start the next edition from.' }), tlist);
+    home.append(h('div', { class: 'hcols' }, list, h('div', { class: 'hside' },
+      h('div', { class: 'hcard' }, h('h2', { text: 'How it works' }), h('ol', { class: 'flow' }, [['Describe', 'Talk it through, add documents, or fill in guided steps.'], ['Shape', 'Concept, spaces, programme, people, avatars and look, with checks as you go.'], ['Submit', 'Get a reference number and a clear list of what happens next.'], ['Track', 'Approve the plan and the preview, and send changes as updates.']].map(([b, t]) => h('li', null, h('span', null, h('b', { text: b }), t))))),
+      tsec)));
     list.append(h('p', { class: 'muted', text: 'Loading…' }));
     const items = await listBlueprints(); list.innerHTML = '';
-    if (!items.length) list.append(h('p', { class: 'muted', text: 'Nothing yet. Your blueprints appear here with their progress.' }));
+    if (!items.length) list.append(h('p', { class: 'muted', text: 'No blueprints yet. Start one above; it appears here with its progress.' }));
     for (const it of items) {
       const st = STATUSES.find(x => x[0] === (it.status || 'draft')) || STATUSES[0];
       list.append(h('div', { class: 'svrow' },
         h('button', { class: 'sv', onclick: () => loadAndOpen(it.id) },
           h('div', { style: 'min-width:0' }, h('div', { class: 'st', text: it.title || 'Untitled event' }), h('div', { class: 'sm', text: [(TYPES.find(t => t.id === it.type) || {}).n, it.ref, it.updated ? 'Edited ' + new Date(it.updated).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : ''].filter(Boolean).join(' · ') })),
-          h('div', { class: 'svmeta' }, h('span', { class: 'pill s-' + st[0], text: st[1] }), it.pendingChanges ? h('span', { class: 'tag a', text: it.pendingChanges + ' unsent' }) : it.readiness != null && st[0] === 'draft' ? h('span', { class: 'mono sm', text: it.readiness + '%' }) : null)),
+          h('div', { class: 'svmeta' }, h('span', { class: 'pill s-' + st[0], text: st[1] }), it.pendingChanges ? h('span', { class: 'tag a', text: it.pendingChanges + ' unsent' }) : it.readiness != null && st[0] === 'draft' ? h('span', { class: 'svprog' }, h('span', { class: 'bar', 'aria-hidden': 'true' }, h('i', { style: `width:${it.readiness}%` })), it.readiness + '% ready') : null)),
         h('button', { class: 'ghostbtn', text: 'Duplicate', 'aria-label': 'Duplicate ' + (it.title || 'blueprint'), onclick: async () => { const bp = await fetchBP(it.id); if (bp) { const c = cloneState(bp, false); c.basics.title = (bp.basics && bp.basics.title || 'Untitled event') + ' (copy)'; openBlueprint(c); localSave(); dirty = true; remoteSave(); toast('Duplicated. You are now editing the copy.'); } } })));
     }
     const tps = (await Platform.listTemplates().catch(() => []) || []).filter(t => plain(t) && plain(t.state) && (Platform.mode !== 'artifact' || !Platform.userId || t.ownerId === Platform.userId)).map(t => ({ ...t, name: str(t.name, 80) || 'Untitled template', type: str(t.type, 40), created: num(t.created, 0, 1e14) || Date.now() }));

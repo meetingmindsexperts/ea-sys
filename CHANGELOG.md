@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event Blueprint: redesigned to match the dashboard (October 8)
+
+- The page now looks like the rest of EA-SYS (owner's pick of two directions):
+  cerulean, Geist type, white cards. Red is kept for real problems; a step not
+  started yet is grey, where before a new blueprint showed 11 red dots.
+- The 13 steps are grouped in four phases (The event, The plan, The
+  experience, Hand-over), each marked done, part done or not started, with
+  "N needed" once a step is started. "Next" and "Back" name the step they go
+  to. On a phone, one section picker replaces the row of 13 buttons.
+- The side panel says what is left before submitting ("14 of 28 required
+  items"), each item naming its step. The home page leads with your
+  blueprints and their progress.
+- Fonts: the dashboard's own Geist files, self-hosted under
+  `public/blueprint-fonts/` (Gloock, Onest and IBM Plex Mono removed). The
+  vendor's six browser suites pass; two had been failing locally because they
+  load `/blueprint-fonts/` from a bare test server, now stubbed.
+
 ### Online venue: the EHC 2026 venue, staff preview (October 8)
 
 - `/e/<slug>/venue`: the walkable 3D venue, for staff who can see the event,

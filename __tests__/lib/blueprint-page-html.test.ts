@@ -35,7 +35,7 @@ describe("Event Blueprint page build", () => {
   it("loads its fonts from our own server, never from Google", () => {
     expect(BLUEPRINT_PAGE_HTML).not.toMatch(/fonts\.(googleapis|gstatic)\.com/);
     expect(BLUEPRINT_PAGE_HTML).toContain('href="/blueprint-fonts/fonts.css"');
-    for (const f of ["gloock-latin", "onest-latin", "ibm-plex-mono-500-latin", "ibm-plex-mono-600-latin"]) {
+    for (const f of ["geist-latin", "geist-mono-latin"]) {
       expect(readFileSync(path.join(process.cwd(), "public/blueprint-fonts", `${f}.woff2`)).subarray(0, 4).toString()).toBe("wOF2");
     }
   });
