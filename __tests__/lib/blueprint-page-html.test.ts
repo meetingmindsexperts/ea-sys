@@ -1,7 +1,7 @@
 /**
  * The Event Blueprint page exists three times: the vendor source
  * (vendor/event-blueprint/src), its build (dist/index.html) and the module the
- * server serves (page-html.generated.ts). These pin all three together, so an
+ * server serves (page-html.generated.json). These pin all three together, so an
  * edit to src/ that skipped `node scripts/blueprint-build.mjs` fails CI rather
  * than shipping the old page. The join is build.py's, restated, which is
  * also what the Node builder (`npm run blueprint:build -- --node`) runs, so
@@ -10,9 +10,9 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { BLUEPRINT_PAGE_HTML_BASE64 } from "@/lib/blueprint/page-html.generated";
+import blueprintPage from "@/lib/blueprint/page-html.generated.json";
 
-const BLUEPRINT_PAGE_HTML = Buffer.from(BLUEPRINT_PAGE_HTML_BASE64, "base64").toString("utf8");
+const BLUEPRINT_PAGE_HTML = blueprintPage.html;
 
 const VENDOR = path.join(process.cwd(), "vendor/event-blueprint");
 const src = (f: string) => readFileSync(path.join(VENDOR, "src", f), "utf8");

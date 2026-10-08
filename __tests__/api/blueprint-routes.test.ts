@@ -27,10 +27,12 @@ vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/services/blueprint-service", () => mockService);
+vi.mock("@/lib/blueprint/blueprint-ai", () => ({ runBlueprintAiTask: vi.fn().mockResolvedValue({ ok: true, answer: { spaces: [] } }) }));
 
 import { GET as listGET } from "@/app/api/blueprint/blueprints/route";
 import { PUT as savePUT } from "@/app/api/blueprint/blueprints/[id]/route";
 import { GET as meGET } from "@/app/api/blueprint/me/route";
+import { POST as aiPOST } from "@/app/api/blueprint/ai/json/route";
 
 const as = (role: string, organizationId: string | null = "org-1") =>
   mockAuth.mockResolvedValue({ user: { id: `u-${role}`, role, organizationId } });
@@ -93,5 +95,14 @@ describe("/api/blueprint gate", () => {
   ])("me: %s isEditor=%s canWrite=%s", async (role, isEditor, canWrite) => {
     as(role);
     expect(await (await meGET()).json()).toEqual({ id: `u-${role}`, isEditor, canWrite });
+  });
+
+  it.each([
+    ["ORGANIZER", 200],
+    ["MEMBER", 403],
+  ])("AI: %s gets %i (writers only)", async (role, status) => {
+    as(role);
+    const res = await aiPOST(new Request("http://localhost/api/blueprint/ai/json", { method: "POST", body: JSON.stringify({ task: "spaces", input: { brief: {} } }) }));
+    expect(res.status).toBe(status);
   });
 });

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event Blueprint: AI with server-held prompts; the CI timeout fixed (October 8)
+
+- Step 4 of `docs/EVENT_BLUEPRINT_PLAN.md`. `POST /api/blueprint/ai/json`
+  takes a task name (`concepts`, `spaces`, `programme`, `segments`,
+  `quickfill`) and its data; the prompt is built on the server
+  (`src/lib/blueprint/ai-tasks.ts`, the vendor's text word for word), so a
+  browser can never send our AI key an instruction of its own. Option lists
+  are generated from the vendor's own data (`catalogs.generated.ts`). Writers
+  only, 40 calls an hour per person, tokens logged; quick tier Haiku, default
+  Sonnet (`BLUEPRINT_MODEL_QUICK` / `BLUEPRINT_MODEL`). The page's upload limit
+  now says 10 MB.
+- **CI fix:** the served page moved from a 313 KB one-line `.ts` string to
+  `page-html.generated.json`. As TypeScript it made `no-inline-role-lists`
+  seven times slower (0.7 s to 5 s locally), which timed out at 10 s on the CI
+  runner and failed the unit job of the step 3 run, so step 3 never deployed.
+
 ### Event Blueprint: the page and its storage API, dark (October 8)
 
 - Step 3 of `docs/EVENT_BLUEPRINT_PLAN.md`. The vendor's Blueprint is

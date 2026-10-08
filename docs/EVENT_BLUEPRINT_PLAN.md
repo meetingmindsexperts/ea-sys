@@ -384,3 +384,10 @@ per event (D6), report inbox (D7).
   remembers (`eb-cur` in local storage), the page falls back to its local
   copy, and its next save would re-create the row. `platform.js` should map a
   404 to "gone", drop the local copy and return to the list.
+- **Oct 8, 2026, step 4 built.** AI as named tasks with server-held prompts,
+  verified live (quick fill from typed words: 16 items found, Haiku, about
+  1,400 tokens). The vendor's prompt text stays in `app.js` only for its
+  artifact mode, which their own test suites run; in our API mode the page
+  sends `{ task, input }`. Also: the step 3 page module timed out a repo-wide
+  source scan in CI (unit job of run 37743218212, so step 3 did not deploy);
+  the page is now JSON.

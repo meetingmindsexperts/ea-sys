@@ -12,7 +12,8 @@ const Platform = (() => {
     const cfg = window.EVENT_BLUEPRINT_BACKEND;
     if (cfg && cfg.api) { // ---------- API MODE (your own server) ----------
       P.mode = 'api'; const base = cfg.api.replace(/\/$/, '');
-      const call = async (method, path, body, raw) => { const r = await fetch(base + path, { method, credentials: 'include', headers: raw ? {} : { 'content-type': 'application/json' }, body: raw ? body : body ? JSON.stringify(body) : undefined }); if (!r.ok) throw { code: r.status === 401 ? 'not_granted' : 'upstream_error', message: 'HTTP ' + r.status }; return r.status === 204 ? null : r.json(); };
+      // EA-SYS: the server's error codes reach the page (rate_limited, invalid_json, ...) instead of one generic one.
+      const call = async (method, path, body, raw) => { const r = await fetch(base + path, { method, credentials: 'include', headers: raw ? {} : { 'content-type': 'application/json' }, body: raw ? body : body ? JSON.stringify(body) : undefined }); if (!r.ok) { let b = null; try { b = await r.json(); } catch (e) { } const code = r.status === 401 ? 'not_granted' : r.status === 429 ? 'rate_limited' : (b && typeof b.code === 'string' ? b.code.toLowerCase() : 'upstream_error'); throw { code, status: r.status, message: (b && b.error) || 'HTTP ' + r.status }; } return r.status === 204 ? null : r.json(); };
       P._.call = call;
       try { const me = await call('GET', '/me'); P.userId = me.id || null; P.isEditor = !!me.isEditor; } catch (e) { }
       P.aiReady = !!cfg.ai; P.filesReady = !!cfg.files; return P;
@@ -59,10 +60,14 @@ const Platform = (() => {
     if (!P._.sample || !P._.sample.limits) return {};
     try { return await P._.sample.limits(); } catch (e) { return {}; }
   };
-  P.aiJSON = async (prompt, { tier = 'quick', images } = {}) => {
+  // EA-SYS: `req` is { task, input, prompt }. API mode sends only the task name and its data: the
+  // server holds the prompts, so a browser can never send our AI key an instruction of its own.
+  // The prompt is kept for the artifact mode, which the vendor's own test suites run.
+  P.aiJSON = async (req, { tier = 'quick', images } = {}) => {
+    const prompt = typeof req === 'string' ? req : req.prompt;
     if (P.mode === 'api') {
       let imgs; if (images && images.length) imgs = await Promise.all(images.map(f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res({ type: f.type, data: String(r.result).split(',')[1] }); r.onerror = rej; r.readAsDataURL(f); })));
-      return P._.call('POST', '/ai/json', { prompt, tier, images: imgs });
+      return P._.call('POST', '/ai/json', { task: req.task, input: req.input, images: imgs });
     }
     if (!P._.sample) throw { code: 'not_granted' };
     const o = { modelTier: tier, cache: false }; if (images && images.length) o.images = images;
@@ -100,7 +105,7 @@ const Platform = (() => {
    PUT  /blueprints/:id          <- blueprint
    GET  /templates               -> [template]
    PUT  /templates/:id           <- template
-   POST /ai/json                 <- { prompt, tier, images?:[{type,data(base64)}] } -> parsed JSON from the Claude API
+   POST /ai/json                 <- { task, input, images?:[{type,data(base64)}] } -> parsed JSON (EA-SYS: prompts live on the server)
    POST /files (multipart: file) -> { id, url, sizeBytes, contentType }
    GET/DELETE /files/:id
    POST /events                  <- { type: 'submitted'|'update'|'approval', blueprintId, ref, ... } (e.g. send confirmation emails) */

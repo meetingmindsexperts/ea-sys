@@ -21,7 +21,7 @@
  * what we'll move TO, not what's running RIGHT NOW.
  */
 
-export type AiFeature = "helpChat" | "agent";
+export type AiFeature = "helpChat" | "agent" | "blueprintQuick" | "blueprintDefault";
 
 export interface ModelConfig {
   /** Provider-specific model id (e.g. `"claude-sonnet-4-6"`). */
@@ -37,6 +37,9 @@ export interface ModelConfig {
 export const HELP_CHAT_MODEL_DEFAULT = "claude-sonnet-4-6";
 export const HELP_CHAT_MODEL_OPENAI_DEFAULT = "gpt-4o";
 export const AGENT_MODEL_DEFAULT = "claude-sonnet-4-6";
+/** Event Blueprint: the vendor page's two tiers ("quick" and "default"). */
+export const BLUEPRINT_QUICK_MODEL_DEFAULT = "claude-haiku-4-5-20251001";
+export const BLUEPRINT_MODEL_DEFAULT = "claude-sonnet-4-6";
 
 /**
  * `provider` (default anthropic) picks the model id lane for features that
@@ -73,6 +76,15 @@ export function getModelConfig(
         // exactly what we DON'T want a help bot doing).
         temperature: 0.3,
       };
+    case "blueprintQuick":
+      // Event Blueprint suggestions (spaces, run of show, audience mix, a
+      // short quick fill): small JSON answers, so the fast tier. 4096 holds
+      // the largest (a 12-item programme) with room.
+      return { model: process.env.BLUEPRINT_MODEL_QUICK || BLUEPRINT_QUICK_MODEL_DEFAULT, maxTokens: 4096, temperature: 0.4 };
+    case "blueprintDefault":
+      // Three full concepts, or a quick fill from a long document or a
+      // picture: needs the stronger model and more room.
+      return { model: process.env.BLUEPRINT_MODEL || BLUEPRINT_MODEL_DEFAULT, maxTokens: 8192, temperature: 0.7 };
     case "agent":
       // Consumed by the Event Agent route
       // (src/app/api/events/[eventId]/agent/execute/route.ts) since

@@ -293,12 +293,14 @@
     el.classList.add('err');
   }
   const aiOn = () => Platform.aiReady && !aiOff;
+  const briefObj = () => JSON.parse(briefFor());
   const briefFor = () => JSON.stringify({ path: S.path, type: (typeOf() || {}).n || S.typeOther, typeOther: S.typeOther, format: S.format, basics: S.basics, concept: { goals: S.concept.goals, bigIdea: S.concept.bigIdea, feeling: S.concept.feeling, mood: S.concept.mood, mustHave: S.concept.mustHave, avoid: S.concept.avoid, signature: S.concept.signature }, spaces: S.spaces, venue: { kind: S.look.venueKind, name: S.look.venueName, setting: S.look.setting, scale: S.look.scale }, notes: S.notes.slice(-1500) }).slice(0, 7000);
   const RULES = 'Use roles ("keynote speaker", "headline act", "host") instead of names. Never invent real people, sponsors, brands or venues. Keep it feasible for the format, budget and audience given, and true to this kind of event.';
-  async function ask(prompt, note, btn, tier = 'quick') {
+  // EA-SYS: `req` is { task, input, prompt }; see Platform.aiJSON.
+  async function ask(req, note, btn, tier = 'quick') {
     if (!aiOn()) return null;
     btn.disabled = true; const old = btn.textContent; btn.textContent = 'Thinking…'; note.textContent = ''; note.classList.remove('err');
-    try { return await Platform.aiJSON(prompt, { tier }); }
+    try { return await Platform.aiJSON(req, { tier }); }
     catch (e) { aiNote(note, e); return null; }
     finally { btn.disabled = false; btn.textContent = old; }
   }
@@ -531,7 +533,7 @@
       const gen = aiBtn(S.concept.options ? 'Generate 3 new concepts' : 'Generate 3 concepts', async () => {
         if (!S.basics.purpose.trim() && !S.basics.title.trim() && !S.type) { note.textContent = 'Add a type, title or purpose first.'; return; }
         holder.innerHTML = ''; holder.append(h('div', { class: 'skeleton' }), h('div', { class: 'skeleton' }), h('div', { class: 'skeleton' }));
-        const res = await ask(`You are a senior event creative director and producer who works across every kind of event: launches, galas, festivals, conferences, weddings, exhibitions and more. Propose 3 clearly different concepts for the event in this brief. Ground them in the brief, honour must-haves and things to avoid, and fit the format and budget. ${RULES}\n\nBrief (JSON): ${briefFor()}\n\nReply with only JSON: {"concepts":[{"name":"short concept name","bigIdea":"two sentences","feeling":"one line: how people feel when they leave","signature":"the one moment people will remember","mood":["word","word","word"],"spaces":[{"name":"","purpose":"","layout":"","cap":"","area":""}],"programme":[{"time":"","title":"","space":"","who":"role"}],"online":"one sentence: what makes the online version special"}]}\nEach concept: 4 to 7 spaces and 5 to 9 programme items. Spaces in the programme must match the space names. Mood words, where they fit, should come from: ${MOODS.join(', ')}.`, note, gen, 'default');
+        const res = await ask({ task: 'concepts', input: { brief: briefObj() }, prompt: `You are a senior event creative director and producer who works across every kind of event: launches, galas, festivals, conferences, weddings, exhibitions and more. Propose 3 clearly different concepts for the event in this brief. Ground them in the brief, honour must-haves and things to avoid, and fit the format and budget. ${RULES}\n\nBrief (JSON): ${briefFor()}\n\nReply with only JSON: {"concepts":[{"name":"short concept name","bigIdea":"two sentences","feeling":"one line: how people feel when they leave","signature":"the one moment people will remember","mood":["word","word","word"],"spaces":[{"name":"","purpose":"","layout":"","cap":"","area":""}],"programme":[{"time":"","title":"","space":"","who":"role"}],"online":"one sentence: what makes the online version special"}]}\nEach concept: 4 to 7 spaces and 5 to 9 programme items. Spaces in the programme must match the space names. Mood words, where they fit, should come from: ${MOODS.join(', ')}.` }, note, gen, 'default');
         const cs = res && Array.isArray(res.concepts) ? rowsOf(res.concepts, ROW.concept, 3).filter(c => c.name || c.bigIdea) : [];
         if (cs.length) { S.concept.options = cs; S.concept.chosen = null; studioErr = ''; changed(); }
         else studioErr = note.textContent || 'No concepts came back. Try again.';
@@ -584,7 +586,7 @@
     const applyTpl = () => { const P = PACKS[t.id] || PACKS.other; S.spaces = t.spaces.map(([name, purpose, cap], i) => ({ name, purpose, cap, layout: P.layouts[i] || '', area: '' })); changed(); };
     const tplBtn = t ? h('button', { type: 'button', class: 'tpl', text: t.id === 'other' ? 'Start from a basic template' : 'Start from the ' + t.n.toLowerCase() + ' template', onclick: () => { if (S.spaces.some(r => r.name.trim())) { conf.innerHTML = ''; conf.append(replaceConfirm('spaces', applyTpl)); } else { applyTpl(); render(); } } }) : null;
     const sug = aiBtn('Suggest spaces', async () => {
-      const res = await ask(`You are an experienced event producer and spatial designer. Suggest the spaces (rooms or zones) this event needs, in the order a guest meets them. ${RULES}\n\nBrief (JSON): ${briefFor()}\n\nReply with only JSON: {"spaces":[{"name":"","purpose":"one line","layout":"one of: ${LAYOUT_NAMES.join(' | ')}","cap":"number of people"}]} with 4 to 9 spaces.`, note, sug);
+      const res = await ask({ task: 'spaces', input: { brief: briefObj() }, prompt: `You are an experienced event producer and spatial designer. Suggest the spaces (rooms or zones) this event needs, in the order a guest meets them. ${RULES}\n\nBrief (JSON): ${briefFor()}\n\nReply with only JSON: {"spaces":[{"name":"","purpose":"one line","layout":"one of: ${LAYOUT_NAMES.join(' | ')}","cap":"number of people"}]} with 4 to 9 spaces.` }, note, sug);
       const got = res ? rowsOf(res.spaces, ROW.space, 30).filter(r => r.name) : []; if (!got.length && res) { note.textContent = 'The answer came back in the wrong shape. Try again.'; note.classList.add('err'); }
       if (got.length) { const apply = () => { S.spaces = got; changed(); }; if (S.spaces.some(r => r.name.trim())) { conf.innerHTML = ''; conf.append(replaceConfirm('spaces', apply)); } else { apply(); render(); } }
     });
@@ -597,7 +599,7 @@
     const applyTpl = () => { S.programme.rows = t.prog.map(([time, title, space, who]) => ({ time, title, space, who })); changed(); };
     const tplBtn = t ? h('button', { type: 'button', class: 'tpl', text: 'Start from the template', onclick: () => { if (S.programme.rows.some(r => r.title.trim())) { conf.innerHTML = ''; conf.append(replaceConfirm('programme', applyTpl)); } else { applyTpl(); render(); } } }) : null;
     const sug = aiBtn('Draft a run of show', async () => {
-      const res = await ask(`You are an experienced show caller and event producer. Draft a realistic run of show for this event, using only these spaces: ${JSON.stringify(S.spaces.map(s => s.name).filter(Boolean))}. ${RULES}\n\nBrief (JSON): ${briefFor()}\n\nReply with only JSON: {"programme":[{"time":"HH:MM","title":"","space":"one of the spaces","who":"role"}]} with 6 to 12 items in time order.`, note, sug);
+      const res = await ask({ task: 'programme', input: { brief: briefObj(), spaceNames: S.spaces.map(s => s.name).filter(Boolean) }, prompt: `You are an experienced show caller and event producer. Draft a realistic run of show for this event, using only these spaces: ${JSON.stringify(S.spaces.map(s => s.name).filter(Boolean))}. ${RULES}\n\nBrief (JSON): ${briefFor()}\n\nReply with only JSON: {"programme":[{"time":"HH:MM","title":"","space":"one of the spaces","who":"role"}]} with 6 to 12 items in time order.` }, note, sug);
       const got = res ? rowsOf(res.programme, ROW.prog, 40).filter(r => r.title) : []; if (!got.length && res) { note.textContent = 'The answer came back in the wrong shape. Try again.'; note.classList.add('err'); }
       if (got.length) { const apply = () => { S.programme.rows = got; changed(); }; if (S.programme.rows.some(r => r.title.trim())) { conf.innerHTML = ''; conf.append(replaceConfirm('programme', apply)); } else { apply(); render(); } }
     });
@@ -612,7 +614,7 @@
     upd();
     const tpl = t ? h('button', { type: 'button', class: 'tpl', text: 'Use the template mix', onclick: () => { S.people.segments = t.segs.map(([label, pct]) => ({ label, pct: String(pct) })); changed(); render(); } }) : null;
     const sug = aiBtn('Suggest the audience mix', async () => {
-      const res = await ask(`Estimate the audience mix for this event as 3 to 6 groups that add up to 100%. ${RULES}\n\nBrief (JSON): ${briefFor()}\n\nReply with only JSON: {"segments":[{"label":"","pct":0}]}`, note, sug);
+      const res = await ask({ task: 'segments', input: { brief: briefObj() }, prompt: `Estimate the audience mix for this event as 3 to 6 groups that add up to 100%. ${RULES}\n\nBrief (JSON): ${briefFor()}\n\nReply with only JSON: {"segments":[{"label":"","pct":0}]}` }, note, sug);
       const got = res ? rowsOf(res.segments, ROW.seg, 10).filter(r => r.label) : []; if (got.length) { S.people.segments = got; changed(); render(); } else if (res) { note.textContent = 'The answer came back in the wrong shape. Try again.'; note.classList.add('err'); }
     });
     const hosts = rows('people.hosts', [{ k: 'name', label: 'Name', ph: 'Full name', w: '1.2fr' }, { k: 'role', label: 'Role', ph: 'e.g. Host, performer, speaker', w: '1.2fr' }, { k: 'consent', label: 'Can we show them?', ph: 'Consent', w: '1fr', opts: ['', 'Name and likeness', 'Name only', 'Not yet'] }], 'Add a person', () => ({ name: '', role: '', consent: '' }));
@@ -692,7 +694,7 @@
         h('div', null, h('div', { class: 'st mono', text: f }), h('div', { class: 'sm', text: d })), h('span', { class: 'tag ' + (on ? 'g' : 'a'), text: on ? 'added' : 'to add' })); }));
     const names = FOLDERS.map(f => f[0]).join('\n');
     return [
-      field('Upload files', uploader(), { opt: 1, help: 'Floor plans, photos, logos, programmes, brochures. Up to 20 MB each. Large videos go in the shared folder.' }),
+      field('Upload files', uploader(), { opt: 1, help: 'Floor plans, photos, logos, programmes, brochures. Up to 10 MB each. Large videos go in the shared folder.' }),
       field('Shared folder link', text('files.drive', 'https://drive.google.com/drive/folders/…', 'url'), { need: tw && !score(S).c.find(x => x.label.startsWith('Shared folder')).ok, opt: !tw, help: 'Share the folder itself, not a short link (shortened links often can’t be opened). Give view access to the build team.' }),
       field('Folder structure', h('div', { class: 'rows' }, h('div', { class: 'tools' }, h('button', { type: 'button', class: 'tpl', text: 'Copy folder names', onclick: () => copy(names, 'Folder names copied') })), checklist), { opt: 1, help: 'Create these folders and tick each one once its files are in. Fixed names let the build team find everything without asking.' }),
       tw ? field('Recordings', chips('files.recordings', ['All sessions', 'Some sessions', 'None', 'Not applicable'], false, () => render()), { need: !S.files.recordings, help: 'Name each file by space and moment, e.g. MainStage_Opening.mp4, so it plays in the right place.' }) : null,
@@ -704,7 +706,7 @@
   const typeFor = (f) => { const e = (f.name.split('.').pop() || '').toLowerCase(); if (TEXT_TYPES[e]) return TEXT_TYPES[e]; if (e === 'svg') return 'image/svg+xml'; if (e === 'pdf') return 'application/pdf'; return f.type || undefined; };
   const fmtSize = (b) => b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
   async function uploadFile(file, cat) {
-    const lim = /svg/.test(file.type) ? 2e6 : 20e6;
+    const lim = /svg/.test(file.type) ? 2e6 : 10e6; // EA-SYS: 10 MB, the server's limit
     if (file.size > lim) throw { code: 'too_big', message: `${file.name} is ${fmtSize(file.size)}. The limit is ${fmtSize(lim)}; put it in the shared folder instead.` };
     const r = await Platform.upload(file, typeFor(file));
     const item = { id: r.id, name: file.name.slice(0, 120), size: r.sizeBytes || file.size, type: r.contentType || file.type, cat, at: Date.now() };
@@ -896,7 +898,7 @@
       }
       if (!aiOn()) { closeQF(); render(); toast('Saved as notes for the build team.'); return; }
       status.textContent = 'Reading and sorting…';
-      const res = await Platform.aiJSON(qfPrompt(words, docText, qf.file && qf.file.name, images.length), { tier: (words.length + docText.length) > 4000 || images.length ? 'default' : 'quick', images });
+      const res = await Platform.aiJSON({ task: 'quickfill', input: { words: words.slice(0, 20000), docText: docText.slice(0, 60000), fileName: (qf.file && qf.file.name) || '' }, prompt: qfPrompt(words, docText, qf.file && qf.file.name, images.length) }, { tier: (words.length + docText.length) > 4000 || images.length ? 'default' : 'quick', images });
       qf.items = buildProposals(res || {});
       if (!qf.items.length) { status.textContent = 'Nothing new was found to fill in. Your words were saved as notes.'; btn.disabled = false; return; }
       drawQF();

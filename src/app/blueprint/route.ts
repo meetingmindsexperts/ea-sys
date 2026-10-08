@@ -2,30 +2,31 @@
  * GET /blueprint: the Event Blueprint page (docs/EVENT_BLUEPRINT_PLAN.md §4.1).
  *
  * Served as the vendor built it (vendor/event-blueprint, generated into
- * page-html.generated.ts by scripts/blueprint-build.mjs), outside the
+ * page-html.generated.json by scripts/blueprint-build.mjs), outside the
  * dashboard shell and on our own origin, so the session cookie carries to
  * `/api/blueprint/*`. One script is injected before the page's own:
  * `window.EVENT_BLUEPRINT_BACKEND`, which switches the vendor adapter
  * (platform.js) into its API mode.
  *
- * AI stays off (`ai: false`) until the server owns the prompts (plan §4.6,
- * step 4): the vendor contract would forward any prompt the browser wrote.
+ * AI is on: the page names a task and the server builds the prompt
+ * (POST /api/blueprint/ai/json, plan §4.6). `images` lets quick fill read a
+ * picture, which the server checks from its bytes.
  */
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 import { blueprintGuard } from "@/lib/blueprint/route-guard";
-import { BLUEPRINT_PAGE_HTML_BASE64 } from "@/lib/blueprint/page-html.generated";
+import blueprintPage from "@/lib/blueprint/page-html.generated.json";
 
 const ROUTE = "blueprint:page";
 
-const BACKEND = { api: "/api/blueprint", ai: false, files: true };
+const BACKEND = { api: "/api/blueprint", ai: true, images: true, files: true };
 
 const PAGE =
   '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
   '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
   "<style>body{margin:0}[hidden]{display:none!important}</style></head><body>" +
   `<script>window.EVENT_BLUEPRINT_BACKEND=${JSON.stringify(BACKEND)};</script>` +
-  Buffer.from(BLUEPRINT_PAGE_HTML_BASE64, "base64").toString("utf8") +
+  blueprintPage.html +
   "</body></html>";
 
 const MESSAGES: Record<number, string> = {
