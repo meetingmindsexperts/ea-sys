@@ -548,4 +548,23 @@ per event (D6), report inbox (D7).
   half-width, a breadth-first walk). The Venue tab draws it (SVG) with the
   verdict; saving runs the same check. 3,500 random room lists: all walkable,
   all at capacity.
+  **Step 3 built: the 3D venue builds from the layout.** A venue is served
+  when its slug is in `VENUE_EVENT_SLUGS` (EHC's hand-built preset, unchanged)
+  or when `VENUE_MODULE_ENABLED` is on, its rooms are saved and the organiser
+  switched "Open to staff" on (`settings.venue.open`; refused with no saved
+  rooms). Saved rooms win: the page generates the layout, re-checks it
+  walkable on every load (503 if not) and sends it as `window.EHC_LAYOUT`,
+  with the event code and organisation as `short` and `organiser`
+  (`src/lib/venue/event-venue.ts`). In the vendor, EHC's rooms gained a
+  `kind` and every one of the ~35 references to EHC's room ids now keys on
+  kind (agenda, queues, applause, audio, team screens, device check, offline
+  answers), so a generated venue's ids are free. `world.js` builds EHC's
+  hand-placed rooms or the layout's items with the same primitives; the start
+  sheet lists the venue's own rooms. The AI instructions describe a generated
+  venue's rooms, organiser and specialty. Tests: 7 generated fixtures
+  (`npm run venue:fixtures`) walked by a new vendor suite (random walk, wall
+  push, every doorway both ways, every room to every room, camera, every
+  hotspot opened, the start sheet). Verified on the production build: BHS2026
+  with the Congress template and a renamed hall, all ten rooms entered at
+  120 fps, a live AI reply naming the renamed hall, zero console messages.
 

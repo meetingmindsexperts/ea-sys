@@ -62,3 +62,27 @@ export async function saveVenueRooms(c: Caller, raw: unknown, version: number): 
   apiLogger.info({ msg: "venue-rooms:saved", ...ctx, rooms: saved.rooms.length });
   return { ok: true, saved };
 }
+
+export type OpenVenueResult = { ok: true; open: boolean } | { ok: false; code: "NO_ROOMS"; message: string };
+
+/** The event team opens the generated venue to staff, or closes it. Opening needs saved rooms. */
+export async function setVenueOpen(c: Caller, open: boolean): Promise<OpenVenueResult> {
+  const ctx = { organizationId: c.organizationId, eventId: c.eventId, userId: c.userId, open };
+  class NoRooms extends Error {}
+  try {
+    await runWithTenant(c.organizationId, () =>
+      updateEventSettings(c.eventId, (cur) => {
+        if (open && !readVenueRooms(cur)) throw new NoRooms();
+        const venue = cur.venue && typeof cur.venue === "object" ? (cur.venue as Record<string, unknown>) : {};
+        return { ...cur, venue: { ...venue, open } };
+      }),
+    );
+  } catch (err) {
+    if (!(err instanceof NoRooms)) throw err;
+    apiLogger.warn({ msg: "venue-rooms:refused", code: "NO_ROOMS", ...ctx });
+    return { ok: false, code: "NO_ROOMS", message: "Save the rooms before opening the venue" };
+  }
+  apiLogger.info({ msg: "venue-rooms:open-changed", ...ctx });
+  return { ok: true, open };
+}
+

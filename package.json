@@ -45,7 +45,8 @@
     "db:local:setup": "tsx prisma/seed-local-cancel-scenarios.ts",
     "verify:cancel": "tsx prisma/seed-local-cancel-scenarios.ts && tsx prisma/verify-cancel-financials.ts",
     "blueprint:build": "node scripts/blueprint-build.mjs",
-    "venue:build": "node scripts/venue-build.mjs"
+    "venue:build": "node scripts/venue-build.mjs",
+    "venue:fixtures": "tsx --tsconfig tsconfig.json scripts/venue-layout-fixtures.ts"
   },
   "prisma": {
     "schema": "prisma"

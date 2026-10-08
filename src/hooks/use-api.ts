@@ -3190,6 +3190,9 @@ export function useUpdateSponsors(eventId: string) {
 export interface VenueRoomsData {
   rooms: VenueRoom[] | null;
   version: number;
+  /** The generated venue is open to staff (only with saved rooms). */
+  open?: boolean;
+  slug?: string;
 }
 
 export function useVenueRooms(eventId: string) {
@@ -3209,7 +3212,20 @@ export function useSaveVenueRooms(eventId: string) {
         body: JSON.stringify(body),
         headers: { "Content-Type": "application/json" },
       }),
-    onSuccess: (data) => queryClient.setQueryData(queryKeys.venueRooms(eventId), data),
+    onSuccess: (data) => queryClient.setQueryData<VenueRoomsData>(queryKeys.venueRooms(eventId), (cur) => ({ ...cur, ...data })),
+  });
+}
+
+export function useSetVenueOpen(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (open: boolean) =>
+      fetchApi<{ open: boolean }>(`/api/events/${eventId}/venue`, {
+        method: "PUT",
+        body: JSON.stringify({ open }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: ({ open }) => queryClient.setQueryData<VenueRoomsData>(queryKeys.venueRooms(eventId), (cur) => (cur ? { ...cur, open } : cur)),
   });
 }
 

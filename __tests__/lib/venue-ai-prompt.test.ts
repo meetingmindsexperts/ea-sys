@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import vocab from "@/lib/venue/persona-vocab.generated.json";
+import { TEMPLATES } from "@/lib/venue/rooms";
 import { buildInstructions, checkGreeting, checkPersona, cleanTurns, FLOOR_GREETING, greetingFor, MAX_TURN_CHARS } from "@/lib/venue/ai-prompt";
 import { extractVocab } from "../../scripts/venue-vocab.mjs";
 
@@ -100,3 +101,22 @@ describe("the vendor's own wording", () => {
 function abilitiesHasFloorGreeting() {
   return readFileSync(path.join(SRC, "abilities.js"), "utf8").includes(`greet: '${FLOOR_GREETING}'`);
 }
+
+describe("a generated venue", () => {
+  it("describes the event's own building, organiser and subject, and points only at its rooms", async () => {
+    const { generateLayout } = await import("@/lib/venue/layout");
+    const { describeVenue } = await import("@/lib/venue/ai-prompt");
+    const layout = generateLayout(TEMPLATES.summit.rooms, { eventName: "Summit" });
+    expect(describeVenue(layout)).toBe(
+      "Venue you know: Foyer is the entrance, with registration and information desks; a main corridor runs from it to Main Stage (the main stage) at the far end. Along the left of the corridor: Breakout 1 (parallel sessions), Breakout 2 (parallel sessions). Along the right: Lounge (a coffee bar and seats).",
+    );
+    const per = checkPersona(delegate)!;
+    const text = buildInstructions(per, { layout, event: { name: "Summit 2027", date: "1 May 2027", venue: "Dubai", organiser: "MM Group", specialty: "Cardiology" }, zone: "breakout-1", pose: "sit", role: "guest", greeting: "Hi" });
+    expect(text).toContain("organised by MM Group");
+    expect(text).toContain("seated in the Breakout 1");
+    expect(text).toContain("General, educational Cardiology conversation is fine");
+    expect(text).toContain("[go: Y] where Y is one of foyer, breakout-1, breakout-2, lounge, plenary.");
+    expect(text).not.toMatch(/Emirates Society|Grand Foyer|hanging disc|haematology conversation/);
+  });
+});
+

@@ -149,6 +149,12 @@ export function readVenueRooms(settings: unknown): StoredVenueRooms | null {
   return { rooms: rooms.data, updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : 0, updatedBy: typeof s.updatedBy === "string" ? s.updatedBy : "" };
 }
 
+/** The event team opened the generated venue to staff (`Event.settings.venue.open`). */
+export function readVenueOpen(settings: unknown): boolean {
+  const venue = settings && typeof settings === "object" ? (settings as Record<string, unknown>).venue : null;
+  return !!venue && typeof venue === "object" && (venue as Record<string, unknown>).open === true;
+}
+
 /** A room id from its name, unique within the list. */
 export function roomIdFor(name: string, taken: Iterable<string>): string {
   const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "room";

@@ -157,18 +157,20 @@
   function openInfo(h) {
     audio.ui();
     $('ik').textContent = (zone ? zone.name : '') + ' · ' + EVENT.venue; $('it').textContent = h.title; $('ib').textContent = h.body;
-    const tags = h.kind === 'screen' ? [['Recording · to link', 1], ['Track · from agenda', 1], ['Spatial audio · ready', 0]] : /booth|platinum/.test(h.id) && !/Society/.test(h.title) ? [['Sponsor · to link', 1], ['Artwork · to supply', 1]] : /poster/.test(h.id) ? [['Abstracts · to link', 1]] : [];
+    const tags = h.kind === 'screen' ? [['Recording · to link', 1], ['Track · from agenda', 1], ['Spatial audio · ready', 0]] : (/booth|platinum/.test(h.id) || h.kind === 'stand') && !/Society/.test(h.title) ? [['Sponsor · to link', 1], ['Artwork · to supply', 1]] : /poster/.test(h.id) ? [['Abstracts · to link', 1]] : [];
     $('itags').innerHTML = ''; for (const [t, w] of tags) { const s = document.createElement('span'); s.className = 'tag' + (w ? ' warn' : ''); s.textContent = t; $('itags').appendChild(s); }
     if (team) { team.event('open', h.id); const si = team.screenForHotspot(h); let sb = $('isound'); if (sb) sb.remove(); if (si >= 0) { sb = document.createElement('button'); sb.id = 'isound'; sb.className = 'ghost'; const lab = () => { const cfg = team.videoFor(si), v = cfg && team.videos[cfg.url]; sb.textContent = v && v.sound ? 'Mute the recording' : 'Play with sound'; }; lab(); sb.addEventListener('click', () => { team.toggleSound(si); lab(); }); $('iclose').before(sb); } }
     $('info').hidden = false; paused = true; input.keys.clear(); $('iclose').focus();
   }
   function openAgenda() {
     const L = $('alist'); L.innerHTML = '';
+    // EA-SYS: a generated venue's rooms are described by what they are for (their ids are the organisers').
+    const byKind = { foyer: 'Registration and information desks', plenary: 'Main stage', hall: 'Parallel sessions', workshop: 'Hands-on sessions', posters: 'Abstract posters', exhibition: 'Partner stands', lounge: 'Coffee bar and meeting seats', corridor: 'To every room' };
     const status = { foyer: 'Registration and information desks', plenary: 'Main stage · recordings to link', posters: '34 poster slots · abstracts to link', hallA: 'Parallel track · name and recordings to link', hallB: 'Parallel track · name and recordings to link', hallC: 'Parallel track · name and recordings to link', workshop: 'Hands-on sessions · titles to link', promenade: 'Corridor to the lounge and exhibition', lounge: 'Coffee bar and meeting seats', expo: 'Host society booth · 7 partner stands to link' };
     for (const Z of ZONES) {
       const row = document.createElement('div'); row.className = 'arow' + (zone && zone.id === Z.id ? ' cur' : '');
       row.innerHTML = `<div><div class="t"></div><div class="d"></div></div><button class="go">Go</button>`;
-      row.querySelector('.t').textContent = Z.name; row.querySelector('.d').textContent = status[Z.id];
+      row.querySelector('.t').textContent = Z.name; row.querySelector('.d').textContent = (LAYOUT ? byKind[Z.kind] : status[Z.id]) || byKind[Z.kind] || '';
       row.querySelector('.go').addEventListener('click', () => { closeSheets(); teleport(Z.id); });
       if (abil) { const wb = document.createElement('button'); wb.className = 'go walk'; wb.textContent = 'Walk'; wb.addEventListener('click', () => { closeSheets(); if (!abil.walkToZone(Z)) teleport(Z.id); }); row.querySelector('.go').before(wb); }
       L.appendChild(row);
@@ -234,7 +236,7 @@
     const ls = W.lights.map(l => ({ l, d: Math.hypot(l.p[0] - cam.tgt[0], l.p[2] - cam.tgt[2]) - l.r * 0.35 })).sort((a, b) => a.d - b.d).slice(0, Q.lights);
     lightBuf.lp.fill(0); lightBuf.lc.fill(0);
     ls.forEach(({ l }, i) => { lightBuf.lp.set([l.p[0], l.p[1], l.p[2], l.r], i * 4); lightBuf.lc.set([l.c[0], l.c[1], l.c[2], l.i], i * 4); });
-    const inBall = zone && zone.id === 'plenary';
+    const inBall = zone && zone.kind === 'plenary';
     lastVP = M4.mul(proj, view);
     return { vp: lastVP, cam: cam.pos, sky: inBall ? [0.3, 0.24, 0.24] : [0.38, 0.35, 0.33], gnd: [0.13, 0.1, 0.09], keyDir: [-0.3, -0.9, -0.3], keyCol: [0.2, 0.18, 0.16], nl: ls.length, lp: lightBuf.lp, lc: lightBuf.lc, fog: [0.12, 0.09, 0.09], fogD: 0.006, expo: 1.05 };
   }
@@ -322,7 +324,7 @@
     // nearest interactable
     updateNear();
     let crowdNear = 0; for (const p of crowd.walkers) if (Math.hypot(p.x - player.x, p.z - player.z) < 10) crowdNear++;
-    audio.update(dt, zone ? zone.id : 'foyer', Math.min(1, crowdNear / 6));
+    audio.update(dt, zone ? zone.kind || zone.id : 'foyer', Math.min(1, crowdNear / 6)); // EA-SYS: by what the room is for
     updateScreens(dt);
     stats.simMs = performance.now() - s0;
     render();

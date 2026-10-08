@@ -19,6 +19,7 @@ import { rateLimited } from "@/lib/api-errors";
 import { resolveTimezone } from "@/lib/event-time";
 import { venueGuard } from "@/lib/venue/route-guard";
 import { venueDateRange } from "@/lib/venue/date-range";
+import { eventLayout } from "@/lib/venue/event-venue";
 import { MAX_TURNS, checkGreeting, checkPersona, cleanTurns } from "@/lib/venue/ai-prompt";
 import { VENUE_AI_PER_EVENT_DAY, VENUE_AI_PER_PERSON_HOUR, claimReply, readVenueAi, streamVenueReply, venueDay } from "@/services/venue-ai-service";
 
@@ -73,8 +74,15 @@ export async function POST(req: Request, { params }: Params) {
         apiLogger.warn({ msg: `${ROUTE}:event-daily-cap`, ...ctx, day, cap: VENUE_AI_PER_EVENT_DAY });
         return NextResponse.json({ error: "Today's AI replies for this event are used up", code: "AI_LIMIT_EVENT" }, { status: 429 });
       }
+      // A generated venue: the instructions describe its own rooms, organiser and subject (phase 6).
+      const built = eventLayout(e);
+      const layout = built.kind === "generated" ? built.layout : undefined;
       const scene = {
-        event: { name: e.name, date: venueDateRange(e.startDate, e.endDate, tz), venue: e.venue || "the venue" },
+        layout,
+        event: {
+          name: e.name, date: venueDateRange(e.startDate, e.endDate, tz), venue: e.venue || "the venue",
+          ...(layout && { organiser: e.organization?.name ?? undefined, specialty: e.specialty ?? undefined }),
+        },
         zone: body.zone ?? "",
         pose: body.pose ?? "",
         role: body.role ?? "",

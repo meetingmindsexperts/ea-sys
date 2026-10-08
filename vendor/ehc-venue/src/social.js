@@ -24,7 +24,7 @@ function makePersona(p, idx) {
   else if (role === 'barista') { title = 'Barista'; org = 'the hotel catering team'; kind = 'staff'; }
   else if (role === 'tech') { title = 'AV technician'; org = 'the event production crew'; kind = 'staff'; }
   else if (role === 'exhibitor') {
-    if (p.x > 59 && p.z > 4 && p.z < 13) { title = 'Society volunteer'; org = 'the Emirates Society of Haematology booth'; kind = 'society'; }
+    if (!LAYOUT && p.x > 59 && p.z > 4 && p.z < 13) { title = 'Society volunteer'; org = 'the Emirates Society of Haematology booth'; kind = 'society'; }
     else { title = 'Partner stand representative'; org = 'a partner company (name not yet confirmed in this preview)'; kind = 'exhibitor'; }
   } else if (role === 'speaker') { const t = pick(DELEGATE_TITLES.filter(d => d[1])); title = t[0] + ' and invited speaker'; dr = true; org = pick(PLACES) + ' in ' + pick(CITIES); kind = 'speaker'; }
   else { const t = pick(DELEGATE_TITLES); title = t[0]; dr = !!t[1]; org = pick(PLACES) + ' in ' + pick(CITIES); }
@@ -330,8 +330,10 @@ class Social {
     if (!shown) { shown = '…'; row.textContent = shown; }
     T.turns.push({ role: 'assistant', content: text2.replace(/\[(gesture|go)\s*:[^\]]*\]/gi, '').trim() || '…' });
     if (gest && GEST_DUR[gest]) { npc.gesture = gest; npc.gT = this.ctx.time(); } else { npc.gesture = 'nod'; npc.gT = this.ctx.time(); }
-    if (go && ZONE_NAMES[go]) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'gobtn'; b.textContent = 'Take me to ' + ZONE_NAMES[go];
+    // EA-SYS: in a generated venue the rooms are the event's own, so the name comes from ZONES.
+    const goName = go && (LAYOUT ? (ZONES.find((z) => z.id === go) || {}).name : ZONE_NAMES[go]);
+    if (goName) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'gobtn'; b.textContent = 'Take me to ' + goName;
       b.addEventListener('click', () => { this.close(); this.ctx.teleport(go); });
       row.parentNode.appendChild(b); $('cLog').scrollTop = $('cLog').scrollHeight;
       if (!gest) { npc.gesture = 'point'; npc.gT = this.ctx.time(); }
@@ -349,8 +351,23 @@ class Social {
       `After your sentences, on a new line, add exactly one tag [gesture: X] where X is one of nod, wave, laugh, think, point, shake, none. If you suggest they go somewhere, also add [go: Y] where Y is one of foyer, plenary, posters, hallA, hallB, hallC, workshop, lounge, expo.`,
     ].join('\n\n');
   }
+  // EA-SYS (phase 6): the pre-written answers for a generated venue, naming its own rooms. Null for
+  // anything that is not about where things are, so the persona's own lines below still answer.
+  layoutAnswer(q) {
+    const s = q.toLowerCase(), room = (kind) => zoneOfKind(kind), corridor = 'off the main corridor';
+    const at = (kind, text, gesture = 'point') => { const Z = room(kind); return Z ? { text: text(Z.name), go: Z.id, gesture } : null; };
+    if (/coffee|tea|drink|قهوة/.test(s)) return at('lounge', (n) => `The coffee bar is in the ${n}, ${corridor}.`) || { text: 'There’s no coffee bar in this venue, I’m afraid. The foyer is a good place to meet.', gesture: 'think' };
+    if (/poster|abstract/.test(s)) return at('posters', (n) => `The posters are in the ${n}, ${corridor}.`);
+    if (/exhib|booth|stand|sponsor|society/.test(s)) return at('exhibition', (n) => `The partner stands are in the ${n}, ${corridor}.`);
+    if (/plenary|main stage|keynote|opening|ballroom/.test(s)) return at('plenary', (n) => `The ${n} is at the far end of the main corridor.`);
+    if (/workshop/.test(s)) return at('workshop', (n) => `The ${n} is ${corridor}.`);
+    if (/programme|program|agenda|session|talk|track|speaker|hall/.test(s)) return { text: 'I don’t have the programme in front of me. Check the Venue guide or the information desk in the foyer.', go: (room('foyer') || {}).id, gesture: 'think' };
+    if (/regist|badge/.test(s)) return at('foyer', (n) => `Registration is the long desk in the ${n}, as you come in.`);
+    return null;
+  }
   scripted(per, npc, q) {
     const s = q.toLowerCase();
+    if (LAYOUT && !/[؀-ۿ]/.test(q)) { const a = this.layoutAnswer(q); if (a) return a; }
     if (/[؀-ۿ]/.test(q)) return { text: 'أهلاً وسهلاً! سعيد بلقائك في المؤتمر.', gesture: 'nod' };
     if (/coffee|tea|drink|قهوة/.test(s)) return { text: 'The coffee bar is in the Networking Lounge, through the East Promenade. There’s also a coffee point in the Exhibition Hall.', go: 'lounge', gesture: 'point' };
     if (/poster|abstract/.test(s)) return { text: 'The posters are in the gallery just off the foyer, on the left as you face the ballroom.', go: 'posters', gesture: 'point' };

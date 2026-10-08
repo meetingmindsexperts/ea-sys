@@ -428,8 +428,8 @@ function furnishExhibition(f: Frame, out: Out) {
       out.hotspots.push({ id: `stand-${n}`, x: r2(hx), z: r2(hz), r: 2.2, kind: "stand", prompt: `Visit Partner ${n}`, title: `Partner ${n}`, body: "This stand shows one of the event's sponsors from EA-SYS." });
     }
   }
-  const [hx, hz] = f.at(0, 1.8);
-  out.hotspots.push({ id, x: hx, z: hz, r: 4, kind: "info", prompt: "About the exhibition", title: f.zone.name, body: "The event's partners and exhibitors. Each stand shows a sponsor from EA-SYS." });
+  // No room-wide hotspot here: the first row's stand hotspots sit at the door, and walking up to the
+  // room's own would open a stand instead (found by the venue's hotspot walk, phase 6 step 3).
 }
 
 function furnishLounge(f: Frame, out: Out) {

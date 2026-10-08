@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Online venue: any event can be walked, built from its own rooms (October 8)
+
+- Once an event's rooms are saved, "Open to staff" on the Venue tab makes its
+  walkable venue live at `/e/<slug>/venue`, built from those rooms: the same
+  building as the floor plan, in 3D, with the event's own room names, code
+  and organisation. Closing it takes the page down again.
+- EHC's hand-built venue is unchanged and stays a preset for its event.
+- Queues, applause, room sound, the agenda, the team's screens and the AI
+  attendees' directions now follow what a room is for, not EHC's room names,
+  so they work in any generated venue. AI attendees describe the event's own
+  rooms.
+- The page is re-checked walkable every time it opens, and refuses (503)
+  rather than serve a venue someone could get stuck in.
+
 ### Online venue: a floor plan generated from the rooms (October 8)
 
 - The Venue tab draws the building its rooms make, live as they are edited:

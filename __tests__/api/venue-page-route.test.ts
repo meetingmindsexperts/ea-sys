@@ -75,4 +75,29 @@ describe("GET /e/:slug/venue", () => {
     vi.stubEnv("VENUE_EVENT_SLUGS", "");
     expect((await open()).status).toBe(404);
   });
+
+  it("sends a generated venue's layout and the event's own names when its rooms are saved and open", async () => {
+    vi.stubEnv("VENUE_EVENT_SLUGS", "");
+    vi.stubEnv("VENUE_MODULE_ENABLED", "true");
+    const rooms = { list: [{ id: "foyer", name: "Foyer", kind: "foyer", capacity: 200 }, { id: "plenary", name: "Main Hall", kind: "plenary", capacity: 300 }], updatedAt: 1, updatedBy: "u" };
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, slug: "summit27", code: "SUM27", organization: { name: "MM Group" }, settings: { venue: { rooms, open: true } } });
+    const res = await open();
+    expect(res.status).toBe(200);
+    const layout = JSON.parse(res.body.match(/window\.EHC_LAYOUT=(.*?);window\.EHC_EVENT=/)![1]);
+    expect(layout.zones.map((z: { id: string }) => z.id)).toEqual(["foyer", "corridor", "plenary"]);
+    const ev = JSON.parse(res.body.match(/window\.EHC_EVENT=(.*?);window\.EHC_VENUE=/)![1]);
+    expect(ev).toMatchObject({ short: "SUM27", organiser: "MM Group" });
+  });
+
+  it("keeps EHC's hand-built rooms (no layout) for a listed event with no saved rooms", async () => {
+    const res = await open();
+    expect(res.body).toContain("window.EHC_LAYOUT=null;");
+  });
+
+  it("is not found while saved rooms are not opened", async () => {
+    vi.stubEnv("VENUE_EVENT_SLUGS", "");
+    vi.stubEnv("VENUE_MODULE_ENABLED", "true");
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { venue: { rooms: { list: [{ id: "foyer", name: "Foyer", kind: "foyer", capacity: 200 }], updatedAt: 1 } } } });
+    expect((await open()).status).toBe(404);
+  });
 });

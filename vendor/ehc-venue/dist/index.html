@@ -261,8 +261,8 @@ body.chatting .abar, body.chatting .modepill { display: none; }
         <div class="facts"><span></span><span></span><span>Walkable venue preview</span></div>
       </div>
       <div class="start-body">
-        <p>Walk the conference as a delegate: registration, the plenary ballroom, three parallel halls, a workshop room, the poster gallery, the networking lounge and the exhibition. Walk up to anyone and talk to them.<!-- EA-SYS: "colleagues who open this page appear beside you" returns with live colleagues (venue phase C) --></p>
-        <p class="small">The room layout is an interpretation. Track names, speakers, sponsors and session recordings are placeholders until the official agenda and recordings folder are supplied.</p>
+        <p id="startIntro">Walk the conference as a delegate: registration, the plenary ballroom, three parallel halls, a workshop room, the poster gallery, the networking lounge and the exhibition. Walk up to anyone and talk to them.<!-- EA-SYS: "colleagues who open this page appear beside you" returns with live colleagues (venue phase C) --></p>
+        <p class="small" id="startNote">The room layout is an interpretation. Track names, speakers, sponsors and session recordings are placeholders until the official agenda and recordings folder are supplied.</p>
         <div class="keys" id="keys"><div><b>WASD</b>Move</div><div><b>Shift</b>Run</div><div><b>Space</b>Jump</div><div><b>Drag</b>Look around</div><div><b>E</b>Talk · interact</div><div><b>Enter</b>Say something</div><div><b>1</b>Wave</div></div>
         <p class="small consent">To help organisers and sponsors, visits to stands and areas are counted and kept with your sign-in. Sponsors see totals only, unless you tick the box. You can change this later in the Venue guide. <label class="optin"><input type="checkbox" id="shareName"> Share my name with sponsors whose stands I visit</label></p>
         <div class="actions"><button class="ghost" id="bCheck" type="button" style="margin-right:auto">Check this device</button><span class="loading" id="loading" style="align-self:center">Building the venue…</span><button class="primary" id="enter" disabled>Enter the venue</button></div>
@@ -796,19 +796,41 @@ const EVENT = {
   set('#agenda .card > .k', EVENT.name + ' · ' + EVENT.date + ' · ' + EVENT.venue);
 })();
 
-const ZONES = [
-  { id: 'foyer', name: 'Grand Foyer', sub: 'Registration · Welcome', rect: [-30, 0, 30, 30], ceil: 7, spawn: [0, 26.5, Math.PI], floor: 'marble' },
-  { id: 'plenary', name: 'Plenary Ballroom', sub: 'Main stage', rect: [-22, -44, 22, 0], ceil: 9, spawn: [0, -2.5, Math.PI], floor: 'carpetG' },
-  { id: 'posters', name: 'Poster Gallery', sub: 'Abstracts · E-posters', rect: [-30, -44, -22, 0], ceil: 5.5, spawn: [-24.2, -9, Math.PI], floor: 'wood' },
-  { id: 'hallA', name: 'Hall A', sub: 'Parallel sessions', rect: [-56, 12, -30, 30], ceil: 6, spawn: [-33.5, 16.5, -Math.PI / 2], floor: 'carpet', tint: [0.3, 0.5, 0.52] },
-  { id: 'hallB', name: 'Hall B', sub: 'Parallel sessions', rect: [-56, -6, -30, 12], ceil: 6, spawn: [-33.5, 1.5, -Math.PI / 2], floor: 'carpet', tint: [0.38, 0.4, 0.64] },
-  { id: 'hallC', name: 'Hall C', sub: 'Parallel sessions', rect: [-56, -24, -30, -6], ceil: 6, spawn: [-33.5, -19.5, -Math.PI / 2], floor: 'carpet', tint: [0.56, 0.34, 0.48] },
-  { id: 'workshop', name: 'Workshop Room', sub: 'Hands-on sessions', rect: [-56, -44, -30, -24], ceil: 5.5, spawn: [-32.8, -31.5, -Math.PI / 2], floor: 'carpet', tint: [0.7, 0.64, 0.56] },
-  { id: 'promenade', name: 'East Promenade', sub: 'Link to lounge & exhibition', rect: [22, -20, 30, 0], ceil: 5.5, spawn: [26, -2, Math.PI], floor: 'marble' },
-  { id: 'lounge', name: 'Networking Lounge', sub: 'Coffee · Meetings', rect: [22, -44, 46, -20], ceil: 5.5, spawn: [27, -22.5, Math.PI], floor: 'wood' },
-  { id: 'expo', name: 'Exhibition Hall', sub: 'Partners · Host society', rect: [30, -20, 70, 30], ceil: 7, spawn: [33, 15, Math.PI / 2], floor: 'carpet', tint: [0.42, 0.4, 0.42] },
+// EA-SYS: `kind` says what a room is for, so the rest of the venue can key on it; a generated venue
+// (window.EHC_LAYOUT, phase 6) replaces these rooms, so ZONES and WORLD_BOUNDS are `let`.
+let ZONES = [
+  { id: 'foyer', kind: 'foyer', name: 'Grand Foyer', sub: 'Registration · Welcome', rect: [-30, 0, 30, 30], ceil: 7, spawn: [0, 26.5, Math.PI], floor: 'marble' },
+  { id: 'plenary', kind: 'plenary', name: 'Plenary Ballroom', sub: 'Main stage', rect: [-22, -44, 22, 0], ceil: 9, spawn: [0, -2.5, Math.PI], floor: 'carpetG' },
+  { id: 'posters', kind: 'posters', name: 'Poster Gallery', sub: 'Abstracts · E-posters', rect: [-30, -44, -22, 0], ceil: 5.5, spawn: [-24.2, -9, Math.PI], floor: 'wood' },
+  { id: 'hallA', kind: 'hall', name: 'Hall A', sub: 'Parallel sessions', rect: [-56, 12, -30, 30], ceil: 6, spawn: [-33.5, 16.5, -Math.PI / 2], floor: 'carpet', tint: [0.3, 0.5, 0.52] },
+  { id: 'hallB', kind: 'hall', name: 'Hall B', sub: 'Parallel sessions', rect: [-56, -6, -30, 12], ceil: 6, spawn: [-33.5, 1.5, -Math.PI / 2], floor: 'carpet', tint: [0.38, 0.4, 0.64] },
+  { id: 'hallC', kind: 'hall', name: 'Hall C', sub: 'Parallel sessions', rect: [-56, -24, -30, -6], ceil: 6, spawn: [-33.5, -19.5, -Math.PI / 2], floor: 'carpet', tint: [0.56, 0.34, 0.48] },
+  { id: 'workshop', kind: 'workshop', name: 'Workshop Room', sub: 'Hands-on sessions', rect: [-56, -44, -30, -24], ceil: 5.5, spawn: [-32.8, -31.5, -Math.PI / 2], floor: 'carpet', tint: [0.7, 0.64, 0.56] },
+  { id: 'promenade', kind: 'corridor', name: 'East Promenade', sub: 'Link to lounge & exhibition', rect: [22, -20, 30, 0], ceil: 5.5, spawn: [26, -2, Math.PI], floor: 'marble' },
+  { id: 'lounge', kind: 'lounge', name: 'Networking Lounge', sub: 'Coffee · Meetings', rect: [22, -44, 46, -20], ceil: 5.5, spawn: [27, -22.5, Math.PI], floor: 'wood' },
+  { id: 'expo', kind: 'exhibition', name: 'Exhibition Hall', sub: 'Partners · Host society', rect: [30, -20, 70, 30], ceil: 7, spawn: [33, 15, Math.PI / 2], floor: 'carpet', tint: [0.42, 0.4, 0.42] },
 ];
-const WORLD_BOUNDS = [-56, -44, 70, 30];
+let WORLD_BOUNDS = [-56, -44, 70, 30];
+// EA-SYS (phase 6): the event's own venue, generated by EA-SYS from its rooms (src/lib/venue/layout.ts).
+// Only the shape is checked here; EA-SYS checked it walkable before serving it.
+const LAYOUT = (() => {
+  const L = typeof window !== 'undefined' ? window.EHC_LAYOUT : null;
+  return L && L.v === 1 && Array.isArray(L.zones) && L.zones.length && Array.isArray(L.bounds) ? L : null;
+})();
+if (LAYOUT) {
+  ZONES = LAYOUT.zones.map((z) => ({ id: z.id, kind: z.kind, name: z.name, sub: z.sub, rect: z.rect, ceil: z.ceil, spawn: z.spawn, floor: z.floor, ...(z.tint ? { tint: z.tint } : {}) }));
+  WORLD_BOUNDS = LAYOUT.bounds;
+  // The start sheet's sentences describe EHC's rooms; a generated venue lists its own instead.
+  if (typeof document !== 'undefined') {
+    const names = ZONES.filter((z) => z.kind !== 'corridor').map((z) => z.name);
+    const list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
+    const intro = document.getElementById('startIntro'), note = document.getElementById('startNote');
+    if (intro) intro.textContent = 'Walk the event as a delegate: ' + list + '. Walk up to anyone and talk to them.';
+    if (note) note.textContent = 'The rooms are the event team\'s own list. Session titles, speakers and sponsors are placeholders until the agenda is supplied.';
+  }
+}
+/** The first room of a kind (a generated venue's ids are the organisers'), or null. */
+function zoneOfKind(kind) { return ZONES.find((z) => z.kind === kind) || null; }
 
 function zoneAt(x, z) {
   for (const Z of ZONES) { const r = Z.rect; if (x >= r[0] && x <= r[2] && z >= r[1] && z <= r[3]) return Z; }
@@ -910,16 +932,43 @@ function buildWorld(R, Q) {
     box(Z.floor, x0, -0.2, z0, x1, 0, z1, [t[0] * ft, t[1] * ft, t[2] * ft, 0]);
     bat('ceil').add(MESH.plane, (() => { const m = M4.ident(); M4.t(m, (x0 + x1) / 2, Z.ceil, (z0 + z1) / 2); M4.rx(m, Math.PI / 2); M4.s(m, x1 - x0, z1 - z0, 1); return m; })(), [1, 1, 1, 0], { mode: 'world', s: 1 / 3 });
     // ceiling light pattern + point lights
-    const sp = Z.id === 'plenary' ? 0 : 6.5;
+    const sp = Z.kind === 'plenary' ? 0 : 6.5;
     if (sp) for (let x = x0 + sp / 2; x < x1; x += sp) for (let z = z0 + sp / 2; z < z1; z += sp) {
-      if (Z.id === 'foyer' || Z.id === 'promenade' || Z.id === 'lounge') cyl('emis', x, Z.ceil - 0.04, z, 0.28, Z.ceil, [1, 0.92, 0.8, 1.2], { lo: true });
+      if (Z.kind === 'foyer' || Z.kind === 'corridor' || Z.kind === 'lounge') cyl('emis', x, Z.ceil - 0.04, z, 0.28, Z.ceil, [1, 0.92, 0.8, 1.2], { lo: true });
       else box('emis', x - 1.4, Z.ceil - 0.06, z - 0.12, x + 1.4, Z.ceil, z + 0.12, [1, 0.97, 0.92, 1.1]);
     }
     const ls = 9;
     for (let x = x0 + ls / 2; x < x1 + 0.1; x += ls) for (let z = z0 + ls / 2; z < z1 + 0.1; z += ls)
-      if (Z.id !== 'plenary') light(Math.min(x, x1 - 1), Z.ceil - 0.8, Math.min(z, z1 - 1), 13, [1, 0.88, 0.74], 1.05);
+      if (Z.kind !== 'plenary') light(Math.min(x, x1 - 1), Z.ceil - 0.8, Math.min(z, z1 - 1), 13, [1, 0.88, 0.74], 1.05);
   }
 
+  // event banners (EA-SYS: shared by EHC's rooms and generated venues; a banner stands at z = 0.6)
+  let bannerR = null;
+  const banner = (x) => {
+    const r = bannerR || (bannerR = A.alloc(220, 500)), x2 = A.x; x2.save(); x2.translate(r.x, r.y);
+    const g = x2.createLinearGradient(0, 0, 0, 500); g.addColorStop(0, '#6d1624'); g.addColorStop(1, '#2a0a12'); x2.fillStyle = g; x2.fillRect(0, 0, 220, 500);
+    x2.strokeStyle = 'rgba(200,164,106,.35)'; x2.lineWidth = 1.5; for (let k = 0; k < 7; k++) { x2.beginPath(); x2.arc(110, 520, 60 + k * 26, Math.PI, 0); x2.stroke(); }
+    // EA-SYS: the event's own name, wrapped to the banner (at most four lines, the type shrinking
+    // to fit), with a trailing year set large below it, instead of the words typed in by hand.
+    const words = EVENT.name.split(/\s+/).filter(Boolean), year = /^\d{4}$/.test(words[words.length - 1] || '') ? words.pop() : '';
+    let size = 44, lines = [];
+    for (; size >= 26; size -= 4) {
+      x2.font = `400 ${size}px ${FONT_DISPLAY}`; lines = []; let cur = '';
+      for (const w of words) { const t = cur ? cur + ' ' + w : w; if (x2.measureText(t).width <= 190) cur = t; else { if (cur) lines.push(cur); cur = w; } }
+      if (cur) lines.push(cur);
+      if (lines.length <= 4 && lines.every(l => x2.measureText(l).width <= 190)) break;
+    }
+    x2.fillStyle = '#c8a46a'; x2.font = `600 13px ${FONT_BODY}`; x2.letterSpacing = '3px'; x2.fillText((LAYOUT ? EVENT.short : 'ESH') + ' · ' + (year || '2026'), 22, 40); /* EA-SYS: a generated venue's banner names its own event */ x2.letterSpacing = '0px';
+    x2.fillStyle = '#f3ece4'; x2.font = `400 ${size}px ${FONT_DISPLAY}`; lines.slice(0, 4).forEach((l, i) => x2.fillText(l, 20, 110 + i * (size + 2)));
+    if (year) { x2.fillStyle = '#c8a46a'; x2.font = `400 64px ${FONT_DISPLAY}`; x2.fillText(year, 20, 300); }
+    x2.fillStyle = 'rgba(243,236,228,.8)'; x2.font = `500 15px ${FONT_BODY}`; x2.fillText(EVENT.date, 22, 350); x2.fillText(EVENT.venue, 22, 372);
+    x2.restore();
+    quad('signs', x, 3.0, 0.6, 2.2, 5, 0, [1, 1, 1, 0], { mode: 'rect', r: r.uv });
+    cyl('metal', x, 0, 0.6, 0.03, 5.6, [0.7, 0.58, 0.4, 0]); cyl('metal', x, 0, 0.5, 0.35, 0.04, [0.2, 0.2, 0.2, 0]);
+  };
+
+  // ===== EHC 2026: the hand-built venue, the preset when EA-SYS sends no layout =====
+  function buildEhc() {
   // --- walls
   const glassH = { glass: true, y0: 0, y1: 6.4 };
   wall('x', 30, -56, 70, 7, [{ a: -29, b: 29, ...glassH }]);                       // south façade (glass in foyer)
@@ -986,30 +1035,7 @@ function buildWorld(R, Q) {
   light(0, 4.2, 14, 9, [1, 0.45, 0.4], 1.1);
   hit('halo', 0, 14, 4.6, 'About this installation', 'Foyer installation (concept)', 'A suspended halo of 42 brass and garnet discs, a quiet nod to the red cell. This is a design proposal for the foyer, not something that was at the event.');
 
-  // event banners by the ballroom doors
-  let bannerR = null;
-  const banner = (x) => {
-    const r = bannerR || (bannerR = A.alloc(220, 500)), x2 = A.x; x2.save(); x2.translate(r.x, r.y);
-    const g = x2.createLinearGradient(0, 0, 0, 500); g.addColorStop(0, '#6d1624'); g.addColorStop(1, '#2a0a12'); x2.fillStyle = g; x2.fillRect(0, 0, 220, 500);
-    x2.strokeStyle = 'rgba(200,164,106,.35)'; x2.lineWidth = 1.5; for (let k = 0; k < 7; k++) { x2.beginPath(); x2.arc(110, 520, 60 + k * 26, Math.PI, 0); x2.stroke(); }
-    // EA-SYS: the event's own name, wrapped to the banner (at most four lines, the type shrinking
-    // to fit), with a trailing year set large below it, instead of the words typed in by hand.
-    const words = EVENT.name.split(/\s+/).filter(Boolean), year = /^\d{4}$/.test(words[words.length - 1] || '') ? words.pop() : '';
-    let size = 44, lines = [];
-    for (; size >= 26; size -= 4) {
-      x2.font = `400 ${size}px ${FONT_DISPLAY}`; lines = []; let cur = '';
-      for (const w of words) { const t = cur ? cur + ' ' + w : w; if (x2.measureText(t).width <= 190) cur = t; else { if (cur) lines.push(cur); cur = w; } }
-      if (cur) lines.push(cur);
-      if (lines.length <= 4 && lines.every(l => x2.measureText(l).width <= 190)) break;
-    }
-    x2.fillStyle = '#c8a46a'; x2.font = `600 13px ${FONT_BODY}`; x2.letterSpacing = '3px'; x2.fillText('ESH · ' + (year || '2026'), 22, 40); x2.letterSpacing = '0px';
-    x2.fillStyle = '#f3ece4'; x2.font = `400 ${size}px ${FONT_DISPLAY}`; lines.slice(0, 4).forEach((l, i) => x2.fillText(l, 20, 110 + i * (size + 2)));
-    if (year) { x2.fillStyle = '#c8a46a'; x2.font = `400 64px ${FONT_DISPLAY}`; x2.fillText(year, 20, 300); }
-    x2.fillStyle = 'rgba(243,236,228,.8)'; x2.font = `500 15px ${FONT_BODY}`; x2.fillText(EVENT.date, 22, 350); x2.fillText(EVENT.venue, 22, 372);
-    x2.restore();
-    quad('signs', x, 3.0, 0.6, 2.2, 5, 0, [1, 1, 1, 0], { mode: 'rect', r: r.uv });
-    cyl('metal', x, 0, 0.6, 0.03, 5.6, [0.7, 0.58, 0.4, 0]); cyl('metal', x, 0, 0.5, 0.35, 0.04, [0.2, 0.2, 0.2, 0]);
-  };
+  // event banners by the ballroom doors (banner() is defined above, shared with generated venues)
   banner(-6.6); banner(6.6);
   // door signs from the foyer side
   sign(0, 5.6, 0.18, 9, 1.4, 0, { kicker: 'Main stage', title: 'Plenary Ballroom', sub: 'Opening, keynotes and plenary sessions' });
@@ -1232,6 +1258,116 @@ function buildWorld(R, Q) {
   for (const [gx, gz] of [[-10, 8], [11, 25], [-21, 27], [21, 12], [9, 4]]) {
     for (let k = 0; k < 3; k++) { const a = k / 3 * Math.PI * 2 + gx; people.push({ x: gx + Math.cos(a) * 0.65, z: gz + Math.sin(a) * 0.65, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)), pose: k === 0 ? 'talk' : 'stand', role: 'guest' }); }
   }
+
+  return routes;
+  }
+
+  // ===== EA-SYS (phase 6): a venue generated from the event's rooms (src/lib/venue/layout.ts) =====
+  // The same primitives and finishes as EHC's rooms, placed from the layout's items. Coordinates,
+  // facings (yaw looks along (sin, cos)) and footprints come from EA-SYS, already checked walkable.
+  function buildLayout() {
+    const L = LAYOUT, [bx0, , bx1, bz1] = L.bounds;
+    for (const w of L.walls) wall(w.axis, w.k, w.a0, w.a1, w.h, w.opens || []);
+    quad('sky', (bx0 + bx1) / 2, 16, bz1 + 32, Math.max(230, (bx1 - bx0) * 4), 58, Math.PI, [1, 1, 1, 0], { mode: 'mesh' });
+    const zoneOf = (id) => ZONES.find((z) => z.id === id) || {};
+    const rectOf = (f) => ('r' in f ? [f.cx - f.r, f.cz - f.r, f.cx + f.r, f.cz + f.r] : [f.x0, f.z0, f.x1, f.z1]);
+    const dirOf = (yaw) => [Math.round(Math.sin(yaw)), Math.round(Math.cos(yaw))];
+    const gold = [0.82, 0.66, 0.4, 0], garnet = [0.5, 0.11, 0.17, 0], dark = [0.18, 0.18, 0.2, 0], slate = [0.28, 0.3, 0.34, 0];
+    const stand = (x0, z0, x1, z1, face, label, tier) => {
+      const [dx, dz] = dirOf(face), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+      box('carpet', x0, 0, z0, x1, 0.1, z1, tier === 1 ? [0.36, 0.3, 0.2, 0] : [0.3, 0.3, 0.33, 0], { col: true });
+      const key = 'stand' + tier + label, gr = signCache[key] || (signCache[key] = DRAW.boothGraphic(A, 420, 170, { tier: tier === 1 ? 'Gold partner' : 'Partner', label, color: tier === 1 ? '#7a5a22' : '#3e4a56' }));
+      if (dz) { // back wall along x, at the side the stand turns its back on
+        const bz = dz > 0 ? z0 + 0.1 : z1 - 0.1;
+        box('plain', x0, 0.1, bz - 0.1, x1, 3.2, bz + 0.1, [0.95, 0.94, 0.92, 0], { col: true });
+        quad('signs', cx, 2.1, bz + dz * 0.12, x1 - x0 - 0.6, 1.95, face, [1, 1, 1, 0], { mode: 'rect', r: gr.uv });
+        const fz = dz > 0 ? z1 - 0.9 : z0 + 0.9;
+        box('plain', cx - 1.1, 0.1, fz - 0.3, cx + 1.1, 1.05, fz + 0.3, [0.96, 0.95, 0.93, 0], { col: true });
+      } else { // back wall along z
+        const bx = dx > 0 ? x0 + 0.1 : x1 - 0.1;
+        box('plain', bx - 0.1, 0.1, z0, bx + 0.1, 3.2, z1, [0.95, 0.94, 0.92, 0], { col: true });
+        quad('signs', bx + dx * 0.12, 2.1, cz, z1 - z0 - 0.6, 1.95, face, [1, 1, 1, 0], { mode: 'rect', r: gr.uv });
+        const fx = dx > 0 ? x1 - 0.9 : x0 + 0.9;
+        box('plain', fx - 0.3, 0.1, cz - 1.1, fx + 0.3, 1.05, cz + 1.1, [0.96, 0.95, 0.93, 0], { col: true });
+      }
+      blob(cx, cz, x1 - x0 + 1, z1 - z0 + 1);
+    };
+    const longX = (x0, z0, x1, z1) => x1 - x0 >= z1 - z0;
+    const poster = (x0, z0, x1, z1) => {
+      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+      box('plain', x0, 0.35, z0, x1, 2.25, z1, [0.93, 0.92, 0.9, 0], { col: true });
+      for (const s of [-1, 1]) {
+        if (longX(x0, z0, x1, z1)) sign(cx, 1.3, cz + s * 0.06, x1 - x0 - 0.2, 1.7, s > 0 ? 0 : Math.PI, { kicker: 'Poster', title: 'Abstract poster', sub: 'Accepted abstracts appear here' });
+        else sign(cx + s * 0.06, 1.3, cz, z1 - z0 - 0.2, 1.7, s > 0 ? Math.PI / 2 : -Math.PI / 2, { kicker: 'Poster', title: 'Abstract poster', sub: 'Accepted abstracts appear here' });
+      }
+      blob(cx, cz, x1 - x0 + 0.6, z1 - z0 + 0.6);
+    };
+    const sofas = (x0, z0, x1, z1) => {
+      // Two sofas facing each other across a low table, along the footprint's long side.
+      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, alongX = !longX(x0, z0, x1, z1), col = [0.24, 0.27, 0.3, 0];
+      for (const s of [-1, 1]) {
+        if (alongX) { const zz = cz + s * 1.25; box('plain', x0 + 0.1, 0, zz - 0.45, x1 - 0.1, 0.44, zz + 0.45, col, { col: true }); box('plain', x0 + 0.1, 0.44, zz + s * 0.3, x1 - 0.1, 0.95, zz + s * 0.45, col); seats.push({ x: cx - 0.5, z: zz, yaw: s > 0 ? Math.PI : 0 }, { x: cx + 0.5, z: zz, yaw: s > 0 ? Math.PI : 0 }); }
+        else { const xx = cx + s * 1.25; box('plain', xx - 0.45, 0, z0 + 0.1, xx + 0.45, 0.44, z1 - 0.1, col, { col: true }); box('plain', xx + s * 0.3, 0.44, z0 + 0.1, xx + s * 0.45, 0.95, z1 - 0.1, col); seats.push({ x: xx, z: cz - 0.5, yaw: s > 0 ? -Math.PI / 2 : Math.PI / 2 }, { x: xx, z: cz + 0.5, yaw: s > 0 ? -Math.PI / 2 : Math.PI / 2 }); }
+      }
+      box('wood', cx - 0.5, 0, cz - 0.4, cx + 0.5, 0.42, cz + 0.4, [0.4, 0.26, 0.2, 0], { col: true });
+      blob(cx, cz, x1 - x0 + 1, z1 - z0 + 1);
+    };
+    const bar = (x0, z0, x1, z1, yaw) => {
+      const [dx, dz] = dirOf(yaw), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+      box('wood', x0, 0, z0, x1, 1.05, z1, [0.32, 0.2, 0.16, 0], { col: true }); box('marble', x0 - 0.1, 1.05, z0 - 0.1, x1 + 0.1, 1.12, z1 + 0.1, [0.95, 0.93, 0.9, 0]);
+      // the sign hangs on the wall behind the bar, facing the room
+      sign(cx - dx * 1.02, 3.6, cz - dz * 1.02, 5, 1.0, yaw, { title: 'Coffee Bar', sub: 'Espresso · Tea · Water' });
+      blob(cx, cz, x1 - x0 + 1.4, z1 - z0 + 1.4);
+    };
+    const desk = (x0, z0, x1, z1, title, sub) => {
+      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+      box('wood', x0, 0, z0, x1, 1.0, z1, [0.55, 0.38, 0.28, 0], { col: true });
+      box('marble', x0 - 0.1, 1.0, z0 - 0.1, x1 + 0.1, 1.08, z1 + 0.1, [0.95, 0.92, 0.88, 0]);
+      box('emis', x0, 0.12, z1 + 0.01, x1, 0.16, z1 + 0.03, [0.95, 0.25, 0.32, 0.9]);
+      sign(cx, 4.3, cz, Math.min(7, x1 - x0), 1.3, 0, { kicker: EVENT.name, title, sub });
+      for (const ddx of [-2.8, 2.8]) if (Math.abs(ddx) < (x1 - x0) / 2) cyl('metal', cx + ddx, 4.95, cz, 0.015, 7, [0.6, 0.6, 0.6, 0], { lo: true });
+      blob(cx, cz, x1 - x0 + 1, 2.2);
+    };
+    const directory = (cx, cz) => {
+      const arrow = (z) => { const [x0, z0, x1, z1] = z.rect, dx = (x0 + x1) / 2 - cx, dz = (z0 + z1) / 2 - cz, a = Math.atan2(dx, -dz) / (Math.PI / 4); return ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'][((Math.round(a) % 8) + 8) % 8]; };
+      const rows = ZONES.filter((z) => z.kind !== 'corridor' && z.kind !== 'foyer').slice(0, 9).map((z) => [z.name, arrow(z)]);
+      const r = DRAW.directory(A, 300, 560, [...rows, ['Registration', '·'], ['Information', '·']].slice(0, 11));
+      quad('signs', cx, 1.75, cz + 0.12, 1.3, 2.4, 0, [1, 1, 1, 0], { mode: 'rect', r: r.uv });
+      box('plain', cx - 0.7, 0, cz - 0.05, cx + 0.7, 3.05, cz + 0.05, [0.1, 0.08, 0.08, 0], { col: true });
+      blob(cx, cz, 1.8, 0.8);
+    };
+    for (const it of L.items) {
+      const [x0, z0, x1, z1] = rectOf(it.foot), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, big = zoneOf(it.zone).kind === 'plenary';
+      if (it.t === 'stage') { box('wood', x0, 0, z0, x1, it.h, z1, [0.22, 0.15, 0.13, 0], { col: true }); box('emis', x0 - 0.01, it.h - 0.06, z0 - 0.01, x1 + 0.01, it.h - 0.02, z1 + 0.01, [0.4, 0.8, 0.9, 0.8]); }
+      else if (it.t === 'screen') screen(it.x, it.y, it.z, it.w, it.hgt, it.yaw, { kicker: it.kicker, title: it.title, sub: it.sub, ...(big ? { plenary: true } : {}) });
+      else if (it.t === 'row') {
+        const [ax, az] = it.p0, [ex, ez] = it.p1;
+        for (let i = 0; i < it.n; i++) { const t = it.n > 1 ? i / (it.n - 1) : 0; chair(ax + (ex - ax) * t, az + (ez - az) * t, it.yaw, big ? gold : dark, big ? garnet : slate, seats); }
+        colliders.push({ x0, y0: 0, z0, x1, y1: 0.98, z1 });
+      }
+      else if (it.t === 'lectern') { const y = big ? 0.9 : 0.45; box('wood', x0, y, z0, x1, y + 1.1, z1, [0.35, 0.22, 0.18, 0], { col: true }); }
+      else if (it.t === 'round') {
+        cyl('plain', it.cx, 0, it.cz, 0.95, 0.74, [0.96, 0.95, 0.93, 0], { col: true }); cyl('carpet', it.cx, 0, it.cz, 0.97, 0.7, [0.45, 0.12, 0.18, 0]);
+        for (let k = 0; k < it.chairs; k++) { const a = k / it.chairs * Math.PI * 2 + 0.3, chx = it.cx + Math.cos(a) * 1.45, chz = it.cz + Math.sin(a) * 1.45; chair(chx, chz, Math.atan2(it.cx - chx, it.cz - chz), [0.2, 0.2, 0.22, 0], [0.32, 0.3, 0.3, 0], seats); colliders.push({ c: 1, cx: chx, cz: chz, r: 0.3, y0: 0, y1: 0.95 }); }
+        blob(it.cx, it.cz, 4, 4);
+      }
+      else if (it.t === 'stand') stand(x0, z0, x1, z1, it.face, it.label, it.tier);
+      else if (it.t === 'poster') poster(x0, z0, x1, z1);
+      else if (it.t === 'sofa') sofas(x0, z0, x1, z1);
+      else if (it.t === 'bar') bar(x0, z0, x1, z1, it.yaw);
+      else if (it.t === 'desk') desk(x0, z0, x1, z1, it.title, it.sub);
+      else if (it.t === 'directory') directory(cx, cz);
+      else if (it.t === 'plant') plant(it.cx, it.cz, it.s);
+      else if (it.t === 'sign') sign(it.x, it.y, it.z, it.w, it.hgt, it.yaw, it.kicker ? { kicker: it.kicker, title: it.title, sub: it.sub } : { title: it.title, sub: it.sub });
+    }
+    for (const p of L.people) people.push({ ...p });
+    for (const h of L.hotspots) hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind);
+    // the event's banners either side of the way into the corridor, inside the foyer
+    const cor = zoneOfKind('corridor'), foy = zoneOfKind('foyer');
+    if (cor && foy) for (const x of [cor.rect[0] - 1.6, cor.rect[2] + 1.6]) if (x > foy.rect[0] + 1.2 && x < foy.rect[2] - 1.2) banner(x);
+    return L.routes.map((pts) => ({ pts, n: 3, loop: true }));
+  }
+  const routes = LAYOUT ? buildLayout() : buildEhc();
 
   // upload
   const draws = [];
@@ -1628,7 +1764,8 @@ class VenueAudio {
   setMuted(m) { this.muted = m; if (this.ok) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.c.currentTime, 0.1); }
   update(dt, zoneId, crowdNear) {
     if (!this.ok) return; const c = this.c, now = c.currentTime; this.t += dt;
-    const busy = { foyer: 0.55, expo: 0.6, lounge: 0.45, promenade: 0.25, posters: 0.18, plenary: 0.12, hallA: 0.08, hallB: 0.08, hallC: 0.08, workshop: 0.18 }[zoneId] ?? 0.2;
+    // EA-SYS: keyed by what the room is for (game.js passes the zone's kind), so generated venues sound right too.
+    const busy = { foyer: 0.55, exhibition: 0.6, lounge: 0.45, corridor: 0.25, posters: 0.18, plenary: 0.12, hall: 0.08, workshop: 0.18 }[zoneId] ?? 0.2;
     const target = { chatter: busy * (0.6 + crowdNear * 0.4), room: 0.18, hall: /hall|plenary|workshop/.test(zoneId) ? 0.5 : 0.05 };
     for (const k in this.beds) for (const v of this.beds[k]) {
       v.g.gain.setTargetAtTime(target[k] * 0.22, now, 0.6);
@@ -1755,7 +1892,7 @@ function makePersona(p, idx) {
   else if (role === 'barista') { title = 'Barista'; org = 'the hotel catering team'; kind = 'staff'; }
   else if (role === 'tech') { title = 'AV technician'; org = 'the event production crew'; kind = 'staff'; }
   else if (role === 'exhibitor') {
-    if (p.x > 59 && p.z > 4 && p.z < 13) { title = 'Society volunteer'; org = 'the Emirates Society of Haematology booth'; kind = 'society'; }
+    if (!LAYOUT && p.x > 59 && p.z > 4 && p.z < 13) { title = 'Society volunteer'; org = 'the Emirates Society of Haematology booth'; kind = 'society'; }
     else { title = 'Partner stand representative'; org = 'a partner company (name not yet confirmed in this preview)'; kind = 'exhibitor'; }
   } else if (role === 'speaker') { const t = pick(DELEGATE_TITLES.filter(d => d[1])); title = t[0] + ' and invited speaker'; dr = true; org = pick(PLACES) + ' in ' + pick(CITIES); kind = 'speaker'; }
   else { const t = pick(DELEGATE_TITLES); title = t[0]; dr = !!t[1]; org = pick(PLACES) + ' in ' + pick(CITIES); }
@@ -2061,8 +2198,10 @@ class Social {
     if (!shown) { shown = '…'; row.textContent = shown; }
     T.turns.push({ role: 'assistant', content: text2.replace(/\[(gesture|go)\s*:[^\]]*\]/gi, '').trim() || '…' });
     if (gest && GEST_DUR[gest]) { npc.gesture = gest; npc.gT = this.ctx.time(); } else { npc.gesture = 'nod'; npc.gT = this.ctx.time(); }
-    if (go && ZONE_NAMES[go]) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'gobtn'; b.textContent = 'Take me to ' + ZONE_NAMES[go];
+    // EA-SYS: in a generated venue the rooms are the event's own, so the name comes from ZONES.
+    const goName = go && (LAYOUT ? (ZONES.find((z) => z.id === go) || {}).name : ZONE_NAMES[go]);
+    if (goName) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'gobtn'; b.textContent = 'Take me to ' + goName;
       b.addEventListener('click', () => { this.close(); this.ctx.teleport(go); });
       row.parentNode.appendChild(b); $('cLog').scrollTop = $('cLog').scrollHeight;
       if (!gest) { npc.gesture = 'point'; npc.gT = this.ctx.time(); }
@@ -2080,8 +2219,23 @@ class Social {
       `After your sentences, on a new line, add exactly one tag [gesture: X] where X is one of nod, wave, laugh, think, point, shake, none. If you suggest they go somewhere, also add [go: Y] where Y is one of foyer, plenary, posters, hallA, hallB, hallC, workshop, lounge, expo.`,
     ].join('\n\n');
   }
+  // EA-SYS (phase 6): the pre-written answers for a generated venue, naming its own rooms. Null for
+  // anything that is not about where things are, so the persona's own lines below still answer.
+  layoutAnswer(q) {
+    const s = q.toLowerCase(), room = (kind) => zoneOfKind(kind), corridor = 'off the main corridor';
+    const at = (kind, text, gesture = 'point') => { const Z = room(kind); return Z ? { text: text(Z.name), go: Z.id, gesture } : null; };
+    if (/coffee|tea|drink|قهوة/.test(s)) return at('lounge', (n) => `The coffee bar is in the ${n}, ${corridor}.`) || { text: 'There’s no coffee bar in this venue, I’m afraid. The foyer is a good place to meet.', gesture: 'think' };
+    if (/poster|abstract/.test(s)) return at('posters', (n) => `The posters are in the ${n}, ${corridor}.`);
+    if (/exhib|booth|stand|sponsor|society/.test(s)) return at('exhibition', (n) => `The partner stands are in the ${n}, ${corridor}.`);
+    if (/plenary|main stage|keynote|opening|ballroom/.test(s)) return at('plenary', (n) => `The ${n} is at the far end of the main corridor.`);
+    if (/workshop/.test(s)) return at('workshop', (n) => `The ${n} is ${corridor}.`);
+    if (/programme|program|agenda|session|talk|track|speaker|hall/.test(s)) return { text: 'I don’t have the programme in front of me. Check the Venue guide or the information desk in the foyer.', go: (room('foyer') || {}).id, gesture: 'think' };
+    if (/regist|badge/.test(s)) return at('foyer', (n) => `Registration is the long desk in the ${n}, as you come in.`);
+    return null;
+  }
   scripted(per, npc, q) {
     const s = q.toLowerCase();
+    if (LAYOUT && !/[؀-ۿ]/.test(q)) { const a = this.layoutAnswer(q); if (a) return a; }
     if (/[؀-ۿ]/.test(q)) return { text: 'أهلاً وسهلاً! سعيد بلقائك في المؤتمر.', gesture: 'nod' };
     if (/coffee|tea|drink|قهوة/.test(s)) return { text: 'The coffee bar is in the Networking Lounge, through the East Promenade. There’s also a coffee point in the Exhibition Hall.', go: 'lounge', gesture: 'point' };
     if (/poster|abstract/.test(s)) return { text: 'The posters are in the gallery just off the foyer, on the left as you face the ballroom.', go: 'posters', gesture: 'point' };
@@ -2295,10 +2449,28 @@ class Abilities {
       return q;
     };
     const line = (x, z, dx, dz, n) => Array.from({ length: n }, (_, i) => [x + dx * i, z + dz * i]);
+    if (LAYOUT) return this.layoutQueues(mk, line);
     return [
       mk({ id: 'reg', name: 'registration', slots: line(-19, 19.55, 0, 0.8, 7), face: Math.PI, fill: 4, period: 7, exit: [[-12.6, 20.4], [-12.6, 24.3], [-15.6, 24.3]], item: 'badge', say: 'Welcome! Here’s your badge. Enjoy the conference.' }),
       mk({ id: 'coffee', name: 'coffee bar', slots: line(42.55, -34, -0.8, 0, 6), face: Math.PI / 2, fill: 3, period: 8, exit: [[42.2, -30.4], [37.2, -29.6], [37.6, -34]], item: 'coffee', say: 'Here’s your coffee. Careful, it’s hot.' }),
     ];
+  }
+  // EA-SYS (phase 6): in a generated venue the queues form in front of its own registration desk and
+  // coffee bar, read from the layout's items; a venue without a coffee bar has only the desk queue.
+  layoutQueues(mk, line) {
+    const out = [], items = LAYOUT.items;
+    const desk = items.find((i) => i.t === 'desk' && i.title === 'Registration');
+    if (desk) {
+      const f = desk.foot, x = f.x0 + (f.x1 - f.x0) * 0.3, z = f.z1 + 0.95;
+      out.push(mk({ id: 'reg', name: 'registration', slots: line(x, z, 0, 0.8, 7), face: Math.PI, fill: 4, period: 7, exit: [[x + 3.2, z + 0.8], [x + 3.2, z + 4.7], [x, z + 4.7]], item: 'badge', say: 'Welcome! Here’s your badge. Enjoy the conference.' }));
+    }
+    const bar = items.find((i) => i.t === 'bar');
+    if (bar) {
+      const f = bar.foot, dx = Math.round(Math.sin(bar.yaw)), dz = Math.round(Math.cos(bar.yaw)), px = dz, pz = -dx;
+      const half = Math.abs(dx) ? (f.x1 - f.x0) / 2 : (f.z1 - f.z0) / 2, sx = (f.x0 + f.x1) / 2 + dx * (half + 0.95), sz = (f.z0 + f.z1) / 2 + dz * (half + 0.95);
+      out.push(mk({ id: 'coffee', name: 'coffee bar', slots: line(sx, sz, dx * 0.8, dz * 0.8, 6), face: bar.yaw + Math.PI, fill: 3, period: 8, exit: [[sx + px * 3.2, sz + pz * 3.2], [sx + px * 3.2 + dx * 2, sz + pz * 3.2 + dz * 2]], item: 'coffee', say: 'Here’s your coffee. Careful, it’s hot.' }));
+    }
+    return out;
   }
   blockQueues() { for (const q of this.queues) { const [fx, fz] = q.slots[0]; this.nav.block(fx + Math.sin(q.face) * 0.6, fz + Math.cos(q.face) * 0.6, 0.3); for (const [x, z] of q.slots) this.nav.block(x, z, 0.35); } }
   stepQueues(dt) {
@@ -2412,7 +2584,7 @@ class Abilities {
     const sc = this.ctx.social, pl = this.ctx.player(), t = this.ctx.time(), Z = this.ctx.zone();
     if (sc) sc.gesture(g); else { pl.gesture = g; pl.gT = t; }
     if (g === 'clap') {
-      const room = Z && /plenary|hall|workshop/.test(Z.id); let n = 0;
+      const room = Z && /plenary|hall|workshop/.test(Z.kind); let n = 0;
       for (const p of this.ctx.crowd().list) { if (Math.hypot(p.x - pl.x, p.z - pl.z) > (room ? 30 : 10) || p.role === 'staff' || p.role === 'barista') continue; if (!room && Math.random() < 0.4) continue; p.gesture = 'clap'; p.gT = t + Math.random() * 0.6; n++; }
       this.lastClap = n; this.ctx.audio.applause(3, Math.min(1.5, 0.3 + n / 60));
     }
@@ -2509,7 +2681,8 @@ class EventTeam {
   screenId(s, i) {
     const Z = zoneAt(s.pos[0], s.pos[2]), zid = Z ? Z.id : 'screen';
     const same = this.ctx.W.screens.filter((q, j) => j < i && (zoneAt(q.pos[0], q.pos[2]) || {}).id === zid).length;
-    return zid === 'plenary' ? ['plenary-main', 'plenary-left', 'plenary-right'][same] || 'plenary-' + same : zid + (same ? '-' + (same + 1) : '');
+    // EA-SYS: a generated plenary keeps the plenary-main naming the recordings settings use.
+    return Z && Z.kind === 'plenary' ? ['plenary-main', 'plenary-left', 'plenary-right'][same] || 'plenary-' + same : zid + (same ? '-' + (same + 1) : '');
   }
   async connect() {
     const use = (n) => (window.claude && typeof window.claude.use === 'function') ? window.claude.use(n).catch(() => null) : Promise.resolve(null);
@@ -2810,7 +2983,8 @@ class EventTeam {
     const el = (t, txt, cls) => { const e = document.createElement(t); if (txt != null) e.textContent = txt; if (cls) e.className = cls; return e; };
     box.appendChild(el('p', 'Recordings play on a screen when an attendee walks up to it, muted until they tap “Play with sound” on the screen’s panel. To add a recording, send the clip to the build team: on this hosting each clip must be under 15 MB; full-length recordings can stream from your own server later.', 'small'));
     const names = { 'plenary-main': 'Plenary main screen', 'plenary-left': 'Plenary left relay', 'plenary-right': 'Plenary right relay', hallA: 'Hall A screen', hallB: 'Hall B screen', hallC: 'Hall C screen', workshop: 'Workshop screen' };
-    for (const id of this.screenIds) { const c = this.screenMap && this.screenMap[id]; const r = el('div', null, 'prow'); r.append(el('div', names[id] || id, 'pn'), el('div', c ? 'Recording linked' + (c.title ? ': ' + c.title : '') : 'Animated title (no recording yet)', 'small')); box.appendChild(r); }
+    const roomScreen = (id) => { const Z = ZONES.find((z) => id === z.id || id.startsWith(z.id + '-')); return Z ? Z.name + ' screen' : id; }; // EA-SYS: generated rooms
+    for (const id of this.screenIds) { const c = this.screenMap && this.screenMap[id]; const r = el('div', null, 'prow'); r.append(el('div', names[id] || roomScreen(id), 'pn'), el('div', c ? 'Recording linked' + (c.title ? ': ' + c.title : '') : 'Animated title (no recording yet)', 'small')); box.appendChild(r); }
   }
 
   // ===== device check =====
@@ -2820,7 +2994,8 @@ class EventTeam {
     const gl = document.createElement('canvas').getContext('webgl2'), dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
     const gpu = gl ? (dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : 'No WebGL 2';
     const info = { when: new Date().toISOString(), browser: navigator.userAgent, screen: `${screen.width}×${screen.height} @${devicePixelRatio}x`, cores: navigator.hardwareConcurrency || null, memoryGB: navigator.deviceMemory || null, gpu: String(gpu).slice(0, 120), quality: this.ctx.quality() };
-    const stops = ['foyer', 'plenary', 'expo', 'lounge', 'hallA'], res = [], back = this.ctx.where();
+    // EA-SYS: in a generated venue, one room of each busy kind (its ids are the organisers').
+    const stops = LAYOUT ? ['foyer', 'plenary', 'exhibition', 'lounge', 'hall'].map((k) => (zoneOfKind(k) || {}).id).filter(Boolean) : ['foyer', 'plenary', 'expo', 'lounge', 'hallA'], res = [], back = this.ctx.where();
     this.checking = true; this.checkAbort = false; $('checkClose').textContent = 'Cancel';
     this.ctx.pause(false); $('check').classList.add('peek'); $('checkClose').focus({ preventScroll: true });
     const wait = (ms) => new Promise(r => { const t0 = performance.now(), f = () => (this.checkAbort || performance.now() - t0 >= ms) ? r() : setTimeout(f, 50); f(); });
@@ -3015,18 +3190,20 @@ class EventTeam {
   function openInfo(h) {
     audio.ui();
     $('ik').textContent = (zone ? zone.name : '') + ' · ' + EVENT.venue; $('it').textContent = h.title; $('ib').textContent = h.body;
-    const tags = h.kind === 'screen' ? [['Recording · to link', 1], ['Track · from agenda', 1], ['Spatial audio · ready', 0]] : /booth|platinum/.test(h.id) && !/Society/.test(h.title) ? [['Sponsor · to link', 1], ['Artwork · to supply', 1]] : /poster/.test(h.id) ? [['Abstracts · to link', 1]] : [];
+    const tags = h.kind === 'screen' ? [['Recording · to link', 1], ['Track · from agenda', 1], ['Spatial audio · ready', 0]] : (/booth|platinum/.test(h.id) || h.kind === 'stand') && !/Society/.test(h.title) ? [['Sponsor · to link', 1], ['Artwork · to supply', 1]] : /poster/.test(h.id) ? [['Abstracts · to link', 1]] : [];
     $('itags').innerHTML = ''; for (const [t, w] of tags) { const s = document.createElement('span'); s.className = 'tag' + (w ? ' warn' : ''); s.textContent = t; $('itags').appendChild(s); }
     if (team) { team.event('open', h.id); const si = team.screenForHotspot(h); let sb = $('isound'); if (sb) sb.remove(); if (si >= 0) { sb = document.createElement('button'); sb.id = 'isound'; sb.className = 'ghost'; const lab = () => { const cfg = team.videoFor(si), v = cfg && team.videos[cfg.url]; sb.textContent = v && v.sound ? 'Mute the recording' : 'Play with sound'; }; lab(); sb.addEventListener('click', () => { team.toggleSound(si); lab(); }); $('iclose').before(sb); } }
     $('info').hidden = false; paused = true; input.keys.clear(); $('iclose').focus();
   }
   function openAgenda() {
     const L = $('alist'); L.innerHTML = '';
+    // EA-SYS: a generated venue's rooms are described by what they are for (their ids are the organisers').
+    const byKind = { foyer: 'Registration and information desks', plenary: 'Main stage', hall: 'Parallel sessions', workshop: 'Hands-on sessions', posters: 'Abstract posters', exhibition: 'Partner stands', lounge: 'Coffee bar and meeting seats', corridor: 'To every room' };
     const status = { foyer: 'Registration and information desks', plenary: 'Main stage · recordings to link', posters: '34 poster slots · abstracts to link', hallA: 'Parallel track · name and recordings to link', hallB: 'Parallel track · name and recordings to link', hallC: 'Parallel track · name and recordings to link', workshop: 'Hands-on sessions · titles to link', promenade: 'Corridor to the lounge and exhibition', lounge: 'Coffee bar and meeting seats', expo: 'Host society booth · 7 partner stands to link' };
     for (const Z of ZONES) {
       const row = document.createElement('div'); row.className = 'arow' + (zone && zone.id === Z.id ? ' cur' : '');
       row.innerHTML = `<div><div class="t"></div><div class="d"></div></div><button class="go">Go</button>`;
-      row.querySelector('.t').textContent = Z.name; row.querySelector('.d').textContent = status[Z.id];
+      row.querySelector('.t').textContent = Z.name; row.querySelector('.d').textContent = (LAYOUT ? byKind[Z.kind] : status[Z.id]) || byKind[Z.kind] || '';
       row.querySelector('.go').addEventListener('click', () => { closeSheets(); teleport(Z.id); });
       if (abil) { const wb = document.createElement('button'); wb.className = 'go walk'; wb.textContent = 'Walk'; wb.addEventListener('click', () => { closeSheets(); if (!abil.walkToZone(Z)) teleport(Z.id); }); row.querySelector('.go').before(wb); }
       L.appendChild(row);
@@ -3092,7 +3269,7 @@ class EventTeam {
     const ls = W.lights.map(l => ({ l, d: Math.hypot(l.p[0] - cam.tgt[0], l.p[2] - cam.tgt[2]) - l.r * 0.35 })).sort((a, b) => a.d - b.d).slice(0, Q.lights);
     lightBuf.lp.fill(0); lightBuf.lc.fill(0);
     ls.forEach(({ l }, i) => { lightBuf.lp.set([l.p[0], l.p[1], l.p[2], l.r], i * 4); lightBuf.lc.set([l.c[0], l.c[1], l.c[2], l.i], i * 4); });
-    const inBall = zone && zone.id === 'plenary';
+    const inBall = zone && zone.kind === 'plenary';
     lastVP = M4.mul(proj, view);
     return { vp: lastVP, cam: cam.pos, sky: inBall ? [0.3, 0.24, 0.24] : [0.38, 0.35, 0.33], gnd: [0.13, 0.1, 0.09], keyDir: [-0.3, -0.9, -0.3], keyCol: [0.2, 0.18, 0.16], nl: ls.length, lp: lightBuf.lp, lc: lightBuf.lc, fog: [0.12, 0.09, 0.09], fogD: 0.006, expo: 1.05 };
   }
@@ -3180,7 +3357,7 @@ class EventTeam {
     // nearest interactable
     updateNear();
     let crowdNear = 0; for (const p of crowd.walkers) if (Math.hypot(p.x - player.x, p.z - player.z) < 10) crowdNear++;
-    audio.update(dt, zone ? zone.id : 'foyer', Math.min(1, crowdNear / 6));
+    audio.update(dt, zone ? zone.kind || zone.id : 'foyer', Math.min(1, crowdNear / 6)); // EA-SYS: by what the room is for
     updateScreens(dt);
     stats.simMs = performance.now() - s0;
     render();

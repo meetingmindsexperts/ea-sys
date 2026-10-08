@@ -52,7 +52,7 @@ describe("/api/events/:eventId/venue", () => {
 
   it("a member reads the rooms; only events.update saves them", async () => {
     as("MEMBER");
-    expect(await (await GET(new Request("http://localhost/x"), params)).json()).toEqual({ rooms: null, version: 0 });
+    expect(await (await GET(new Request("http://localhost/x"), params)).json()).toEqual({ rooms: null, version: 0, open: false, slug: undefined });
     expect((await put({ rooms, version: 0 })).status).toBe(403);
     as("ORGANIZER");
     const res = await put({ rooms, version: 0 });
@@ -91,5 +91,17 @@ describe("/api/events/:eventId/venue", () => {
     mockDb.event.findFirst.mockResolvedValue(null);
     expect((await GET(new Request("http://localhost/x"), params)).status).toBe(404);
     expect(mockDb.event.findFirst.mock.calls[0][0].where).toMatchObject({ id: "evt-1", organizationId: "org-1" });
+  });
+
+  it("opens the venue only once rooms are saved, and reports it", async () => {
+    as("ADMIN");
+    const res = await put({ open: true });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("NO_ROOMS");
+    await put({ rooms, version: 0 });
+    expect(await (await put({ open: true })).json()).toEqual({ open: true });
+    expect(await (await GET(new Request("http://localhost/x"), params)).json()).toMatchObject({ open: true });
+    as("MEMBER");
+    expect((await put({ open: false })).status).toBe(403);
   });
 });

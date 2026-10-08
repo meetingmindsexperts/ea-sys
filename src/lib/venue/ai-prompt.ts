@@ -10,6 +10,7 @@
  * `greeting()`, word for word, with the event's real name, dates and venue.
  */
 import vocab from "./persona-vocab.generated.json";
+import type { VenueLayout } from "./layout";
 
 export type PersonaKind = "delegate" | "speaker" | "staff" | "society" | "exhibitor";
 
@@ -131,18 +132,50 @@ export function cleanTurns(raw: unknown): Turn[] | null {
 }
 
 export interface Scene {
-  event: { name: string; date: string; venue: string };
-  /** The room the attendee is in (a ZONE_NAMES key), or "" for the venue. */
+  /** `organiser` and `specialty` are used only for a generated venue; EHC's own wording names its society. */
+  event: { name: string; date: string; venue: string; organiser?: string; specialty?: string };
+  /** The room the attendee is in (a ZONE_NAMES key, or a generated room's id), or "" for the venue. */
   zone: string;
+  /** The event's generated venue (phase 6); absent for EHC's hand-built rooms. */
+  layout?: VenueLayout;
   /** The AI attendee's pose and crowd role, as the page has them. */
   pose: string;
   role: string;
   greeting: string;
 }
 
+/** The room's name: from the generated venue when there is one, else from EHC's rooms. */
+function roomName(scene: Scene): string | undefined {
+  if (!scene.layout) return ZONES[scene.zone];
+  return scene.layout.zones.find((z) => z.id === scene.zone && z.kind !== "corridor")?.name;
+}
+
+const KIND_WORDS: Record<string, string> = {
+  plenary: "the main stage", hall: "parallel sessions", workshop: "hands-on sessions", posters: "abstract posters", exhibition: "partner stands", lounge: "a coffee bar and seats",
+};
+
+/** The generated building, in the words an attendee would use (the fixed plan of D10). */
+export function describeVenue(layout: VenueLayout): string {
+  const zones = layout.zones;
+  const corridor = zones.find((z) => z.kind === "corridor");
+  const foyer = zones.find((z) => z.kind === "foyer");
+  const plenary = zones.find((z) => z.kind === "plenary");
+  const side = (west: boolean) =>
+    zones.filter((z) => !["foyer", "corridor", "plenary"].includes(z.kind) && corridor && (west ? z.rect[2] <= corridor.rect[0] + 0.01 : z.rect[0] >= corridor.rect[2] - 0.01));
+  const list = (rooms: typeof zones) => rooms.map((z) => `${z.name} (${KIND_WORDS[z.kind] ?? z.kind})`).join(", ");
+  const left = side(true);
+  const right = side(false);
+  return [
+    `Venue you know: ${foyer?.name ?? "The foyer"} is the entrance, with registration and information desks; a main corridor runs from it`,
+    plenary ? ` to ${plenary.name} (the main stage) at the far end.` : ".",
+    left.length ? ` Along the left of the corridor: ${list(left)}.` : "",
+    right.length ? ` Along the right: ${list(right)}.` : "",
+  ].join("");
+}
+
 /** Where the AI attendee is and what they are doing (the `doing` line of `rules()`). */
 function doing(scene: Scene): string {
-  const where = ZONES[scene.zone] ?? "the venue";
+  const where = roomName(scene) ?? "the venue";
   if (scene.pose === "sit") return `seated in the ${where}`;
   if (scene.role === "exhibitor") return `standing at your stand in the ${where}`;
   if (scene.role === "staff") return `behind the desk in the ${where}`;
@@ -153,6 +186,7 @@ function doing(scene: Scene): string {
 /** The instructions (social.js `rules()`), sent as the system prompt. */
 export function buildInstructions(per: Persona, scene: Scene): string {
   const e = scene.event;
+  if (scene.layout) return generatedInstructions(per, scene);
   return [
     `You are role-playing ONE fictional attendee inside a walkable 3D preview of the ${e.name}, organised by the ${vocab.ORGANISER} on ${e.date} at ${e.venue}. Another attendee has walked up to you and is talking to you; their messages follow.`,
     `You are ${per.name}, ${per.title}, from ${per.org}. Personality: ${per.trait}. ${per.kind === "delegate" || per.kind === "speaker" ? `Your main professional interest is ${per.interest}.` : ""} Right now you are ${doing(scene)}. You already greeted them with: "${scene.greeting}"`,
@@ -162,3 +196,23 @@ export function buildInstructions(per: Persona, scene: Scene): string {
     `After your sentences, on a new line, add exactly one tag [gesture: X] where X is one of nod, wave, laugh, think, point, shake, none. If you suggest they go somewhere, also add [go: Y] where Y is one of foyer, plenary, posters, hallA, hallB, hallC, workshop, lounge, expo.`,
   ].join("\n\n");
 }
+
+/**
+ * The instructions for a generated venue: the vendor's wording, with the event's own organiser and
+ * subject, the rooms this building has, and its room ids as the places to point people to.
+ */
+function generatedInstructions(per: Persona, scene: Scene): string {
+  const e = scene.event;
+  const layout = scene.layout!;
+  const goIds = layout.zones.filter((z) => z.kind !== "corridor").map((z) => z.id);
+  const subject = e.specialty?.trim() ? `${e.specialty.trim()} ` : "";
+  return [
+    `You are role-playing ONE fictional attendee inside a walkable 3D preview of the ${e.name}${e.organiser ? `, organised by ${e.organiser}` : ""}, on ${e.date} at ${e.venue}. Another attendee has walked up to you and is talking to you; their messages follow.`,
+    `You are ${per.name}, ${per.title}, from ${per.org}. Personality: ${per.trait}. ${per.kind === "delegate" || per.kind === "speaker" ? `Your main professional interest is ${per.interest}.` : ""} Right now you are ${doing(scene)}. You already greeted them with: "${scene.greeting}"`,
+    describeVenue(layout),
+    `Not published in this preview: the session programme, track names, speakers, sponsor names and poster titles. Never invent them. If asked, say naturally that you don't have the programme in front of you and suggest the Venue guide or the information desk.`,
+    `Rules: stay in character. Speak like a real person at a coffee break: 1 to 3 short sentences, no lists, no markdown, no emojis, no stage directions. Reply in the language they use (English or Arabic). General, educational ${subject}conversation is fine; give no personal medical advice, promote no drug, device or company, and make no product claims. You are fictional: never claim to be a real named person or name real colleagues. If asked whether you are an AI, say you are an AI-played attendee in this preview. Keep it friendly and professional.`,
+    `After your sentences, on a new line, add exactly one tag [gesture: X] where X is one of nod, wave, laugh, think, point, shake, none. If you suggest they go somewhere, also add [go: Y] where Y is one of ${goIds.join(", ")}.`,
+  ].join("\n\n");
+}
+

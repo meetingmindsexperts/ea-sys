@@ -14,7 +14,8 @@ class EventTeam {
   screenId(s, i) {
     const Z = zoneAt(s.pos[0], s.pos[2]), zid = Z ? Z.id : 'screen';
     const same = this.ctx.W.screens.filter((q, j) => j < i && (zoneAt(q.pos[0], q.pos[2]) || {}).id === zid).length;
-    return zid === 'plenary' ? ['plenary-main', 'plenary-left', 'plenary-right'][same] || 'plenary-' + same : zid + (same ? '-' + (same + 1) : '');
+    // EA-SYS: a generated plenary keeps the plenary-main naming the recordings settings use.
+    return Z && Z.kind === 'plenary' ? ['plenary-main', 'plenary-left', 'plenary-right'][same] || 'plenary-' + same : zid + (same ? '-' + (same + 1) : '');
   }
   async connect() {
     const use = (n) => (window.claude && typeof window.claude.use === 'function') ? window.claude.use(n).catch(() => null) : Promise.resolve(null);
@@ -315,7 +316,8 @@ class EventTeam {
     const el = (t, txt, cls) => { const e = document.createElement(t); if (txt != null) e.textContent = txt; if (cls) e.className = cls; return e; };
     box.appendChild(el('p', 'Recordings play on a screen when an attendee walks up to it, muted until they tap “Play with sound” on the screen’s panel. To add a recording, send the clip to the build team: on this hosting each clip must be under 15 MB; full-length recordings can stream from your own server later.', 'small'));
     const names = { 'plenary-main': 'Plenary main screen', 'plenary-left': 'Plenary left relay', 'plenary-right': 'Plenary right relay', hallA: 'Hall A screen', hallB: 'Hall B screen', hallC: 'Hall C screen', workshop: 'Workshop screen' };
-    for (const id of this.screenIds) { const c = this.screenMap && this.screenMap[id]; const r = el('div', null, 'prow'); r.append(el('div', names[id] || id, 'pn'), el('div', c ? 'Recording linked' + (c.title ? ': ' + c.title : '') : 'Animated title (no recording yet)', 'small')); box.appendChild(r); }
+    const roomScreen = (id) => { const Z = ZONES.find((z) => id === z.id || id.startsWith(z.id + '-')); return Z ? Z.name + ' screen' : id; }; // EA-SYS: generated rooms
+    for (const id of this.screenIds) { const c = this.screenMap && this.screenMap[id]; const r = el('div', null, 'prow'); r.append(el('div', names[id] || roomScreen(id), 'pn'), el('div', c ? 'Recording linked' + (c.title ? ': ' + c.title : '') : 'Animated title (no recording yet)', 'small')); box.appendChild(r); }
   }
 
   // ===== device check =====
@@ -325,7 +327,8 @@ class EventTeam {
     const gl = document.createElement('canvas').getContext('webgl2'), dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
     const gpu = gl ? (dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : 'No WebGL 2';
     const info = { when: new Date().toISOString(), browser: navigator.userAgent, screen: `${screen.width}×${screen.height} @${devicePixelRatio}x`, cores: navigator.hardwareConcurrency || null, memoryGB: navigator.deviceMemory || null, gpu: String(gpu).slice(0, 120), quality: this.ctx.quality() };
-    const stops = ['foyer', 'plenary', 'expo', 'lounge', 'hallA'], res = [], back = this.ctx.where();
+    // EA-SYS: in a generated venue, one room of each busy kind (its ids are the organisers').
+    const stops = LAYOUT ? ['foyer', 'plenary', 'exhibition', 'lounge', 'hall'].map((k) => (zoneOfKind(k) || {}).id).filter(Boolean) : ['foyer', 'plenary', 'expo', 'lounge', 'hallA'], res = [], back = this.ctx.where();
     this.checking = true; this.checkAbort = false; $('checkClose').textContent = 'Cancel';
     this.ctx.pause(false); $('check').classList.add('peek'); $('checkClose').focus({ preventScroll: true });
     const wait = (ms) => new Promise(r => { const t0 = performance.now(), f = () => (this.checkAbort || performance.now() - t0 >= ms) ? r() : setTimeout(f, 50); f(); });

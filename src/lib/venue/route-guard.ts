@@ -5,8 +5,10 @@
  *   1. a signed-in session (401) on an organisation (403);
  *   2. `events.read` on THIS event, the lookup going through the permission's
  *      own where (a 404 when the person cannot see it);
- *   3. the event's slug is in VENUE_EVENT_SLUGS (404 otherwise: a venue that is
- *      not switched on does not announce itself);
+ *   3. the event's venue is served: its slug is in VENUE_EVENT_SLUGS, or its
+ *      rooms are saved on the Venue tab and the event team opened it
+ *      (event-venue.ts; 404 otherwise: a venue that is not switched on does
+ *      not announce itself);
  *   4. for the event team's views (everyone's activity, reports, settings):
  *      `events.update` on the event, else 403.
  *
@@ -17,7 +19,7 @@ import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { isVenueEnabledFor } from "@/lib/module-flags";
+import { isVenueServed } from "@/lib/venue/event-venue";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { can } from "@/lib/permissions/can";
@@ -34,6 +36,9 @@ export interface VenueEvent {
   eventType: string | null;
   settings: unknown;
   organizationId: string;
+  code: string | null;
+  specialty: string | null;
+  organization: { name: string } | null;
 }
 
 export type VenueGate =
@@ -51,6 +56,9 @@ const EVENT_SELECT = {
   eventType: true,
   settings: true,
   organizationId: true,
+  code: true,
+  specialty: true,
+  organization: { select: { name: true } },
 } as const;
 
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -83,7 +91,7 @@ export async function venueGuard(by: { id: string } | { slug: string }, route: s
       return { ok: false as const, response: notFound() };
     }
     const { staffAssignments, ...event } = row;
-    if (!isVenueEnabledFor(event.slug)) {
+    if (!isVenueServed(event)) {
       apiLogger.warn({ msg: `${route}:venue-not-enabled`, userId: session.user.id, eventId, slug: event.slug });
       return { ok: false as const, response: notFound() };
     }

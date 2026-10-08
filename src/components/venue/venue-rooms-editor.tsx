@@ -9,7 +9,8 @@
  */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AlertCircle, Building2, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Building2, ExternalLink, Loader2, Plus, Trash2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PageHeader, SectionHeading } from "@/components/ui/typography";
 import { useCan } from "@/hooks/use-can";
-import { useSaveVenueRooms, useVenueRooms } from "@/hooks/use-api";
+import { useSaveVenueRooms, useSetVenueOpen, useVenueRooms } from "@/hooks/use-api";
 import { ApiError } from "@/lib/api-fetch";
 import { VenueFloorPlan } from "@/components/venue/venue-floor-plan";
 import { ROOM_KINDS, ROOM_KIND_INFO, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type VenueRoom } from "@/lib/venue/rooms";
@@ -122,6 +123,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           )}
           <Summary rooms={rooms} />
           {dirty && <p className="text-sm text-muted-foreground">Not saved yet.</p>}
+          {!dirty && saved && data?.slug && <OpenCard eventId={eventId} slug={data.slug} open={!!data.open} canEdit={canEdit} />}
           {issues.length === 0 && <VenueFloorPlan rooms={rooms} eventName="" />}
         </>
       )}
@@ -131,11 +133,51 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           <p className="text-muted-foreground">
             Every venue follows the same plan: the foyer at the entrance, a main corridor, the plenary hall at the end, session rooms, workshops and
             posters along one side, the exhibition and lounge along the other. Each room is sized from the people it holds, and the plan above is redrawn
-            as you edit. The walkable 3D venue is built from it in the next release; until then the rooms are saved but not yet walkable.
+            as you edit. The walkable venue is built from the saved rooms each time someone opens it.
           </p>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function OpenCard({ eventId, slug, open, canEdit }: { eventId: string; slug: string; open: boolean; canEdit: boolean }) {
+  const setOpen = useSetVenueOpen(eventId);
+  const toggle = async (next: boolean) => {
+    try {
+      await setOpen.mutateAsync(next);
+      toast.success(next ? "The venue is open to staff" : "The venue is closed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't change the venue");
+    }
+  };
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+        <div className="space-y-1">
+          <p className="text-base font-semibold">Walkable venue</p>
+          <p className="text-sm text-muted-foreground">
+            {open ? "Open: staff who can see this event can walk it, built from the saved rooms." : "Closed: nobody can walk it yet. Open it when the rooms are ready."}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {open && (
+            <Button variant="outline" asChild>
+              <a href={`/e/${encodeURIComponent(slug)}/venue`} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-4 w-4" aria-hidden />
+                Walk the venue
+              </a>
+            </Button>
+          )}
+          {canEdit && (
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <Switch id="venue-open" checked={open} disabled={setOpen.isPending} onCheckedChange={toggle} aria-label="Open the venue to staff" />
+              Open to staff
+            </label>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

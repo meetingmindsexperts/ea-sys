@@ -31,7 +31,8 @@ class VenueAudio {
   setMuted(m) { this.muted = m; if (this.ok) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.c.currentTime, 0.1); }
   update(dt, zoneId, crowdNear) {
     if (!this.ok) return; const c = this.c, now = c.currentTime; this.t += dt;
-    const busy = { foyer: 0.55, expo: 0.6, lounge: 0.45, promenade: 0.25, posters: 0.18, plenary: 0.12, hallA: 0.08, hallB: 0.08, hallC: 0.08, workshop: 0.18 }[zoneId] ?? 0.2;
+    // EA-SYS: keyed by what the room is for (game.js passes the zone's kind), so generated venues sound right too.
+    const busy = { foyer: 0.55, exhibition: 0.6, lounge: 0.45, corridor: 0.25, posters: 0.18, plenary: 0.12, hall: 0.08, workshop: 0.18 }[zoneId] ?? 0.2;
     const target = { chatter: busy * (0.6 + crowdNear * 0.4), room: 0.18, hall: /hall|plenary|workshop/.test(zoneId) ? 0.5 : 0.05 };
     for (const k in this.beds) for (const v of this.beds[k]) {
       v.g.gain.setTargetAtTime(target[k] * 0.22, now, 0.6);

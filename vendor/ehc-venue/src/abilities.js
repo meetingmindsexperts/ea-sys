@@ -60,10 +60,28 @@ class Abilities {
       return q;
     };
     const line = (x, z, dx, dz, n) => Array.from({ length: n }, (_, i) => [x + dx * i, z + dz * i]);
+    if (LAYOUT) return this.layoutQueues(mk, line);
     return [
       mk({ id: 'reg', name: 'registration', slots: line(-19, 19.55, 0, 0.8, 7), face: Math.PI, fill: 4, period: 7, exit: [[-12.6, 20.4], [-12.6, 24.3], [-15.6, 24.3]], item: 'badge', say: 'Welcome! Here’s your badge. Enjoy the conference.' }),
       mk({ id: 'coffee', name: 'coffee bar', slots: line(42.55, -34, -0.8, 0, 6), face: Math.PI / 2, fill: 3, period: 8, exit: [[42.2, -30.4], [37.2, -29.6], [37.6, -34]], item: 'coffee', say: 'Here’s your coffee. Careful, it’s hot.' }),
     ];
+  }
+  // EA-SYS (phase 6): in a generated venue the queues form in front of its own registration desk and
+  // coffee bar, read from the layout's items; a venue without a coffee bar has only the desk queue.
+  layoutQueues(mk, line) {
+    const out = [], items = LAYOUT.items;
+    const desk = items.find((i) => i.t === 'desk' && i.title === 'Registration');
+    if (desk) {
+      const f = desk.foot, x = f.x0 + (f.x1 - f.x0) * 0.3, z = f.z1 + 0.95;
+      out.push(mk({ id: 'reg', name: 'registration', slots: line(x, z, 0, 0.8, 7), face: Math.PI, fill: 4, period: 7, exit: [[x + 3.2, z + 0.8], [x + 3.2, z + 4.7], [x, z + 4.7]], item: 'badge', say: 'Welcome! Here’s your badge. Enjoy the conference.' }));
+    }
+    const bar = items.find((i) => i.t === 'bar');
+    if (bar) {
+      const f = bar.foot, dx = Math.round(Math.sin(bar.yaw)), dz = Math.round(Math.cos(bar.yaw)), px = dz, pz = -dx;
+      const half = Math.abs(dx) ? (f.x1 - f.x0) / 2 : (f.z1 - f.z0) / 2, sx = (f.x0 + f.x1) / 2 + dx * (half + 0.95), sz = (f.z0 + f.z1) / 2 + dz * (half + 0.95);
+      out.push(mk({ id: 'coffee', name: 'coffee bar', slots: line(sx, sz, dx * 0.8, dz * 0.8, 6), face: bar.yaw + Math.PI, fill: 3, period: 8, exit: [[sx + px * 3.2, sz + pz * 3.2], [sx + px * 3.2 + dx * 2, sz + pz * 3.2 + dz * 2]], item: 'coffee', say: 'Here’s your coffee. Careful, it’s hot.' }));
+    }
+    return out;
   }
   blockQueues() { for (const q of this.queues) { const [fx, fz] = q.slots[0]; this.nav.block(fx + Math.sin(q.face) * 0.6, fz + Math.cos(q.face) * 0.6, 0.3); for (const [x, z] of q.slots) this.nav.block(x, z, 0.35); } }
   stepQueues(dt) {
@@ -177,7 +195,7 @@ class Abilities {
     const sc = this.ctx.social, pl = this.ctx.player(), t = this.ctx.time(), Z = this.ctx.zone();
     if (sc) sc.gesture(g); else { pl.gesture = g; pl.gT = t; }
     if (g === 'clap') {
-      const room = Z && /plenary|hall|workshop/.test(Z.id); let n = 0;
+      const room = Z && /plenary|hall|workshop/.test(Z.kind); let n = 0;
       for (const p of this.ctx.crowd().list) { if (Math.hypot(p.x - pl.x, p.z - pl.z) > (room ? 30 : 10) || p.role === 'staff' || p.role === 'barista') continue; if (!room && Math.random() < 0.4) continue; p.gesture = 'clap'; p.gT = t + Math.random() * 0.6; n++; }
       this.lastClap = n; this.ctx.audio.applause(3, Math.min(1.5, 0.3 + n / 60));
     }

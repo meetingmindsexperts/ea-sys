@@ -105,7 +105,7 @@ describe("generateLayout", () => {
       expect(checkLayout(layout).issues, label).toEqual([]);
       expect(shortOf(layout), label).toEqual([]);
     }
-  });
+  }, 60_000); // ~7 s alone; the suite's 10 s default is too tight when the full run loads the CPU
 });
 
 describe("checkLayout", () => {

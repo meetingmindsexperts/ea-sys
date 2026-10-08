@@ -16,6 +16,12 @@ ROOT = os.path.dirname(TESTS)
 def no_errors(*keys):
     return [(f'no console errors ({k})', lambda d, k=k: d.get(k) == []) for k in keys]
 
+
+def layouts_ok(d, key, check):
+    """EA-SYS: a check on every generated layout in test_layout."""
+    L = d['layouts']
+    return len(L) >= 7 and all(check(r[key]) for r in L.values())
+
 SUITES = {
     'test_world': [
         ('15,000 random steps never pass through walls', lambda d: d['verify']['randomWalk']['penetrationViolations'] == 0 and d['verify']['randomWalk']['outOfBounds'] == 0 and d['verify']['randomWalk']['belowFloor'] == 0),
@@ -105,6 +111,17 @@ SUITES = {
         ('failed report explains and offers Copy report', lambda d: d['m_reportFail']['copyShown'] is True),
         ('no sideways scroll on a phone', lambda d: d['m_hscroll'] is False and d['m_guideHScroll'] is False),
         *no_errors('errors', 'm_errors'),
+    ],
+    'test_layout': [  # EA-SYS (phase 6): venues generated from an event's rooms
+        ('every generated venue loads its own rooms', lambda d: all(r['zonesMatch'] for r in d['layouts'].values())),
+        ('the start sheet names each generated venue\'s own rooms', lambda d: all(r['introNamesRooms'] for r in d['layouts'].values())),
+        ('random walks never pass through walls or leave the venue', lambda d: layouts_ok(d, 'randomWalk', lambda r: r['penetrationViolations'] == 0 and r['outOfBounds'] == 0 and r['belowFloor'] == 0)),
+        ('pushing into every wall never crosses it', lambda d: layouts_ok(d, 'wallPush', lambda r: r['wallsCrossed'] == 0)),
+        ('every doorway is passable both ways', lambda d: layouts_ok(d, 'doors', lambda r: r['failed'] == [] and r['passed'] == r['tested'] > 0)),
+        ('walk-me-there reaches every room from every room', lambda d: layouts_ok(d, 'walkAllPairs', lambda r: r['failed'] == [] and r['arrived'] == r['pairs'])),
+        ('camera never inside geometry or outside the venue', lambda d: layouts_ok(d, 'camera', lambda r: r['lensInsideGeometry'] == 0 and r['lensOutsideVenue'] == 0 and r['lensAboveCeiling'] == 0)),
+        ('every hotspot can be reached and opened', lambda d: layouts_ok(d, 'hotspots', lambda r: r['failed'] == [] and r['opened'] == r['count'])),
+        *no_errors('errors'),
     ],
 }
 
