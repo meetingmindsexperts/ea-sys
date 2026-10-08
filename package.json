@@ -44,7 +44,8 @@
     "worker:start": "tsx worker/index.ts",
     "db:local:setup": "tsx prisma/seed-local-cancel-scenarios.ts",
     "verify:cancel": "tsx prisma/seed-local-cancel-scenarios.ts && tsx prisma/verify-cancel-financials.ts",
-    "blueprint:build": "node scripts/blueprint-build.mjs"
+    "blueprint:build": "node scripts/blueprint-build.mjs",
+    "venue:build": "node scripts/venue-build.mjs"
   },
   "prisma": {
     "schema": "prisma"

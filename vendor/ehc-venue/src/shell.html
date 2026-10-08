@@ -1,0 +1,323 @@
+<title>EHC 2026 Venue</title>
+<!-- EA-SYS: the event name, dates and venue are filled in by world.js from window.EHC_EVENT. Fonts self-hosted (public/venue-fonts/), not loaded from Google -->
+<link rel="stylesheet" href="/venue-fonts/fonts.css">
+<style>
+/* Layout: full-bleed 3D canvas with a thin HUD layer; one dark look by choice (it sits over a lit 3D scene). */
+:root {
+  --ink: #0f0b0c; --panel: rgba(20, 13, 15, .8); --panel-solid: #171012; --line: rgba(243, 236, 228, .14);
+  --ivory: #f3ece4; --muted: #b9aca4; --garnet: #a3253a; --garnet-deep: #6d1624; --brass: #c8a46a;
+  --f-display: "Instrument Serif", "Cormorant Garamond", Georgia, serif;
+  --f-body: "Hanken Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "JetBrains Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--ink); color: var(--ivory); font-family: var(--f-body); overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
+#app { position: fixed; inset: 0; }
+#gl { width: 100%; height: 100%; display: block; cursor: grab; }
+#gl:active { cursor: grabbing; }
+.vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(10, 5, 6, .55)); }
+button { font: inherit; color: inherit; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+.hud { position: fixed; inset: 0; pointer-events: none; padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px calc(env(safe-area-inset-bottom, 0px) + 16px); }
+.hud > * { pointer-events: auto; }
+.zone { position: absolute; left: 16px; top: calc(env(safe-area-inset-top, 0px) + 14px); max-width: min(58vw, 360px); padding: 12px 16px 13px; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); pointer-events: none; }
+.zone .k { font: 600 10.5px/1 var(--f-body); letter-spacing: .16em; text-transform: uppercase; color: var(--brass); }
+.zone .n { font: 400 30px/1.05 var(--f-display); margin-top: 7px; text-wrap: balance; }
+.zone .s { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.tools { position: absolute; right: 16px; top: calc(env(safe-area-inset-top, 0px) + 14px); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.btnrow { display: flex; gap: 6px; }
+.chip { background: var(--panel); border: 1px solid var(--line); padding: 8px 12px; font-size: 12.5px; font-weight: 600; letter-spacing: .02em; cursor: pointer; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); min-height: 40px; }
+.chip:hover { border-color: var(--brass); }
+.chip[aria-pressed="true"] { background: var(--garnet-deep); border-color: var(--garnet); }
+#map { background: var(--panel); border: 1px solid var(--line); cursor: pointer; display: block; width: 232px; height: 136px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.prompt { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 28px); transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 16px 10px 10px; background: var(--panel); border: 1px solid var(--brass); cursor: pointer; white-space: nowrap; font-weight: 600; font-size: 14px; }
+.prompt kbd { font: 700 12px/1 var(--f-mono); background: var(--brass); color: var(--ink); padding: 6px 8px; }
+.stats { position: absolute; left: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); font: 500 11px/1.5 var(--f-mono); color: var(--muted); pointer-events: none; font-variant-numeric: tabular-nums; }
+.help { position: absolute; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); font-size: 12px; color: var(--muted); text-align: right; line-height: 1.7; pointer-events: none; }
+.help b { color: var(--ivory); font: 700 11px var(--f-mono); padding: 1px 5px; border: 1px solid var(--line); }
+
+/* touch controls */
+.touch { display: none; }
+body.is-touch .touch { display: block; }
+body.is-touch .help, body.is-touch .stats { display: none; }
+.stick { position: absolute; left: 0; bottom: 0; width: 45%; height: 55%; }
+.stick-base { position: absolute; width: 116px; height: 116px; border-radius: 50%; border: 1.5px solid rgba(243, 236, 228, .35); background: rgba(20, 13, 15, .35); transform: translate(-50%, -50%); left: 92px; top: calc(100% - 100px - env(safe-area-inset-bottom, 0px)); pointer-events: none; }
+.stick-knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: rgba(243, 236, 228, .85); }
+.tbtns { position: absolute; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); display: flex; gap: 12px; align-items: flex-end; }
+.tbtn { width: 64px; height: 64px; border-radius: 50%; border: 1.5px solid rgba(243, 236, 228, .4); background: rgba(20, 13, 15, .55); font: 700 11px var(--f-body); letter-spacing: .08em; text-transform: uppercase; }
+.tbtn.big { width: 76px; height: 76px; background: rgba(109, 22, 36, .75); }
+.tbtn[aria-pressed="true"] { background: var(--brass); color: var(--ink); }
+body.is-touch .prompt { bottom: calc(env(safe-area-inset-bottom, 0px) + 200px); }
+
+/* overlays */
+.cmod { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 14px 0; }
+.chip.warn, .cmod .warn { border-color: rgba(214, 120, 60, .6); }
+.prow { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.pwho { min-width: 0; } .pn { font-weight: 700; } .pact { display: flex; gap: 6px; flex-wrap: wrap; }
+.pact .chip, .cmod .chip, .tabs .chip { min-height: 40px; }
+.reasons { border: 0; padding: 0; margin: 10px 0; display: grid; gap: 4px; } .reasons label { display: flex; gap: 10px; align-items: center; min-height: 40px; }
+#lfExtra, #lfAllow, .lfTest { box-sizing: border-box; display: block; width: 100%; background: rgba(255,255,255,.04); border: 1px solid var(--line); color: inherit; padding: 10px; font: inherit; margin: 4px 0 10px; min-height: 40px; }
+.tabs { flex-wrap: wrap; }
+#reportNote { box-sizing: border-box; width: 100%; background: rgba(255,255,255,.04); border: 1px solid var(--line); color: inherit; padding: 10px; font: inherit; }
+.card.wide { width: min(860px, 100%); }
+.tabs { display: flex; gap: 6px; margin: 8px 0 12px; } .tabs .chip[aria-pressed="true"] { background: var(--garnet-deep); border-color: var(--garnet); }
+.rwrap { overflow-x: auto; margin: 6px 0 14px; } .rtable { border-collapse: collapse; width: 100%; font-size: 13px; } .rtable th, .rtable td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; } .rtable th { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.rcard { border: 1px solid var(--line); padding: 12px; margin-bottom: 8px; display: grid; gap: 4px; } .rcard .said { opacity: .85; }
+.consent { margin-top: 10px; } .optin { display: flex; gap: 10px; align-items: center; margin-top: 6px; min-height: 40px; cursor: pointer; } .optin input, .reasons input { width: 18px; height: 18px; accent-color: var(--garnet); }
+.cbar { height: 4px; background: var(--line); margin: 12px 0; } .cbar i { display: block; height: 100%; width: 0; background: var(--brass); transition: width .4s; }
+.checklist { margin: 6px 0 10px; padding-left: 18px; }
+#check.peek { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; place-items: end center; pointer-events: none; } #check.peek .card { opacity: .94; pointer-events: auto; padding: 14px 18px; } #check.peek h2 { font-size: 20px; margin: 4px 0; } #check.peek .k, #check.peek #checkCopy, #check.peek #checkSave { display: none; }
+.card:focus { outline: none; }
+.here { cursor: pointer; }
+.msg.sys .mt { font-style: italic; opacity: .8; }
+.sheet { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(10, 6, 7, .55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); z-index: 5; }
+.card { width: min(560px, 100%); max-height: calc(100% - 32px); overflow: auto; background: var(--panel-solid); border: 1px solid var(--line); padding: 26px 26px 22px; }
+.card .k { font: 600 11px var(--f-body); letter-spacing: .16em; text-transform: uppercase; color: var(--brass); }
+.card h2 { font: 400 34px/1.05 var(--f-display); margin: 10px 0 10px; text-wrap: balance; }
+.card p { color: var(--muted); line-height: 1.6; margin: 0 0 12px; max-width: 62ch; }
+.card .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 18px; }
+.tag { font: 600 11px var(--f-mono); padding: 5px 8px; border: 1px solid var(--line); color: var(--ivory); }
+.tag.warn { border-color: rgba(200, 164, 106, .6); color: var(--brass); }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.primary { background: var(--garnet); border: 1px solid var(--garnet); padding: 11px 18px; font-weight: 700; cursor: pointer; min-height: 44px; }
+.primary:hover { background: #b62c43; }
+.ghost { background: transparent; border: 1px solid var(--line); padding: 11px 16px; font-weight: 600; cursor: pointer; min-height: 44px; }
+
+/* start screen */
+#start .card { width: min(640px, 100%); padding: 0; overflow: hidden; }
+.start-hero { position: relative; padding: 30px 28px 24px; background: linear-gradient(140deg, #6d1624 0%, #2a0a12 70%); overflow: hidden; }
+.start-hero::after { content: ""; position: absolute; right: -80px; bottom: -120px; width: 320px; height: 320px; border-radius: 50%; border: 1px solid rgba(200, 164, 106, .35); box-shadow: 0 0 0 26px rgba(200, 164, 106, .06), 0 0 0 52px rgba(200, 164, 106, .05), 0 0 0 78px rgba(200, 164, 106, .04); }
+.start-hero h1 { font: 400 clamp(36px, 7vw, 54px)/.98 var(--f-display); margin: 12px 0 14px; max-width: 12ch; text-wrap: balance; position: relative; z-index: 1; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13.5px; color: rgba(243, 236, 228, .85); position: relative; z-index: 1; }
+.facts span::before { content: ""; display: inline-block; width: 5px; height: 5px; background: var(--brass); margin-right: 8px; vertical-align: middle; }
+.start-body { padding: 22px 28px 24px; }
+.start-body p { font-size: 14px; }
+.keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; margin: 14px 0 20px; font-size: 13px; color: var(--muted); }
+.keys b { color: var(--ivory); font: 700 11px var(--f-mono); padding: 2px 6px; border: 1px solid var(--line); margin-right: 6px; }
+.loading { font: 500 12px var(--f-mono); color: var(--muted); }
+.fade { position: fixed; inset: 0; background: #0f0b0c; opacity: 0; pointer-events: none; transition: opacity .35s ease; z-index: 4; }
+.fade.on { opacity: 1; }
+
+/* agenda */
+.agenda-list { display: grid; gap: 6px; margin: 6px 0 16px; }
+.arow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); }
+.arow .t { font: 400 21px/1.1 var(--f-display); }
+.arow .d { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.arow .go { padding: 8px 14px; border: 1px solid var(--brass); background: transparent; color: var(--brass); font-weight: 700; cursor: pointer; min-height: 40px; }
+.arow .go.walk { border-color: rgba(243,236,228,.4); color: var(--ivory); font-weight: 600; }
+.arow.cur { border-color: var(--garnet); background: rgba(163,37,58,.12); }
+@media (max-width: 420px) { .arow .t { font-size: 18px; } .arow .go { padding: 8px 10px; } }
+.small { font-size: 12px !important; }
+
+/* social: bubbles, name tag, chat */
+.bubbles { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.bubble { position: absolute; left: 0; top: 0; max-width: 230px; padding: 7px 11px 8px; background: rgba(250, 246, 240, .96); color: #1a1214; font-size: 13.5px; line-height: 1.35; box-shadow: 0 6px 18px rgba(0, 0, 0, .28); transform-origin: 50% 100%; will-change: transform; }
+.bubble::after { content: ""; position: absolute; left: 50%; bottom: -7px; margin-left: -7px; border: 7px solid transparent; border-bottom: 0; border-top-color: rgba(250, 246, 240, .96); }
+.bubble .bn { font: 700 9.5px/1.2 var(--f-body); letter-spacing: .12em; text-transform: uppercase; color: var(--garnet-deep); margin-bottom: 2px; }
+.bubble.quiet { opacity: .82; font-size: 12.5px; }
+.bubble.me { background: var(--garnet-deep); color: var(--ivory); }
+.bubble.me::after { border-top-color: var(--garnet-deep); }
+.bubble.me .bn { color: var(--brass); }
+.bubble.thinking .bt::before { content: "· · ·"; letter-spacing: .2em; animation: dots 1s infinite; }
+@keyframes dots { 50% { opacity: .3; } }
+.nametag { position: fixed; left: 0; top: 0; pointer-events: none; text-align: center; padding: 4px 9px 5px; background: rgba(20, 13, 15, .78); border: 1px solid var(--line); }
+.nametag .tn { font: 400 16px/1.1 var(--f-display); }
+.nametag .tt { font-size: 10.5px; color: var(--muted); }
+.here { position: absolute; left: 16px; top: calc(env(safe-area-inset-top, 0px) + 112px); font: 600 11.5px var(--f-body); padding: 5px 9px; background: rgba(28, 74, 64, .85); border: 1px solid rgba(127, 179, 166, .5); color: var(--ivory); min-height: 40px; pointer-events: auto; z-index: 2; }
+.chat { position: fixed; right: 16px; top: calc(env(safe-area-inset-top, 0px) + 230px); bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); width: min(380px, calc(100% - 32px)); display: flex; flex-direction: column; background: var(--panel-solid); border: 1px solid var(--line); z-index: 3; box-shadow: 0 12px 40px rgba(0, 0, 0, .4); }
+.chat header { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 12px 12px 10px 14px; border-bottom: 1px solid var(--line); }
+.chat .who { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.chat .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.chat .cn { font: 400 21px/1.1 var(--f-display); }
+.chat .ct { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.ctag { font: 600 10px var(--f-mono); padding: 4px 6px; border: 1px solid rgba(200, 164, 106, .6); color: var(--brass); white-space: nowrap; }
+.chat .x { background: transparent; border: 1px solid var(--line); width: 44px; height: 44px; font-size: 18px; cursor: pointer; }
+.log { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.msg { max-width: 88%; }
+.msg .mw { font: 700 9.5px var(--f-body); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+.msg .mt { padding: 8px 11px; background: rgba(243, 236, 228, .07); border: 1px solid var(--line); line-height: 1.45; font-size: 14px; }
+.msg.me { align-self: flex-end; text-align: right; }
+.msg.me .mt { background: var(--garnet-deep); border-color: var(--garnet); text-align: left; }
+.msg.thinking .mt { color: var(--muted); }
+.gobtn { margin-top: 6px; background: transparent; border: 1px solid var(--brass); color: var(--brass); padding: 7px 12px; min-height: 40px; font-weight: 700; font-size: 12.5px; cursor: pointer; }
+.note { font-size: 11.5px; color: var(--muted); padding: 0 14px; line-height: 1.45; }
+.note:empty { display: none; }
+.quick { display: flex; gap: 6px; overflow-x: auto; padding: 10px 14px 4px; scrollbar-width: none; }
+.qchip { flex: none; background: transparent; border: 1px solid var(--line); padding: 7px 12px; min-height: 40px; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.qchip:hover { border-color: var(--brass); }
+.chat form { display: flex; gap: 6px; padding: 8px 14px 6px; }
+.chat input { flex: 1; min-width: 0; background: #0f0b0c; border: 1px solid var(--line); color: var(--ivory); padding: 10px 12px; font: 16px var(--f-body); }
+.chat input:focus { outline: 2px solid var(--brass); outline-offset: -1px; }
+.chat form .primary { min-height: 42px; padding: 0 16px; }
+.cfoot { display: flex; gap: 6px; padding: 4px 14px 12px; flex-wrap: wrap; }
+.cfoot .chip { min-height: 40px; padding: 6px 12px; font-size: 12px; }
+body.chatting .help, body.chatting .prompt { display: none; }
+body.chatting.is-touch .touch { display: none; }
+
+/* actions */
+.abar { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); display: flex; gap: 6px; padding: 6px; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); max-width: calc(100% - 32px); overflow-x: auto; scrollbar-width: none; }
+.abar, .modepill { z-index: 2; }
+.abtn { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 64px; min-height: 52px; padding: 6px 8px; background: transparent; border: 1px solid transparent; font: 600 11px var(--f-body); color: var(--ivory); cursor: pointer; white-space: nowrap; }
+.abtn:hover { border-color: var(--line); }
+.abtn .ai { width: 20px; height: 20px; display: block; }
+.abtn[aria-pressed="true"] { background: var(--garnet-deep); border-color: var(--garnet); }
+.abtn:disabled { opacity: .4; cursor: default; }
+.abtn.ctx { background: var(--brass); color: var(--ink); justify-content: center; }
+.modepill { position: absolute; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 14px); display: flex; gap: 8px; align-items: center; padding: 2px 6px 2px 14px; background: var(--panel); border: 1px solid var(--brass); font-size: 13px; font-weight: 600; }
+.linkbtn { background: none; border: 0; padding: 0 6px; min-height: 40px; min-width: 44px; color: var(--brass); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-weight: 600; }
+.countdown { position: absolute; inset: 0; display: grid; place-items: center; font: 400 140px/1 var(--f-display); color: var(--ivory); text-shadow: 0 4px 30px rgba(0,0,0,.6); pointer-events: none; }
+.flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .18s; z-index: 6; }
+.flash.on { opacity: .85; transition: none; }
+.photoimg { width: 100%; height: auto; display: block; margin: 6px 0 12px; border: 1px solid var(--line); }
+.toast3 { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 150px); background: var(--ivory); color: var(--ink); padding: 9px 14px; font-size: 13.5px; font-weight: 600; max-width: calc(100% - 32px); pointer-events: none; }
+body.is-touch .abar { display: none; bottom: calc(env(safe-area-inset-bottom, 0px) + 176px); width: calc(100% - 32px); max-width: 420px; grid-template-columns: repeat(4, 1fr); overflow: visible; }
+body.is-touch .abar .abtn { min-width: 0; white-space: normal; text-align: center; line-height: 1.15; }
+body.is-touch .abar.open { display: grid; }
+body.is-touch .toast3 { bottom: calc(env(safe-area-inset-bottom, 0px) + 190px); }
+body.chatting .abar, body.chatting .modepill { display: none; }
+@media (max-width: 640px) { .modepill { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 250px); } }
+@media (max-width: 640px) {
+  .chat { left: 0; right: 0; width: auto; top: auto; bottom: 0; height: min(52%, 460px); border-left: 0; border-right: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .here { top: calc(env(safe-area-inset-top, 0px) + 96px); }
+}
+@media (max-width: 640px) {
+  .zone { max-width: calc(100% - 32px - 128px); padding: 9px 12px 10px; }
+  .zone .k { font-size: 9.5px; letter-spacing: .12em; }
+  .zone .n { font-size: 23px; margin-top: 5px; }
+  .zone .s { font-size: 11.5px; }
+  .tools { gap: 6px; }
+  .btnrow { flex-direction: column; align-items: stretch; width: 120px; gap: 5px; }
+  .chip { padding: 6px 10px; font-size: 12px; min-height: 40px; }
+  #map { width: 120px; height: 70px; }
+  .card { padding: 22px 18px 18px; }
+  .start-hero, .start-body { padding-left: 20px; padding-right: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { .fade { transition: none; } }
+</style>
+
+<div id="app">
+  <canvas id="gl" aria-label="3D venue"></canvas>
+  <div class="vignette"></div>
+  <div class="hud" id="hud" hidden>
+    <div class="zone" aria-live="polite"><div class="k"></div><div class="n" id="zname">Grand Foyer</div><div class="s" id="zsub"></div></div>
+    <div class="tools">
+      <div class="btnrow">
+        <button class="chip" id="bAgenda">Venue guide</button>
+        <button class="chip" id="bView" title="Change the view (V)">Behind view</button>
+        <button class="chip" id="bTeam" hidden>Event team</button>
+        <button class="chip" id="bSound" aria-pressed="false">Sound on</button>
+        <button class="chip" id="bQual">High</button>
+      </div>
+      <canvas id="map" width="464" height="272" aria-label="Venue map. Tap a room to go there."></canvas>
+    </div>
+    <div class="abar" id="abar" role="toolbar" aria-label="Actions">
+      <button class="abtn" id="aWave" title="Wave (1)"><svg class="ai" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 10V4a1.5 1.5 0 0 1 3 0v6.5"/><path d="M14 10.5V5.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7h-.6a6 6 0 0 1-4.6-2.2L3.6 16a1.6 1.6 0 0 1 2.4-2.1L8 15.5"/><path d="M19.5 3.5c1 .8 1.6 1.8 1.8 3"/></svg>Wave</button>
+      <button class="abtn" id="aHeart" title="Hand on heart (2)"><svg class="ai" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7.5-4.4-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.6-7.5 10-7.5 10z"/></svg>Hand on heart</button>
+      <button class="abtn" id="aClap" title="Applaud (3)"><svg class="ai" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 12.5 11.5 8a1.4 1.4 0 0 1 2 2L10 13.5"/><path d="M9 10.5 13 6.5a1.4 1.4 0 0 1 2 2l-3.5 3.5"/><path d="M12.5 11 15 8.5a1.4 1.4 0 0 1 2 2L12 15.5a5 5 0 0 1-7 0 4.6 4.6 0 0 1 0-6.5L7 7"/><path d="M15 3v1.6M18.5 4.2l-1 1.2M20.6 7.4l-1.5.3"/></svg>Applaud</button>
+      <button class="abtn" id="aRaise" title="Raise hand (4)"><svg class="ai" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14V3.5a1.5 1.5 0 0 1 3 0V11"/><path d="M13 10.5a1.5 1.5 0 0 1 3 0V12"/><path d="M16 11.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1.2a5.5 5.5 0 0 1-4.3-2.1L5 15.6A1.5 1.5 0 0 1 7.3 13.7L10 16"/></svg>Raise hand</button>
+      <button class="abtn" id="aPhoto" title="Photo (5)"><svg class="ai" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.6-2.5h6.8L17 8h3v11H4z"/><circle cx="12" cy="13.2" r="3.4"/></svg>Photo</button>
+      <button class="abtn" id="aSit" title="Sit or stand (F)" aria-pressed="false"><svg class="ai" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v9h9l1 8"/><path d="M7 12l-1 8"/><path d="M7 8h7"/></svg><span id="aSitL">Sit down</span></button>
+      <button class="abtn ctx" id="aCtx" hidden></button>
+    </div>
+    <div class="modepill" id="modePill" hidden><span></span><button id="modeStop" class="linkbtn">Stop</button></div>
+    <div class="countdown" id="countdown" hidden aria-live="assertive"></div>
+    <div class="toast3" id="toast3" hidden role="status"></div>
+    <button class="prompt" id="prompt" hidden><kbd>E</kbd><span id="ptext"></span></button>
+    <button class="here" id="here" hidden aria-haspopup="dialog"></button>
+    <div class="stats" id="stats"></div>
+    <div class="help"><b>W A S D</b> move · <b>Shift</b> run · <b>Space</b> jump<br>Drag to look · Scroll to zoom · <b>V</b> view · <b>E</b> talk / interact<br><b>Enter</b> say something · <b>1–5</b> gestures · <b>F</b> sit · <b>C</b> join / follow · <b>G</b> guide</div>
+    <div class="touch">
+      <div class="stick" id="stick"><div class="stick-base" id="stickBase"><div class="stick-knob" id="knob"></div></div></div>
+      <div class="tbtns"><button class="tbtn" id="tActions" aria-pressed="false">Actions</button><button class="tbtn" id="tRun" aria-pressed="false">Run</button><button class="tbtn big" id="tJump">Jump</button></div>
+    </div>
+  </div>
+  <div class="bubbles" id="bubbles"></div>
+  <div class="nametag" id="nameTag" hidden><div class="tn"></div><div class="tt"></div></div>
+  <aside class="chat" id="chat" hidden aria-label="Conversation">
+    <header><div class="who"><span class="dot" id="cDot"></span><div style="min-width:0"><div class="cn" id="cName"></div><div class="ct" id="cTitle"></div></div></div><span class="ctag" id="cTag">AI attendee</span><button class="x" id="cClose" aria-label="End conversation">×</button></header>
+    <div class="log" id="cLog" aria-live="polite"></div>
+    <div class="cmod" id="cMod" hidden aria-label="Safety"></div>
+    <div class="note" id="cNote"></div>
+    <div class="quick" id="cQuick"></div>
+    <form id="cForm"><input id="cInput" autocomplete="off" maxlength="240" placeholder="Type, or use your keyboard’s mic…" aria-label="Your message"><button class="primary" id="cSend" type="submit">Say</button></form>
+    <div class="cfoot"><button class="chip" id="cWave" type="button">Wave</button><button class="chip" id="cShake" type="button">Shake hands</button><button class="chip" id="cVoice" type="button" aria-pressed="true">Voices on</button><button class="chip" id="cStop" type="button" hidden>Stop</button></div>
+  </aside>
+  <div class="flash" id="flash"></div>
+  <div class="sheet" id="photoSheet" hidden>
+    <div class="card" role="dialog" aria-labelledby="pt"><div class="k">Event photo</div><h2 id="pt">Your photo</h2>
+      <img id="photoImg" alt="Photo taken in the online venue" class="photoimg">
+      <p class="small" id="photoNote"></p>
+      <div class="actions"><button class="ghost" id="photoClose">Close</button><button class="primary" id="photoSave">Save photo</button></div></div>
+  </div>
+  <div class="fade" id="fade"></div>
+
+  <div class="sheet" id="start">
+    <div class="card" role="dialog" aria-labelledby="st">
+      <div class="start-hero">
+        <div class="k"></div>
+        <h1 id="st"></h1>
+        <div class="facts"><span></span><span></span><span>Walkable venue preview</span></div>
+      </div>
+      <div class="start-body">
+        <p>Walk the conference as a delegate: registration, the plenary ballroom, three parallel halls, a workshop room, the poster gallery, the networking lounge and the exhibition. Walk up to anyone and talk to them; colleagues who open this page appear beside you.</p>
+        <p class="small">The room layout is an interpretation. Track names, speakers, sponsors and session recordings are placeholders until the official agenda and recordings folder are supplied.</p>
+        <div class="keys" id="keys"><div><b>WASD</b>Move</div><div><b>Shift</b>Run</div><div><b>Space</b>Jump</div><div><b>Drag</b>Look around</div><div><b>E</b>Talk · interact</div><div><b>Enter</b>Say something</div><div><b>1</b>Wave</div></div>
+        <p class="small consent">To help organisers and sponsors, visits to stands and areas are counted and kept with your sign-in. Sponsors see totals only, unless you tick the box. You can change this later in the Venue guide. <label class="optin"><input type="checkbox" id="shareName"> Share my name with sponsors whose stands I visit</label></p>
+        <div class="actions"><button class="ghost" id="bCheck" type="button" style="margin-right:auto">Check this device</button><span class="loading" id="loading" style="align-self:center">Building the venue…</span><button class="primary" id="enter" disabled>Enter the venue</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet" id="info" hidden>
+    <div class="card" role="dialog" aria-labelledby="it">
+      <div class="k" id="ik"></div>
+      <h2 id="it"></h2>
+      <div class="tags" id="itags"></div>
+      <p id="ib"></p>
+      <div class="actions"><button class="primary" id="iclose">Back to the venue</button></div>
+    </div>
+  </div>
+
+  <div class="sheet" id="people" hidden>
+    <div class="card" role="dialog" aria-labelledby="pplT"><div class="k">Live in the venue</div><h2 id="pplT">People here</h2>
+      <p class="small">Mute someone to stop seeing and hearing what they say. Block hides them completely. Both apply on this device only. Report sends what happened to the event team.</p>
+      <div id="peopleList" class="plist"></div><div id="blockedBox"></div>
+      <div class="actions"><button class="primary" id="peopleClose">Close</button></div></div>
+  </div>
+  <div class="sheet" id="report" hidden>
+    <div class="card" role="dialog" aria-labelledby="repT"><div class="k">Safety</div><h2 id="repT">Report <span id="reportWho"></span></h2>
+      <fieldset class="reasons"><legend class="small">What happened?</legend>
+        <label><input type="radio" name="rreason" value="Harassment or bullying"> Harassment or bullying</label>
+        <label><input type="radio" name="rreason" value="Offensive language"> Offensive language</label>
+        <label><input type="radio" name="rreason" value="Spam or selling"> Spam or selling</label>
+        <label><input type="radio" name="rreason" value="Pretending to be someone"> Pretending to be someone else</label>
+        <label><input type="radio" name="rreason" value="Something else"> Something else</label></fieldset>
+      <textarea id="reportNote" rows="3" maxlength="600" placeholder="Anything else the team should know (optional)"></textarea>
+      <p class="small">Their last few messages are included so the team can see what happened. They are muted for you straight away.</p>
+      <p class="small" id="reportMsg" role="status"></p>
+      <div class="actions"><button class="ghost" id="reportCopy" hidden>Copy report</button><button class="ghost" id="reportCancel">Cancel</button><button class="primary" id="reportSend">Send report</button></div></div>
+  </div>
+  <div class="sheet" id="team" hidden>
+    <div class="card wide" role="dialog" aria-labelledby="teamT"><div class="k">Only you can see this</div><h2 id="teamT">Event team</h2>
+      <div class="tabs" role="tablist"><button class="chip" data-tteam="activity" role="tab">Activity</button><button class="chip" data-tteam="reports" role="tab">Reports</button><button class="chip" data-tteam="screens" role="tab">Screens</button><button class="chip" data-tteam="language" role="tab">Language</button></div>
+      <div data-tpane="activity" id="tActivity"></div><div data-tpane="reports" id="tReports" hidden></div><div data-tpane="screens" id="tScreens" hidden></div><div data-tpane="language" id="tLanguage" hidden></div>
+      <div class="actions"><button class="primary" id="teamClose">Close</button></div></div>
+  </div>
+  <div class="sheet" id="check" hidden>
+    <div class="card" role="dialog" aria-labelledby="checkTitle"><div class="k">Device check</div><h2 id="checkTitle">Checking this device…</h2>
+      <div class="cbar"><i id="checkBar"></i></div><div id="checkOut" aria-live="polite"></div>
+      <div class="actions"><button class="ghost" id="checkCopy" disabled>Copy result</button><button class="ghost" id="checkSave" disabled>Download</button><button class="primary" id="checkClose">Close</button></div></div>
+  </div>
+  <div class="sheet" id="agenda" hidden>
+    <div class="card" role="dialog" aria-labelledby="at">
+      <div class="k"></div>
+      <h2 id="at">Venue guide</h2>
+      <p class="small">Walk takes you there on foot; Go jumps you straight in. Items marked “to link” are waiting for the official agenda, sponsor list or recordings.</p>
+      <div class="agenda-list" id="alist"></div>
+      <label class="optin small"><input type="checkbox" id="shareName2"> Share my name with sponsors whose stands I visit (visits are counted either way; sponsors otherwise see totals only)</label>
+      <div class="actions"><button class="ghost" id="bCheck2" type="button" style="margin-right:auto">Check this device</button><button class="primary" id="aclose">Close</button></div>
+    </div>
+  </div>
+</div>
