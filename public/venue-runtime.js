@@ -71,6 +71,9 @@
       get: function () {
         var p;
         if (path === "analytics") p = call("GET", "/activity").then(function (r) { return r.activity || []; });
+        // The team's Reports tab reads the bare collection and takes each doc's `items` (team.js
+        // drawReports). One doc carrying every report; no `uid`, so it asks for no per-reporter lists.
+        else if (path === "reports") p = reports().then(function (all) { return [{ items: all.map(function (x) { return x.item; }) }]; });
         else if (parts[0] === "reports" && parts[2] === "items") p = reports().then(function (all) { return all.filter(function (x) { return x.reporterId === parts[1]; }).map(function (x) { return x.item; }); });
         else p = Promise.resolve([]);
         return p.then(function (rows) {

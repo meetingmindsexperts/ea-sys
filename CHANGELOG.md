@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Online venue: the event team's Reports tab shows reports (October 8)
+
+- Independent review of the venue, HIGH fixed: the team's Reports tab was
+  always empty, because the EA-SYS runtime did not answer the bare `reports`
+  collection the vendor's team panel reads. Reports were stored and emailed
+  throughout. `__tests__/lib/venue-runtime.test.ts` now drives the runtime the
+  way the vendor page does.
+
 ### Event Blueprint: redesigned to match the dashboard (October 8)
 
 - The page now looks like the rest of EA-SYS (owner's pick of two directions):
