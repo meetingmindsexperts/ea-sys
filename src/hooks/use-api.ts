@@ -124,6 +124,7 @@ export const queryKeys = {
   webinarEngagement: (eventId: string) => ["events", eventId, "webinar", "engagement"] as const,
   webinarPanelists: (eventId: string) => ["events", eventId, "webinar", "panelists"] as const,
   sponsors: (eventId: string) => ["events", eventId, "sponsors"] as const,
+  venueRooms: (eventId: string) => ["events", eventId, "venue-rooms"] as const,
   eventTags: (eventId: string) => ["events", eventId, "tags"] as const,
   rsvpCampaigns: (eventId: string) => ["events", eventId, "rsvp-campaigns"] as const,
   dtcmPool: (eventId: string) => ["events", eventId, "dtcm-pool"] as const,
@@ -3147,6 +3148,7 @@ export function useResendPanelistInvite(eventId: string) {
 // source of truth. Consumers that import SponsorEntry from this hooks
 // file don't need to change.
 import type { SponsorEntry, SponsorTier } from "@/lib/webinar";
+import type { VenueRoom } from "@/lib/venue/rooms";
 export type { SponsorEntry, SponsorTier };
 
 export function useSponsors(eventId: string, enabled = true) {
@@ -3178,6 +3180,36 @@ export function useUpdateSponsors(eventId: string) {
       // reflects exactly what was persisted without a second roundtrip.
       queryClient.setQueryData(queryKeys.sponsors(eventId), data);
     },
+  });
+}
+
+// ============ ONLINE VENUE ROOMS (docs/EVENT_BLUEPRINT_PLAN.md, D9) ============
+// The event's Venue tab: the room list the walkable venue is built from.
+// `version` is the save the editor loaded; a save from an older one gets 409.
+
+export interface VenueRoomsData {
+  rooms: VenueRoom[] | null;
+  version: number;
+}
+
+export function useVenueRooms(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.venueRooms(eventId),
+    queryFn: () => fetchApi<VenueRoomsData>(`/api/events/${eventId}/venue`),
+    enabled: !!eventId,
+  });
+}
+
+export function useSaveVenueRooms(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { rooms: VenueRoom[]; version: number }) =>
+      fetchApi<VenueRoomsData>(`/api/events/${eventId}/venue`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: (data) => queryClient.setQueryData(queryKeys.venueRooms(eventId), data),
   });
 }
 

@@ -16,6 +16,8 @@ folders and the external developer handover. Step 1 of section 6 is built: see
 | D6 | **Organisers set up the venue rooms** themselves when a venue is needed, so the venue becomes data-driven (section 5.6) instead of a developer build per event. They do it in the Blueprint's Spaces step and layout sketch, which the venue is generated from. |
 | D7 | Venue safety reports go to **info@meetingmindsgroup.com**. |
 | D8 | **Rooms stay editable after approval** (owner, Oct 8, 2026): venues change, rooms are added or removed. Edits are saved with the version check, can be sent as a numbered update, and, for the online venue, regenerate it. A non-owner who edits counts as an editor, so cannot approve that blueprint's preview. The EA-SYS event created at approval is not updated from later brief edits (its venue is changed in the event's own settings). |
+| D9 | **Venues without a Blueprint, Venue tab first** (owner, Oct 8, 2026): every event gets a "Venue" tab (in the Event Setup hub) where organisers pick a template and edit the room list; a submitted Blueprint fills the same list later. Revises D6, which made the Blueprint the only room editor. |
+| D10 | **Generated venues use a fixed, adaptable floor plan** (owner, Oct 8, 2026): foyer at the entrance, a main corridor, the plenary at the end, parallel halls, workshops and posters on one side, exhibition and lounge on the other, each sized from capacity. Always connected and walkable; free placement from the sketch can come later. Natural voices (Amazon Polly, neural, Gulf Arabic Hala and Zayd) after the generator. |
 
 ## 2. What we received
 
@@ -514,4 +516,25 @@ per event (D6), report inbox (D7).
   event. **For the privacy sign-off:** colleagues see each other's names (all
   staff of the same organisation) and what they say nearby; nothing about
   positions is stored.
+- **Oct 8, 2026, venue phase 6 re-planned (D9, D10).** Scoping found about a
+  third of the venue code already generic (physics, route-finding, walls with
+  openings, per-room floors and lights, minimap, crowd), about 300 lines of
+  EHC's layout placed by hand (`world.js` 148 to 459) and about 35 references
+  to EHC's room ids elsewhere (AI instructions and offline answers, queues,
+  audio, agenda, team panel, tests). Order: (1) Venue tab and room list with
+  templates; (2) the generator, room list to layout, refused unless every room
+  is reachable (the venue's own route-finding, run on the server); (3) the 3D
+  venue builds from the layout, the 35 references keyed by room kind, EHC's
+  hand-built layout kept as a preset; (4) agenda rooms and sponsors feed
+  screens, signs and stands (closes L4, L5); (5) the Blueprint fills the room
+  list. Natural voices follow.
+  **Step 1 built: the Venue tab.** `VENUE_MODULE_ENABLED` (off by default)
+  shows an "Online Venue" card in the Event Setup hub and the page at
+  `/events/<id>/venue`: templates, then the room list (name, kind, capacity),
+  saved in `Event.settings.venue.rooms` with a version check
+  (`src/lib/venue/rooms.ts`, `src/services/venue-rooms-service.ts`,
+  `/api/events/<id>/venue`: `events.read` to look, `events.update` to save).
+  `venue` joined the route-owned settings keys, so the event's general save
+  cannot overwrite it. `VENUE_EVENT_SLUGS` still decides which venues are
+  served until the generator exists.
 

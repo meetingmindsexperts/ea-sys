@@ -33,6 +33,7 @@ import {
   ArrowRight,
   Award,
   Banknote,
+  Building2,
   CalendarCheck,
   CheckCircle2,
   Download,
@@ -52,6 +53,8 @@ import { apiLogger } from "@/lib/logger";
 import { hubEventWhere } from "@/lib/permissions/page-event-where";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { isVenueModuleEnabled } from "@/lib/module-flags";
+import { readVenueRooms } from "@/lib/venue/rooms";
 
 interface SetupPageProps {
   params: Promise<{ eventId: string }>;
@@ -212,6 +215,18 @@ const EXPORT_CARD: SetupCardConfig = {
   hoverBorder: "hover:border-slate-400",
 };
 
+// Online venue card (Oct 8, 2026; docs/EVENT_BLUEPRINT_PLAN.md D9): shown only
+// while VENUE_MODULE_ENABLED is on, like the module's routes.
+const VENUE_CARD: SetupCardConfig = {
+  slug: "venue",
+  title: "Online Venue",
+  description:
+    "The rooms of the event's walkable online venue: what each is for and how many people it holds. The venue is laid out from this list.",
+  icon: Building2,
+  colorClasses: "bg-cyan-50 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300",
+  hoverBorder: "hover:border-cyan-400",
+};
+
 // Status shape — one entry per slug. `configured` drives the pill;
 // `count` (optional) shows next to the pill when informative.
 interface SetupStatus {
@@ -296,6 +311,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
   const canFinance = can(principalFromSession(session), "finance.view");
   const visibleCards = [
     ...SETUP_CARDS,
+    ...(isVenueModuleEnabled() ? [VENUE_CARD] : []),
     ...(canFinance ? [INVOICES_CARD] : []),
     ...(can(principalFromSession(session), "events.export") ? [EXPORT_CARD] : []),
   ];
@@ -321,6 +337,8 @@ export default async function SetupPage({ params }: SetupPageProps) {
       event.speakerAgreementHtml?.trim() ||
       event.registrationConfirmationHtml?.trim(),
   );
+
+  const venueRoomCount = readVenueRooms(event.settings)?.rooms.length ?? 0;
 
   const statuses: StatusMap = {
     tickets: { configured: ticketTypeCount > 0, count: ticketTypeCount },
@@ -365,6 +383,10 @@ export default async function SetupPage({ params }: SetupPageProps) {
       labelOverride: `${invoiceCount} invoice${invoiceCount === 1 ? "" : "s"}`,
     },
     export: { configured: true, labelOverride: "ZIP of spreadsheets" },
+    venue: {
+      configured: venueRoomCount > 0,
+      labelOverride: venueRoomCount ? `${venueRoomCount} room${venueRoomCount === 1 ? "" : "s"}` : undefined,
+    },
   };
 
   return (

@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Online venue: the Venue tab and its rooms (October 8)
+
+- Each event's Event Setup hub has an "Online Venue" card (while
+  `VENUE_MODULE_ENABLED` is on). Organisers start from a template (Congress,
+  Summit, Exhibition, Meeting) and keep the room list: name, what each room is
+  for, how many people it holds. The rules the floor plan needs (one foyer, at
+  most six parallel halls, sizes per kind, unique names) are checked as they
+  type and again on save; two editors cannot overwrite each other. Members see
+  the list read-only.
+- The list is saved but not yet used: the walkable venue is built from it in
+  the next step (docs/EVENT_BLUEPRINT_PLAN.md, D9 and D10).
+- `settings.venue` is now owned by the venue routes: the event's general save
+  can no longer overwrite the venue's switch, filter or rooms.
+
 ### Online venue: live colleagues (October 8)
 
 - People walking the same event's venue now see each other as avatars, with

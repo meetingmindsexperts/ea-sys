@@ -104,6 +104,16 @@ export function isBlueprintModuleEnabled(): boolean {
 }
 
 /**
+ * True when organisers may set up online venues from each event's Venue tab
+ * (docs/EVENT_BLUEPRINT_PLAN.md, D9). Off: the tab, its Setup hub card and
+ * `/api/events/[eventId]/venue` answer 404. Separate from VENUE_EVENT_SLUGS,
+ * which still decides which venues are served while rooms are EHC's.
+ */
+export function isVenueModuleEnabled(): boolean {
+  return process.env.VENUE_MODULE_ENABLED === "true";
+}
+
+/**
  * The events whose online venue may be served (docs/EVENT_BLUEPRINT_PLAN.md,
  * phase 4). `VENUE_EVENT_SLUGS` is a comma-separated list of event slugs, e.g.
  * "ehc26". Unset or empty means no venue anywhere. A list rather than a yes/no
