@@ -43,7 +43,9 @@ export type WorkflowErrorCode =
   | "APPROVER_IS_AUTHOR"
   | "BLUEPRINT_INCOMPLETE"
   | "DATES_NEEDED"
-  | "EVENT_CREATE_FAILED";
+  | "EVENT_CREATE_FAILED"
+  | "STALE_VERSION"
+  | "OUT_OF_SCOPE";
 
 type Fail = { ok: false; code: WorkflowErrorCode; message: string; meta?: Record<string, unknown> };
 export type WorkflowResult = { ok: true; blueprint: Record<string, unknown> } | Fail;
@@ -73,6 +75,13 @@ export const STAGE_LABEL: Record<BlueprintStatus, string> = {
 };
 
 const REF_ATTEMPTS = 5;
+
+/**
+ * A claim with no event after this long is a crashed approval (a deploy or a
+ * restart mid-request) and may be taken again (review M3). Creating an event
+ * takes seconds, so ten minutes never steals a live one.
+ */
+export const STALE_CLAIM_MS = 10 * 60_000;
 
 function fail(code: WorkflowErrorCode, message: string, ctx: Record<string, unknown>, meta?: Record<string, unknown>): Fail {
   apiLogger.warn({ msg: "blueprint-workflow:refused", code, ...ctx, ...meta });
@@ -238,18 +247,32 @@ export type ApproveWhich = "plan" | "preview";
  * blueprint the claim is released. Approving an already-approved plan returns
  * the blueprint as it is.
  */
-export async function approveBlueprint(caller: Caller, id: string, which: ApproveWhich): Promise<WorkflowResult> {
+export interface ApproveOptions {
+  /** The version the approver was looking at (review M4): refused if it changed since. */
+  version: number;
+  /**
+   * May this approver create an event of this type? The route builds it from
+   * `can(principal, "events.create")` with the resulting type, the dashboard's
+   * own check (review L10), so a webinar-only role cannot approve a conference.
+   */
+  mayCreateEvent: (eventType: string | null) => boolean;
+}
+
+export async function approveBlueprint(caller: Caller, id: string, which: ApproveWhich, opts: ApproveOptions): Promise<WorkflowResult> {
   const ctx = { organizationId: caller.organizationId, userId: caller.userId, id, which };
   if (!BLUEPRINT_ID_RE.test(id)) return fail("INVALID_ID", "Not a blueprint id", ctx);
 
   const row = await runWithTenant(caller.organizationId, () =>
     db.blueprint.findFirst({
       where: { id, organizationId: caller.organizationId, archivedAt: null },
-      select: { status: true, ref: true, title: true, ownerId: true, editorIds: true, eventId: true, data: true },
+      select: { status: true, ref: true, title: true, ownerId: true, editorIds: true, eventId: true, data: true, updatedAt: true },
     }),
   );
   if (!row) return fail("NOT_FOUND", "Blueprint not found", ctx);
   if (which === "plan" && row.eventId) return reload(caller.organizationId, id);
+  if (row.updatedAt.getTime() !== opts.version) {
+    return fail("STALE_VERSION", "This blueprint changed since you opened it. Reload and read it again before approving.", { ...ctx, sent: opts.version, current: row.updatedAt.getTime() });
+  }
   if (row.ownerId === caller.userId || row.editorIds.includes(caller.userId)) {
     return fail("APPROVER_IS_AUTHOR", "You wrote or edited this blueprint, so someone else has to approve it.", ctx);
   }
@@ -258,7 +281,7 @@ export async function approveBlueprint(caller: Caller, id: string, which: Approv
     return fail("NOT_ALLOWED_FROM_STAGE", `The ${which} can be approved only at ${STAGE_LABEL[needed]}; this blueprint is at ${STAGE_LABEL[row.status]}.`, ctx);
   }
 
-  const result = which === "plan" ? await approvePlan(caller, id, row.data, ctx) : await approvePreview(caller, id, ctx);
+  const result = which === "plan" ? await approvePlan(caller, id, row.data, opts, ctx) : await approvePreview(caller, id, ctx);
   if (!result.ok) return result;
   apiLogger.info({ msg: "blueprint-workflow:approved", ...ctx, eventId: result.eventId ?? null });
   await notifyWriter(caller, row.ownerId, {
@@ -289,7 +312,7 @@ async function approvePreview(caller: Caller, id: string, ctx: Record<string, un
   return moved ? { ok: true } : fail("CONFLICT", "Someone else changed this blueprint; reload it", ctx);
 }
 
-async function approvePlan(caller: Caller, id: string, stored: unknown, ctx: Record<string, unknown>): Promise<Approved> {
+async function approvePlan(caller: Caller, id: string, stored: unknown, opts: ApproveOptions, ctx: Record<string, unknown>): Promise<Approved> {
   const scored = scoreBlueprint(stored);
   if (scored.blocking.length > 0) {
     return fail(
@@ -301,52 +324,78 @@ async function approvePlan(caller: Caller, id: string, stored: unknown, ctx: Rec
   }
   const planned = planEventFromBlueprint(scored.data, readWhen(String((scored.data.basics as { when?: unknown })?.when ?? "")), resolveTimezone(null));
   if (!planned.ok) return fail(planned.code, planned.message, ctx);
+  if (!opts.mayCreateEvent(planned.plan.event.eventType)) {
+    return fail("OUT_OF_SCOPE", "Your role cannot create an event of this kind, so it cannot approve this plan.", { ...ctx, eventType: planned.plan.event.eventType });
+  }
 
   // Claim first: only one approver gets past this line.
   const claimed = await runWithTenant(caller.organizationId, () =>
     db.blueprint.updateMany({
-      where: { id, organizationId: caller.organizationId, status: "PLAN_READY", approvedAt: null, eventId: null },
+      where: {
+        id,
+        organizationId: caller.organizationId,
+        status: "PLAN_READY",
+        eventId: null,
+        OR: [{ approvedAt: null }, { approvedAt: { lt: new Date(Date.now() - STALE_CLAIM_MS) } }],
+      },
       data: { approvedAt: new Date(), approvedById: caller.userId },
     }),
   );
   if (claimed.count === 0) return fail("CONFLICT", "Someone else is approving or has changed this blueprint; reload it", ctx);
 
+  let created: Awaited<ReturnType<typeof createEvent>>;
   try {
-    const created = await createEvent({
+    created = await createEvent({
       organizationId: caller.organizationId,
       userId: caller.userId,
       ...planned.plan.event,
       source: "blueprint",
     });
-    if (!created.ok) {
-      await releaseClaim(caller, id);
-      return fail("EVENT_CREATE_FAILED", `The event could not be created: ${created.message}`, ctx, { eventCode: created.code });
-    }
-    const eventId = created.event.id;
-    const seeded = await seedEvent(caller, eventId, planned.plan, ctx);
-
-    await runWithTenant(caller.organizationId, () =>
-      tenantTransaction(async (tx) => {
-        await tx.blueprint.update({ where: { id }, data: { eventId, status: "BUILDING", readiness: scored.pct } });
-        await tx.blueprintStatusLog.create({
-          data: {
-            blueprintId: id,
-            organizationId: caller.organizationId,
-            actorId: caller.userId,
-            kind: "APPROVED",
-            fromStatus: "PLAN_READY",
-            toStatus: "BUILDING",
-            readiness: scored.pct,
-            detail: { which: "plan", eventId, sessions: seeded.sessions, sponsors: seeded.sponsors, skipped: [...planned.plan.skipped, ...seeded.failed] },
-          },
-        });
-      }),
-    );
-    return { ok: true, eventId };
   } catch (err) {
     await releaseClaim(caller, id);
     throw err;
   }
+  if (!created.ok) {
+    await releaseClaim(caller, id);
+    return fail("EVENT_CREATE_FAILED", `The event could not be created: ${created.message}`, ctx, { eventCode: created.code });
+  }
+  const eventId = created.event.id;
+
+  // The event exists: record it on the blueprint AT ONCE, so nothing that
+  // happens after this line can lead to a second one. From here the claim is
+  // never released; a failed seed is only listed (review H2, Oct 8, 2026).
+  await runWithTenant(caller.organizationId, () =>
+    db.blueprint.updateMany({
+      where: { id, organizationId: caller.organizationId, approvedById: caller.userId, eventId: null },
+      data: { eventId },
+    }),
+  );
+  apiLogger.info({ msg: "blueprint-workflow:event-recorded", ...ctx, eventId });
+
+  const seeded = await seedEvent(caller, eventId, planned.plan, ctx);
+  await runWithTenant(caller.organizationId, () =>
+    tenantTransaction(async (tx) => {
+      // Guarded: a build-team move made meanwhile is not overwritten (review L14).
+      const moved = await tx.blueprint.updateMany({
+        where: { id, organizationId: caller.organizationId, status: "PLAN_READY" },
+        data: { status: "BUILDING", readiness: scored.pct },
+      });
+      if (moved.count === 0) apiLogger.warn({ msg: "blueprint-workflow:approved-but-stage-moved", ...ctx, eventId });
+      await tx.blueprintStatusLog.create({
+        data: {
+          blueprintId: id,
+          organizationId: caller.organizationId,
+          actorId: caller.userId,
+          kind: "APPROVED",
+          fromStatus: "PLAN_READY",
+          toStatus: moved.count ? "BUILDING" : null,
+          readiness: scored.pct,
+          detail: { which: "plan", eventId, sessions: seeded.sessions, sponsors: seeded.sponsors, skipped: [...planned.plan.skipped, ...seeded.failed] },
+        },
+      });
+    }),
+  );
+  return { ok: true, eventId };
 }
 
 /** Undo a claim whose event was never recorded, so the approval can be tried again. */
@@ -372,38 +421,48 @@ async function seedEvent(caller: Caller, eventId: string, plan: EventPlan, ctx: 
   const failed: string[] = [];
   let sessions = 0;
   for (const s of plan.sessions) {
-    const res = await createSession({
-      eventId,
-      organizationId: caller.organizationId,
-      userId: caller.userId,
-      source: "blueprint",
-      suppressAdminNotification: true,
-      name: s.name,
-      startTime: s.startTime,
-      endTime: s.endTime,
-      location: s.location,
-      description: s.description,
-    });
-    if (res.ok) sessions++;
-    else {
-      failed.push(`Session "${s.name}": ${res.message}`);
-      apiLogger.warn({ msg: "blueprint-workflow:seed-session-failed", ...ctx, eventId, code: res.code });
+    try {
+      const res = await createSession({
+        eventId,
+        organizationId: caller.organizationId,
+        userId: caller.userId,
+        source: "blueprint",
+        suppressAdminNotification: true,
+        name: s.name,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        location: s.location,
+        description: s.description,
+      });
+      if (res.ok) sessions++;
+      else {
+        failed.push(`Session "${s.name}": ${res.message}`);
+        apiLogger.warn({ msg: "blueprint-workflow:seed-session-failed", ...ctx, eventId, code: res.code });
+      }
+    } catch (err) {
+      failed.push(`Session "${s.name}": could not be added`);
+      apiLogger.error({ msg: "blueprint-workflow:seed-session-threw", ...ctx, eventId, err });
     }
   }
   let sponsors = 0;
   if (plan.sponsors.length) {
-    const res = await saveSponsors({
-      eventId,
-      organizationId: caller.organizationId,
-      actorUserId: caller.userId,
-      source: "blueprint",
-      sponsors: plan.sponsors,
-      mode: "merge",
-    });
-    if (res.ok) sponsors = plan.sponsors.length;
-    else {
-      failed.push(`Sponsors: ${res.message}`);
-      apiLogger.warn({ msg: "blueprint-workflow:seed-sponsors-failed", ...ctx, eventId, code: res.code });
+    try {
+      const res = await saveSponsors({
+        eventId,
+        organizationId: caller.organizationId,
+        actorUserId: caller.userId,
+        source: "blueprint",
+        sponsors: plan.sponsors,
+        mode: "merge",
+      });
+      if (res.ok) sponsors = plan.sponsors.length;
+      else {
+        failed.push(`Sponsors: ${res.message}`);
+        apiLogger.warn({ msg: "blueprint-workflow:seed-sponsors-failed", ...ctx, eventId, code: res.code });
+      }
+    } catch (err) {
+      failed.push("Sponsors: could not be added");
+      apiLogger.error({ msg: "blueprint-workflow:seed-sponsors-threw", ...ctx, eventId, err });
     }
   }
   return { sessions, sponsors, failed };

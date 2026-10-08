@@ -32,8 +32,8 @@ export async function POST(req: Request, { params }: Params) {
     return await runWithTenant(gate.organizationId, async () => {
       const rl = checkRateLimit({ key: `blueprint-submit:${gate.userId}`, ...LIMIT });
       if (!rl.allowed) return rateLimited(rl, { route: ROUTE, userId: gate.userId, limit: LIMIT.limit, windowSeconds: 3600 });
-      const body = await req.json().catch(() => ({}));
-      const parsed = bodySchema.safeParse(body ?? {});
+      const body = await req.json().catch(() => undefined);
+      const parsed = bodySchema.safeParse(body);
       if (!parsed.success) {
         apiLogger.warn({ msg: `${ROUTE}:invalid-body`, userId: gate.userId, id, errors: parsed.error.flatten() });
         return NextResponse.json({ error: "Invalid input", code: "INVALID_INPUT" }, { status: 400 });

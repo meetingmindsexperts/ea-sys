@@ -36,12 +36,12 @@ export const TEMPLATE_ID_RE = /^tp_[A-Za-z0-9_-]{4,57}$/;
  */
 const SERVER_OWNED = ["status", "ref", "submissions", "statusLog", "approvals", "eventId"] as const;
 /** Listing fields the page adds to every save; the server keeps its own copies in columns. */
-const LISTING_FIELDS = ["ownerId", "title", "readiness", "blocking", "pendingChanges"] as const;
+const LISTING_FIELDS = ["ownerId", "title", "readiness", "blocking", "pendingChanges", "serverVersion", "editorIds"] as const;
 
 export type PayloadError = "NOT_AN_OBJECT" | "TOO_LARGE" | "TOO_DEEP" | "ID_MISMATCH";
 
 export type ParsedBlueprint =
-  | { ok: true; data: Record<string, unknown>; title: string; type: string | null; readiness: number }
+  | { ok: true; data: Record<string, unknown>; title: string; type: string | null; readiness: number; serverVersion: number | null }
   | { ok: false; code: PayloadError };
 
 const byteLength = (v: unknown) => new TextEncoder().encode(JSON.stringify(v)).length;
@@ -72,7 +72,9 @@ export function parseBlueprintPayload(raw: unknown, id: string): ParsedBlueprint
   const type = typeof raw.type === "string" && raw.type ? raw.type.slice(0, 60) : null;
   // The page's own score, kept for the list; approval recomputes on the server.
   const readiness = typeof raw.readiness === "number" && Number.isFinite(raw.readiness) ? Math.min(100, Math.max(0, Math.round(raw.readiness))) : 0;
-  return { ok: true, data, title, type, readiness };
+  // The server's version the page last saw (review M4/M5): absent only on a first save.
+  const serverVersion = typeof raw.serverVersion === "number" && Number.isFinite(raw.serverVersion) ? raw.serverVersion : null;
+  return { ok: true, data, title, type, readiness, serverVersion };
 }
 
 export type ParsedTemplate =
@@ -110,6 +112,7 @@ export interface BlueprintRowForPage {
   data: unknown;
   ownerId?: string | null;
   eventId?: string | null;
+  editorIds?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -156,6 +159,9 @@ export function mergeForPage(row: BlueprintRowForPage, log: readonly StatusLogEn
     approvals: approvalsFrom(log),
     ownerId: row.ownerId ?? null,
     eventId: row.eventId ?? null,
+    editorIds: row.editorIds ?? [],
+    // The version every save and approval must name (review M4/M5).
+    serverVersion: row.updatedAt.getTime(),
     created: typeof data.created === "number" ? data.created : row.createdAt.getTime(),
     updated: row.updatedAt.getTime(),
   };

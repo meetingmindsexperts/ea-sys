@@ -13,6 +13,7 @@ import {
   Bot,
   Building2,
   Calendar,
+  ClipboardList,
   CalendarClock,
   ClipboardCheck,
   Clock,
@@ -65,6 +66,7 @@ export interface NavItem {
   crmOnly?: boolean;
   hrOnly?: boolean;
   procurementOnly?: boolean;
+  blueprintOnly?: boolean;
   external?: boolean;
 }
 
@@ -92,6 +94,10 @@ export const navigation: NavItem[] = [
   // Budget & Procurement: the deployment flag AND the same predicate the API
   // guard asks (org staff read; a grant alone also reads), never a role list.
   { name: "Budgets",   href: "/procurement", icon: Wallet, areas: ["procurement"], keys: PROCUREMENT_VIEW_KEYS, procurementOnly: true },
+  // Event Blueprint (docs/EVENT_BLUEPRINT_PLAN.md): the deployment flag AND
+  // `blueprints.view`, the key every /api/blueprint read asks. The page lives
+  // outside the dashboard shell, so the link leaves it.
+  { name: "Blueprints", href: "/blueprint", icon: ClipboardList, areas: ["org"], keys: ["blueprints.view"], blueprintOnly: true },
   { name: "Invoices",  href: "/invoices",  icon: Receipt, areas: ["org"], keys: ["invoices.ledger"] },
   { name: "Media",     href: "/media",     icon: ImageIcon, areas: ["org"], keys: ["media.library.manage"] },
   // The org-level door of the Event Agent (Sep 21, 2026): the same four
@@ -226,6 +232,8 @@ export interface SidebarNavInput {
   user: (Record<string, unknown> & { role?: string | null }) | null | undefined;
   hrEnabled: boolean;
   procurementEnabled: boolean;
+  /** BLUEPRINT_MODULE_ENABLED; absent means off. */
+  blueprintEnabled?: boolean;
   /** On an event page: the event once loaded, `undefined` while loading. */
   isEventPage: boolean;
   currentEvent: { eventType?: string | null } | null | undefined;
@@ -252,6 +260,7 @@ export function sidebarSkipsEventFetch(role: string | null | undefined): boolean
 
 export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
   const { user, hrEnabled, procurementEnabled, currentEvent, submitterCtx } = input;
+  const blueprintEnabled = input.blueprintEnabled === true;
   const role = user?.role;
 
   // ── The outside identities: not catalogue roles (plan §1), own branches ──
@@ -297,6 +306,7 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
     if (!item.areas.some((area) => inArea(p, area))) return false;
     if (item.crmOnly && !CRM_IN_SIDEBAR) return false;
     if (item.hrOnly && !hrEnabled) return false;
+    if (item.blueprintOnly && !blueprintEnabled) return false;
     if (item.procurementOnly) {
       if (!procurementEnabled) return false;
       // Any custom procurement key enters the module (as canViewProcurement).

@@ -12,7 +12,7 @@ describe("sniffBlueprintFile", () => {
     ["gif", bytes(0x47, 0x49, 0x46, 0x38), "x.gif", "image/gif"],
     ["webp", new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]), "x.webp", "image/webp"],
     ["pdf", bytes(0x25, 0x50, 0x44, 0x46), "programme.pdf", "application/pdf"],
-    ["docx", bytes(0x50, 0x4b, 0x03, 0x04), "brief.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+    ["docx", new Uint8Array([0x50, 0x4b, 0x03, 0x04, ...new TextEncoder().encode("....[Content_Types].xml")]), "brief.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
     ["svg", text('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"></svg>'), "logo.svg", "image/svg+xml"],
   ])("accepts %s", (_label, buf, name, type) => {
     expect(sniffBlueprintFile(buf, name)?.contentType).toBe(type);
@@ -21,6 +21,7 @@ describe("sniffBlueprintFile", () => {
   it.each([
     ["an executable named .png", bytes(0x4d, 0x5a), "plan.png"],
     ["a zip that is not an Office file", bytes(0x50, 0x4b, 0x03, 0x04), "archive.zip"],
+    ["a plain zip renamed .docx", bytes(0x50, 0x4b, 0x03, 0x04), "brief.docx"],
     ["HTML", text("<html><script>alert(1)</script></html>"), "page.html"],
   ])("refuses %s", (_label, buf, name) => {
     expect(sniffBlueprintFile(buf, name)).toBeNull();

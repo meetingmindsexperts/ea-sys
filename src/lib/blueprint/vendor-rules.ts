@@ -7,32 +7,41 @@
  *
  * Evaluated once per process in a `node:vm` context with nothing in it but the
  * language: the code is ours (vendored and reviewed), the DATA crosses in as a
- * JSON string and comes back as one, and a timeout bounds every call. Server only.
+ * JSON string and comes back as one, and every call runs under its own timeout.
+ * Calls are synchronous, so the shared `__in` slot cannot interleave. Server only.
  */
 import vm from "node:vm";
 import rules from "./vendor-rules.generated.json";
 
-interface VendorRules {
-  run(json: string): string;
-  when(text: string): string;
-}
-
 const TIMEOUT_MS = 1_000;
 
-let compiled: VendorRules | null = null;
+let context: vm.Context | null = null;
+const RUN = new vm.Script("__api.run(__in)");
+const WHEN = new vm.Script("__api.when(__in)");
 
-function vendor(): VendorRules {
-  if (compiled) return compiled;
-  const context = vm.createContext({});
-  const api = new vm.Script(
+/**
+ * The sandbox, built once. Each call then runs as its own script with its own
+ * timeout (review L8): a plain call into the sandbox's functions would carry
+ * no time limit at all.
+ */
+function sandbox(): vm.Context {
+  if (context) return context;
+  const ctx = vm.createContext({ __in: "" });
+  new vm.Script(
     `${rules.source.replace(/\n;\(\{ sanitise, score, parseWhen \}\)$/, "")}
-;({
+;globalThis.__api = {
   run: (json) => { const s = sanitise(JSON.parse(json)); const sc = score(s); return JSON.stringify({ pct: sc.pct, blocking: sc.blocking.map((x) => ({ sec: x.sec, label: x.label })), data: s }); },
   when: (text) => { const w = parseWhen(text); return JSON.stringify(w && w.date ? { y: w.date.getFullYear(), m: w.date.getMonth() + 1, d: w.date.getDate(), approx: !!w.approx, yearOnly: !!w.yearOnly } : { invalid: true }); },
-})`,
-  ).runInContext(context, { timeout: TIMEOUT_MS }) as VendorRules;
-  compiled = api;
-  return api;
+};`,
+  ).runInContext(ctx, { timeout: TIMEOUT_MS });
+  context = ctx;
+  return ctx;
+}
+
+function call(script: vm.Script, input: string): string {
+  const ctx = sandbox();
+  ctx.__in = input;
+  return script.runInContext(ctx, { timeout: TIMEOUT_MS }) as string;
 }
 
 export interface BlueprintScore {
@@ -45,12 +54,12 @@ export interface BlueprintScore {
 }
 
 export function scoreBlueprint(data: unknown): BlueprintScore {
-  return JSON.parse(vendor().run(JSON.stringify(data ?? {})));
+  return JSON.parse(call(RUN, JSON.stringify(data ?? {})));
 }
 
 /** A date the organiser wrote, as the page reads it; `approx` when no day was given. */
 export type ReadDate = { y: number; m: number; d: number; approx: boolean; yearOnly: boolean } | { invalid: true };
 
 export function readWhen(text: string): ReadDate {
-  return JSON.parse(vendor().when(text));
+  return JSON.parse(call(WHEN, text));
 }

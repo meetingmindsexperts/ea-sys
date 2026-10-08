@@ -6,7 +6,7 @@ import { SidebarProvider } from "@/contexts/sidebar-context";
 import { HelpChatProvider } from "@/components/help-chat/help-chat-provider";
 import { AgentLauncher } from "@/components/agent/agent-launcher";
 import { RuntimeFlagsProvider } from "@/components/runtime-flags";
-import { isHrModuleEnabled, isProcurementModuleEnabled, isCustomRolesEnabled } from "@/lib/module-flags";
+import { isHrModuleEnabled, isProcurementModuleEnabled, isCustomRolesEnabled, isBlueprintModuleEnabled } from "@/lib/module-flags";
 import { senderDomain } from "@/lib/sender-domain";
 
 export default async function DashboardLayout({
@@ -26,7 +26,7 @@ export default async function DashboardLayout({
   // identical on both. See src/components/runtime-flags.tsx.
   return (
     <RuntimeFlagsProvider
-      flags={{ hrEnabled: isHrModuleEnabled(), procurementEnabled: isProcurementModuleEnabled(), customRolesEnabled: isCustomRolesEnabled(), senderDomain: senderDomain() }}
+      flags={{ hrEnabled: isHrModuleEnabled(), procurementEnabled: isProcurementModuleEnabled(), blueprintEnabled: isBlueprintModuleEnabled(), customRolesEnabled: isCustomRolesEnabled(), senderDomain: senderDomain() }}
     >
       <SidebarProvider>
       {/* HelpChatProvider mounts the drawer once at the dashboard root

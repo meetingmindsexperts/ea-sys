@@ -411,3 +411,23 @@ per event (D6), report inbox (D7).
   types; the preview's approval made it Live. It also found the sponsor tier
   mismatch, now fixed and re-checked against the database. Still open:
   "Room changes after approval" (section 7), and the venue phases (step 7 on).
+- **Oct 8, 2026, independent review of steps 3 to 6, all findings fixed**
+  (owner: "fix all"). H1: every non-owner who edits, at any stage, is recorded
+  and refused as approver. H2: the event is written onto the blueprint the
+  moment it exists, so no later failure can lead to a second one. M3: a claim
+  with no event after ten minutes can be taken again. M4/M5: every save and
+  approval names the server version it saw; a stale one is refused (409
+  `STALE_VERSION`). M6: viewers never try to save, and a final refusal stops
+  the retry loop. M7: the page scales a picture to 1600 px before the AI reads
+  it. L8: every sandbox call has its own timeout. L10: approval also needs
+  `events.create` for the resulting event type. L11/L12: files belong to one
+  blueprint (upload and delete name it, both count as edits), documents
+  download, a ZIP must really be Office, a failed row removes its stored file,
+  and the picker offers only accepted types. L13: a foreign id is 404 under
+  RLS. L14: the final status write is guarded. L15: malformed submit refused
+  and logged, stage moves rate-limited, editors see no approve button.
+  **L9, documented, not built:** staff can steer the AI tasks to return other
+  JSON by writing instructions into their own brief. Accepted for internal
+  staff: writers only, 40 calls an hour per person, token usage logged per
+  call. A per-organisation daily budget is the follow-up if the module is
+  opened beyond staff or usage grows.

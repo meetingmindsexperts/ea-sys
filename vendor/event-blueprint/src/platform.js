@@ -13,9 +13,9 @@ const Platform = (() => {
     if (cfg && cfg.api) { // ---------- API MODE (your own server) ----------
       P.mode = 'api'; const base = cfg.api.replace(/\/$/, '');
       // EA-SYS: the server's error codes reach the page (rate_limited, invalid_json, ...) instead of one generic one.
-      const call = async (method, path, body, raw) => { const r = await fetch(base + path, { method, credentials: 'include', headers: raw ? {} : { 'content-type': 'application/json' }, body: raw ? body : body ? JSON.stringify(body) : undefined }); if (!r.ok) { let b = null; try { b = await r.json(); } catch (e) { } const code = r.status === 401 ? 'not_granted' : r.status === 429 ? 'rate_limited' : (b && typeof b.code === 'string' ? b.code.toLowerCase() : 'upstream_error'); throw { code, status: r.status, message: (b && b.error) || 'HTTP ' + r.status, body: b }; } return r.status === 204 ? null : r.json(); };
+      const call = async (method, path, body, raw) => { const r = await fetch(base + path, { method, credentials: 'include', headers: raw ? {} : { 'content-type': 'application/json' }, body: raw ? body : body ? JSON.stringify(body) : undefined }); if (!r.ok) { let b = null; try { b = await r.json(); } catch (e) { } const code = r.status === 401 ? 'not_granted' : r.status === 429 ? 'rate_limited' : r.status === 413 ? 'too_large' : (b && typeof b.code === 'string' ? b.code.toLowerCase() : 'upstream_error'); throw { code, status: r.status, message: r.status === 413 ? 'That is too large to send. Use a smaller file, or crop the picture.' : (b && b.error) || 'HTTP ' + r.status, body: b }; } return r.status === 204 ? null : r.json(); };
       P._.call = call;
-      try { const me = await call('GET', '/me'); P.userId = me.id || null; P.isEditor = !!me.isEditor; P.canApprove = !!me.canApprove; } catch (e) { }
+      try { const me = await call('GET', '/me'); P.userId = me.id || null; P.isEditor = !!me.isEditor; P.canApprove = !!me.canApprove; P.canWrite = me.canWrite !== false; } catch (e) { } // EA-SYS: viewers never try to save
       P.aiReady = !!cfg.ai; P.filesReady = !!cfg.files; return P;
     }
     const use = (n) => (window.claude && typeof window.claude.use === 'function') ? window.claude.use(n).catch(() => null) : Promise.resolve(null);
@@ -28,13 +28,18 @@ const Platform = (() => {
   };
 
   // ----- storage
+  // EA-SYS: the server's version of each blueprint, sent with every save and approval so a
+  // change made by someone else is refused instead of overwritten. Every server answer that
+  // carries a newer version updates it.
+  P._ver = {};
+  P.track = (id, v) => { if (v && typeof v.serverVersion === 'number') P._ver[id] = v.serverVersion; return v; };
   P.save = async (bp) => {
-    if (P.mode === 'api') return P._.call('PUT', '/blueprints/' + encodeURIComponent(bp.id), bp);
+    if (P.mode === 'api') { const r = await P._.call('PUT', '/blueprints/' + encodeURIComponent(bp.id), { ...bp, serverVersion: P._ver[bp.id] }); if (r && typeof r.updated === 'number') P._ver[bp.id] = r.updated; return r; }
     if (P.mode === 'artifact' && P._.db && P.canWrite) return P._.db.doc('blueprints/' + bp.id).set(bp);
     throw { code: 'local_only' };
   };
   P.load = async (id) => {
-    if (P.mode === 'api') return P._.call('GET', '/blueprints/' + encodeURIComponent(id));
+    if (P.mode === 'api') return P.track(id, await P._.call('GET', '/blueprints/' + encodeURIComponent(id)));
     if (P._.db) { const d = await P._.db.doc('blueprints/' + id).get(); return d.exists ? d.data() : null; }
     return null;
   };
@@ -75,13 +80,13 @@ const Platform = (() => {
   };
 
   // ----- files
-  P.upload = async (file, type) => {
-    if (P.mode === 'api') { const fd = new FormData(); fd.append('file', file); return P._.call('POST', '/files', fd, true); }
+  P.upload = async (file, type, blueprintId) => {
+    if (P.mode === 'api') { const fd = new FormData(); fd.append('file', file); fd.append('blueprintId', blueprintId || ''); return P.track(blueprintId, await P._.call('POST', '/files', fd, true)); } // EA-SYS: a file belongs to its blueprint
     if (!P._.assets) throw { code: 'not_granted' };
     return P._.assets.upload(file, type ? { type } : undefined);
   };
-  P.removeFile = async (id) => {
-    if (P.mode === 'api') return P._.call('DELETE', '/files/' + encodeURIComponent(id));
+  P.removeFile = async (id, blueprintId) => {
+    if (P.mode === 'api') return P.track(blueprintId, await P._.call('DELETE', '/files/' + encodeURIComponent(id) + '?blueprintId=' + encodeURIComponent(blueprintId || '')));
     if (P._.assets) return P._.assets.delete(id);
   };
   P.fileUrl = (id) => P.mode === 'api' ? ((window.EVENT_BLUEPRINT_BACKEND.api.replace(/\/$/, '')) + '/files/' + encodeURIComponent(id)) : '/_blob/' + id;
@@ -95,9 +100,9 @@ const Platform = (() => {
 
   // ----- EA-SYS workflow: the server owns status, reference and history. Each returns the
   // blueprint as the server now has it (server-owned fields merged in).
-  P.submit = (id, body) => P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/submit', body);
-  P.stage = (id, to) => P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/stage', { to });
-  P.approve = (id, which) => P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/approve', { which });
+  P.submit = async (id, body) => P.track(id, await P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/submit', body));
+  P.stage = async (id, to) => P.track(id, await P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/stage', { to }));
+  P.approve = async (id, which) => P.track(id, await P._.call('POST', '/blueprints/' + encodeURIComponent(id) + '/approve', { which, version: P._ver[id] }));
 
   // ----- notify the build team (optional): API mode posts to your server; on claude.ai the saved
   // blueprint itself is the hand-off (the team reads it from storage).

@@ -13,12 +13,14 @@ import { rateLimited } from "@/lib/api-errors";
 import { blueprintGuard } from "@/lib/blueprint/route-guard";
 import { approveBlueprint } from "@/services/blueprint-workflow-service";
 import { workflowErrorResponse } from "@/lib/blueprint/workflow-http";
+import { can } from "@/lib/permissions/can";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 
 type Params = { params: Promise<{ id: string }> };
 
 const ROUTE = "blueprint/blueprints/[id]/approve:POST";
 const LIMIT = { limit: 30, windowMs: 60 * 60_000 };
-const bodySchema = z.object({ which: z.enum(["plan", "preview"]) });
+const bodySchema = z.object({ which: z.enum(["plan", "preview"]), version: z.number().int().nonnegative() });
 
 export async function POST(req: Request, { params }: Params) {
   try {
@@ -33,7 +35,13 @@ export async function POST(req: Request, { params }: Params) {
         apiLogger.warn({ msg: `${ROUTE}:invalid-body`, userId: gate.userId, id, errors: parsed.error.flatten() });
         return NextResponse.json({ error: "Invalid input", code: "INVALID_INPUT" }, { status: 400 });
       }
-      const result = await approveBlueprint({ organizationId: gate.organizationId, userId: gate.userId }, id, parsed.data.which);
+      const principal = principalFromSession(gate.session);
+      const mayCreateEvent = (eventType: string | null) =>
+        can(principal, "events.create", { event: { organizationId: gate.organizationId, eventType: eventType ?? "", staffUserIds: [] } });
+      const result = await approveBlueprint({ organizationId: gate.organizationId, userId: gate.userId }, id, parsed.data.which, {
+        version: parsed.data.version,
+        mayCreateEvent,
+      });
       if (!result.ok) return workflowErrorResponse(result);
       return NextResponse.json(result.blueprint);
     });

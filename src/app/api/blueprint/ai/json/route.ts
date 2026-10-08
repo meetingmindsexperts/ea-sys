@@ -23,7 +23,9 @@ const LIMIT = { limit: 40, windowMs: 60 * 60_000 };
 const bodySchema = z.object({
   task: z.string().max(40),
   input: z.record(z.string(), z.unknown()).optional(),
-  images: z.array(z.object({ type: z.string().max(60), data: z.string() })).max(1).optional(),
+  // The page scales a picture to 1600 px JPEG first (review M7); the request
+  // itself is capped at 1 MB by the middleware, so base64 cannot exceed it.
+  images: z.array(z.object({ type: z.string().max(60), data: z.string().max(1_048_576) })).max(1).optional(),
 });
 
 const STATUS: Record<string, number> = {

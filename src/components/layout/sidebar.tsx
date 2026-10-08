@@ -51,7 +51,7 @@ export function Sidebar() {
   const isSuperAdmin  = session?.user?.role === "SUPER_ADMIN";
   // Read at request time on the server and handed down, because a NEXT_PUBLIC_
   // constant is baked at build and master and the platform share one image.
-  const { hrEnabled, procurementEnabled } = useRuntimeFlags();
+  const { hrEnabled, procurementEnabled, blueprintEnabled } = useRuntimeFlags();
   const role = session?.user?.role;
   const isSubmitter = role === "SUBMITTER";
 
@@ -83,6 +83,7 @@ export function Sidebar() {
     user: session?.user as Parameters<typeof computeSidebarNav>[0]["user"],
     hrEnabled,
     procurementEnabled,
+    blueprintEnabled,
     isEventPage,
     currentEvent,
     submitterCtx,

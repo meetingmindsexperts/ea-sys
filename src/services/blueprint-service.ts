@@ -27,7 +27,7 @@ import {
 } from "@/lib/blueprint/blueprint-payload";
 import { MAX_BLUEPRINT_FILE_BYTES, sniffBlueprintFile } from "@/lib/blueprint/blueprint-files";
 
-export type BlueprintErrorCode = PayloadError | "INVALID_ID" | "NOT_FOUND" | "UNSUPPORTED_FILE" | "FILE_TOO_LARGE";
+export type BlueprintErrorCode = PayloadError | "INVALID_ID" | "NOT_FOUND" | "STALE_VERSION" | "UNSUPPORTED_FILE" | "FILE_TOO_LARGE";
 
 type Fail = { ok: false; code: BlueprintErrorCode; message: string };
 
@@ -82,6 +82,7 @@ export async function getBlueprint(
         data: true,
         ownerId: true,
         eventId: true,
+        editorIds: true,
         createdAt: true,
         updatedAt: true,
         statusLog: {
@@ -121,13 +122,25 @@ export async function saveBlueprint(
     for (let attempt = 1; ; attempt++) {
       const existing = await db.blueprint.findUnique({
         where: { id },
-        select: { organizationId: true, status: true, archivedAt: true, editorIds: true },
+        select: { organizationId: true, ownerId: true, archivedAt: true, editorIds: true, updatedAt: true },
       });
       if (existing && (existing.organizationId !== caller.organizationId || existing.archivedAt)) {
         return fail("NOT_FOUND", "Blueprint not found", ctx);
       }
+      if (existing && parsed.serverVersion !== existing.updatedAt.getTime()) {
+        // Someone (or a workflow step) changed it since this page loaded it:
+        // refuse rather than overwrite their work (review M5).
+        return fail("STALE_VERSION", "Someone else changed this blueprint since you opened it. Reload to see their changes.", {
+          ...ctx,
+          sent: parsed.serverVersion,
+          current: existing.updatedAt.getTime(),
+        });
+      }
       if (existing) {
-        const recordEditor = existing.status !== "DRAFT" && !existing.editorIds.includes(caller.userId);
+        // Everyone but the owner who edits it, at ANY stage, is recorded, and
+        // approval refuses them: an Admin who rewrites a colleague's draft
+        // must not later approve what they wrote (review H1, Oct 8, 2026).
+        const recordEditor = existing.ownerId !== caller.userId && !existing.editorIds.includes(caller.userId);
         const row = await db.blueprint.update({
           where: { id },
           data: { ...fields, ...(recordEditor && { editorIds: { push: caller.userId } }) },
@@ -143,9 +156,12 @@ export async function saveBlueprint(
         apiLogger.info({ msg: "blueprint-service:created", ...ctx });
         return { ok: true as const, updated: row.updatedAt.getTime() };
       } catch (err) {
-        // Two first saves raced (the page saves on a 1 s debounce): the loser updates.
+        // Two first saves raced (the page saves on a 1 s debounce): the loser
+        // re-reads and updates. A row that still cannot be seen after that is
+        // another organisation's under RLS: not found, never a 500 (review L13).
         const raced = err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
-        if (!raced || attempt >= 2) throw err;
+        if (!raced) throw err;
+        if (attempt >= 2) return fail("NOT_FOUND", "Blueprint not found", ctx);
       }
     }
   });
@@ -176,43 +192,82 @@ export async function saveTemplate(caller: Caller, id: string, raw: unknown): Pr
     const existing = await db.blueprintTemplate.findUnique({ where: { id }, select: { organizationId: true } });
     if (existing && existing.organizationId !== caller.organizationId) return fail("NOT_FOUND", "Template not found", ctx);
     const fields = { name: parsed.name, type: parsed.type, data: parsed.state as Prisma.InputJsonValue };
-    await db.blueprintTemplate.upsert({
-      where: { id },
-      create: { id, organizationId: caller.organizationId, ownerId: caller.userId, ...fields },
-      update: fields,
-    });
+    try {
+      await db.blueprintTemplate.upsert({
+        where: { id },
+        create: { id, organizationId: caller.organizationId, ownerId: caller.userId, ...fields },
+        update: fields,
+      });
+    } catch (err) {
+      // Invisible under RLS yet taken: another organisation's id (review L13).
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return fail("NOT_FOUND", "Template not found", ctx);
+      throw err;
+    }
     return { ok: true as const };
   });
 }
 
 // ── Files ────────────────────────────────────────────────────────────────────
 
+/**
+ * Uploading or removing a file is an edit: anyone but the owner is recorded
+ * for approval's separation of duties (review H1/L12). Returns the version the
+ * page must name on its next save.
+ */
+async function recordFileEdit(caller: Caller, blueprintId: string): Promise<number | null> {
+  await db.blueprint.updateMany({
+    where: { id: blueprintId, organizationId: caller.organizationId, NOT: [{ ownerId: caller.userId }, { editorIds: { has: caller.userId } }] },
+    data: { editorIds: { push: caller.userId } },
+  });
+  const row = await db.blueprint.findFirst({ where: { id: blueprintId, organizationId: caller.organizationId }, select: { updatedAt: true } });
+  return row ? row.updatedAt.getTime() : null;
+}
+
+type StoredFile = { id: string; url: string; sizeBytes: number; contentType: string; serverVersion: number | null };
+
+/** Store one upload FOR one blueprint of the caller's organisation (review L12). */
 export async function storeFile(
   caller: Caller,
-  file: { buffer: Buffer; name: string },
-): Promise<{ ok: true; file: { id: string; url: string; sizeBytes: number; contentType: string } } | Fail> {
-  const ctx = { organizationId: caller.organizationId, userId: caller.userId, name: file.name.slice(0, 120) };
+  file: { buffer: Buffer; name: string; blueprintId: string },
+): Promise<{ ok: true; file: StoredFile } | Fail> {
+  const ctx = { organizationId: caller.organizationId, userId: caller.userId, blueprintId: file.blueprintId, name: file.name.slice(0, 120) };
+  if (!BLUEPRINT_ID_RE.test(file.blueprintId)) return fail("INVALID_ID", "Not a blueprint id", ctx);
   if (file.buffer.length > MAX_BLUEPRINT_FILE_BYTES) return fail("FILE_TOO_LARGE", "The limit is 10 MB", { ...ctx, size: file.buffer.length });
   const type = sniffBlueprintFile(file.buffer, file.name);
   if (!type) return fail("UNSUPPORTED_FILE", "Images, PDF and Office documents only", ctx);
 
+  const owner = await runWithTenant(caller.organizationId, () =>
+    db.blueprint.findFirst({ where: { id: file.blueprintId, organizationId: caller.organizationId, archivedAt: null }, select: { id: true } }),
+  );
+  if (!owner) return fail("NOT_FOUND", "Save the blueprint first, then add files", ctx);
+
   const storedPath = await uploadFile(file.buffer, `${randomUUID()}.${type.ext}`, type.contentType, `${FILES_DIR}/${caller.organizationId}`);
   return runWithTenant(caller.organizationId, async () => {
-    const row = await db.blueprintFile.create({
-      data: {
-        organizationId: caller.organizationId,
-        uploadedById: caller.userId,
-        storedPath,
-        name: file.name.slice(0, 200),
-        contentType: type.contentType,
-        sizeBytes: file.buffer.length,
-      },
-      select: { id: true },
-    });
+    let row: { id: string };
+    try {
+      row = await db.blueprintFile.create({
+        data: {
+          organizationId: caller.organizationId,
+          blueprintId: file.blueprintId,
+          uploadedById: caller.userId,
+          storedPath,
+          name: file.name.slice(0, 200),
+          contentType: type.contentType,
+          sizeBytes: file.buffer.length,
+        },
+        select: { id: true },
+      });
+    } catch (err) {
+      // Never leave a stored file no row points at (review L12).
+      apiLogger.error({ msg: "blueprint-service:file-row-failed", ...ctx, storedPath, err });
+      await deleteStoredFile(storedPath, `/uploads/${FILES_DIR}/`);
+      throw err;
+    }
+    const serverVersion = await recordFileEdit(caller, file.blueprintId);
     apiLogger.info({ msg: "blueprint-service:file-stored", ...ctx, fileId: row.id, contentType: type.contentType });
     return {
       ok: true as const,
-      file: { id: row.id, url: `/api/blueprint/files/${row.id}`, sizeBytes: file.buffer.length, contentType: type.contentType },
+      file: { id: row.id, url: `/api/blueprint/files/${row.id}`, sizeBytes: file.buffer.length, contentType: type.contentType, serverVersion },
     };
   });
 }
@@ -232,13 +287,27 @@ export async function readFile(
   });
 }
 
-/** Removes the row, then the stored file (best effort, never throws). */
-export async function removeFile(organizationId: string, id: string): Promise<{ ok: true } | Fail> {
-  return runWithTenant(organizationId, async () => {
-    const row = await db.blueprintFile.findFirst({ where: { id, organizationId }, select: { storedPath: true } });
-    if (!row) return fail("NOT_FOUND", "File not found", { organizationId, id });
+/**
+ * Removes a file FROM ITS BLUEPRINT (review L12): the caller names the
+ * blueprint, and a file of any other blueprint reads as not found. The row
+ * goes, then the stored file (best effort, never throws).
+ */
+export async function removeFile(
+  caller: Caller,
+  id: string,
+  blueprintId: string,
+): Promise<{ ok: true; serverVersion: number | null } | Fail> {
+  const ctx = { organizationId: caller.organizationId, userId: caller.userId, id, blueprintId };
+  return runWithTenant(caller.organizationId, async () => {
+    const row = await db.blueprintFile.findFirst({
+      where: { id, organizationId: caller.organizationId, blueprintId, blueprint: { archivedAt: null } },
+      select: { storedPath: true },
+    });
+    if (!row) return fail("NOT_FOUND", "File not found", ctx);
     await db.blueprintFile.delete({ where: { id } });
     await deleteStoredFile(row.storedPath, `/uploads/${FILES_DIR}/`);
-    return { ok: true as const };
+    const serverVersion = await recordFileEdit(caller, blueprintId);
+    apiLogger.info({ msg: "blueprint-service:file-removed", ...ctx });
+    return { ok: true as const, serverVersion };
   });
 }

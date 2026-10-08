@@ -1,6 +1,7 @@
 /**
- * POST /api/blueprint/files (multipart, field `file`): store one upload and
- * answer `{ id, url, sizeBytes, contentType }`, the vendor page's contract.
+ * POST /api/blueprint/files (multipart: `file`, `blueprintId`): store one
+ * upload for that blueprint and answer `{ id, url, sizeBytes, contentType }`
+ * (the vendor page's contract) plus the blueprint's new `serverVersion`.
  * Type decided from the bytes, 10 MB cap (blueprint-files.ts).
  */
 import { NextResponse } from "next/server";
@@ -28,8 +29,13 @@ export async function POST(req: Request) {
         apiLogger.warn({ msg: `${ROUTE}:no-file`, userId: gate.userId });
         return NextResponse.json({ error: "Attach a file in the `file` field", code: "NO_FILE" }, { status: 400 });
       }
+      const blueprintId = form?.get("blueprintId");
+      if (typeof blueprintId !== "string" || !blueprintId) {
+        apiLogger.warn({ msg: `${ROUTE}:no-blueprint`, userId: gate.userId });
+        return NextResponse.json({ error: "Name the blueprint in the `blueprintId` field", code: "NO_BLUEPRINT" }, { status: 400 });
+      }
       const buffer = Buffer.from(await file.arrayBuffer());
-      const result = await storeFile({ organizationId: gate.organizationId, userId: gate.userId }, { buffer, name: file.name });
+      const result = await storeFile({ organizationId: gate.organizationId, userId: gate.userId }, { buffer, name: file.name, blueprintId });
       if (!result.ok) return blueprintErrorResponse(result);
       return NextResponse.json(result.file, { status: 201 });
     });

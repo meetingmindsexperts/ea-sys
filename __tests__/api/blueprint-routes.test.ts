@@ -132,7 +132,7 @@ describe("/api/blueprint gate", () => {
     ["MEMBER", 403],
   ])("approve: %s gets %i", async (role, status) => {
     as(role);
-    const res = await approvePOST(new Request("http://localhost/x", { method: "POST", body: JSON.stringify({ which: "plan" }) }), params);
+    const res = await approvePOST(new Request("http://localhost/x", { method: "POST", body: JSON.stringify({ which: "plan", version: 1 }) }), params);
     expect(res.status).toBe(status);
   });
 });

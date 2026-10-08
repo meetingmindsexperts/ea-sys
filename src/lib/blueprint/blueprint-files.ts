@@ -30,10 +30,18 @@ export function sniffBlueprintFile(buf: Uint8Array, filename: string): SniffedTy
   if (startsWith(buf, [0x52, 0x49, 0x46, 0x46]) && startsWith(buf, [0x57, 0x45, 0x42, 0x50], 8)) return { contentType: "image/webp", ext: "webp" };
   if (startsWith(buf, [0x25, 0x50, 0x44, 0x46])) return { contentType: "application/pdf", ext: "pdf" };
   if (startsWith(buf, [0x50, 0x4b, 0x03, 0x04])) {
+    // A ZIP is an Office file only if it carries the Office manifest near the
+    // start, not because it is named .docx (review L12).
     const ext = filename.toLowerCase().split(".").pop() ?? "";
-    return OFFICE[ext] ? { contentType: OFFICE[ext], ext } : null;
+    const head = new TextDecoder("latin1").decode(buf.slice(0, 4096));
+    return OFFICE[ext] && head.includes("[Content_Types].xml") ? { contentType: OFFICE[ext], ext } : null;
   }
   const head = new TextDecoder().decode(buf.slice(0, 512)).trimStart().toLowerCase();
   if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) return { contentType: "image/svg+xml", ext: "svg" };
   return null;
+}
+
+/** Images open in the page; documents download (Chrome's PDF viewer does not run in a sandboxed response, review L11). */
+export function isInlineType(contentType: string): boolean {
+  return contentType.startsWith("image/");
 }

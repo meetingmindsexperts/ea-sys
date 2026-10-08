@@ -51,6 +51,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   FILE_TOO_LARGE: 413,
   UNSUPPORTED_FILE: 415,
   NOT_FOUND: 404,
+  STALE_VERSION: 409,
 };
 
 /** A service refusal as HTTP. The service has already logged it with its code. */

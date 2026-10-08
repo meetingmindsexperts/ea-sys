@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event Blueprint: review fixes and the sidebar entry (October 8)
+
+- Independent review of steps 3 to 6: two HIGHs and every MED and LOW fixed
+  (list in `docs/EVENT_BLUEPRINT_PLAN.md`, Progress). The ones a user meets:
+  a save or approval made from an older version is refused instead of
+  overwriting someone else's work; viewers no longer retry saves forever;
+  photos are scaled before the AI reads them; documents download; files belong
+  to their blueprint; anyone who edited a blueprint cannot approve it.
+- Sidebar: a "Blueprints" entry when `BLUEPRINT_MODULE_ENABLED` is on, for
+  whoever holds `blueprints.view` (Super Admin, Admin, Organizer, Member).
+
 ### Event Blueprint: approval creates the event (October 8)
 
 - Step 6 of `docs/EVENT_BLUEPRINT_PLAN.md`, dark. `POST .../approve`

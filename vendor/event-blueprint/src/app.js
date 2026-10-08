@@ -78,7 +78,7 @@
     s.v = 2; s.id = str(x.id, 60).replace(/[^\w-]/g, '') || b.id;
     for (const k of ['path', 'type', 'format', 'packApplied']) s[k] = scalar(x[k]) == null ? null : str(x[k], 60);
     s.typeOther = str(x.typeOther, 200); s.notes = str(x.notes, 20000); s.ref = str(x.ref, 40);
-    s.ownerId = str(x.ownerId, 60) || null; s.eventId = str(x.eventId, 60) || null; // EA-SYS: server-owned, kept so the page knows the writer and the event
+    s.ownerId = str(x.ownerId, 60) || null; s.eventId = str(x.eventId, 60) || null; s.editorIds = strs(x.editorIds, null, 60).slice(0, 50); // EA-SYS: server-owned, kept so the page knows the writer and the event
     s.status = STATUSES.some(st => st[0] === x.status) ? x.status : 'draft';
     s.created = num(x.created, 0, 1e14) || Date.now(); s.updated = num(x.updated, 0, 1e14) || Date.now();
     s.basics = flat(b.basics, sec('basics')); s.basics.food = strs(sec('basics').food, FOOD);
@@ -187,7 +187,7 @@
 
   // ---------- persistence ----------
   let saveT = null, saving = false, dirty = false, saveState = '';
-  function changed() { S.updated = Date.now(); dirty = true; localSave(); clearTimeout(saveT); saveT = setTimeout(remoteSave, 1000); setSave(Platform.mode === 'local' || !Platform.canWrite ? 'Saved on this device' : 'Saving…'); updateChrome(); refreshLive(); }
+  function changed() { S.updated = Date.now(); dirty = true; localSave(); clearTimeout(saveT); saveT = setTimeout(remoteSave, 1000); setSave(Platform.mode === 'api' && !Platform.canWrite ? 'View only: changes are not saved' : Platform.mode === 'local' || !Platform.canWrite ? 'Saved on this device' : 'Saving…'); updateChrome(); refreshLive(); }
   function localSave() {
     try {
       localStorage.setItem('eb-cur', S.id); localStorage.setItem('eb-' + S.id, JSON.stringify(S));
@@ -201,7 +201,11 @@
     saving = true; dirty = false;
     const sc = score(S);
     try { await Platform.save({ ...JSON.parse(JSON.stringify(S)), ownerId: Platform.userId, title: S.basics.title || 'Untitled event', readiness: sc.pct, blocking: sc.blocking.length, pendingChanges: pending().length }); setSave('Saved'); }
-    catch (e) { if (e && (e.code === 'invalid_argument' || e.code === 'local_only' || e.code === 'not_granted')) { Platform.canWrite = false; setSave('Saved on this device'); } else { dirty = true; setSave('Not saved yet. Retrying'); saveT = setTimeout(remoteSave, 4000); } }
+    catch (e) {
+      // EA-SYS: a refusal that cannot succeed by waiting (a newer version elsewhere, no permission,
+      // too large) is final: say why and stop, instead of retrying every 4 s forever.
+      if (Platform.mode === 'api' && e && e.status >= 400 && e.status < 500 && e.status !== 429) { dirty = true; setSave(e.code === 'stale_version' ? 'Changed elsewhere. Reload to continue' : 'Not saved: ' + (e.message || 'refused')); if (e.code === 'stale_version') toast(e.message); return; }
+      if (e && (e.code === 'invalid_argument' || e.code === 'local_only' || e.code === 'not_granted')) { Platform.canWrite = false; setSave('Saved on this device'); } else { dirty = true; setSave('Not saved yet. Retrying'); saveT = setTimeout(remoteSave, 4000); } }
     finally { saving = false; }
   }
   function setSave(t) { saveState = t; if (S) $('subTitle').textContent = (S.basics.title || 'Untitled event') + (t ? ' · ' + t : ''); $('subTitle').dataset.state = /Not saved/.test(t) ? 'bad' : 'ok'; }
@@ -709,7 +713,8 @@
   async function uploadFile(file, cat) {
     const lim = /svg/.test(file.type) ? 2e6 : 10e6; // EA-SYS: 10 MB, the server's limit
     if (file.size > lim) throw { code: 'too_big', message: `${file.name} is ${fmtSize(file.size)}. The limit is ${fmtSize(lim)}; put it in the shared folder instead.` };
-    const r = await Platform.upload(file, typeFor(file));
+    if (Platform.mode === 'api') { clearTimeout(saveT); while (saving) await new Promise(r => setTimeout(r, 150)); if (dirty) await remoteSave(); } // EA-SYS: the blueprint must exist before its file
+    const r = await Platform.upload(file, typeFor(file), S.id);
     const item = { id: r.id, name: file.name.slice(0, 120), size: r.sizeBytes || file.size, type: r.contentType || file.type, cat, at: Date.now() };
     S.files.uploads.push(item); changed(); return item;
   }
@@ -718,7 +723,7 @@
     if (!Platform.filesReady) { wrap.append(h('div', { class: 'note', text: Platform.mode === 'local' ? 'Uploading needs the online version of this page. Here, put your files in a shared folder and paste the link below.' : Platform.mode === 'api' ? 'Uploading isn’t switched on for this site yet. Use the shared folder below.' : 'Uploading isn’t available with your access to this page. Use the shared folder below, or ask the owner for edit access.' })); }
     else {
       const cat = h('select', { 'aria-label': 'File type' }, UPLOAD_CATS.map(c => h('option', { value: c, text: c })));
-      const input = h('input', { type: 'file', multiple: true, accept: 'image/*,application/pdf,.pdf,.svg,.csv,.md,.txt,.json,video/*', class: 'sr', id: 'upInput' });
+      const input = h('input', { type: 'file', multiple: true, accept: Platform.mode === 'api' ? 'image/png,image/jpeg,image/webp,image/gif,.svg,application/pdf,.pdf,.docx,.xlsx,.pptx' : 'image/*,application/pdf,.pdf,.svg,.csv,.md,.txt,.json,video/*', class: 'sr', id: 'upInput' }); // EA-SYS: only what the server accepts
       input.addEventListener('change', async () => {
         const files = [...input.files]; input.value = ''; if (!files.length) return; note.classList.remove('err');
         for (const f of files) { note.textContent = `Uploading ${f.name}…`; try { await uploadFile(f, cat.value); note.textContent = `Uploaded ${f.name}.`; } catch (e) { note.textContent = e.message && e.code === 'too_big' ? e.message : `Couldn’t upload ${f.name}. Try again.`; note.classList.add('err'); } }
@@ -736,7 +741,7 @@
           isImg ? h('img', { src: url, alt: '', loading: 'lazy' }) : h('span', { class: 'ftype mono', text: (u.name.split('.').pop() || 'file').slice(0, 4).toUpperCase() }),
           h('div', { style: 'min-width:0' }, h('a', { href: url, target: '_blank', rel: 'noopener', class: 'st', text: u.name }), h('div', { class: 'sm', text: `${u.cat} · ${fmtSize(u.size)}` }), confirmBox),
           Platform.filesReady ? h('button', { type: 'button', class: 'del', 'aria-label': 'Remove ' + u.name, text: '×', onclick: () => {
-            confirmBox.innerHTML = ''; confirmBox.append(h('div', { class: 'inline-confirm' }, h('span', { text: 'Remove this file?' }), h('button', { type: 'button', class: 'secondary', text: 'Remove', onclick: async () => { try { await Platform.removeFile(u.id); } catch (e) { } S.files.uploads = S.files.uploads.filter(x => x.id !== u.id); changed(); drawList(); } }), h('button', { type: 'button', class: 'ghostbtn', text: 'Keep', onclick: () => { confirmBox.innerHTML = ''; } })));
+            confirmBox.innerHTML = ''; confirmBox.append(h('div', { class: 'inline-confirm' }, h('span', { text: 'Remove this file?' }), h('button', { type: 'button', class: 'secondary', text: 'Remove', onclick: async () => { try { await Platform.removeFile(u.id, S.id); } catch (e) { } S.files.uploads = S.files.uploads.filter(x => x.id !== u.id); changed(); drawList(); } }), h('button', { type: 'button', class: 'ghostbtn', text: 'Keep', onclick: () => { confirmBox.innerHTML = ''; } })));
           } }) : null));
       }
     };
@@ -801,7 +806,7 @@
   // EA-SYS: the approver's step. Someone holding the approve permission who neither wrote nor
   // edited the blueprint signs off; the server checks completeness, creates the event and moves it on.
   function approverBlock() {
-    const out = [], mine = S.ownerId && S.ownerId === Platform.userId;
+    const out = [], mine = !!Platform.userId && (S.ownerId === Platform.userId || (S.editorIds || []).includes(Platform.userId));
     if (S.eventId) out.push(h('div', { class: 'note' }, 'The event is in EA-SYS: ', h('a', { href: '/events/' + encodeURIComponent(S.eventId), target: '_blank', rel: 'noopener', text: 'open the event' }), '.'));
     const stage = S.status === 'plan_ready' && !S.approvals.plan ? 'plan' : S.status === 'preview' && !S.approvals.preview ? 'preview' : null;
     if (!stage) return out;
@@ -822,7 +827,7 @@
   }
   const makeRef = () => { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `EB-${String(d.getFullYear()).slice(2)}${p(d.getMonth() + 1)}${p(d.getDate())}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`; };
   // EA-SYS: the server's status, reference and history replace the page's own copies.
-  function applyServer(v) { if (!plain(v)) return; S.status = v.status || S.status; S.ref = v.ref || S.ref; if (Array.isArray(v.statusLog)) S.statusLog = v.statusLog; if (Array.isArray(v.submissions)) S.submissions = v.submissions; if (plain(v.approvals)) S.approvals = v.approvals; if ('eventId' in v) S.eventId = v.eventId; if ('ownerId' in v) S.ownerId = v.ownerId; }
+  function applyServer(v) { if (!plain(v)) return; S.status = v.status || S.status; S.ref = v.ref || S.ref; if (Array.isArray(v.statusLog)) S.statusLog = v.statusLog; if (Array.isArray(v.submissions)) S.submissions = v.submissions; if (plain(v.approvals)) S.approvals = v.approvals; if ('eventId' in v) S.eventId = v.eventId; if ('ownerId' in v) S.ownerId = v.ownerId; if (Array.isArray(v.editorIds)) S.editorIds = v.editorIds; }
   async function doSubmit(isUpdate) {
     if (Platform.mode === 'api') return doSubmitApi(isUpdate);
     const sc = score(S), chg = pending(), now = Date.now();
@@ -930,7 +935,7 @@
       if (qf.file) {
         const f = qf.file, ext = (f.name.split('.').pop() || '').toLowerCase();
         if (qf.keep && Platform.filesReady) { status.textContent = 'Keeping a copy of the document…'; try { await uploadFile(f, /plan|floor/i.test(f.name) ? 'Venue' : 'Other'); } catch (e) { } }
-        if (/^image\//.test(f.type)) { const lim = await Platform.aiLimits(); if (!lim || !lim.images) throw { code: 'no_images', message: 'Pictures can’t be read here. Paste the text instead, or use a PDF.' }; images = [f]; }
+        if (/^image\//.test(f.type)) { const lim = await Platform.aiLimits(); if (!lim || !lim.images) throw { code: 'no_images', message: 'Pictures can’t be read here. Paste the text instead, or use a PDF.' }; images = [Platform.mode === 'api' ? await shrinkImage(f) : f]; }
         else if (ext === 'pdf' || f.type === 'application/pdf') { status.textContent = 'Reading the PDF…'; try { docText = await pdfText(f); } catch (e) { throw { code: 'pdf', message: 'This PDF couldn’t be read here. Screenshot the pages and add them as pictures, or paste the text.' }; } if (!docText) throw { code: 'pdf', message: 'This PDF has no readable text (it may be scanned). Add a screenshot of each page instead.' }; }
         else docText = (await f.text()).slice(0, 60000);
       }
@@ -942,9 +947,26 @@
       drawQF();
     } catch (e) {
       status.classList.add('err');
-      if (e && e.message && ['no_images', 'pdf'].includes(e.code)) status.textContent = e.message; else aiNote(status, e);
+      if (e && e.message && ['no_images', 'pdf', 'too_large'].includes(e.code)) status.textContent = e.message; else aiNote(status, e);
       btn.disabled = false;
     }
+  }
+  // EA-SYS: a phone photo is several MB; the server takes a 1 MB request, and base64 adds a
+  // third. Step the size and quality down until the JPEG is under 700 KB (any photo of a floor plan
+  // or brochure stays readable well before that); keep the original if the browser cannot draw it.
+  async function shrinkImage(f) {
+    const LIMIT = 700 * 1024;
+    try {
+      const img = await createImageBitmap(f);
+      for (const [side, q] of [[1600, 0.82], [1400, 0.72], [1200, 0.62], [1000, 0.55], [800, 0.5]]) {
+        const k = Math.min(1, side / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', q));
+        if (blob && blob.size <= LIMIT) return new File([blob], f.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+      }
+      throw { code: 'too_large', message: 'This picture is too detailed to send even after shrinking. Crop it to the part that matters and try again.' };
+    } catch (e) { if (e && e.code === 'too_large') throw e; return f; }
   }
   function qfPrompt(words, docText, fileName, hasImage) {
     return `You are filling in an event planning form from the organiser's own words and documents. The event can be of any kind. Extract only what the text states or clearly implies. Never invent names, dates, numbers, venues or sponsors. Leave out anything not covered. For fields with fixed options, copy one option exactly or leave the field out.

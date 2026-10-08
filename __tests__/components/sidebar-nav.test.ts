@@ -57,3 +57,29 @@ describe("sidebar navigation for every role and context", () => {
     await expect(render()).toMatchFileSnapshot("./__snapshots__/sidebar-nav.txt");
   });
 });
+
+describe("the Blueprints entry (BLUEPRINT_MODULE_ENABLED and blueprints.view)", () => {
+  const sees = (role: string, blueprintEnabled?: boolean) =>
+    computeSidebarNav({
+      user: { id: "u1", organizationId: "org-1", role },
+      hrEnabled: false,
+      procurementEnabled: false,
+      blueprintEnabled,
+      isEventPage: false,
+      currentEvent: undefined,
+      submitterCtx: undefined,
+    }).baseNavigation.some((i) => i.name === "Blueprints");
+
+  it.each(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"])("%s sees it when the module is on", (role) => {
+    expect(sees(role, true)).toBe(true);
+  });
+
+  it.each(["ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "REVIEWER", "SUBMITTER", "REGISTRANT"])("%s never sees it", (role) => {
+    expect(sees(role, true)).toBe(false);
+  });
+
+  it("nobody sees it while the module is off, or when the flag is not passed", () => {
+    expect(sees("SUPER_ADMIN", false)).toBe(false);
+    expect(sees("SUPER_ADMIN")).toBe(false);
+  });
+});
