@@ -109,7 +109,7 @@ export interface CreateSessionInput extends SessionFieldsInput {
   /** Tenant org (the event's org) — stamped onto the session + its child rows. */
   organizationId: string;
   userId: string;
-  source: "rest" | "mcp" | "agent" | "api";
+  source: "rest" | "mcp" | "agent" | "api" | "blueprint";
   requestIp?: string | null;
   name: string;
   startTime: Date;

@@ -80,6 +80,8 @@ export async function getBlueprint(
         status: true,
         ref: true,
         data: true,
+        ownerId: true,
+        eventId: true,
         createdAt: true,
         updatedAt: true,
         statusLog: {

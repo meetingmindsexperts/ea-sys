@@ -27,11 +27,25 @@ import { isCustomRolesEnabled } from "@/lib/module-flags";
 import { SYSTEM_ROLES } from "@/lib/permissions/system-roles";
 import { buildBlueprintEmail, type BlueprintEmailInput } from "@/lib/blueprint/blueprint-emails";
 import { BLUEPRINT_ID_RE } from "@/lib/blueprint/blueprint-payload";
+import { scoreBlueprint, readWhen } from "@/lib/blueprint/vendor-rules";
+import { planEventFromBlueprint, type EventPlan } from "@/lib/blueprint/blueprint-to-event";
+import { resolveTimezone } from "@/lib/event-time";
 import { getBlueprint } from "./blueprint-service";
+import { createEvent } from "./event-service";
+import { createSession } from "./session-service";
+import { saveSponsors } from "./sponsor-service";
 
-export type WorkflowErrorCode = "INVALID_ID" | "NOT_FOUND" | "NOT_ALLOWED_FROM_STAGE" | "CONFLICT";
+export type WorkflowErrorCode =
+  | "INVALID_ID"
+  | "NOT_FOUND"
+  | "NOT_ALLOWED_FROM_STAGE"
+  | "CONFLICT"
+  | "APPROVER_IS_AUTHOR"
+  | "BLUEPRINT_INCOMPLETE"
+  | "DATES_NEEDED"
+  | "EVENT_CREATE_FAILED";
 
-type Fail = { ok: false; code: WorkflowErrorCode; message: string };
+type Fail = { ok: false; code: WorkflowErrorCode; message: string; meta?: Record<string, unknown> };
 export type WorkflowResult = { ok: true; blueprint: Record<string, unknown> } | Fail;
 
 interface Caller {
@@ -60,9 +74,9 @@ export const STAGE_LABEL: Record<BlueprintStatus, string> = {
 
 const REF_ATTEMPTS = 5;
 
-function fail(code: WorkflowErrorCode, message: string, ctx: Record<string, unknown>): Fail {
-  apiLogger.warn({ msg: "blueprint-workflow:refused", code, ...ctx });
-  return { ok: false, code, message };
+function fail(code: WorkflowErrorCode, message: string, ctx: Record<string, unknown>, meta?: Record<string, unknown>): Fail {
+  apiLogger.warn({ msg: "blueprint-workflow:refused", code, ...ctx, ...meta });
+  return { ok: false, code, message, ...(meta && { meta }) };
 }
 
 /** `EB-261008-K3P`: the page's own reference format, minted here. */
@@ -205,6 +219,194 @@ export async function moveBlueprintStage(caller: Caller, id: string, to: Bluepri
     stageLabel: STAGE_LABEL[to],
   });
   return reload(caller.organizationId, id);
+}
+
+// ── Approval (step 6) ────────────────────────────────────────────────────────
+
+export type ApproveWhich = "plan" | "preview";
+
+/**
+ * An approver signs off (owner ruling, Oct 8, 2026): the PLAN at Plan ready,
+ * which runs the vendor's completeness rules on the server and creates the
+ * EA-SYS event (DRAFT) with its sessions and sponsors, then Building; the
+ * PREVIEW at Preview, then Live. Never the blueprint's writer or anyone who
+ * edited it after it was submitted (`editorIds`).
+ *
+ * One event, ever. The approval is CLAIMED first with a guarded write
+ * (`approvedAt` set where it was null), so two approvers at once cannot both
+ * create an event; if anything fails before the event is recorded on the
+ * blueprint the claim is released. Approving an already-approved plan returns
+ * the blueprint as it is.
+ */
+export async function approveBlueprint(caller: Caller, id: string, which: ApproveWhich): Promise<WorkflowResult> {
+  const ctx = { organizationId: caller.organizationId, userId: caller.userId, id, which };
+  if (!BLUEPRINT_ID_RE.test(id)) return fail("INVALID_ID", "Not a blueprint id", ctx);
+
+  const row = await runWithTenant(caller.organizationId, () =>
+    db.blueprint.findFirst({
+      where: { id, organizationId: caller.organizationId, archivedAt: null },
+      select: { status: true, ref: true, title: true, ownerId: true, editorIds: true, eventId: true, data: true },
+    }),
+  );
+  if (!row) return fail("NOT_FOUND", "Blueprint not found", ctx);
+  if (which === "plan" && row.eventId) return reload(caller.organizationId, id);
+  if (row.ownerId === caller.userId || row.editorIds.includes(caller.userId)) {
+    return fail("APPROVER_IS_AUTHOR", "You wrote or edited this blueprint, so someone else has to approve it.", ctx);
+  }
+  const needed = which === "plan" ? "PLAN_READY" : "PREVIEW";
+  if (row.status !== needed) {
+    return fail("NOT_ALLOWED_FROM_STAGE", `The ${which} can be approved only at ${STAGE_LABEL[needed]}; this blueprint is at ${STAGE_LABEL[row.status]}.`, ctx);
+  }
+
+  const result = which === "plan" ? await approvePlan(caller, id, row.data, ctx) : await approvePreview(caller, id, ctx);
+  if (!result.ok) return result;
+  apiLogger.info({ msg: "blueprint-workflow:approved", ...ctx, eventId: result.eventId ?? null });
+  await notifyWriter(caller, row.ownerId, {
+    kind: "approved",
+    title: row.title,
+    ref: row.ref ?? "",
+    stageLabel: STAGE_LABEL[which === "plan" ? "BUILDING" : "LIVE"],
+  });
+  return reload(caller.organizationId, id);
+}
+
+type Approved = { ok: true; eventId?: string } | Fail;
+
+async function approvePreview(caller: Caller, id: string, ctx: Record<string, unknown>): Promise<Approved> {
+  const moved = await runWithTenant(caller.organizationId, () =>
+    tenantTransaction(async (tx) => {
+      const res = await tx.blueprint.updateMany({
+        where: { id, organizationId: caller.organizationId, status: "PREVIEW" },
+        data: { status: "LIVE" },
+      });
+      if (res.count === 0) return false;
+      await tx.blueprintStatusLog.create({
+        data: { blueprintId: id, organizationId: caller.organizationId, actorId: caller.userId, kind: "APPROVED", fromStatus: "PREVIEW", toStatus: "LIVE", detail: { which: "preview" } },
+      });
+      return true;
+    }),
+  );
+  return moved ? { ok: true } : fail("CONFLICT", "Someone else changed this blueprint; reload it", ctx);
+}
+
+async function approvePlan(caller: Caller, id: string, stored: unknown, ctx: Record<string, unknown>): Promise<Approved> {
+  const scored = scoreBlueprint(stored);
+  if (scored.blocking.length > 0) {
+    return fail(
+      "BLUEPRINT_INCOMPLETE",
+      `${scored.blocking.length} needed item${scored.blocking.length === 1 ? " is" : "s are"} still open, so it cannot be approved yet.`,
+      ctx,
+      { missing: scored.blocking.map((b) => b.label) },
+    );
+  }
+  const planned = planEventFromBlueprint(scored.data, readWhen(String((scored.data.basics as { when?: unknown })?.when ?? "")), resolveTimezone(null));
+  if (!planned.ok) return fail(planned.code, planned.message, ctx);
+
+  // Claim first: only one approver gets past this line.
+  const claimed = await runWithTenant(caller.organizationId, () =>
+    db.blueprint.updateMany({
+      where: { id, organizationId: caller.organizationId, status: "PLAN_READY", approvedAt: null, eventId: null },
+      data: { approvedAt: new Date(), approvedById: caller.userId },
+    }),
+  );
+  if (claimed.count === 0) return fail("CONFLICT", "Someone else is approving or has changed this blueprint; reload it", ctx);
+
+  try {
+    const created = await createEvent({
+      organizationId: caller.organizationId,
+      userId: caller.userId,
+      ...planned.plan.event,
+      source: "blueprint",
+    });
+    if (!created.ok) {
+      await releaseClaim(caller, id);
+      return fail("EVENT_CREATE_FAILED", `The event could not be created: ${created.message}`, ctx, { eventCode: created.code });
+    }
+    const eventId = created.event.id;
+    const seeded = await seedEvent(caller, eventId, planned.plan, ctx);
+
+    await runWithTenant(caller.organizationId, () =>
+      tenantTransaction(async (tx) => {
+        await tx.blueprint.update({ where: { id }, data: { eventId, status: "BUILDING", readiness: scored.pct } });
+        await tx.blueprintStatusLog.create({
+          data: {
+            blueprintId: id,
+            organizationId: caller.organizationId,
+            actorId: caller.userId,
+            kind: "APPROVED",
+            fromStatus: "PLAN_READY",
+            toStatus: "BUILDING",
+            readiness: scored.pct,
+            detail: { which: "plan", eventId, sessions: seeded.sessions, sponsors: seeded.sponsors, skipped: [...planned.plan.skipped, ...seeded.failed] },
+          },
+        });
+      }),
+    );
+    return { ok: true, eventId };
+  } catch (err) {
+    await releaseClaim(caller, id);
+    throw err;
+  }
+}
+
+/** Undo a claim whose event was never recorded, so the approval can be tried again. */
+async function releaseClaim(caller: Caller, id: string): Promise<void> {
+  try {
+    await runWithTenant(caller.organizationId, () =>
+      db.blueprint.updateMany({
+        where: { id, organizationId: caller.organizationId, eventId: null, approvedById: caller.userId },
+        data: { approvedAt: null, approvedById: null },
+      }),
+    );
+  } catch (err) {
+    apiLogger.error({ msg: "blueprint-workflow:release-claim-failed", organizationId: caller.organizationId, id, err });
+  }
+}
+
+/**
+ * The sessions and sponsors from the brief. A row that fails is logged and
+ * listed on the approval record, never undoes the event (plan §4.5): the team
+ * fixes it by hand.
+ */
+async function seedEvent(caller: Caller, eventId: string, plan: EventPlan, ctx: Record<string, unknown>) {
+  const failed: string[] = [];
+  let sessions = 0;
+  for (const s of plan.sessions) {
+    const res = await createSession({
+      eventId,
+      organizationId: caller.organizationId,
+      userId: caller.userId,
+      source: "blueprint",
+      suppressAdminNotification: true,
+      name: s.name,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      location: s.location,
+      description: s.description,
+    });
+    if (res.ok) sessions++;
+    else {
+      failed.push(`Session "${s.name}": ${res.message}`);
+      apiLogger.warn({ msg: "blueprint-workflow:seed-session-failed", ...ctx, eventId, code: res.code });
+    }
+  }
+  let sponsors = 0;
+  if (plan.sponsors.length) {
+    const res = await saveSponsors({
+      eventId,
+      organizationId: caller.organizationId,
+      actorUserId: caller.userId,
+      source: "blueprint",
+      sponsors: plan.sponsors,
+      mode: "merge",
+    });
+    if (res.ok) sponsors = plan.sponsors.length;
+    else {
+      failed.push(`Sponsors: ${res.message}`);
+      apiLogger.warn({ msg: "blueprint-workflow:seed-sponsors-failed", ...ctx, eventId, code: res.code });
+    }
+  }
+  return { sessions, sponsors, failed };
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────

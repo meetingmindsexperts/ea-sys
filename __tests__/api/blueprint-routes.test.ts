@@ -30,6 +30,7 @@ vi.mock("@/services/blueprint-service", () => mockService);
 vi.mock("@/services/blueprint-workflow-service", () => ({
   submitBlueprint: vi.fn().mockResolvedValue({ ok: true, blueprint: {} }),
   moveBlueprintStage: vi.fn().mockResolvedValue({ ok: true, blueprint: {} }),
+  approveBlueprint: vi.fn().mockResolvedValue({ ok: true, blueprint: {} }),
 }));
 vi.mock("@/lib/blueprint/blueprint-ai", () => ({ runBlueprintAiTask: vi.fn().mockResolvedValue({ ok: true, answer: { spaces: [] } }) }));
 
@@ -39,6 +40,7 @@ import { GET as meGET } from "@/app/api/blueprint/me/route";
 import { POST as aiPOST } from "@/app/api/blueprint/ai/json/route";
 import { POST as submitPOST } from "@/app/api/blueprint/blueprints/[id]/submit/route";
 import { POST as stagePOST } from "@/app/api/blueprint/blueprints/[id]/stage/route";
+import { POST as approvePOST } from "@/app/api/blueprint/blueprints/[id]/approve/route";
 
 const as = (role: string, organizationId: string | null = "org-1") =>
   mockAuth.mockResolvedValue({ user: { id: `u-${role}`, role, organizationId } });
@@ -95,12 +97,12 @@ describe("/api/blueprint gate", () => {
   });
 
   it.each([
-    ["ADMIN", true, true],
-    ["ORGANIZER", false, true],
-    ["MEMBER", false, false],
-  ])("me: %s isEditor=%s canWrite=%s", async (role, isEditor, canWrite) => {
+    ["ADMIN", true, true, true],
+    ["ORGANIZER", false, true, false],
+    ["MEMBER", false, false, false],
+  ])("me: %s isEditor=%s canWrite=%s canApprove=%s", async (role, isEditor, canWrite, canApprove) => {
     as(role);
-    expect(await (await meGET()).json()).toEqual({ id: `u-${role}`, isEditor, canWrite });
+    expect(await (await meGET()).json()).toEqual({ id: `u-${role}`, isEditor, canWrite, canApprove });
   });
 
   it.each([
@@ -121,5 +123,16 @@ describe("/api/blueprint gate", () => {
     const post = (body: unknown) => ({ method: "POST", body: JSON.stringify(body) });
     expect((await submitPOST(new Request("http://localhost/x", post({ readiness: 50 })), params)).status).toBe(submit);
     expect((await stagePOST(new Request("http://localhost/x", post({ to: "in_review" })), params)).status).toBe(stage);
+  });
+
+  it.each([
+    ["SUPER_ADMIN", 200],
+    ["ADMIN", 200],
+    ["ORGANIZER", 403],
+    ["MEMBER", 403],
+  ])("approve: %s gets %i", async (role, status) => {
+    as(role);
+    const res = await approvePOST(new Request("http://localhost/x", { method: "POST", body: JSON.stringify({ which: "plan" }) }), params);
+    expect(res.status).toBe(status);
   });
 });

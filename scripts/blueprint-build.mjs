@@ -86,3 +86,24 @@ writeFileSync(
     `export const BLUEPRINT_CATALOGS = ${JSON.stringify(catalogs, null, 2)} as const;\n`,
 );
 console.log(`catalogs -> ${path.relative(ROOT, CATALOGS_OUT)}`);
+
+// The vendor's own completeness rules for the server (plan §4.5): data.js and
+// bench.js, then app.js from the top of its closure up to the change-tracking
+// section, which holds blank(), sanitise(), checks() and score() and touches
+// no DOM until called. The server runs exactly the rules the page shows, so
+// "complete" can never mean two things. src/lib/blueprint/vendor-rules.ts
+// evaluates it in a sandbox.
+const RULES_OUT = path.join(ROOT, "src/lib/blueprint/vendor-rules.generated.json");
+const appSrc = readFileSync(path.join(VENDOR, "src/app.js"), "utf8");
+const OPEN = "(function () {\n";
+const CLOSE = "  // ---------- changes since the last submission ----------";
+const from = appSrc.indexOf(OPEN);
+const to = appSrc.indexOf(CLOSE);
+if (from < 0 || to < 0 || to < from) throw new Error("vendor app.js markers moved: update the rules slice in scripts/blueprint-build.mjs");
+const rulesSource =
+  ["data.js", "bench.js"].map((f) => readFileSync(path.join(VENDOR, "src", f), "utf8")).join("\n") +
+  "\n" +
+  appSrc.slice(from + OPEN.length, to) +
+  "\n;({ sanitise, score, parseWhen })";
+writeFileSync(RULES_OUT, JSON.stringify({ generatedBy: "scripts/blueprint-build.mjs", source: rulesSource }) + "\n");
+console.log(`rules -> ${path.relative(ROOT, RULES_OUT)}`);

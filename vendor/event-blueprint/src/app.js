@@ -78,6 +78,7 @@
     s.v = 2; s.id = str(x.id, 60).replace(/[^\w-]/g, '') || b.id;
     for (const k of ['path', 'type', 'format', 'packApplied']) s[k] = scalar(x[k]) == null ? null : str(x[k], 60);
     s.typeOther = str(x.typeOther, 200); s.notes = str(x.notes, 20000); s.ref = str(x.ref, 40);
+    s.ownerId = str(x.ownerId, 60) || null; s.eventId = str(x.eventId, 60) || null; // EA-SYS: server-owned, kept so the page knows the writer and the event
     s.status = STATUSES.some(st => st[0] === x.status) ? x.status : 'draft';
     s.created = num(x.created, 0, 1e14) || Date.now(); s.updated = num(x.updated, 0, 1e14) || Date.now();
     s.basics = flat(b.basics, sec('basics')); s.basics.food = strs(sec('basics').food, FOOD);
@@ -780,10 +781,12 @@
     });
     wrap.append(ol);
     // approvals belong to the owner (a person), never to automation
+    if (Platform.mode === 'api') wrap.append(...approverBlock());
     if (Platform.mode !== 'api' && S.status === 'plan_ready' && !S.approvals.plan) wrap.append(h('div', { class: 'approve' }, h('div', { text: 'The plan is ready. Read it, then approve it here so the build can start.' }), h('button', { class: 'primary', text: 'Approve the plan', onclick: () => approve('plan') })));
     if (Platform.mode !== 'api' && S.status === 'preview' && !S.approvals.preview) wrap.append(h('div', { class: 'approve' }, h('div', { text: 'Walk through the preview, then approve it for publishing.' }), h('button', { class: 'primary', text: 'Approve the preview', onclick: () => approve('preview') })));
-    if (S.approvals.plan) wrap.append(h('div', { class: 'note', text: 'Plan approved by you on ' + fmtDate(S.approvals.plan) + '.' }));
-    if (S.approvals.preview) wrap.append(h('div', { class: 'note', text: 'Preview approved by you on ' + fmtDate(S.approvals.preview) + '.' }));
+    const byWho = Platform.mode === 'api' ? '' : ' by you'; // EA-SYS: an approver signs off, not the writer
+    if (S.approvals.plan) wrap.append(h('div', { class: 'note', text: 'Plan approved' + byWho + ' on ' + fmtDate(S.approvals.plan) + '.' }));
+    if (S.approvals.preview) wrap.append(h('div', { class: 'note', text: 'Preview approved' + byWho + ' on ' + fmtDate(S.approvals.preview) + '.' }));
     const hist = h('details', { class: 'hist' }, h('summary', { text: `Submission history (${S.submissions.length})` }), h('ul', null, S.submissions.map(x => h('li', null, h('b', { text: x.kind === 'update' ? `Update ${x.n}` : 'First submission' }), ` · ${fmtDate(x.at)} · ${x.kind === 'update' ? x.count + ' changes' : 'readiness ' + x.readiness + '%'}`))));
     wrap.append(hist);
     if (Platform.isEditor) {
@@ -795,6 +798,23 @@
     }
     return wrap;
   }
+  // EA-SYS: the approver's step. Someone holding the approve permission who neither wrote nor
+  // edited the blueprint signs off; the server checks completeness, creates the event and moves it on.
+  function approverBlock() {
+    const out = [], mine = S.ownerId && S.ownerId === Platform.userId;
+    if (S.eventId) out.push(h('div', { class: 'note' }, 'The event is in EA-SYS: ', h('a', { href: '/events/' + encodeURIComponent(S.eventId), target: '_blank', rel: 'noopener', text: 'open the event' }), '.'));
+    const stage = S.status === 'plan_ready' && !S.approvals.plan ? 'plan' : S.status === 'preview' && !S.approvals.preview ? 'preview' : null;
+    if (!stage) return out;
+    if (!Platform.canApprove || mine) { out.push(h('div', { class: 'note', text: stage === 'plan' ? 'The plan is ready. An approver signs it off, which creates the event; it can’t be the person who wrote it.' : 'The preview is ready. An approver walks through it and signs it off.' })); return out; }
+    const msg = h('div', { class: 'note', 'aria-live': 'polite' });
+    const btn = h('button', { class: 'primary', text: stage === 'plan' ? 'Approve the plan and create the event' : 'Approve the preview', onclick: async () => {
+      btn.disabled = true; msg.textContent = ''; msg.classList.remove('err');
+      try { applyServer(await Platform.approve(S.id, stage)); render(); toast(stage === 'plan' ? 'Approved. The event is created in EA-SYS.' : 'Preview approved. It is live.'); }
+      catch (e) { const missing = e && e.body && Array.isArray(e.body.missing) ? ' Missing: ' + e.body.missing.join(', ') + '.' : ''; msg.textContent = ((e && e.message) || 'It could not be approved.') + missing; msg.classList.add('err'); btn.disabled = false; }
+    } });
+    out.push(h('div', { class: 'approve' }, h('div', { text: stage === 'plan' ? 'The plan is ready. Approving it checks the blueprint is complete and creates the event in EA-SYS.' : 'Walk through the preview, then approve it for publishing.' }), btn, msg));
+    return out;
+  }
   function approve(which) {
     S.approvals[which] = Date.now(); S.statusLog.push({ status: which === 'plan' ? 'plan_approved' : 'preview_approved', at: Date.now() });
     if (which === 'plan' && S.status === 'plan_ready') { S.status = 'building'; S.statusLog.push({ status: 'building', at: Date.now() }); }
@@ -802,7 +822,7 @@
   }
   const makeRef = () => { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `EB-${String(d.getFullYear()).slice(2)}${p(d.getMonth() + 1)}${p(d.getDate())}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`; };
   // EA-SYS: the server's status, reference and history replace the page's own copies.
-  function applyServer(v) { if (!plain(v)) return; S.status = v.status || S.status; S.ref = v.ref || S.ref; if (Array.isArray(v.statusLog)) S.statusLog = v.statusLog; if (Array.isArray(v.submissions)) S.submissions = v.submissions; if (plain(v.approvals)) S.approvals = v.approvals; }
+  function applyServer(v) { if (!plain(v)) return; S.status = v.status || S.status; S.ref = v.ref || S.ref; if (Array.isArray(v.statusLog)) S.statusLog = v.statusLog; if (Array.isArray(v.submissions)) S.submissions = v.submissions; if (plain(v.approvals)) S.approvals = v.approvals; if ('eventId' in v) S.eventId = v.eventId; if ('ownerId' in v) S.ownerId = v.ownerId; }
   async function doSubmit(isUpdate) {
     if (Platform.mode === 'api') return doSubmitApi(isUpdate);
     const sc = score(S), chg = pending(), now = Date.now();
@@ -840,8 +860,8 @@
       h('h3', { text: 'What happens next' }),
       h('ol', { class: 'next' }, [
         ['Review', a.open ? 'The build team checks your blueprint and sends one message listing what is still missing.' : 'The build team checks your blueprint and files.'],
-        ['Plan', 'You receive a plan: the spaces, the guest journey and the look. Nothing is built until you approve it here.'],
-        ['Build and preview', 'The event is built and you get a private preview to walk through and approve.'],
+        ['Plan', Platform.mode === 'api' ? 'A plan is prepared: the spaces, the guest journey and the look. Nothing is built until an approver signs it off, which creates the event.' : 'You receive a plan: the spaces, the guest journey and the look. Nothing is built until you approve it here.'],
+        ['Build and preview', Platform.mode === 'api' ? 'The event is built and a private preview is walked through and approved.' : 'The event is built and you get a private preview to walk through and approve.'],
         ['Live', 'It is published. Changes you make later are collected and sent as numbered updates.'],
       ].map(([t, d]) => h('li', null, h('b', { text: t }), h('span', { text: d })))),
       h('p', { class: 'help', text: 'You can follow progress on this blueprint and in your list of blueprints. Keep editing any time; changes wait until you send them.' }),

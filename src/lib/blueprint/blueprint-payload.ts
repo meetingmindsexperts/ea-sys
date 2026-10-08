@@ -34,7 +34,7 @@ export const TEMPLATE_ID_RE = /^tp_[A-Za-z0-9_-]{4,57}$/;
  * them and merges its own back on read. `baseline` stays with the page until
  * the workflow step makes submission server-side.
  */
-const SERVER_OWNED = ["status", "ref", "submissions", "statusLog", "approvals"] as const;
+const SERVER_OWNED = ["status", "ref", "submissions", "statusLog", "approvals", "eventId"] as const;
 /** Listing fields the page adds to every save; the server keeps its own copies in columns. */
 const LISTING_FIELDS = ["ownerId", "title", "readiness", "blocking", "pendingChanges"] as const;
 
@@ -108,8 +108,19 @@ export interface BlueprintRowForPage {
   status: BlueprintStatus;
   ref: string | null;
   data: unknown;
+  ownerId?: string | null;
+  eventId?: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** When each approval happened (epoch ms), from the APPROVED history rows. */
+function approvalsFrom(log: readonly StatusLogEntry[]): { plan: number | null; preview: number | null } {
+  const at = (which: string) => {
+    const hit = log.find((l) => l.kind === "APPROVED" && isPlainObject(l.detail) && l.detail.which === which);
+    return hit ? hit.createdAt.getTime() : null;
+  };
+  return { plan: at("plan"), preview: at("preview") };
 }
 
 /**
@@ -142,7 +153,9 @@ export function mergeForPage(row: BlueprintRowForPage, log: readonly StatusLogEn
     ref: row.ref ?? "",
     submissions,
     statusLog,
-    approvals: { plan: null, preview: null },
+    approvals: approvalsFrom(log),
+    ownerId: row.ownerId ?? null,
+    eventId: row.eventId ?? null,
     created: typeof data.created === "number" ? data.created : row.createdAt.getTime(),
     updated: row.updatedAt.getTime(),
   };

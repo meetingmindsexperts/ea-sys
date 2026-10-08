@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event Blueprint: approval creates the event (October 8)
+
+- Step 6 of `docs/EVENT_BLUEPRINT_PLAN.md`, dark. `POST .../approve`
+  (`blueprints.approve`), never the writer or a later editor. The plan's
+  approval runs the vendor's own completeness rules on the server
+  (`vendor-rules.generated.json`, evaluated in a sandbox, so "complete" means
+  what the page shows), then creates the event through `event-service` (DRAFT),
+  its first-day sessions and its sponsors, and moves the blueprint to Building.
+  The preview's approval makes it Live.
+- Owner rulings: a vague "When" refuses approval (`DATES_NEEDED`) rather than
+  inventing a date; Virtual becomes a webinar, Online world only a conference.
+- One event, ever: the approval is claimed with a guarded write first and
+  released if the event cannot be created. A row that fails to seed is listed
+  on the approval record and never undoes the event. Named people stay in the
+  brief (no email address to make a speaker from).
+- Found in the walkthrough and fixed: the brief's partner tiers ("Gold") are
+  mapped to EA-SYS sponsor tiers (`gold`; Media and Supporter to `partner`).
+
 ### Event Blueprint: the server owns the workflow (October 8)
 
 - Step 5 of `docs/EVENT_BLUEPRINT_PLAN.md`, dark. `POST .../submit` (writers):

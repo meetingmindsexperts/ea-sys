@@ -22,6 +22,7 @@ export async function GET() {
         id: gate.userId,
         isEditor: can(principal, "blueprints.manage"),
         canWrite: can(principal, "blueprints.edit"),
+      canApprove: can(principal, "blueprints.approve"),
       });
     });
   } catch (err) {

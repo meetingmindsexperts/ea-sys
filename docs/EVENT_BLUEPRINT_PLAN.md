@@ -400,3 +400,14 @@ per event (D6), report inbox (D7).
   Submitted-to-In-review succeeded, and a deleted blueprint was not revived.
   For step 6: the page's acknowledgement still says "Nothing is built until
   you approve it here"; reword for the approver.
+- **Oct 8, 2026, step 6 built: phases 1 to 3 of the proposal are complete.**
+  Approval runs the VENDOR'S OWN `sanitise()` and `score()` on the server
+  (generated slice of `app.js`, sandboxed), not a port, so section 4.5's
+  "port the blocking rules" became "run them". Walkthrough on the standalone
+  build with two people (Organizer writes and submits, Admin reviews and
+  approves): the writer saw no approve button; approving created a DRAFT
+  conference on 4 to 5 March 2027 at the brief's venue with three sessions at
+  the right Dubai times and the organisation's five starting registration
+  types; the preview's approval made it Live. It also found the sponsor tier
+  mismatch, now fixed and re-checked against the database. Still open:
+  "Room changes after approval" (section 7), and the venue phases (step 7 on).

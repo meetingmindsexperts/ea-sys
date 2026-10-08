@@ -13,9 +13,9 @@ const Platform = (() => {
     if (cfg && cfg.api) { // ---------- API MODE (your own server) ----------
       P.mode = 'api'; const base = cfg.api.replace(/\/$/, '');
       // EA-SYS: the server's error codes reach the page (rate_limited, invalid_json, ...) instead of one generic one.
-      const call = async (method, path, body, raw) => { const r = await fetch(base + path, { method, credentials: 'include', headers: raw ? {} : { 'content-type': 'application/json' }, body: raw ? body : body ? JSON.stringify(body) : undefined }); if (!r.ok) { let b = null; try { b = await r.json(); } catch (e) { } const code = r.status === 401 ? 'not_granted' : r.status === 429 ? 'rate_limited' : (b && typeof b.code === 'string' ? b.code.toLowerCase() : 'upstream_error'); throw { code, status: r.status, message: (b && b.error) || 'HTTP ' + r.status }; } return r.status === 204 ? null : r.json(); };
+      const call = async (method, path, body, raw) => { const r = await fetch(base + path, { method, credentials: 'include', headers: raw ? {} : { 'content-type': 'application/json' }, body: raw ? body : body ? JSON.stringify(body) : undefined }); if (!r.ok) { let b = null; try { b = await r.json(); } catch (e) { } const code = r.status === 401 ? 'not_granted' : r.status === 429 ? 'rate_limited' : (b && typeof b.code === 'string' ? b.code.toLowerCase() : 'upstream_error'); throw { code, status: r.status, message: (b && b.error) || 'HTTP ' + r.status, body: b }; } return r.status === 204 ? null : r.json(); };
       P._.call = call;
-      try { const me = await call('GET', '/me'); P.userId = me.id || null; P.isEditor = !!me.isEditor; } catch (e) { }
+      try { const me = await call('GET', '/me'); P.userId = me.id || null; P.isEditor = !!me.isEditor; P.canApprove = !!me.canApprove; } catch (e) { }
       P.aiReady = !!cfg.ai; P.filesReady = !!cfg.files; return P;
     }
     const use = (n) => (window.claude && typeof window.claude.use === 'function') ? window.claude.use(n).catch(() => null) : Promise.resolve(null);

@@ -8,6 +8,8 @@ const STATUS: Record<string, number> = {
   CONFLICT: 409,
   APPROVER_IS_AUTHOR: 409,
   BLUEPRINT_INCOMPLETE: 409,
+  DATES_NEEDED: 409,
+  EVENT_CREATE_FAILED: 409,
 };
 
 export function workflowErrorResponse(err: { code: string; message: string; meta?: Record<string, unknown> }): NextResponse {

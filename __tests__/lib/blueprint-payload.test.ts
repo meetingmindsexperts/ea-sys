@@ -89,6 +89,8 @@ describe("mergeForPage", () => {
       created: 1000,
       updated: 5000,
       approvals: { plan: null, preview: null },
+      ownerId: null,
+      eventId: null,
       statusLog: [{ status: "submitted", at: 4000 }],
       submissions: [{ kind: "submission", readiness: 72, open: ["Dates"], at: 4000 }],
     });
@@ -97,5 +99,13 @@ describe("mergeForPage", () => {
   it("a draft with no history has empty arrays and an empty reference", () => {
     const merged = mergeForPage({ ...row, status: "DRAFT", ref: null }, []);
     expect(merged).toMatchObject({ status: "draft", ref: "", statusLog: [], submissions: [] });
+  });
+
+  it("reads approval times and the server's owner and event", () => {
+    const merged = mergeForPage({ ...row, status: "LIVE", ownerId: "u-1", eventId: "evt-1" }, [
+      { kind: "APPROVED", toStatus: "BUILDING", readiness: 100, detail: { which: "plan" }, createdAt: new Date(6000) },
+      { kind: "APPROVED", toStatus: "LIVE", readiness: null, detail: { which: "preview" }, createdAt: new Date(7000) },
+    ]);
+    expect(merged).toMatchObject({ approvals: { plan: 6000, preview: 7000 }, ownerId: "u-1", eventId: "evt-1" });
   });
 });
