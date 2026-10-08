@@ -7,7 +7,8 @@
  *  - a capped listing never ships a partial archive (FAILED, no upload);
  *  - a lost claim builds nothing (two workers, one request);
  *  - a build the worker died in is reclaimed, and DONE archives past the TTL
- *    lose their object and become EXPIRED;
+ *    become EXPIRED without the worker deleting anything (the bucket's
+ *    lifecycle rule owns deletion; the role has no delete right there);
  *  - an S3 failure lands as FAILED with the message, logged at error.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -153,35 +154,25 @@ describe("runMirrorArchiveTick", () => {
     );
   });
 
-  it("reclaims a build the worker died in, and expires DONE archives past the TTL (object first, then the row)", async () => {
-    dbm.updateMany.mockImplementation(async (args: { where: { status?: string; startedAt?: { lt: Date } } }) => {
+  it("reclaims a build the worker died in, and expires DONE archives past the TTL without deleting the object", async () => {
+    dbm.updateMany.mockImplementation(async (args: { where: { status?: string; startedAt?: { lt: Date }; finishedAt?: { lt: Date } }; data: { status: string } }) => {
       if (args.where.status === "RUNNING") {
         expect(args.where.startedAt?.lt.toISOString()).toBe(new Date(NOW.getTime() - MIRROR_ARCHIVE_STALE_RUNNING_MINUTES * 60_000).toISOString());
         return { count: 1 };
       }
+      if (args.where.status === "DONE") {
+        expect(args.where.finishedAt?.lt.toISOString()).toBe(new Date(NOW.getTime() - MIRROR_ARCHIVE_TTL_DAYS * 86_400_000).toISOString());
+        expect(args.data).toEqual({ status: "EXPIRED" });
+        return { count: 2 };
+      }
       return { count: 0 };
-    });
-    dbm.findMany.mockImplementation(async (args: { where: { finishedAt?: { lt: Date } } }) => {
-      expect(args.where.finishedAt?.lt.toISOString()).toBe(new Date(NOW.getTime() - MIRROR_ARCHIVE_TTL_DAYS * 86_400_000).toISOString());
-      return [{ id: "old1", key: "mirror-archives/2026-09-01-old1.zip" }];
     });
     const out = await runMirrorArchiveTick(NOW);
     expect(out.reclaimed).toBe(1);
-    expect(out.expired).toBe(1);
-    expect(deleted).toEqual(["mirror-archives/2026-09-01-old1.zip"]);
-    expect(dbm.update).toHaveBeenCalledWith({ where: { id: "old1" }, data: { status: "EXPIRED" } });
+    expect(out.expired).toBe(2);
+    expect(deleted).toEqual([]);
+    expect(send).not.toHaveBeenCalled();
     expect(logs.warn).toHaveBeenCalledWith(expect.objectContaining({ count: 1 }), "mirror-archive:stale-running-reclaimed");
-  });
-
-  it("leaves a DONE row in place when its object cannot be deleted, so it is retried", async () => {
-    dbm.findMany.mockResolvedValue([{ id: "old1", key: "mirror-archives/2026-09-01-old1.zip" }]);
-    send.mockImplementation(async (cmd: unknown) => {
-      if (cmd instanceof DeleteObjectCommand) throw new Error("AccessDenied");
-      throw new Error("unexpected");
-    });
-    const out = await runMirrorArchiveTick(NOW);
-    expect(out.expired).toBe(0);
-    expect(dbm.update).not.toHaveBeenCalled();
-    expect(logs.error).toHaveBeenCalledWith(expect.objectContaining({ id: "old1" }), "mirror-archive:expire-failed");
+    expect(logs.info).toHaveBeenCalledWith(expect.objectContaining({ count: 2 }), "mirror-archive:expired");
   });
 });

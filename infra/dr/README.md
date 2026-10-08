@@ -200,20 +200,41 @@ needs two updates: (a) add `db/*` to the write Resource list, (b) add a
 new statement allowing `ses:SendEmail` for the alerts sender. Full
 policy JSON is in [POSTGRES_BACKUP_PLAN.md §3.4](POSTGRES_BACKUP_PLAN.md#34-iam-policy-update).
 
-#### 6.4 Apply the 30-day lifecycle rule on `db/` prefix
+#### 6.4 Apply the lifecycle rules (`db/` and `mirror-archives/`)
+
+`put-bucket-lifecycle-configuration` REPLACES every rule on the bucket, so
+this command always carries all of them. Re-running an older one-rule copy
+silently drops the others.
+
+- `db-30-day-expiry`: the hourly Postgres dumps.
+- `mirror-archives-7-day-expiry` (Oct 8, 2026): the uploads-mirror zips built
+  from /admin/backups. The worker only marks a row EXPIRED after 7 days; the
+  file is deleted here, because the instance role has no delete right on this
+  bucket (deliberately: a compromised server cannot erase backups). S3 runs
+  expiry at the first midnight UTC past the age, so the page's link always
+  goes before the file does.
 
 ```bash
 aws s3api put-bucket-lifecycle-configuration \
   --bucket ea-sys-dr-singapore \
   --region ap-southeast-1 \
   --lifecycle-configuration '{
-    "Rules": [{
-      "ID": "db-30-day-expiry",
-      "Status": "Enabled",
-      "Filter": { "Prefix": "db/" },
-      "Expiration": { "Days": 30 },
-      "NoncurrentVersionExpiration": { "NoncurrentDays": 7 }
-    }]
+    "Rules": [
+      {
+        "ID": "db-30-day-expiry",
+        "Status": "Enabled",
+        "Filter": { "Prefix": "db/" },
+        "Expiration": { "Days": 30 },
+        "NoncurrentVersionExpiration": { "NoncurrentDays": 7 }
+      },
+      {
+        "ID": "mirror-archives-7-day-expiry",
+        "Status": "Enabled",
+        "Filter": { "Prefix": "mirror-archives/" },
+        "Expiration": { "Days": 7 },
+        "NoncurrentVersionExpiration": { "NoncurrentDays": 1 }
+      }
+    ]
   }'
 ```
 

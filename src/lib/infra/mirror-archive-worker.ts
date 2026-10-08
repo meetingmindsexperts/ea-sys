@@ -17,15 +17,19 @@
  *
  * Housekeeping on every tick: a RUNNING row older than the stale threshold
  * (the worker restarted mid-build) is failed so it can be requested again,
- * and DONE archives past their TTL have their object deleted and the row
- * marked EXPIRED, so the bucket never accumulates a full copy per request.
+ * and DONE archives past their TTL are marked EXPIRED so the page stops
+ * offering them. The zip itself is deleted by the bucket's lifecycle rule on
+ * mirror-archives/ (Oct 8, 2026), not by this worker: the instance role has no
+ * delete right on the DR bucket, deliberately, so a compromised server cannot
+ * erase backups. S3 expires an object at the first midnight UTC after its age
+ * passes the rule's days, so the row always expires before its file does.
  */
 import { createReadStream, createWriteStream, promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { ZipArchive, type Archiver } from "archiver";
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
@@ -36,7 +40,7 @@ import {
   listDrPrefix,
 } from "@/lib/infra/aws-ops";
 
-/** DONE archives are deleted after this many days. */
+/** DONE archives stop being offered after this many days (the bucket rule deletes the file). */
 export const MIRROR_ARCHIVE_TTL_DAYS = 7;
 /** A RUNNING row older than this is a build the worker died in the middle of. */
 export const MIRROR_ARCHIVE_STALE_RUNNING_MINUTES = 90;
@@ -141,22 +145,16 @@ export async function runMirrorArchiveTick(now: Date = new Date()): Promise<Mirr
     result.reclaimed = reclaimed.count;
   }
 
-  // Expire archives past their TTL: object first, then the row, so a failed
-  // delete leaves the row DONE and is retried next tick.
+  // Archives past their TTL stop being offered. Only the row changes here;
+  // the bucket's lifecycle rule deletes the file (see the header).
   const expiryBefore = new Date(now.getTime() - MIRROR_ARCHIVE_TTL_DAYS * 86_400_000);
-  const expiring = await db.mirrorArchive.findMany({
+  const expired = await db.mirrorArchive.updateMany({
     where: { status: "DONE", finishedAt: { lt: expiryBefore } },
-    select: { id: true, key: true },
+    data: { status: "EXPIRED" },
   });
-  for (const row of expiring) {
-    try {
-      if (row.key) await getDrS3().send(new DeleteObjectCommand({ Bucket: DR_BUCKET_NAME, Key: row.key }));
-      await db.mirrorArchive.update({ where: { id: row.id }, data: { status: "EXPIRED" } });
-      result.expired += 1;
-      apiLogger.info({ id: row.id, key: row.key }, "mirror-archive:expired");
-    } catch (err) {
-      apiLogger.error({ err, id: row.id, key: row.key }, "mirror-archive:expire-failed");
-    }
+  if (expired.count > 0) {
+    apiLogger.info({ count: expired.count }, "mirror-archive:expired");
+    result.expired = expired.count;
   }
 
   // Claim the oldest request. The conditional write is what makes two
