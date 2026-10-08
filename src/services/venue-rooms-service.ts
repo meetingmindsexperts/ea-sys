@@ -9,6 +9,8 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { updateEventSettings } from "@/lib/event-settings";
 import { readVenueRooms, roomsSchema, type StoredVenueRooms } from "@/lib/venue/rooms";
+import { generateLayout } from "@/lib/venue/layout";
+import { checkLayout } from "@/lib/venue/layout-check";
 
 export type SaveRoomsResult =
   | { ok: true; saved: StoredVenueRooms }
@@ -34,6 +36,13 @@ export async function saveVenueRooms(c: Caller, raw: unknown, version: number): 
     const issues = [...new Set(parsed.error.issues.map((i) => i.message))];
     apiLogger.warn({ msg: "venue-rooms:refused", code: "INVALID_ROOMS", ...ctx, issues });
     return { ok: false, code: "INVALID_ROOMS", message: issues[0] ?? "The room list could not be saved", issues };
+  }
+  // The rooms pass the rules; the building made from them must also be walkable (D10). The rules are
+  // written so it always is, so a refusal here means the generator and the rules disagree.
+  const check = checkLayout(generateLayout(parsed.data, { eventName: "" }));
+  if (!check.ok) {
+    apiLogger.error({ msg: "venue-rooms:layout-not-walkable", ...ctx, issues: check.issues });
+    return { ok: false, code: "INVALID_ROOMS", message: "These rooms cannot be laid out as a walkable venue yet", issues: check.issues };
   }
   const saved: StoredVenueRooms = { rooms: parsed.data, updatedAt: Date.now(), updatedBy: c.userId };
   try {

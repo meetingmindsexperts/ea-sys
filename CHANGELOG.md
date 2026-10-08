@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Online venue: a floor plan generated from the rooms (October 8)
+
+- The Venue tab draws the building its rooms make, live as they are edited:
+  the foyer and glass entrance, the corridor, the halls, workshops and posters
+  on one side, exhibition and lounge on the other, the plenary at the end,
+  with stages, rows of seats, tables, stands, sofas and desks.
+- Each room is sized until its furniture covers its people (all seats up to
+  420 drawn per room, a workshop seat each, enough stands and poster boards),
+  and every layout is checked walkable: every room, doorway, stand and desk
+  reachable from the entrance. Saving refuses a layout that is not.
+- Before the first commit a 3,500-case fuzz found two real layout bugs (no
+  aisle between workshop tables; the foyer directory on the entrance line)
+  and a sizing gap (long thin rooms holding fewer people than asked); all
+  three are fixed and pinned by tests.
+
 ### Online venue: the Venue tab and its rooms (October 8)
 
 - Each event's Event Setup hub has an "Online Venue" card (while

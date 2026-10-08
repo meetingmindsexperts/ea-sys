@@ -19,6 +19,7 @@ import { PageHeader, SectionHeading } from "@/components/ui/typography";
 import { useCan } from "@/hooks/use-can";
 import { useSaveVenueRooms, useVenueRooms } from "@/hooks/use-api";
 import { ApiError } from "@/lib/api-fetch";
+import { VenueFloorPlan } from "@/components/venue/venue-floor-plan";
 import { ROOM_KINDS, ROOM_KIND_INFO, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type VenueRoom } from "@/lib/venue/rooms";
 
 const SEATED: RoomKind[] = ["plenary", "hall", "workshop"];
@@ -121,6 +122,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           )}
           <Summary rooms={rooms} />
           {dirty && <p className="text-sm text-muted-foreground">Not saved yet.</p>}
+          {issues.length === 0 && <VenueFloorPlan rooms={rooms} eventName="" />}
         </>
       )}
       <Card>
@@ -128,8 +130,8 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           <p className="font-medium">How the venue is laid out</p>
           <p className="text-muted-foreground">
             Every venue follows the same plan: the foyer at the entrance, a main corridor, the plenary hall at the end, session rooms, workshops and
-            posters along one side, the exhibition and lounge along the other. Each room is sized from the people it holds. The walkable venue is built
-            from this list in the next release; until then the list is saved but not yet used.
+            posters along one side, the exhibition and lounge along the other. Each room is sized from the people it holds, and the plan above is redrawn
+            as you edit. The walkable 3D venue is built from it in the next release; until then the rooms are saved but not yet walkable.
           </p>
         </CardContent>
       </Card>

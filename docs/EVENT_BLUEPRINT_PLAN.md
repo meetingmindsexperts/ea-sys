@@ -537,4 +537,15 @@ per event (D6), report inbox (D7).
   `venue` joined the route-owned settings keys, so the event's general save
   cannot overwrite it. `VENUE_EVENT_SLUGS` still decides which venues are
   served until the generator exists.
+  **Step 2 built: the generator.** `src/lib/venue/layout.ts` turns the room
+  list into the venue's layout in the venue's own coordinates (zones, walls
+  with doorways, doors, furniture as typed items with footprints, people,
+  hotspots, walking routes); pure and deterministic, computed when needed and
+  never stored. Rooms are sized until their furniture covers their capacity,
+  by the furnishers' own spacing. `src/lib/venue/layout-check.ts` refuses a
+  layout unless every room, doorway, stand and hotspot is reachable from the
+  entrance (a 0.5 m grid, walls and solid furniture grown by a body's
+  half-width, a breadth-first walk). The Venue tab draws it (SVG) with the
+  verdict; saving runs the same check. 3,500 random room lists: all walkable,
+  all at capacity.
 
