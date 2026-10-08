@@ -21,7 +21,7 @@
  * what we'll move TO, not what's running RIGHT NOW.
  */
 
-export type AiFeature = "helpChat" | "agent" | "blueprintQuick" | "blueprintDefault";
+export type AiFeature = "helpChat" | "agent" | "blueprintQuick" | "blueprintDefault" | "venueAttendee";
 
 export interface ModelConfig {
   /** Provider-specific model id (e.g. `"claude-sonnet-4-6"`). */
@@ -40,6 +40,8 @@ export const AGENT_MODEL_DEFAULT = "claude-sonnet-4-6";
 /** Event Blueprint: the vendor page's two tiers ("quick" and "default"). */
 export const BLUEPRINT_QUICK_MODEL_DEFAULT = "claude-haiku-4-5-20251001";
 export const BLUEPRINT_MODEL_DEFAULT = "claude-sonnet-4-6";
+/** Online venue AI attendees: the vendor page asks for the "quick" tier. */
+export const VENUE_ATTENDEE_MODEL_DEFAULT = "claude-haiku-4-5-20251001";
 
 /**
  * `provider` (default anthropic) picks the model id lane for features that
@@ -85,6 +87,12 @@ export function getModelConfig(
       // Three full concepts, or a quick fill from a long document or a
       // picture: needs the stronger model and more room.
       return { model: process.env.BLUEPRINT_MODEL || BLUEPRINT_MODEL_DEFAULT, maxTokens: 8192, temperature: 0.7 };
+    case "venueAttendee":
+      // An AI attendee's reply in the online venue: 1 to 3 short sentences
+      // and a gesture tag, so 300 tokens is ample and a runaway reply stops
+      // here. Every reply is paid on MM Group's key (plan §5.4a), so the cap
+      // is also the cost lever. 0.8: varied small talk, not a factual answer.
+      return { model: process.env.VENUE_ATTENDEE_MODEL || VENUE_ATTENDEE_MODEL_DEFAULT, maxTokens: 300, temperature: 0.8 };
     case "agent":
       // Consumed by the Event Agent route
       // (src/app/api/events/[eventId]/agent/execute/route.ts) since

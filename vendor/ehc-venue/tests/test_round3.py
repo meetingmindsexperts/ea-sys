@@ -10,6 +10,7 @@ async def page(b, cfg, mobile=False):
     pg=await ctx.new_page(); logs=[]
     pg.on('pageerror',lambda e: logs.append(str(e))); pg.on('console',lambda m: logs.append(m.text) if m.type=='error' else None)
     await pg.route('**/fonts.googleapis.com/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))
+    await pg.route('**/venue-fonts/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))  # EA-SYS: fonts are served by EA-SYS, not by this bare test server
     await pg.add_init_script(FAKE_TTS+f'window.__MOCKCFG={json.dumps(cfg)};'+MOCK)
     await pg.goto('http://127.0.0.1:8765/test.html'); await pg.wait_for_function('window.__EHC && window.__EHC.ready',timeout=60000)
     await pg.evaluate('__EHC.enter()'); await pg.wait_for_timeout(400)

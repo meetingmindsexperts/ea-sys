@@ -334,8 +334,9 @@ review before push.
 
 ## 7. Open questions
 
-1. **AI limits for venue attendees** (section 5.4a): confirm the default caps
-   (per attendee per hour, per event per day) before phase B.
+1. ~~**AI limits for venue attendees**~~ Answered Oct 8, 2026: 40 replies an
+   hour per person, 2,000 a day per event, on by default with a switch for the
+   event team.
 2. **Privacy sign-off** (UAE PDPL) before venue phase A collects activity.
 3. ~~**Room changes after approval**~~ Answered Oct 8, 2026 (D8): organisers
    keep editing the spaces on an approved blueprint, and the venue regenerates.
@@ -478,4 +479,22 @@ per event (D6), report inbox (D7).
     organisation; key it by event id or `org/slug`.
   - **L9, not acted on:** a body sent without `content-length` is read in full
     before the 64 KB check, as on every route; the stored shape is bounded.
+- **Oct 8, 2026, venue phase 5 started.** Owner rulings: AI limits 40 replies
+  an hour per person and 2,000 a day per event; AI attendees on by default,
+  the event team can switch them off; live colleagues run inside EA-SYS first
+  (the WebSocket container stays the plan before a large attendee event).
+  **5B, AI attendees, built.** `POST /api/venue/<eventId>/ai` streams one
+  reply. The page sends the persona's fields, the room and the conversation;
+  every persona field must be one the venue itself produces
+  (`persona-vocab.generated.json`, extracted from the vendor source by
+  `scripts/venue-vocab.mjs`), and the server writes the instructions
+  (`src/lib/venue/ai-prompt.ts`, the vendor's `rules()` and `greeting()` word
+  for word, pinned by a test that runs the vendor's own functions). So nobody
+  can send their own instructions and use the key as a general AI. A reply is
+  claimed in `VenueAiUsage` (per event per day, the event's own timezone)
+  before Anthropic is called and given back if it never answers, so the daily
+  cap survives restarts and deploys. The model is the quick tier
+  (`VENUE_ATTENDEE_MODEL`, Haiku 4.5, 300 tokens). The event team's panel has
+  an "AI attendees" tab: on or off, and today's replies against the limit.
+  Refusals become the page's pre-written answers.
 

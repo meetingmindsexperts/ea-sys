@@ -311,7 +311,10 @@ class Social {
       this.busy = true; this.ctl = new AbortController(); $('cStop').hidden = false;
       const rules = this.rules(per, npc, T.greeting);
       try {
-        const res = await this.sample([{ role: 'user', content: rules }, ...T.turns.map(m => ({ role: m.role, content: m.content }))], { modelTier: 'quick', cache: false, signal: this.ctl.signal, onText: ({ text }) => show(text, false) });
+        // EA-SYS: `venue` names the attendee and the scene, so the EA-SYS server can check the persona
+        // against the venue's own lists and write these instructions itself (public/venue-runtime.js).
+        const venue = { persona: per, zone: (this.ctx.zone() || {}).id || '', pose: npc.pose || '', role: npc.role || '', greeting: T.greeting || '' };
+        const res = await this.sample([{ role: 'user', content: rules }, ...T.turns.map(m => ({ role: m.role, content: m.content }))], { modelTier: 'quick', cache: false, signal: this.ctl.signal, onText: ({ text }) => show(text, false), venue });
         text2 = res.text; this.noted = true; this.renderNote();
       } catch (e) {
         const code = e && e.code;

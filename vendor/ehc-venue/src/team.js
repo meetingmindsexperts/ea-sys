@@ -176,7 +176,23 @@ class EventTeam {
   teamTab(t) {
     for (const b of document.querySelectorAll('[data-tteam]')) b.setAttribute('aria-pressed', String(b.dataset.tteam === t));
     for (const p of document.querySelectorAll('[data-tpane]')) p.hidden = p.dataset.tpane !== t;
-    if (t === 'activity') this.drawActivity(); else if (t === 'reports') this.drawReports(); else if (t === 'screens') this.drawScreens(); else if (t === 'language') this.drawLanguage();
+    if (t === 'activity') this.drawActivity(); else if (t === 'reports') this.drawReports(); else if (t === 'screens') this.drawScreens(); else if (t === 'language') this.drawLanguage(); else if (t === 'ai') this.drawAi();
+  }
+  // EA-SYS (phase 5B): AI attendees on or off for this event, and today's replies against the daily limit.
+  async drawAi() {
+    const box = this.$('tAi'); box.textContent = 'Loading…';
+    let cfg = null; try { const s = this.db ? await this.db.doc('config/ai').get() : null; cfg = s && s.exists ? s.data() : null; } catch (e) { cfg = null; }
+    box.innerHTML = '';
+    const el = (t, txt, cls) => { const e = document.createElement(t); if (txt != null) e.textContent = txt; if (cls) e.className = cls; return e; };
+    if (!cfg) { box.appendChild(el('p', 'AI settings can’t be read in this view.', 'small')); return; }
+    const on = cfg.on !== false, n = (v) => (typeof v === 'number' && isFinite(v) ? v : 0), used = n(cfg.replies), cap = n(cfg.cap), hour = n(cfg.perPersonHour);
+    box.appendChild(el('p', on ? 'AI attendees are on: they reply with live AI.' : 'AI attendees are off: they use pre-written answers.', 'pn'));
+    if (cap) box.appendChild(el('p', `${used.toLocaleString('en-GB')} of ${cap.toLocaleString('en-GB')} AI replies used today.` + (used >= cap ? ' The daily limit is reached, so attendees get pre-written answers until tomorrow.' : ''), 'small'));
+    if (hour) box.appendChild(el('p', `Each person can get up to ${hour} AI replies an hour; after that they get pre-written answers. Every reply is paid for on the organisation’s AI account.`, 'small'));
+    const msg = el('p', null, 'small'); msg.setAttribute('role', 'status');
+    const btn = el('button', on ? 'Turn AI attendees off' : 'Turn AI attendees on', on ? 'ghost' : 'primary'); btn.type = 'button';
+    btn.addEventListener('click', async () => { btn.disabled = true; msg.textContent = 'Saving…'; try { await this.db.doc('config/ai').set({ on: !on }); this.drawAi(); } catch (e) { msg.textContent = 'Couldn’t save. Try again.'; btn.disabled = false; } });
+    const actions = el('div', null, 'actions'); actions.appendChild(btn); box.append(actions, msg, el('p', 'Takes effect from the next reply anyone asks for.', 'small'));
   }
   async fetchAll(col) { if (!this.db) return null; try { const s = await this.db.collection(col).limit(2000).get(); return s.docs.map(d => d.data()).filter(x => x && typeof x === 'object'); } catch (e) { return null; } }
   standName(id) { const h = this.ctx.W.interact.find(x => x.id === id); return h ? h.title : id; }

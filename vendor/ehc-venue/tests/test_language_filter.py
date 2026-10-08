@@ -8,6 +8,7 @@ async def page(b, cfg, mobile=False):
     pg=await ctx.new_page(); logs=[]
     pg.on('pageerror',lambda e: logs.append(str(e))); pg.on('console',lambda m: logs.append(m.text) if m.type=='error' else None)
     await pg.route('**/fonts.googleapis.com/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))
+    await pg.route('**/venue-fonts/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))  # EA-SYS: fonts are served by EA-SYS, not by this bare test server
     await pg.add_init_script(f'window.__MOCKCFG={json.dumps(cfg)};'+MOCK)
     await pg.goto('http://127.0.0.1:8765/test.html'); await pg.wait_for_function('window.__EHC && window.__EHC.ready',timeout=60000)
     await pg.evaluate('__EHC.enter()'); await pg.wait_for_timeout(400)
@@ -20,7 +21,9 @@ async def main():
         b=await p.chromium.launch(args=ARGS)
         pg,logs=await page(b,{'sample':'ok','room':True,'owner':True}); ev=pg.evaluate
         await ev(SAY(0,'')); await pg.wait_for_timeout(300)
-        await ev("__EHC.place(1.5,26,3.14); __EHC.setView(0,0.3,4)"); await pg.wait_for_timeout(300); await pg.keyboard.press('e'); await pg.wait_for_timeout(300)
+        await ev("__EHC.place(1.5,26,3.14); __EHC.setView(0,0.3,4)"); await pg.wait_for_timeout(300)
+        # EA-SYS: wait until the venue offers "Talk to Lina" before pressing E; a fixed 300 ms wait failed about two runs in three.
+        await pg.wait_for_function("__EHC.nearP && __EHC.nearP.kind==='peer'", timeout=10000); await pg.keyboard.press('e'); await pg.wait_for_function("!document.getElementById('chat').hidden", timeout=5000)
         for i,t in enumerate(['hello there','you f.u.c.k.i.n.g idiot','ya sharmoota','this is bullshit','see you at the cocktail reception']):
             await ev(SAY(i+1,t)); await pg.wait_for_timeout(350)
         R['logShown']=await ev("[...document.querySelectorAll('#cLog .msg .mt')].map(e=>e.textContent)")

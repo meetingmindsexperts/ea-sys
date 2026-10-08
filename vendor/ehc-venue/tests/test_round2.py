@@ -8,6 +8,7 @@ async def page(b, cfg, mobile=False):
     pg=await ctx.new_page(); logs=[]
     pg.on('pageerror',lambda e: logs.append(str(e))); pg.on('console',lambda m: logs.append(m.text) if m.type=='error' else None)
     await pg.route('**/fonts.googleapis.com/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))
+    await pg.route('**/venue-fonts/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))  # EA-SYS: fonts are served by EA-SYS, not by this bare test server
     await pg.route('**/screens.json',lambda r: r.fulfill(status=200,body=json.dumps({'plenary-main':{'url':'rec/opening.webm','title':'Opening'}}),content_type='application/json'))
     await pg.route('**/rec/opening.webm',lambda r: r.fulfill(status=200,body=VID,content_type='video/webm'))
     await pg.add_init_script(f'window.__MOCKCFG={json.dumps(cfg)};'+MOCK)

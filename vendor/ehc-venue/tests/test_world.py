@@ -9,6 +9,7 @@ async def run_profile(b, mobile, rep, logs):
     pg.on('console',lambda m: logs.append((tag,m.type,m.text)) if m.type in ('error','warning') else None)
     pg.on('pageerror',lambda e: logs.append((tag,'pageerror',str(e))))
     await pg.route('**/fonts.googleapis.com/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))
+    await pg.route('**/venue-fonts/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))  # EA-SYS: fonts are served by EA-SYS, not by this bare test server
     t0=time.time(); await pg.goto('http://127.0.0.1:8765/test.html'); await pg.wait_for_function('window.__EHC && window.__EHC.ready',timeout=60000)
     ready=await pg.evaluate('__EHC.stats.readyAt'); await pg.evaluate('__EHC.enter()')
     perf={}

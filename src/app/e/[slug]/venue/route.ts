@@ -16,6 +16,7 @@ import { venueDisplayName } from "@/lib/venue/display-name";
 import { venueDateRange } from "@/lib/venue/date-range";
 import { resolveTimezone } from "@/lib/event-time";
 import { VENUE_SAFETY_INBOX, readVenueConfig } from "@/services/venue-service";
+import { readVenueAi } from "@/services/venue-ai-service";
 import venuePage from "@/lib/venue/page-html.generated.json";
 
 type Params = { params: Promise<{ slug: string }> };
@@ -55,7 +56,7 @@ export async function GET(req: Request, { params }: Params) {
     // Recordings per screen from the event's settings; an empty map stops the
     // vendor page looking for a screens.json beside itself (it would 404).
     const screens = readVenueConfig(e.settings).screens ?? {};
-    const ehcVenue = { api: `/api/venue/${e.id}`, userId: gate.userId, name: venueDisplayName(gate.session), team: gate.team };
+    const ehcVenue = { api: `/api/venue/${e.id}`, userId: gate.userId, name: venueDisplayName(gate.session), team: gate.team, ai: readVenueAi(e.settings).on };
     const page =
       '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
       '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +

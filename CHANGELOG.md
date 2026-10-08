@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Online venue: AI attendees reply with live AI (October 8)
+
+- In the venue, AI attendees now answer with live AI (the quick model), within
+  the owner's limits: 40 replies an hour per person and 2,000 a day per event.
+  When a limit is reached, or the event team switches AI off, attendees use
+  their pre-written answers.
+- The server writes the AI's instructions; the page only names which venue
+  attendee is talking and where, checked against the venue's own lists.
+- The event team's panel has a new "AI attendees" tab: on or off, and today's
+  replies against the daily limit.
+- Migration `20261008170000_add_venue_ai_usage` (additive): the daily count.
+
 ### Online venue: the event team's Reports tab shows reports (October 8)
 
 - Independent review of the venue, HIGH fixed: the team's Reports tab was

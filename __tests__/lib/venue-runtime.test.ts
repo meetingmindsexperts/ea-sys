@@ -84,4 +84,74 @@ describe("venue runtime", () => {
     await db.doc("analytics/u-1").get();
     expect(seen).toEqual([{ method: "PUT", keepalive: true }, { method: "PUT", keepalive: false }, { method: "GET", keepalive: false }]);
   });
+
 });
+
+describe("venue runtime: AI attendees (phase 5B)", () => {
+  type Sample = (messages: { role: string; content: string }[], opts: Record<string, unknown>) => Promise<{ text: string }>;
+  const venueOpts = { persona: { first: "Layla" }, zone: "plenary", pose: "sit", role: "guest", greeting: "Hi" };
+  const page = [{ role: "user", content: "THE PAGE'S OWN INSTRUCTIONS" }, { role: "user", content: "Hello" }];
+
+  function bootAi(reply: () => Response, ai = true) {
+    const sent: { url: string; body: Record<string, unknown> }[] = [];
+    const window: Record<string, unknown> = { EHC_VENUE: { api: "/api/venue/e1", userId: "u-1", name: "", team: false, ai } };
+    const fetch = async (url: string, init: { body: string; signal?: AbortSignal }) => {
+      sent.push({ url, body: JSON.parse(init.body) });
+      if (init.signal?.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      return reply();
+    };
+    new Function("window", "fetch", "document", "URL", SRC)(window, fetch, {}, URL);
+    return { use: (window.claude as { use: (n: string) => Promise<unknown> }).use, sent };
+  }
+  const json = (status: number, body: unknown) => () => new Response(JSON.stringify(body), { status });
+
+  it("is not offered when the event team switched AI attendees off", async () => {
+    expect(await bootAi(json(200, {}), false).use("sample")).toBeNull();
+  });
+
+  it("streams the reply into onText, sends the scene and the conversation, never the page's instructions", async () => {
+    const { use, sent } = bootAi(() => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode("Hello ")); c.enqueue(new TextEncoder().encode("there.")); c.close(); } })));
+    const sample = (await use("sample")) as Sample;
+    const seen: string[] = [];
+    const res = await sample(page, { venue: venueOpts, onText: ({ text }: { text: string }) => seen.push(text) });
+    expect(res).toEqual({ text: "Hello there." });
+    expect(seen.at(-1)).toBe("Hello there.");
+    expect(sent[0].url).toBe("/api/venue/e1/ai");
+    expect(sent[0].body).toEqual({ ...venueOpts, turns: [{ role: "user", content: "Hello" }] });
+    expect(JSON.stringify(sent[0].body)).not.toContain("THE PAGE'S OWN INSTRUCTIONS");
+  });
+
+  it.each([
+    ["AI switched off", json(403, { code: "AI_OFF" }), "sampling_disabled"],
+    ["the event's daily limit", json(429, { code: "AI_LIMIT_EVENT" }), "sampling_disabled"],
+    ["this person's hourly limit", json(429, { code: "RATE_LIMITED" }), "rate_limited"],
+    ["the AI not answering", json(502, { code: "AI_UNAVAILABLE" }), "upstream_error"],
+  ])("%s becomes the page's %s", async (_label, reply, code) => {
+    const sample = (await bootAi(reply).use("sample")) as Sample;
+    await expect(sample(page, { venue: venueOpts })).rejects.toMatchObject({ code });
+  });
+
+  it("Stop or walking away becomes cancelled", async () => {
+    const sample = (await bootAi(json(200, {})).use("sample")) as Sample;
+    const ctl = new AbortController();
+    ctl.abort();
+    await expect(sample(page, { venue: venueOpts, signal: ctl.signal })).rejects.toMatchObject({ code: "cancelled" });
+  });
+
+  it("reads the AI settings fresh each time, so the team's tab shows today's running count", async () => {
+    let replies = 0;
+    const window: Record<string, unknown> = { EHC_VENUE: { api: "/api/venue/e1", userId: "u-1", name: "", team: true, ai: true } };
+    const fetch = async () => ({ ok: true, status: 200, json: async () => ({ filter: null, screens: null, ai: { on: true, replies: ++replies } }) });
+    new Function("window", "fetch", "document", "URL", SRC)(window, fetch, {}, URL);
+    const db = (await (window.claude as { use: (n: string) => Promise<unknown> }).use("db")) as { doc: (p: string) => { get: () => Promise<{ data: () => Doc }> } };
+    await db.doc("config/filter").get();
+    expect((await db.doc("config/ai").get()).data()).toMatchObject({ replies: 2 });
+    expect((await db.doc("config/ai").get()).data()).toMatchObject({ replies: 3 });
+  });
+
+  it("refuses a call without the scene, so the page falls back to its own answers", async () => {
+    const sample = (await bootAi(json(200, {})).use("sample")) as Sample;
+    await expect(sample(page, {})).rejects.toMatchObject({ code: "not_declared" });
+  });
+});
+

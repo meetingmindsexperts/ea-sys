@@ -42,3 +42,26 @@ model VenueReport {
   @@index([eventId, createdAt])
   @@index([organizationId])
 }
+
+/// AI attendee replies per event per day (plan §5.4a, phase 5 from Oct 8 2026).
+/// A reply is claimed here BEFORE Anthropic is called, with a guarded increment
+/// (`replies < cap`), so the daily cap holds across restarts, deploys and the
+/// blue/green pair. `day` is the date in the event's own timezone. Token counts
+/// are added after the reply, for the bill.
+model VenueAiUsage {
+  id             String   @id @default(cuid())
+  eventId        String
+  organizationId String
+  day            String
+  replies        Int      @default(0)
+  inputTokens    Int      @default(0)
+  outputTokens   Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, day])
+  @@index([organizationId])
+}

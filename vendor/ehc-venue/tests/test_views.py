@@ -16,6 +16,7 @@ async def main():
         ctx=await b.new_context(viewport={'width':1280,'height':720}); pg=await ctx.new_page(); logs=[]
         pg.on('pageerror',lambda e: logs.append(str(e))); pg.on('console',lambda m: logs.append(m.text) if m.type=='error' else None)
         await pg.route('**/fonts.googleapis.com/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))
+        await pg.route('**/venue-fonts/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))  # EA-SYS: fonts are served by EA-SYS, not by this bare test server
         await pg.add_init_script("window.__MOCKCFG={sample:'ok',room:false};"+MOCK+VOICES)
         await pg.goto('http://127.0.0.1:8765/test.html'); await pg.wait_for_function('window.__EHC && window.__EHC.ready',timeout=60000)
         await pg.evaluate('__EHC.enter()'); await pg.wait_for_timeout(300); ev=pg.evaluate
@@ -68,6 +69,7 @@ async def main():
         # basic-voice device shows a tip (iPhone UA)
         ctx=await b.new_context(viewport={'width':390,'height':844},is_mobile=True,has_touch=True,user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'); pg=await ctx.new_page()
         await pg.route('**/fonts.googleapis.com/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))
+        await pg.route('**/venue-fonts/**',lambda r: r.fulfill(status=200,body='',content_type='text/css'))  # EA-SYS: fonts are served by EA-SYS, not by this bare test server
         await pg.add_init_script("window.__MOCKCFG={sample:'ok',room:false};"+MOCK+VOICES.replace("mk('Microsoft Aria","0&&mk('x").replace("mk('Microsoft Guy","0&&mk('x").replace("mk('Microsoft Sonia","0&&mk('x").replace("mk('Microsoft Ryan","0&&mk('x").replace("mk('Microsoft Hamed","0&&mk('x"))
         await pg.goto('http://127.0.0.1:8765/test.html'); await pg.wait_for_function('window.__EHC && window.__EHC.ready',timeout=60000)
         await pg.evaluate('__EHC.enter()'); await pg.wait_for_timeout(300)

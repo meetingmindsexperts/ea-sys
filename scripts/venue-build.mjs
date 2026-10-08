@@ -15,6 +15,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { extractVocab } from "./venue-vocab.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +23,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VENDOR = path.join(ROOT, "vendor/ehc-venue");
 const DIST = path.join(VENDOR, "dist");
 const OUT = path.join(ROOT, "src/lib/venue/page-html.generated.json");
+const VOCAB_OUT = path.join(ROOT, "src/lib/venue/persona-vocab.generated.json");
 
 /** build.py's module order: each file uses what the ones before define. */
 const ORDER = ["engine", "textures", "world", "chars", "physics", "audio", "filter", "social", "abilities", "team", "game"];
@@ -62,3 +64,8 @@ const html = readFileSync(path.join(DIST, "index.html"), "utf8");
 mkdirSync(path.dirname(OUT), { recursive: true });
 writeFileSync(OUT, JSON.stringify({ generatedBy: "scripts/venue-build.mjs", source: "vendor/ehc-venue/dist/index.html", html }) + "\n");
 console.log(`${Buffer.byteLength(html)} bytes -> ${path.relative(ROOT, OUT)}`);
+
+const vocab = extractVocab(readFileSync(path.join(VENDOR, "src/social.js"), "utf8"), readFileSync(path.join(VENDOR, "src/world.js"), "utf8"));
+writeFileSync(VOCAB_OUT, JSON.stringify(vocab) + "\n");
+console.log(`${vocab.ROLES.length} roles, ${vocab.PEOPLE_NAMES.f.length + vocab.PEOPLE_NAMES.m.length} names -> ${path.relative(ROOT, VOCAB_OUT)}`);
+

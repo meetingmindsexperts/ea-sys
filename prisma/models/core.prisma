@@ -84,6 +84,7 @@ model Organization {
   // Online venue (Oct 8 2026).
   venueActivities             VenueActivity[]
   venueReports                VenueReport[]
+  venueAiUsage                VenueAiUsage[]
 
   // Custom roles (docs/PROCUREMENT_ROLES_PLAN.md §5). Named generically, not
   // `procurement*`: D5 reuses these three tables for CRM and HR, so a future
@@ -596,6 +597,7 @@ model Event {
   /// The online venue's per-person activity and safety reports.
   venueActivities        VenueActivity[]
   venueReports           VenueReport[]
+  venueAiUsage           VenueAiUsage[]
 
   /// `code` is the QuickBooks Class label and every budget's `eventCode`, so it
   /// is unique per organisation (nulls stay distinct: an event without a code

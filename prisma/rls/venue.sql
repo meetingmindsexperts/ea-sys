@@ -17,3 +17,10 @@ CREATE POLICY venuereport_tenant_isolation ON "VenueReport"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "VenueAiUsage" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS venueaiusage_tenant_isolation ON "VenueAiUsage";
+CREATE POLICY venueaiusage_tenant_isolation ON "VenueAiUsage"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
