@@ -208,6 +208,11 @@ export const PERMISSION_KEYS = [
   // HR
   "hr.read",
   "hr.write",
+  // Event Blueprint
+  "blueprints.view",
+  "blueprints.edit",
+  "blueprints.manage",
+  "blueprints.approve",
   // Organisation
   "org.settings",
   "org.credentials",
@@ -256,6 +261,7 @@ export const PERMISSION_GROUPS = [
   "Contacts",
   "CRM",
   "HR",
+  "Blueprints",
   "Organisation",
   "Field visibility",
   "Budgets",
@@ -622,6 +628,12 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   // ── HR ──
   app("hr.read", "HR", "See HR", "Open attendance, leave and holidays. Also needs HR access on the person, except for a Super Admin or HR User.", { personGrant: "hrAccess" }),
   app("hr.write", "HR", "Manage HR", "Change attendance, leave, rules and holidays. Also needs HR access on the person, except for a Super Admin or HR User.", { personGrant: "hrAccess" }),
+
+  // ── Event Blueprint (docs/EVENT_BLUEPRINT_PLAN.md §4.7) ──
+  app("blueprints.view", "Blueprints", "See blueprints", "Open the organisation's event blueprints and templates."),
+  app("blueprints.edit", "Blueprints", "Write blueprints", "Start, fill in and submit event blueprints, and save templates."),
+  app("blueprints.manage", "Blueprints", "Move blueprint stages", "Move a submitted blueprint through review, plan, build and preview."),
+  app("blueprints.approve", "Blueprints", "Approve blueprints", "Approve a complete blueprint, which creates its event. Never one you wrote or edited since it was submitted.", S),
 
   // ── Organisation ──
   app("org.settings", "Organisation", "Organisation settings", "Change the organisation's name, branding and defaults."),

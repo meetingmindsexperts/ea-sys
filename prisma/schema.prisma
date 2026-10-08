@@ -13,6 +13,7 @@
 //   operations      audit and login logs, system log, public docs, help
 //                   queries, agent runs, import log, worker jobs, DR archive
 //   crm, hr, procurement   the three bounded modules, one file each
+//   blueprint       the Event Blueprint (intake brief before an event exists)
 // Prisma reads the whole prisma/ folder because package.json sets
 // "prisma": { "schema": "prisma" }. This file keeps the generator and the
 // datasource so prisma/migrations stays beside the datasource, where
@@ -28,4 +29,3 @@ datasource db {
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
-

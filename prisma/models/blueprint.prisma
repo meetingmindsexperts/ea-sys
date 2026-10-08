@@ -1,0 +1,119 @@
+// Event Blueprint (docs/EVENT_BLUEPRINT_PLAN.md, Oct 8 2026): the guided
+// 13-section brief the events team fills in before an event exists. Approving
+// a complete blueprint creates the EA-SYS event (D2). Gated by
+// BLUEPRINT_MODULE_ENABLED. Every table carries organizationId and a flat RLS
+// policy (prisma/rls/blueprint.sql) from day one. User ids are plain strings,
+// as in procurement, so a record outlives its author's account.
+
+/// The page's own stages (`STATUSES` in the vendor app.js). The workflow is
+/// server-owned: the page can ask for a move, never write one (plan §4.4).
+enum BlueprintStatus {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  PLAN_READY
+  BUILDING
+  PREVIEW
+  LIVE
+}
+
+/// One blueprint. `data` is the page's whole `v: 2` object MINUS the
+/// server-owned fields (status, ref, statusLog, submissions, approvals),
+/// which live in the columns below and in BlueprintStatusLog and are merged
+/// back into the object on read, so the page renders unchanged.
+model Blueprint {
+  /// The page mints its own id (`bp_<base36>`) and saves under it; the server
+  /// validates the shape and refuses an id held by another organisation.
+  id             String          @id
+  organizationId String
+  ownerId        String?
+  title          String          @default("Untitled event")
+  /// The page's event type (`conference`, `twin`, ...): free text from its catalogue.
+  type           String?
+  status         BlueprintStatus @default(DRAFT)
+  /// The reference shown to the team (`EB-261008-K3P`), assigned on first submit.
+  ref            String?
+  /// Readiness 0-100 as the SERVER last computed it; approval never trusts the page's number.
+  readiness      Int             @default(0)
+  data           Json            @default("{}")
+  /// The event created on approval. Unique: one blueprint, one event, ever.
+  eventId        String?         @unique
+  submittedAt    DateTime?
+  approvedAt     DateTime?
+  approvedById   String?
+  /// The blueprint was edited by these users since it was last submitted
+  /// (approval refuses them: separation of duties, plan §4.7).
+  editorIds      String[]        @default([])
+  archivedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event        Event?               @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  statusLog    BlueprintStatusLog[]
+  files        BlueprintFile[]
+
+  @@unique([organizationId, ref])
+  @@index([organizationId, status])
+  @@index([organizationId, updatedAt])
+}
+
+/// A reusable starting point saved from a blueprint (dates, people, partners
+/// and files cleared by the page). Shared across the organisation.
+model BlueprintTemplate {
+  id             String   @id
+  organizationId String
+  ownerId        String?
+  name           String
+  type           String?
+  data           Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+}
+
+/// The record of truth for every stage move, submission and approval
+/// (replaces the page's own statusLog and submissions arrays). Append-only.
+model BlueprintStatusLog {
+  id             String           @id @default(cuid())
+  blueprintId    String
+  organizationId String
+  actorId        String?
+  /// SUBMITTED, UPDATE (a re-submission), STAGE (a build-team move), APPROVED.
+  kind           String
+  fromStatus     BlueprintStatus?
+  toStatus       BlueprintStatus?
+  readiness      Int?
+  /// What changed, what was still open, the event created: kind-specific.
+  detail         Json?
+  createdAt      DateTime         @default(now())
+
+  blueprint    Blueprint    @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([blueprintId, createdAt])
+  @@index([organizationId])
+}
+
+/// A file uploaded into a blueprint (floor plans, brand kits, programmes),
+/// stored through src/lib/storage.ts.
+model BlueprintFile {
+  id             String   @id @default(cuid())
+  blueprintId    String?
+  organizationId String
+  uploadedById   String?
+  storedPath     String
+  name           String
+  contentType    String
+  sizeBytes      Int
+  createdAt      DateTime @default(now())
+
+  blueprint    Blueprint?   @relation(fields: [blueprintId], references: [id], onDelete: SetNull)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([blueprintId])
+  @@index([organizationId])
+}

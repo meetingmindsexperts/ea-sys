@@ -341,6 +341,16 @@ const ADMIN_EXTRA: PermissionKey[] = [
   "procurement.orders.cancel",
 ];
 
+/**
+ * Event Blueprint (owner, Oct 8, 2026): Admins write, move stages and approve;
+ * Organizers write and submit; Members read. Named per role rather than folded
+ * into ADMIN_GRANTS / ORGANIZER_GRANTS so the API-key row, which is derived
+ * from what a key reaches, never picks them up.
+ */
+const BLUEPRINT_ADMIN: PermissionKey[] = ["blueprints.view", "blueprints.edit", "blueprints.manage", "blueprints.approve"];
+const BLUEPRINT_ORGANIZER: PermissionKey[] = ["blueprints.view", "blueprints.edit"];
+const BLUEPRINT_MEMBER: PermissionKey[] = ["blueprints.view"];
+
 const ORGANIZER_GRANTS: Grant[] = [...at("ALL", ...ORGANIZER_EVENT), ...org(...ORGANIZER_ORG)];
 const ADMIN_GRANTS: Grant[] = [...ORGANIZER_GRANTS, ...org(...MODULE_BASE), ...org(...ADMIN_EXTRA)];
 
@@ -357,6 +367,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       // (`canDecideSuppliers`). HR without a tick on the person.
       ...at("ALL", "abstracts.delete"),
       ...org("crm.purge", "roles.manage", "apiKeys.internalTier", "procurement.approvalChain.manage", "procurement.suppliers.decide", "hr.read", "hr.write"),
+      ...org(...BLUEPRINT_ADMIN),
     ],
     impliedPersonGrants: ["hrAccess"],
     areas: [...STAFF_AREAS, { area: "operator" }],
@@ -367,7 +378,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     baseRole: "ADMIN",
     // HR only with the per-person tick: `hr.read` / `hr.write` are held, and
     // `can()` refuses them until `hrAccess` is set (plan §3.4).
-    grants: [...ADMIN_GRANTS, ...org("hr.read", "hr.write")],
+    grants: [...ADMIN_GRANTS, ...org("hr.read", "hr.write"), ...org(...BLUEPRINT_ADMIN)],
     impliedPersonGrants: [],
     areas: STAFF_AREAS,
   },
@@ -377,7 +388,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     baseRole: "ORGANIZER",
     // Org-wide, never "assigned events only" (the code, not the old docs).
     // Its ONSITE-only invite is `events.staff.assign`, not `users.invite`.
-    grants: [...ORGANIZER_GRANTS, ...org("hr.read", "hr.write")],
+    grants: [...ORGANIZER_GRANTS, ...org("hr.read", "hr.write"), ...org(...BLUEPRINT_ORGANIZER)],
     impliedPersonGrants: [],
     areas: STAFF_AREAS,
   },
@@ -393,6 +404,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     grants: [
       ...at("ALL", ...EVENT_READ, ...DESK, "speakers.documents.read"),
       ...org("invoices.ledger", "billingAccounts.read", "users.read", "contacts.read", "contacts.export", "agent.use", "finance.view", "hr.read", "hr.write"),
+      ...org(...BLUEPRINT_MEMBER),
     ],
     impliedPersonGrants: [],
     areas: STAFF_AREAS,

@@ -356,3 +356,11 @@ per event (D6), report inbox (D7).
   Migration `20261008120000` gave existing organisations the old five. Front
   door ruling: the Blueprint is added beside the existing ways to create an
   event in v1, not instead of them.
+- **Oct 8, 2026, step 2 built.** Tables, RLS, the four `blueprints.*` keys and
+  `BLUEPRINT_MODULE_ENABLED`. Role defaults (owner): Admins view, edit, manage
+  and approve; Organizers view and edit; Members view. User ids are plain
+  strings (no foreign key), as in procurement. Note on the vendor workflow: its
+  "Approve the plan / preview" buttons are clicked by the blueprint's OWNER
+  (the client approving the build team's work). Under D1 and D4 that becomes
+  the separate approver's step, so those buttons are rewired in step 5, not
+  reused as they are.

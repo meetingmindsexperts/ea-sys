@@ -214,6 +214,23 @@ budget cannot sit beside approving. Since Oct 7, 2026 (owner) ORGANIZER and
 MEMBER hold no CRM and no Budgets access of their own: a per-person grant or a
 custom role gives it, and the sidebar follows the permissions. Design record: [PROCUREMENT_ROLES_PLAN.md](PROCUREMENT_ROLES_PLAN.md).
 
+### 7.4 Event Blueprint (`blueprints.*`, docs/EVENT_BLUEPRINT_PLAN.md)
+
+Behind `BLUEPRINT_MODULE_ENABLED` (Oct 8, 2026). Org-level keys; API keys hold
+none of them. Owner ruling, Oct 8, 2026:
+
+| Capability | Key | Who by role |
+|---|---|---|
+| See blueprints and templates | `blueprints.view` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER |
+| Start, fill in, submit; save templates | `blueprints.edit` | SUPER_ADMIN · ADMIN · ORGANIZER |
+| Move a submitted blueprint through its stages | `blueprints.manage` | SUPER_ADMIN · ADMIN |
+| Approve, which creates the event | `blueprints.approve` | SUPER_ADMIN · ADMIN |
+
+Approval is refused to the blueprint's owner and to anyone who edited it since
+it was submitted (separation of duties), and while the server's completeness
+check finds anything missing. A custom role may grant any of the four once
+custom roles are switched on.
+
 ---
 
 ## 8. What the middleware does with a URL (`src/proxy.ts`)

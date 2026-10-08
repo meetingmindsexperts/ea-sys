@@ -91,3 +91,14 @@ export function isAdminDocLinksEnabled(): boolean {
 export function isCustomRolesEnabled(): boolean {
   return process.env.CUSTOM_ROLES_ENABLED === "true";
 }
+
+/**
+ * True when the Event Blueprint is switched on for this deployment
+ * (docs/EVENT_BLUEPRINT_PLAN.md, D3). Same shape as the flags above: read in
+ * ONE place, fails closed, never derived from anything else. Off: the
+ * `/blueprint` page and every `/api/blueprint/*` route answer 404, and the
+ * sidebar entry is hidden.
+ */
+export function isBlueprintModuleEnabled(): boolean {
+  return process.env.BLUEPRINT_MODULE_ENABLED === "true";
+}

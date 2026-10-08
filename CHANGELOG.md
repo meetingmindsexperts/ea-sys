@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event Blueprint: tables, policies, permissions and the module flag (October 8)
+
+- Step 2 of `docs/EVENT_BLUEPRINT_PLAN.md`, shipped dark behind
+  `BLUEPRINT_MODULE_ENABLED` (unset = off). Four new tables (`Blueprint`,
+  `BlueprintTemplate`, `BlueprintStatusLog`, `BlueprintFile`) in
+  `prisma/models/blueprint.prisma`, migration `20261008130000` (additive,
+  idempotent), RLS policies in `prisma/rls/blueprint.sql`.
+- Four permission keys, `blueprints.view` / `.edit` / `.manage` / `.approve`.
+  By role (owner ruling): Admins all four, Organizers view and edit, Members
+  view. API keys hold none. Nothing reads them yet; the routes come next.
+
 ### Events: one way to create an event; starting registration types per organisation (October 8)
 
 - **`event-service.createEvent()`** is now the only event-creation path for the

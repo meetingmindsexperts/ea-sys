@@ -76,6 +76,12 @@ model Organization {
   commitmentLines             CommitmentLine[]
   paymentRecords              PaymentRecord[]
 
+  // Event Blueprint (docs/EVENT_BLUEPRINT_PLAN.md, Oct 8 2026).
+  blueprints                  Blueprint[]
+  blueprintTemplates          BlueprintTemplate[]
+  blueprintStatusLogs         BlueprintStatusLog[]
+  blueprintFiles              BlueprintFile[]
+
   // Custom roles (docs/PROCUREMENT_ROLES_PLAN.md §5). Named generically, not
   // `procurement*`: D5 reuses these three tables for CRM and HR, so a future
   // module adds permission KEYS rather than tables.
@@ -581,6 +587,9 @@ model Event {
   /// grant on this event. Replaces `settings.onsiteUserIds`, which is written
   /// alongside for one release and read as a fallback.
   staffAssignments       EventStaffAssignment[]
+  /// The Event Blueprint this event was created from, when it was (SetNull:
+  /// deleting the event keeps the brief).
+  blueprint              Blueprint?
 
   /// `code` is the QuickBooks Class label and every budget's `eventCode`, so it
   /// is unique per organisation (nulls stay distinct: an event without a code
