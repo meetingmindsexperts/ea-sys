@@ -274,7 +274,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
   </div>
   <div class="sb-role">
     <div class="sb-role-lbl">Jump to your responsibility</div>
-    <select class="role-sel" onchange="if(this.value){const el=document.getElementById(this.value);if(el)el.scrollIntoView({behavior:'smooth',block:'start'})}">
+    <select class="role-sel" id="roleSel" aria-label="Jump to your area" onchange="if(this.value){const el=document.getElementById(this.value);if(el)el.scrollIntoView({behavior:'smooth',block:'start'})}">
       <option value="">Select your area...</option>
       <option value="start-here">Overview — all roles</option>
       <option value="s2">Speaker &amp; KOL management</option>
@@ -288,6 +288,8 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       <option value="s11">Virtual events &amp; webinars</option>
       <option value="s13">Self-service portals</option>
       <option value="s14">Settings &amp; configuration</option>
+      <option value="s23">Event blueprints</option>
+      <option value="s24">Online venue</option>
     </select>
   </div>
   <nav class="nav">
@@ -330,6 +332,8 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
     <div class="nav-lbl">Internal</div>
     <a class="nav-a" href="#s21"><span class="nav-n">21</span>HR &mdash; Attendance &amp; Leave</a>
     <a class="nav-a" href="#s22"><span class="nav-n">22</span>Budgets &amp; Procurement</a>
+    <a class="nav-a" href="#s23"><span class="nav-n">23</span>Event Blueprints</a>
+    <a class="nav-a" href="#s24"><span class="nav-n">24</span>Online Venue</a>
     <a class="nav-a" href="#img-ref"><span class="nav-n">&#x1F5BC;</span>Screenshot Index</a>
     <a class="nav-a" href="#platform-scale"><span class="nav-n">&#9881;</span>Platform Scale</a>
   </nav>
@@ -397,7 +401,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <div class="rc">
             <div class="rc-title"><span class="rc-dot"></span>Event Coordination</div>
             <div class="rc-role">Project management &amp; on-site execution</div>
-            <div class="rc-tags"><a href="#s2" class="rtag">Speakers</a><a href="#s3" class="rtag">Sessions</a><a href="#s4" class="rtag">Registration</a><a href="#s6" class="rtag">Accommodation</a><a href="#s12" class="rtag">Check-in</a></div>
+            <div class="rc-tags"><a href="#s2" class="rtag">Speakers</a><a href="#s3" class="rtag">Sessions</a><a href="#s4" class="rtag">Registration</a><a href="#s6" class="rtag">Accommodation</a><a href="#s12" class="rtag">Check-in</a><a href="#s23" class="rtag">Blueprints</a><a href="#s24" class="rtag">Online venue</a></div>
           </div>
           <div class="rc">
             <div class="rc-title"><span class="rc-dot"></span>Delegate Support</div>
@@ -3410,6 +3414,277 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       </table>
 
       <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Why so many steps?</div><div class="c-text">Each state change is recorded with who did it, when, and why. That trail is what lets finance reconcile the event afterwards without asking anyone, and it is why a reason is required to unfreeze or reopen, and why nobody can approve their own request.</div></div></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- SECTION 23: EVENT BLUEPRINTS -->
+    <div class="section" id="s23">
+      <div class="sec-hd"><div class="sec-num">23</div><div class="sec-meta">
+        <div class="sec-title">Event Blueprints</div>
+        <div class="sec-desc">Plan an event in one place, hand it to the build team, and turn the approved plan into an EA-SYS event.</div>
+        <span class="sec-badge b-ops">Internal</span>
+      </div></div>
+
+      <p>A <b>Blueprint</b> is the plan for an event before it exists in EA-SYS: what it is, who it is for,
+      its spaces and programme, its partners, its look, and who owns what. You fill it in, submit it, the
+      build team reviews it, and once it is approved EA-SYS creates the event from it.</p>
+
+      <h3>Where it is and who can use it</h3>
+      <p>Open <b>Blueprints</b> in the sidebar (the page is <b>/blueprint</b> and opens outside the
+      dashboard). If you do not see the entry, the module is not switched on for your organisation, or your
+      account cannot see Blueprints: ask an administrator.</p>
+      <table class="st">
+        <tr><th>Permission</th><th>What it allows</th><th>Held by default by</th></tr>
+        <tr><td>See blueprints</td><td>Open blueprints and templates</td><td>Super Admin, Admin, Organizer, Member</td></tr>
+        <tr><td>Write blueprints</td><td>Start, fill in and submit blueprints; save templates</td><td>Super Admin, Admin, Organizer</td></tr>
+        <tr><td>Move blueprint stages</td><td>Move a submitted blueprint through review, plan, build and preview</td><td>Super Admin, Admin</td></tr>
+        <tr><td>Approve blueprints</td><td>Approve a complete plan, which creates its event</td><td>Super Admin, Admin</td></tr>
+      </table>
+      <p>A Member can read a blueprint but nothing they type is saved. Custom roles can grant any of the four
+      (<a href="#s15">Section 15</a>).</p>
+
+      <h3>What you fill in</h3>
+      <p>The steps are grouped in four phases. Each step shows a dot: <b>green</b> done, <b>amber</b> only
+      optional items left, <b>red</b> needs answers. The page saves as you type.</p>
+      <table class="st">
+        <tr><th>Phase</th><th>Steps and what they ask</th></tr>
+        <tr><td>The event</td><td><b>Start</b>: is it an event that exists or happened (a twin), a new idea, or both; the event type; the format (In person, Hybrid, Virtual, Online world only). <b>Basics</b>: title, host, purpose, audience, when, how long, where, attendance, languages, budget, success measures, food. <b>Concept</b>: goals, big idea, feeling, signature moment, mood, must-haves, things to avoid.</td></tr>
+        <tr><td>The plan</td><td><b>Spaces</b>: each room or zone with what happens there, its layout, how many people and its area. <b>Programme</b>: time, title, space and who (or a link to an agenda). <b>People</b>: named people (with their consent), the audience mix, staff.</td></tr>
+        <tr><td>The experience</td><td><b>Avatars</b> (for online worlds), <b>Partners</b> (whether there are any, the list with tiers, regulated industries, artwork), <b>Venue and look</b> (brand, style, colours, a real or imagined venue, floor plans, photos), <b>Online</b> (features, access, devices, accessibility).</td></tr>
+        <tr><td>Hand-over</td><td><b>Delivery</b>: deadline, owner, approver, registration and video systems, privacy, notes for the build team. <b>Files</b>: uploads and the folder checklist. <b>Blueprint</b>: owners, reality checks, numbers to plan with, the brief, and Submit.</td></tr>
+      </table>
+
+      <h3>Help on the page</h3>
+      <ul>
+        <li><b>Talk it through (quick fill):</b> type or paste the event in your own words, or attach a
+        document or one picture (an agenda, brochure or floor plan; image, PDF, TXT, MD or CSV, a picture up to
+        5 MB). The AI fills in only what the text says, and shows you everything before anything is
+        filled in.</li>
+        <li><b>AI suggestions:</b> concept options, spaces, a programme and an audience mix. They use roles,
+        never real names, and never invent people, sponsors or venues. Up to 40 AI requests an hour per
+        person.</li>
+        <li><b>Templates:</b> each event type has starters for spaces, programme and audience. <b>Save as
+        template</b> keeps the concept, spaces, programme, look and avatars and clears dates, people,
+        partners and files. <b>Duplicate</b> copies a blueprint.</li>
+        <li><b>Files:</b> PNG, JPG, GIF, WEBP, SVG, PDF, DOCX, XLSX and PPTX, up to 10 MB each (SVG 2 MB),
+        filed under Venue, Programme, Partners, Brand, People, Media or Other. The real file type is
+        checked, not just the name.</li>
+        <li><b>Who owns what:</b> give each section to a person; owners show in the steps list and the brief.</li>
+        <li><b>Reality checks:</b> warnings about room sizes, the programme, timing, stands, online turnout, a
+        date in the past or a deadline already passed. Advice only: they never block submitting, and you can
+        accept one as it is (it asks again if the numbers change).</li>
+        <li><b>Readiness:</b> the percentage weighs needed items three times optional ones.</li>
+      </ul>
+
+      <h3>The stages</h3>
+      <table class="st">
+        <tr><th>Stage</th><th>How it gets there</th><th>Who</th></tr>
+        <tr><td>Draft</td><td>Started</td><td>Anyone who can write blueprints</td></tr>
+        <tr><td>Submitted</td><td>Submit (it gets a reference like EB-261008-K3P)</td><td>The writer</td></tr>
+        <tr><td>In review</td><td>The build team picks it up (and can send it back to Submitted)</td><td>Move stages</td></tr>
+        <tr><td>Plan ready</td><td>Review is done (and can go back to In review)</td><td>Move stages</td></tr>
+        <tr><td>Building</td><td><b>Approve the plan</b>: this creates the EA-SYS event</td><td>Approve</td></tr>
+        <tr><td>Preview</td><td>The build is ready to look at (and can go back to Building)</td><td>Move stages</td></tr>
+        <tr><td>Live</td><td><b>Approve the preview</b></td><td>Approve</td></tr>
+      </table>
+      <p>After submitting you can keep editing: your changes are collected as &ldquo;changes since your last
+      submission&rdquo; and sent with <b>Send update</b>, without changing the stage.</p>
+      <p><b>Emails:</b> a first submission and every update go to everyone who can move stages (not to the
+      sender). Every stage move and approval goes to the writer (unless the writer made it). Each email links
+      to the Blueprints page.</p>
+
+      <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Nobody approves their own plan</div><div class="c-text">Whoever wrote the blueprint, edited it, or added or removed its files since it was submitted cannot approve it: &ldquo;You wrote or edited this blueprint, so someone else has to approve it.&rdquo; The approver&rsquo;s role must also be allowed to create that kind of event.</div></div></div>
+
+      <h3>What approval creates</h3>
+      <p><b>Approve the plan</b> first checks that every needed item is answered (it lists anything open), then
+      creates the event in EA-SYS as a <b>draft</b>:</p>
+      <table class="st">
+        <tr><th>In the event</th><th>Comes from the blueprint</th></tr>
+        <tr><td>Name, description</td><td>Title, purpose</td></tr>
+        <tr><td>Start and end dates</td><td>&ldquo;When&rdquo; (must be an exact date) and &ldquo;Duration&rdquo; (for example 2 days; at most 14)</td></tr>
+        <tr><td>Event type</td><td>Format: In person and Online world only make a conference, Hybrid a hybrid event, Virtual a webinar (with its Zoom webinar set up)</td></tr>
+        <tr><td>Venue</td><td>The venue name, else &ldquo;Where&rdquo;</td></tr>
+        <tr><td>Sessions</td><td>Programme rows that have a time (HH:MM), all on the first day; each runs until the next starts, else an hour</td></tr>
+        <tr><td>Sponsors</td><td>The partners list, when there are partners (Title maps to platinum; Media and Supporter to partner)</td></tr>
+      </table>
+      <p><b>Not carried over:</b> the timezone (the event starts on the organisation&rsquo;s default, Asia/Dubai:
+      change it in the event&rsquo;s settings), registration types, and named people as speakers (the blueprint
+      has no email for them). Programme rows with no time are skipped and listed on the approval. The
+      blueprint then shows <b>The event is in EA-SYS: open the event</b>.</p>
+      <p>Approving again never creates a second event: one blueprint, one event. The blueprint can still be
+      edited afterwards, but those edits do not change the event.</p>
+      <p><b>The event&rsquo;s online venue:</b> on the new event&rsquo;s <b>Online Venue</b> page, <b>Start from
+      the Blueprint</b> turns the blueprint&rsquo;s spaces into the venue&rsquo;s rooms (<a href="#s24">Section 24</a>).</p>
+
+      <h3>Common questions</h3>
+      <ul>
+        <li><strong>&ldquo;Approve says the dates are needed.&rdquo;</strong> &ldquo;When&rdquo; is vague
+        (&ldquo;March 2027&rdquo;, &ldquo;spring&rdquo;). Put an exact start date, for example 4 March 2027.</li>
+        <li><strong>&ldquo;Approve says items are still open.&rdquo;</strong> The message lists them; they are the
+        red dots. Reality checks never block approval.</li>
+        <li><strong>&ldquo;I cannot approve.&rdquo;</strong> You wrote or edited it (someone else must), you lack the
+        approve permission, the stage is not Plan ready, or your role cannot create that type of event.</li>
+        <li><strong>&ldquo;It says someone else changed it.&rdquo;</strong> Another person saved since you opened
+        it. Reload the page and try again.</li>
+        <li><strong>&ldquo;My sessions are missing from the event.&rdquo;</strong> Only programme rows with a time
+        are created, all on day one. Add the rest in the event&rsquo;s Agenda (<a href="#s3">Section 3</a>).</li>
+        <li><strong>&ldquo;The event&rsquo;s times look four hours off.&rdquo;</strong> Check the event&rsquo;s
+        timezone in its settings: it starts as Asia/Dubai.</li>
+        <li><strong>&ldquo;Where do I archive or delete a blueprint?&rdquo;</strong> There is no button for that
+        yet: ask an administrator.</li>
+      </ul>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- SECTION 24: ONLINE VENUE -->
+    <div class="section" id="s24">
+      <div class="sec-hd"><div class="sec-num">24</div><div class="sec-meta">
+        <div class="sec-title">Online Venue</div>
+        <div class="sec-desc">A walkable 3D version of the event: set up its rooms, open it to staff, and walk it.</div>
+        <span class="sec-badge b-ops">Preview</span>
+      </div></div>
+
+      <p>The online venue is a 3D building you walk around in your browser, like a game: the foyer, the
+      plenary hall, parallel halls, workshops, posters, the exhibition and a lounge, with the event&rsquo;s
+      own sessions on the screens, its sponsors on the stands, and attendees you can talk to. It is a
+      <b>staff preview</b> today: only people who can see the event in EA-SYS can walk it. Attendees are
+      not let in yet.</p>
+
+      <h3>Where to set it up</h3>
+      <p>Open the event, then <b>Event Setup &rsaquo; Online Venue</b> (the page is <b>/events/&lt;event&gt;/venue</b>).
+      If you do not see the card, the online venue is not switched on for your organisation yet: ask a
+      super-admin. Anyone who can see the event can look at the page; only people who can <b>edit the
+      event</b> can change the rooms or open the venue.</p>
+
+      <h3>Step 1: choose the rooms</h3>
+      <p>Start in one of three ways:</p>
+      <ul>
+        <li><b>From the event&rsquo;s Blueprint:</b> if the event came from an approved Blueprint
+        (<a href="#s23">Section 23</a>), a <b>Start from the Blueprint</b> card sits at the top. It turns the
+        Blueprint&rsquo;s spaces into rooms: &ldquo;Registration&rdquo; becomes the foyer, an
+        &ldquo;Exhibition stands&rdquo; space the exhibition hall, a &ldquo;Classroom&rdquo; a workshop room.
+        Anything it had to change is listed (an online-only space left out, a foyer added, a size raised to
+        the minimum). You see this card only if you can see Blueprints.</li>
+        <li><b>From a template:</b> <b>Congress</b> (plenary, three halls, workshop, posters,
+        exhibition, lounge), <b>Summit</b>, <b>Exhibition</b> or <b>Meeting</b>.</li>
+        <li><b>By hand:</b> after picking a template, rename, add and remove rooms freely.</li>
+      </ul>
+      <p>Each room has a <b>name</b>, <b>what it is for</b> and <b>how many people it holds</b>. Nothing is
+      saved until you press <b>Save rooms</b>; <b>Discard changes</b> goes back to the last save.</p>
+
+      <table class="st">
+        <tr><th>Room type</th><th>How many</th><th>People it can hold</th><th>What the venue puts in it</th></tr>
+        <tr><td>Foyer</td><td>Exactly one</td><td>20 to 3,000</td><td>The entrance: registration and information desks, the directory</td></tr>
+        <tr><td>Plenary hall</td><td>Up to one</td><td>20 to 3,000</td><td>The main stage at the end of the corridor, big screens, rows of seats</td></tr>
+        <tr><td>Parallel hall</td><td>Up to six</td><td>10 to 800</td><td>A stage, a screen and rows of seats</td></tr>
+        <tr><td>Workshop room</td><td>Up to four</td><td>10 to 200</td><td>Round tables</td></tr>
+        <tr><td>Poster gallery</td><td>Up to one</td><td>10 to 1,000</td><td>Poster boards</td></tr>
+        <tr><td>Exhibition hall</td><td>Up to one</td><td>20 to 3,000</td><td>Stands for the sponsors (about one per 25 people, 4 to 24)</td></tr>
+        <tr><td>Networking lounge</td><td>Up to one</td><td>10 to 1,000</td><td>Sofas and a coffee bar</td></tr>
+      </table>
+      <p>At most 14 rooms in all. The page tells you, before you save, anything that breaks these rules.</p>
+
+      <h3>The floor plan</h3>
+      <p>Below the rooms, the page draws the building those rooms make, and redraws it as you edit. Every
+      venue follows the same plan: the foyer at the entrance, a main corridor, the plenary at the far end,
+      halls, workshops and posters along one side, the exhibition and lounge along the other. Each room is
+      sized to hold its people. The plan is checked so that <b>every room, doorway, stand and desk can be
+      reached from the entrance</b>; a list that would make a building someone could get stuck in cannot be
+      saved. You cannot drag rooms around: the layout is automatic, by design.</p>
+
+      <h3>Step 2: check the programme</h3>
+      <p>The <b>Programme in the venue</b> card shows where each session will appear. A session goes in the
+      room whose name matches its <b>location</b> or its <b>track</b> (the location wins if both are set).
+      &ldquo;Main Hall - Al Majlis&rdquo; counts as &ldquo;Main Hall&rdquo;. Workshops and symposia
+      count; registration, breaks, lunch and networking items do not. Sessions that name no room are listed
+      in amber: give the session a track or location with the room&rsquo;s exact name, or rename the room.
+      They still appear in the venue&rsquo;s guide under <b>Elsewhere</b>.</p>
+      <p>The same card counts the event&rsquo;s <b>sponsors</b> against the stands. Sponsors take stands in
+      tier order (platinum first, then gold, silver, bronze, partner, exhibitor); spare stands show
+      &ldquo;Stand 5&rdquo; and so on. If there are more sponsors than stands, raise the exhibition
+      hall&rsquo;s people to add stands. Sponsors are managed as usual (<a href="#s10">Section 10</a>).</p>
+
+      <h3>Step 3: open it to staff</h3>
+      <p>Once the rooms are saved, switch on <b>Open to staff</b>. A <b>Walk the venue</b> link appears; the
+      address is <b>/e/&lt;event-slug&gt;/venue</b>. Switch it off and the page answers &ldquo;not
+      found&rdquo; again. Closing it keeps the rooms.</p>
+
+      <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">The EHC 2026 venue is different</div><div class="c-text">EHC 2026 has a hand-built venue made before the Venue tab existed. It is switched on by the platform team, not by the Open to staff switch, and keeps its own rooms until you save rooms for that event.</div></div></div>
+
+      <h3>Walking the venue</h3>
+      <table class="st">
+        <tr><th>Do this</th><th>Keys (computer)</th></tr>
+        <tr><td>Move, run, jump</td><td>W A S D or the arrow keys; hold Shift to run; Space to jump. On a phone, use the on-screen stick.</td></tr>
+        <tr><td>Look around</td><td>Drag with the mouse or a finger. <b>V</b> (or the view button) changes the camera.</td></tr>
+        <tr><td>Talk to someone, open a stand or screen</td><td>Walk up to them and press <b>E</b></td></tr>
+        <tr><td>Say something to people nearby</td><td><b>Enter</b> or <b>T</b></td></tr>
+        <tr><td>Wave, heart, clap, raise a hand</td><td><b>1</b>, <b>2</b>, <b>3</b>, <b>4</b></td></tr>
+        <tr><td>Take a photo</td><td><b>5</b></td></tr>
+        <tr><td>Sit down or stand up (near a seat)</td><td><b>F</b></td></tr>
+        <tr><td>Venue guide: every room, with Walk and Go</td><td><b>G</b> or <b>M</b>, or the Venue guide button</td></tr>
+      </table>
+      <p>In the <b>Venue guide</b>, <b>Walk</b> takes you to a room on foot and <b>Go</b> jumps you straight
+      in. Each room lists its sessions for the day; the one on now is marked. Before the event the guide
+      shows the first day; afterwards, the last.</p>
+      <p><b>Screens</b> in each room show the session on now, or the next one with its time (and date, before
+      the event). <b>Stands</b> show the sponsor&rsquo;s name; walk up and press E for their logo,
+      description and website. <b>Queues</b> form at the registration desk and the coffee bar, and the
+      plenary applauds.</p>
+
+      <h3>Talking to attendees</h3>
+      <p>The people in the venue are <b>AI attendees</b>: fictional delegates, speakers, exhibitors and
+      staff. Walk up, press E, and type. Their replies are written live by AI and know the event&rsquo;s
+      rooms, the day&rsquo;s sessions room by room and which sponsors have stands. They never invent speakers
+      or details they were not given, never give medical advice and never promote a product. If asked, they
+      say they are AI-played. A <b>Take me to&hellip;</b> button appears when they point you somewhere.</p>
+      <ul>
+        <li><b>Limits:</b> 40 replies an hour for each person, and 2,000 replies a day for the whole event.
+        Past a limit, or with AI switched off, attendees use short pre-written answers instead (these
+        still know what is on in each room).</li>
+        <li><b>Voices:</b> replies can be read aloud using your browser&rsquo;s own voices (they differ
+        between Mac, Windows and phones). Turn them on or off in the chat.</li>
+        <li><b>Colleagues:</b> other staff who open the venue at the same time appear as people too, with
+        their names. What you type with Enter appears over your head for everyone nearby.</li>
+      </ul>
+
+      <h3>The Event team panel</h3>
+      <p>People who can edit the event see an <b>Event team</b> button in the venue. Its tabs:</p>
+      <table class="st">
+        <tr><th>Tab</th><th>What it does</th></tr>
+        <tr><td>Activity</td><td>Visits to each area and stand, time spent, information opened; download the stand activity and the named visitors as CSV files (named only for people who agreed)</td></tr>
+        <tr><td>Reports</td><td>Reports people made about someone&rsquo;s behaviour in the venue (they are also emailed to the safety inbox)</td></tr>
+        <tr><td>Screens</td><td>Which screens have a recording. A recording plays muted when someone walks up, until they choose Play with sound. To add one, send the clip to the build team.</td></tr>
+        <tr><td>Language</td><td>The filter for offensive words in what people type: on or off, mask the word or hide the message, add your own words, list words it must never touch, and try a sentence to see the result</td></tr>
+        <tr><td>AI attendees</td><td>Switch AI replies on or off for the event, and see today&rsquo;s use against the limit</td></tr>
+      </table>
+
+      <h3>Privacy</h3>
+      <p>The start screen says it plainly: visits to areas and stands are counted and kept with your sign-in.
+      Sponsors see totals only, unless the person ticks <b>Share my name with sponsors whose stands I
+      visit</b> (they can change it later in the Venue guide). Colleagues see each other&rsquo;s names and what
+      they say nearby; positions are not stored. What you type to an AI attendee is sent to the AI to write
+      the reply.</p>
+
+      <h3>Common questions</h3>
+      <ul>
+        <li><strong>&ldquo;The venue link says not found.&rdquo;</strong> Check that the rooms are saved and
+        <b>Open to staff</b> is on, that you are signed in, and that you can see the event in EA-SYS.</li>
+        <li><strong>&ldquo;A session is not on any screen.&rdquo;</strong> Its location or track does not match
+        a room&rsquo;s name exactly; the Programme in the venue card lists it. Break items are never shown.</li>
+        <li><strong>&ldquo;The screens show tomorrow&rsquo;s session.&rdquo;</strong> Nothing more is on in that
+        room today, so it shows the next one with its date.</li>
+        <li><strong>&ldquo;A sponsor has no stand.&rdquo;</strong> There are more sponsors than stands: raise the
+        exhibition hall&rsquo;s people. Stands go by tier, so the lowest tiers miss out first.</li>
+        <li><strong>&ldquo;The attendees give short, generic answers.&rdquo;</strong> AI replies are off, or a
+        limit was reached (40 an hour per person, 2,000 a day per event). They come back on their own.</li>
+        <li><strong>&ldquo;Can I move a room on the plan?&rdquo;</strong> No: the layout is automatic. Change the
+        room&rsquo;s type or size, and the plan follows.</li>
+        <li><strong>&ldquo;Can attendees use it?&rdquo;</strong> Not yet: it is a staff preview.</li>
+        <li><strong>&ldquo;The venue is slow.&rdquo;</strong> Use the quality button to switch to a lighter
+        setting, or <b>Check this device</b> on the start screen.</li>
+      </ul>
     </div>
 
     <div class="divider"></div>

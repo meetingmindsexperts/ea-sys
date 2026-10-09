@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### User guide: Event Blueprints and the Online Venue (October 9)
+
+- Two new sections in the user guide, which the in-app help assistant reads:
+  **23 Event Blueprints** (who can use it, the steps, AI help and quick fill,
+  files, the stages, who may approve, what approval creates and what it does
+  not) and **24 Online Venue** (setting up rooms, the floor plan, the
+  programme and sponsors, opening it to staff, walking it, AI attendees and
+  their limits, the Event team panel, privacy, common questions).
+- The guide's "Select your area" menu lists both; it also gained the id and
+  label browsers asked for.
+
 ### Online venue: start from the event's Blueprint (October 9)
 
 - When an event has an approved Blueprint, its Venue tab offers "Start from
