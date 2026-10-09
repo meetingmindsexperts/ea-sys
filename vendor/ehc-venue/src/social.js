@@ -365,8 +365,34 @@ class Social {
     if (/regist|badge/.test(s)) return at('foyer', (n) => `Registration is the long desk in the ${n}, as you come in.`);
     return null;
   }
+  // EA-SYS (phase 6 step 4): answers from the event's own programme, before the venue's general ones.
+  programmeAnswer(q) {
+    const s = q.toLowerCase(), now = CLOCK.now();
+    if (LAYOUT && PROGRAMME.sponsors.length && /exhib|booth|stand|sponsor/.test(s)) {
+      const Z = zoneOfKind('exhibition'), names = PROGRAMME.sponsors.slice(0, 3).map((x) => x.name);
+      const list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
+      if (Z) return { text: `The stands are in the ${Z.name}. ${list} ${names.length > 1 ? 'are' : 'is'} there, among others.`, go: Z.id, gesture: 'point' };
+    }
+    if (!PROGRAMME.sessions.length || !/programme|program|agenda|session|what.?s on|next|talk|lecture|track|hall|room/.test(s)) return null;
+    const named = ZONES.filter((z) => z.kind !== 'corridor' && s.includes(z.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0];
+    const here = this.ctx.zone && this.ctx.zone();
+    const Z = named || (here && roomSessions(here.id).length ? here : null);
+    if (Z) {
+      const { cur, next } = nowNext(Z.id, now);
+      if (cur) return { text: `${cur.title} is on in the ${Z.name} until ${fmtTime(cur.t1)}.`, go: Z.id, gesture: 'point' };
+      if (next) return { text: `Next in the ${Z.name}: ${next.title}, at ${dayKey(next.t0) === dayKey(now) ? fmtTime(next.t0) : fmtDay(next.t0) + ', ' + fmtTime(next.t0)}.`, go: Z.id, gesture: 'point' };
+      return { text: `Nothing more is on in the ${Z.name}. The Venue guide has the rest of the programme.`, gesture: 'think' };
+    }
+    const soon = PROGRAMME.sessions.find((x) => x.room && x.t1 > now);
+    const R = soon && ZONES.find((z) => z.id === soon.room);
+    if (!R) return null;
+    return soon.t0 <= now
+      ? { text: `${soon.title} is on now in the ${R.name}. The Venue guide lists every room.`, go: R.id, gesture: 'point' }
+      : { text: `Next up is ${soon.title} in the ${R.name}, at ${fmtTime(soon.t0)}. The Venue guide lists every room.`, go: R.id, gesture: 'point' };
+  }
   scripted(per, npc, q) {
     const s = q.toLowerCase();
+    if (!/[؀-ۿ]/.test(q)) { const a = this.programmeAnswer(q); if (a) return a; }
     if (LAYOUT && !/[؀-ۿ]/.test(q)) { const a = this.layoutAnswer(q); if (a) return a; }
     if (/[؀-ۿ]/.test(q)) return { text: 'أهلاً وسهلاً! سعيد بلقائك في المؤتمر.', gesture: 'nod' };
     if (/coffee|tea|drink|قهوة/.test(s)) return { text: 'The coffee bar is in the Networking Lounge, through the East Promenade. There’s also a coffee point in the Exhibition Hall.', go: 'lounge', gesture: 'point' };

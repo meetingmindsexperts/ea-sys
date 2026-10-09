@@ -251,7 +251,7 @@ class Abilities {
     $('photoClose').addEventListener('click', () => { $('photoSheet').hidden = true; this.ctx.onSheet(false); });
     $('photoSave').addEventListener('click', async () => {
       const p = this.lastPhoto; if (!p) return; const note = $('photoNote');
-      const blob = await (await fetch(p.url)).blob(); const name = 'ehc-2026-photo-' + Date.now() + '.jpg';
+      const blob = await (await fetch(p.url)).blob(); const name = FILE_TAG + '-photo-' + Date.now() + '.jpg';
       const dl = this.ctx.downloads && await this.ctx.downloads();
       if (dl) { try { const r = await dl.save({ filename: name, data: blob }); note.textContent = r && r.status === 'saved' ? 'Saved.' : 'Sent.'; } catch (e) { note.textContent = e && e.code === 'cancelled' ? '' : 'Couldn’t save the photo here. Long-press the picture to save it instead.'; } }
       else note.textContent = 'Long-press or right-click the picture to save it.';

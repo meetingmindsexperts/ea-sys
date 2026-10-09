@@ -20,6 +20,8 @@ vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
+const SUMMARY = { sessions: [{ title: "Opening", location: null, track: "Main Stage" }], sponsors: 2 };
+vi.mock("@/services/venue-programme-service", () => ({ loadProgrammeSummary: vi.fn(async () => SUMMARY) }));
 vi.mock("@/lib/event-settings", () => ({
   updateEventSettings: async (_id: string, patch: (cur: Record<string, unknown>) => Record<string, unknown>) => {
     settingsStore.current = patch(settingsStore.current);
@@ -52,7 +54,7 @@ describe("/api/events/:eventId/venue", () => {
 
   it("a member reads the rooms; only events.update saves them", async () => {
     as("MEMBER");
-    expect(await (await GET(new Request("http://localhost/x"), params)).json()).toEqual({ rooms: null, version: 0, open: false, slug: undefined });
+    expect(await (await GET(new Request("http://localhost/x"), params)).json()).toEqual({ rooms: null, version: 0, open: false, slug: undefined, programme: SUMMARY });
     expect((await put({ rooms, version: 0 })).status).toBe(403);
     as("ORGANIZER");
     const res = await put({ rooms, version: 0 });

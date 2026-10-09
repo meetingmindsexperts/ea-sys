@@ -24,6 +24,8 @@ vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
+const { loadVenueProgramme } = vi.hoisted(() => ({ loadVenueProgramme: vi.fn() }));
+vi.mock("@/services/venue-programme-service", () => ({ loadVenueProgramme }));
 
 import { GET } from "@/app/e/[slug]/venue/route";
 
@@ -39,6 +41,7 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://events.example.test");
   mockAuth.mockResolvedValue({ user: { id: "u-1", role: "ADMIN", organizationId: "org-1", name: "Wren" } });
   mockDb.event.findFirst.mockResolvedValue(EVENT);
+  loadVenueProgramme.mockResolvedValue({ v: 1, tz: "Asia/Dubai", sessions: [], sponsors: [] });
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -87,6 +90,18 @@ describe("GET /e/:slug/venue", () => {
     expect(layout.zones.map((z: { id: string }) => z.id)).toEqual(["foyer", "corridor", "plenary"]);
     const ev = JSON.parse(res.body.match(/window\.EHC_EVENT=(.*?);window\.EHC_VENUE=/)![1]);
     expect(ev).toMatchObject({ short: "SUM27", organiser: "MM Group" });
+  });
+
+  it("sends the event's programme, placed in the rooms of the venue it serves", async () => {
+    const prog = { v: 1, tz: "Asia/Dubai", sessions: [{ room: "plenary", title: "</script> Opening", start: "2026-04-10T05:00:00.000Z", end: "2026-04-10T06:00:00.000Z" }], sponsors: [{ name: "Novartis" }] };
+    loadVenueProgramme.mockResolvedValue(prog);
+    const res = await open();
+    const [caller, rooms, tz] = loadVenueProgramme.mock.calls[0];
+    expect(caller).toEqual({ organizationId: "org-1", eventId: "evt-1" });
+    expect(rooms).toContainEqual({ id: "hallA", name: "Hall A" });
+    expect(tz).toBe("Asia/Dubai");
+    const sent = JSON.parse(res.body.match(/window\.EHC_PROGRAMME=(.*?);<\/script>/)![1]);
+    expect(sent).toEqual(prog);
   });
 
   it("keeps EHC's hand-built rooms (no layout) for a listed event with no saved rooms", async () => {

@@ -2,7 +2,8 @@
  * The event's online venue rooms (docs/EVENT_BLUEPRINT_PLAN.md, D9).
  *
  *   GET → the saved room list (or null), its version, whether the venue is
- *         open to staff, and the event's slug (for the link to it).
+ *         open to staff, the event's slug (for the link to it), and its
+ *         sessions and sponsor count (to show what lands in which room).
  *   PUT { rooms, version } → save it; 409 STALE_VERSION when someone saved in
  *         between, 400 INVALID_ROOMS with every reason when the floor plan
  *         cannot lay it out.
@@ -23,6 +24,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { isVenueModuleEnabled } from "@/lib/module-flags";
 import { readVenueOpen, readVenueRooms } from "@/lib/venue/rooms";
 import { saveVenueRooms, setVenueOpen } from "@/services/venue-rooms-service";
+import { loadProgrammeSummary } from "@/services/venue-programme-service";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -52,10 +54,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: `${ROUTE}:event-not-found`, eventId, userId: session.user.id });
       return notFound();
     }
-    return await runWithTenant(event.organizationId, async () => {
+    const organizationId = event.organizationId;
+    return await runWithTenant(organizationId, async () => {
       const saved = readVenueRooms(event.settings);
+      // The sessions and sponsors the venue will place in these rooms (phase 6 step 4).
+      const programme = await loadProgrammeSummary({ organizationId, eventId: event.id });
       return NextResponse.json(
-        { rooms: saved?.rooms ?? null, version: saved?.updatedAt ?? 0, open: readVenueOpen(event.settings), slug: event.slug },
+        { rooms: saved?.rooms ?? null, version: saved?.updatedAt ?? 0, open: readVenueOpen(event.settings), slug: event.slug, programme },
         { headers: { "Cache-Control": "private, no-store" } },
       );
     });

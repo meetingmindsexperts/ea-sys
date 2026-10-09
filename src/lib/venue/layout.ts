@@ -84,7 +84,7 @@ export type LayoutItem = ItemBase &
     | { t: "row"; p0: [number, number]; p1: [number, number]; n: number; yaw: number }
     | { t: "lectern" }
     | { t: "round"; cx: number; cz: number; chairs: number }
-    | { t: "stand"; face: number; label: string; tier: number }
+    | { t: "stand"; face: number; label: string; tier: number; /** 1-based; the venue gives stand n to the nth sponsor by tier. */ n: number }
     | { t: "poster"; yaw: number }
     | { t: "sofa"; yaw: number }
     | { t: "bar"; yaw: number }
@@ -421,11 +421,11 @@ function furnishExhibition(f: Frame, out: Out) {
     for (let c = 0; c < cols && left > 0; c++, left--) {
       const u = u0 + c * STAND_PITCH;
       n++;
-      out.items.push({ t: "stand", zone: id, solid: true, face, label: `Partner ${n}`, tier: n <= 2 ? 1 : 2, foot: f.box(u, v, u + STAND, v + STAND) });
+      out.items.push({ t: "stand", zone: id, solid: true, face, label: `Stand ${n}`, tier: n <= 2 ? 1 : 2, n, foot: f.box(u, v, u + STAND, v + STAND) });
       const [px, pz] = f.at(u + STAND / 2, v + 0.6);
       out.people.push({ x: px, z: pz, yaw: face, pose: "stand", role: "exhibitor" });
       const [hx, hz] = f.at(u + STAND / 2, v - 1.6);
-      out.hotspots.push({ id: `stand-${n}`, x: r2(hx), z: r2(hz), r: 2.2, kind: "stand", prompt: `Visit Partner ${n}`, title: `Partner ${n}`, body: "This stand shows one of the event's sponsors from EA-SYS." });
+      out.hotspots.push({ id: `stand-${n}`, x: r2(hx), z: r2(hz), r: 2.2, kind: "stand", prompt: `Visit Stand ${n}`, title: `Stand ${n}`, body: "No sponsor has this stand yet. Sponsors added in EA-SYS take the stands in tier order." });
     }
   }
   // No room-wide hotspot here: the first row's stand hotspots sit at the door, and walking up to the

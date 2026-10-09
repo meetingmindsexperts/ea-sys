@@ -123,6 +123,15 @@ SUITES = {
         ('every hotspot can be reached and opened', lambda d: layouts_ok(d, 'hotspots', lambda r: r['failed'] == [] and r['opened'] == r['count'])),
         *no_errors('errors'),
     ],
+    'test_programme': [  # EA-SYS (phase 6 step 4): the event's sessions and sponsors in the venue
+        ('screens show the session on now, and the next one', lambda d: all(x['plenary'] and all(s['kicker'].startswith('Now') and s['title'] == 'Opening plenary' for s in x['plenary']) and x['hall'][0]['kicker'].startswith('Next') and x['hall'][0]['pill'] == 'STARTS 11:00' for x in (d['generated'], d['ehc']))),
+        ('sponsors take stands in tier order; a spare stand shows its number', lambda d: d['generated']['stand1']['sponsor'] == 'Novartis Middle East' and d['generated']['stand5']['title'] == 'Stand 5' and d['generated']['stand5']['sponsor'] is None),
+        ('unsafe sponsor links and logos are dropped', lambda d: d['generated']['stand3']['website'] == '' and d['generated']['stand3']['logo'] == ''),
+        ('a stand card shows the logo and opens the website safely', lambda d: d['generated']['card'] == {'img': '/uploads/logos/novartis.png', 'link': 'https://www.novartis.example/me', 'rel': 'noopener noreferrer'} and d['generated']['tags'] == ['Platinum sponsor']),
+        ('the guide lists the day\'s sessions, and the ones that name no room', lambda d: all('09:00 Opening plenary' in x['guide'] and 'Satellite symposium · Al Majlis' in x['guide'] and 'Day two keynote' not in x['guide'] and x['guideKicker'].startswith('Programme · Sat 24 Oct') for x in (d['generated'], d['ehc']))),
+        ('offline answers know what is on', lambda d: 'Opening plenary is on' in d['generated']['answerRoom']['text'] and 'Opening plenary' in d['ehc']['answerAny']['text'] and 'Novartis Middle East' in d['generated']['answerStands']['text']),
+        *no_errors('errors'),
+    ],
 }
 
 def run(name):

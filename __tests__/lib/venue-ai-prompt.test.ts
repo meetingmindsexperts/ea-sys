@@ -118,5 +118,19 @@ describe("a generated venue", () => {
     expect(text).toContain("[go: Y] where Y is one of foyer, breakout-1, breakout-2, lounge, plenary.");
     expect(text).not.toMatch(/Emirates Society|Grand Foyer|hanging disc|haematology conversation/);
   });
+
+  it("states the event's programme in place of 'not published', and keeps the never-invent rule", async () => {
+    const { generateLayout } = await import("@/lib/venue/layout");
+    const layout = generateLayout(TEMPLATES.summit.rooms, { eventName: "Summit" });
+    const scene = { layout, event: { name: "Summit 2027", date: "1 May 2027", venue: "Dubai" }, zone: "foyer", pose: "stand", role: "guest", greeting: "Hi" };
+    const per = checkPersona(delegate)!;
+    const without = buildInstructions(per, { ...scene, programme: null });
+    expect(without).toContain("Not published in this preview");
+    const withIt = buildInstructions(per, { ...scene, programme: "Main Stage: 09:00-10:00 Opening keynote." });
+    expect(withIt).toContain("Main Stage: 09:00-10:00 Opening keynote.");
+    expect(withIt).not.toContain("Not published in this preview");
+    expect(withIt).toContain("Never invent sessions, times, speakers, sponsors or poster titles beyond this");
+    expect(withIt).toContain("never praise or recommend them");
+  });
 });
 

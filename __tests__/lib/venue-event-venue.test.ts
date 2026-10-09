@@ -18,16 +18,22 @@ afterEach(() => { vi.unstubAllEnvs(); check.ok = true; check.issues = []; });
 describe("isVenueServed", () => {
   it("serves a listed slug (EHC) whatever its settings", () => {
     vi.stubEnv("VENUE_EVENT_SLUGS", "ehc26");
-    expect(isVenueServed({ slug: "ehc26", settings: {} })).toBe(true);
+    expect(isVenueServed({ id: "evt-x", slug: "ehc26", settings: {} })).toBe(true);
+  });
+
+  it("serves a listed event id too: slugs repeat across organisations (review L4)", () => {
+    vi.stubEnv("VENUE_EVENT_SLUGS", " cm-ehc , other");
+    expect(isVenueServed({ id: "cm-ehc", slug: "ehc26", settings: {} })).toBe(true);
+    expect(isVenueServed({ id: "cm-else", slug: "ehc26", settings: {} })).toBe(false);
   });
 
   it("serves saved, opened rooms only while the module is on", () => {
     vi.stubEnv("VENUE_MODULE_ENABLED", "true");
-    expect(isVenueServed({ slug: "x", settings: withRooms({ open: true }) })).toBe(true);
-    expect(isVenueServed({ slug: "x", settings: withRooms({ open: false }) })).toBe(false);
-    expect(isVenueServed({ slug: "x", settings: { venue: { open: true } } })).toBe(false);
+    expect(isVenueServed({ id: "evt-x", slug: "x", settings: withRooms({ open: true }) })).toBe(true);
+    expect(isVenueServed({ id: "evt-x", slug: "x", settings: withRooms({ open: false }) })).toBe(false);
+    expect(isVenueServed({ id: "evt-x", slug: "x", settings: { venue: { open: true } } })).toBe(false);
     vi.stubEnv("VENUE_MODULE_ENABLED", "");
-    expect(isVenueServed({ slug: "x", settings: withRooms({ open: true }) })).toBe(false);
+    expect(isVenueServed({ id: "evt-x", slug: "x", settings: withRooms({ open: true }) })).toBe(false);
   });
 });
 

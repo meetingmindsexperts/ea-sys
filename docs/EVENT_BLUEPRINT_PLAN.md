@@ -567,4 +567,28 @@ per event (D6), report inbox (D7).
   hotspot opened, the start sheet). Verified on the production build: BHS2026
   with the Congress template and a renamed hall, all ten rooms entered at
   120 fps, a live AI reply naming the renamed hall, zero console messages.
+  **Step 4 built: the event's sessions and sponsors (Oct 9, 2026).** Owner
+  rulings (the recommended options): a session is in the room its location or
+  track names, location first, the part before a separator counting ("Main
+  Hall — Al Majlis"); sponsors fill stands by tier and spare stands show their
+  number; the sponsor's name is on the stand and the logo in its card; the AI
+  is told the programme. Found on real data: teams name tracks after rooms
+  (location is set on 8 of 71 local sessions), and `SessionType` has WORKSHOP
+  and SYMPOSIUM, so the read excludes `BREAK_SESSION_TYPES` rather than
+  requiring SESSION. `src/lib/venue/programme.ts` (pure: matching, tier order,
+  safe links and logos, the AI's day) and `src/services/venue-programme-service.ts`
+  (one read for the page, the AI and the Venue tab; a failed read gives the
+  placeholders, logged). The page sends `window.EHC_PROGRAMME`; the vendor
+  shows it on screens (now or next), stands, the guide and offline answers,
+  for EHC's rooms as well as generated ones (stands only in generated venues).
+  The Venue tab's "Programme in the venue" card shows the matching live.
+  **L4 closed:** `VENUE_EVENT_SLUGS` accepts event ids; list ids on the
+  platform instance. **L5 closed:** downloads are named from the event's short
+  name. Tests: programme unit and service tests, the three venue routes, the
+  prompt, and a vendor suite (`test_programme`, generated and EHC venues with a
+  set clock). Verified on the production build with BHS2026 (Congress
+  template): 9 of 9 sessions placed, screens and guide in local time, two
+  test sponsors on stands 1 and 2 in tier order, a live AI naming the first
+  session, the workshop and the sponsors, zero console messages; EHC's venue
+  unchanged.
 

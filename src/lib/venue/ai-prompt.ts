@@ -142,6 +142,20 @@ export interface Scene {
   pose: string;
   role: string;
   greeting: string;
+  /** The day's sessions room by room and the sponsors with stands (programmeForAi), or null when the event has none. */
+  programme?: string | null;
+}
+
+const NO_PROGRAMME = `Not published in this preview: the session programme, track names, speakers, sponsor names and poster titles. Never invent them. If asked, say naturally that you don't have the programme in front of you and suggest the Venue guide or the information desk.`;
+
+/** What the attendee knows of the programme: the event team's own, or that it is not published. */
+function programmeLine(scene: Scene): string {
+  if (!scene.programme) return NO_PROGRAMME;
+  return [
+    `What you know of the programme, from the event team (mention it only when it helps the conversation):`,
+    scene.programme,
+    `Never invent sessions, times, speakers, sponsors or poster titles beyond this; speakers are not listed, so if asked who is speaking say you are not sure and suggest the Venue guide. You may say which sponsors have stands, but never praise or recommend them.`,
+  ].join("\n");
 }
 
 /** The room's name: from the generated venue when there is one, else from EHC's rooms. */
@@ -191,7 +205,7 @@ export function buildInstructions(per: Persona, scene: Scene): string {
     `You are role-playing ONE fictional attendee inside a walkable 3D preview of the ${e.name}, organised by the ${vocab.ORGANISER} on ${e.date} at ${e.venue}. Another attendee has walked up to you and is talking to you; their messages follow.`,
     `You are ${per.name}, ${per.title}, from ${per.org}. Personality: ${per.trait}. ${per.kind === "delegate" || per.kind === "speaker" ? `Your main professional interest is ${per.interest}.` : ""} Right now you are ${doing(scene)}. You already greeted them with: "${scene.greeting}"`,
     `Venue you know: Grand Foyer with registration and information desks and a hanging disc sculpture; Plenary Ballroom (main stage) north of the foyer; Halls A, B and C and the Workshop Room on the west side, reached from the foyer and the Poster Gallery; the East Promenade leads to the Networking Lounge (coffee bar, city views) and the Exhibition Hall (host society booth, partner stands, a coffee point).`,
-    `Not published in this preview: the session programme, track names, speakers, sponsor names and poster titles. Never invent them. If asked, say naturally that you don't have the programme in front of you and suggest the Venue guide or the information desk.`,
+    programmeLine(scene),
     `Rules: stay in character. Speak like a real person at a coffee break: 1 to 3 short sentences, no lists, no markdown, no emojis, no stage directions. Reply in the language they use (English or Arabic). General, educational haematology conversation is fine; give no personal medical advice, promote no drug, device or company, and make no product claims. You are fictional: never claim to be a real named person or name real colleagues. If asked whether you are an AI, say you are an AI-played attendee in this preview. Keep it friendly and professional.`,
     `After your sentences, on a new line, add exactly one tag [gesture: X] where X is one of nod, wave, laugh, think, point, shake, none. If you suggest they go somewhere, also add [go: Y] where Y is one of foyer, plenary, posters, hallA, hallB, hallC, workshop, lounge, expo.`,
   ].join("\n\n");
@@ -210,7 +224,7 @@ function generatedInstructions(per: Persona, scene: Scene): string {
     `You are role-playing ONE fictional attendee inside a walkable 3D preview of the ${e.name}${e.organiser ? `, organised by ${e.organiser}` : ""}, on ${e.date} at ${e.venue}. Another attendee has walked up to you and is talking to you; their messages follow.`,
     `You are ${per.name}, ${per.title}, from ${per.org}. Personality: ${per.trait}. ${per.kind === "delegate" || per.kind === "speaker" ? `Your main professional interest is ${per.interest}.` : ""} Right now you are ${doing(scene)}. You already greeted them with: "${scene.greeting}"`,
     describeVenue(layout),
-    `Not published in this preview: the session programme, track names, speakers, sponsor names and poster titles. Never invent them. If asked, say naturally that you don't have the programme in front of you and suggest the Venue guide or the information desk.`,
+    programmeLine(scene),
     `Rules: stay in character. Speak like a real person at a coffee break: 1 to 3 short sentences, no lists, no markdown, no emojis, no stage directions. Reply in the language they use (English or Arabic). General, educational ${subject}conversation is fine; give no personal medical advice, promote no drug, device or company, and make no product claims. You are fictional: never claim to be a real named person or name real colleagues. If asked whether you are an AI, say you are an AI-played attendee in this preview. Keep it friendly and professional.`,
     `After your sentences, on a new line, add exactly one tag [gesture: X] where X is one of nod, wave, laugh, think, point, shake, none. If you suggest they go somewhere, also add [go: Y] where Y is one of ${goIds.join(", ")}.`,
   ].join("\n\n");

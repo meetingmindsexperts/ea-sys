@@ -19,7 +19,9 @@ import { rateLimited } from "@/lib/api-errors";
 import { resolveTimezone } from "@/lib/event-time";
 import { venueGuard } from "@/lib/venue/route-guard";
 import { venueDateRange } from "@/lib/venue/date-range";
-import { eventLayout } from "@/lib/venue/event-venue";
+import { eventLayout, sponsorStands, venueRooms } from "@/lib/venue/event-venue";
+import { programmeForAi } from "@/lib/venue/programme";
+import { loadVenueProgramme } from "@/services/venue-programme-service";
 import { MAX_TURNS, checkGreeting, checkPersona, cleanTurns } from "@/lib/venue/ai-prompt";
 import { VENUE_AI_PER_EVENT_DAY, VENUE_AI_PER_PERSON_HOUR, claimReply, readVenueAi, streamVenueReply, venueDay } from "@/services/venue-ai-service";
 
@@ -77,6 +79,8 @@ export async function POST(req: Request, { params }: Params) {
       // A generated venue: the instructions describe its own rooms, organiser and subject (phase 6).
       const built = eventLayout(e);
       const layout = built.kind === "generated" ? built.layout : undefined;
+      const rooms = venueRooms(built);
+      const programme = await loadVenueProgramme({ organizationId: gate.organizationId, eventId }, rooms, tz);
       const scene = {
         layout,
         event: {
@@ -87,6 +91,7 @@ export async function POST(req: Request, { params }: Params) {
         pose: body.pose ?? "",
         role: body.role ?? "",
         greeting: checkGreeting(body.greeting, persona),
+        programme: programmeForAi(programme, rooms, new Date(), sponsorStands(built)),
       };
       const res = await streamVenueReply(caller, day, persona, scene, turns);
       if (!res.ok) return NextResponse.json({ error: res.message, code: res.code }, { status: 502 });

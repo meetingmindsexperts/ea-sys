@@ -157,14 +157,14 @@ const DRAW = {
     }
     x.restore(); return r;
   },
-  boothGraphic(A, w, h, { tier, label, color }) {
+  boothGraphic(A, w, h, { tier, label, color, foot = 'Sponsor artwork to be supplied' }) {
     const r = A.alloc(w, h), x = A.x; x.save(); x.translate(r.x, r.y);
     const g = x.createLinearGradient(0, 0, w, h); g.addColorStop(0, color); g.addColorStop(1, '#120d0e'); x.fillStyle = g; x.fillRect(0, 0, w, h);
     x.strokeStyle = 'rgba(255,255,255,.12)'; x.lineWidth = 2;
     for (let k = 0; k < 9; k++) { x.beginPath(); x.arc(w * .85, h * .9, 40 + k * 46, 0, 7); x.stroke(); }
     x.fillStyle = 'rgba(255,255,255,.6)'; x.font = `600 ${h * .07}px ${FONT_BODY}`; x.letterSpacing = '4px'; x.textBaseline = 'middle'; x.fillText(tier.toUpperCase(), w * .07, h * .16); x.letterSpacing = '0px';
-    x.fillStyle = '#fff'; x.font = `400 ${h * .16}px ${FONT_DISPLAY}`; wrapText(x, label, w * .8).forEach((l, i) => x.fillText(l, w * .07, h * .36 + i * h * .17));
-    x.fillStyle = 'rgba(255,255,255,.55)'; x.font = `500 ${h * .055}px ${FONT_BODY}`; x.fillText('Sponsor artwork to be supplied', w * .07, h * .86);
+    x.fillStyle = '#fff'; x.font = `400 ${h * .16}px ${FONT_DISPLAY}`; wrapText(x, label, w * .8).slice(0, 2).forEach((l, i) => x.fillText(l, w * .07, h * .36 + i * h * .17));
+    x.fillStyle = 'rgba(255,255,255,.55)'; x.font = `500 ${h * .055}px ${FONT_BODY}`; x.fillText(foot, w * .07, h * .86, w * .86);
     x.restore(); return r;
   },
 };
@@ -189,5 +189,5 @@ function drawScreen(c, t, s) {
   const pw = w * .26, ph = h * .07, px = w * .68, py = h * .82;
   x.fillStyle = 'rgba(243,236,228,.1)'; x.fillRect(px, py, pw, ph);
   x.fillStyle = (Math.floor(t * 1.2) % 2) ? '#c8a46a' : '#8e1b2c'; x.beginPath(); x.arc(px + ph * .5, py + ph * .5, ph * .16, 0, 7); x.fill();
-  x.fillStyle = '#f3ece4'; x.font = `600 ${h * .032}px ${FONT_MONO}`; x.fillText('RECORDING SLOT · NOT LINKED', px + ph * .9, py + ph * .52, pw - ph);
+  x.fillStyle = '#f3ece4'; x.font = `600 ${h * .032}px ${FONT_MONO}`; x.fillText(s.pill || 'RECORDING SLOT · NOT LINKED', px + ph * .9, py + ph * .52, pw - ph);
 }

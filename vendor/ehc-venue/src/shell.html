@@ -108,6 +108,13 @@ body.is-touch .prompt { bottom: calc(env(safe-area-inset-bottom, 0px) + 200px); 
 .arow .go { padding: 8px 14px; border: 1px solid var(--brass); background: transparent; color: var(--brass); font-weight: 700; cursor: pointer; min-height: 40px; }
 .arow .go.walk { border-color: rgba(243,236,228,.4); color: var(--ivory); font-weight: 600; }
 .arow.cur { border-color: var(--garnet); background: rgba(163,37,58,.12); }
+#ispon { display: flex; align-items: center; gap: 16px; margin: 10px 0 4px; }
+#ispon img { max-height: 56px; max-width: 160px; object-fit: contain; background: #fff; padding: 6px; }
+#ispon a { color: var(--brass); font-weight: 600; }
+.ases { list-style: none; margin: 6px 0 0; padding: 0; font-size: 12.5px; color: var(--ivory); }
+.ases li { padding: 2px 0; }
+.ases b { display: inline-block; min-width: 44px; font: 600 11.5px var(--f-mono, monospace); color: var(--brass); }
+.ases li.now { color: #fff; } .ases li.now b::after { content: ' ●'; color: var(--garnet); }
 @media (max-width: 420px) { .arow .t { font-size: 18px; } .arow .go { padding: 8px 10px; } }
 .small { font-size: 12px !important; }
 
@@ -312,7 +319,7 @@ body.chatting .abar, body.chatting .modepill { display: none; }
   </div>
   <div class="sheet" id="agenda" hidden>
     <div class="card" role="dialog" aria-labelledby="at">
-      <div class="k"></div>
+      <div class="k" id="ak"></div>
       <h2 id="at">Venue guide</h2>
       <p class="small">Walk takes you there on foot; Go jumps you straight in. Items marked “to link” are waiting for the official agenda, sponsor list or recordings.</p>
       <div class="agenda-list" id="alist"></div>

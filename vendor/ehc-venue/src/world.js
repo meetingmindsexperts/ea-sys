@@ -54,6 +54,47 @@ if (LAYOUT) {
     if (note) note.textContent = 'The rooms are the event team\'s own list. Session titles, speakers and sponsors are placeholders until the agenda is supplied.';
   }
 }
+// EA-SYS (phase 6 step 4): the event's own programme, sent by EA-SYS as window.EHC_PROGRAMME: sessions
+// already placed in rooms (`room` is a zone id, or null for one that names no room) and the sponsors in
+// the order they take stands. Absent or malformed, the venue keeps its placeholders.
+const PROGRAMME = (() => {
+  const P = typeof window !== 'undefined' ? window.EHC_PROGRAMME : null;
+  const str = (v, n) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : '');
+  if (!P || P.v !== 1) return { tz: undefined, sessions: [], sponsors: [] };
+  const sessions = (Array.isArray(P.sessions) ? P.sessions : []).map((x) => x && {
+    room: typeof x.room === 'string' ? x.room : null, title: str(x.title, 140), track: str(x.track, 80), where: str(x.where, 80), t0: Date.parse(x.start), t1: Date.parse(x.end),
+  }).filter((x) => x && x.title && x.t0 && x.t1 >= x.t0).sort((a, b) => a.t0 - b.t0);
+  const sponsors = (Array.isArray(P.sponsors) ? P.sponsors : []).map((x) => x && {
+    name: str(x.name, 80), tier: str(x.tier, 20), about: str(x.about, 400),
+    logo: /^(\/uploads\/|https:\/\/)/.test(str(x.logo, 300)) ? str(x.logo, 300) : '', website: /^https?:\/\//.test(str(x.website, 300)) ? str(x.website, 300) : '',
+  }).filter((x) => x && x.name);
+  let tz; try { tz = new Intl.DateTimeFormat('en-GB', { timeZone: P.tz }).resolvedOptions().timeZone; } catch (e) { tz = undefined; }
+  return { tz, sessions, sponsors };
+})();
+/** The event's short name as a file name part ("EHC 2026" gives "ehc-2026"), for downloads (review L5). */
+const FILE_TAG = EVENT.short.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'venue';
+/** The venue's clock; tests set it through __EHC.setNow. */
+const CLOCK = { offset: 0, now() { return Date.now() + this.offset; } };
+const fmtTime = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: PROGRAMME.tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(ms);
+const fmtDay = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: PROGRAMME.tz, weekday: 'short', day: 'numeric', month: 'short' }).format(ms);
+const dayKey = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: PROGRAMME.tz }).format(ms);
+/** A room's sessions, in time order. */
+function roomSessions(id) { return PROGRAMME.sessions.filter((x) => x.room === id); }
+/** The session on now in a room, and the next one to start. */
+function nowNext(id, now = CLOCK.now()) {
+  const list = roomSessions(id);
+  return { cur: list.find((x) => x.t0 <= now && now < x.t1) || null, next: list.find((x) => x.t0 > now) || null };
+}
+/** The day the agenda shows: today if the programme has it, else the first day ahead, else the last one. */
+function programmeDay(now = CLOCK.now()) {
+  const days = [...new Set(PROGRAMME.sessions.map((x) => dayKey(x.t0)))].sort(); if (!days.length) return null;
+  const today = dayKey(now); if (days.includes(today)) return today;
+  return today < days[0] ? days[0] : days.filter((d) => d < today).pop();
+}
+/** The sponsor on stand n (1-based), by tier order. */
+function sponsorOn(n) { return PROGRAMME.sponsors[n - 1] || null; }
+const tierWord = (t) => (t ? t[0].toUpperCase() + t.slice(1) + ' sponsor' : 'Sponsor');
+
 /** The first room of a kind (a generated venue's ids are the organisers'), or null. */
 function zoneOfKind(kind) { return ZONES.find((z) => z.kind === kind) || null; }
 
@@ -498,10 +539,13 @@ function buildWorld(R, Q) {
     const rectOf = (f) => ('r' in f ? [f.cx - f.r, f.cz - f.r, f.cx + f.r, f.cz + f.r] : [f.x0, f.z0, f.x1, f.z1]);
     const dirOf = (yaw) => [Math.round(Math.sin(yaw)), Math.round(Math.cos(yaw))];
     const gold = [0.82, 0.66, 0.4, 0], garnet = [0.5, 0.11, 0.17, 0], dark = [0.18, 0.18, 0.2, 0], slate = [0.28, 0.3, 0.34, 0];
-    const stand = (x0, z0, x1, z1, face, label, tier) => {
+    const stand = (x0, z0, x1, z1, face, label, tier, n) => {
       const [dx, dz] = dirOf(face), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
       box('carpet', x0, 0, z0, x1, 0.1, z1, tier === 1 ? [0.36, 0.3, 0.2, 0] : [0.3, 0.3, 0.33, 0], { col: true });
-      const key = 'stand' + tier + label, gr = signCache[key] || (signCache[key] = DRAW.boothGraphic(A, 420, 170, { tier: tier === 1 ? 'Gold partner' : 'Partner', label, color: tier === 1 ? '#7a5a22' : '#3e4a56' }));
+      // EA-SYS: stand n carries the nth sponsor by tier; a stand with none shows its number.
+      const sp = sponsorOn(n), host = sp && sp.website ? sp.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '') : '';
+      const spec = sp ? { tier: tierWord(sp.tier), label: sp.name, foot: host, color: tier === 1 ? '#7a5a22' : '#3e4a56' } : { tier: 'Exhibition', label, foot: 'Available', color: '#3e4a56' };
+      const key = 'stand' + tier + spec.tier + spec.label, gr = signCache[key] || (signCache[key] = DRAW.boothGraphic(A, 420, 170, spec));
       if (dz) { // back wall along x, at the side the stand turns its back on
         const bz = dz > 0 ? z0 + 0.1 : z1 - 0.1;
         box('plain', x0, 0.1, bz - 0.1, x1, 3.2, bz + 0.1, [0.95, 0.94, 0.92, 0], { col: true });
@@ -564,7 +608,7 @@ function buildWorld(R, Q) {
     for (const it of L.items) {
       const [x0, z0, x1, z1] = rectOf(it.foot), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, big = zoneOf(it.zone).kind === 'plenary';
       if (it.t === 'stage') { box('wood', x0, 0, z0, x1, it.h, z1, [0.22, 0.15, 0.13, 0], { col: true }); box('emis', x0 - 0.01, it.h - 0.06, z0 - 0.01, x1 + 0.01, it.h - 0.02, z1 + 0.01, [0.4, 0.8, 0.9, 0.8]); }
-      else if (it.t === 'screen') screen(it.x, it.y, it.z, it.w, it.hgt, it.yaw, { kicker: it.kicker, title: it.title, sub: it.sub, ...(big ? { plenary: true } : {}) });
+      else if (it.t === 'screen') screen(it.x, it.y, it.z, it.w, it.hgt, it.yaw, { kicker: it.kicker, title: it.title, sub: it.sub, zone: it.zone, ...(big ? { plenary: true } : {}) });
       else if (it.t === 'row') {
         const [ax, az] = it.p0, [ex, ez] = it.p1;
         for (let i = 0; i < it.n; i++) { const t = it.n > 1 ? i / (it.n - 1) : 0; chair(ax + (ex - ax) * t, az + (ez - az) * t, it.yaw, big ? gold : dark, big ? garnet : slate, seats); }
@@ -576,7 +620,7 @@ function buildWorld(R, Q) {
         for (let k = 0; k < it.chairs; k++) { const a = k / it.chairs * Math.PI * 2 + 0.3, chx = it.cx + Math.cos(a) * 1.45, chz = it.cz + Math.sin(a) * 1.45; chair(chx, chz, Math.atan2(it.cx - chx, it.cz - chz), [0.2, 0.2, 0.22, 0], [0.32, 0.3, 0.3, 0], seats); colliders.push({ c: 1, cx: chx, cz: chz, r: 0.3, y0: 0, y1: 0.95 }); }
         blob(it.cx, it.cz, 4, 4);
       }
-      else if (it.t === 'stand') stand(x0, z0, x1, z1, it.face, it.label, it.tier);
+      else if (it.t === 'stand') stand(x0, z0, x1, z1, it.face, it.label, it.tier, it.n);
       else if (it.t === 'poster') poster(x0, z0, x1, z1);
       else if (it.t === 'sofa') sofas(x0, z0, x1, z1);
       else if (it.t === 'bar') bar(x0, z0, x1, z1, it.yaw);
@@ -586,7 +630,12 @@ function buildWorld(R, Q) {
       else if (it.t === 'sign') sign(it.x, it.y, it.z, it.w, it.hgt, it.yaw, it.kicker ? { kicker: it.kicker, title: it.title, sub: it.sub } : { title: it.title, sub: it.sub });
     }
     for (const p of L.people) people.push({ ...p });
-    for (const h of L.hotspots) hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind);
+    for (const h of L.hotspots) {
+      const sp = h.kind === 'stand' ? sponsorOn(+h.id.replace('stand-', '')) : null;
+      if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); continue; }
+      hit(h.id, h.x, h.z, h.r, 'Visit ' + sp.name, sp.name, sp.about || tierWord(sp.tier) + ' of ' + EVENT.short + '.', h.kind);
+      interact[interact.length - 1].sponsor = sp;
+    }
     // the event's banners either side of the way into the corridor, inside the foyer
     const cor = zoneOfKind('corridor'), foy = zoneOfKind('foyer');
     if (cor && foy) for (const x of [cor.rect[0] - 1.6, cor.rect[2] + 1.6]) if (x > foy.rect[0] + 1.2 && x < foy.rect[2] - 1.2) banner(x);
@@ -605,5 +654,7 @@ function buildWorld(R, Q) {
   if (B.inlay) late.push(R.upload(B.inlay, T.inlay));
   if (B.shadow) late.push(R.upload(B.shadow, T.blob));
   if (B.glass) late.push(R.upload(B.glass, null));
+  // EA-SYS (phase 6 step 4): each screen knows its room, so it can show that room's session (game.js).
+  for (const s of screens) { if (!s.spec.zone) { const Z = zoneAt(s.pos[0], s.pos[2]); s.spec.zone = Z ? Z.id : ''; } s.base = s.spec; }
   return { draws, screenDraws, late, colliders, lights, interact, people, screens, seats, balls, routes, halo, T, stats };
 }

@@ -157,13 +157,22 @@
   function openInfo(h) {
     audio.ui();
     $('ik').textContent = (zone ? zone.name : '') + ' · ' + EVENT.venue; $('it').textContent = h.title; $('ib').textContent = h.body;
-    const tags = h.kind === 'screen' ? [['Recording · to link', 1], ['Track · from agenda', 1], ['Spatial audio · ready', 0]] : (/booth|platinum/.test(h.id) || h.kind === 'stand') && !/Society/.test(h.title) ? [['Sponsor · to link', 1], ['Artwork · to supply', 1]] : /poster/.test(h.id) ? [['Abstracts · to link', 1]] : [];
+    const linked = h.kind === 'screen' && zone && roomSessions(zone.id).length;
+    const tags = h.sponsor ? [[tierWord(h.sponsor.tier), 0]] : h.kind === 'screen' ? [['Recording · to link', 1], linked ? ['Agenda · linked', 0] : ['Track · from agenda', 1], ['Spatial audio · ready', 0]] : (/booth|platinum/.test(h.id) || h.kind === 'stand') && !/Society/.test(h.title) ? [['Sponsor · to link', 1], ['Artwork · to supply', 1]] : /poster/.test(h.id) ? [['Abstracts · to link', 1]] : [];
     $('itags').innerHTML = ''; for (const [t, w] of tags) { const s = document.createElement('span'); s.className = 'tag' + (w ? ' warn' : ''); s.textContent = t; $('itags').appendChild(s); }
+    // EA-SYS (phase 6 step 4): a sponsor's stand shows its logo and website.
+    const old = $('ispon'); if (old) old.remove();
+    if (h.sponsor && (h.sponsor.logo || h.sponsor.website)) {
+      const box = document.createElement('div'); box.id = 'ispon';
+      if (h.sponsor.logo) { const img = document.createElement('img'); img.src = h.sponsor.logo; img.alt = h.sponsor.name + ' logo'; img.referrerPolicy = 'no-referrer'; img.addEventListener('error', () => img.remove()); box.appendChild(img); }
+      if (h.sponsor.website) { const a = document.createElement('a'); a.href = h.sponsor.website; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'Visit their website'; box.appendChild(a); }
+      $('ib').after(box);
+    }
     if (team) { team.event('open', h.id); const si = team.screenForHotspot(h); let sb = $('isound'); if (sb) sb.remove(); if (si >= 0) { sb = document.createElement('button'); sb.id = 'isound'; sb.className = 'ghost'; const lab = () => { const cfg = team.videoFor(si), v = cfg && team.videos[cfg.url]; sb.textContent = v && v.sound ? 'Mute the recording' : 'Play with sound'; }; lab(); sb.addEventListener('click', () => { team.toggleSound(si); lab(); }); $('iclose').before(sb); } }
     $('info').hidden = false; paused = true; input.keys.clear(); $('iclose').focus();
   }
   function openAgenda() {
-    const L = $('alist'); L.innerHTML = '';
+    const L = $('alist'); L.innerHTML = ''; const day = programmeDay();
     // EA-SYS: a generated venue's rooms are described by what they are for (their ids are the organisers').
     const byKind = { foyer: 'Registration and information desks', plenary: 'Main stage', hall: 'Parallel sessions', workshop: 'Hands-on sessions', posters: 'Abstract posters', exhibition: 'Partner stands', lounge: 'Coffee bar and meeting seats', corridor: 'To every room' };
     const status = { foyer: 'Registration and information desks', plenary: 'Main stage · recordings to link', posters: '34 poster slots · abstracts to link', hallA: 'Parallel track · name and recordings to link', hallB: 'Parallel track · name and recordings to link', hallC: 'Parallel track · name and recordings to link', workshop: 'Hands-on sessions · titles to link', promenade: 'Corridor to the lounge and exhibition', lounge: 'Coffee bar and meeting seats', expo: 'Host society booth · 7 partner stands to link' };
@@ -171,11 +180,31 @@
       const row = document.createElement('div'); row.className = 'arow' + (zone && zone.id === Z.id ? ' cur' : '');
       row.innerHTML = `<div><div class="t"></div><div class="d"></div></div><button class="go">Go</button>`;
       row.querySelector('.t').textContent = Z.name; row.querySelector('.d').textContent = (LAYOUT ? byKind[Z.kind] : status[Z.id]) || byKind[Z.kind] || '';
+      // EA-SYS (phase 6 step 4): the room's sessions on the programme's day.
+      const mine = day ? roomSessions(Z.id).filter((x) => dayKey(x.t0) === day) : [];
+      if (mine.length) row.querySelector('.d').after(sessionList(mine));
       row.querySelector('.go').addEventListener('click', () => { closeSheets(); teleport(Z.id); });
       if (abil) { const wb = document.createElement('button'); wb.className = 'go walk'; wb.textContent = 'Walk'; wb.addEventListener('click', () => { closeSheets(); if (!abil.walkToZone(Z)) teleport(Z.id); }); row.querySelector('.go').before(wb); }
       L.appendChild(row);
     }
+    const elsewhere = day ? PROGRAMME.sessions.filter((x) => !x.room && dayKey(x.t0) === day) : [];
+    if (elsewhere.length) {
+      const row = document.createElement('div'); row.className = 'arow';
+      row.innerHTML = `<div><div class="t">Elsewhere</div><div class="d">Sessions whose room is not in this venue</div></div>`;
+      row.querySelector('.d').after(sessionList(elsewhere, true)); L.appendChild(row);
+    }
+    if (day) $('ak').textContent = 'Programme · ' + fmtDay(PROGRAMME.sessions.find((x) => dayKey(x.t0) === day).t0) + ' · ' + EVENT.name;
     $('agenda').hidden = false; paused = true; input.keys.clear(); audio.ui();
+  }
+  /** A room's sessions in the guide: time and title, the one on now marked. */
+  function sessionList(list, withWhere) {
+    const ul = document.createElement('ul'); ul.className = 'ases'; const now = CLOCK.now();
+    for (const x of list.slice(0, 6)) {
+      const li = document.createElement('li'); if (x.t0 <= now && now < x.t1) li.className = 'now';
+      const t = document.createElement('b'); t.textContent = fmtTime(x.t0); li.append(t, ' ' + x.title + (withWhere && x.where ? ' · ' + x.where : '')); ul.appendChild(li);
+    }
+    if (list.length > 6) { const li = document.createElement('li'); li.textContent = 'and ' + (list.length - 6) + ' more'; ul.appendChild(li); }
+    return ul;
   }
   function teleport(id, instant) {
     const Z = ZONES.find(z => z.id === id); if (!Z) return;
@@ -266,8 +295,21 @@
   }
 
   // ----- screens (low-rate canvas refresh)
+  // EA-SYS (phase 6 step 4): a room's screens show its session on now, else the next one; with no
+  // programme for the room they keep what the venue built them with.
+  let progT = Infinity;
+  function programmeScreens() {
+    for (const s of W.screens) {
+      const Z = ZONES.find((z) => z.id === s.base.zone), { cur, next } = nowNext(s.base.zone);
+      const x = cur || next;
+      if (!Z || !x) { s.spec = s.base; continue; }
+      const when = dayKey(x.t0) === dayKey(CLOCK.now()) ? fmtTime(x.t0) : fmtDay(x.t0) + ', ' + fmtTime(x.t0);
+      s.spec = { ...s.base, kicker: (cur ? 'Now · ' : 'Next · ') + Z.name, title: x.title, sub: fmtTime(x.t0) + '–' + fmtTime(x.t1) + (x.track && x.track !== Z.name ? ' · ' + x.track : ''), pill: cur ? 'ON NOW · UNTIL ' + fmtTime(x.t1) : 'STARTS ' + when.toUpperCase() };
+    }
+  }
   let scrT = 0;
   function updateScreens(dt) {
+    progT += dt; if (progT > 5) { progT = 0; programmeScreens(); }
     scrT += dt; if (scrT < 0.12) return; scrT = 0;
     for (const s of W.screens) {
       const d = Math.hypot(s.pos[0] - player.x, s.pos[2] - player.z); if (d > 45) continue;
@@ -346,6 +388,7 @@
       openNear() { updateNear(); if (near) openInfo(near); return near && near.id; },
       nearId() { updateNear(); return near && near.id; },
       measure(ms) { return new Promise(res => { const ts = []; let last = performance.now(); const t0 = last; const f = (t) => { ts.push(t - last); last = t; if (t - t0 < ms) requestAnimationFrame(f); else { ts.shift(); const s = ts.slice().sort((a, b) => a - b), mean = ts.reduce((a, b) => a + b, 0) / ts.length; res({ frames: ts.length, fps: 1000 / mean, p99: 1000 / s[Math.max(0, Math.ceil(s.length * 0.99) - 1)], simMs: stats.simMs, drawMs: stats.drawMs, draws: R.stats.draws, tris: R.stats.tris, px: canvas.width + 'x' + canvas.height }); } }; requestAnimationFrame(f); }); },
+      setNow(ms) { CLOCK.offset = ms - Date.now(); progT = Infinity; },
       place(x, z, yaw) { player.x = x; player.z = z; player.y = 0; ry = 0; player.vx = player.vz = player.vy = 0; if (yaw != null) player.yaw = yaw; },
       sim(n, inp) { Object.assign(input, { touch: true, ...inp }); for (let i = 0; i < n; i++) simStep(); input.touch = false; input.x = input.y = 0; input.run = false; updateCamera(1); return { x: player.x, y: player.y, z: player.z }; },
       tick(n) { for (let i = 0; i < n; i++) { time += DT; simStep(); if (abil) abil.stepQueues(DT); crowd.update(DT, time, player); setZone(zoneAt(player.x, player.z)); if (team && started) team.tick(DT); } updateCamera(1); return { x: player.x, z: player.z, mode: abil && abil.mode }; },

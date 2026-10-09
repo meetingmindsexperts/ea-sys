@@ -114,16 +114,20 @@ export function isVenueModuleEnabled(): boolean {
 }
 
 /**
- * The events whose online venue may be served (docs/EVENT_BLUEPRINT_PLAN.md,
- * phase 4). `VENUE_EVENT_SLUGS` is a comma-separated list of event slugs, e.g.
- * "ehc26". Unset or empty means no venue anywhere. A list rather than a yes/no
- * because the venue's rooms are EHC's, hand-built: shown under another event's
- * name it would be wrong, until rooms come from the Blueprint (phase 6).
+ * The events served EHC's hand-built venue (docs/EVENT_BLUEPRINT_PLAN.md,
+ * phase 4). `VENUE_EVENT_SLUGS` is a comma-separated list of event ids or
+ * slugs, e.g. "ehc26". Unset or empty means none. Every other event's venue
+ * comes from its own rooms (VENUE_MODULE_ENABLED and the Venue tab).
+ *
+ * Slugs are unique only within an organisation (review L4), so on the
+ * multi-tenant platform instance list event ids: a slug there could match
+ * another organisation's event. Nothing leaks if it does (the page still
+ * checks the person may see that event), but it would show EHC's rooms.
  */
-export function isVenueEnabledFor(slug: string): boolean {
+export function isVenueEnabledFor(event: { id: string; slug: string }): boolean {
   const list = (process.env.VENUE_EVENT_SLUGS ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  return list.includes(slug);
+  return list.includes(event.id) || list.includes(event.slug);
 }

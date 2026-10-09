@@ -6,7 +6,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockAuth, mockDb, ai } = vi.hoisted(() => ({
+const { mockAuth, mockDb, ai, programme } = vi.hoisted(() => ({
+  programme: { loadVenueProgramme: vi.fn() },
   mockAuth: vi.fn(),
   mockDb: { event: { findFirst: vi.fn() } },
   ai: {
@@ -29,6 +30,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/services/venue-ai-service", () => ai);
+vi.mock("@/services/venue-programme-service", () => programme);
 vi.mock("@/services/venue-service", () => ({ readVenueConfig: () => ({ filter: null, screens: null }), saveFilter: vi.fn() }));
 
 import { POST } from "@/app/api/venue/[eventId]/ai/route";
@@ -48,6 +50,7 @@ beforeEach(() => {
   mockDb.event.findFirst.mockResolvedValue(EVENT);
   ai.readVenueAi.mockReturnValue({ on: true });
   ai.claimReply.mockResolvedValue(true);
+  programme.loadVenueProgramme.mockResolvedValue({ v: 1, tz: "Asia/Dubai", sessions: [], sponsors: [] });
   ai.streamVenueReply.mockResolvedValue({ ok: true, stream: new ReadableStream({ start: (c) => { c.enqueue(new TextEncoder().encode("Hello there.")); c.close(); } }) });
   as();
 });
@@ -68,6 +71,24 @@ describe("POST /api/venue/:eventId/ai", () => {
     expect(scene).toMatchObject({ zone: "plenary", pose: "sit", event: { name: "EHC", date: "10 to 12 April 2026", venue: "Conrad Dubai" } });
     expect(scene.greeting).not.toBe("Hi"); // only the venue's own greetings reach the instructions
     expect(turns).toEqual([{ role: "user", content: "What brings you here?" }]);
+  });
+
+  it("tells the AI the event's own programme, placed in the venue's rooms", async () => {
+    programme.loadVenueProgramme.mockResolvedValue({
+      v: 1, tz: "Asia/Dubai", sponsors: [],
+      sessions: [{ room: "plenary", title: "Opening plenary", start: "2099-04-10T05:00:00.000Z", end: "2099-04-10T06:00:00.000Z" }],
+    });
+    await ask();
+    const [caller, rooms, tz] = programme.loadVenueProgramme.mock.calls[0];
+    expect(caller).toEqual({ organizationId: "org-1", eventId: "evt-1" });
+    expect(rooms).toContainEqual({ id: "plenary", name: "Plenary Ballroom" }); // EHC's own rooms
+    expect(tz).toBe("Asia/Dubai");
+    expect(ai.streamVenueReply.mock.calls[0][3].programme).toContain("Plenary Ballroom: 09:00-10:00 Opening plenary.");
+  });
+
+  it("has no programme line when the event has no sessions or sponsors", async () => {
+    await ask();
+    expect(ai.streamVenueReply.mock.calls[0][3].programme).toBeNull();
   });
 
   it("403 AI_OFF when the event team switched AI attendees off, and nothing is claimed", async () => {

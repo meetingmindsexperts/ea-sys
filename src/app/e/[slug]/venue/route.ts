@@ -19,7 +19,8 @@ import { venueDateRange } from "@/lib/venue/date-range";
 import { resolveTimezone } from "@/lib/event-time";
 import { VENUE_SAFETY_INBOX, readVenueConfig } from "@/services/venue-service";
 import { readVenueAi } from "@/services/venue-ai-service";
-import { eventLayout } from "@/lib/venue/event-venue";
+import { eventLayout, venueRooms } from "@/lib/venue/event-venue";
+import { loadVenueProgramme } from "@/services/venue-programme-service";
 import venuePage from "@/lib/venue/page-html.generated.json";
 
 type Params = { params: Promise<{ slug: string }> };
@@ -58,9 +59,12 @@ export async function GET(req: Request, { params }: Params) {
     const built = eventLayout(e);
     if (built.kind === "broken") return plainPage(503);
     const layout = built.kind === "generated" ? built.layout : null;
+    const tz = resolveTimezone(e.timezone);
+    // The sessions and sponsors the screens, agenda and stands show (phase 6 step 4).
+    const programme = await loadVenueProgramme({ organizationId: gate.organizationId, eventId: e.id }, venueRooms(built), tz);
     const ehcEvent = {
       name: e.name,
-      date: venueDateRange(e.startDate, e.endDate, resolveTimezone(e.timezone)),
+      date: venueDateRange(e.startDate, e.endDate, tz),
       ...(e.venue && { venue: e.venue }),
       // A generated venue names its own event everywhere; EHC's rooms keep EHC's short name and society.
       ...(layout && { short: (e.code || e.name).slice(0, 24), ...(e.organization?.name && { organiser: e.organization.name }) }),
@@ -73,11 +77,11 @@ export async function GET(req: Request, { params }: Params) {
       '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
       '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
       "<style>body{margin:0}[hidden]{display:none!important}</style></head><body>" +
-      `<script>window.EHC_LAYOUT=${layout ? literal(layout) : "null"};window.EHC_EVENT=${literal(ehcEvent)};window.EHC_VENUE=${literal(ehcVenue)};window.EHC_CONTACT=${literal(VENUE_SAFETY_INBOX)};window.EHC_SCREENS=${literal(screens)};</script>` +
+      `<script>window.EHC_LAYOUT=${layout ? literal(layout) : "null"};window.EHC_EVENT=${literal(ehcEvent)};window.EHC_VENUE=${literal(ehcVenue)};window.EHC_CONTACT=${literal(VENUE_SAFETY_INBOX)};window.EHC_SCREENS=${literal(screens)};window.EHC_PROGRAMME=${literal(programme)};</script>` +
       '<script src="/venue-runtime.js"></script>' +
       venuePage.html +
       "</body></html>";
-    apiLogger.info({ msg: `${ROUTE}:opened`, userId: gate.userId, eventId: e.id, team: gate.team, venue: built.kind });
+    apiLogger.info({ msg: `${ROUTE}:opened`, userId: gate.userId, eventId: e.id, team: gate.team, venue: built.kind, sessions: programme.sessions.length, sponsors: programme.sponsors.length });
     return new NextResponse(page, {
       headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" },
     });

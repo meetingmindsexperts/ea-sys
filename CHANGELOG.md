@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Online venue: the event's own sessions and sponsors (October 9)
+
+- Each room's screens show its session on now, or the next one with its time
+  (and date before the event). The Venue guide lists each room's sessions for
+  the day, plus an "Elsewhere" row for sessions whose room is not in the venue.
+- A session goes in the room its location or track is named after ("Main Hall
+  — Al Majlis" counts as Main Hall). Workshops and symposia count; break items
+  do not. The Venue tab shows, as the rooms are edited, how many sessions land
+  in each room and which ones name no room.
+- Sponsors take the exhibition's stands in tier order (platinum first), with
+  their name on the stand and their logo, description and website in the
+  stand's card; spare stands show their number.
+- AI attendees know the day's sessions room by room and which sponsors have
+  stands, and still never invent speakers or details they were not given.
+  The pre-written answers know what is on too.
+- `VENUE_EVENT_SLUGS` also accepts event ids (slugs repeat across
+  organisations), and the venue's downloads are named after the event, not
+  "ehc-2026" (review L4, L5).
+
 ### Online venue: any event can be walked, built from its own rooms (October 8)
 
 - Once an event's rooms are saved, "Open to staff" on the Venue tab makes its

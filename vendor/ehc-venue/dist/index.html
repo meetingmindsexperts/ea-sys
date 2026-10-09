@@ -108,6 +108,13 @@ body.is-touch .prompt { bottom: calc(env(safe-area-inset-bottom, 0px) + 200px); 
 .arow .go { padding: 8px 14px; border: 1px solid var(--brass); background: transparent; color: var(--brass); font-weight: 700; cursor: pointer; min-height: 40px; }
 .arow .go.walk { border-color: rgba(243,236,228,.4); color: var(--ivory); font-weight: 600; }
 .arow.cur { border-color: var(--garnet); background: rgba(163,37,58,.12); }
+#ispon { display: flex; align-items: center; gap: 16px; margin: 10px 0 4px; }
+#ispon img { max-height: 56px; max-width: 160px; object-fit: contain; background: #fff; padding: 6px; }
+#ispon a { color: var(--brass); font-weight: 600; }
+.ases { list-style: none; margin: 6px 0 0; padding: 0; font-size: 12.5px; color: var(--ivory); }
+.ases li { padding: 2px 0; }
+.ases b { display: inline-block; min-width: 44px; font: 600 11.5px var(--f-mono, monospace); color: var(--brass); }
+.ases li.now { color: #fff; } .ases li.now b::after { content: ' ●'; color: var(--garnet); }
 @media (max-width: 420px) { .arow .t { font-size: 18px; } .arow .go { padding: 8px 10px; } }
 .small { font-size: 12px !important; }
 
@@ -312,7 +319,7 @@ body.chatting .abar, body.chatting .modepill { display: none; }
   </div>
   <div class="sheet" id="agenda" hidden>
     <div class="card" role="dialog" aria-labelledby="at">
-      <div class="k"></div>
+      <div class="k" id="ak"></div>
       <h2 id="at">Venue guide</h2>
       <p class="small">Walk takes you there on foot; Go jumps you straight in. Items marked “to link” are waiting for the official agenda, sponsor list or recordings.</p>
       <div class="agenda-list" id="alist"></div>
@@ -738,14 +745,14 @@ const DRAW = {
     }
     x.restore(); return r;
   },
-  boothGraphic(A, w, h, { tier, label, color }) {
+  boothGraphic(A, w, h, { tier, label, color, foot = 'Sponsor artwork to be supplied' }) {
     const r = A.alloc(w, h), x = A.x; x.save(); x.translate(r.x, r.y);
     const g = x.createLinearGradient(0, 0, w, h); g.addColorStop(0, color); g.addColorStop(1, '#120d0e'); x.fillStyle = g; x.fillRect(0, 0, w, h);
     x.strokeStyle = 'rgba(255,255,255,.12)'; x.lineWidth = 2;
     for (let k = 0; k < 9; k++) { x.beginPath(); x.arc(w * .85, h * .9, 40 + k * 46, 0, 7); x.stroke(); }
     x.fillStyle = 'rgba(255,255,255,.6)'; x.font = `600 ${h * .07}px ${FONT_BODY}`; x.letterSpacing = '4px'; x.textBaseline = 'middle'; x.fillText(tier.toUpperCase(), w * .07, h * .16); x.letterSpacing = '0px';
-    x.fillStyle = '#fff'; x.font = `400 ${h * .16}px ${FONT_DISPLAY}`; wrapText(x, label, w * .8).forEach((l, i) => x.fillText(l, w * .07, h * .36 + i * h * .17));
-    x.fillStyle = 'rgba(255,255,255,.55)'; x.font = `500 ${h * .055}px ${FONT_BODY}`; x.fillText('Sponsor artwork to be supplied', w * .07, h * .86);
+    x.fillStyle = '#fff'; x.font = `400 ${h * .16}px ${FONT_DISPLAY}`; wrapText(x, label, w * .8).slice(0, 2).forEach((l, i) => x.fillText(l, w * .07, h * .36 + i * h * .17));
+    x.fillStyle = 'rgba(255,255,255,.55)'; x.font = `500 ${h * .055}px ${FONT_BODY}`; x.fillText(foot, w * .07, h * .86, w * .86);
     x.restore(); return r;
   },
 };
@@ -770,7 +777,7 @@ function drawScreen(c, t, s) {
   const pw = w * .26, ph = h * .07, px = w * .68, py = h * .82;
   x.fillStyle = 'rgba(243,236,228,.1)'; x.fillRect(px, py, pw, ph);
   x.fillStyle = (Math.floor(t * 1.2) % 2) ? '#c8a46a' : '#8e1b2c'; x.beginPath(); x.arc(px + ph * .5, py + ph * .5, ph * .16, 0, 7); x.fill();
-  x.fillStyle = '#f3ece4'; x.font = `600 ${h * .032}px ${FONT_MONO}`; x.fillText('RECORDING SLOT · NOT LINKED', px + ph * .9, py + ph * .52, pw - ph);
+  x.fillStyle = '#f3ece4'; x.font = `600 ${h * .032}px ${FONT_MONO}`; x.fillText(s.pill || 'RECORDING SLOT · NOT LINKED', px + ph * .9, py + ph * .52, pw - ph);
 }
 
 // ---------- Venue: Emirates Hematology Conference 2026 · Conrad Dubai (digital twin layout) ----------
@@ -829,6 +836,47 @@ if (LAYOUT) {
     if (note) note.textContent = 'The rooms are the event team\'s own list. Session titles, speakers and sponsors are placeholders until the agenda is supplied.';
   }
 }
+// EA-SYS (phase 6 step 4): the event's own programme, sent by EA-SYS as window.EHC_PROGRAMME: sessions
+// already placed in rooms (`room` is a zone id, or null for one that names no room) and the sponsors in
+// the order they take stands. Absent or malformed, the venue keeps its placeholders.
+const PROGRAMME = (() => {
+  const P = typeof window !== 'undefined' ? window.EHC_PROGRAMME : null;
+  const str = (v, n) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : '');
+  if (!P || P.v !== 1) return { tz: undefined, sessions: [], sponsors: [] };
+  const sessions = (Array.isArray(P.sessions) ? P.sessions : []).map((x) => x && {
+    room: typeof x.room === 'string' ? x.room : null, title: str(x.title, 140), track: str(x.track, 80), where: str(x.where, 80), t0: Date.parse(x.start), t1: Date.parse(x.end),
+  }).filter((x) => x && x.title && x.t0 && x.t1 >= x.t0).sort((a, b) => a.t0 - b.t0);
+  const sponsors = (Array.isArray(P.sponsors) ? P.sponsors : []).map((x) => x && {
+    name: str(x.name, 80), tier: str(x.tier, 20), about: str(x.about, 400),
+    logo: /^(\/uploads\/|https:\/\/)/.test(str(x.logo, 300)) ? str(x.logo, 300) : '', website: /^https?:\/\//.test(str(x.website, 300)) ? str(x.website, 300) : '',
+  }).filter((x) => x && x.name);
+  let tz; try { tz = new Intl.DateTimeFormat('en-GB', { timeZone: P.tz }).resolvedOptions().timeZone; } catch (e) { tz = undefined; }
+  return { tz, sessions, sponsors };
+})();
+/** The event's short name as a file name part ("EHC 2026" gives "ehc-2026"), for downloads (review L5). */
+const FILE_TAG = EVENT.short.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'venue';
+/** The venue's clock; tests set it through __EHC.setNow. */
+const CLOCK = { offset: 0, now() { return Date.now() + this.offset; } };
+const fmtTime = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: PROGRAMME.tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(ms);
+const fmtDay = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: PROGRAMME.tz, weekday: 'short', day: 'numeric', month: 'short' }).format(ms);
+const dayKey = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: PROGRAMME.tz }).format(ms);
+/** A room's sessions, in time order. */
+function roomSessions(id) { return PROGRAMME.sessions.filter((x) => x.room === id); }
+/** The session on now in a room, and the next one to start. */
+function nowNext(id, now = CLOCK.now()) {
+  const list = roomSessions(id);
+  return { cur: list.find((x) => x.t0 <= now && now < x.t1) || null, next: list.find((x) => x.t0 > now) || null };
+}
+/** The day the agenda shows: today if the programme has it, else the first day ahead, else the last one. */
+function programmeDay(now = CLOCK.now()) {
+  const days = [...new Set(PROGRAMME.sessions.map((x) => dayKey(x.t0)))].sort(); if (!days.length) return null;
+  const today = dayKey(now); if (days.includes(today)) return today;
+  return today < days[0] ? days[0] : days.filter((d) => d < today).pop();
+}
+/** The sponsor on stand n (1-based), by tier order. */
+function sponsorOn(n) { return PROGRAMME.sponsors[n - 1] || null; }
+const tierWord = (t) => (t ? t[0].toUpperCase() + t.slice(1) + ' sponsor' : 'Sponsor');
+
 /** The first room of a kind (a generated venue's ids are the organisers'), or null. */
 function zoneOfKind(kind) { return ZONES.find((z) => z.kind === kind) || null; }
 
@@ -1273,10 +1321,13 @@ function buildWorld(R, Q) {
     const rectOf = (f) => ('r' in f ? [f.cx - f.r, f.cz - f.r, f.cx + f.r, f.cz + f.r] : [f.x0, f.z0, f.x1, f.z1]);
     const dirOf = (yaw) => [Math.round(Math.sin(yaw)), Math.round(Math.cos(yaw))];
     const gold = [0.82, 0.66, 0.4, 0], garnet = [0.5, 0.11, 0.17, 0], dark = [0.18, 0.18, 0.2, 0], slate = [0.28, 0.3, 0.34, 0];
-    const stand = (x0, z0, x1, z1, face, label, tier) => {
+    const stand = (x0, z0, x1, z1, face, label, tier, n) => {
       const [dx, dz] = dirOf(face), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
       box('carpet', x0, 0, z0, x1, 0.1, z1, tier === 1 ? [0.36, 0.3, 0.2, 0] : [0.3, 0.3, 0.33, 0], { col: true });
-      const key = 'stand' + tier + label, gr = signCache[key] || (signCache[key] = DRAW.boothGraphic(A, 420, 170, { tier: tier === 1 ? 'Gold partner' : 'Partner', label, color: tier === 1 ? '#7a5a22' : '#3e4a56' }));
+      // EA-SYS: stand n carries the nth sponsor by tier; a stand with none shows its number.
+      const sp = sponsorOn(n), host = sp && sp.website ? sp.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '') : '';
+      const spec = sp ? { tier: tierWord(sp.tier), label: sp.name, foot: host, color: tier === 1 ? '#7a5a22' : '#3e4a56' } : { tier: 'Exhibition', label, foot: 'Available', color: '#3e4a56' };
+      const key = 'stand' + tier + spec.tier + spec.label, gr = signCache[key] || (signCache[key] = DRAW.boothGraphic(A, 420, 170, spec));
       if (dz) { // back wall along x, at the side the stand turns its back on
         const bz = dz > 0 ? z0 + 0.1 : z1 - 0.1;
         box('plain', x0, 0.1, bz - 0.1, x1, 3.2, bz + 0.1, [0.95, 0.94, 0.92, 0], { col: true });
@@ -1339,7 +1390,7 @@ function buildWorld(R, Q) {
     for (const it of L.items) {
       const [x0, z0, x1, z1] = rectOf(it.foot), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, big = zoneOf(it.zone).kind === 'plenary';
       if (it.t === 'stage') { box('wood', x0, 0, z0, x1, it.h, z1, [0.22, 0.15, 0.13, 0], { col: true }); box('emis', x0 - 0.01, it.h - 0.06, z0 - 0.01, x1 + 0.01, it.h - 0.02, z1 + 0.01, [0.4, 0.8, 0.9, 0.8]); }
-      else if (it.t === 'screen') screen(it.x, it.y, it.z, it.w, it.hgt, it.yaw, { kicker: it.kicker, title: it.title, sub: it.sub, ...(big ? { plenary: true } : {}) });
+      else if (it.t === 'screen') screen(it.x, it.y, it.z, it.w, it.hgt, it.yaw, { kicker: it.kicker, title: it.title, sub: it.sub, zone: it.zone, ...(big ? { plenary: true } : {}) });
       else if (it.t === 'row') {
         const [ax, az] = it.p0, [ex, ez] = it.p1;
         for (let i = 0; i < it.n; i++) { const t = it.n > 1 ? i / (it.n - 1) : 0; chair(ax + (ex - ax) * t, az + (ez - az) * t, it.yaw, big ? gold : dark, big ? garnet : slate, seats); }
@@ -1351,7 +1402,7 @@ function buildWorld(R, Q) {
         for (let k = 0; k < it.chairs; k++) { const a = k / it.chairs * Math.PI * 2 + 0.3, chx = it.cx + Math.cos(a) * 1.45, chz = it.cz + Math.sin(a) * 1.45; chair(chx, chz, Math.atan2(it.cx - chx, it.cz - chz), [0.2, 0.2, 0.22, 0], [0.32, 0.3, 0.3, 0], seats); colliders.push({ c: 1, cx: chx, cz: chz, r: 0.3, y0: 0, y1: 0.95 }); }
         blob(it.cx, it.cz, 4, 4);
       }
-      else if (it.t === 'stand') stand(x0, z0, x1, z1, it.face, it.label, it.tier);
+      else if (it.t === 'stand') stand(x0, z0, x1, z1, it.face, it.label, it.tier, it.n);
       else if (it.t === 'poster') poster(x0, z0, x1, z1);
       else if (it.t === 'sofa') sofas(x0, z0, x1, z1);
       else if (it.t === 'bar') bar(x0, z0, x1, z1, it.yaw);
@@ -1361,7 +1412,12 @@ function buildWorld(R, Q) {
       else if (it.t === 'sign') sign(it.x, it.y, it.z, it.w, it.hgt, it.yaw, it.kicker ? { kicker: it.kicker, title: it.title, sub: it.sub } : { title: it.title, sub: it.sub });
     }
     for (const p of L.people) people.push({ ...p });
-    for (const h of L.hotspots) hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind);
+    for (const h of L.hotspots) {
+      const sp = h.kind === 'stand' ? sponsorOn(+h.id.replace('stand-', '')) : null;
+      if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); continue; }
+      hit(h.id, h.x, h.z, h.r, 'Visit ' + sp.name, sp.name, sp.about || tierWord(sp.tier) + ' of ' + EVENT.short + '.', h.kind);
+      interact[interact.length - 1].sponsor = sp;
+    }
     // the event's banners either side of the way into the corridor, inside the foyer
     const cor = zoneOfKind('corridor'), foy = zoneOfKind('foyer');
     if (cor && foy) for (const x of [cor.rect[0] - 1.6, cor.rect[2] + 1.6]) if (x > foy.rect[0] + 1.2 && x < foy.rect[2] - 1.2) banner(x);
@@ -1380,6 +1436,8 @@ function buildWorld(R, Q) {
   if (B.inlay) late.push(R.upload(B.inlay, T.inlay));
   if (B.shadow) late.push(R.upload(B.shadow, T.blob));
   if (B.glass) late.push(R.upload(B.glass, null));
+  // EA-SYS (phase 6 step 4): each screen knows its room, so it can show that room's session (game.js).
+  for (const s of screens) { if (!s.spec.zone) { const Z = zoneAt(s.pos[0], s.pos[2]); s.spec.zone = Z ? Z.id : ''; } s.base = s.spec; }
   return { draws, screenDraws, late, colliders, lights, interact, people, screens, seats, balls, routes, halo, T, stats };
 }
 
@@ -2233,8 +2291,34 @@ class Social {
     if (/regist|badge/.test(s)) return at('foyer', (n) => `Registration is the long desk in the ${n}, as you come in.`);
     return null;
   }
+  // EA-SYS (phase 6 step 4): answers from the event's own programme, before the venue's general ones.
+  programmeAnswer(q) {
+    const s = q.toLowerCase(), now = CLOCK.now();
+    if (LAYOUT && PROGRAMME.sponsors.length && /exhib|booth|stand|sponsor/.test(s)) {
+      const Z = zoneOfKind('exhibition'), names = PROGRAMME.sponsors.slice(0, 3).map((x) => x.name);
+      const list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
+      if (Z) return { text: `The stands are in the ${Z.name}. ${list} ${names.length > 1 ? 'are' : 'is'} there, among others.`, go: Z.id, gesture: 'point' };
+    }
+    if (!PROGRAMME.sessions.length || !/programme|program|agenda|session|what.?s on|next|talk|lecture|track|hall|room/.test(s)) return null;
+    const named = ZONES.filter((z) => z.kind !== 'corridor' && s.includes(z.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0];
+    const here = this.ctx.zone && this.ctx.zone();
+    const Z = named || (here && roomSessions(here.id).length ? here : null);
+    if (Z) {
+      const { cur, next } = nowNext(Z.id, now);
+      if (cur) return { text: `${cur.title} is on in the ${Z.name} until ${fmtTime(cur.t1)}.`, go: Z.id, gesture: 'point' };
+      if (next) return { text: `Next in the ${Z.name}: ${next.title}, at ${dayKey(next.t0) === dayKey(now) ? fmtTime(next.t0) : fmtDay(next.t0) + ', ' + fmtTime(next.t0)}.`, go: Z.id, gesture: 'point' };
+      return { text: `Nothing more is on in the ${Z.name}. The Venue guide has the rest of the programme.`, gesture: 'think' };
+    }
+    const soon = PROGRAMME.sessions.find((x) => x.room && x.t1 > now);
+    const R = soon && ZONES.find((z) => z.id === soon.room);
+    if (!R) return null;
+    return soon.t0 <= now
+      ? { text: `${soon.title} is on now in the ${R.name}. The Venue guide lists every room.`, go: R.id, gesture: 'point' }
+      : { text: `Next up is ${soon.title} in the ${R.name}, at ${fmtTime(soon.t0)}. The Venue guide lists every room.`, go: R.id, gesture: 'point' };
+  }
   scripted(per, npc, q) {
     const s = q.toLowerCase();
+    if (!/[؀-ۿ]/.test(q)) { const a = this.programmeAnswer(q); if (a) return a; }
     if (LAYOUT && !/[؀-ۿ]/.test(q)) { const a = this.layoutAnswer(q); if (a) return a; }
     if (/[؀-ۿ]/.test(q)) return { text: 'أهلاً وسهلاً! سعيد بلقائك في المؤتمر.', gesture: 'nod' };
     if (/coffee|tea|drink|قهوة/.test(s)) return { text: 'The coffee bar is in the Networking Lounge, through the East Promenade. There’s also a coffee point in the Exhibition Hall.', go: 'lounge', gesture: 'point' };
@@ -2640,7 +2724,7 @@ class Abilities {
     $('photoClose').addEventListener('click', () => { $('photoSheet').hidden = true; this.ctx.onSheet(false); });
     $('photoSave').addEventListener('click', async () => {
       const p = this.lastPhoto; if (!p) return; const note = $('photoNote');
-      const blob = await (await fetch(p.url)).blob(); const name = 'ehc-2026-photo-' + Date.now() + '.jpg';
+      const blob = await (await fetch(p.url)).blob(); const name = FILE_TAG + '-photo-' + Date.now() + '.jpg';
       const dl = this.ctx.downloads && await this.ctx.downloads();
       if (dl) { try { const r = await dl.save({ filename: name, data: blob }); note.textContent = r && r.status === 'saved' ? 'Saved.' : 'Sent.'; } catch (e) { note.textContent = e && e.code === 'cancelled' ? '' : 'Couldn’t save the photo here. Long-press the picture to save it instead.'; } }
       else note.textContent = 'Long-press or right-click the picture to save it.';
@@ -2887,8 +2971,8 @@ class EventTeam {
     const zRows = ZONES.filter(z => zones[z.id] && zones[z.id].sec > 0).map(z => [z.name, zones[z.id].people, mins(zones[z.id].sec), mins(zones[z.id].people ? zones[z.id].sec / zones[z.id].people : 0), qs[z.id] || 0]);
     box.appendChild(el('h3', 'Areas')); box.appendChild(zRows.length ? tbl(['Area', 'People', 'Total time', 'Avg per person', 'Questions asked'], zRows) : el('p', 'No visits yet.', 'small'));
     const act = el('div', null, 'actions'), b1 = el('button', 'Download stands (CSV)', 'ghost'), b2 = el('button', 'Download named visitors (CSV)', 'ghost');
-    b1.addEventListener('click', () => this.download('ehc-2026-stand-activity.csv', this.csv(['Stand', 'People', 'Visits', 'Average seconds per visit', 'Info opened', 'Named visitors'], Object.entries(stands).map(([k, s]) => [this.standName(k), s.people, s.visits, Math.round(s.visits ? s.sec / s.visits : 0), s.opens, s.named.length]))));
-    b2.addEventListener('click', () => this.download('ehc-2026-named-visitors.csv', this.csv(['Name', 'Stand', 'Visits', 'Seconds', 'Info opened'], named.flatMap(d => Object.entries(d.stands || {}).filter(([, v]) => n(v.visits) || n(v.opens)).map(([k, v]) => [String(d.name).slice(0, 80), this.standName(k), n(v.visits), Math.round(n(v.sec)), n(v.opens)])))));
+    b1.addEventListener('click', () => this.download(FILE_TAG + '-stand-activity.csv', this.csv(['Stand', 'People', 'Visits', 'Average seconds per visit', 'Info opened', 'Named visitors'], Object.entries(stands).map(([k, s]) => [this.standName(k), s.people, s.visits, Math.round(s.visits ? s.sec / s.visits : 0), s.opens, s.named.length]))));
+    b2.addEventListener('click', () => this.download(FILE_TAG + '-named-visitors.csv', this.csv(['Name', 'Stand', 'Visits', 'Seconds', 'Info opened'], named.flatMap(d => Object.entries(d.stands || {}).filter(([, v]) => n(v.visits) || n(v.opens)).map(([k, v]) => [String(d.name).slice(0, 80), this.standName(k), n(v.visits), Math.round(n(v.sec)), n(v.opens)])))));
     act.append(b1, b2); box.appendChild(act);
   }
   csv(head, rows) { const q = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }; return [head, ...rows].map(r => r.map(q).join(',')).join('\r\n'); }
@@ -3190,13 +3274,22 @@ class EventTeam {
   function openInfo(h) {
     audio.ui();
     $('ik').textContent = (zone ? zone.name : '') + ' · ' + EVENT.venue; $('it').textContent = h.title; $('ib').textContent = h.body;
-    const tags = h.kind === 'screen' ? [['Recording · to link', 1], ['Track · from agenda', 1], ['Spatial audio · ready', 0]] : (/booth|platinum/.test(h.id) || h.kind === 'stand') && !/Society/.test(h.title) ? [['Sponsor · to link', 1], ['Artwork · to supply', 1]] : /poster/.test(h.id) ? [['Abstracts · to link', 1]] : [];
+    const linked = h.kind === 'screen' && zone && roomSessions(zone.id).length;
+    const tags = h.sponsor ? [[tierWord(h.sponsor.tier), 0]] : h.kind === 'screen' ? [['Recording · to link', 1], linked ? ['Agenda · linked', 0] : ['Track · from agenda', 1], ['Spatial audio · ready', 0]] : (/booth|platinum/.test(h.id) || h.kind === 'stand') && !/Society/.test(h.title) ? [['Sponsor · to link', 1], ['Artwork · to supply', 1]] : /poster/.test(h.id) ? [['Abstracts · to link', 1]] : [];
     $('itags').innerHTML = ''; for (const [t, w] of tags) { const s = document.createElement('span'); s.className = 'tag' + (w ? ' warn' : ''); s.textContent = t; $('itags').appendChild(s); }
+    // EA-SYS (phase 6 step 4): a sponsor's stand shows its logo and website.
+    const old = $('ispon'); if (old) old.remove();
+    if (h.sponsor && (h.sponsor.logo || h.sponsor.website)) {
+      const box = document.createElement('div'); box.id = 'ispon';
+      if (h.sponsor.logo) { const img = document.createElement('img'); img.src = h.sponsor.logo; img.alt = h.sponsor.name + ' logo'; img.referrerPolicy = 'no-referrer'; img.addEventListener('error', () => img.remove()); box.appendChild(img); }
+      if (h.sponsor.website) { const a = document.createElement('a'); a.href = h.sponsor.website; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'Visit their website'; box.appendChild(a); }
+      $('ib').after(box);
+    }
     if (team) { team.event('open', h.id); const si = team.screenForHotspot(h); let sb = $('isound'); if (sb) sb.remove(); if (si >= 0) { sb = document.createElement('button'); sb.id = 'isound'; sb.className = 'ghost'; const lab = () => { const cfg = team.videoFor(si), v = cfg && team.videos[cfg.url]; sb.textContent = v && v.sound ? 'Mute the recording' : 'Play with sound'; }; lab(); sb.addEventListener('click', () => { team.toggleSound(si); lab(); }); $('iclose').before(sb); } }
     $('info').hidden = false; paused = true; input.keys.clear(); $('iclose').focus();
   }
   function openAgenda() {
-    const L = $('alist'); L.innerHTML = '';
+    const L = $('alist'); L.innerHTML = ''; const day = programmeDay();
     // EA-SYS: a generated venue's rooms are described by what they are for (their ids are the organisers').
     const byKind = { foyer: 'Registration and information desks', plenary: 'Main stage', hall: 'Parallel sessions', workshop: 'Hands-on sessions', posters: 'Abstract posters', exhibition: 'Partner stands', lounge: 'Coffee bar and meeting seats', corridor: 'To every room' };
     const status = { foyer: 'Registration and information desks', plenary: 'Main stage · recordings to link', posters: '34 poster slots · abstracts to link', hallA: 'Parallel track · name and recordings to link', hallB: 'Parallel track · name and recordings to link', hallC: 'Parallel track · name and recordings to link', workshop: 'Hands-on sessions · titles to link', promenade: 'Corridor to the lounge and exhibition', lounge: 'Coffee bar and meeting seats', expo: 'Host society booth · 7 partner stands to link' };
@@ -3204,11 +3297,31 @@ class EventTeam {
       const row = document.createElement('div'); row.className = 'arow' + (zone && zone.id === Z.id ? ' cur' : '');
       row.innerHTML = `<div><div class="t"></div><div class="d"></div></div><button class="go">Go</button>`;
       row.querySelector('.t').textContent = Z.name; row.querySelector('.d').textContent = (LAYOUT ? byKind[Z.kind] : status[Z.id]) || byKind[Z.kind] || '';
+      // EA-SYS (phase 6 step 4): the room's sessions on the programme's day.
+      const mine = day ? roomSessions(Z.id).filter((x) => dayKey(x.t0) === day) : [];
+      if (mine.length) row.querySelector('.d').after(sessionList(mine));
       row.querySelector('.go').addEventListener('click', () => { closeSheets(); teleport(Z.id); });
       if (abil) { const wb = document.createElement('button'); wb.className = 'go walk'; wb.textContent = 'Walk'; wb.addEventListener('click', () => { closeSheets(); if (!abil.walkToZone(Z)) teleport(Z.id); }); row.querySelector('.go').before(wb); }
       L.appendChild(row);
     }
+    const elsewhere = day ? PROGRAMME.sessions.filter((x) => !x.room && dayKey(x.t0) === day) : [];
+    if (elsewhere.length) {
+      const row = document.createElement('div'); row.className = 'arow';
+      row.innerHTML = `<div><div class="t">Elsewhere</div><div class="d">Sessions whose room is not in this venue</div></div>`;
+      row.querySelector('.d').after(sessionList(elsewhere, true)); L.appendChild(row);
+    }
+    if (day) $('ak').textContent = 'Programme · ' + fmtDay(PROGRAMME.sessions.find((x) => dayKey(x.t0) === day).t0) + ' · ' + EVENT.name;
     $('agenda').hidden = false; paused = true; input.keys.clear(); audio.ui();
+  }
+  /** A room's sessions in the guide: time and title, the one on now marked. */
+  function sessionList(list, withWhere) {
+    const ul = document.createElement('ul'); ul.className = 'ases'; const now = CLOCK.now();
+    for (const x of list.slice(0, 6)) {
+      const li = document.createElement('li'); if (x.t0 <= now && now < x.t1) li.className = 'now';
+      const t = document.createElement('b'); t.textContent = fmtTime(x.t0); li.append(t, ' ' + x.title + (withWhere && x.where ? ' · ' + x.where : '')); ul.appendChild(li);
+    }
+    if (list.length > 6) { const li = document.createElement('li'); li.textContent = 'and ' + (list.length - 6) + ' more'; ul.appendChild(li); }
+    return ul;
   }
   function teleport(id, instant) {
     const Z = ZONES.find(z => z.id === id); if (!Z) return;
@@ -3299,8 +3412,21 @@ class EventTeam {
   }
 
   // ----- screens (low-rate canvas refresh)
+  // EA-SYS (phase 6 step 4): a room's screens show its session on now, else the next one; with no
+  // programme for the room they keep what the venue built them with.
+  let progT = Infinity;
+  function programmeScreens() {
+    for (const s of W.screens) {
+      const Z = ZONES.find((z) => z.id === s.base.zone), { cur, next } = nowNext(s.base.zone);
+      const x = cur || next;
+      if (!Z || !x) { s.spec = s.base; continue; }
+      const when = dayKey(x.t0) === dayKey(CLOCK.now()) ? fmtTime(x.t0) : fmtDay(x.t0) + ', ' + fmtTime(x.t0);
+      s.spec = { ...s.base, kicker: (cur ? 'Now · ' : 'Next · ') + Z.name, title: x.title, sub: fmtTime(x.t0) + '–' + fmtTime(x.t1) + (x.track && x.track !== Z.name ? ' · ' + x.track : ''), pill: cur ? 'ON NOW · UNTIL ' + fmtTime(x.t1) : 'STARTS ' + when.toUpperCase() };
+    }
+  }
   let scrT = 0;
   function updateScreens(dt) {
+    progT += dt; if (progT > 5) { progT = 0; programmeScreens(); }
     scrT += dt; if (scrT < 0.12) return; scrT = 0;
     for (const s of W.screens) {
       const d = Math.hypot(s.pos[0] - player.x, s.pos[2] - player.z); if (d > 45) continue;
@@ -3379,6 +3505,7 @@ class EventTeam {
       openNear() { updateNear(); if (near) openInfo(near); return near && near.id; },
       nearId() { updateNear(); return near && near.id; },
       measure(ms) { return new Promise(res => { const ts = []; let last = performance.now(); const t0 = last; const f = (t) => { ts.push(t - last); last = t; if (t - t0 < ms) requestAnimationFrame(f); else { ts.shift(); const s = ts.slice().sort((a, b) => a - b), mean = ts.reduce((a, b) => a + b, 0) / ts.length; res({ frames: ts.length, fps: 1000 / mean, p99: 1000 / s[Math.max(0, Math.ceil(s.length * 0.99) - 1)], simMs: stats.simMs, drawMs: stats.drawMs, draws: R.stats.draws, tris: R.stats.tris, px: canvas.width + 'x' + canvas.height }); } }; requestAnimationFrame(f); }); },
+      setNow(ms) { CLOCK.offset = ms - Date.now(); progT = Infinity; },
       place(x, z, yaw) { player.x = x; player.z = z; player.y = 0; ry = 0; player.vx = player.vz = player.vy = 0; if (yaw != null) player.yaw = yaw; },
       sim(n, inp) { Object.assign(input, { touch: true, ...inp }); for (let i = 0; i < n; i++) simStep(); input.touch = false; input.x = input.y = 0; input.run = false; updateCamera(1); return { x: player.x, y: player.y, z: player.z }; },
       tick(n) { for (let i = 0; i < n; i++) { time += DT; simStep(); if (abil) abil.stepQueues(DT); crowd.update(DT, time, player); setZone(zoneAt(player.x, player.z)); if (team && started) team.tick(DT); } updateCamera(1); return { x: player.x, z: player.z, mode: abil && abil.mode }; },

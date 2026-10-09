@@ -3193,6 +3193,8 @@ export interface VenueRoomsData {
   /** The generated venue is open to staff (only with saved rooms). */
   open?: boolean;
   slug?: string;
+  /** The event's sessions and sponsor count, to show which room each lands in; null when they could not be read. */
+  programme?: { sessions: { title: string; location: string | null; track: string | null }[]; sponsors: number } | null;
 }
 
 export function useVenueRooms(eventId: string) {
