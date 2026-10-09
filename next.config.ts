@@ -83,6 +83,14 @@ const nextConfig: NextConfig = {
           { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=()" },
         ],
       },
+      {
+        // The Blueprint's Speak button (Talk it through) listens through the browser's own speech
+        // recognition, which the global microphone=() would block. Only this one page, only our origin.
+        source: "/blueprint",
+        headers: [
+          { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=(), interest-cohort=()" },
+        ],
+      },
     ];
   },
 

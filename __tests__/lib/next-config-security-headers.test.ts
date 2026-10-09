@@ -31,6 +31,13 @@ describe("next.config.ts security headers", () => {
     }
   });
 
+  it("blocks the microphone everywhere except the Zoom session pages and the Blueprint's Speak button", () => {
+    const global = source.slice(source.indexOf('source: "/(.*)"'), source.indexOf("/admin/docs/:path+"));
+    expect(global).toContain("microphone=()");
+    const rules = [...source.matchAll(/source: "([^"]+)",\s*headers: \[\s*\{ key: "Permissions-Policy", value: "([^"]+)"/g)].map((m) => [m[1], m[2]]);
+    expect(rules.filter(([, v]) => v.includes("microphone=(self)")).map(([src]) => src).sort()).toEqual(["/blueprint", "/e/:slug/session/:path*"]);
+  });
+
   it("keeps HSTS long-lived with subdomains and preload", () => {
     expect(source).toMatch(/Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload"/);
   });

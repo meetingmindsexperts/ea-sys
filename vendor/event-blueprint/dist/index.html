@@ -46,6 +46,17 @@ h1, h2, h3 { font-family: var(--f-display); font-weight: 600; text-wrap: balance
 .primary, .assist { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .primary:hover, .assist:hover { filter: brightness(1.08); }
 .secondary, .ghostbtn, .tpl { background: var(--surface); border-color: var(--line); color: var(--ink); }
+/* The mic's button, language and message sit in the tools row itself; the message takes its own line. */
+.microw { display: contents; }
+.microw .note { flex-basis: 100%; order: 9; margin: 0; }
+.microw .note:empty { display: none; }
+.tools:has(.microw) { align-items: center; }
+.mic::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.mic.on { border-color: #c0392b; color: #c0392b; }
+.mic.on::before { background: #c0392b; animation: micpulse 1s ease-in-out infinite; }
+@keyframes micpulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .mic.on::before { animation: none; } }
+.miclang { width: auto; min-height: 40px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); padding: 0 8px; font: inherit; font-size: 14px; }
 .secondary:hover, .ghostbtn:hover, .tpl:hover { background: var(--surface-2); border-color: var(--line-2); }
 .ghostbtn { font-size: 13.5px; }
 .assist:disabled, .primary:disabled { opacity: .6; cursor: progress; }
@@ -1993,11 +2004,45 @@ const Platform = (() => {
   }
   let qf = { file: null, keep: true, items: null };
   function openQF() { qf = { file: null, keep: true, items: null }; $('qf').hidden = false; drawQF(); setTimeout(() => { const t = $('qfText'); t && t.focus(); }, 30); }
-  function closeQF() { $('qf').hidden = true; }
+  function closeQF() { stopMic(); $('qf').hidden = true; }
+  // EA-SYS: the Speak button (Talk it through, option A, Oct 9 2026). The browser's own speech
+  // recognition types into the box as the person talks; the box's text then goes through the same
+  // fill-and-review as typed words. Chrome, Edge and Safari have it; elsewhere the button is a hint.
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let mic = null;
+  function stopMic() { if (!mic) return; const m = mic; mic = null; m.rec.onend = null; try { m.rec.stop(); } catch (e) { } m.done(); }
+  function micControl(ta) {
+    if (!SpeechRec) return h('span', { class: 'note', text: 'To speak instead of typing, use your device’s dictation: the keyboard microphone on a phone, Fn twice on a Mac, Win+H on Windows.' });
+    const lang = h('select', { id: 'qfLang', class: 'miclang', 'aria-label': 'Language you will speak' }, h('option', { value: 'en-GB', text: 'English' }), h('option', { value: 'ar-AE', text: 'العربية' }));
+    if (/^ar\b/i.test(navigator.language || '')) lang.value = 'ar-AE';
+    const btn = h('button', { type: 'button', id: 'qfMic', class: 'ghostbtn mic', 'aria-pressed': 'false', text: 'Speak' });
+    const live = h('span', { class: 'note', id: 'qfMicNote', 'aria-live': 'polite' });
+    const idle = () => { btn.textContent = 'Speak'; btn.setAttribute('aria-pressed', 'false'); btn.classList.remove('on'); lang.disabled = false; };
+    const FATAL = { 'not-allowed': 'The microphone is blocked. Allow it for this page in the browser, or type instead.', 'service-not-allowed': 'The microphone is blocked. Allow it for this page in the browser, or type instead.', 'audio-capture': 'No microphone was found. Type instead.', 'network': 'Speech needs an internet connection. Type instead.', 'language-not-supported': 'This browser cannot listen in that language. Try the other one, or type.' };
+    ta.addEventListener('input', () => { if (mic) mic.base = ta.value; });
+    btn.addEventListener('click', () => {
+      if (mic) { stopMic(); live.textContent = 'Stopped. Edit the text if you need to, then fill the blueprint.'; return; }
+      const rec = new SpeechRec(); rec.lang = lang.value; rec.continuous = true; rec.interimResults = true;
+      mic = { rec, base: ta.value ? ta.value.replace(/\s*$/, ' ') : '', done: idle };
+      rec.onresult = (e) => {
+        if (!mic) return; let heard = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) { const t = e.results[i][0].transcript; if (e.results[i].isFinal) mic.base += t.trim() + ' '; else heard += t; }
+        ta.value = mic.base + heard; qf.text = ta.value;
+      };
+      rec.onerror = (e) => { if (FATAL[e.error]) { live.textContent = FATAL[e.error]; stopMic(); } else if (e.error === 'no-speech') live.textContent = 'Nothing heard yet. Speak a little closer to the microphone.'; };
+      // Browsers stop listening after a pause; keep going until the person presses Stop.
+      rec.onend = () => { if (!mic || mic.rec !== rec) return; try { rec.start(); } catch (err) { stopMic(); } };
+      try { rec.start(); } catch (err) { mic = null; live.textContent = 'Couldn’t start the microphone. Type instead.'; return; }
+      btn.textContent = 'Stop'; btn.setAttribute('aria-pressed', 'true'); btn.classList.add('on'); lang.disabled = true;
+      live.textContent = 'Listening. Talk naturally; press Stop when you are done.';
+    });
+    return h('span', { class: 'microw' }, btn, lang, live);
+  }
   $('qfClose').addEventListener('click', closeQF);
   $('qf').addEventListener('pointerdown', (e) => { if (e.target.id === 'qf') closeQF(); });
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('qf').hidden) closeQF(); });
   function drawQF() {
+    stopMic();
     const body = $('qfBody'); body.innerHTML = '';
     if (qf.items) return drawReview(body);
     const ta = h('textarea', { id: 'qfText', rows: 8, placeholder: 'e.g. ' + qfExample() }); ta.value = qf.text || ''; ta.addEventListener('input', () => { qf.text = ta.value; });
@@ -2009,13 +2054,14 @@ const Platform = (() => {
     const status = h('div', { class: 'note', id: 'qfStatus', 'aria-live': 'polite' });
     const go = h('button', { class: 'primary', text: aiOn() ? 'Fill the blueprint' : 'Save as notes', onclick: () => runQF(go, status) });
     body.append(
-      h('p', { class: 'help', text: 'Describe the event in your own words. On a phone, tap the microphone on your keyboard and just talk: what it is, who it’s for, when and where, the feel, the programme, partners. You can also add a programme, brochure, sponsor list or floor plan.' }),
-      ta, h('div', { class: 'tools' }, h('label', { class: 'tpl', for: 'qfFile', role: 'button', tabindex: '0', text: 'Add a document', onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileIn.click(); } } }), fileIn), chip, keep,
+      h('p', { class: 'help', text: 'Describe the event in your own words. Press Speak and just talk, or type: what it is, who it’s for, when and where, the feel, the programme, partners. You can also add a programme, brochure, sponsor list or floor plan.' }),
+      ta, h('div', { class: 'tools' }, micControl(ta), h('label', { class: 'tpl', for: 'qfFile', role: 'button', tabindex: '0', text: 'Add a document', onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileIn.click(); } } }), fileIn), chip, keep,
       h('div', { class: 'note', text: aiOn() ? 'Nothing changes until you review what was found.' : 'AI filling isn’t available here, so your words are saved as notes for the build team.' }),
       status, h('div', { class: 'actions' }, go, h('button', { class: 'secondary', text: 'Cancel', onclick: closeQF })));
   }
   const qfExample = () => ({ gala: 'A one-night awards dinner for about 400 guests in Dubai next March. Black-tie, warm and proud. Red carpet, dinner, ceremony, then a party…', launch: 'We are revealing our new product to 300 guests and press in the spring, with a live countdown and demo areas…', festival: 'Three nights of music in the desert for 10,000 fans, two stages, food market, VIP deck…', private: 'Our wedding in a garden venue, about 250 guests, with family joining online from abroad…' }[S.type] || 'It’s a one-day event for about 500 people next spring. We want it to feel bold and premium. There’s a main stage, three smaller rooms and a networking lounge…');
   async function runQF(btn, status) {
+    stopMic();
     const words = (qf.text || '').trim();
     if (!words && !qf.file) { status.textContent = 'Say something or add a document first.'; return; }
     btn.disabled = true; status.classList.remove('err');

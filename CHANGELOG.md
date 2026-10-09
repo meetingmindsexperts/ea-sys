@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Blueprint: Speak in "Talk it through" (October 9)
+
+- The quick-fill box has a **Speak** button: describe the event out loud, in
+  English or Arabic, and the words appear in the box as you talk, through
+  pauses, until you press Stop. They then go through the same fill-and-review
+  as typed words, so nothing changes until you check what was found.
+- It uses the browser's own speech recognition (Chrome, Edge, Safari; the
+  speech goes to Google or Apple, not to EA-SYS). Firefox shows how to use
+  the device's dictation instead. A blocked microphone says so.
+- The microphone is allowed on `/blueprint` only; every other page still
+  blocks it, pinned by the security headers test.
+
 ### User guide: Event Blueprints and the Online Venue (October 9)
 
 - Two new sections in the user guide, which the in-app help assistant reads:

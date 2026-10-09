@@ -16,6 +16,18 @@ def no_errors(*keys):
     return [(f'no console errors ({k})', lambda d, k=k: d.get(k) == []) for k in keys]
 
 SUITES = {
+    'test_mic': [  # EA-SYS (Oct 9 2026): the Speak button in Talk it through, with a fake speech engine
+        ('listening: Stop shown, language locked, continuous with live words', lambda d: d['listening']['btn'] == 'Stop' and d['listening']['pressed'] == 'true' and d['listening']['langOff'] is True and d['listening']['continuous'] is True and d['listening']['interim'] is True and d['listening']['lang'] == 'en-GB'),
+        ('words appear as heard, after what was typed', lambda d: d['interim']['text'] == 'Gala dinner. for four hundred' and d['final']['text'] == 'Gala dinner. for four hundred guests in Dubai '),
+        ('a pause does not stop listening', lambda d: d['afterPause']['started'] == 2 and d['afterPause']['btn'] == 'Stop'),
+        ('Stop stops it and keeps the words', lambda d: d['stopped']['btn'] == 'Speak' and d['stopped']['stopped'] == 1 and d['stopped']['langOff'] is False and 'four hundred guests' in d['stopped']['text']),
+        ('the spoken words reach the AI', lambda d: d['promptHasSpeech'] is True),
+        ('Arabic is passed to the browser', lambda d: d['arabic']['lang'] == 'ar-AE'),
+        ('closing the box stops listening', lambda d: d['closed']['stopped'] >= 1 and d['closed']['hidden'] is True),
+        ('a blocked microphone says so and does not retry', lambda d: 'blocked' in d['blocked']['note'] and d['blocked']['btn'] == 'Speak' and d['blocked']['started'] == 1),
+        ('no speech recognition: dictation hint, no button', lambda d: d['unsupported'] == {'button': False, 'hint': True}),
+        *no_errors('errors'),
+    ],
     'test_flow': [  # quick fill from a PDF and an image, submission, change tracking, approvals, templates, device-only mode
         ('quick fill sends the typed words', lambda d: d['qfPromptHasWords'] is True),
         ('quick fill reads the PDF text', lambda d: d['qfPromptHasPdfText'] is True),

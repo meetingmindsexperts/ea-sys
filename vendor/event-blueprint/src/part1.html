@@ -46,6 +46,17 @@ h1, h2, h3 { font-family: var(--f-display); font-weight: 600; text-wrap: balance
 .primary, .assist { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .primary:hover, .assist:hover { filter: brightness(1.08); }
 .secondary, .ghostbtn, .tpl { background: var(--surface); border-color: var(--line); color: var(--ink); }
+/* The mic's button, language and message sit in the tools row itself; the message takes its own line. */
+.microw { display: contents; }
+.microw .note { flex-basis: 100%; order: 9; margin: 0; }
+.microw .note:empty { display: none; }
+.tools:has(.microw) { align-items: center; }
+.mic::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.mic.on { border-color: #c0392b; color: #c0392b; }
+.mic.on::before { background: #c0392b; animation: micpulse 1s ease-in-out infinite; }
+@keyframes micpulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .mic.on::before { animation: none; } }
+.miclang { width: auto; min-height: 40px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); padding: 0 8px; font: inherit; font-size: 14px; }
 .secondary:hover, .ghostbtn:hover, .tpl:hover { background: var(--surface-2); border-color: var(--line-2); }
 .ghostbtn { font-size: 13.5px; }
 .assist:disabled, .primary:disabled { opacity: .6; cursor: progress; }
