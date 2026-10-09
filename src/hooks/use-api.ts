@@ -3195,6 +3195,8 @@ export interface VenueRoomsData {
   slug?: string;
   /** The event's sessions and sponsor count, to show which room each lands in; null when they could not be read. */
   programme?: { sessions: { title: string; location: string | null; track: string | null }[]; sponsors: number } | null;
+  /** The event's approved Blueprint, its spaces as rooms and what was changed to fit; null without one or without blueprints.view. */
+  blueprint?: { id: string; title: string; ref: string | null; spaces: number; rooms: VenueRoom[]; notes: string[] } | null;
 }
 
 export function useVenueRooms(eventId: string) {

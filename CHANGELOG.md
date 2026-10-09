@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Online venue: start from the event's Blueprint (October 9)
+
+- When an event has an approved Blueprint, its Venue tab offers "Start from
+  the Blueprint" above the templates: the Blueprint's spaces as rooms, each
+  given the kind its name, layout or purpose says (Registration is the foyer,
+  Exhibition stands the exhibition, Classroom a workshop).
+- The list is fitted to what the venue can lay out (one foyer, at most six
+  halls, sizes per kind), and every change is listed while the draft is open:
+  an online-only space left out, a foyer added, a size raised to the minimum.
+  Nothing is saved until the organiser presses Save; Discard undoes it. With
+  rooms already set up, "Use its rooms instead" offers the same as a draft.
+- Shown only with `BLUEPRINT_MODULE_ENABLED` and to people who can see
+  Blueprints (`blueprints.view`).
+
 ### Online venue: the event's own sessions and sponsors (October 9)
 
 - Each room's screens show its session on now, or the next one with its time

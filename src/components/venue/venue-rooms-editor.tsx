@@ -22,6 +22,7 @@ import { useSaveVenueRooms, useSetVenueOpen, useVenueRooms } from "@/hooks/use-a
 import { ApiError } from "@/lib/api-fetch";
 import { VenueFloorPlan } from "@/components/venue/venue-floor-plan";
 import { VenueProgrammeCard } from "@/components/venue/venue-programme-card";
+import { BlueprintNotes, BlueprintReplaceRow, BlueprintStartCard } from "@/components/venue/venue-blueprint-start";
 import { ROOM_KINDS, ROOM_KIND_INFO, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type VenueRoom } from "@/lib/venue/rooms";
 
 const SEATED: RoomKind[] = ["plenary", "hall", "workshop"];
@@ -31,6 +32,18 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
   const { data, isLoading, error } = useVenueRooms(eventId);
   const save = useSaveVenueRooms(eventId);
   const [draft, setDraft] = useState<VenueRoom[] | null>(null);
+  // The draft came from the Blueprint (step 5): its fit notes show until it is saved or discarded.
+  const [fromBlueprint, setFromBlueprint] = useState(false);
+  const blueprint = data?.blueprint ?? null;
+  const applyBlueprint = () => {
+    if (!blueprint) return;
+    setDraft(blueprint.rooms.map((r) => ({ ...r })));
+    setFromBlueprint(true);
+  };
+  const edit = (next: VenueRoom[] | null) => {
+    setDraft(next);
+    if (next === null) setFromBlueprint(false);
+  };
 
   const saved = data?.rooms ?? null;
   const rooms = draft ?? saved;
@@ -54,7 +67,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
     if (!rooms) return;
     try {
       await save.mutateAsync({ rooms, version: data?.version ?? 0 });
-      setDraft(null);
+      edit(null);
       toast.success("Rooms saved");
     } catch (e) {
       const stale = e instanceof ApiError && e.status === 409;
@@ -71,7 +84,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
         canEdit && rooms ? (
           <>
             {dirty && (
-              <Button variant="outline" onClick={() => setDraft(null)} disabled={save.isPending}>
+              <Button variant="outline" onClick={() => edit(null)} disabled={save.isPending}>
                 Discard changes
               </Button>
             )}
@@ -105,9 +118,12 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
   return (
     <div className="space-y-6">
       {header}
+      {!rooms && canEdit && blueprint && <BlueprintStartCard blueprint={blueprint} onUse={applyBlueprint} />}
       {!rooms && <Templates canEdit={canEdit} onPick={(key) => setDraft(TEMPLATES[key].rooms.map((r) => ({ ...r })))} />}
       {rooms && (
         <>
+          {fromBlueprint && blueprint && <BlueprintNotes notes={blueprint.notes} />}
+          {!fromBlueprint && canEdit && blueprint && <BlueprintReplaceRow blueprint={blueprint} onUse={applyBlueprint} />}
           <RoomList rooms={rooms} canEdit={canEdit} onUpdate={update} onRemove={remove} onAdd={add} />
           {issues.length > 0 && (
             <div role="alert" className="flex gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">

@@ -591,4 +591,17 @@ per event (D6), report inbox (D7).
   test sponsors on stands 1 and 2 in tier order, a live AI naming the first
   session, the workshop and the sponsors, zero console messages; EHC's venue
   unchanged.
+  **Step 5 built: the Blueprint fills the room list (Oct 9, 2026).** Offered,
+  never applied: the Venue tab shows the approved Blueprint's spaces as rooms
+  like a template, and only Save writes them (no change to approval, so it
+  works for Blueprints approved before this step). `src/lib/venue/blueprint-rooms.ts`
+  maps a space to a kind by its name, then its layout, then its purpose
+  (accents stripped first: `\b` does not see "é" as a letter, so "Café" was a
+  hall until a test caught it), fits the list to the rules with a note for each
+  change, and is fuzzed: 150 random Blueprints all give a valid, walkable list.
+  The GET adds `blueprint` only with BLUEPRINT_MODULE_ENABLED and
+  `blueprints.view`, looked up by `eventId` and the organisation. Verified on
+  the production build with a temporary Blueprint on BHS2026: five rooms, both
+  changes explained, 9 of 9 sessions placed, walkable, Discard and Save as
+  described, zero console messages. **Phase 6 is complete.**
 

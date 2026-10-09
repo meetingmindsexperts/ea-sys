@@ -9,7 +9,7 @@ import { TEMPLATES } from "@/lib/venue/rooms";
 
 const { mockAuth, mockDb, settingsStore } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
-  mockDb: { event: { findFirst: vi.fn() } },
+  mockDb: { event: { findFirst: vi.fn() }, blueprint: { findFirst: vi.fn() } },
   settingsStore: { current: {} as Record<string, unknown> },
 }));
 
@@ -54,7 +54,7 @@ describe("/api/events/:eventId/venue", () => {
 
   it("a member reads the rooms; only events.update saves them", async () => {
     as("MEMBER");
-    expect(await (await GET(new Request("http://localhost/x"), params)).json()).toEqual({ rooms: null, version: 0, open: false, slug: undefined, programme: SUMMARY });
+    expect(await (await GET(new Request("http://localhost/x"), params)).json()).toEqual({ rooms: null, version: 0, open: false, slug: undefined, programme: SUMMARY, blueprint: null });
     expect((await put({ rooms, version: 0 })).status).toBe(403);
     as("ORGANIZER");
     const res = await put({ rooms, version: 0 });
@@ -93,6 +93,26 @@ describe("/api/events/:eventId/venue", () => {
     mockDb.event.findFirst.mockResolvedValue(null);
     expect((await GET(new Request("http://localhost/x"), params)).status).toBe(404);
     expect(mockDb.event.findFirst.mock.calls[0][0].where).toMatchObject({ id: "evt-1", organizationId: "org-1" });
+  });
+
+  it("offers the approved Blueprint's spaces as rooms, only with the module on and blueprints.view", async () => {
+    mockDb.blueprint.findFirst.mockResolvedValue({
+      id: "bp_1", title: "BHS 2026", ref: "EB-1",
+      data: { spaces: [{ name: "Plenary Hall", layout: "Theatre", cap: "400" }, { name: "Coffee lounge", cap: "60" }], basics: { attendance: "450" } },
+    });
+    const get = async () => (await (await GET(new Request("http://localhost/x"), params)).json()) as { blueprint: { rooms: { name: string; kind: string }[]; notes: string[] } | null };
+    as("ADMIN");
+    expect((await get()).blueprint).toBeNull(); // module off
+    vi.stubEnv("BLUEPRINT_MODULE_ENABLED", "true");
+    const bp = (await get()).blueprint!;
+    expect(bp.rooms.map((r) => [r.name, r.kind])).toEqual([["Foyer", "foyer"], ["Plenary Hall", "plenary"], ["Coffee lounge", "lounge"]]);
+    expect(bp.notes).toContain("A foyer is added: every venue has an entrance with registration and information desks.");
+    expect(mockDb.blueprint.findFirst.mock.calls[0][0].where).toEqual({ eventId: "evt-1", organizationId: "org-1" });
+    as("ONSITE"); // can open the event's venue tab, cannot see blueprints
+    mockDb.blueprint.findFirst.mockClear();
+    const onsite = await GET(new Request("http://localhost/x"), params);
+    if (onsite.status === 200) expect(((await onsite.json()) as { blueprint: unknown }).blueprint).toBeNull();
+    expect(mockDb.blueprint.findFirst).not.toHaveBeenCalled();
   });
 
   it("opens the venue only once rooms are saved, and reports it", async () => {

@@ -3,7 +3,9 @@
  *
  *   GET → the saved room list (or null), its version, whether the venue is
  *         open to staff, the event's slug (for the link to it), and its
- *         sessions and sponsor count (to show what lands in which room).
+ *         sessions and sponsor count (to show what lands in which room), and
+ *         the approved Blueprint's spaces as rooms to start from (only with
+ *         BLUEPRINT_MODULE_ENABLED and `blueprints.view`).
  *   PUT { rooms, version } → save it; 409 STALE_VERSION when someone saved in
  *         between, 400 INVALID_ROOMS with every reason when the floor plan
  *         cannot lay it out.
@@ -20,8 +22,10 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requirePermission } from "@/lib/permissions/require-permission";
-import { isVenueModuleEnabled } from "@/lib/module-flags";
+import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
+import { isBlueprintModuleEnabled, isVenueModuleEnabled } from "@/lib/module-flags";
+import { readBlueprintSpaces, roomsFromBlueprint } from "@/lib/venue/blueprint-rooms";
 import { readVenueOpen, readVenueRooms } from "@/lib/venue/rooms";
 import { saveVenueRooms, setVenueOpen } from "@/services/venue-rooms-service";
 import { loadProgrammeSummary } from "@/services/venue-programme-service";
@@ -57,10 +61,17 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const organizationId = event.organizationId;
     return await runWithTenant(organizationId, async () => {
       const saved = readVenueRooms(event.settings);
-      // The sessions and sponsors the venue will place in these rooms (phase 6 step 4).
-      const programme = await loadProgrammeSummary({ organizationId, eventId: event.id });
+      // The sessions and sponsors the venue will place in these rooms (phase 6 step 4), and the
+      // approved Blueprint's spaces as rooms to start from (step 5), for those who may see Blueprints.
+      const showBlueprint = isBlueprintModuleEnabled() && can(principalFromSession(session), "blueprints.view");
+      const [programme, bp] = await Promise.all([
+        loadProgrammeSummary({ organizationId, eventId: event.id }),
+        showBlueprint ? db.blueprint.findFirst({ where: { eventId: event.id, organizationId }, select: { id: true, title: true, ref: true, data: true } }) : null,
+      ]);
+      const read = bp ? readBlueprintSpaces(bp.data) : null;
+      const blueprint = bp && read ? { id: bp.id, title: bp.title, ref: bp.ref, spaces: read.spaces.length, ...roomsFromBlueprint(read.spaces, read.attendance) } : null;
       return NextResponse.json(
-        { rooms: saved?.rooms ?? null, version: saved?.updatedAt ?? 0, open: readVenueOpen(event.settings), slug: event.slug, programme },
+        { rooms: saved?.rooms ?? null, version: saved?.updatedAt ?? 0, open: readVenueOpen(event.settings), slug: event.slug, programme, blueprint },
         { headers: { "Cache-Control": "private, no-store" } },
       );
     });
