@@ -160,24 +160,28 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
       const mastheadBlockBottom = labelY + 12;
 
       // ── Receipt info (right) ──
-      // Values get an explicit column width and the rows flow from the
-      // measured height of the previous one — "Credit/Debit Card (Stripe)"
-      // wraps to two lines, and with the old fixed y-positions its second
-      // line overlapped the Reference row.
+      // Every row flows from the measured height of the previous one so
+      // long receipt numbers (e.g. "HEMNET2026-REC-001") or payment
+      // methods that wrap don't overlap the row below.
       const infoX = 350;
       const infoValX = infoX + 100;
       const infoValW = 50 + pageWidth - infoValX;
-      doc.fontSize(9).fillColor("#64748b").font("Helvetica")
-        .text("Receipt Number:", infoX, 30)
-        .text("Payment Date:", infoX, 44)
-        .text("Payment Method:", infoX, 58);
-
       const methodStr = formatPaymentMethod(data.paymentMethod);
-      doc.fontSize(9).fillColor("#1e293b").font("Helvetica-Bold")
-        .text(data.receiptNumber, infoValX, 30, { width: infoValW })
-        .text(formatDate(data.paymentDate), infoValX, 44, { width: infoValW })
-        .text(methodStr, infoValX, 58, { width: infoValW });
-      let infoY = Math.max(72, 58 + doc.heightOfString(methodStr, { width: infoValW }) + 3);
+      const ROW_GAP = 3;
+
+      let curY = 30;
+      doc.fontSize(9).fillColor("#64748b").font("Helvetica").text("Receipt Number:", infoX, curY);
+      doc.fontSize(9).fillColor("#1e293b").font("Helvetica-Bold").text(data.receiptNumber, infoValX, curY, { width: infoValW });
+      curY += doc.heightOfString(data.receiptNumber, { width: infoValW }) + ROW_GAP;
+
+      doc.fontSize(9).fillColor("#64748b").font("Helvetica").text("Payment Date:", infoX, curY);
+      doc.fontSize(9).fillColor("#1e293b").font("Helvetica-Bold").text(formatDate(data.paymentDate), infoValX, curY, { width: infoValW });
+      curY += doc.heightOfString(formatDate(data.paymentDate), { width: infoValW }) + ROW_GAP;
+
+      doc.fontSize(9).fillColor("#64748b").font("Helvetica").text("Payment Method:", infoX, curY);
+      doc.fontSize(9).fillColor("#1e293b").font("Helvetica-Bold").text(methodStr, infoValX, curY, { width: infoValW });
+      curY += doc.heightOfString(methodStr, { width: infoValW }) + ROW_GAP;
+      let infoY = Math.max(72, curY);
 
       if (data.paymentReference) {
         doc.fontSize(9).fillColor("#64748b").font("Helvetica").text("Reference:", infoX, infoY);
