@@ -86,6 +86,7 @@ import { requiresSupportingDocument, supportingDocumentLabel } from "@/lib/suppo
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { computeCancelledCreditState } from "@/lib/registration-financials";
+import { sponsorTierLabel } from "@/lib/sponsor-tiers";
 import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates, useEvent, useResendRegistrationDocuments, useEventSurveys } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { singleSendSlugFor, singleSendTypesFor } from "@/lib/email-template-registry";
@@ -2140,7 +2141,7 @@ export function RegistrationDetailSheet({
                         {sponsors.map((s) => (
                           <SelectItem key={s.id} value={s.id}>
                             {s.name}
-                            {s.tier ? ` · ${s.tier}` : ""}
+                            {s.tier ? ` · ${sponsorTierLabel(s.tier, sponsorsRes?.tiers ?? [])}` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>

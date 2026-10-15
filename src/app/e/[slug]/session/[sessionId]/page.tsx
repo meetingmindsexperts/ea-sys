@@ -1512,13 +1512,16 @@ function SponsorsTab({ sponsors }: { sponsors: SponsorEntry[] }) {
     );
   }
 
-  // Group by tier for visual priority
+  // Group by tier for visual priority. An organisation's own tiers follow the
+  // standard ones and are named by the server (tierLabel).
   const grouped = new Map<string, SponsorEntry[]>();
+  const customLabels = new Map<string, string>();
   for (const sponsor of sponsors) {
     const tier = sponsor.tier ?? "partner";
     const list = grouped.get(tier) ?? [];
     list.push(sponsor);
     grouped.set(tier, list);
+    if (sponsor.tierLabel) customLabels.set(tier, sponsor.tierLabel);
   }
 
   const tierOrder = Array.from(grouped.keys()).sort(
@@ -1532,7 +1535,7 @@ function SponsorsTab({ sponsors }: { sponsors: SponsorEntry[] }) {
         return (
           <section key={tier}>
             <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-              {SPONSOR_TIER_LABELS[tier] ?? tier}
+              {SPONSOR_TIER_LABELS[tier] ?? customLabels.get(tier) ?? tier}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {tierSponsors.map((sponsor) => {

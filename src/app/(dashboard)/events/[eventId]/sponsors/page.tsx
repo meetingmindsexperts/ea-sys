@@ -41,32 +41,28 @@ import {
   Loader2,
   Save,
   ExternalLink,
+  Tags,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   useSponsors,
   useUpdateSponsors,
   type SponsorEntry,
-  type SponsorTier,
+  type SponsorTierDef,
 } from "@/hooks/use-api";
+import { sponsorTierLabel, sponsorTierRank } from "@/lib/sponsor-tiers";
+import { SponsorTiersDialog } from "@/components/sponsors/sponsor-tiers-dialog";
 
-const TIERS: Array<{ value: SponsorTier; label: string; badgeClass: string }> = [
-  { value: "platinum", label: "Platinum", badgeClass: "bg-slate-200 text-slate-900 border-slate-300" },
-  { value: "gold", label: "Gold", badgeClass: "bg-amber-100 text-amber-900 border-amber-300" },
-  { value: "silver", label: "Silver", badgeClass: "bg-gray-100 text-gray-800 border-gray-300" },
-  { value: "bronze", label: "Bronze", badgeClass: "bg-orange-100 text-orange-900 border-orange-300" },
-  { value: "partner", label: "Partner", badgeClass: "bg-blue-100 text-blue-900 border-blue-300" },
-  { value: "exhibitor", label: "Exhibitor", badgeClass: "bg-purple-100 text-purple-900 border-purple-300" },
-];
-
-const TIER_ORDER: Record<SponsorTier, number> = {
-  platinum: 0,
-  gold: 1,
-  silver: 2,
-  bronze: 3,
-  partner: 4,
-  exhibitor: 5,
+/** Badge colours for the standard tiers; the organisation's own share one neutral look. */
+const BUILT_IN_BADGE_CLASS: Record<string, string> = {
+  platinum: "bg-slate-200 text-slate-900 border-slate-300",
+  gold: "bg-amber-100 text-amber-900 border-amber-300",
+  silver: "bg-gray-100 text-gray-800 border-gray-300",
+  bronze: "bg-orange-100 text-orange-900 border-orange-300",
+  partner: "bg-blue-100 text-blue-900 border-blue-300",
+  exhibitor: "bg-purple-100 text-purple-900 border-purple-300",
 };
+const CUSTOM_BADGE_CLASS = "bg-teal-50 text-teal-900 border-teal-200";
 
 type EditableSponsor = SponsorEntry;
 
@@ -122,6 +118,7 @@ export default function SponsorsPage() {
       key={`sponsors-${data.sponsors.length}-${data.sponsors.map((s) => s.id).join(",")}`}
       eventId={eventId}
       initialSponsors={data.sponsors}
+      tiers={data.tiers ?? []}
     />
   );
 }
@@ -129,9 +126,11 @@ export default function SponsorsPage() {
 function SponsorsEditor({
   eventId,
   initialSponsors,
+  tiers,
 }: {
   eventId: string;
   initialSponsors: SponsorEntry[];
+  tiers: SponsorTierDef[];
 }) {
   const updateSponsors = useUpdateSponsors(eventId);
   // The whole list saves through one PUT, so one key covers add, edit, reorder and remove.
@@ -143,6 +142,7 @@ function SponsorsEditor({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingDraft, setEditingDraft] = useState<EditableSponsor | null>(null);
+  const [tiersOpen, setTiersOpen] = useState(false);
 
   const isDirty = useMemo(
     () => JSON.stringify(initialSponsors) !== JSON.stringify(draft),
@@ -213,8 +213,8 @@ function SponsorsEditor({
 
   // Group by tier for the visible list
   const grouped = [...draft].sort((a, b) => {
-    const ta = a.tier ? TIER_ORDER[a.tier] : 999;
-    const tb = b.tier ? TIER_ORDER[b.tier] : 999;
+    const ta = sponsorTierRank(a.tier, tiers);
+    const tb = sponsorTierRank(b.tier, tiers);
     if (ta !== tb) return ta - tb;
     return a.sortOrder - b.sortOrder;
   });
@@ -234,6 +234,10 @@ function SponsorsEditor({
         </div>
         {canManage && (
         <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setTiersOpen(true)}>
+            <Tags className="h-4 w-4 mr-2" />
+            Manage tiers
+          </Button>
           {isDirty && (
             <Button variant="outline" onClick={handleDiscard} disabled={updateSponsors.isPending}>
               Discard
@@ -292,7 +296,7 @@ function SponsorsEditor({
             <div className="divide-y">
               {grouped.map((sponsor) => {
                 const originalIndex = draft.findIndex((s) => s.id === sponsor.id);
-                const tierMeta = TIERS.find((t) => t.value === sponsor.tier);
+                const tierLabel = sponsorTierLabel(sponsor.tier, tiers);
                 return (
                   <div
                     key={sponsor.id}
@@ -316,12 +320,12 @@ function SponsorsEditor({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium truncate">{sponsor.name}</p>
-                        {tierMeta && (
+                        {tierLabel && (
                           <Badge
                             variant="outline"
-                            className={tierMeta.badgeClass}
+                            className={BUILT_IN_BADGE_CLASS[sponsor.tier ?? ""] ?? CUSTOM_BADGE_CLASS}
                           >
-                            {tierMeta.label}
+                            {tierLabel}
                           </Badge>
                         )}
                       </div>
@@ -439,7 +443,7 @@ function SponsorsEditor({
                   onValueChange={(v) =>
                     setEditingDraft({
                       ...editingDraft,
-                      tier: v as SponsorTier,
+                      tier: v,
                     })
                   }
                 >
@@ -447,8 +451,8 @@ function SponsorsEditor({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {TIERS.map((t) => (
-                      <SelectItem key={t.value} value={t.value}>
+                    {tiers.map((t) => (
+                      <SelectItem key={t.key} value={t.key}>
                         {t.label}
                       </SelectItem>
                     ))}
@@ -502,6 +506,7 @@ function SponsorsEditor({
         </DialogContent>
       </Dialog>
 
+      {tiersOpen && <SponsorTiersDialog open={tiersOpen} onOpenChange={setTiersOpen} tiers={tiers} />}
     </div>
   );
 }

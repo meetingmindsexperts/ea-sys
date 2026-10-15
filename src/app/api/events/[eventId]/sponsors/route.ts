@@ -5,8 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
-import { SPONSOR_TIERS } from "@/lib/webinar";
-import { getSponsors } from "@/lib/sponsors";
+import { getSponsorTiers, getSponsors } from "@/lib/sponsors";
 import { saveSponsors, type SaveSponsorsErrorCode } from "@/services/sponsor-service";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -48,7 +47,8 @@ const sponsorEntrySchema = z.object({
   name: z.string().min(1).max(255),
   logoUrl: logoUrlSchema,
   websiteUrl: websiteUrlSchema,
-  tier: z.enum(SPONSOR_TIERS).optional(),
+  // A built-in or custom tier key; the service checks it against the organisation's list.
+  tier: z.string().min(1).max(60).optional(),
   description: z.string().max(2000).optional().or(z.literal("")),
   sortOrder: z.number().int().min(0).max(10_000),
 });
@@ -101,7 +101,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ sponsors: await getSponsors(eventId) });
+    const [sponsors, tiers] = await Promise.all([getSponsors(eventId), getSponsorTiers(organizationId)]);
+    return NextResponse.json({ sponsors, tiers });
   } catch (err) {
     apiLogger.error({ err }, "sponsors:list-failed");
     return NextResponse.json(

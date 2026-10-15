@@ -25,8 +25,8 @@
 import { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
-import { SPONSOR_SELECT, toSponsorEntry } from "@/lib/sponsors";
+import type { SponsorEntry } from "@/lib/webinar";
+import { SPONSOR_SELECT, getSponsorTiers, toSponsorEntry } from "@/lib/sponsors";
 
 export interface SponsorInput {
   id?: string | null;
@@ -103,13 +103,22 @@ export async function saveSponsors(input: {
       description: clean(s.description),
     }));
 
+    // The built-ins plus the organisation's own tiers (src/lib/sponsor-tiers.ts).
+    // A tier a sponsor on this event already holds stays valid even if it is
+    // no longer in the list (a legacy value, or a tier deleted while someone
+    // was assigning it), or that event's list could never be saved again.
+    const [tiers, held] = await Promise.all([
+      getSponsorTiers(input.organizationId),
+      db.sponsor.findMany({ where: { eventId: input.eventId, tier: { not: null } }, select: { tier: true }, distinct: ["tier"] }),
+    ]);
+    const tierKeys = new Set([...tiers.map((t) => t.key), ...held.flatMap((h) => (h.tier ? [h.tier] : []))]);
     for (const r of rows) {
       if (!r.name) return { ok: false, code: "INVALID_NAME", message: "Every sponsor needs a name" };
-      if (r.tier && !(SPONSOR_TIERS as readonly string[]).includes(r.tier)) {
+      if (r.tier && !tierKeys.has(r.tier)) {
         return {
           ok: false,
           code: "INVALID_TIER",
-          message: `Unknown tier "${r.tier}". One of: ${SPONSOR_TIERS.join(", ")}`,
+          message: `Unknown tier "${r.tier}". One of: ${[...tierKeys].join(", ")}`,
         };
       }
     }

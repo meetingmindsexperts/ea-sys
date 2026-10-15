@@ -124,6 +124,7 @@ export const queryKeys = {
   webinarEngagement: (eventId: string) => ["events", eventId, "webinar", "engagement"] as const,
   webinarPanelists: (eventId: string) => ["events", eventId, "webinar", "panelists"] as const,
   sponsors: (eventId: string) => ["events", eventId, "sponsors"] as const,
+  sponsorTiers: ["organization", "sponsor-tiers"] as const,
   venueRooms: (eventId: string) => ["events", eventId, "venue-rooms"] as const,
   eventTags: (eventId: string) => ["events", eventId, "tags"] as const,
   rsvpCampaigns: (eventId: string) => ["events", eventId, "rsvp-campaigns"] as const,
@@ -3148,14 +3149,15 @@ export function useResendPanelistInvite(eventId: string) {
 // source of truth. Consumers that import SponsorEntry from this hooks
 // file don't need to change.
 import type { SponsorEntry, SponsorTier } from "@/lib/webinar";
+import type { SponsorTierDef } from "@/lib/sponsor-tiers";
 import type { VenueRoom } from "@/lib/venue/rooms";
-export type { SponsorEntry, SponsorTier };
+export type { SponsorEntry, SponsorTier, SponsorTierDef };
 
 export function useSponsors(eventId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.sponsors(eventId),
     queryFn: () =>
-      fetchApi<{ sponsors: SponsorEntry[] }>(
+      fetchApi<{ sponsors: SponsorEntry[]; tiers: SponsorTierDef[] }>(
         `/api/events/${eventId}/sponsors`,
       ),
     enabled: !!eventId && enabled,
@@ -3178,7 +3180,26 @@ export function useUpdateSponsors(eventId: string) {
       // Write the server response back into the cache — it carries the
       // normalized sortOrder indices + trimmed strings, so the UI
       // reflects exactly what was persisted without a second roundtrip.
-      queryClient.setQueryData(queryKeys.sponsors(eventId), data);
+      // Merged, so the tier list the GET carried survives the save.
+      queryClient.setQueryData(queryKeys.sponsors(eventId), (old: { tiers?: SponsorTierDef[] } | undefined) => ({ ...old, ...data }));
+    },
+  });
+}
+
+/** The organisation's custom sponsor tiers, saved as a whole (built-ins are fixed). */
+export function useUpdateSponsorTiers() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tiers: { key?: string; label: string }[]) =>
+      fetchApi<{ tiers: SponsorTierDef[] }>("/api/organization/sponsor-tiers", {
+        method: "PUT",
+        body: JSON.stringify({ tiers }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => {
+      // Every event's sponsors query carries the list, so refresh them all.
+      queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === "events" && q.queryKey[2] === "sponsors" });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sponsorTiers });
     },
   });
 }

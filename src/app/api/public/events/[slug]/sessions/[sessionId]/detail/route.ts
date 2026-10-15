@@ -7,7 +7,8 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isBreakSessionType } from "@/lib/session-enums";
 import { readWebinarPageBranding, readWebinarSettings } from "@/lib/webinar";
-import { getSponsors } from "@/lib/sponsors";
+import { getSponsorTiers, getSponsors } from "@/lib/sponsors";
+import { BUILT_IN_SPONSOR_TIER_KEYS, sponsorTierLabel } from "@/lib/sponsor-tiers";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
@@ -208,9 +209,16 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // Read sponsors from the Event.settings JSON escape hatch. The helper
-    // filters malformed rows + sorts by sortOrder.
-    const sponsors = await getSponsors(event.id);
+    // Sponsors in display order. An organisation's own tiers are not known to
+    // the page, so the server names them; the tier list is read only when a
+    // sponsor actually sits on one, which most events never do.
+    const sponsorRows = await getSponsors(event.id);
+    const builtIn = new Set<string>(BUILT_IN_SPONSOR_TIER_KEYS);
+    const usesCustomTier = sponsorRows.some((s) => s.tier && !builtIn.has(s.tier));
+    const sponsorTiers = usesCustomTier ? await getSponsorTiers(event.organizationId) : [];
+    const sponsors = sponsorRows.map((s) =>
+      s.tier && !builtIn.has(s.tier) ? { ...s, tierLabel: sponsorTierLabel(s.tier, sponsorTiers) } : s,
+    );
 
     return NextResponse.json({
       event: {

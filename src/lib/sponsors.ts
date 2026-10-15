@@ -16,7 +16,8 @@
  * client-safe, so the public session page can keep importing it.
  */
 import { db } from "@/lib/db";
-import { SPONSOR_TIERS, type SponsorEntry, type SponsorTier } from "@/lib/webinar";
+import type { SponsorEntry } from "@/lib/webinar";
+import { readCustomSponsorTiers, sponsorTierList, type SponsorTierDef } from "@/lib/sponsor-tiers";
 
 /** A row as stored. `tier` is a free string in the DB; narrowed on the way out. */
 interface SponsorRow {
@@ -42,18 +43,16 @@ export const SPONSOR_SELECT = {
 /**
  * Row to `SponsorEntry`.
  *
- * `tier` is TEXT in the database rather than an enum, because the JSON it was
- * promoted from never constrained it and a legacy row can hold anything. An
- * unrecognised value becomes `undefined` rather than being passed through: the
- * public page renders tiers into headings and a stray value would print a
- * section nobody defined. Optional fields drop empty strings the same way, so
- * a blank in the database and an absent key look identical to a caller, which
- * is what the JSON reader did.
+ * `tier` is TEXT in the database rather than an enum, and since Oct 15, 2026
+ * an organisation can define its own tiers, so any non-empty key passes
+ * through (until then an unrecognised value was dropped, which would have
+ * erased every custom tier on read). Display goes through the organisation's
+ * tier list, where an unknown key shows as itself. Optional fields drop empty
+ * strings, so a blank in the database and an absent key look identical to a
+ * caller, which is what the JSON reader did.
  */
 export function toSponsorEntry(row: SponsorRow): SponsorEntry {
-  const tier = row.tier && (SPONSOR_TIERS as readonly string[]).includes(row.tier)
-    ? (row.tier as SponsorTier)
-    : undefined;
+  const tier = row.tier?.trim() || undefined;
   return {
     id: row.id,
     name: row.name,
@@ -106,4 +105,11 @@ export async function sponsorExistsOnEvent(eventId: string, sponsorId: string): 
     select: { id: true },
   });
   return found !== null;
+}
+
+/** The organisation's sponsor tiers: the built-ins, then its own. */
+export async function getSponsorTiers(organizationId: string | null | undefined): Promise<SponsorTierDef[]> {
+  if (!organizationId) return sponsorTierList([]);
+  const org = await db.organization.findUnique({ where: { id: organizationId }, select: { settings: true } });
+  return sponsorTierList(readCustomSponsorTiers(org?.settings));
 }

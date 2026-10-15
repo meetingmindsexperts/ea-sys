@@ -553,7 +553,7 @@ export function registerAllMcpTools(
       sponsors: z.array(z.object({
         id: z.string().optional(),
         name: z.string(),
-        tier: z.enum(["platinum", "gold", "silver", "bronze", "partner", "exhibitor"]).optional(),
+        tier: z.string().max(60).optional().describe("A tier key from list_sponsors availableTiers: the standard platinum, gold, silver, bronze, partner, exhibitor, plus any the organisation added."),
         logoUrl: z.string().optional(),
         websiteUrl: z.string().optional(),
         description: z.string().optional(),

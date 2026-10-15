@@ -32,7 +32,11 @@ vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true, retry
 vi.mock("@/lib/webinar", () => ({
   SPONSOR_TIERS: ["platinum", "gold", "silver", "bronze", "partner", "exhibitor"] as const,
 }));
-vi.mock("@/lib/sponsors", () => ({ getSponsors: getSponsorsSpy }));
+vi.mock("@/lib/sponsors", () => ({
+  getSponsors: getSponsorsSpy,
+  // The real tier list with no custom tiers: the built-ins.
+  getSponsorTiers: async () => (await import("@/lib/sponsor-tiers")).sponsorTierList([]),
+}));
 // denyReviewer is REAL (pure) — it reads session.user.role.
 
 import { GET, PUT } from "@/app/api/events/[eventId]/sponsors/route";
@@ -67,7 +71,10 @@ describe("GET /api/events/[eventId]/sponsors", () => {
     getSponsorsSpy.mockResolvedValue([{ id: "s1", name: "Acme", sortOrder: 0 }]);
     const res = await GET(req(), { params });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ sponsors: [{ id: "s1", name: "Acme", sortOrder: 0 }] });
+    const body = await res.json();
+    expect(body.sponsors).toEqual([{ id: "s1", name: "Acme", sortOrder: 0 }]);
+    // The organisation's tier list rides along, so the page can label and pick custom tiers.
+    expect(body.tiers.map((t: { key: string }) => t.key)).toEqual(["platinum", "gold", "silver", "bronze", "partner", "exhibitor"]);
     // Query bound to the caller's org.
     expect(mockDb.event.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "ev-1", organizationId: "org-1" } }),

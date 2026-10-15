@@ -5,8 +5,8 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { safeFetchHtml, safeFetchImage } from "@/lib/safe-fetch";
 import { uploadMedia } from "@/lib/storage";
-import { readWebinarSettings, webinarSecondRoomViolation, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
-import { getSponsors } from "@/lib/sponsors";
+import { readWebinarSettings, webinarSecondRoomViolation, type SponsorEntry } from "@/lib/webinar";
+import { getSponsorTiers, getSponsors } from "@/lib/sponsors";
 import { saveSponsors } from "@/services/sponsor-service";
 import type { ToolExecutor } from "./_shared";
 
@@ -381,7 +381,7 @@ const listSponsors: ToolExecutor = async (_input, ctx) => {
     });
     if (!event) return { error: "Event not found or access denied" };
 
-    const sponsors = await getSponsors(ctx.eventId);
+    const [sponsors, tiers] = await Promise.all([getSponsors(ctx.eventId), getSponsorTiers(ctx.organizationId)]);
     const grouped: Record<string, SponsorEntry[]> = {};
     for (const s of sponsors) {
       const tier = s.tier ?? "exhibitor";
@@ -393,7 +393,8 @@ const listSponsors: ToolExecutor = async (_input, ctx) => {
       sponsors,
       total: sponsors.length,
       byTier: grouped,
-      availableTiers: SPONSOR_TIERS,
+      // The standard tiers plus the organisation's own, as key and name.
+      availableTiers: tiers.map((t) => ({ key: t.key, label: t.label })),
     };
   } catch (err) {
     apiLogger.error({ err }, "agent:list_sponsors failed");
@@ -446,7 +447,8 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
       }
     };
 
-    const tierSet = new Set<string>(SPONSOR_TIERS);
+    const tierKeys = (await getSponsorTiers(ctx.organizationId)).map((t) => t.key);
+    const tierSet = new Set<string>(tierKeys);
     // `id` is optional now: a row without one is a CREATE, and the service
     // assigns the cuid.
     const incoming: Array<Omit<SponsorEntry, "id" | "sortOrder"> & { id?: string }> = [];
@@ -458,7 +460,7 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
       if (!name) return { error: `sponsors[${i}].name is required` };
       const tier = r.tier ? String(r.tier) : undefined;
       if (tier && !tierSet.has(tier)) {
-        return { error: `sponsors[${i}].tier must be one of: ${SPONSOR_TIERS.join(", ")}` };
+        return { error: `sponsors[${i}].tier must be one of: ${tierKeys.join(", ")}` };
       }
       let logoUrl: string | undefined;
       let websiteUrl: string | undefined;
@@ -474,7 +476,7 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
         // database assigns the cuid rather than the agent inventing one.
         id: r.id ? String(r.id) : undefined,
         name: name.slice(0, 255),
-        tier: tier as SponsorEntry["tier"],
+        tier,
         logoUrl,
         websiteUrl,
         description: r.description ? String(r.description).slice(0, 1000) : undefined,

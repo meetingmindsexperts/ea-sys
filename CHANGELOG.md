@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Sponsors: the organisation's own tiers (October 15)
+
+- **Manage tiers** on any event's Sponsors page: the six standard tiers stay
+  fixed and locked; an organisation can add, rename and remove its own
+  (Associate was the first ask), stored in `Organization.settings.sponsorTiers`
+  and offered on every event. No migration: `Sponsor.tier` was already text.
+- Custom tiers follow the standard ones in every list and on the public
+  session page. Renaming keeps the key, so sponsors keep their tier; deleting a
+  tier any sponsor still uses is refused with the count (409 `TIER_IN_USE`).
+- One tier list (`src/lib/sponsor-tiers.ts`) replaces the copies on the
+  sponsors page, the public page, the agent and the MCP schema. The sponsor
+  reader no longer drops an unrecognised tier, which would have erased every
+  custom one. MCP `upsert_sponsors.tier` is now a string checked against the
+  organisation's list (connected clients reconnect to see it).
+
 ### Agenda: topics without speakers, and a reason when roles are unavailable (October 15)
 
 - A session's **Topics** can now be added before the event has any speakers

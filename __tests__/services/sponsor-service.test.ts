@@ -16,6 +16,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
+    // The tier list: built-ins plus the organisation's own (Oct 15, 2026).
+    organization: { findUnique: vi.fn() },
+    sponsor: { findMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -75,6 +78,8 @@ const base = { eventId: "ev-1", organizationId: "org-1", actorUserId: "u1", sour
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.event.findFirst.mockResolvedValue({ id: "ev-1" });
+  mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
+  mockDb.sponsor.findMany.mockResolvedValue([]);
 });
 
 describe("saveSponsors", () => {
@@ -161,6 +166,23 @@ describe("saveSponsors", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.code).toBe("INVALID_TIER");
     expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("accepts the organisation's own tier", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: { sponsorTiers: [{ key: "associate", label: "Associate" }] } });
+    const { tx, created } = txWith([]);
+    mockDb.$transaction.mockImplementation((fn: (t: unknown) => unknown) => fn(tx));
+    const res = await saveSponsors({ ...base, sponsors: [{ name: "Abbott", tier: "associate" }] });
+    expect(res.ok).toBe(true);
+    expect(created).toHaveLength(1);
+  });
+
+  it("keeps accepting a tier a sponsor on this event already holds, even once it is gone from the list", async () => {
+    mockDb.sponsor.findMany.mockResolvedValue([{ tier: "retired-tier" }]);
+    const { tx } = txWith([{ id: "s1", name: "Abbott", tier: "retired-tier" }]);
+    mockDb.$transaction.mockImplementation((fn: (t: unknown) => unknown) => fn(tx));
+    const res = await saveSponsors({ ...base, sponsors: [{ id: "s1", name: "Abbott", tier: "retired-tier" }] });
+    expect(res.ok).toBe(true);
   });
 
   it("404s an event outside the caller's org", async () => {

@@ -1,3 +1,5 @@
+import { BUILT_IN_SPONSOR_TIER_KEYS } from "@/lib/sponsor-tiers";
+
 export const WEBINAR_HIDDEN_MODULES = [
   "Accommodation",
   "Check-In",
@@ -182,14 +184,8 @@ export function webinarSecondRoomViolation(
 // querying or cross-event aggregation becomes a need later, promote
 // to a real table without breaking this shape.
 
-export const SPONSOR_TIERS = [
-  "platinum",
-  "gold",
-  "silver",
-  "bronze",
-  "partner",
-  "exhibitor",
-] as const;
+/** The standard sponsor tiers; an organisation can add its own (src/lib/sponsor-tiers.ts). */
+export const SPONSOR_TIERS = BUILT_IN_SPONSOR_TIER_KEYS;
 
 export type SponsorTier = (typeof SPONSOR_TIERS)[number];
 
@@ -198,7 +194,10 @@ export interface SponsorEntry {
   name: string;
   logoUrl?: string;
   websiteUrl?: string;
-  tier?: SponsorTier;
+  /** A built-in SponsorTier or one of the organisation's own (src/lib/sponsor-tiers.ts). */
+  tier?: string;
+  /** The tier's display name, where a server attached it (the public session page). */
+  tierLabel?: string;
   description?: string;
   sortOrder: number;
 }
