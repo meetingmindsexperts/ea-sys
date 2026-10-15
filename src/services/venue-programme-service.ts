@@ -11,7 +11,8 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getSponsors } from "@/lib/sponsors";
+import { getSponsorTiers, getSponsors } from "@/lib/sponsors";
+import type { SponsorTierDef } from "@/lib/sponsor-tiers";
 import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
 import type { SponsorEntry } from "@/lib/webinar";
 import { MAX_VENUE_SESSIONS, buildProgramme, type SessionInput, type VenueProgramme, type VenueRoomRef } from "@/lib/venue/programme";
@@ -24,12 +25,14 @@ interface Caller {
 export interface ProgrammeSources {
   sessions: SessionInput[];
   sponsors: SponsorEntry[];
+  /** The organisation's tier list, so booths read a custom tier's name. */
+  tiers: SponsorTierDef[];
 }
 
 /** The sessions and sponsors as stored. Throws; the callers decide what a failure means. */
 async function readSources(caller: Caller): Promise<ProgrammeSources> {
   return runWithTenant(caller.organizationId, async () => {
-    const [sessions, sponsors] = await Promise.all([
+    const [sessions, sponsors, tiers] = await Promise.all([
       db.eventSession.findMany({
         where: { eventId: caller.eventId, type: { notIn: BREAK_SESSION_TYPES }, status: { in: ["SCHEDULED", "LIVE", "COMPLETED"] } },
         select: { name: true, startTime: true, endTime: true, location: true, track: { select: { name: true } } },
@@ -37,8 +40,9 @@ async function readSources(caller: Caller): Promise<ProgrammeSources> {
         take: MAX_VENUE_SESSIONS,
       }),
       getSponsors(caller.eventId),
+      getSponsorTiers(caller.organizationId),
     ]);
-    return { sessions: sessions.map((s) => ({ ...s, track: s.track?.name ?? null })), sponsors };
+    return { sessions: sessions.map((s) => ({ ...s, track: s.track?.name ?? null })), sponsors, tiers };
   });
 }
 
@@ -46,7 +50,7 @@ async function readSources(caller: Caller): Promise<ProgrammeSources> {
 export async function loadVenueProgramme(caller: Caller, rooms: VenueRoomRef[], tz: string): Promise<VenueProgramme> {
   try {
     const src = await readSources(caller);
-    return buildProgramme(rooms, src.sessions, src.sponsors, tz);
+    return buildProgramme(rooms, src.sessions, src.sponsors, tz, src.tiers);
   } catch (err) {
     apiLogger.error({ err, msg: "venue:programme-load-failed", eventId: caller.eventId });
     return { v: 1, tz, sessions: [], sponsors: [] };

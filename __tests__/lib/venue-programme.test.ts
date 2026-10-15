@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { buildProgramme, matchRoom, orderSponsors, programmeDay, programmeForAi, roomOfSession, type SessionInput } from "@/lib/venue/programme";
 import type { SponsorEntry } from "@/lib/webinar";
+import { sponsorTierList } from "@/lib/sponsor-tiers";
 
 const rooms = [
   { id: "plenary", name: "Plenary Hall" },
@@ -54,6 +55,14 @@ describe("orderSponsors", () => {
   it("puts sponsors in tier order, keeping the team's order within a tier and untiered last", () => {
     const out = orderSponsors([sp("Partner Co", "partner"), sp("No Tier"), sp("Gold One", "gold"), sp("Plat", "platinum"), sp("Gold Two", "gold")]);
     expect(out.map((s) => s.name)).toEqual(["Plat", "Gold One", "Gold Two", "Partner Co", "No Tier"]);
+  });
+
+  it("puts the organisation's own tiers after the standard ones and names them as the organiser did", () => {
+    const tiers = sponsorTierList([{ key: "associate", label: "Associate Partner" }]);
+    const out = orderSponsors([sp("Assoc Co", "associate"), sp("Exhib Co", "exhibitor"), sp("Gold Co", "gold")], tiers);
+    expect(out.map((s) => s.name)).toEqual(["Gold Co", "Exhib Co", "Assoc Co"]);
+    // The venue prints "<tier> sponsor", so it gets the name, not the key.
+    expect(out.map((s) => s.tier)).toEqual(["Gold", "Exhibitor", "Associate Partner"]);
   });
 
   it("passes only links and logos the page may load", () => {

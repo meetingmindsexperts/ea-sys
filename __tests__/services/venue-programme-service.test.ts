@@ -8,7 +8,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { findMany, getSponsors, logError } = vi.hoisted(() => ({ findMany: vi.fn(), getSponsors: vi.fn(), logError: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: { eventSession: { findMany } } }));
-vi.mock("@/lib/sponsors", () => ({ getSponsors }));
+vi.mock("@/lib/sponsors", () => ({
+  getSponsors,
+  // The real list with no custom tiers: the standard six.
+  getSponsorTiers: async () => (await import("@/lib/sponsor-tiers")).sponsorTierList([]),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: logError } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 

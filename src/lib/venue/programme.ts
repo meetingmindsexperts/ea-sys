@@ -9,7 +9,8 @@
  * two disagree because it is the more specific of the two. A location like
  * "Main Hall — Al Majlis" also matches "Main Hall".
  */
-import { SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
+import type { SponsorEntry } from "@/lib/webinar";
+import { sponsorTierLabel, sponsorTierList, sponsorTierRank, type SponsorTierDef } from "@/lib/sponsor-tiers";
 
 export const MAX_VENUE_SESSIONS = 400;
 export const MAX_VENUE_SPONSORS = 60;
@@ -63,31 +64,38 @@ export function roomOfSession(rooms: VenueRoomRef[], s: Pick<SessionInput, "loca
 }
 
 const clip = (s: string | null | undefined, n: number) => (s ? s.trim().slice(0, n) : undefined);
-const tierRank = (t?: string) => {
-  const i = (SPONSOR_TIERS as readonly string[]).indexOf(t ?? "");
-  return i < 0 ? SPONSOR_TIERS.length : i;
-};
 /** A link the page may open: http(s) only. */
 const safeUrl = (u?: string) => (u && /^https?:\/\//i.test(u.trim()) ? u.trim().slice(0, 300) : undefined);
 /** A logo the page may load: our own uploads or an https image. */
 const safeLogo = (u?: string) => (u && (/^\/uploads\//.test(u) || /^https:\/\//i.test(u)) ? u.trim().slice(0, 300) : undefined);
 
-/** Sponsors in the order they take stands: by tier (platinum first), then the team's own order. */
-export function orderSponsors(list: SponsorEntry[]): VenueSponsor[] {
+/**
+ * Sponsors in the order they take stands: by tier (platinum first, the
+ * organisation's own tiers after the standard ones), then the team's own
+ * order. `tier` goes out as the tier's NAME, which the venue prints as
+ * "<name> sponsor", so a custom or renamed tier reads as the organiser named it.
+ */
+export function orderSponsors(list: SponsorEntry[], tiers: SponsorTierDef[] = sponsorTierList([])): VenueSponsor[] {
   return list
     .map((s, i) => ({ s, i }))
-    .sort((a, b) => tierRank(a.s.tier) - tierRank(b.s.tier) || a.i - b.i)
+    .sort((a, b) => sponsorTierRank(a.s.tier, tiers) - sponsorTierRank(b.s.tier, tiers) || a.i - b.i)
     .slice(0, MAX_VENUE_SPONSORS)
     .map(({ s }) => ({
       name: s.name.trim().slice(0, 80),
-      ...(s.tier && { tier: s.tier }),
+      ...(s.tier && { tier: sponsorTierLabel(s.tier, tiers) }),
       ...(safeLogo(s.logoUrl) && { logo: safeLogo(s.logoUrl) }),
       ...(safeUrl(s.websiteUrl) && { website: safeUrl(s.websiteUrl) }),
       ...(s.description?.trim() && { about: s.description.trim().slice(0, 400) }),
     }));
 }
 
-export function buildProgramme(rooms: VenueRoomRef[], sessions: SessionInput[], sponsors: SponsorEntry[], tz: string): VenueProgramme {
+export function buildProgramme(
+  rooms: VenueRoomRef[],
+  sessions: SessionInput[],
+  sponsors: SponsorEntry[],
+  tz: string,
+  tiers: SponsorTierDef[] = sponsorTierList([]),
+): VenueProgramme {
   const out = sessions
     .slice()
     .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
@@ -103,7 +111,7 @@ export function buildProgramme(rooms: VenueRoomRef[], sessions: SessionInput[], 
         ...(!room && (clip(s.location, 80) || clip(s.track, 80)) && { where: clip(s.location, 80) || clip(s.track, 80) }),
       };
     });
-  return { v: 1, tz, sessions: out, sponsors: orderSponsors(sponsors) };
+  return { v: 1, tz, sessions: out, sponsors: orderSponsors(sponsors, tiers) };
 }
 
 /** YYYY-MM-DD of an instant in the event's timezone. */
