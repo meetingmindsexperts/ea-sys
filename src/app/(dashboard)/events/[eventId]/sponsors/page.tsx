@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useCan } from "@/hooks/use-can";
+import { useSession } from "next-auth/react";
+import { canEverywhere, principalFromUser } from "@/lib/permissions/can";
 import {
   Card,
   CardContent,
@@ -63,6 +65,11 @@ const BUILT_IN_BADGE_CLASS: Record<string, string> = {
   exhibitor: "bg-purple-100 text-purple-900 border-purple-300",
 };
 const CUSTOM_BADGE_CLASS = "bg-teal-50 text-teal-900 border-teal-200";
+
+/** Own-property lookup, so a custom key like "constructor" gets the custom look. */
+function tierBadgeClass(tier: string | undefined): string {
+  return tier && Object.hasOwn(BUILT_IN_BADGE_CLASS, tier) ? BUILT_IN_BADGE_CLASS[tier] : CUSTOM_BADGE_CLASS;
+}
 
 type EditableSponsor = SponsorEntry;
 
@@ -135,6 +142,10 @@ function SponsorsEditor({
   const updateSponsors = useUpdateSponsors(eventId);
   // The whole list saves through one PUT, so one key covers add, edit, reorder and remove.
   const canManage = useCan("sponsors.manage", eventId) === "allowed";
+  // Tiers show on every event, so changing them needs sponsor management on
+  // every event (the server checks the same; this only hides the button).
+  const { data: session } = useSession();
+  const canManageTiers = !!session?.user && canEverywhere(principalFromUser(session.user), "sponsors.manage");
 
   // Lazy-init draft from props — safe because this component only mounts
   // when server data is ready and remounts on server-side identity changes.
@@ -234,10 +245,12 @@ function SponsorsEditor({
         </div>
         {canManage && (
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setTiersOpen(true)}>
-            <Tags className="h-4 w-4 mr-2" />
-            Manage tiers
-          </Button>
+          {canManageTiers && (
+            <Button variant="outline" onClick={() => setTiersOpen(true)}>
+              <Tags className="h-4 w-4 mr-2" />
+              Manage tiers
+            </Button>
+          )}
           {isDirty && (
             <Button variant="outline" onClick={handleDiscard} disabled={updateSponsors.isPending}>
               Discard
@@ -323,7 +336,7 @@ function SponsorsEditor({
                         {tierLabel && (
                           <Badge
                             variant="outline"
-                            className={BUILT_IN_BADGE_CLASS[sponsor.tier ?? ""] ?? CUSTOM_BADGE_CLASS}
+                            className={tierBadgeClass(sponsor.tier)}
                           >
                             {tierLabel}
                           </Badge>

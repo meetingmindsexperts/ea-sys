@@ -204,6 +204,19 @@ const SPONSOR_TIER_LABELS: Record<string, string> = {
   exhibitor: "Exhibitors",
 };
 
+/**
+ * Own-property lookups only: a custom tier key such as "constructor" must not
+ * resolve to Object.prototype (review of b5ce5414). Custom tiers sort after
+ * the standard ones, in the order they appear.
+ */
+function standardTierRank(tier: string): number {
+  return Object.hasOwn(SPONSOR_TIER_ORDER, tier) ? SPONSOR_TIER_ORDER[tier] : 999;
+}
+
+function standardTierHeading(tier: string): string | undefined {
+  return Object.hasOwn(SPONSOR_TIER_LABELS, tier) ? SPONSOR_TIER_LABELS[tier] : undefined;
+}
+
 // ── Page ────────────────────────────────────────────────────────
 
 function mainContentClass(isWebinarEvent: boolean, backgroundUrl: string | null | undefined): string {
@@ -1525,7 +1538,7 @@ function SponsorsTab({ sponsors }: { sponsors: SponsorEntry[] }) {
   }
 
   const tierOrder = Array.from(grouped.keys()).sort(
-    (a, b) => (SPONSOR_TIER_ORDER[a] ?? 999) - (SPONSOR_TIER_ORDER[b] ?? 999),
+    (a, b) => standardTierRank(a) - standardTierRank(b),
   );
 
   return (
@@ -1535,7 +1548,7 @@ function SponsorsTab({ sponsors }: { sponsors: SponsorEntry[] }) {
         return (
           <section key={tier}>
             <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-              {SPONSOR_TIER_LABELS[tier] ?? customLabels.get(tier) ?? tier}
+              {standardTierHeading(tier) ?? customLabels.get(tier) ?? tier}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {tierSponsors.map((sponsor) => {

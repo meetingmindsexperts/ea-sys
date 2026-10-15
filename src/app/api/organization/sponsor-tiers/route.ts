@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
+import { canEverywhere } from "@/lib/permissions/can";
 import { checkRateLimit } from "@/lib/security";
 import { getSponsorTiers } from "@/lib/sponsors";
 import { MAX_CUSTOM_SPONSOR_TIERS, MAX_SPONSOR_TIER_LABEL } from "@/lib/sponsor-tiers";
@@ -11,8 +12,10 @@ import { saveSponsorTiers, type SaveSponsorTiersErrorCode } from "@/services/spo
 /**
  * The organisation's sponsor tiers (Oct 15, 2026): GET the built-ins plus its
  * own, PUT the custom list as a whole. Organisation-wide, so any event's
- * sponsors page offers them. Read with sponsors.read, changed with
- * sponsors.manage, the same keys as the sponsors themselves.
+ * sponsors page offers them. Read with sponsors.read. Changing them needs
+ * sponsors.manage on EVERY event (owner, Oct 15, 2026): a tier shows on every
+ * event, so a role that manages sponsors only on some events (assigned ones,
+ * webinars) may use the tiers but not rename or remove them.
  */
 
 const putSchema = z.object({
@@ -61,6 +64,13 @@ export async function PUT(req: Request) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const gate = requirePermission(session, "sponsors.manage", { route: "organization/sponsor-tiers:PUT" });
     if (!gate.ok) return gate.response;
+    if (!canEverywhere(gate.principal, "sponsors.manage")) {
+      apiLogger.warn({ msg: "sponsor-tiers:update-not-org-wide", userId: session.user.id, role: session.user.role });
+      return NextResponse.json(
+        { error: "Changing sponsor tiers needs sponsor management on every event.", code: "NOT_ORG_WIDE" },
+        { status: 403 },
+      );
+    }
     const organizationId = session.user.organizationId;
     if (!organizationId) {
       apiLogger.warn({ userId: session.user.id, role: session.user.role }, "sponsor-tiers:update-no-org");

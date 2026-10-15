@@ -447,8 +447,6 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
       }
     };
 
-    const tierKeys = (await getSponsorTiers(ctx.organizationId)).map((t) => t.key);
-    const tierSet = new Set<string>(tierKeys);
     // `id` is optional now: a row without one is a CREATE, and the service
     // assigns the cuid.
     const incoming: Array<Omit<SponsorEntry, "id" | "sortOrder"> & { id?: string }> = [];
@@ -458,10 +456,9 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
       const r = raw as Record<string, unknown>;
       const name = String(r.name ?? "").trim();
       if (!name) return { error: `sponsors[${i}].name is required` };
+      // Checked by saveSponsors against the organisation's tiers, the same rule
+      // as the dashboard's save (it also keeps a tier the event already holds).
       const tier = r.tier ? String(r.tier) : undefined;
-      if (tier && !tierSet.has(tier)) {
-        return { error: `sponsors[${i}].tier must be one of: ${tierKeys.join(", ")}` };
-      }
       let logoUrl: string | undefined;
       let websiteUrl: string | undefined;
       try {

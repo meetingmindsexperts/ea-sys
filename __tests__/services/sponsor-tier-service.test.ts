@@ -4,42 +4,49 @@
  *  - renaming keeps the key, so every sponsor on the tier keeps it;
  *  - a new tier gets a key from its name, never one a built-in or another tier holds;
  *  - a name may not repeat any tier, standard or custom, ignoring case;
- *  - a tier a sponsor still uses cannot be deleted, and nothing is written.
+ *  - a tier a sponsor still uses cannot be deleted, and nothing is written;
+ *  - all of it is decided on the LOCKED read, and a key a sponsor holds is never reused.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, updateOrganizationSettings } = vi.hoisted(() => ({
-  mockDb: {
-    organization: { findUnique: vi.fn() },
+const { mockDb, tx } = vi.hoisted(() => {
+  const tx = {
+    $queryRaw: vi.fn(),
     sponsor: { groupBy: vi.fn() },
-    auditLog: { create: vi.fn() },
-  },
-  updateOrganizationSettings: vi.fn(),
-}));
+    organization: { update: vi.fn() },
+  };
+  return {
+    tx,
+    mockDb: {
+      $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+      auditLog: { create: vi.fn() },
+    },
+  };
+});
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock("@/lib/event-settings", () => ({ updateOrganizationSettings }));
 
 import { saveSponsorTiers } from "@/services/sponsor-tier-service";
 import { customSponsorTierKey, readCustomSponsorTiers, sponsorTierLabel, sponsorTierList, sponsorTierRank } from "@/lib/sponsor-tiers";
 
 const ORG = "org-1";
-let written: Record<string, unknown> | null;
 
+/** The organisation row as the LOCKED read returns it. */
 function orgWith(custom: { key: string; label: string }[]) {
-  mockDb.organization.findUnique.mockResolvedValue({ settings: { timezone: "Asia/Dubai", sponsorTiers: custom } });
+  tx.$queryRaw.mockResolvedValue([{ settings: { timezone: "Asia/Dubai", sponsorTiers: custom } }]);
 }
+/** Tier keys sponsors in the organisation hold, with counts. */
+function held(counts: Record<string, number>) {
+  tx.sponsor.groupBy.mockResolvedValue(Object.entries(counts).map(([tier, n]) => ({ tier, _count: { _all: n } })));
+}
+const written = () => tx.organization.update.mock.calls[0]?.[0]?.data?.settings as Record<string, unknown> | undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  written = null;
   mockDb.auditLog.create.mockResolvedValue({});
-  mockDb.sponsor.groupBy.mockResolvedValue([]);
-  updateOrganizationSettings.mockImplementation(async (_id: string, patch: (cur: Record<string, unknown>) => Record<string, unknown>) => {
-    written = patch({ timezone: "Asia/Dubai" });
-    return written;
-  });
+  tx.organization.update.mockResolvedValue({});
+  held({});
 });
 
 describe("sponsor tier list", () => {
@@ -72,7 +79,7 @@ describe("saveSponsorTiers", () => {
     orgWith([]);
     const res = await saveSponsorTiers({ organizationId: ORG, actorUserId: "u1", tiers: [{ label: "Associate" }] });
     expect(res.ok).toBe(true);
-    expect(written).toEqual({ timezone: "Asia/Dubai", sponsorTiers: [{ key: "associate", label: "Associate" }] });
+    expect(written()).toEqual({ timezone: "Asia/Dubai", sponsorTiers: [{ key: "associate", label: "Associate" }] });
     if (res.ok) expect(res.tiers.at(-1)).toMatchObject({ key: "associate", label: "Associate", builtIn: false });
   });
 
@@ -80,21 +87,26 @@ describe("saveSponsorTiers", () => {
     orgWith([{ key: "associate", label: "Associate" }]);
     const res = await saveSponsorTiers({ organizationId: ORG, actorUserId: "u1", tiers: [{ key: "associate", label: "Associate Partner" }] });
     expect(res.ok).toBe(true);
-    expect(written?.sponsorTiers).toEqual([{ key: "associate", label: "Associate Partner" }]);
+    expect(written()?.sponsorTiers).toEqual([{ key: "associate", label: "Associate Partner" }]);
   });
 
   it("refuses a name a standard tier already has, ignoring case", async () => {
     orgWith([]);
     const res = await saveSponsorTiers({ organizationId: ORG, actorUserId: "u1", tiers: [{ label: "gold" }] });
     expect(res).toMatchObject({ ok: false, code: "DUPLICATE_LABEL" });
-    expect(updateOrganizationSettings).not.toHaveBeenCalled();
+    expect(tx.organization.update).not.toHaveBeenCalled();
   });
 
   it("refuses the same name twice and an empty name", async () => {
     orgWith([]);
     expect(await saveSponsorTiers({ organizationId: ORG, actorUserId: "u1", tiers: [{ label: "A" }, { label: "a" }] })).toMatchObject({ code: "DUPLICATE_LABEL" });
     expect(await saveSponsorTiers({ organizationId: ORG, actorUserId: "u1", tiers: [{ label: "  " }] })).toMatchObject({ code: "INVALID_LABEL" });
-    expect(updateOrganizationSettings).not.toHaveBeenCalled();
+    expect(tx.organization.update).not.toHaveBeenCalled();
+  });
+
+  it("answers not found for a missing organisation", async () => {
+    tx.$queryRaw.mockResolvedValue([]);
+    expect(await saveSponsorTiers({ organizationId: ORG, actorUserId: "u1", tiers: [] })).toMatchObject({ code: "ORGANIZATION_NOT_FOUND" });
   });
 
   it("refuses a key that is not one of the organisation's tiers", async () => {
@@ -105,19 +117,40 @@ describe("saveSponsorTiers", () => {
 
   it("refuses to delete a tier a sponsor still uses, says how many, and writes nothing", async () => {
     orgWith([{ key: "associate", label: "Associate" }]);
-    mockDb.sponsor.groupBy.mockResolvedValue([{ tier: "associate", _count: { _all: 3 } }]);
+    held({ associate: 3, gold: 5 });
     const res = await saveSponsorTiers({ organizationId: ORG, actorUserId: "u1", tiers: [] });
     expect(res).toMatchObject({ ok: false, code: "TIER_IN_USE", inUse: [{ key: "associate", label: "Associate", sponsors: 3 }] });
-    expect(mockDb.sponsor.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { event: { organizationId: ORG }, tier: { in: ["associate"] } } }),
+    // Counted inside the transaction, through the event, for this organisation only.
+    expect(tx.sponsor.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { event: { organizationId: ORG }, tier: { not: null } } }),
     );
-    expect(updateOrganizationSettings).not.toHaveBeenCalled();
+    expect(tx.organization.update).not.toHaveBeenCalled();
+  });
+
+  it("plans from the LOCKED read, so a tier someone else just added and used is never silently dropped", async () => {
+    // Another person added Associate and put a sponsor on it a moment ago; the
+    // locked read sees it. A save built without it must be refused, not applied.
+    orgWith([{ key: "associate", label: "Associate" }]);
+    held({ associate: 1 });
+    const res = await saveSponsorTiers({ organizationId: ORG, actorUserId: "u1", tiers: [{ label: "Affiliate" }] });
+    expect(res).toMatchObject({ ok: false, code: "TIER_IN_USE" });
+    expect(tx.$queryRaw).toHaveBeenCalled();
+    expect(tx.organization.update).not.toHaveBeenCalled();
+  });
+
+  it("never gives a new tier a key a sponsor still holds", async () => {
+    // Sponsors are still on "associate" though no tier has it any more.
+    orgWith([]);
+    held({ associate: 2 });
+    const res = await saveSponsorTiers({ organizationId: ORG, actorUserId: "u1", tiers: [{ label: "Associate" }] });
+    expect(res.ok).toBe(true);
+    expect(written()?.sponsorTiers).toEqual([{ key: "associate-2", label: "Associate" }]);
   });
 
   it("deletes a tier nobody uses", async () => {
     orgWith([{ key: "associate", label: "Associate" }]);
     const res = await saveSponsorTiers({ organizationId: ORG, actorUserId: "u1", tiers: [] });
     expect(res.ok).toBe(true);
-    expect(written?.sponsorTiers).toEqual([]);
+    expect(written()?.sponsorTiers).toEqual([]);
   });
 });
