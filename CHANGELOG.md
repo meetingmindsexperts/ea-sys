@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Agenda: topics without speakers, and a reason when roles are unavailable (October 15)
+
+- A session's **Topics** can now be added before the event has any speakers
+  (title and minutes); each topic's speaker picker appears once speakers
+  exist. The server always allowed this; the form hid the whole section.
+- Where speakers are needed (Session Roles, and each topic's presenters), the
+  form now says "This event has no speakers yet" with a link to the Speakers
+  page, instead of the section disappearing. On 4th GCC, which has no
+  speakers yet, the silent gap was taken for a lost permission.
+
 ### Blueprint: Speak in "Talk it through" (October 9)
 
 - The quick-fill box has a **Speak** button: describe the event out loud, in

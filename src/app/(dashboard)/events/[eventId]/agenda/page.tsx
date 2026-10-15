@@ -280,6 +280,23 @@ function sessionToForm(s: Session, eventTz: string): typeof DEFAULT_SESSION_FORM
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Shown in place of the session-role pickers while the event has no speakers, so a missing section
+ * explains itself: on Oct 15 2026 an organiser on an event with no speakers took the hidden roles,
+ * speakers and topics sections for a lost permission.
+ */
+function NoSpeakersNote({ eventId, what }: { eventId: string; what: string }) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      This event has no speakers yet. Add them on the{" "}
+      <Link href={`/events/${eventId}/speakers`} className="font-medium text-primary underline-offset-2 hover:underline">
+        Speakers page
+      </Link>{" "}
+      to {what}.
+    </p>
+  );
+}
+
 function sessionDialogTitle(editing: boolean, isBreak: boolean): string {
   if (editing) return isBreak ? "Edit Break Item" : "Edit Session";
   return isBreak ? "Add Break Item" : "Create Session";
@@ -868,6 +885,8 @@ export default function AgendaPage() {
   // blocks: the form hides the track, capacity, roles, topics and Zoom
   // sections for them, and the submit clears any leftovers on conversion.
   const isBreakForm = isBreakSessionType(sessionForm.type);
+  // Roles and per-topic speakers need the event's speakers; topics themselves do not.
+  const hasSpeakers = (speakers as Speaker[]).length > 0;
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
@@ -1463,7 +1482,13 @@ export default function AgendaPage() {
               </div>
 
               {/* Session Roles (Moderator, Chairperson, Panelist, Speaker) */}
-              {!isBreakForm && (speakers as Speaker[]).length > 0 && (
+              {!isBreakForm && !hasSpeakers && (
+                <div className="space-y-2">
+                  <Label>Session Roles</Label>
+                  <NoSpeakersNote eventId={eventId} what="assign moderators, chairpersons, panelists and speakers" />
+                </div>
+              )}
+              {!isBreakForm && hasSpeakers && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>Session Roles</Label>
@@ -1545,8 +1570,8 @@ export default function AgendaPage() {
                 </div>
               )}
 
-              {/* Topics (optional) */}
-              {!isBreakForm && (speakers as Speaker[]).length > 0 && (
+              {/* Topics (optional): a topic needs no speakers; its speaker picker waits for the event's. */}
+              {!isBreakForm && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>Topics</Label>
@@ -1569,7 +1594,7 @@ export default function AgendaPage() {
                     </Button>
                   </div>
                   {sessionForm.topics.length === 0 && (
-                    <p className="text-xs text-muted-foreground">No topics. Add topics to assign speakers per presentation.</p>
+                    <p className="text-xs text-muted-foreground">No topics. Add the presentations in this session, with speakers for each once the event has them.</p>
                   )}
                   <div className="space-y-3">
                     {sessionForm.topics.map((topic, idx) => (
@@ -1611,6 +1636,12 @@ export default function AgendaPage() {
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
+                        {!hasSpeakers && (
+                          <div className="pl-5">
+                            <NoSpeakersNote eventId={eventId} what="choose who presents this topic" />
+                          </div>
+                        )}
+                        {hasSpeakers && (
                         <div className="pl-5">
                           <MultiSelect
                             options={(speakers as Speaker[]).map((sp) => ({
@@ -1630,6 +1661,7 @@ export default function AgendaPage() {
                             emptyMessage="No speakers found."
                           />
                         </div>
+                        )}
                       </div>
                     ))}
                   </div>
