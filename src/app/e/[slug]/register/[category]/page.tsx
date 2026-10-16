@@ -90,6 +90,8 @@ interface TicketType {
   canPurchase: boolean;
   salesStarted: boolean;
   salesEnded: boolean;
+  /** A promo code that applies to this type must be applied to register (Oct 16, 2026). */
+  requiresPromoCode?: boolean;
   // Supporting-document policy — per TYPE, so the form reads it off whichever
   // type the registrant picked rather than matching the type's name.
   requiresDocument?: boolean;
@@ -157,6 +159,8 @@ interface RegTypeOption {
   canPurchase: boolean;
   /** True when the tier/type has a real seat limit (quantity < sentinel). */
   hasSeatLimit: boolean;
+  /** A promo code for this type must be applied before submitting. */
+  requiresPromoCode: boolean;
   /** Supporting-document policy, carried from the ticket type. */
   requiresDocument: boolean;
   documentRequired: boolean;
@@ -315,6 +319,7 @@ function CategoryRegistrationContent() {
                 available: tier.available,
                 canPurchase: tier.canPurchase,
                 hasSeatLimit: tier.seatLimited ?? tier.quantity < UNLIMITED_SENTINEL,
+                requiresPromoCode: tt.requiresPromoCode === true,
                 requiresDocument: tt.requiresDocument === true,
                 documentRequired: tt.documentRequired === true,
                 documentLabel: tt.documentLabel ?? null,
@@ -370,6 +375,7 @@ function CategoryRegistrationContent() {
               available: t.available,
               canPurchase: t.canPurchase,
               hasSeatLimit: t.seatLimited ?? t.quantity < UNLIMITED_SENTINEL,
+              requiresPromoCode: t.requiresPromoCode === true,
               requiresDocument: t.requiresDocument === true,
               documentRequired: t.documentRequired === true,
               documentLabel: t.documentLabel ?? null,
@@ -467,6 +473,13 @@ function CategoryRegistrationContent() {
     // one blocks is the organizer's Required/Optional choice on that type. The
     // server enforces the same rule — this is the friendly half.
     const picked = regTypeOptions.find((o) => o.ticketTypeId === data.ticketTypeId);
+    // A type that needs a promo code: the server refuses without one, so say
+    // so here and open the field rather than letting the request fail.
+    if (picked?.requiresPromoCode && !promoResult?.valid) {
+      setShowPromoInput(true);
+      toast.error("This registration type needs a promo code. Enter the code your sponsor sent you and press Apply.");
+      return;
+    }
     if (supportingDocumentBlocks(picked) && !supportingDoc) {
       setDocError(`Please attach the ${supportingDocumentLabel(picked).toLowerCase()} to continue.`);
       return;
@@ -1321,15 +1334,22 @@ function CategoryRegistrationContent() {
                     )}
 
                     {/* Promo Code */}
-                    {selectedTicketId && event?.hasPromoCodes && (
+                    {selectedTicketId && (event?.hasPromoCodes || selectedOption?.requiresPromoCode) && (
                       <div className="mt-2">
-                        {!showPromoInput ? (
+                        {!showPromoInput && !selectedOption?.requiresPromoCode ? (
                           <button type="button" onClick={() => setShowPromoInput(true)} className="text-sm text-primary hover:underline font-medium">
                             Have a promo code?
                           </button>
                         ) : (
                           <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-600">Promo Code</label>
+                            <label className="text-sm font-medium text-slate-600">
+                              Promo Code{selectedOption?.requiresPromoCode && <span className="text-red-500"> *</span>}
+                            </label>
+                            {selectedOption?.requiresPromoCode && (
+                              <p className="text-xs text-slate-500">
+                                This registration type needs a promo code. Use the code your sponsor sent you.
+                              </p>
+                            )}
                             <div className="flex gap-2">
                               <Input
                                 placeholder="Enter promo code"

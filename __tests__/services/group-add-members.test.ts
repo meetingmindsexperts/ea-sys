@@ -235,6 +235,24 @@ describe("addGroupMembers — access + guards", () => {
     if (!res.ok) expect(res.code).toBe("ALREADY_REGISTERED");
   });
 
+  it("refuses a code-required type when the group registered without a code (Oct 16, 2026)", async () => {
+    mockDb.ticketType.findMany.mockResolvedValue([ticketType({ requiresPromoCode: true })]);
+    const res = await addGroupMembers({ groupId: GROUP_ID, coordinatorUserId: COORDINATOR, members: [newMember()] });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("PROMO_CODE_REQUIRED");
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+
+  it("accepts a code-required type when the group's code applies to it", async () => {
+    mockDb.ticketType.findMany.mockResolvedValue([ticketType({ requiresPromoCode: true })]);
+    mockDb.registration.findFirst.mockImplementation(async (args: { select?: Record<string, unknown> }) => {
+      if (args?.select?.promoCode) return { promoCode: { ticketTypes: [] } }; // the group's code, for every type
+      return args?.select?.ticketType ? { ticketType: { currency: "USD" } } : null;
+    });
+    const res = await addGroupMembers({ groupId: GROUP_ID, coordinatorUserId: COORDINATOR, members: [newMember()] });
+    expect(res).not.toMatchObject({ code: "PROMO_CODE_REQUIRED" });
+  });
+
   it("refuses a registration type in a different currency from the group's", async () => {
     mockDb.ticketType.findMany.mockResolvedValue([ticketType({ currency: "EUR" })]);
 

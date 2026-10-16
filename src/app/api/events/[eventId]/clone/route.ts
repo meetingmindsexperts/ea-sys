@@ -254,6 +254,7 @@ export async function POST(
               // error, no log. The positive-field-list test below this file's
               // sibling is what stops a fourth.
               requiresDocument: tt.requiresDocument,
+              requiresPromoCode: tt.requiresPromoCode,
               documentRequired: tt.documentRequired,
               documentLabel: tt.documentLabel,
               documentInstructions: tt.documentInstructions,

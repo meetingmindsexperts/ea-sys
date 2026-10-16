@@ -286,6 +286,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // A type that needs a promo code (Oct 16, 2026, a sponsor-only Inclusive
+    // type): no code, no registration. Whether the code is valid and applies
+    // to THIS type is checked with the other promo rules in the transaction.
+    if (ticketType.requiresPromoCode && !promoCode?.trim()) {
+      apiLogger.warn({ msg: "public/register:promo-code-required", eventId: event.id, ticketTypeId });
+      return NextResponse.json(
+        { error: "This registration type needs a promo code. Use the link or code your sponsor sent you.", code: "PROMO_CODE_REQUIRED" },
+        { status: 400 },
+      );
+    }
+
     // Virtual attendance is only honored on HYBRID events. A VIRTUAL choice on
     // any other event type silently falls back to IN_PERSON. Virtual ⇒ no
     // qrCode/badge, uncapped (skips capacity + soldCount), and priced via the

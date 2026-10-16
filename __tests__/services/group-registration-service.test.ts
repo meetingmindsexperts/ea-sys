@@ -19,6 +19,7 @@ const {
     $queryRaw: vi.fn().mockResolvedValue([]),
     event: { findFirst: vi.fn() },
     ticketType: { findMany: vi.fn() },
+    promoCode: { findFirst: vi.fn() },
     eventBillingAccount: { upsert: vi.fn().mockResolvedValue({}) },
     registration: { findFirst: vi.fn(), create: vi.fn() },
     registrationGroup: { create: vi.fn() },
@@ -204,6 +205,33 @@ describe("createGroupRegistration — gates", () => {
     mockDb.ticketType.findMany.mockResolvedValue([{ ...PHYSICIAN_TYPE, isFaculty: true }, NURSE_TYPE]);
     const res = await createGroupRegistration(BASE_INPUT);
     expect(res).toMatchObject({ ok: false, code: "TICKET_TYPE_IS_FACULTY" });
+  });
+
+  // A code-required type (Oct 16, 2026, a sponsor-only Inclusive type).
+  const PROMO = {
+    id: "promo-1", isActive: true, validFrom: null, validUntil: null,
+    maxUses: 10, usedCount: 0, maxUsesPerEmail: null,
+    discountType: "PERCENTAGE", discountValue: 100,
+  };
+
+  it("PROMO_CODE_REQUIRED when a member's type needs a code and none is given", async () => {
+    mockDb.ticketType.findMany.mockResolvedValue([{ ...PHYSICIAN_TYPE, requiresPromoCode: true }, NURSE_TYPE]);
+    const res = await createGroupRegistration(BASE_INPUT);
+    expect(res).toMatchObject({ ok: false, code: "PROMO_CODE_REQUIRED", meta: { ticketTypeId: "tt-phys" } });
+  });
+
+  it("PROMO_CODE_REQUIRED when the code fits the OTHER type only, not the code-required one", async () => {
+    mockDb.ticketType.findMany.mockResolvedValue([{ ...PHYSICIAN_TYPE, requiresPromoCode: true }, NURSE_TYPE]);
+    mockDb.promoCode.findFirst.mockResolvedValue({ ...PROMO, ticketTypes: [{ ticketTypeId: "tt-nurse" }] });
+    const res = await createGroupRegistration({ ...BASE_INPUT, promoCode: "NURSES" });
+    expect(res).toMatchObject({ ok: false, code: "PROMO_CODE_REQUIRED" });
+  });
+
+  it("a code that applies to the code-required type gets past the requirement", async () => {
+    mockDb.ticketType.findMany.mockResolvedValue([{ ...PHYSICIAN_TYPE, requiresPromoCode: true }, NURSE_TYPE]);
+    mockDb.promoCode.findFirst.mockResolvedValue({ ...PROMO, ticketTypes: [] });
+    const res = await createGroupRegistration({ ...BASE_INPUT, promoCode: "BIOLOGIX" });
+    expect(res).not.toMatchObject({ code: "PROMO_CODE_REQUIRED" });
   });
 
   it("SALES_ENDED — public semantics, no staff override on this path", async () => {

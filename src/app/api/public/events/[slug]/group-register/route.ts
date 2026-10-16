@@ -104,6 +104,7 @@ const ERROR_STATUS: Record<CreateGroupRegistrationErrorCode, number> = {
   MIXED_CURRENCY: 400,
   PROMO_INVALID: 400,
   PROMO_UNAVAILABLE: 409,
+  PROMO_CODE_REQUIRED: 400,
   UNKNOWN: 500,
 };
 

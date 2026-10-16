@@ -42,6 +42,11 @@ model TicketType {
   /// rather take the registration and chase the paperwork than lose a delegate
   /// at the form at 11pm.
   ///
+  /// A promo code that applies to this type must be applied to register on it
+  /// publicly (Oct 16, 2026: a sponsor-only "Inclusive" type). The type stays
+  /// visible; staff adding a registration from the dashboard are exempt.
+  requiresPromoCode    Boolean @default(false)
+
   /// Asks this type's registrants for a document.
   requiresDocument     Boolean @default(false)
   /// ...and refuses the registration when it is missing. Ignored unless

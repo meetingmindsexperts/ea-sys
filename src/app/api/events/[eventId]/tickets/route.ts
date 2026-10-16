@@ -31,6 +31,8 @@ const createTicketTypeSchema = z.object({
   // "ask but do not block" has to stay expressible. See
   // src/lib/supporting-document.ts.
   requiresDocument: z.boolean().default(false),
+  // A promo code for this type must be applied to register on it publicly.
+  requiresPromoCode: z.boolean().default(false),
   // Identity evidence — per-type switches, replacing the name match.
   requiresMemberId: z.boolean().default(false),
   requiresStudentId: z.boolean().default(false),
@@ -159,7 +161,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { name, description, isActive, requiresApproval, sortOrder, quantity, pricingTiers, requiresDocument, documentRequired, documentLabel, documentInstructions, requiresMemberId, requiresStudentId, requiresStudentIdExpiry } = validated.data;
+    const { name, description, isActive, requiresApproval, sortOrder, quantity, pricingTiers, requiresDocument, documentRequired, documentLabel, documentInstructions, requiresMemberId, requiresStudentId, requiresStudentIdExpiry, requiresPromoCode } = validated.data;
 
     // Check for duplicate name within the event
     const existing = await db.ticketType.findFirst({
@@ -184,6 +186,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         quantity,
         sortOrder: sortOrder ?? 99,
         requiresDocument,
+        requiresPromoCode,
         requiresMemberId,
         requiresStudentId,
         // Collapsed here too, so the stored row can never hold an

@@ -410,6 +410,8 @@ const CLONED_TICKET_FIELDS = [
   "salesStart", "salesEnd", "requiresApproval",
   // Supporting-document policy (Aug 13, 2026).
   "requiresDocument", "documentRequired", "documentLabel", "documentInstructions",
+  // A sponsor-only type still needs its code on the clone (Oct 16, 2026).
+  "requiresPromoCode",
   // Identity-evidence policy (Sept 2, 2026).
   "requiresMemberId", "requiresStudentId", "requiresStudentIdExpiry",
 ];

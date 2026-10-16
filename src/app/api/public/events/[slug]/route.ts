@@ -122,6 +122,9 @@ export async function GET(req: Request, { params }: RouteParams) {
             // THESE, per type, instead of matching the type's name.
             requiresDocument: true,
             documentRequired: true,
+            // The form asks for a promo code on this type and the register
+            // route refuses one without it.
+            requiresPromoCode: true,
             // Per-type identity-evidence switches, so the form asks for exactly
             // what the server will enforce — one rule, both ends.
             requiresMemberId: true,

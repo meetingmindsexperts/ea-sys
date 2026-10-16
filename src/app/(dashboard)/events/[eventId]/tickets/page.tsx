@@ -86,6 +86,8 @@ interface TicketType {
   sortOrder: number;
   quantity: number;
   soldCount: number;
+  /** A promo code for this type must be applied to register on it publicly. */
+  requiresPromoCode?: boolean;
   // Supporting-document policy — see src/lib/supporting-document.ts.
   requiresDocument: boolean;
   documentRequired: boolean;
@@ -156,6 +158,7 @@ export default function TicketsPage() {
   // Type-level approval gate — previously only exposed inside the pricing-tier
   // dialog, so a type with NO tiers couldn't enable it from the UI.
   const [typeApproval, setTypeApproval] = useState(false);
+  const [typeRequiresPromo, setTypeRequiresPromo] = useState(false);
   // Seat limit as raw input text; "" = unlimited (999999 sentinel).
   const [typeSeatLimit, setTypeSeatLimit] = useState("");
   // Supporting-document policy. Two flags, not one enum: "ask but do not
@@ -194,6 +197,7 @@ export default function TicketsPage() {
     setTypeApproval(false);
     setTypeSeatLimit("");
     setTypeRequiresDoc(false);
+    setTypeRequiresPromo(false);
     setTypeDocBlocks(false);
     setTypeDocLabel("");
     setTypeDocInstructions("");
@@ -207,6 +211,7 @@ export default function TicketsPage() {
     setTypeApproval(!!tt.requiresApproval);
     setTypeSeatLimit(hasSeatLimit(tt.quantity) ? String(tt.quantity) : "");
     setTypeRequiresDoc(!!tt.requiresDocument);
+    setTypeRequiresPromo(!!tt.requiresPromoCode);
     setTypeDocBlocks(!!tt.documentRequired);
     setTypeDocLabel(tt.documentLabel || "");
     setTypeDocInstructions(tt.documentInstructions || "");
@@ -236,6 +241,7 @@ export default function TicketsPage() {
       // Never sent without the ID it belongs to — an expiry with nothing to
       // expire is not a state the organizer can mean.
       requiresStudentIdExpiry: typeReqStudentId && typeReqStudentExpiry,
+      requiresPromoCode: typeRequiresPromo,
     };
     try {
       if (editingType) {
@@ -734,6 +740,21 @@ export default function TicketsPage() {
                 <p className="text-xs text-muted-foreground">
                   New registrations on this type start as Pending until an organizer confirms them.
                   A pricing tier&apos;s own approval setting overrides this when a tier is picked.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="type-requires-promo"
+                checked={typeRequiresPromo}
+                onCheckedChange={(checked) => setTypeRequiresPromo(!!checked)}
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="type-requires-promo" className="cursor-pointer">Requires a promo code</Label>
+                <p className="text-xs text-muted-foreground">
+                  On the public form this type can only be registered with a promo code that applies to it,
+                  for example a sponsor&apos;s code for an Inclusive type. Your team can still add registrations
+                  on it from the dashboard.
                 </p>
               </div>
             </div>
