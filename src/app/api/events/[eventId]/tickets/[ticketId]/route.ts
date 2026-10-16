@@ -24,7 +24,6 @@ const updateTicketTypeSchema = z.object({
   // "ask but do not block" has to stay expressible. See
   // src/lib/supporting-document.ts.
   requiresDocument: z.boolean().optional(),
-  requiresPromoCode: z.boolean().optional(),
   requiresMemberId: z.boolean().optional(),
   requiresStudentId: z.boolean().optional(),
   requiresStudentIdExpiry: z.boolean().optional(),
@@ -214,7 +213,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
         // `quantity` (and the recounted soldCount) were written inside the
         // locked recount transaction above; never a second time here.
         ...(data.requiresDocument !== undefined && { requiresDocument: data.requiresDocument }),
-        ...(data.requiresPromoCode !== undefined && { requiresPromoCode: data.requiresPromoCode }),
         ...(data.requiresMemberId !== undefined && { requiresMemberId: data.requiresMemberId }),
         ...(data.requiresStudentId !== undefined && { requiresStudentId: data.requiresStudentId }),
         // Never store an expiry requirement without the ID it belongs

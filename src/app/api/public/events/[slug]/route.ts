@@ -5,6 +5,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readGroupRegistrationSettings } from "@/lib/group-registration-settings";
 import { readMainRegisterTiers } from "@/lib/main-register-tiers";
+import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { abstractSubmissionsOpen } from "@/lib/webinar";
 
@@ -122,9 +123,6 @@ export async function GET(req: Request, { params }: RouteParams) {
             // THESE, per type, instead of matching the type's name.
             requiresDocument: true,
             documentRequired: true,
-            // The form asks for a promo code on this type and the register
-            // route refuses one without it.
-            requiresPromoCode: true,
             // Per-type identity-evidence switches, so the form asks for exactly
             // what the server will enforce — one rule, both ends.
             requiresMemberId: true,
@@ -288,6 +286,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       // Which tier names the main /register link may land on, in order
       // (Settings → Registration; src/lib/main-register-tiers.ts).
       mainRegisterTiers: readMainRegisterTiers(event.settings),
+      // Rates whose link needs a sponsor's code (code-required-tiers.ts).
+      codeRequiredTiers: readCodeRequiredTiers(event.settings),
       // NOTE: the supporting-document policy is PER TICKET TYPE (see the
       // ticketTypes select above), not event-wide. The old event-level
       // `residentLetter` switch was retired on 2026-08-13 and its value

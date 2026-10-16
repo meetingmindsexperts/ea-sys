@@ -90,8 +90,6 @@ interface TicketType {
   canPurchase: boolean;
   salesStarted: boolean;
   salesEnded: boolean;
-  /** A promo code that applies to this type must be applied to register (Oct 16, 2026). */
-  requiresPromoCode?: boolean;
   // Supporting-document policy — per TYPE, so the form reads it off whichever
   // type the registrant picked rather than matching the type's name.
   requiresDocument?: boolean;
@@ -131,6 +129,8 @@ interface Event {
   organization: { name: string; logo: string | null };
   ticketTypes: TicketType[];
   hasPromoCodes?: boolean;
+  /** Rates whose link needs a sponsor's code, as slugs (code-required-tiers.ts). */
+  codeRequiredTiers?: string[];
   abstractSettings?: {
     allowAbstractSubmissions: boolean;
     abstractDeadline: string | null;
@@ -159,8 +159,6 @@ interface RegTypeOption {
   canPurchase: boolean;
   /** True when the tier/type has a real seat limit (quantity < sentinel). */
   hasSeatLimit: boolean;
-  /** A promo code for this type must be applied before submitting. */
-  requiresPromoCode: boolean;
   /** Supporting-document policy, carried from the ticket type. */
   requiresDocument: boolean;
   documentRequired: boolean;
@@ -319,7 +317,6 @@ function CategoryRegistrationContent() {
                 available: tier.available,
                 canPurchase: tier.canPurchase,
                 hasSeatLimit: tier.seatLimited ?? tier.quantity < UNLIMITED_SENTINEL,
-                requiresPromoCode: tt.requiresPromoCode === true,
                 requiresDocument: tt.requiresDocument === true,
                 documentRequired: tt.documentRequired === true,
                 documentLabel: tt.documentLabel ?? null,
@@ -375,7 +372,6 @@ function CategoryRegistrationContent() {
               available: t.available,
               canPurchase: t.canPurchase,
               hasSeatLimit: t.seatLimited ?? t.quantity < UNLIMITED_SENTINEL,
-              requiresPromoCode: t.requiresPromoCode === true,
               requiresDocument: t.requiresDocument === true,
               documentRequired: t.documentRequired === true,
               documentLabel: t.documentLabel ?? null,
@@ -473,11 +469,16 @@ function CategoryRegistrationContent() {
     // one blocks is the organizer's Required/Optional choice on that type. The
     // server enforces the same rule — this is the friendly half.
     const picked = regTypeOptions.find((o) => o.ticketTypeId === data.ticketTypeId);
-    // A type that needs a promo code: the server refuses without one, so say
-    // so here and open the field rather than letting the request fail.
-    if (picked?.requiresPromoCode && !promoResult?.valid) {
+    // A sponsor link (this rate needs a sponsor's code): the server refuses
+    // without a sponsor-covered code, so say so here and open the field rather
+    // than letting the request fail.
+    if (sponsorCodeRequired && !(promoResult?.valid && promoResult.coveredBySponsor)) {
       setShowPromoInput(true);
-      toast.error("This registration type needs a promo code. Enter the code your sponsor sent you and press Apply.");
+      toast.error(
+        promoResult?.valid
+          ? "This registration link needs the code your sponsor sent you. A discount code does not apply here."
+          : "This registration link needs the code your sponsor sent you. Enter it and press Apply.",
+      );
       return;
     }
     if (supportingDocumentBlocks(picked) && !supportingDoc) {
@@ -693,6 +694,8 @@ function CategoryRegistrationContent() {
 
   const selectedSpecialty = form.watch("specialty");
   const selectedOption = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId);
+  // This rate's link is a sponsor link: only a sponsor-covered code opens it.
+  const sponsorCodeRequired = (event?.codeRequiredTiers ?? []).includes(categorySlug);
   // Which evidence fields to render, from the type's switches rather than its
   // name — the same correction the supporting-document block below made.
   const evidencePolicy = readIdentityEvidencePolicy(selectedOption);
@@ -1334,20 +1337,20 @@ function CategoryRegistrationContent() {
                     )}
 
                     {/* Promo Code */}
-                    {selectedTicketId && (event?.hasPromoCodes || selectedOption?.requiresPromoCode) && (
+                    {selectedTicketId && (event?.hasPromoCodes || sponsorCodeRequired) && (
                       <div className="mt-2">
-                        {!showPromoInput && !selectedOption?.requiresPromoCode ? (
+                        {!showPromoInput && !sponsorCodeRequired ? (
                           <button type="button" onClick={() => setShowPromoInput(true)} className="text-sm text-primary hover:underline font-medium">
                             Have a promo code?
                           </button>
                         ) : (
                           <div className="space-y-2">
                             <label className="text-sm font-medium text-slate-600">
-                              Promo Code{selectedOption?.requiresPromoCode && <span className="text-red-500"> *</span>}
+                              Promo Code{sponsorCodeRequired && <span className="text-red-500"> *</span>}
                             </label>
-                            {selectedOption?.requiresPromoCode && (
+                            {sponsorCodeRequired && (
                               <p className="text-xs text-slate-500">
-                                This registration type needs a promo code. Use the code your sponsor sent you.
+                                This registration link is for sponsored delegates. Enter the code your sponsor sent you.
                               </p>
                             )}
                             <div className="flex gap-2">

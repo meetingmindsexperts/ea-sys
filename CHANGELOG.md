@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registration: sponsor links, and a free-registration gap closed (October 16)
+
+- **Sponsor links.** A rate can be marked as a sponsor link on the
+  Registration Types page (`Event.settings.codeRequiredTiers`, by rate name like
+  the main link, so "Inclusive" covers every type including later ones). On a
+  marked rate the public register route refuses a registration without a code
+  (400 `PROMO_CODE_REQUIRED`) and accepts only a code whose sponsor covers the
+  fee (400 `PROMO_CODE_NOT_SPONSOR`); the form marks the field required. A
+  `?promo=` link still fills the code in. Staff adds are exempt.
+- **Security fix:** a public registration that named no rate on a type that
+  has rates was charged the type's own price, which events that price by rate
+  leave at 0 (7 published events), so a hand-made request registered free.
+  Now refused (400 `PRICING_TIER_REQUIRED`); types without rates, virtual
+  attendance and presenter-only rates are unaffected. Groups no longer fall
+  back to that price either: a type with rates but none on sale is refused,
+  and a group is never priced on a sponsor-link or presenter rate.
+- The same-day per-type "Requires a promo code" switch is retired (the
+  `TicketType.requiresPromoCode` column stays, unread): a sponsor channel is a
+  rate spanning every type, not a type.
+
 ### Sponsors: the organisation's own tiers (October 15)
 
 - **Manage tiers** on any event's Sponsors page: the six standard tiers stay

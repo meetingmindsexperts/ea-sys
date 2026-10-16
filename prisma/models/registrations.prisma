@@ -42,9 +42,11 @@ model TicketType {
   /// rather take the registration and chase the paperwork than lose a delegate
   /// at the form at 11pm.
   ///
-  /// A promo code that applies to this type must be applied to register on it
-  /// publicly (Oct 16, 2026: a sponsor-only "Inclusive" type). The type stays
-  /// visible; staff adding a registration from the dashboard are exempt.
+  /// RETIRED the day it shipped (Oct 16, 2026): the requirement moved to the
+  /// RATE's link (Event.settings.codeRequiredTiers, src/lib/code-required-tiers.ts),
+  /// because a sponsor channel is a rate (/register/inclusive) spanning every
+  /// type. Nothing reads or writes it; the column stays because migrations
+  /// are never deleted.
   requiresPromoCode    Boolean @default(false)
 
   /// Asks this type's registrants for a document.

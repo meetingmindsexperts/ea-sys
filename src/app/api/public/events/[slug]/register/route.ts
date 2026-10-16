@@ -6,6 +6,7 @@ import { getNextSerialId } from "@/lib/registration-serial";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
+import { isSponsorCoveredCode, readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
@@ -286,17 +287,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // A type that needs a promo code (Oct 16, 2026, a sponsor-only Inclusive
-    // type): no code, no registration. Whether the code is valid and applies
-    // to THIS type is checked with the other promo rules in the transaction.
-    if (ticketType.requiresPromoCode && !promoCode?.trim()) {
-      apiLogger.warn({ msg: "public/register:promo-code-required", eventId: event.id, ticketTypeId });
-      return NextResponse.json(
-        { error: "This registration type needs a promo code. Use the link or code your sponsor sent you.", code: "PROMO_CODE_REQUIRED" },
-        { status: 400 },
-      );
-    }
-
     // Virtual attendance is only honored on HYBRID events. A VIRTUAL choice on
     // any other event type silently falls back to IN_PERSON. Virtual ⇒ no
     // qrCode/badge, uncapped (skips capacity + soldCount), and priced via the
@@ -347,6 +337,34 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
       pricingTier = tier;
+    }
+
+    // No rate named on a type that HAS rates (security fix, Oct 16, 2026): the
+    // price would fall back to the type's own `price`, which events that price
+    // by rate leave at 0, so a request that left the rate out registered free.
+    // The form always names the rate; virtual attendance has its own price;
+    // presenter rates are not public, so they do not count.
+    if (!pricingTier && !isVirtual) {
+      const rates = await db.pricingTier.findMany({ where: { ticketTypeId, isActive: true }, select: { name: true } });
+      if (rates.some((r) => !isPresenterTierName(r.name))) {
+        apiLogger.warn({ msg: "public/register:pricing-tier-required", eventId: event.id, ticketTypeId });
+        return NextResponse.json(
+          { error: "Please choose a rate for this registration type.", code: "PRICING_TIER_REQUIRED" },
+          { status: 400 },
+        );
+      }
+    }
+
+    // A rate marked as a sponsor link needs a sponsor's code
+    // (src/lib/code-required-tiers.ts). The code is checked to be a
+    // sponsor-covered one, valid for this type, inside the transaction below.
+    const sponsorCodeRequired = tierNeedsSponsorCode(pricingTier?.name, readCodeRequiredTiers(event.settings));
+    if (sponsorCodeRequired && !promoCode?.trim()) {
+      apiLogger.warn({ msg: "public/register:sponsor-code-required", eventId: event.id, ticketTypeId, pricingTierId });
+      return NextResponse.json(
+        { error: "This registration link needs the code your sponsor sent you.", code: "PROMO_CODE_REQUIRED" },
+        { status: 400 },
+      );
     }
 
     // Use pricing tier for capacity/sales checks if available, otherwise fall back to ticket type
@@ -614,6 +632,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           if (!promo.ticketTypes.some((t: { ticketTypeId: string }) => t.ticketTypeId === ticketTypeId))
             throw new Error("PROMO_CODE_NOT_APPLICABLE");
         }
+        // A sponsor link opens only to a code whose sponsor covers the fee, so a
+        // discount code cannot turn the $0 sponsor rate into a free door.
+        if (sponsorCodeRequired && !isSponsorCoveredCode(promo)) throw new Error("PROMO_CODE_NOT_SPONSOR");
 
         // Serialize concurrent applies of this promo so the per-email
         // count→insert below can't race past a maxUsesPerEmail cap (two
@@ -967,6 +988,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         "PROMO_CODE_NOT_APPLICABLE",
         "PROMO_CODE_EXHAUSTED",
         "PROMO_CODE_EMAIL_LIMIT",
+        "PROMO_CODE_NOT_SPONSOR",
       ];
       if (businessRejections.includes(error.message)) {
         apiLogger.warn({ msg: "public/register:business-rejection", code: error.message, slug: slugForLog });
@@ -992,6 +1014,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (error.message === "INVALID_PROMO_CODE") {
         return NextResponse.json(
           { error: "Invalid or expired promo code" },
+          { status: 400 }
+        );
+      }
+      if (error.message === "PROMO_CODE_NOT_SPONSOR") {
+        return NextResponse.json(
+          { error: "This registration link needs the code your sponsor sent you. A discount code does not apply here.", code: "PROMO_CODE_NOT_SPONSOR" },
           { status: 400 }
         );
       }

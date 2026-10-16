@@ -410,8 +410,6 @@ const CLONED_TICKET_FIELDS = [
   "salesStart", "salesEnd", "requiresApproval",
   // Supporting-document policy (Aug 13, 2026).
   "requiresDocument", "documentRequired", "documentLabel", "documentInstructions",
-  // A sponsor-only type still needs its code on the clone (Oct 16, 2026).
-  "requiresPromoCode",
   // Identity-evidence policy (Sept 2, 2026).
   "requiresMemberId", "requiresStudentId", "requiresStudentIdExpiry",
 ];
@@ -422,13 +420,17 @@ describe("ticket-type clone completeness", () => {
     // Re-derived from the NEW event, never copied from the source.
     const reparented = ["eventId", "organizationId"];
     const reset = Object.keys(RESET_TICKET_FIELDS); // soldCount
+    // Columns nothing reads any more; a clone has nothing to carry.
+    // requiresPromoCode: retired the day it shipped, the rule moved to the rate (Oct 16, 2026).
+    const retired = ["requiresPromoCode"];
 
     const unclassified = scalarFieldsOf("TicketType").filter(
       (f) =>
         !CLONED_TICKET_FIELDS.includes(f) &&
         !auto.includes(f) &&
         !reparented.includes(f) &&
-        !reset.includes(f),
+        !reset.includes(f) &&
+        !retired.includes(f),
     );
 
     // If this fails you have added a column to TicketType. Decide whether a

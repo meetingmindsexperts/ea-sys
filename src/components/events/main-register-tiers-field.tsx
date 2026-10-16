@@ -118,7 +118,8 @@ export function MainRegisterTiersField({ eventId, ticketTypes, settings }: Props
               <strong className="text-foreground">Good to know:</strong> an unticked rate is
               unlisted, not locked. Anyone who has its link, or guesses it, can use it. If a
               discount must be protected, use a promo code instead (Promo Codes tab at the top of
-              this page): people then need the code, and you can limit how often it is used.
+              this page): people then need the code, and you can limit how often it is used. For
+              a sponsors-only rate such as Inclusive, tick it under Sponsor links below.
             </li>
             <li>
               A rate only takes registrations while it is switched on in its registration type

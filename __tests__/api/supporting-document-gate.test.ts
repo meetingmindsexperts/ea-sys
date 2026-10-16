@@ -22,6 +22,8 @@ const { mockDb, mockApiLogger, mockTenantTransaction } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     ticketType: { findFirst: vi.fn() },
+    // No rates on the type: the no-rate guard (Oct 16, 2026) lets it through.
+    pricingTier: { findFirst: vi.fn(), findMany: vi.fn(async () => []) },
     registration: { findFirst: vi.fn() },
   },
   mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },

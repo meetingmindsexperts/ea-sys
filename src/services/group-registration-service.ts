@@ -43,7 +43,9 @@ import { getNextSerialId } from "@/lib/registration-serial";
 import { claimSeats, claimEventSeats, claimPromoUsage } from "@/lib/registration-seat-db";
 import { checkPromoUsable } from "@/lib/promo-validation";
 import { seatCounter, type SeatCounter } from "@/lib/registration-seat";
-import { pickCurrentPricingTier } from "@/lib/current-pricing-tier";
+import { pickCurrentPricingTier, type PricingTierCandidate } from "@/lib/current-pricing-tier";
+import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
+import { isPresenterTierName } from "@/lib/presenter-tiers";
 import {
   readGroupRegistrationSettings,
   groupSizeOutOfBounds,
@@ -132,7 +134,6 @@ export type CreateGroupRegistrationErrorCode =
   | "MIXED_CURRENCY"
   | "PROMO_INVALID"
   | "PROMO_UNAVAILABLE"
-  | "PROMO_CODE_REQUIRED"
   | "UNKNOWN";
 
 export interface CreatedGroupSummary {
@@ -356,21 +357,24 @@ async function claimSeatsAndCreateMembers(
 }
 
 /**
- * A registration type that needs a promo code (Oct 16, 2026) is only open to a
- * group whose code applies to THAT type. The shared promo check passes a code
- * that fits ANY of the group's types, so without this a code for a paid type
- * would unlock a sponsor-only one beside it. `applicableTypeIds` is null when
- * there is no code, and empty when the code applies to every type.
+ * The rate a group member pays (Oct 16, 2026): the one on sale now, never a
+ * sponsor-link rate (a group is not a sponsor's guest, code-required-tiers.ts)
+ * and never a presenter rate (those belong to the abstract signup). A type
+ * that HAS rates but none of these is on sale is refused rather than charged
+ * the type's own price, which events that price by rate leave at 0: that
+ * fallback let a group register free once Early Bird closed, and could pick
+ * the $0 sponsor rate while it was the only one open.
  */
-function promoRequiredRefusal(
-  types: { id: string; name: string; requiresPromoCode: boolean }[],
-  applicableTypeIds: string[] | null,
-): { ticketTypeId: string; message: string } | null {
-  const blocked = types.find(
-    (t) => t.requiresPromoCode && (applicableTypeIds === null || (applicableTypeIds.length > 0 && !applicableTypeIds.includes(t.id))),
+function groupRate(
+  type: { pricingTiers: PricingTierCandidate[] },
+  sponsorLinkSlugs: readonly string[],
+  now: Date,
+): { tier: PricingTierCandidate | null; noRateOnSale: boolean } {
+  const rates = type.pricingTiers.filter(
+    (t) => !tierNeedsSponsorCode(t.name, sponsorLinkSlugs) && !isPresenterTierName(t.name),
   );
-  if (!blocked) return null;
-  return { ticketTypeId: blocked.id, message: `"${blocked.name}" needs a promo code that applies to it.` };
+  const tier = pickCurrentPricingTier(rates, now);
+  return { tier, noRateOnSale: !tier && type.pricingTiers.length > 0 };
 }
 
 export async function createGroupRegistration(
@@ -462,7 +466,6 @@ export async function createGroupRegistration(
       salesEnd: true,
       requiresApproval: true,
       isFaculty: true,
-      requiresPromoCode: true,
       pricingTiers: {
         where: { isActive: true },
         select: {
@@ -542,8 +545,13 @@ export async function createGroupRegistration(
       requiresApproval: boolean;
     }
   >();
+  const sponsorLinkSlugs = readCodeRequiredTiers(event.settings);
   for (const t of ticketTypes) {
-    const tier = pickCurrentPricingTier(t.pricingTiers, now);
+    const { tier, noRateOnSale } = groupRate(t, sponsorLinkSlugs, now);
+    if (noRateOnSale) {
+      apiLogger.warn({ eventId, ticketTypeId: t.id }, "group-registration:no-rate-on-sale");
+      return { ok: false, code: "SALES_ENDED", message: `No rate for "${t.name}" is on sale right now.`, meta: { ticketTypeId: t.id } };
+    }
     pricingByType.set(t.id, {
       tierId: tier?.id ?? null,
       tierName: tier?.name ?? null,
@@ -569,7 +577,6 @@ export async function createGroupRegistration(
     id: string;
     maxUses: number | null;
   } | null = null;
-  let promoApplicableTypeIds: string[] | null = null;
   if (promoCodeInput) {
     const found = await db.promoCode.findFirst({
       where: { eventId, code: { equals: promoCodeInput, mode: "insensitive" } },
@@ -610,12 +617,6 @@ export async function createGroupRegistration(
       };
     }
     promoCodeRow = { id: found!.id, maxUses: found!.maxUses };
-    promoApplicableTypeIds = found!.ticketTypes.map((t) => t.ticketTypeId);
-  }
-  const promoRequired = promoRequiredRefusal(ticketTypes, promoApplicableTypeIds);
-  if (promoRequired) {
-    apiLogger.warn({ eventId, ticketTypeId: promoRequired.ticketTypeId }, "group-registration:promo-code-required");
-    return { ok: false, code: "PROMO_CODE_REQUIRED", message: promoRequired.message, meta: { ticketTypeId: promoRequired.ticketTypeId } };
   }
 
   // 4. Payer: org-level find-or-create (exact-name reuse; near-duplicates
@@ -1114,7 +1115,6 @@ export type AddGroupMembersErrorCode =
   | "SOLD_OUT"
   | "EVENT_FULL"
   | "MIXED_CURRENCY"
-  | "PROMO_CODE_REQUIRED"
   | "UNKNOWN";
 
 export interface AddGroupMembersSummary {
@@ -1272,7 +1272,7 @@ export async function addGroupMembers(
     where: { id: { in: distinctTypeIds }, eventId, isActive: true },
     select: {
       id: true, name: true, price: true, currency: true,
-      salesStart: true, salesEnd: true, requiresApproval: true, isFaculty: true, requiresPromoCode: true,
+      salesStart: true, salesEnd: true, requiresApproval: true, isFaculty: true,
       pricingTiers: {
         where: { isActive: true },
         select: {
@@ -1316,21 +1316,6 @@ export async function addGroupMembers(
     }
   }
 
-  // A code-required type is open to this group only if the group registered
-  // with a code that applies to it (adding members carries no code of its own).
-  if (ticketTypes.some((t) => t.requiresPromoCode)) {
-    const groupPromo = await db.registration.findFirst({
-      where: { groupId, promoCodeId: { not: null } },
-      select: { promoCode: { select: { ticketTypes: { select: { ticketTypeId: true } } } } },
-    });
-    const applicable = groupPromo?.promoCode ? groupPromo.promoCode.ticketTypes.map((t) => t.ticketTypeId) : null;
-    const promoRequired = promoRequiredRefusal(ticketTypes, applicable);
-    if (promoRequired) {
-      apiLogger.warn({ groupId, ticketTypeId: promoRequired.ticketTypeId }, "group-add-members:promo-code-required");
-      return { ok: false, code: "PROMO_CODE_REQUIRED", message: promoRequired.message, meta: { ticketTypeId: promoRequired.ticketTypeId } };
-    }
-  }
-
   // Currency must match the GROUP's, not merely be internally consistent — a
   // company is billed in one currency, and the existing invoice already
   // committed to it.
@@ -1352,8 +1337,13 @@ export async function addGroupMembers(
   }
 
   const pricingByType = new Map<string, ResolvedTypePricing>();
+  const sponsorLinkSlugs = readCodeRequiredTiers(event.settings);
   for (const t of ticketTypes) {
-    const tier = pickCurrentPricingTier(t.pricingTiers, now);
+    const { tier, noRateOnSale } = groupRate(t, sponsorLinkSlugs, now);
+    if (noRateOnSale) {
+      apiLogger.warn({ groupId, ticketTypeId: t.id }, "group-add-members:no-rate-on-sale");
+      return { ok: false, code: "SALES_ENDED", message: `No rate for "${t.name}" is on sale right now.`, meta: { ticketTypeId: t.id } };
+    }
     pricingByType.set(t.id, {
       tierId: tier?.id ?? null,
       tierName: tier?.name ?? null,
