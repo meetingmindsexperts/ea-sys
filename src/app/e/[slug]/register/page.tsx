@@ -71,6 +71,8 @@ interface Event {
   registrationOpen?: boolean;
   /** Tier-name slugs the main link may land on, in order (Settings → Registration). */
   mainRegisterTiers?: string[];
+  /** Sponsor-link rates (code-required-tiers.ts): the main link never lands on one. */
+  codeRequiredTiers?: string[];
   eventType?: string | null;
   /** Event-wide attendee cap reached (Settings → Maximum Attendees). */
   eventFull?: boolean;
@@ -180,7 +182,12 @@ export default function RegisterOverviewPage() {
     // an older API response has no field.
     const activeTier = !registrationOpen || eventFullBlocks
       ? undefined
-      : pickMainRegisterTier(event.ticketTypes, readMainRegisterTiers({ mainRegisterTiers: event.mainRegisterTiers }));
+      : pickMainRegisterTier(
+          event.ticketTypes,
+          readMainRegisterTiers({ mainRegisterTiers: event.mainRegisterTiers }).filter(
+            (slug) => !(event.codeRequiredTiers ?? []).includes(slug),
+          ),
+        );
 
     if (activeTier) {
       // Keep the query string: a sponsor's link carries `?promo=CODE` (and

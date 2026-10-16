@@ -7,6 +7,9 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
+import { updateEventSettings } from "@/lib/event-settings";
+import { registerTierSlug } from "@/lib/main-register-tiers";
+import { CODE_REQUIRED_TIERS_SETTING, readCodeRequiredTiers } from "@/lib/code-required-tiers";
 
 const updateTierSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -93,6 +96,22 @@ export async function PUT(req: Request, { params }: RouteParams) {
           { status: 409 }
         );
       }
+    }
+
+    // A sponsor link is stored by rate NAME (code-required-tiers.ts), so a
+    // rename would silently open the renamed rate to everyone (review of
+    // c4a12f28). Mark the new name BEFORE renaming: an extra name is harmless
+    // if the rename then fails, a gap is not. The old name stays, because
+    // the same name may still be in use on other registration types.
+    if (data.name && data.name !== tier.name) {
+      const renamedFrom = registerTierSlug(tier.name);
+      const renamedTo = registerTierSlug(data.name);
+      await updateEventSettings(eventId, (cur) => {
+        const marked = readCodeRequiredTiers(cur);
+        if (!marked.includes(renamedFrom) || marked.includes(renamedTo)) return cur;
+        apiLogger.info({ msg: "pricing-tier:sponsor-link-follows-rename", eventId, tierId, from: renamedFrom, to: renamedTo });
+        return { ...cur, [CODE_REQUIRED_TIERS_SETTING]: [...marked, renamedTo] };
+      });
     }
 
     const updated = await db.pricingTier.update({

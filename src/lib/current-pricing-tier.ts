@@ -19,6 +19,8 @@
  * Pure so the rule is unit-testable and lives in ONE place — the caller passes
  * the tiers it already loaded.
  */
+import { tierNeedsSponsorCode } from "@/lib/code-required-tiers";
+import { isPresenterTierName } from "@/lib/presenter-tiers";
 
 export interface PricingTierCandidate {
   id: string;
@@ -61,4 +63,25 @@ export function pickCurrentPricingTier(
   const onSale = tiers.filter((t) => isTierOnSale(t, now));
   if (onSale.length === 0) return null;
   return onSale.reduce((best, t) => (t.sortOrder < best.sortOrder ? t : best));
+}
+
+/**
+ * The rate someone gets when nobody chose one (group members, the completion
+ * form), Oct 16, 2026: the one on sale now that is neither a sponsor link
+ * (code-required-tiers.ts) nor a presenter rate (those belong to the abstract
+ * signup). `noRateOnSale` is true when the type HAS rates but none of those is
+ * open: the caller refuses rather than falling back to the type's own price,
+ * which events that price by rate leave at 0. That fallback, and the $0
+ * sponsor rate being "the one on sale", let people register free.
+ */
+export function pickOpenPublicRate<T extends PricingTierCandidate>(
+  tiers: T[],
+  sponsorLinkSlugs: readonly string[],
+  now: Date,
+): { tier: T | null; noRateOnSale: boolean } {
+  const open = tiers.filter(
+    (t) => isTierOnSale(t, now) && !tierNeedsSponsorCode(t.name, sponsorLinkSlugs) && !isPresenterTierName(t.name),
+  );
+  const tier = open.length === 0 ? null : open.reduce((best, t) => (t.sortOrder < best.sortOrder ? t : best));
+  return { tier, noRateOnSale: !tier && tiers.length > 0 };
 }

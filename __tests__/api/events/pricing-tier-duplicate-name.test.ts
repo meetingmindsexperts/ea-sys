@@ -26,6 +26,7 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/event-settings", () => ({ updateEventSettings: vi.fn() }));
 vi.mock("@/lib/auth-guards", () => ({ WEBINAR_STAFF_ALLOW: ["WEBINARS"], denyReviewer: () => null }));
 
 import { POST as CreateTier } from "@/app/api/events/[eventId]/tickets/[ticketId]/tiers/route";

@@ -43,9 +43,8 @@ import { getNextSerialId } from "@/lib/registration-serial";
 import { claimSeats, claimEventSeats, claimPromoUsage } from "@/lib/registration-seat-db";
 import { checkPromoUsable } from "@/lib/promo-validation";
 import { seatCounter, type SeatCounter } from "@/lib/registration-seat";
-import { pickCurrentPricingTier, type PricingTierCandidate } from "@/lib/current-pricing-tier";
-import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
-import { isPresenterTierName } from "@/lib/presenter-tiers";
+import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
+import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import {
   readGroupRegistrationSettings,
   groupSizeOutOfBounds,
@@ -356,27 +355,6 @@ async function claimSeatsAndCreateMembers(
   return rows;
 }
 
-/**
- * The rate a group member pays (Oct 16, 2026): the one on sale now, never a
- * sponsor-link rate (a group is not a sponsor's guest, code-required-tiers.ts)
- * and never a presenter rate (those belong to the abstract signup). A type
- * that HAS rates but none of these is on sale is refused rather than charged
- * the type's own price, which events that price by rate leave at 0: that
- * fallback let a group register free once Early Bird closed, and could pick
- * the $0 sponsor rate while it was the only one open.
- */
-function groupRate(
-  type: { pricingTiers: PricingTierCandidate[] },
-  sponsorLinkSlugs: readonly string[],
-  now: Date,
-): { tier: PricingTierCandidate | null; noRateOnSale: boolean } {
-  const rates = type.pricingTiers.filter(
-    (t) => !tierNeedsSponsorCode(t.name, sponsorLinkSlugs) && !isPresenterTierName(t.name),
-  );
-  const tier = pickCurrentPricingTier(rates, now);
-  return { tier, noRateOnSale: !tier && type.pricingTiers.length > 0 };
-}
-
 export async function createGroupRegistration(
   input: CreateGroupRegistrationInput,
 ): Promise<CreateGroupRegistrationResult> {
@@ -547,7 +525,7 @@ export async function createGroupRegistration(
   >();
   const sponsorLinkSlugs = readCodeRequiredTiers(event.settings);
   for (const t of ticketTypes) {
-    const { tier, noRateOnSale } = groupRate(t, sponsorLinkSlugs, now);
+    const { tier, noRateOnSale } = pickOpenPublicRate(t.pricingTiers, sponsorLinkSlugs, now);
     if (noRateOnSale) {
       apiLogger.warn({ eventId, ticketTypeId: t.id }, "group-registration:no-rate-on-sale");
       return { ok: false, code: "SALES_ENDED", message: `No rate for "${t.name}" is on sale right now.`, meta: { ticketTypeId: t.id } };
@@ -1339,7 +1317,7 @@ export async function addGroupMembers(
   const pricingByType = new Map<string, ResolvedTypePricing>();
   const sponsorLinkSlugs = readCodeRequiredTiers(event.settings);
   for (const t of ticketTypes) {
-    const { tier, noRateOnSale } = groupRate(t, sponsorLinkSlugs, now);
+    const { tier, noRateOnSale } = pickOpenPublicRate(t.pricingTiers, sponsorLinkSlugs, now);
     if (noRateOnSale) {
       apiLogger.warn({ groupId, ticketTypeId: t.id }, "group-add-members:no-rate-on-sale");
       return { ok: false, code: "SALES_ENDED", message: `No rate for "${t.name}" is on sale right now.`, meta: { ticketTypeId: t.id } };

@@ -65,6 +65,9 @@ export function CodeRequiredTiersField({ eventId, ticketTypes, settings }: Props
   if (names.length === 0) return null;
 
   const tickedNames = names.filter(({ slug }) => ticked.includes(slug)).map(({ name }) => name);
+  // Marked names no rate carries any more (a rate renamed or deleted). Shown
+  // so they can be unticked; they protect nothing until a rate has the name.
+  const orphans = ticked.filter((slug) => !names.some((n) => n.slug === slug));
 
   return (
     <details className="group rounded-lg border border-slate-200 bg-card">
@@ -115,6 +118,17 @@ export function CodeRequiredTiersField({ eventId, ticketTypes, settings }: Props
                 onCheckedChange={(checked) => toggle(slug, checked === true)}
               />
               {name}
+            </label>
+          ))}
+          {orphans.map((slug) => (
+            <label key={slug} htmlFor={`sponsor-link-${slug}`} className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Checkbox
+                id={`sponsor-link-${slug}`}
+                checked
+                disabled={saving}
+                onCheckedChange={() => toggle(slug, false)}
+              />
+              {slug} <span className="text-xs">(no rate has this name now)</span>
             </label>
           ))}
         </div>

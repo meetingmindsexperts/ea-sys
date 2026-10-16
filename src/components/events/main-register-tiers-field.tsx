@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { queryKeys } from "@/hooks/use-api";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { orderedTierNames, readMainRegisterTiers } from "@/lib/main-register-tiers";
+import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 
 interface TicketTypeRow {
   isFaculty?: boolean;
@@ -34,6 +35,8 @@ export function MainRegisterTiersField({ eventId, ticketTypes, settings }: Props
   // Optimistic copy while a save is in flight; the event query is the truth.
   const [pending, setPending] = useState<string[] | null>(null);
   const ticked = pending ?? readMainRegisterTiers(settings);
+  // A sponsor link is never a main-link target (code-required-tiers.ts).
+  const sponsorLinks = readCodeRequiredTiers(settings);
 
   const publicTypes = ticketTypes.filter((tt) => !tt.isFaculty);
   const names = orderedTierNames(publicTypes);
@@ -132,11 +135,12 @@ export function MainRegisterTiersField({ eventId, ticketTypes, settings }: Props
             <label key={slug} htmlFor={`main-tier-${slug}`} className="flex items-center gap-2 text-sm">
               <Checkbox
                 id={`main-tier-${slug}`}
-                checked={ticked.includes(slug)}
-                disabled={saving}
+                checked={ticked.includes(slug) && !sponsorLinks.includes(slug)}
+                disabled={saving || sponsorLinks.includes(slug)}
                 onCheckedChange={(checked) => toggle(slug, checked === true)}
               />
               {name}
+              {sponsorLinks.includes(slug) && <span className="text-xs text-muted-foreground">(sponsor link)</span>}
             </label>
           ))}
         </div>

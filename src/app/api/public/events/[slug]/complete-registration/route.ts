@@ -13,7 +13,8 @@ import { sendRegistrationConfirmation } from "@/lib/email";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
-import { pickCurrentPricingTier } from "@/lib/current-pricing-tier";
+import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
+import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import {
   readIdentityEvidencePolicy,
   missingIdentityEvidence,
@@ -60,7 +61,7 @@ interface SelectableTicketType {
   available: boolean;
 }
 
-/** Prisma select for a type + the tier fields `pickCurrentPricingTier` needs. */
+/** Prisma select for a type + the tier fields `pickOpenPublicRate` needs. */
 const SELECTABLE_TICKET_TYPE_SELECT = {
   ...IDENTITY_EVIDENCE_SELECT,
   id: true,
@@ -84,7 +85,7 @@ const SELECTABLE_TICKET_TYPE_SELECT = {
  * is on sale now. Mirrors the public event route's filter — active only, and
  * never the internal Faculty type (it backs speaker companions).
  */
-async function loadSelectableTicketTypes(eventId: string): Promise<SelectableTicketType[]> {
+async function loadSelectableTicketTypes(eventId: string, sponsorLinkSlugs: string[]): Promise<SelectableTicketType[]> {
   const types = await db.ticketType.findMany({
     where: { eventId, isActive: true, isFaculty: false },
     select: SELECTABLE_TICKET_TYPE_SELECT,
@@ -92,7 +93,10 @@ async function loadSelectableTicketTypes(eventId: string): Promise<SelectableTic
   });
   const now = new Date();
   return types.map((tt) => {
-    const tier = pickCurrentPricingTier(tt.pricingTiers, now);
+    // Never a sponsor-link or presenter rate, never the type's own price when
+    // it has rates (pickOpenPublicRate): a type with no open rate is shown as
+    // unavailable rather than at 0.
+    const { tier, noRateOnSale } = pickOpenPublicRate(tt.pricingTiers, sponsorLinkSlugs, now);
     return {
       id: tt.id,
       name: tt.name,
@@ -100,7 +104,7 @@ async function loadSelectableTicketTypes(eventId: string): Promise<SelectableTic
       price: Number(tier?.price ?? tt.price),
       currency: tier?.currency ?? tt.currency,
       tierName: tier?.name ?? null,
-      available: tt.soldCount < tt.quantity,
+      available: tt.soldCount < tt.quantity && !noRateOnSale,
       // The form renders its evidence fields from these, and the POST enforces
       // the same switches — one rule, both ends.
       requiresMemberId: tt.requiresMemberId,
@@ -203,6 +207,8 @@ export async function GET(req: Request, { params }: RouteParams) {
             city: true,
             country: true,
             bannerImage: true,
+            // Read for the sponsor-link rates only; stripped before responding.
+            settings: true,
             bannerImageMobile: true,
             registrationTermsHtml: true,
             supportEmail: true,
@@ -241,10 +247,13 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
+    // The settings JSON is internal: never part of this public response.
+    const { settings: eventSettings, ...publicEvent } = registration.event;
+
     // Check if already completed (user account linked)
     if (registration.userId) {
       apiLogger.info({ msg: "Already-completed registration accessed via token", registrationId, email: registration.attendee.email });
-      return NextResponse.json({ alreadyCompleted: true, event: registration.event });
+      return NextResponse.json({ alreadyCompleted: true, event: publicEvent });
     }
 
     // No registration type yet (imported from a file without one): offer the
@@ -253,13 +262,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     // server-side, so the client can't dictate what it pays.
     const selectableTicketTypes = registration.ticketTypeId
       ? []
-      : await loadSelectableTicketTypes(registration.event.id);
+      : await loadSelectableTicketTypes(registration.event.id, readCodeRequiredTiers(eventSettings));
 
     return NextResponse.json({
       alreadyCompleted: false,
       registration: { id: registration.id, status: registration.status, ticketTypeId: registration.ticketTypeId },
       attendee: registration.attendee,
-      event: registration.event,
+      event: publicEvent,
       ticketType: registration.ticketType,
       selectableTicketTypes,
     });
@@ -411,7 +420,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           select: {
             id: true, name: true, slug: true, startDate: true, endDate: true, timezone: true,
             venue: true, city: true, country: true, organizationId: true,
-            taxRate: true, taxLabel: true,
+            taxRate: true, taxLabel: true, settings: true,
             bankDetails: true, supportEmail: true,
             organization: {
               select: {
@@ -491,7 +500,20 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
       evidenceCandidate = chosen;
-      const tier = pickCurrentPricingTier(chosen.pricingTiers, new Date());
+      // The same rule as the list above: an open public rate, never a sponsor
+      // link, a presenter rate or the type's own price when it has rates.
+      const { tier, noRateOnSale } = pickOpenPublicRate(
+        chosen.pricingTiers,
+        readCodeRequiredTiers(registration.event.settings),
+        new Date(),
+      );
+      if (noRateOnSale) {
+        apiLogger.warn({ msg: "complete-registration:no-rate-on-sale", registrationId, chosenTicketTypeId });
+        return NextResponse.json(
+          { error: "That registration type is not open right now. Please pick another.", code: "NO_RATE_ON_SALE" },
+          { status: 400 }
+        );
+      }
       resolvedType = { id: chosen.id, name: chosen.name, price: chosen.price, currency: chosen.currency, quantity: chosen.quantity, requiresApproval: chosen.requiresApproval };
       resolvedTier = tier ? { id: tier.id, name: tier.name, price: tier.price, currency: tier.currency } : null;
     }

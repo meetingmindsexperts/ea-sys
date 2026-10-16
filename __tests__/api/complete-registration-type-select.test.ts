@@ -17,7 +17,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const {
-  mockTokenFindUnique, mockTokenDelete, mockRegFindFirst, mockTtFindFirst,
+  mockTokenFindUnique, mockTokenDelete, mockRegFindFirst, mockTtFindFirst, mockTtFindMany,
   mockTransaction, mockTxTtUpdateMany, mockTxRegUpdateMany, mockTxAttendeeUpdate,
   mockTxTokenDelete, mockTxAuditCreate,
 } = vi.hoisted(() => ({
@@ -25,6 +25,7 @@ const {
   mockTokenDelete: vi.fn(),
   mockRegFindFirst: vi.fn(),
   mockTtFindFirst: vi.fn(),
+  mockTtFindMany: vi.fn(),
   mockTransaction: vi.fn(),
   mockTxTtUpdateMany: vi.fn(),
   mockTxRegUpdateMany: vi.fn(),
@@ -37,7 +38,7 @@ vi.mock("@/lib/db", () => ({
   db: {
     verificationToken: { findUnique: mockTokenFindUnique, delete: mockTokenDelete },
     registration: { findFirst: mockRegFindFirst },
-    ticketType: { findFirst: mockTtFindFirst },
+    ticketType: { findFirst: mockTtFindFirst, findMany: mockTtFindMany },
     $transaction: mockTransaction,
   },
   // tenantTransaction with the flag off IS db.$transaction — delegate so the
@@ -64,7 +65,7 @@ vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/registrant-account", () => ({ ensureRegistrantAccount: vi.fn() }));
 vi.mock("@/lib/registration-confirmation", () => ({ buildEventConfirmationFields: vi.fn(() => ({})) }));
 
-import { POST } from "@/app/api/public/events/[slug]/complete-registration/route";
+import { GET, POST } from "@/app/api/public/events/[slug]/complete-registration/route";
 
 const SLUG = "my-event";
 
@@ -415,5 +416,59 @@ describe("completion — identity evidence", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ missing: ["Member ID"] });
     expect(mockTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("completion never prices on a sponsor-link or presenter rate (Oct 16, 2026)", () => {
+  const withSponsorLinks = (codeRequiredTiers: string[]) => {
+    const reg = makeRegistration();
+    return { ...reg, event: { ...reg.event, settings: { codeRequiredTiers } } };
+  };
+  const rate = (over: Record<string, unknown>) => ({
+    id: "tier-x", name: "Early Bird", price: "80", currency: "USD",
+    quantity: 50, soldCount: 0, isActive: true,
+    salesStart: null, salesEnd: null, sortOrder: 0, ...over,
+  });
+
+  it("skips the $0 sponsor-link rate even when it sorts first, and prices on the open public rate", async () => {
+    mockRegFindFirst.mockResolvedValue(withSponsorLinks(["inclusive"]));
+    mockTtFindFirst.mockResolvedValue(makeChosenType({
+      pricingTiers: [
+        rate({ id: "tier-inc", name: "Inclusive", price: "0", sortOrder: 0 }),
+        rate({ id: "tier-eb", name: "Early Bird", price: "80", sortOrder: 1 }),
+      ],
+    }));
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
+    expect(res.status).toBe(200);
+    const data = mockTxRegUpdateMany.mock.calls[0][0].data;
+    expect(data).toMatchObject({ pricingTierId: "tier-eb" });
+  });
+
+  it("400s NO_RATE_ON_SALE when only sponsor-link and presenter rates are open, and writes nothing", async () => {
+    mockRegFindFirst.mockResolvedValue(withSponsorLinks(["Inclusive"]));
+    mockTtFindFirst.mockResolvedValue(makeChosenType({
+      price: "0",
+      pricingTiers: [
+        rate({ id: "tier-inc", name: "Inclusive", price: "0" }),
+        rate({ id: "tier-pres", name: "Presenter", price: "0", sortOrder: 1 }),
+        rate({ id: "tier-eb", name: "Early Bird", isActive: false, sortOrder: 2 }),
+      ],
+    }));
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "NO_RATE_ON_SALE" });
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it("the GET lists a type whose only open rate is a sponsor link as unavailable, and never returns the settings", async () => {
+    mockRegFindFirst.mockResolvedValue(withSponsorLinks(["inclusive"]));
+    mockTtFindMany.mockResolvedValue([
+      makeChosenType({ price: "0", pricingTiers: [rate({ id: "tier-inc", name: "Inclusive", price: "0" })] }),
+    ]);
+    const res = await GET(new Request(`http://localhost/api/public/events/${SLUG}/complete-registration?token=tok1`), makeParams());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.event).not.toHaveProperty("settings");
+    expect(body.selectableTicketTypes[0]).toMatchObject({ id: "tt-1", available: false });
   });
 });
