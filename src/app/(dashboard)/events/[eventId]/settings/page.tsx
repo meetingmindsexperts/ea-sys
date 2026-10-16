@@ -13,6 +13,7 @@ import { AbstractThemesSettings } from "@/components/abstracts/abstract-themes-s
 import { ReviewCriteriaSettings } from "@/components/abstracts/review-criteria-settings";
 import { ZoomSettingsCard } from "@/components/zoom/zoom-settings-card";
 import { SpeakerAgreementTemplateCard } from "@/components/events/speaker-agreement-template-card";
+import { GroupRateLinks } from "@/components/events/group-rate-links";
 import { isWebinar } from "@/lib/webinar";
 import { localDateTimeInTz, resolveTimezone, tzLabel, wallTimeInTzToIso } from "@/lib/event-time";
 import { readPresenterRegistrationSettings } from "@/lib/presenter-registration-settings";
@@ -1533,29 +1534,16 @@ export default function EventSettingsPage() {
                       />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        const url = `${window.location.origin}/e/${generalFormData.slug || eventId}/group/register`;
-                        navigator.clipboard
-                          .writeText(url)
-                          .then(() => toast.success("Group registration link copied"))
-                          .catch(() => toast.error("Couldn't copy — copy it manually: " + url));
-                      }}
-                    >
-                      Copy group registration link
-                    </Button>
-                    <span className="text-xs text-muted-foreground truncate">
-                      /e/{generalFormData.slug || "your-event-slug"}/group/register
-                    </span>
+                  <div className="space-y-1.5">
+                    <Label>Group links, one per rate</Label>
+                    <GroupRateLinks eventId={eventId} slug={generalFormData.slug || eventId} />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Hard ceiling: 50 members per group. Prices use whichever
-                    pricing tier is on sale at submission. Save settings to
-                    apply changes.
+                    Send the link for the rate the group should pay. The
+                    coordinator picks each person&apos;s registration type, and
+                    people they add later get the same rate while it is on
+                    sale. Sponsor links are never group links. Hard ceiling:
+                    50 members per group. Save settings to apply changes.
                   </p>
                 </div>
               )}

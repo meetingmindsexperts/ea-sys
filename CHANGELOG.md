@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Group registration: the link names the rate (October 16)
+
+- Group links are now one per rate (`/e/<slug>/group/register/early-bird`), copied from Settings, Registration, Group Registration. The coordinator still picks each member's type; only types that carry the link's rate are offered, all priced at it. Before, a group was priced at whichever rate was open with the lowest sort order.
+- People added later from My Group get the group's rate while it is on sale, and are refused once it closes (owner ruling). The rate is read from the group's existing members, so no schema change; groups made before this keep the older open-rate rule.
+- The plain link redirects to the main link's rate. Sponsor-link and presenter rates are never group rates (RATE_NOT_FOR_GROUPS); a type without the rate is refused (RATE_NOT_ON_TYPE).
+- The main /register link no longer navigates during render (a React error since March).
+
 ### Registration: sponsor links, and a free-registration gap closed (October 16)
 
 - **Sponsor links.** A rate can be marked as a sponsor link on the

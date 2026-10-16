@@ -252,3 +252,23 @@ describe("POST /group-register — service mapping", () => {
     expect(body.members[0].serialId).toBe(101);
   });
 });
+
+describe("POST /group-register: the link's rate (Oct 16, 2026)", () => {
+  it("passes the link's rate to the service as a slug", async () => {
+    await POST(req({ ...BODY, rate: "Early Bird" }), params);
+    expect(createGroupMock.mock.calls[0][0].rateSlug).toBe("early-bird");
+  });
+
+  it("a page loaded before rate links sends none, and the service gets null", async () => {
+    await POST(req(BODY), params);
+    expect(createGroupMock.mock.calls[0][0].rateSlug).toBeNull();
+  });
+
+  it("maps RATE_NOT_ON_TYPE and RATE_NOT_FOR_GROUPS to 400", async () => {
+    for (const code of ["RATE_NOT_ON_TYPE", "RATE_NOT_FOR_GROUPS"]) {
+      createGroupMock.mockResolvedValue({ ok: false, code, message: "no" });
+      const res = await POST(req({ ...BODY, rate: "inclusive" }), params);
+      expect(res.status).toBe(400);
+    }
+  });
+});

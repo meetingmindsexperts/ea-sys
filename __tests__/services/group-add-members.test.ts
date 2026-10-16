@@ -446,3 +446,33 @@ describe("addGroupMembers — member rows", () => {
     );
   });
 });
+
+describe("addGroupMembers: people added get the group's rate (Oct 16, 2026)", () => {
+  const rate = (over: Record<string, unknown>) => ({
+    id: "t-eb", name: "Early Bird", price: 150, currency: "USD", quantity: 999999, soldCount: 0,
+    isActive: true, salesStart: null, salesEnd: null, sortOrder: 0, ...over,
+  });
+  const onEarlyBird = () => ({
+    ...groupRow(),
+    registrations: [{ id: "reg_old_1", status: "CONFIRMED", pricingTier: { name: "Early Bird" } }],
+  });
+
+  it("prices a new person at the group's rate while it is on sale", async () => {
+    mockDb.registrationGroup.findFirst.mockResolvedValue(onEarlyBird());
+    mockDb.ticketType.findMany.mockResolvedValue([ticketType({ pricingTiers: [rate({}), rate({ id: "t-std", name: "Standard", price: 300, sortOrder: 1 })] })]);
+    const res = await addGroupMembers({ groupId: GROUP_ID, coordinatorUserId: COORDINATOR, members: [newMember()] });
+    expect(res.ok).toBe(true);
+    expect(mockDb.registration.create.mock.calls[0][0].data).toMatchObject({ pricingTierId: "t-eb", originalPrice: 150 });
+  });
+
+  it("refuses once the group's rate has closed, even though Standard is open", async () => {
+    mockDb.registrationGroup.findFirst.mockResolvedValue(onEarlyBird());
+    mockDb.ticketType.findMany.mockResolvedValue([
+      ticketType({ pricingTiers: [rate({ salesEnd: new Date(Date.now() - 86400_000) }), rate({ id: "t-std", name: "Standard", price: 300, sortOrder: 1 })] }),
+    ]);
+    const res = await addGroupMembers({ groupId: GROUP_ID, coordinatorUserId: COORDINATOR, members: [newMember()] });
+    expect(res).toMatchObject({ ok: false, code: "SALES_ENDED" });
+    if (!res.ok) expect(res.message).toMatch(/Early Bird/);
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+});

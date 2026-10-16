@@ -21,6 +21,7 @@
  */
 import { tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
+import { registerTierSlug } from "@/lib/main-register-tiers";
 
 export interface PricingTierCandidate {
   id: string;
@@ -84,4 +85,28 @@ export function pickOpenPublicRate<T extends PricingTierCandidate>(
   );
   const tier = open.length === 0 ? null : open.reduce((best, t) => (t.sortOrder < best.sortOrder ? t : best));
   return { tier, noRateOnSale: !tier && tiers.length > 0 };
+}
+
+/** Why a group link's rate cannot price a registration type. */
+export type GroupRateRefusal = "RATE_NOT_FOR_GROUPS" | "RATE_NOT_ON_TYPE" | "SALES_ENDED";
+
+/**
+ * The rate a GROUP link names, on one registration type (Oct 16, 2026, owner:
+ * "we send the link, either Early Bird or Standard"). The coordinator picks
+ * each member's type; the link fixes the rate. A sponsor-link or presenter
+ * rate is never a group rate, a type without the named rate cannot be used
+ * on that link, and a rate that is not on sale is closed, never swapped for
+ * another one.
+ */
+export function pickNamedGroupRate<T extends PricingTierCandidate>(
+  tiers: T[],
+  rateSlug: string,
+  sponsorLinkSlugs: readonly string[],
+  now: Date,
+): { ok: true; tier: T } | { ok: false; code: GroupRateRefusal } {
+  if (sponsorLinkSlugs.includes(rateSlug) || isPresenterTierName(rateSlug)) return { ok: false, code: "RATE_NOT_FOR_GROUPS" };
+  const tier = tiers.find((t) => registerTierSlug(t.name) === rateSlug);
+  if (!tier) return { ok: false, code: "RATE_NOT_ON_TYPE" };
+  if (!isTierOnSale(tier, now)) return { ok: false, code: "SALES_ENDED" };
+  return { ok: true, tier };
 }

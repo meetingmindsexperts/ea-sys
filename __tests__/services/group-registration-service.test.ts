@@ -405,3 +405,42 @@ describe("createGroupRegistration — happy path", () => {
     expect(rows[1].status).toBe("PENDING");
   });
 });
+
+describe("createGroupRegistration: the link names the rate (Oct 16, 2026)", () => {
+  const rate = (over: Record<string, unknown>) => ({
+    id: "tier-x", name: "Early Bird", price: 100, currency: "USD",
+    quantity: 999999, soldCount: 0, isActive: true, salesStart: PAST, salesEnd: FUTURE, sortOrder: 0, ...over,
+  });
+  const STANDARD = rate({ id: "tier-std", name: "Standard", price: 300, sortOrder: 1 });
+  const twoRates = { ...PHYSICIAN_TYPE, pricingTiers: [PHYSICIAN_TYPE.pricingTiers[0], STANDARD] };
+
+  it("prices every member at the named rate, even when another rate sorts first", async () => {
+    mockDb.ticketType.findMany.mockResolvedValue([twoRates]);
+    const res = await createGroupRegistration({ ...BASE_INPUT, rateSlug: "standard", members: [member("sarah@corp.com"), member("b@corp.com")] });
+    expect(res.ok).toBe(true);
+    const rows = mockDb.registration.create.mock.calls.map((c) => c[0].data);
+    expect(rows.map((r) => [r.pricingTierId, r.originalPrice])).toEqual([["tier-std", 300], ["tier-std", 300]]);
+  });
+
+  it("refuses a type that does not carry the named rate", async () => {
+    mockDb.ticketType.findMany.mockResolvedValue([twoRates, NURSE_TYPE]);
+    const res = await createGroupRegistration({ ...BASE_INPUT, rateSlug: "standard" });
+    expect(res).toMatchObject({ ok: false, code: "RATE_NOT_ON_TYPE", meta: { ticketTypeId: "tt-nurse" } });
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses the named rate once it has closed, never swapping in another", async () => {
+    mockDb.ticketType.findMany.mockResolvedValue([{ ...twoRates, pricingTiers: [rate({ id: "tier-early", salesEnd: PAST }), STANDARD] }]);
+    const res = await createGroupRegistration({ ...BASE_INPUT, rateSlug: "early-bird", members: [member("sarah@corp.com"), member("b@corp.com")] });
+    expect(res).toMatchObject({ ok: false, code: "SALES_ENDED" });
+  });
+
+  it("refuses a sponsor-link or presenter rate as a group rate", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...(EVENT.settings as object), codeRequiredTiers: ["inclusive"] } });
+    mockDb.ticketType.findMany.mockResolvedValue([{ ...PHYSICIAN_TYPE, pricingTiers: [rate({ id: "tier-inc", name: "Inclusive", price: 0 })] }]);
+    const twoPhys = { ...BASE_INPUT, members: [member("sarah@corp.com"), member("b@corp.com")] };
+    expect(await createGroupRegistration({ ...twoPhys, rateSlug: "inclusive" })).toMatchObject({ ok: false, code: "RATE_NOT_FOR_GROUPS" });
+    expect(await createGroupRegistration({ ...twoPhys, rateSlug: "presenter-early-bird" })).toMatchObject({ ok: false, code: "RATE_NOT_FOR_GROUPS" });
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+});

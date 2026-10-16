@@ -6,7 +6,7 @@
  * the Inclusive sponsor rate, so a group could fill them in and be refused.
  */
 import { describe, it, expect } from "vitest";
-import { livePrice, purchasableTypes, type PublicTicketType, type PublicTier } from "@/lib/public-ticket-price";
+import { livePrice, mainGroupRate, purchasableTypes, typesAtRate, type PublicTicketType, type PublicTier } from "@/lib/public-ticket-price";
 
 const rate = (over: Partial<PublicTier>): PublicTier => ({ id: "r", name: "Early Bird", price: 250, canPurchase: true, sortOrder: 0, ...over });
 const type = (over: Partial<PublicTicketType>): PublicTicketType => ({
@@ -42,5 +42,32 @@ describe("purchasableTypes for groups", () => {
 
   it("without sponsor links, behaves as before", () => {
     expect(purchasableTypes([exhibitor]).map((t) => t.id)).toEqual(["exh"]);
+  });
+});
+
+describe("group links name the rate (Oct 16, 2026)", () => {
+  const phys = type({
+    id: "phys",
+    pricingTiers: [rate({ id: "eb", name: "Early Bird", price: 250 }), rate({ id: "std", name: "Standard", price: 300, sortOrder: 1 })],
+  });
+  const nurse = type({ id: "nurse", pricingTiers: [rate({ id: "n-std", name: "Standard", price: 200, sortOrder: 1 })] });
+  const exhibitor = type({ id: "exh", pricingTiers: [rate({ id: "inc", name: "Inclusive", price: 0, sortOrder: 2 })] });
+
+  it("offers only the types carrying the link's rate, quoted at that rate", () => {
+    const types = typesAtRate([phys, nurse, exhibitor], "standard", ["inclusive"]);
+    expect(types.map((t) => [t.id, livePrice(t).price])).toEqual([["phys", 300], ["nurse", 200]]);
+  });
+
+  it("offers nothing on a closed rate, a sponsor link or a presenter rate", () => {
+    const closed = type({ id: "c", pricingTiers: [rate({ name: "Standard", canPurchase: false })] });
+    expect(typesAtRate([closed], "standard")).toEqual([]);
+    expect(typesAtRate([exhibitor], "inclusive", ["inclusive"])).toEqual([]);
+    expect(typesAtRate([type({ pricingTiers: [rate({ name: "Presenter" })] })], "presenter")).toEqual([]);
+  });
+
+  it("the plain group link goes where the main link goes, never to a sponsor link", () => {
+    const event = { ticketTypes: [exhibitor, phys], mainRegisterTiers: ["inclusive", "early-bird"], codeRequiredTiers: ["inclusive"] };
+    expect(mainGroupRate(event)).toBe("early-bird");
+    expect(mainGroupRate({ ...event, mainRegisterTiers: ["inclusive"] })).toBeUndefined();
   });
 });

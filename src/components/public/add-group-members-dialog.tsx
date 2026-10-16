@@ -14,8 +14,9 @@ import {
 import { TitleSelect } from "@/components/ui/title-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import {
-  livePrice, purchasableTypes, type PublicTicketType,
+  livePrice, purchasableTypes, typesAtRate, type PublicTicketType,
 } from "@/lib/public-ticket-price";
+import { registerTierSlug } from "@/lib/main-register-tiers";
 
 /**
  * "Add people" for the My Group portal.
@@ -63,6 +64,7 @@ export function AddGroupMembersDialog({
   currency,
   remainingSlots,
   groupIsPaid,
+  rateName,
   onAdded,
 }: {
   open: boolean;
@@ -73,6 +75,9 @@ export function AddGroupMembersDialog({
   /** Places left before the event's group cap; null when uncapped. */
   remainingSlots: number | null;
   groupIsPaid: boolean;
+  /** The group's rate (its members' rate). People added get it while it is
+   *  on sale; null for a group made before rate links (older open-rate rule). */
+  rateName: string | null;
   onAdded: (result: AddGroupMembersResultShape) => void;
 }) {
   const [types, setTypes] = useState<PublicTicketType[]>([]);
@@ -103,7 +108,10 @@ export function AddGroupMembersDialog({
         const res = await fetch(`/api/public/events/${slug}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        if (!cancelled) setTypes(purchasableTypes(data.ticketTypes ?? [], data.codeRequiredTiers ?? []));
+        if (cancelled) return;
+        const all: PublicTicketType[] = data.ticketTypes ?? [];
+        const sponsorLinks: string[] = data.codeRequiredTiers ?? [];
+        setTypes(rateName ? typesAtRate(all, registerTierSlug(rateName), sponsorLinks) : purchasableTypes(all, sponsorLinks));
       } catch {
         // Without types there is nothing to choose, so this must be visible
         // rather than presenting an empty dropdown as if nothing were on sale.
@@ -113,7 +121,7 @@ export function AddGroupMembersDialog({
       }
     })();
     return () => { cancelled = true; };
-  }, [open, slug]);
+  }, [open, slug, rateName]);
 
   const typeById = useMemo(() => new Map(types.map((t) => [t.id, t])), [types]);
 
@@ -198,6 +206,15 @@ export function AddGroupMembersDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {!loadingTypes && !typesError && rateName && types.length === 0 ? (
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Your group&apos;s {rateName} rate has closed, so people can no longer be added
+              here. Please contact the organising team.
+            </span>
+          </div>
+        ) : null}
         {typesError ? (
           <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />

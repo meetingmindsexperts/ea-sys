@@ -517,6 +517,7 @@ export default function MyGroupPage() {
         slug={slug}
         groupId={group.id}
         currency={group.currency}
+        rateName={group.members.find((m) => m.tierName)?.tierName ?? null}
         remainingSlots={
           group.groupSettings.maxMembers
             ? Math.max(0, group.groupSettings.maxMembers - group.memberCount)

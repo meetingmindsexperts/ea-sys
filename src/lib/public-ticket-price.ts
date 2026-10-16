@@ -12,6 +12,7 @@
  */
 import { tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
+import { pickMainRegisterTier, readMainRegisterTiers, registerTierSlug } from "@/lib/main-register-tiers";
 
 export interface PublicTier {
   id: string;
@@ -60,4 +61,40 @@ export function purchasableTypes(types: PublicTicketType[], sponsorLinkSlugs: re
     );
     return pricingTiers.some((p) => p.canPurchase) ? [{ ...t, pricingTiers }] : [];
   });
+}
+
+/**
+ * The types a group link's rate can register (Oct 16, 2026): the link names
+ * the rate, so only types that carry that rate, on sale, are offered, each
+ * narrowed to that one rate so `livePrice` quotes it. Mirrors the server's
+ * `pickNamedGroupRate`; a sponsor-link or presenter rate offers nothing.
+ */
+export function typesAtRate(
+  types: PublicTicketType[],
+  rateSlug: string,
+  sponsorLinkSlugs: readonly string[] = [],
+): PublicTicketType[] {
+  if (tierNeedsSponsorCode(rateSlug, sponsorLinkSlugs) || isPresenterTierName(rateSlug)) return [];
+  return types.flatMap((t) => {
+    const tier = t.pricingTiers.find((p) => registerTierSlug(p.name) === rateSlug && p.canPurchase);
+    return tier ? [{ ...t, pricingTiers: [tier] }] : [];
+  });
+}
+
+/**
+ * Where the plain group link (no rate in it) sends a coordinator: the same
+ * rate the main /register link would, never a sponsor link. Undefined when
+ * none is on sale.
+ */
+export function mainGroupRate(event: {
+  ticketTypes: PublicTicketType[];
+  mainRegisterTiers?: string[];
+  codeRequiredTiers?: string[];
+}): string | undefined {
+  const sponsorLinks = event.codeRequiredTiers ?? [];
+  const ticked = readMainRegisterTiers({ mainRegisterTiers: event.mainRegisterTiers }).filter(
+    (slug) => !sponsorLinks.includes(slug),
+  );
+  const tier = pickMainRegisterTier(event.ticketTypes, ticked);
+  return tier ? registerTierSlug(tier.name) : undefined;
 }

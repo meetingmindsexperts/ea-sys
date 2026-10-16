@@ -66,6 +66,8 @@ const STATUS_FOR_CODE: Record<AddGroupMembersErrorCode, number> = {
   SOLD_OUT: 409,
   EVENT_FULL: 409,
   MIXED_CURRENCY: 400,
+  RATE_NOT_FOR_GROUPS: 400,
+  RATE_NOT_ON_TYPE: 400,
   UNKNOWN: 500,
 };
 

@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { isSponsorCoveredCode, readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
-import { pickOpenPublicRate, type PricingTierCandidate } from "@/lib/current-pricing-tier";
+import { pickNamedGroupRate, pickOpenPublicRate, type PricingTierCandidate } from "@/lib/current-pricing-tier";
 
 const NOW = new Date("2026-10-16T12:00:00Z");
 
@@ -58,5 +58,18 @@ describe("pickOpenPublicRate", () => {
 
   it("a type with no rates at all is not 'no rate on sale' (it prices on its own price)", () => {
     expect(pickOpenPublicRate([], ["inclusive"], NOW)).toEqual({ tier: null, noRateOnSale: false });
+  });
+});
+
+describe("pickNamedGroupRate", () => {
+  const tiers = [rate({ id: "eb", name: "Early Bird" }), rate({ id: "std", name: "Standard", sortOrder: 1 })];
+  it("takes the named rate, whatever its sort order", () => {
+    expect(pickNamedGroupRate(tiers, "standard", [], NOW)).toEqual({ ok: true, tier: tiers[1] });
+  });
+  it("refuses a missing rate, a closed one, and sponsor-link or presenter rates", () => {
+    expect(pickNamedGroupRate(tiers, "onsite", [], NOW)).toEqual({ ok: false, code: "RATE_NOT_ON_TYPE" });
+    expect(pickNamedGroupRate([rate({ name: "Standard", isActive: false })], "standard", [], NOW)).toEqual({ ok: false, code: "SALES_ENDED" });
+    expect(pickNamedGroupRate(tiers, "early-bird", ["early-bird"], NOW)).toEqual({ ok: false, code: "RATE_NOT_FOR_GROUPS" });
+    expect(pickNamedGroupRate(tiers, "presenter-standard", [], NOW)).toEqual({ ok: false, code: "RATE_NOT_FOR_GROUPS" });
   });
 });

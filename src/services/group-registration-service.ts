@@ -43,7 +43,8 @@ import { getNextSerialId } from "@/lib/registration-serial";
 import { claimSeats, claimEventSeats, claimPromoUsage } from "@/lib/registration-seat-db";
 import { checkPromoUsable } from "@/lib/promo-validation";
 import { seatCounter, type SeatCounter } from "@/lib/registration-seat";
-import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
+import { pickNamedGroupRate, pickOpenPublicRate, type GroupRateRefusal, type PricingTierCandidate } from "@/lib/current-pricing-tier";
+import { registerTierSlug } from "@/lib/main-register-tiers";
 import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import {
   readGroupRegistrationSettings,
@@ -111,6 +112,9 @@ export interface CreateGroupRegistrationInput {
   /** Promo code the coordinator entered, applied to the consolidated
    *  invoice (owner rule: against the full and final invoice). */
   promoCode?: string | null;
+  /** The rate the group link names, as a slug (`early-bird`). Every member is
+   *  priced at it. Null only for a page loaded before rate links existed. */
+  rateSlug?: string | null;
   /** ALL member rows — when the coordinator attends, the route includes
    * their row here (matched to the coordinator by email for userId linking). */
   members: GroupMemberInput[];
@@ -133,6 +137,8 @@ export type CreateGroupRegistrationErrorCode =
   | "MIXED_CURRENCY"
   | "PROMO_INVALID"
   | "PROMO_UNAVAILABLE"
+  | "RATE_NOT_FOR_GROUPS"
+  | "RATE_NOT_ON_TYPE"
   | "UNKNOWN";
 
 export interface CreatedGroupSummary {
@@ -205,6 +211,78 @@ export type ResolvedTypePricing = {
   currency: string;
   requiresApproval: boolean;
 };
+
+type PricedTicketType = {
+  id: string;
+  name: string;
+  price: unknown;
+  currency: string | null;
+  requiresApproval: boolean;
+  pricingTiers: PricingTierCandidate[];
+};
+
+const GROUP_RATE_MESSAGES: Record<GroupRateRefusal, (rate: string, type: string) => string> = {
+  RATE_NOT_FOR_GROUPS: (rate) => `The "${rate}" rate cannot be used for group registration.`,
+  RATE_NOT_ON_TYPE: (rate, type) => `"${type}" is not available at the "${rate}" rate.`,
+  SALES_ENDED: (rate) => `The "${rate}" rate has closed. Please contact the organiser.`,
+};
+
+/**
+ * Prices each member's type for a group. With a rate (the group link names
+ * one, and a group keeps it for people added later) every type must carry
+ * that rate and it must be on sale (pickNamedGroupRate). Without one (a group
+ * made before Oct 16, 2026, or a page loaded before that deploy) the older
+ * rule applies: the open public rate (pickOpenPublicRate).
+ */
+function priceGroupTypes(
+  ticketTypes: PricedTicketType[],
+  rateSlug: string | null,
+  sponsorLinkSlugs: readonly string[],
+  now: Date,
+  logContext: Record<string, unknown>,
+):
+  | { ok: true; pricingByType: Map<string, ResolvedTypePricing> }
+  | { ok: false; code: GroupRateRefusal; message: string; meta: Record<string, unknown> } {
+  const pricingByType = new Map<string, ResolvedTypePricing>();
+  // The rate's own name for messages ("Early Bird", not "early-bird").
+  const rateLabel =
+    ticketTypes.flatMap((t) => t.pricingTiers).find((p) => rateSlug && registerTierSlug(p.name) === rateSlug)?.name ??
+    rateSlug ??
+    "current";
+  for (const t of ticketTypes) {
+    const priced = rateSlug
+      ? pickNamedGroupRate(t.pricingTiers, rateSlug, sponsorLinkSlugs, now)
+      : openRateOrRefusal(t.pricingTiers, sponsorLinkSlugs, now);
+    if (!priced.ok) {
+      apiLogger.warn({ ...logContext, ticketTypeId: t.id, rateSlug, code: priced.code }, "group-registration:rate-refused");
+      return {
+        ok: false,
+        code: priced.code,
+        message: GROUP_RATE_MESSAGES[priced.code](rateLabel, t.name),
+        meta: { ticketTypeId: t.id, rateSlug },
+      };
+    }
+    const tier = priced.tier;
+    pricingByType.set(t.id, {
+      tierId: tier?.id ?? null,
+      tierName: tier?.name ?? null,
+      price: Number(tier?.price ?? t.price),
+      name: t.name,
+      currency: t.currency ?? "USD",
+      requiresApproval: t.requiresApproval,
+    });
+  }
+  return { ok: true, pricingByType };
+}
+
+function openRateOrRefusal(
+  tiers: PricingTierCandidate[],
+  sponsorLinkSlugs: readonly string[],
+  now: Date,
+): { ok: true; tier: PricingTierCandidate | null } | { ok: false; code: GroupRateRefusal } {
+  const { tier, noRateOnSale } = pickOpenPublicRate(tiers, sponsorLinkSlugs, now);
+  return noRateOnSale ? { ok: false, code: "SALES_ENDED" } : { ok: true, tier };
+}
 
 /**
  * Claim the seats for a set of members, then create their attendee +
@@ -510,35 +588,16 @@ export async function createGroupRegistration(
     };
   }
 
-  // Per-type resolved pricing: the tier on sale NOW (owner decision — the
-  // live window at submission), else the base price.
-  const pricingByType = new Map<
-    string,
-    {
-      tierId: string | null;
-      tierName: string | null;
-      price: number;
-      name: string;
-      currency: string;
-      requiresApproval: boolean;
-    }
-  >();
-  const sponsorLinkSlugs = readCodeRequiredTiers(event.settings);
-  for (const t of ticketTypes) {
-    const { tier, noRateOnSale } = pickOpenPublicRate(t.pricingTiers, sponsorLinkSlugs, now);
-    if (noRateOnSale) {
-      apiLogger.warn({ eventId, ticketTypeId: t.id }, "group-registration:no-rate-on-sale");
-      return { ok: false, code: "SALES_ENDED", message: `No rate for "${t.name}" is on sale right now.`, meta: { ticketTypeId: t.id } };
-    }
-    pricingByType.set(t.id, {
-      tierId: tier?.id ?? null,
-      tierName: tier?.name ?? null,
-      price: Number(tier?.price ?? t.price),
-      name: t.name,
-      currency: t.currency ?? "USD",
-      requiresApproval: t.requiresApproval,
-    });
-  }
+  // Per-type pricing: the rate the group link names (priceGroupTypes).
+  const priced = priceGroupTypes(
+    ticketTypes,
+    input.rateSlug ?? null,
+    readCodeRequiredTiers(event.settings),
+    now,
+    { eventId },
+  );
+  if (!priced.ok) return priced;
+  const pricingByType = priced.pricingByType;
 
   // 3b. Promo code (optional) — validated against the SAME shared rules the
   //     individual registration path uses, so a code can't be valid on one
@@ -1093,6 +1152,8 @@ export type AddGroupMembersErrorCode =
   | "SOLD_OUT"
   | "EVENT_FULL"
   | "MIXED_CURRENCY"
+  | "RATE_NOT_FOR_GROUPS"
+  | "RATE_NOT_ON_TYPE"
   | "UNKNOWN";
 
 export interface AddGroupMembersSummary {
@@ -1171,7 +1232,10 @@ export async function addGroupMembers(
       billingAccountId: true,
       payerReference: true,
       billingAccount: { select: { id: true, name: true } },
-      registrations: { select: { id: true, status: true } },
+      registrations: {
+        select: { id: true, status: true, pricingTier: { select: { name: true } } },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!group || !group.organizationId) {
@@ -1314,23 +1378,20 @@ export async function addGroupMembers(
     };
   }
 
-  const pricingByType = new Map<string, ResolvedTypePricing>();
-  const sponsorLinkSlugs = readCodeRequiredTiers(event.settings);
-  for (const t of ticketTypes) {
-    const { tier, noRateOnSale } = pickOpenPublicRate(t.pricingTiers, sponsorLinkSlugs, now);
-    if (noRateOnSale) {
-      apiLogger.warn({ groupId, ticketTypeId: t.id }, "group-add-members:no-rate-on-sale");
-      return { ok: false, code: "SALES_ENDED", message: `No rate for "${t.name}" is on sale right now.`, meta: { ticketTypeId: t.id } };
-    }
-    pricingByType.set(t.id, {
-      tierId: tier?.id ?? null,
-      tierName: tier?.name ?? null,
-      price: Number(tier?.price ?? t.price),
-      name: t.name,
-      currency: t.currency ?? "USD",
-      requiresApproval: t.requiresApproval,
-    });
-  }
+  // People added later get the group's own rate while it is on sale, and
+  // are refused once it closes (owner, Oct 16, 2026). The rate is read off
+  // the members already in the group, so a group made before rate links
+  // existed (no member on a rate) keeps the older open-rate rule.
+  const groupRate = group.registrations.find((r) => r.pricingTier)?.pricingTier?.name;
+  const priced = priceGroupTypes(
+    ticketTypes,
+    groupRate ? registerTierSlug(groupRate) : null,
+    readCodeRequiredTiers(event.settings),
+    now,
+    { groupId },
+  );
+  if (!priced.ok) return priced;
+  const pricingByType = priced.pricingByType;
 
   // 5. The transaction: dup check → seat claims → rows.
   let createdMembers: CreatedMemberRow[];

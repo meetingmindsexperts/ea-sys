@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { registerTierSlug } from "@/lib/main-register-tiers";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -82,6 +83,9 @@ const groupRegisterSchema = z.object({
   payerReference: z.string().max(200).optional(),
   /** Optional negotiated promo code, applied to the consolidated invoice. */
   promoCode: z.string().trim().max(50).optional(),
+  /** The rate the group link names (`/group/register/early-bird`). Optional
+   *  only for a page loaded before rate links existed. */
+  rate: z.string().trim().max(100).optional(),
   members: z
     .array(z.object({ ticketTypeId: z.string().min(1), attendee: memberAttendeeSchema }))
     .min(1)
@@ -104,6 +108,8 @@ const ERROR_STATUS: Record<CreateGroupRegistrationErrorCode, number> = {
   MIXED_CURRENCY: 400,
   PROMO_INVALID: 400,
   PROMO_UNAVAILABLE: 409,
+  RATE_NOT_FOR_GROUPS: 400,
+  RATE_NOT_ON_TYPE: 400,
   UNKNOWN: 500,
 };
 
@@ -263,6 +269,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         payer: data.payer,
         payerReference: data.payerReference ?? null,
         promoCode: data.promoCode || null,
+        rateSlug: data.rate ? registerTierSlug(data.rate) : null,
         members: data.members,
         requestIp: clientIp,
       });
