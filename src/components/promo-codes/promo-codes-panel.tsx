@@ -353,116 +353,131 @@ export function PromoCodesPanel({ eventId }: Props) {
         </div>
       ))}
 
-      {/* Create/Edit Dialog */}
+      {/* Create/Edit Dialog. Header and footer stay put and only the form
+          scrolls: the form is taller than a laptop screen, and before this
+          the Create/Update button sat below the fold, out of reach. */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] max-w-lg flex-col gap-0 p-0">
+          <DialogHeader className="border-b px-6 pt-6 pb-4">
             <DialogTitle>{editingId ? "Edit Promo Code" : "Create Promo Code"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <Label>Code <span className="text-red-400">*</span></Label>
-              <Input
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-                placeholder="e.g. EARLYBIRD20"
-                className="uppercase font-mono"
-              />
-            </div>
-            <div>
-              <Label>Description</Label>
-              <Input
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                placeholder="Optional description"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Discount Type</Label>
-                <Select value={form.discountType} onValueChange={(v) => setForm({ ...form, discountType: v as "PERCENTAGE" | "FIXED_AMOUNT" })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
-                    <SelectItem value="FIXED_AMOUNT">Fixed Amount</SelectItem>
-                  </SelectContent>
-                </Select>
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
+            <PromoFormSection title="Details">
+              <div className="space-y-2">
+                <Label htmlFor="promo-code">Code <span className="text-red-500">*</span></Label>
+                <Input
+                  id="promo-code"
+                  value={form.code}
+                  onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
+                  placeholder="e.g. EARLYBIRD20"
+                  className="uppercase font-mono"
+                />
               </div>
-              <div>
-                <Label>Value <span className="text-red-400">*</span></Label>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    max={form.discountType === "PERCENTAGE" ? "100" : undefined}
-                    value={form.discountValue}
-                    onChange={(e) => setForm({ ...form, discountValue: e.target.value })}
-                    placeholder={form.discountType === "PERCENTAGE" ? "e.g. 20" : "e.g. 50.00"}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
-                    {form.discountType === "PERCENTAGE" ? "%" : form.currency}
-                  </span>
+              <div className="space-y-2">
+                <Label htmlFor="promo-description">Description</Label>
+                <Input
+                  id="promo-description"
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="Optional description"
+                />
+              </div>
+            </PromoFormSection>
+
+            <PromoFormSection title="Discount">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Discount Type</Label>
+                  <Select value={form.discountType} onValueChange={(v) => setForm({ ...form, discountType: v as "PERCENTAGE" | "FIXED_AMOUNT" })}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                      <SelectItem value="FIXED_AMOUNT">Fixed Amount</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="promo-value">Value <span className="text-red-500">*</span></Label>
+                  <div className="relative">
+                    <Input
+                      id="promo-value"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      max={form.discountType === "PERCENTAGE" ? "100" : undefined}
+                      value={form.discountValue}
+                      onChange={(e) => setForm({ ...form, discountValue: e.target.value })}
+                      placeholder={form.discountType === "PERCENTAGE" ? "e.g. 20" : "e.g. 50.00"}
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                      {form.discountType === "PERCENTAGE" ? "%" : form.currency}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-            {form.discountType === "FIXED_AMOUNT" && (
-              <div>
-                <Label>Currency</Label>
-                <Input
-                  value={form.currency}
-                  onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })}
-                  placeholder="USD"
-                  maxLength={10}
-                />
+              {form.discountType === "FIXED_AMOUNT" && (
+                <div className="space-y-2">
+                  <Label htmlFor="promo-currency">Currency</Label>
+                  <Input
+                    id="promo-currency"
+                    value={form.currency}
+                    onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })}
+                    placeholder="USD"
+                    maxLength={10}
+                  />
+                </div>
+              )}
+            </PromoFormSection>
+
+            <PromoFormSection title="Limits and dates">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="promo-max-uses">
+                    Max Total Uses{form.sponsorCoversFee && <span className="text-red-500"> *</span>}
+                  </Label>
+                  <Input
+                    id="promo-max-uses"
+                    type="number"
+                    min="1"
+                    value={form.maxUses}
+                    onChange={(e) => setForm({ ...form, maxUses: e.target.value })}
+                    placeholder="Unlimited"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="promo-max-per-email">Max Uses Per Email</Label>
+                  <Input
+                    id="promo-max-per-email"
+                    type="number"
+                    min="1"
+                    value={form.maxUsesPerEmail}
+                    onChange={(e) => setForm({ ...form, maxUsesPerEmail: e.target.value })}
+                    placeholder="Unlimited"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="promo-valid-from">Valid From</Label>
+                  <Input
+                    id="promo-valid-from"
+                    type="datetime-local"
+                    value={form.validFrom}
+                    onChange={(e) => setForm({ ...form, validFrom: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="promo-valid-until">Valid Until</Label>
+                  <Input
+                    id="promo-valid-until"
+                    type="datetime-local"
+                    value={form.validUntil}
+                    onChange={(e) => setForm({ ...form, validUntil: e.target.value })}
+                  />
+                </div>
               </div>
-            )}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Max Total Uses</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={form.maxUses}
-                  onChange={(e) => setForm({ ...form, maxUses: e.target.value })}
-                  placeholder="Unlimited"
-                />
-              </div>
-              <div>
-                <Label>Max Uses Per Email</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={form.maxUsesPerEmail}
-                  onChange={(e) => setForm({ ...form, maxUsesPerEmail: e.target.value })}
-                  placeholder="Unlimited"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Valid From</Label>
-                <Input
-                  type="datetime-local"
-                  value={form.validFrom}
-                  onChange={(e) => setForm({ ...form, validFrom: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label>Valid Until</Label>
-                <Input
-                  type="datetime-local"
-                  value={form.validUntil}
-                  onChange={(e) => setForm({ ...form, validUntil: e.target.value })}
-                />
-              </div>
-            </div>
+            </PromoFormSection>
+
             {canAttribute && (
-              <div>
-                <Label>Sponsor</Label>
-                <p className="text-xs text-slate-400 mb-2">
-                  Everyone who registers with this code reports under that sponsor.
-                </p>
+              <PromoFormSection title="Sponsor" description="Everyone who registers with this code reports under that sponsor.">
                 <Select
                   value={form.sponsorId || NO_SPONSOR}
                   onValueChange={(v) =>
@@ -474,7 +489,7 @@ export function PromoCodesPanel({ eventId }: Props) {
                     })
                   }
                 >
-                  <SelectTrigger><SelectValue placeholder="No sponsor" /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="No sponsor" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NO_SPONSOR}>No sponsor</SelectItem>
                     {sponsors.map((sp) => (
@@ -483,9 +498,10 @@ export function PromoCodesPanel({ eventId }: Props) {
                   </SelectContent>
                 </Select>
                 {form.sponsorId && (
-                  <div className="mt-3 rounded-md border border-slate-200 p-3 space-y-1.5">
+                  <div className="rounded-md border border-slate-200 p-3 space-y-1.5">
                     <div className="flex items-center gap-2">
                       <Switch
+                        id="promo-sponsor-covers"
                         checked={form.sponsorCoversFee}
                         onCheckedChange={(v) =>
                           setForm({
@@ -496,7 +512,7 @@ export function PromoCodesPanel({ eventId }: Props) {
                           })
                         }
                       />
-                      <Label>Sponsor covers the fee</Label>
+                      <Label htmlFor="promo-sponsor-covers">Sponsor covers the fee</Label>
                     </div>
                     <p className="text-xs text-slate-500">
                       Everyone who registers with this code is marked <strong>Inclusive</strong> under this
@@ -506,13 +522,12 @@ export function PromoCodesPanel({ eventId }: Props) {
                     </p>
                   </div>
                 )}
-              </div>
+              </PromoFormSection>
             )}
+
             {(ticketTypes as { id: string; name: string }[]).length > 0 && (
-              <div>
-                <Label>Applicable Registration Types</Label>
-                <p className="text-xs text-slate-400 mb-2">Leave empty to apply to all types</p>
-                <div className="space-y-1.5 max-h-32 overflow-y-auto">
+              <PromoFormSection title="Applicable Registration Types" description="Leave empty to apply to all types.">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                   {(ticketTypes as { id: string; name: string }[]).map((tt) => (
                     <label key={tt.id} className="flex items-center gap-2 text-sm cursor-pointer">
                       <input
@@ -532,14 +547,15 @@ export function PromoCodesPanel({ eventId }: Props) {
                     </label>
                   ))}
                 </div>
-              </div>
+              </PromoFormSection>
             )}
-            <div className="flex items-center gap-2">
-              <Switch checked={form.isActive} onCheckedChange={(v) => setForm({ ...form, isActive: v })} />
-              <Label>Active</Label>
+
+            <div className="flex items-center gap-2 border-t pt-5">
+              <Switch id="promo-active" checked={form.isActive} onCheckedChange={(v) => setForm({ ...form, isActive: v })} />
+              <Label htmlFor="promo-active">Active</Label>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="border-t px-6 py-4">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={saving} className="btn-gradient">
               {saving && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
@@ -549,5 +565,18 @@ export function PromoCodesPanel({ eventId }: Props) {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** One group of the promo form: a small heading over its fields. */
+function PromoFormSection({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <div className="space-y-0.5">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        {description && <p className="text-xs text-muted-foreground">{description}</p>}
+      </div>
+      {children}
+    </section>
   );
 }
