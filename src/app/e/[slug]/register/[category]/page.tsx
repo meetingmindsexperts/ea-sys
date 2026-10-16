@@ -1216,9 +1216,11 @@ function CategoryRegistrationContent() {
                                 return (
                                   <button key={opt.value} type="button"
                                     onClick={() => {
+                                      // The rate stays selected: a type with no virtual
+                                      // price charges virtual attendees the RATE's price,
+                                      // and the server needs the rate to price it (and to
+                                      // apply a sponsor link's code rule).
                                       field.onChange(opt.value);
-                                      // Virtual is flat-priced — clear any tier selection.
-                                      if (opt.value === "VIRTUAL") form.setValue("pricingTierId", "");
                                     }}
                                     className={cn(
                                       "text-left rounded-xl border-2 p-4 transition-all duration-150",

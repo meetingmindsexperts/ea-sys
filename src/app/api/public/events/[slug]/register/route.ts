@@ -342,9 +342,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     // No rate named on a type that HAS rates (security fix, Oct 16, 2026): the
     // price would fall back to the type's own `price`, which events that price
     // by rate leave at 0, so a request that left the rate out registered free.
-    // The form always names the rate; virtual attendance has its own price;
-    // presenter rates are not public, so they do not count.
-    if (!pricingTier && !isVirtual) {
+    // The form always names the rate. Virtual attendance is exempt only when
+    // the type has its own virtualPrice; without one, a virtual attendee pays
+    // the in-person RATE (review of c4a12f28), so the rate is needed there
+    // too. Presenter rates are not public, so they do not count.
+    if (!pricingTier && (!isVirtual || ticketType.virtualPrice == null)) {
       const rates = await db.pricingTier.findMany({ where: { ticketTypeId, isActive: true }, select: { name: true } });
       if (rates.some((r) => !isPresenterTierName(r.name))) {
         apiLogger.warn({ msg: "public/register:pricing-tier-required", eventId: event.id, ticketTypeId });
@@ -594,7 +596,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Virtual uses the ticket's flat virtualPrice (null ⇒ in-person price);
       // pricing tiers apply to in-person only.
       let originalPrice: number;
-      if (isVirtual) originalPrice = Number(ticketType.virtualPrice ?? ticketType.price);
+      // Virtual: the type's flat virtualPrice, else the in-person price, which
+      // on a rate-priced type is the named RATE's, never the type's own (0).
+      if (isVirtual) originalPrice = Number(ticketType.virtualPrice ?? (pricingTier ? pricingTier.price : ticketType.price));
       else if (pricingTier) originalPrice = Number(pricingTier.price);
       else originalPrice = Number(ticketType.price);
       const effectiveApproval = pricingTier ? pricingTier.requiresApproval : ticketType.requiresApproval;

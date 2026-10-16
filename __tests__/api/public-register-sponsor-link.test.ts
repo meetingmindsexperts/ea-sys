@@ -217,3 +217,33 @@ describe("no rate named on a type that has rates (security fix)", () => {
     expect(r.reachedTransaction).toBe(true);
   });
 });
+
+describe("virtual attendance on a hybrid event (review of c4a12f28)", () => {
+  async function hybrid() {
+    const ev = await mockDb.event.findFirst.getMockImplementation()?.();
+    mockDb.event.findFirst.mockResolvedValue({ ...(ev ?? {}), eventType: "HYBRID" });
+  }
+  it("refuses virtual with no rate when the type has no virtual price (it would be charged 0)", async () => {
+    await hybrid();
+    onTier(null);
+    mockDb.pricingTier.findMany.mockResolvedValue([{ name: "Early Bird" }]);
+    const r = await run({ price: 0, virtualPrice: null }, { attendanceMode: "VIRTUAL" });
+    expect(r).toMatchObject({ status: 400, code: "PRICING_TIER_REQUIRED", reachedTransaction: false });
+  });
+
+  it("lets virtual through with no rate when the type has its own virtual price", async () => {
+    await hybrid();
+    onTier(null);
+    mockDb.pricingTier.findMany.mockResolvedValue([{ name: "Early Bird" }]);
+    const r = await run({ price: 0, virtualPrice: 50 }, { attendanceMode: "VIRTUAL" });
+    expect(r.reachedTransaction).toBe(true);
+  });
+
+  it("still needs the sponsor's code on the sponsor link when attending virtually", async () => {
+    await hybrid();
+    onTier(INCLUSIVE);
+    const r = await run({ price: 0, virtualPrice: null }, { attendanceMode: "VIRTUAL", pricingTierId: "tier-inc" });
+    expect(r).toMatchObject({ status: 400, code: "PROMO_CODE_REQUIRED", reachedTransaction: false });
+  });
+});
+
