@@ -17,7 +17,7 @@ import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
 import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { parseRegistrationFormIdentifier, type RegistrationFormRate } from "@/lib/registration-form-link";
-import { priceAtLinkRate, RESTAMPABLE_STATUSES, stampedPaymentStatus } from "@/lib/registration-form-pricing";
+import { linkMayReprice, priceAtLinkRate, RESTAMPABLE_STATUSES, stampedPaymentStatus, type LinkRepriceState } from "@/lib/registration-form-pricing";
 import { applyRegistrationTransition } from "@/lib/registration-seat-db";
 import { registerTierSlug } from "@/lib/main-register-tiers";
 import {
@@ -119,6 +119,44 @@ async function loadSelectableTicketTypes(eventId: string, sponsorLinkSlugs: stri
   });
 }
 
+/** What `effectiveLinkRate` reads from the registration. */
+const LINK_REPRICE_SELECT = {
+  paymentStatus: true,
+  refundedAmount: true,
+  promoCodeId: true,
+  groupId: true,
+  pricingTierId: true,
+  sponsorId: true,
+  _count: { select: { payments: true, invoices: { where: { status: { not: "CANCELLED" as const } } } } },
+} as const;
+
+/**
+ * The link's rate, when it may still set this registration's type and price
+ * (linkMayReprice); null otherwise, and the link then completes the person's
+ * details only, exactly like a link without a rate. Anything staff changed
+ * after the send (a payment, an invoice, a comp, a sponsor) wins.
+ */
+async function effectiveLinkRate(
+  reg: LinkRepriceState & { id: string; sponsorId: string | null },
+  rate: RegistrationFormRate | null,
+  settings: unknown,
+): Promise<RegistrationFormRate | null> {
+  if (!rate) return null;
+  const tiers = reg.ticketTypeId
+    ? await db.pricingTier.findMany({ where: { ticketTypeId: reg.ticketTypeId }, select: { id: true, name: true, price: true } })
+    : [];
+  const sponsorRate =
+    rate.kind === "rate" && tierNeedsSponsorCode(rate.slug, readCodeRequiredTiers(settings)) && !!reg.sponsorId;
+  if (linkMayReprice(reg, rate, tiers, sponsorRate)) return rate;
+  apiLogger.info({
+    msg: "complete-registration:link-rate-not-applied",
+    registrationId: reg.id,
+    paymentStatus: reg.paymentStatus,
+    reason: "registration changed since the link was sent",
+  });
+  return null;
+}
+
 /**
  * For a link that carries a rate (docs/REGISTRATION_FORM_LINKS_PLAN.md): the
  * types the person may choose are those with that rate on sale, all priced at
@@ -218,6 +256,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         status: true,
         userId: true,
         ticketTypeId: true,
+        ...LINK_REPRICE_SELECT,
         ticketType: { select: { id: true, name: true, ...IDENTITY_EVIDENCE_SELECT } },
         attendee: {
           select: {
@@ -309,8 +348,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     // server-side, so the client can't dictate what it pays.
     // A link with a rate lists the types at that rate, even when a type is
     // already set (the person may change it at the same rate).
-    if (linkRate) {
-      const rated = await loadRatedTicketTypes(registration.event.id, linkRate, registration.ticketTypeId);
+    const appliedRate = await effectiveLinkRate(registration, linkRate, eventSettings);
+    if (appliedRate) {
+      const rated = await loadRatedTicketTypes(registration.event.id, appliedRate, registration.ticketTypeId);
       if (rated.closed) {
         apiLogger.info({ msg: "complete-registration:link-rate-closed", registrationId, rate: rated.rateName });
       }
@@ -528,16 +568,12 @@ export async function POST(req: Request, { params }: RouteParams) {
           },
         },
         ticketTypeId: true,
-        // Needed by the type-set below: a status someone EXPLICITLY set
-        // (CSV paymentStatus column / admin detail sheet — PAID, INCLUSIVE, …)
-        // must survive completion; only the typeless default is recomputed.
-        paymentStatus: true,
-        // Seat state and sponsor, for a link that carries a rate (it may move
-        // the seat to another type, and a sponsor rate needs the sponsor).
+        // Seat state, and what the link's rate may change (LINK_REPRICE_SELECT
+        // includes paymentStatus: a status someone EXPLICITLY set, CSV column
+        // or admin sheet, PAID, INCLUSIVE, …, must survive completion).
         attendanceMode: true,
         createdSource: true,
-        pricingTierId: true,
-        sponsorId: true,
+        ...LINK_REPRICE_SELECT,
         ticketType: { select: { id: true, name: true, price: true, currency: true, ...IDENTITY_EVIDENCE_SELECT } },
         pricingTier: { select: { id: true, name: true, price: true, currency: true } },
       },
@@ -589,7 +625,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       paymentStatus: PaymentStatus | null;
     } | null = null;
 
-    if (linkRate) {
+    const appliedRate = await effectiveLinkRate(registration, linkRate, registration.event.settings);
+    if (appliedRate) {
       const targetTypeId = chosenTicketTypeId ?? registration.ticketTypeId;
       if (!targetTypeId) {
         apiLogger.warn({ msg: "Completion POST without a registration type", registrationId });
@@ -606,7 +643,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 400 },
         );
       }
-      const priced = priceAtLinkRate(target.pricingTiers, linkRate, new Date());
+      const priced = priceAtLinkRate(target.pricingTiers, appliedRate, new Date());
       if (!priced.ok) {
         apiLogger.warn({ msg: "complete-registration:link-rate-refused", registrationId, targetTypeId, code: priced.code });
         const message = priced.code === "RATE_CLOSED"
@@ -615,8 +652,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: message, code: priced.code }, { status: 400 });
       }
       const sponsorRate =
-        linkRate.kind === "rate" &&
-        tierNeedsSponsorCode(linkRate.slug, readCodeRequiredTiers(registration.event.settings)) &&
+        appliedRate.kind === "rate" &&
+        tierNeedsSponsorCode(appliedRate.slug, readCodeRequiredTiers(registration.event.settings)) &&
         !!registration.sponsorId;
       evidenceCandidate = target;
       ratedPlan = {
@@ -717,7 +754,17 @@ export async function POST(req: Request, { params }: RouteParams) {
         // Guarded on the type read above (null, or the stamped type): an
         // organiser changing it meanwhile wins and this rolls back.
         const rowClaim = await tx.registration.updateMany({
-          where: { id: registrationId, ticketTypeId: registration.ticketTypeId, userId: null },
+          // Also guarded on the state linkMayReprice approved: a payment, a
+          // promo, a group or a cancellation landing meanwhile rolls this back.
+          where: {
+            id: registrationId,
+            ticketTypeId: registration.ticketTypeId,
+            userId: null,
+            status: { not: "CANCELLED" },
+            paymentStatus: { in: [...RESTAMPABLE_STATUSES] },
+            promoCodeId: null,
+            groupId: null,
+          },
           data: {
             ticketTypeId: ratedPlan.type.id,
             pricingTierId: ratedPlan.tierId,

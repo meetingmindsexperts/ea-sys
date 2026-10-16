@@ -35,3 +35,48 @@ export function priceAtLinkRate<T extends PricingTierCandidate>(
   if (!isTierOnSale(tier, now)) return { ok: false, code: "RATE_CLOSED" };
   return { ok: true, tier, price: Number(tier.price) };
 }
+
+/** What `linkMayReprice` reads from the registration. */
+export interface LinkRepriceState {
+  paymentStatus: PaymentStatus;
+  refundedAmount: unknown;
+  promoCodeId: string | null;
+  groupId: string | null;
+  ticketTypeId: string | null;
+  pricingTierId: string | null;
+  _count: { payments: number; invoices: number };
+}
+
+/**
+ * May a completion still set this registration's type and price from the
+ * link's rate? Only while the registration is as the link left it (review of
+ * b269ff6e, H1): nothing paid, refunded or invoiced, no promo code, not in a
+ * group, and, when it has a type, still carrying the stamp the send made (the
+ * link's rate on that type, and the payment status that rate means). Anything
+ * staff changed after the send (a payment, a comp, a sponsor) wins: the link
+ * then only completes the person's details, like a link without a rate.
+ */
+export function linkMayReprice(
+  reg: LinkRepriceState,
+  rate: RegistrationFormRate,
+  currentTypeTiers: readonly { id: string; name: string; price: unknown }[],
+  sponsorRate: boolean,
+): boolean {
+  if (!RESTAMPABLE_STATUSES.includes(reg.paymentStatus)) return false;
+  if (Number(reg.refundedAmount ?? 0) > 0) return false;
+  if (reg._count.payments > 0 || reg._count.invoices > 0) return false;
+  if (reg.promoCodeId || reg.groupId) return false;
+  // No type yet: the link's rate applies to the type they choose.
+  if (!reg.ticketTypeId) return true;
+  const tier = rate.kind === "rate" ? currentTypeTiers.find((t) => registerTierSlug(t.name) === rate.slug) : null;
+  if (rate.kind === "rate" && !tier) return false;
+  if (reg.pricingTierId !== (tier?.id ?? null)) return false;
+  return statusMatchesStamp(reg.paymentStatus, tier ? Number(tier.price) : 0, sponsorRate);
+}
+
+/** The payment status a stamp at this price leaves (stampedPaymentStatus keeps UNPAID as UNPAID). */
+function statusMatchesStamp(status: PaymentStatus, price: number, sponsorRate: boolean): boolean {
+  if (sponsorRate) return status === "INCLUSIVE";
+  if (price <= 0) return status === "COMPLIMENTARY";
+  return status === "UNASSIGNED" || status === "UNPAID";
+}
