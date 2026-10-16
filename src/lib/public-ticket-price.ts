@@ -10,6 +10,8 @@
  * charged is always resolved server-side at submission, so a stale page can
  * never fix a price.
  */
+import { tierNeedsSponsorCode } from "@/lib/code-required-tiers";
+import { isPresenterTierName } from "@/lib/presenter-tiers";
 
 export interface PublicTier {
   id: string;
@@ -42,7 +44,20 @@ export function livePrice(t: PublicTicketType): {
   return { price: Number(t.price), tierName: null };
 }
 
-/** Types a member can actually be registered on right now. */
-export function purchasableTypes(types: PublicTicketType[]): PublicTicketType[] {
-  return types.filter((t) => t.canPurchase || t.pricingTiers.some((p) => p.canPurchase));
+/**
+ * Types a member can actually be registered on right now, each carrying only
+ * the rates a group may use. The server prices a member with
+ * `pickOpenPublicRate`, which never uses a sponsor-link rate (it needs a
+ * sponsor's code) or a presenter rate, and refuses a type that has rates but
+ * none of those open. This drops the same rates, and the same types, so the
+ * form never offers a type the server refuses or quotes a price it won't charge.
+ */
+export function purchasableTypes(types: PublicTicketType[], sponsorLinkSlugs: readonly string[] = []): PublicTicketType[] {
+  return types.flatMap((t) => {
+    if (t.pricingTiers.length === 0) return t.canPurchase ? [t] : [];
+    const pricingTiers = t.pricingTiers.filter(
+      (p) => !tierNeedsSponsorCode(p.name, sponsorLinkSlugs) && !isPresenterTierName(p.name),
+    );
+    return pricingTiers.some((p) => p.canPurchase) ? [{ ...t, pricingTiers }] : [];
+  });
 }

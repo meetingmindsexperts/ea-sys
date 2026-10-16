@@ -52,6 +52,8 @@ interface PublicEvent {
   registrationOpen: boolean;
   eventFull: boolean;
   ticketTypes: PublicTicketType[];
+  /** Sponsor-link rates (code-required-tiers.ts): never offered to a group. */
+  codeRequiredTiers?: string[];
   groupRegistration: { enabled: boolean; minMembers: number; maxMembers: number };
 }
 
@@ -175,7 +177,7 @@ function GroupRegisterContent() {
   }, [slug]);
 
   const buyableTypes = useMemo(
-    () => purchasableTypes(event?.ticketTypes ?? []),
+    () => purchasableTypes(event?.ticketTypes ?? [], event?.codeRequiredTiers ?? []),
     [event],
   );
   const currency = buyableTypes[0]?.currency ?? "USD";

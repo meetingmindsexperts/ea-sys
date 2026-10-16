@@ -102,6 +102,35 @@ function regTypePriceLabel(rt: TierGroup["regTypes"][number]): string {
   return rt.price === 0 ? "Free" : `${rt.currency} ${rt.price}`;
 }
 
+/**
+ * The rate the main /register link sends a visitor to, or undefined when it
+ * should show the closed page instead.
+ */
+function mainLinkTarget(event: Event) {
+  // Master switch (Settings → Registration). When OFF, registration is closed
+  // regardless of which individual tiers (standard/onsite) are active — so we
+  // skip the redirect and show the branded closed page.
+  const registrationOpen = event.registrationOpen !== false;
+  // Event-wide cap reached: block like closed — EXCEPT on HYBRID events,
+  // where virtual attendance (uncapped) is still open, so we redirect to the
+  // tier page which shows the in-person-full notice.
+  const eventFullBlocks = event.eventFull === true && event.eventType !== "HYBRID";
+  // In tier order, the first tier on sale whose name the organiser ticked
+  // (Registration Types page). Only ticked names are candidates, so a
+  // Complimentary or Workshop tier is reached by its own link, never by
+  // falling through here. Presenter tiers can never be ticked.
+  // readMainRegisterTiers re-cleans the list and supplies the default when
+  // an older API response has no field.
+  return !registrationOpen || eventFullBlocks
+    ? undefined
+    : pickMainRegisterTier(
+        event.ticketTypes,
+        readMainRegisterTiers({ mainRegisterTiers: event.mainRegisterTiers }).filter(
+          (slug) => !(event.codeRequiredTiers ?? []).includes(slug),
+        ),
+      );
+}
+
 export default function RegisterOverviewPage() {
   const params = useParams();
   const router = useRouter();
@@ -135,6 +164,16 @@ export default function RegisterOverviewPage() {
     if (slug) fetchEvent();
   }, [slug]);
 
+  // A visitor (not staff previewing) on the main link goes straight to the rate.
+  const activeTier = !isAuthorized && event ? mainLinkTarget(event) : undefined;
+  const redirectTo = activeTier ? `/e/${slug}/register/${toSlug(activeTier.name)}` : null;
+  useEffect(() => {
+    if (!redirectTo || sessionStatus === "loading") return;
+    // Keep the query string: a sponsor's link carries `?promo=CODE` (and
+    // UTM tags), and the rate page applies it (Sep 29, 2026).
+    router.replace(`${redirectTo}${window.location.search}`);
+  }, [redirectTo, sessionStatus, router]);
+
   const copyLink = (tierSlug: string) => {
     const url = `${window.location.origin}/e/${slug}/register/${tierSlug}`;
     navigator.clipboard.writeText(url);
@@ -166,40 +205,19 @@ export default function RegisterOverviewPage() {
 
   // Not logged in or not admin/organizer → auto-redirect to first active non-presenter tier
   if (!isAuthorized && event) {
-    // Master switch (Settings → Registration). When OFF, registration is closed
-    // regardless of which individual tiers (standard/onsite) are active — so we
-    // skip the redirect and fall through to the branded closed page below.
-    const registrationOpen = event.registrationOpen !== false;
-    // Event-wide cap reached: block like closed — EXCEPT on HYBRID events,
-    // where virtual attendance (uncapped) is still open, so we redirect to the
-    // tier page which shows the in-person-full notice.
-    const eventFullBlocks = event.eventFull === true && event.eventType !== "HYBRID";
-    // In tier order, the first tier on sale whose name the organiser ticked
-    // (Registration Types page). Only ticked names are candidates, so a
-    // Complimentary or Workshop tier is reached by its own link, never by
-    // falling through here. Presenter tiers can never be ticked.
-    // readMainRegisterTiers re-cleans the list and supplies the default when
-    // an older API response has no field.
-    const activeTier = !registrationOpen || eventFullBlocks
-      ? undefined
-      : pickMainRegisterTier(
-          event.ticketTypes,
-          readMainRegisterTiers({ mainRegisterTiers: event.mainRegisterTiers }).filter(
-            (slug) => !(event.codeRequiredTiers ?? []).includes(slug),
-          ),
-        );
-
+    // The redirect itself runs in the effect above; navigating during
+    // render is a React error ("Cannot update a component while rendering").
     if (activeTier) {
-      // Keep the query string: a sponsor's link carries `?promo=CODE` (and
-      // UTM tags), and the rate page applies it (Sep 29, 2026).
-      const query = typeof window !== "undefined" ? window.location.search : "";
-      router.replace(`/e/${slug}/register/${toSlug(activeTier.name)}${query}`);
       return (
         <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
         </div>
       );
     }
+
+    // Why it is closed (the same two tests as mainLinkTarget), for the wording.
+    const registrationOpen = event.registrationOpen !== false;
+    const eventFullBlocks = event.eventFull === true && event.eventType !== "HYBRID";
 
     // No active DELEGATE tiers (every tier: early-bird / standard /
     // onsite — closed) → branded "Registration Closed" page.

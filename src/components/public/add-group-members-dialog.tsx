@@ -103,7 +103,7 @@ export function AddGroupMembersDialog({
         const res = await fetch(`/api/public/events/${slug}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        if (!cancelled) setTypes(purchasableTypes(data.ticketTypes ?? []));
+        if (!cancelled) setTypes(purchasableTypes(data.ticketTypes ?? [], data.codeRequiredTiers ?? []));
       } catch {
         // Without types there is nothing to choose, so this must be visible
         // rather than presenting an empty dropdown as if nothing were on sale.
