@@ -753,8 +753,9 @@ export default function TicketsPage() {
                 <Label htmlFor="type-requires-promo" className="cursor-pointer">Requires a promo code</Label>
                 <p className="text-xs text-muted-foreground">
                   On the public form this type can only be registered with a promo code that applies to it,
-                  for example a sponsor&apos;s code for an Inclusive type. Your team can still add registrations
-                  on it from the dashboard.
+                  for example a sponsor&apos;s code for an Inclusive type. Send the sponsor the code&apos;s link
+                  (the link button in Promo Codes): their people get the code filled in automatically. Your team
+                  can still add registrations on it from the dashboard.
                 </p>
               </div>
             </div>
