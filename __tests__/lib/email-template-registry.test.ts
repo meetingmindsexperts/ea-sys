@@ -36,15 +36,15 @@ const tokensIn = (...parts: string[]) => {
 };
 
 describe("registry shape", () => {
-  it("holds 35 system templates, each with a body and a spec under its own slug", () => {
-    expect(SYSTEM_TEMPLATE_SLUG_LIST).toHaveLength(35);
+  it("holds 36 system templates, each with a body and a spec under its own slug", () => {
+    expect(SYSTEM_TEMPLATE_SLUG_LIST).toHaveLength(36);
     for (const slug of SYSTEM_TEMPLATE_SLUG_LIST) {
       expect(EMAIL_TEMPLATE_REGISTRY[slug].slug).toBe(slug);
       expect(DEFAULT_TEMPLATE_BODIES[slug].subject.length).toBeGreaterThan(0);
       expect(DEFAULT_TEMPLATE_BODIES[slug].htmlContent.length).toBeGreaterThan(0);
       expect(EMAIL_TEMPLATE_REGISTRY[slug].description.length).toBeGreaterThan(0);
     }
-    expect(new Set(SYSTEM_TEMPLATE_SLUG_LIST).size).toBe(35);
+    expect(new Set(SYSTEM_TEMPLATE_SLUG_LIST).size).toBe(36);
   });
 
   it("derives DEFAULT_TEMPLATES, TEMPLATE_VARIABLES and the client-safe slug set from the registry, in seed order", () => {
@@ -113,7 +113,7 @@ describe("the derived raw-key set", () => {
 });
 
 describe("the type-to-slug maps", () => {
-  it("bulk: the fifteen types map as the hand map did, and a reviewer invitation is the pool invitation", () => {
+  it("bulk: the sixteen types map as the hand map did, and a reviewer invitation is the pool invitation", () => {
     expect(BULK_EMAIL_TEMPLATE_SLUGS).toEqual({
       invitation: "speaker-invitation",
       agreement: "speaker-agreement",
@@ -127,6 +127,7 @@ describe("the type-to-slug maps", () => {
       "webinar-live-now": "webinar-live-now",
       "webinar-thank-you": "webinar-thank-you",
       "survey-invitation": "survey-invitation",
+      "registration-form": "registration-form",
       "abstract-confirmation": "abstract-submission-confirmation",
       "abstract-decision": "abstract-status-update",
       "abstract-reminder": "abstract-reminder",
@@ -171,6 +172,7 @@ describe("the dialog option lists", () => {
     ]);
     expect(bulkEmailTypeOptionsFor("registrations")).toEqual([
       { value: "confirmation", label: "Registration Confirmation", description: "Confirm their registration" },
+      { value: "registration-form", label: "Registration Form", description: "Send each person their own link to complete their registration, at a rate you choose" },
       { value: "reminder", label: "Event Reminder", description: "Remind about the upcoming event" },
       { value: "payment-reminder", label: "Payment Reminder", description: "Chase an outstanding balance with a Pay Now link" },
       { value: "survey-invitation", label: "Survey Invitation", description: "Send a unique link to the post-event feedback survey" },

@@ -65,6 +65,15 @@ import { templateUsesTravelGrantBlock } from "@/lib/travel-grant/block";
 import { normalizeRsvpEmail } from "@/lib/rsvp/rsvp";
 import { buildRsvpButton, templateUsesRsvpToken } from "@/lib/rsvp/button";
 import { UNRESOLVED_TOKENS_CODE } from "@/lib/template-tokens";
+import { DEFAULT_LINK_EXPIRY_DAYS, linkExpiryDaysSchema } from "@/lib/link-expiry";
+import { COMPLIMENTARY_RATE, type RegistrationFormRate } from "@/lib/registration-form-link";
+import { registerTierSlug } from "@/lib/main-register-tiers";
+import {
+  mintRegistrationFormLink,
+  prepareRegistrationForms,
+  registrationFormVars,
+  REGISTRATION_FORM_SKIP_LABELS,
+} from "@/services/registration-form-service";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -98,6 +107,14 @@ export type BulkEmailType =
    * Registration-bound survey.
    */
   | "survey-invitation"
+  /**
+   * Each person's own link to complete their registration, at the rate
+   * chosen in `filters.registrationFormRate` (Oct 16, 2026,
+   * docs/REGISTRATION_FORM_LINKS_PLAN.md). Registrations only. The checks and
+   * the rate stamp run through registration-form-service before the send;
+   * people it skips are reported, never emailed.
+   */
+  | "registration-form"
   /**
    * Send a saved custom email template (one an organizer created under
    * Communications → Email Templates that is NOT one of the system
@@ -231,6 +248,14 @@ export interface BulkEmailFilters {
    * goes there unchanged. Rides inside `filters` like surveyExpiryDays.
    */
   surveyId?: string;
+  /**
+   * registration-form only: the rate the links carry (a rate-name slug or
+   * "complimentary"), the sponsor for a sponsor-link rate, and how many days
+   * the links last. Inside `filters` so a scheduled send reads them back.
+   */
+  registrationFormRate?: string;
+  registrationFormSponsorId?: string;
+  registrationFormExpiryDays?: number;
   /**
    * Registrations only: who did ("yes") or did not ("no") answer this survey,
    * from its response rows (several surveys, Phase 2). Applied at fire time,
@@ -367,6 +392,16 @@ export interface BulkEmailResult {
    */
   aborted?: boolean;
   errors: Array<{ email: string; error: string }>;
+}
+
+/** "already completed (has an account): 2; already paid or invoiced: 1" */
+function summarizeRegistrationFormSkips(skipped: { reason: keyof typeof REGISTRATION_FORM_SKIP_LABELS }[]): string {
+  const counts = new Map<string, number>();
+  for (const s of skipped) {
+    const label = REGISTRATION_FORM_SKIP_LABELS[s.reason];
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts].map(([label, n]) => `${label}: ${n}`).join("; ");
 }
 
 export class BulkEmailError extends Error {
@@ -579,6 +614,7 @@ export const bulkEmailSchema = z.object({
     "webinar-live-now",
     "webinar-thank-you",
     "survey-invitation",
+    "registration-form",
     "template",
     "certificate",
   ]),
@@ -612,6 +648,9 @@ export const bulkEmailSchema = z.object({
       sessionRole: z.nativeEnum(SessionRole).optional(),
       surveyExpiryDays: surveyExpiryDaysSchema.optional(),
       surveyId: z.string().min(1).max(64).optional(),
+      registrationFormRate: z.string().trim().min(1).max(100).optional(),
+      registrationFormSponsorId: z.string().min(1).max(100).optional(),
+      registrationFormExpiryDays: linkExpiryDaysSchema("Registration link").optional(),
       // Registrations only: who did / did not answer a survey (Phase 2).
       surveyResponded: surveyRespondedSchema.optional(),
       templateSlug: z.string().min(1).max(100).optional(),
@@ -635,6 +674,20 @@ export const bulkEmailSchema = z.object({
   }
   // A certificate send must carry the template set (mirror of the
   // templateSlug rule above — rejected before a ScheduledEmail persists).
+  if (data.emailType === "registration-form" && !data.filters?.registrationFormRate) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["filters", "registrationFormRate"],
+      message: "filters.registrationFormRate is required when emailType is \"registration-form\"",
+    });
+  }
+  if (data.emailType === "registration-form" && data.recipientType !== "registrations") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["recipientType"],
+      message: "A registration form can only be sent to registrations",
+    });
+  }
   if (data.emailType === "certificate" && !data.filters?.certificateTemplateIds?.length) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -944,6 +997,13 @@ export async function precheckBulkEmailViability(
       "Survey invitations can only be sent to registrations",
       400,
     );
+  }
+  // Also checked by the schema; repeated for callers that skip it (MCP, the worker).
+  if (emailType === "registration-form" && recipientType !== "registrations") {
+    throw new BulkEmailError("A registration form can only be sent to registrations", 400);
+  }
+  if (emailType === "registration-form" && !filters?.registrationFormRate) {
+    throw new BulkEmailError("Choose the rate the registration form links carry", 400, "REGISTRATION_FORM_RATE_REQUIRED");
   }
 
   // A6 (July 16, 2026, owner decision): the CANCELLED exclusion is
@@ -1802,6 +1862,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // Map lookup and not a query. Nothing is minted here: a recipient without an
   // invite is dropped from the send below and reported as skipped.
   const rsvpTokenByEmail = new Map<string, string>();
+  // {{registrationFormLink}}: set once the checks and the rate stamp have run
+  // (below, before the batches); each recipient's link is minted as they are sent.
+  let registrationForm: { rate: RegistrationFormRate; rateName: string; timezone: string; expiryDays: number } | null = null;
   if (rsvpCampaign) {
     const invites = await db.rsvpInvite.findMany({
       where: { campaignId: rsvpCampaign.id, eventId },
@@ -2127,6 +2190,23 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       vars.surveyName = surveyTarget?.name ?? "";
     }
 
+    if (registrationForm) {
+      const { url, expires } = await mintRegistrationFormLink({
+        registrationId: recipient.id,
+        eventSlug: event.slug,
+        rate: registrationForm.rate,
+        expiryDays: registrationForm.expiryDays,
+        appUrl,
+      });
+      Object.assign(vars, registrationFormVars({
+        link: url,
+        expires,
+        expiryDays: registrationForm.expiryDays,
+        rateName: registrationForm.rateName,
+        timezone: registrationForm.timezone,
+      }));
+    }
+
     if (rsvpCampaign) {
       // The send loop has already dropped recipients with no invite, so the
       // lookup cannot miss here; the fallback keeps the type honest.
@@ -2329,6 +2409,39 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       });
     }
     toSend = withInvite;
+  }
+  // Registration form: the checks and the rate stamp (registration-form-service,
+  // the same rules as the Send Registration Form button). Whoever it skips is
+  // reported with the reason and never emailed.
+  if (emailType === "registration-form") {
+    const rateKey = filters?.registrationFormRate ?? "";
+    const rate: RegistrationFormRate =
+      rateKey === COMPLIMENTARY_RATE ? { kind: "complimentary" } : { kind: "rate", slug: registerTierSlug(rateKey) };
+    const prepared = await prepareRegistrationForms({
+      eventId,
+      organizationId: resolvedOrganizationId ?? "",
+      registrationIds: toSend.map((r) => r.id),
+      rate,
+      sponsorId: filters?.registrationFormSponsorId ?? null,
+      actorUserId: triggeredByUserId ?? null,
+      source: "bulk",
+    });
+    if (!prepared.ok) {
+      apiLogger.warn({ msg: "bulk-email:registration-form-refused", eventId, code: prepared.code });
+      throw new BulkEmailError(prepared.message, 400, prepared.code);
+    }
+    if (prepared.skipped.length > 0) {
+      skippedCount += prepared.skipped.length;
+      skippedReason = summarizeRegistrationFormSkips(prepared.skipped);
+    }
+    const readyIds = new Set(prepared.ready.map((r) => r.registrationId));
+    toSend = toSend.filter((r) => readyIds.has(r.id));
+    registrationForm = {
+      rate,
+      rateName: prepared.rateName,
+      timezone: prepared.event.timezone,
+      expiryDays: filters?.registrationFormExpiryDays ?? DEFAULT_LINK_EXPIRY_DAYS,
+    };
   }
   if (alreadyEmailed.size) {
     apiLogger.info({

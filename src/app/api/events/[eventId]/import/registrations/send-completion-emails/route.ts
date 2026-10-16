@@ -1,19 +1,38 @@
-import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { format } from "date-fns";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
-import { checkRateLimit, hashVerificationToken } from "@/lib/security";
+import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
-import { sendEmail, emailTemplates } from "@/lib/email";
+import { DEFAULT_LINK_EXPIRY_DAYS, linkExpiryDaysSchema } from "@/lib/link-expiry";
+import { sendRegistrationForms, type PrepareRegistrationFormsErrorCode } from "@/services/registration-form-service";
 
+/**
+ * Send Registration Form: each person's own link to complete their
+ * registration, at the rate chosen in the dialog, valid for the chosen number
+ * of days (docs/REGISTRATION_FORM_LINKS_PLAN.md). The rules live in
+ * registration-form-service; this route is auth, the limit and HTTP.
+ */
 const bodySchema = z.object({
   registrationIds: z.array(z.string().min(1)).min(1).max(500),
+  /** A rate-name slug (`early-bird`) or "complimentary". Omitted by a page
+   *  loaded before rates were chosen here: then Complimentary is NOT assumed;
+   *  the request is refused so nobody is stamped by accident. */
+  rate: z.string().trim().min(1).max(100),
+  sponsorId: z.string().min(1).optional(),
+  expiryDays: linkExpiryDaysSchema("Registration link").optional(),
 });
+
+const ERROR_STATUS: Record<PrepareRegistrationFormsErrorCode | "TEMPLATE_MISSING", number> = {
+  EVENT_NOT_FOUND: 404,
+  RATE_NOT_FOUND: 400,
+  RATE_NOT_ALLOWED: 400,
+  SPONSOR_NOT_FOUND: 400,
+  TEMPLATE_MISSING: 500,
+};
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -53,135 +72,49 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
-    const { registrationIds } = validated.data;
-
-    // Parallelize event access check + registrations lookup
-    const [event, registrations] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
-        select: {
-          id: true, name: true, slug: true, startDate: true,
-          venue: true, city: true, country: true,
-          // Per-event sender branding — without these, sendEmail falls
-          // back to env DEFAULT_FROM_EMAIL / DEFAULT_FROM_NAME which
-          // silently overrides the organizer's configured sender.
-          emailFromAddress: true, emailFromName: true,
-        },
-      }),
-      db.registration.findMany({
-        where: { id: { in: registrationIds }, eventId, status: { notIn: ["CANCELLED"] } },
-        select: {
-          id: true,
-          userId: true,
-          attendee: { select: { email: true, firstName: true, lastName: true } },
-        },
-      }),
+    const { registrationIds, rate, sponsorId, expiryDays } = validated.data;
+    // The grant's own event scope (custom roles): an event outside it is a
+    // 404 here, before the service, which scopes by organisation only.
+    const [event, signer] = await Promise.all([
+      db.event.findFirst({ where: gate.eventWhere, select: { id: true } }),
+      db.user.findUnique({ where: { id: session.user.id }, select: { emailSignature: true } }),
     ]);
-
     if (!event) {
+      apiLogger.warn({ msg: "send-registration-forms:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    if (registrations.length === 0) {
-      apiLogger.warn({ msg: "No valid registrations found for completion emails", eventId, requestedIds: registrationIds.length });
-      return NextResponse.json({ error: "No valid (non-cancelled) registrations found for the provided IDs" }, { status: 404 });
+    const result = await sendRegistrationForms({
+      eventId,
+      organizationId: orgGuard.orgId,
+      registrationIds,
+      rate: rate === "complimentary" ? { kind: "complimentary" } : { kind: "rate", slug: rate },
+      sponsorId: sponsorId ?? null,
+      expiryDays: expiryDays ?? DEFAULT_LINK_EXPIRY_DAYS,
+      actorUserId: session.user.id,
+      source: "rest",
+      appUrl: process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000",
+      organizerName: [session.user.firstName, session.user.lastName].filter(Boolean).join(" "),
+      organizerSignature: signer?.emailSignature ?? "",
+    });
+    if (!result.ok) {
+      apiLogger.warn({ msg: "send-registration-forms:refused", eventId, code: result.code });
+      return NextResponse.json({ error: result.message, code: result.code }, { status: ERROR_STATUS[result.code] });
     }
 
-    if (registrations.length < registrationIds.length) {
-      apiLogger.info({ msg: "Some registration IDs not found or cancelled", eventId, requested: registrationIds.length, found: registrations.length });
+    if (result.sent === 0 && result.skipped.length > 0 && result.skipped.every((x) => x.reason === "NOT_FOUND")) {
+      apiLogger.warn({ msg: "send-registration-forms:no-registrations-found", eventId, requested: registrationIds.length });
+      return NextResponse.json({ error: "No registrations found for the provided IDs" }, { status: 404 });
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-    const eventDate = format(new Date(event.startDate), "MMM d, yyyy");
-    const eventVenue = [event.venue, event.city, event.country].filter(Boolean).join(", ");
-    // Resolve the event's configured sender once; if not set, `undefined`
-    // lets sendEmail fall through to the provider defaults as intended.
-    const eventFrom = event.emailFromAddress
-      ? { email: event.emailFromAddress, name: event.emailFromName || event.name }
-      : undefined;
-
-    let sent = 0;
-    let skipped = 0;
-    const errors: string[] = [];
-
-    for (const reg of registrations) {
-      // Skip registrations that already have a user account linked
-      if (reg.userId) {
-        skipped++;
-        continue;
-      }
-
-      try {
-        // Delete any existing completion token for this registration (supports resend)
-        await db.verificationToken.deleteMany({
-          where: { identifier: `reg:${reg.id}` },
-        });
-
-        // Generate token
-        const rawToken = crypto.randomBytes(32).toString("hex");
-        const hashedToken = hashVerificationToken(rawToken);
-        const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-        // Store token
-        await db.verificationToken.create({
-          data: {
-            identifier: `reg:${reg.id}`,
-            token: hashedToken,
-            expires,
-          },
-        });
-
-        // Build completion link
-        const completionLink = `${appUrl}/e/${event.slug}/complete-registration?token=${rawToken}`;
-
-        // Send email
-        const template = emailTemplates.registrationCompletion({
-          recipientName: `${reg.attendee.firstName} ${reg.attendee.lastName}`,
-          recipientEmail: reg.attendee.email,
-          eventName: event.name,
-          eventDate,
-          eventVenue,
-          completionLink,
-          expiresIn: "7 days",
-        });
-
-        const emailResult = await sendEmail({
-          to: [{ email: reg.attendee.email, name: `${reg.attendee.firstName} ${reg.attendee.lastName}` }],
-          subject: template.subject,
-          htmlContent: template.htmlContent,
-          textContent: template.textContent,
-          from: eventFrom,
-          emailType: "registration_completion",
-          // Triggered per-row in an admin-driven loop; logically a campaign send.
-          stream: "bulk",
-          logContext: {
-            organizationId: session.user.organizationId ?? null,
-            eventId,
-            entityType: "REGISTRATION",
-            entityId: reg.id,
-            templateSlug: "registration-completion",
-            triggeredByUserId: session.user.id,
-          },
-        });
-
-        if (!emailResult.success) {
-          apiLogger.warn({ msg: "Completion email delivery failed", registrationId: reg.id, email: reg.attendee.email, provider: process.env.EMAIL_PROVIDER || "auto", error: emailResult.error });
-          errors.push(`${reg.attendee.email}: failed to deliver email — ${emailResult.error || "provider rejected"}`);
-          // Clean up the token since email failed
-          await db.verificationToken.deleteMany({ where: { identifier: `reg:${reg.id}` } });
-        } else {
-          sent++;
-        }
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        apiLogger.error({ msg: "Unexpected error processing completion email", registrationId: reg.id, email: reg.attendee.email, err: errMsg });
-        errors.push(`${reg.attendee.email}: ${errMsg}`);
-      }
-    }
-
-    apiLogger.info({ msg: "Completion emails sent", eventId, userId: session.user.id, sent, skipped, errorCount: errors.length });
-
-    return NextResponse.json({ sent, skipped, errors });
+    return NextResponse.json({
+      sent: result.sent,
+      skipped: result.skipped.length,
+      skippedDetails: result.skipped,
+      errors: result.errors,
+      rateName: result.rateName,
+      rateClosesAt: result.rateClosesAt,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Unhandled error in send-completion-emails endpoint" });

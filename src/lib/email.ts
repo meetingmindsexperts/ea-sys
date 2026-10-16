@@ -1790,6 +1790,12 @@ export function getSamplePreviewVariables(
     // token; the preview shows a representative link, not literal {{surveyLink}}.
     surveyLink: "#",
     surveyName: "Post-event survey",
+    // Registration-form placeholders — real sends mint each person's link
+    // with the rate and lifetime chosen in the send dialog.
+    registrationFormLink: "#",
+    rateName: "Early Bird",
+    linkExpiresIn: "7 days",
+    linkExpiresOn: "Friday, October 23, 2026",
     // Dinner-RSVP invitation placeholder — real sends use each invitee's token.
     rsvpLink: "#",
     rsvpButton: buildRsvpButton({ rsvpLink: "#", rsvpName: "Gala Dinner" }).html,

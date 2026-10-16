@@ -60,7 +60,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, formatDate, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
-import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags, useSponsors, useEventSurveys } from "@/hooks/use-api";
+import { SendRegistrationFormDialog } from "@/components/registrations/registration-form-send";
+import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useEventTags, useSponsors, useEventSurveys } from "@/hooks/use-api";
 import { matchesSurveyResponded, type SurveyRespondedFilter } from "@/lib/survey/responded-filter";
 import { displayRegistrationType } from "@/lib/faculty-filter";
 import { formatAttendeeRole } from "@/lib/schemas";
@@ -279,7 +280,6 @@ export default function RegistrationsPage() {
 
   const bulkTagRegistrations = useBulkTagRegistrations(eventId);
   const bulkUpdateType = useBulkUpdateRegistrationType(eventId);
-  const sendCompletionEmails = useSendCompletionEmails(eventId);
   const [changeTypeDialogOpen, setChangeTypeDialogOpen] = useState(false);
   const [targetTypeId, setTargetTypeId] = useState<string>("");
   // "Send registration form" confirmation: the action posts to a 5/hr
@@ -640,7 +640,6 @@ export default function RegistrationsPage() {
               size="sm"
               variant="outline"
               onClick={() => setSendFormConfirmOpen(true)}
-              disabled={sendCompletionEmails.isPending}
             >
               <Mail className="mr-2 h-4 w-4" />
               Send Registration Form
@@ -1249,67 +1248,17 @@ export default function RegistrationsPage() {
         recipientCountFor={countRegistrationsForEmail}
       />
 
-      {/* Send Registration Form confirmation. The backend route silently
-          skips registrations that already have a linked user (no email
-          fired), so we surface the rate-limit + recipient count up-front
-          rather than waiting for a 429 response after the user clicks. */}
-      <Dialog open={sendFormConfirmOpen} onOpenChange={setSendFormConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Send registration form</DialogTitle>
-            <DialogDescription>
-              Each selected registrant will receive an email with a 7-day
-              token link to fill in their own details. Registrations that
-              already have a linked user account will be skipped silently.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="text-sm text-muted-foreground">
-            About to email <span className="font-medium text-foreground">{selectedIds.size}</span>{" "}
-            registrant{selectedIds.size !== 1 ? "s" : ""}. This call counts
-            against the 5-per-hour bulk-send limit.
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setSendFormConfirmOpen(false)}
-              disabled={sendCompletionEmails.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={async () => {
-                try {
-                  const result = await sendCompletionEmails.mutateAsync(
-                    Array.from(selectedIds),
-                  );
-                  setSendFormConfirmOpen(false);
-                  clearSelection();
-                  const skippedMsg =
-                    result.skipped > 0
-                      ? ` (${result.skipped} skipped — already completed)`
-                      : "";
-                  toast.success(
-                    `Sent ${result.sent} registration form${result.sent === 1 ? "" : "s"}${skippedMsg}`,
-                  );
-                  if (result.errors.length > 0) {
-                    toast.error(
-                      `${result.errors.length} failed — see logs for details`,
-                    );
-                  }
-                } catch (err) {
-                  const msg = err instanceof Error ? err.message : "Send failed";
-                  toast.error(msg);
-                }
-              }}
-              disabled={sendCompletionEmails.isPending || selectedIds.size === 0}
-            >
-              {sendCompletionEmails.isPending
-                ? "Sending..."
-                : `Send to ${selectedIds.size}`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Send Registration Form: the rate, sponsor and link lifetime are
+          chosen here (registration-form-send.tsx, the same fields as the
+          Communications "Registration Form" send). */}
+      <SendRegistrationFormDialog
+        eventId={eventId}
+        open={sendFormConfirmOpen}
+        onOpenChange={setSendFormConfirmOpen}
+        registrationIds={Array.from(selectedIds)}
+        recipientLabel={`${selectedIds.size} registrant${selectedIds.size === 1 ? "" : "s"}`}
+        onSent={clearSelection}
+      />
 
       <PayerDetailDialog
         payer={payerDetail}

@@ -84,6 +84,8 @@ describe("bulk send types", () => {
   it("asks the operation's key for certificate and survey sends only", () => {
     expect(bulkEmailTypePermission("certificate")).toBe("certificates.issue");
     expect(bulkEmailTypePermission("survey-invitation")).toBe("surveys.manage");
+    // It re-prices registrations, so sending email is not enough.
+    expect(bulkEmailTypePermission("registration-form")).toBe("registrations.import");
     expect(bulkEmailTypePermission("custom")).toBeNull();
     expect(bulkEmailTypePermission(undefined)).toBeNull();
   });

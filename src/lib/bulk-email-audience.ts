@@ -36,6 +36,9 @@ export const CANCELLED_EXCLUDED_EMAIL_TYPES = [
   "payment-reminder",
   "certificate",
   "survey-invitation",
+  // A cancelled registration is never sent a form to complete (the service
+  // skips it too); excluding it here keeps the dialog's count honest.
+  "registration-form",
 ] as const;
 
 /**

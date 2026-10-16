@@ -902,6 +902,47 @@ Best regards,
 
 {{organizerSignature}}`,
   },
+  "registration-form": {
+    // Oct 16, 2026: the "Complete Your Registration" email, now editable.
+    // Was hard-coded as emailTemplates.registrationCompletion in email.ts.
+    subject: "Complete your registration for {{eventName}}",
+    htmlContent: `<div style="padding: 24px 0;">
+    <p>Dear {{title}} <strong>{{firstName}} {{lastName}}</strong>,</p>
+    <p>You have been registered for <strong>{{eventName}}</strong>. Please complete your registration by filling in the remaining details and setting up your account.</p>
+    {{personalMessage}}
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <p style="margin: 0 0 8px 0;"><strong>Event:</strong> {{eventName}}</p>
+      <p style="margin: 0 0 8px 0;"><strong>Date:</strong> {{eventDate}}</p>
+      <p style="margin: 0;"><strong>Venue:</strong> {{eventVenue}}</p>
+    </div>
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{registrationFormLink}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Complete Your Registration</a>
+    </div>
+    <p style="color: #6b7280; font-size: 13px;">Or copy this link into your browser:<br><span style="word-break: break-all; color: #00aade;">{{registrationFormLink}}</span></p>
+    <p style="color: #6b7280; font-size: 13px;">This link is for your use only and expires on {{linkExpiresOn}} ({{linkExpiresIn}}).</p>
+    <p style="color: #6b7280; font-size: 13px;">If you did not expect this email, you can safely ignore it.</p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `Complete your registration for {{eventName}}
+
+Dear {{title}} {{firstName}} {{lastName}},
+
+You have been registered for {{eventName}}. Please complete your registration by visiting the link below.
+
+{{personalMessage}}
+
+Event: {{eventName}}
+Date: {{eventDate}}
+Venue: {{eventVenue}}
+
+Complete your registration: {{registrationFormLink}}
+
+This link is for your use only and expires on {{linkExpiresOn}} ({{linkExpiresIn}}).
+
+If you did not expect this email, you can safely ignore it.
+
+{{organizerSignature}}`,
+  },
   "survey-thankyou": {
     // Sent automatically by the public POST handler immediately on
     // successful submit. Also cert-neutral by default — CME events

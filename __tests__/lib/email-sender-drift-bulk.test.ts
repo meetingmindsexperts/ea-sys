@@ -22,7 +22,7 @@ const { mockDb, mockSendEmail } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     emailTemplate: { findUnique: vi.fn().mockResolvedValue(null) },
-    registration: { findMany: vi.fn() },
+    registration: { findMany: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     speaker: { findMany: vi.fn() },
     abstract: { findMany: vi.fn() },
     user: { findMany: vi.fn(), findUnique: vi.fn().mockResolvedValue(null) },
@@ -36,7 +36,7 @@ const { mockDb, mockSendEmail } = vi.hoisted(() => ({
   mockSendEmail: vi.fn(),
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: typeof mockDb) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/email", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/email")>();
@@ -99,6 +99,10 @@ const REGISTRATION = {
   ticketType: { name: "Delegate", price: 100, currency: "USD" },
   attendee: { email: "d@h.test", additionalEmail: null, firstName: "Sara", lastName: "Al Harthy", title: "DR" },
   paymentStatus: "UNPAID", group: null,
+  // Read by the registration-form checks (registration-form-service).
+  status: "CONFIRMED", userId: null, refundedAmount: 0, groupId: null, promoCodeId: null, sponsorId: null,
+  ticketTypeId: "tt-1", pricingTierId: null, createdSource: "CSV_IMPORT",
+  _count: { payments: 0, invoices: 0 },
 };
 
 const SPEAKER = {
@@ -154,8 +158,8 @@ for (const t of EMAIL_TEMPLATE_SPECS) {
 }
 
 describe("bulk pipeline: every registered (type, audience) renders its default template with nothing unresolved", () => {
-  it("covers the fifteen bulk types the registry declares", () => {
-    expect(new Set(CASES.map((c) => c.type)).size).toBe(15);
+  it("covers the sixteen bulk types the registry declares", () => {
+    expect(new Set(CASES.map((c) => c.type)).size).toBe(16);
   });
 
   it.each(CASES)("$type → $audience ($slug)", async ({ type, audience }) => {
@@ -165,7 +169,8 @@ describe("bulk pipeline: every registered (type, audience) renders its default t
       eventId: "evt-1",
       recipientType: audience,
       emailType: type as never,
-      filters: {},
+      // The registration form needs its rate; Complimentary needs no rate row.
+      filters: type === "registration-form" ? { registrationFormRate: "complimentary" } : {},
       organizerName: "Organizer",
       organizerEmail: "org@x.test",
       organizationId: "org-1",

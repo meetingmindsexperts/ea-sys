@@ -32,6 +32,12 @@ import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { toast } from "sonner";
 import { MAX_MANUAL_CC, parseEmailList } from "@/lib/email-address-list";
 import {
+  EMPTY_REGISTRATION_FORM_CHOICE,
+  RegistrationFormFields,
+  registrationFormPayload,
+  type RegistrationFormChoice,
+} from "@/components/registrations/registration-form-send";
+import {
   MAX_SURVEY_EXPIRY_DAYS,
   MIN_SURVEY_EXPIRY_DAYS,
   parseSurveyExpiryInput,
@@ -355,6 +361,8 @@ export function BulkEmailDialog({
   const [scheduledFor, setScheduledFor] = useState<string>("");
   // survey-invitation only — TTL (days) for the minted survey link.
   const [surveyExpiryDays, setSurveyExpiryDays] = useState<string>("7");
+  // registration-form only: the rate, sponsor and link lifetime (registration-form-send.tsx).
+  const [registrationFormChoice, setRegistrationFormChoice] = useState<RegistrationFormChoice>(EMPTY_REGISTRATION_FORM_CHOICE);
   // survey-invitation only — which survey the links open (step 3 of several
   // surveys, Oct 6, 2026). "" = the CME survey, what every send did before.
   const [surveyChoice, setSurveyChoice] = useState<string>("");
@@ -631,6 +639,12 @@ export function BulkEmailDialog({
       );
       return;
     }
+    // Registration form: the rate and the link lifetime are required.
+    const registrationForm = emailType === "registration-form" ? registrationFormPayload(registrationFormChoice) : null;
+    if (registrationForm && !registrationForm.ok) {
+      toast.error(registrationForm.error);
+      return;
+    }
     const invalidBcc = parsedBcc.filter((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
     if (invalidBcc.length) {
       toast.error(`Invalid BCC address: ${invalidBcc.join(", ")}`);
@@ -712,6 +726,14 @@ export function BulkEmailDialog({
         // survey-invitation only — TTL (days) for the minted survey link.
         ...(emailType === "survey-invitation" && parsedSurveyExpiry !== null
           ? { surveyExpiryDays: parsedSurveyExpiry }
+          : {}),
+        // registration-form only: the rate, sponsor and lifetime the links carry.
+        ...(registrationForm && registrationForm.ok
+          ? {
+              registrationFormRate: registrationForm.rate,
+              registrationFormExpiryDays: registrationForm.expiryDays,
+              ...(registrationForm.sponsorId ? { registrationFormSponsorId: registrationForm.sponsorId } : {}),
+            }
           : {}),
         // survey-invitation only — the survey the links open.
         ...(emailType === "survey-invitation" && chosenSurveyId ? { surveyId: chosenSurveyId } : {}),
@@ -1404,6 +1426,15 @@ export function BulkEmailDialog({
                 {MAX_SURVEY_EXPIRY_DAYS}.
               </p>
             </div>
+          )}
+
+          {emailType === "registration-form" && (
+            <RegistrationFormFields
+              eventId={eventId}
+              value={registrationFormChoice}
+              onChange={setRegistrationFormChoice}
+              idPrefix="bulk-email-registration-form"
+            />
           )}
 
           {/* Recipient summary */}

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import type { PaymentStatus } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
@@ -14,7 +15,11 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
-import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
+import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
+import { parseRegistrationFormIdentifier, type RegistrationFormRate } from "@/lib/registration-form-link";
+import { priceAtLinkRate, RESTAMPABLE_STATUSES, stampedPaymentStatus } from "@/lib/registration-form-pricing";
+import { applyRegistrationTransition } from "@/lib/registration-seat-db";
+import { registerTierSlug } from "@/lib/main-register-tiers";
 import {
   readIdentityEvidencePolicy,
   missingIdentityEvidence,
@@ -114,6 +119,47 @@ async function loadSelectableTicketTypes(eventId: string, sponsorLinkSlugs: stri
   });
 }
 
+/**
+ * For a link that carries a rate (docs/REGISTRATION_FORM_LINKS_PLAN.md): the
+ * types the person may choose are those with that rate on sale, all priced at
+ * it (owner D5: they may change type, at the same rate). Their current type
+ * stays available even when full, since they already hold its seat. `closed`
+ * is true when the rate is on sale on no type (owner D3: refused, not swapped).
+ */
+async function loadRatedTicketTypes(
+  eventId: string,
+  rate: RegistrationFormRate,
+  currentTicketTypeId: string | null,
+): Promise<{ types: SelectableTicketType[]; rateName: string; closed: boolean }> {
+  const types = await db.ticketType.findMany({
+    where: { eventId, isActive: true, isFaculty: false },
+    select: SELECTABLE_TICKET_TYPE_SELECT,
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+  const now = new Date();
+  const named = rate.kind === "rate"
+    ? types.flatMap((tt) => tt.pricingTiers).find((t) => registerTierSlug(t.name) === rate.slug)
+    : undefined;
+  const rateName = rate.kind === "complimentary" ? "Complimentary" : named?.name ?? rate.slug;
+  const selectable = types.flatMap((tt) => {
+    const priced = priceAtLinkRate(tt.pricingTiers, rate, now);
+    if (!priced.ok) return [];
+    return [{
+      id: tt.id,
+      name: tt.name,
+      description: tt.description,
+      price: priced.price,
+      currency: priced.tier?.currency ?? tt.currency,
+      tierName: rateName,
+      available: tt.id === currentTicketTypeId || tt.soldCount < tt.quantity,
+      requiresMemberId: tt.requiresMemberId,
+      requiresStudentId: tt.requiresStudentId,
+      requiresStudentIdExpiry: tt.requiresStudentIdExpiry,
+    }];
+  });
+  return { types: selectable, rateName, closed: selectable.length === 0 };
+}
+
 // ── GET: Validate token and return prefilled registration data ──────────────
 
 export async function GET(req: Request, { params }: RouteParams) {
@@ -151,12 +197,13 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link has expired. Please contact the event organizer for a new link." }, { status: 400 });
     }
 
-    // Extract registrationId from identifier
-    if (!tokenRecord.identifier.startsWith("reg:")) {
+    // The registration, and the rate the link carries (null on older links).
+    const parsedLink = parseRegistrationFormIdentifier(tokenRecord.identifier);
+    if (!parsedLink) {
       apiLogger.warn({ msg: "Token with wrong identifier prefix used on completion endpoint", identifier: tokenRecord.identifier });
       return NextResponse.json({ error: "This link is not a registration completion link." }, { status: 400 });
     }
-    const registrationId = tokenRecord.identifier.slice(4);
+    const { registrationId, rate: linkRate } = parsedLink;
 
     // Tenancy sweep: open the tenant store BEFORE the swept Registration read
     // (resolved from HOST — this route reads no un-swept Event first, the
@@ -260,6 +307,24 @@ export async function GET(req: Request, { params }: RouteParams) {
     // event's public types so the registrant states theirs here. These prices
     // are for DISPLAY only — the POST re-resolves the type and the open tier
     // server-side, so the client can't dictate what it pays.
+    // A link with a rate lists the types at that rate, even when a type is
+    // already set (the person may change it at the same rate).
+    if (linkRate) {
+      const rated = await loadRatedTicketTypes(registration.event.id, linkRate, registration.ticketTypeId);
+      if (rated.closed) {
+        apiLogger.info({ msg: "complete-registration:link-rate-closed", registrationId, rate: rated.rateName });
+      }
+      return NextResponse.json({
+        alreadyCompleted: false,
+        registration: { id: registration.id, status: registration.status, ticketTypeId: registration.ticketTypeId },
+        attendee: registration.attendee,
+        event: publicEvent,
+        ticketType: registration.ticketType,
+        selectableTicketTypes: rated.types,
+        linkRate: { name: rated.rateName, closed: rated.closed },
+      });
+    }
+
     const selectableTicketTypes = registration.ticketTypeId
       ? []
       : await loadSelectableTicketTypes(registration.event.id, readCodeRequiredTiers(eventSettings));
@@ -271,6 +336,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       event: publicEvent,
       ticketType: registration.ticketType,
       selectableTicketTypes,
+      linkRate: null,
     });
     });
   } catch (error) {
@@ -333,6 +399,34 @@ function storedCurrency(registration: StoredPricing): string {
   return registration.ticketType?.currency ?? "USD";
 }
 
+/** The type and price a completion settled on, for the email and the response. */
+function finalPricing(input: {
+  ratedPlan: { type: { name: string }; tierName: string; price: number; currency: string } | null;
+  resolvedType: { name: string; currency: string } | null;
+  resolvedTier: { name: string; currency: string } | null;
+  resolvedPrice: number | null;
+  registration: StoredPricing & { ticketType: { name: string } | null; pricingTier: { name: string } | null };
+}): { price: number; currency: string; typeName: string; tierName: string | null } {
+  const { ratedPlan, resolvedType, resolvedTier, resolvedPrice, registration } = input;
+  if (ratedPlan) {
+    return { price: ratedPlan.price, currency: ratedPlan.currency, typeName: ratedPlan.type.name, tierName: ratedPlan.tierName };
+  }
+  if (resolvedType) {
+    return {
+      price: resolvedPrice ?? 0,
+      currency: resolvedTier?.currency ?? resolvedType.currency,
+      typeName: resolvedType.name,
+      tierName: resolvedTier?.name ?? null,
+    };
+  }
+  return {
+    price: storedPrice(registration),
+    currency: storedCurrency(registration),
+    typeName: registration.ticketType?.name ?? "General",
+    tierName: registration.pricingTier?.name ?? null,
+  };
+}
+
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const { slug } = await params;
@@ -378,11 +472,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link has expired. Please contact the event organizer for a new link." }, { status: 400 });
     }
 
-    if (!tokenRecord.identifier.startsWith("reg:")) {
+    const parsedLink = parseRegistrationFormIdentifier(tokenRecord.identifier);
+    if (!parsedLink) {
       apiLogger.warn({ msg: "Wrong token type used on completion POST", identifier: tokenRecord.identifier });
       return NextResponse.json({ error: "This link is not a registration completion link." }, { status: 400 });
     }
-    const registrationId = tokenRecord.identifier.slice(4);
+    const { registrationId, rate: linkRate } = parsedLink;
 
     // Tenancy sweep: open the tenant store BEFORE the swept Registration read
     // (resolved from HOST — the registration is resolved by token→id, no
@@ -437,6 +532,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         // (CSV paymentStatus column / admin detail sheet — PAID, INCLUSIVE, …)
         // must survive completion; only the typeless default is recomputed.
         paymentStatus: true,
+        // Seat state and sponsor, for a link that carries a rate (it may move
+        // the seat to another type, and a sponsor rate needs the sponsor).
+        attendanceMode: true,
+        createdSource: true,
+        pricingTierId: true,
+        sponsorId: true,
         ticketType: { select: { id: true, name: true, price: true, currency: true, ...IDENTITY_EVIDENCE_SELECT } },
         pricingTier: { select: { id: true, name: true, price: true, currency: true } },
       },
@@ -478,7 +579,58 @@ export async function POST(req: Request, { params }: RouteParams) {
       requiresStudentIdExpiry: boolean;
     } | null = null;
 
-    if (!registration.ticketTypeId) {
+    /** A link with a rate: the type (kept, set or changed) and its price at that rate. */
+    let ratedPlan: {
+      type: { id: string; name: string; requiresApproval: boolean };
+      tierId: string | null;
+      tierName: string;
+      price: number;
+      currency: string;
+      paymentStatus: PaymentStatus | null;
+    } | null = null;
+
+    if (linkRate) {
+      const targetTypeId = chosenTicketTypeId ?? registration.ticketTypeId;
+      if (!targetTypeId) {
+        apiLogger.warn({ msg: "Completion POST without a registration type", registrationId });
+        return NextResponse.json({ error: "Please choose a registration type.", code: "REGISTRATION_TYPE_REQUIRED" }, { status: 400 });
+      }
+      const target = await db.ticketType.findFirst({
+        where: { id: targetTypeId, eventId: registration.event.id, isActive: true, isFaculty: false },
+        select: SELECTABLE_TICKET_TYPE_SELECT,
+      });
+      if (!target) {
+        apiLogger.warn({ msg: "Completion POST with an invalid registration type", registrationId, targetTypeId });
+        return NextResponse.json(
+          { error: "That registration type is not available. Please pick another.", code: "INVALID_REGISTRATION_TYPE" },
+          { status: 400 },
+        );
+      }
+      const priced = priceAtLinkRate(target.pricingTiers, linkRate, new Date());
+      if (!priced.ok) {
+        apiLogger.warn({ msg: "complete-registration:link-rate-refused", registrationId, targetTypeId, code: priced.code });
+        const message = priced.code === "RATE_CLOSED"
+          ? "The rate in your link has closed. Please contact the organising team for a new link."
+          : "That registration type is not available at the rate in your link. Please pick another.";
+        return NextResponse.json({ error: message, code: priced.code }, { status: 400 });
+      }
+      const sponsorRate =
+        linkRate.kind === "rate" &&
+        tierNeedsSponsorCode(linkRate.slug, readCodeRequiredTiers(registration.event.settings)) &&
+        !!registration.sponsorId;
+      evidenceCandidate = target;
+      ratedPlan = {
+        type: { id: target.id, name: target.name, requiresApproval: target.requiresApproval },
+        tierId: priced.tier?.id ?? null,
+        tierName: priced.tier?.name ?? "Complimentary",
+        price: priced.price,
+        currency: priced.tier?.currency ?? target.currency,
+        // A status holding money (PAID, a payment in flight) is never touched.
+        paymentStatus: RESTAMPABLE_STATUSES.includes(registration.paymentStatus)
+          ? stampedPaymentStatus(registration.paymentStatus, priced.price, sponsorRate)
+          : null,
+      };
+    } else if (!registration.ticketTypeId) {
       if (!chosenTicketTypeId) {
         apiLogger.warn({ msg: "Completion POST without a registration type", registrationId });
         return NextResponse.json(
@@ -522,9 +674,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // supplied expiry parsed — so the requirement was one crafted request away
     // from being skipped entirely. The policy comes from whichever type
     // applies: the one already on the row, or the one just self-selected.
-    const evidenceTicketType = registration.ticketTypeId
-      ? registration.ticketType
-      : evidenceCandidate;
+    const evidenceTicketType = evidenceCandidate ?? registration.ticketType;
     const evidencePolicy = readIdentityEvidencePolicy(evidenceTicketType);
     const missingEvidence = missingIdentityEvidence(evidencePolicy, {
       memberId,
@@ -556,12 +706,48 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Only the import default CONFIRMED flips; an explicitly imported
     // registrationStatus (CHECKED_IN, PENDING, …) is left alone, like M1's
     // paymentStatus rule.
+    const selfSelectedType = resolvedType ?? (ratedPlan && ratedPlan.type.id !== registration.ticketTypeId ? ratedPlan.type : null);
     const flipToPending =
-      !!resolvedType && resolvedType.requiresApproval && registration.status === "CONFIRMED";
+      !!selfSelectedType && selfSelectedType.requiresApproval && registration.status === "CONFIRMED";
 
     // Update attendee + delete token in transaction
     try {
     await tenantTransaction(async (tx) => {
+      if (ratedPlan) {
+        // Guarded on the type read above (null, or the stamped type): an
+        // organiser changing it meanwhile wins and this rolls back.
+        const rowClaim = await tx.registration.updateMany({
+          where: { id: registrationId, ticketTypeId: registration.ticketTypeId, userId: null },
+          data: {
+            ticketTypeId: ratedPlan.type.id,
+            pricingTierId: ratedPlan.tierId,
+            originalPrice: ratedPlan.price,
+            ...(ratedPlan.paymentStatus && { paymentStatus: ratedPlan.paymentStatus }),
+            ...(flipToPending && { status: "PENDING" as const }),
+          },
+        });
+        if (rowClaim.count === 0) throw new TypeAlreadySetError();
+        // The seat follows the type and rate: claimed when they pick a type,
+        // moved when they change it, untouched when it stays (the shared
+        // transition decides; a full type throws CAPACITY_EXCEEDED).
+        const seatState = {
+          status: registration.status,
+          attendanceMode: registration.attendanceMode,
+          createdSource: registration.createdSource,
+        };
+        try {
+          await applyRegistrationTransition(tx, {
+            eventId: registration.event.id,
+            prev: { ...seatState, ticketTypeId: registration.ticketTypeId, pricingTierId: registration.pricingTierId },
+            next: { ...seatState, ticketTypeId: ratedPlan.type.id, pricingTierId: ratedPlan.tierId },
+          });
+        } catch (seatErr) {
+          if (seatErr instanceof Error && (seatErr.message === "CAPACITY_EXCEEDED" || seatErr.message === "EVENT_FULL")) {
+            throw new SoldOutError();
+          }
+          throw seatErr;
+        }
+      }
       if (resolvedType) {
         // Claim the seat on the TICKET-TYPE counter: `seatCounter()` routes a
         // non-PUBLIC_REGISTER row (this one is CSV_IMPORT) there even when a
@@ -628,6 +814,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           // (`ticketTypeId` stays the source of truth) so the list, the CSV
           // export and the contact store agree with the registration.
           ...(resolvedType && { registrationType: resolvedType.name }),
+          ...(ratedPlan && { registrationType: ratedPlan.type.name }),
         },
       });
 
@@ -644,6 +831,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           changes: {
             email: registration.attendee.email,
             ip: getClientIp(req),
+            ...(ratedPlan && {
+              linkRate: linkRate?.kind === "rate" ? linkRate.slug : "complimentary",
+              ticketTypeId: ratedPlan.type.id,
+              ticketTypeName: ratedPlan.type.name,
+              ...(ratedPlan.type.id !== registration.ticketTypeId && { previousTicketTypeId: registration.ticketTypeId }),
+              pricingTierName: ratedPlan.tierName,
+              price: ratedPlan.price,
+              ...(!ratedPlan.paymentStatus && { paymentStatusPreserved: registration.paymentStatus }),
+              ...(flipToPending && { statusFlippedToPending: true }),
+            }),
             ...(resolvedType && {
               ticketTypeId: resolvedType.id,
               ticketTypeName: resolvedType.name,
@@ -735,20 +932,22 @@ export async function POST(req: Request, { params }: RouteParams) {
       country,
       specialty,
       customSpecialty: customSpecialty || null,
-      registrationType: resolvedType?.name ?? registration.attendee.registrationType,
+      registrationType: ratedPlan?.type.name ?? resolvedType?.name ?? registration.attendee.registrationType,
       associationName: associationName || registration.attendee.associationName,
       memberId: memberId || registration.attendee.memberId,
       studentId: studentId || registration.attendee.studentId,
       studentIdExpiry: studentIdExpiry ? new Date(studentIdExpiry) : registration.attendee.studentIdExpiry,
     });
 
+    // The type and price this request settled on: the link's rate, the type
+    // just picked, or what the row already held. The loaded `registration`
+    // predates this request and would price a freshly-typed one at 0.
+    const final = finalPricing({ ratedPlan, resolvedType, resolvedTier, resolvedPrice, registration });
+
     // Send confirmation email
     try {
-      // Prefer the type/tier just resolved on this request — the loaded
-      // `registration` predates it and would price a freshly-typed
-      // registration at 0.
-      const finalPrice = resolvedType ? (resolvedPrice ?? 0) : storedPrice(registration);
-      const finalCurrency = resolvedType ? (resolvedTier?.currency ?? resolvedType.currency) : storedCurrency(registration);
+      const finalPrice = final.price;
+      const finalCurrency = final.currency;
 
       await sendRegistrationConfirmation({
         ...buildEventConfirmationFields(registration.event),
@@ -758,8 +957,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         lastName,
         title: title || null,
         organization,
-        ticketType: resolvedType?.name ?? registration.ticketType?.name ?? "General",
-        pricingTierName: resolvedTier?.name ?? registration.pricingTier?.name ?? null,
+        ticketType: final.typeName,
+        pricingTierName: final.tierName,
         registrationId,
         serialId: registration.serialId,
         qrCode: "",
@@ -793,8 +992,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         status: flipToPending ? "PENDING" : registration.status,
         // Drives the Pay Now step on the confirmation page — must reflect the
         // type resolved on THIS request, else a paid completion looks free.
-        ticketPrice: resolvedType ? (resolvedPrice ?? 0) : storedPrice(registration),
-        ticketCurrency: resolvedType ? (resolvedTier?.currency ?? resolvedType.currency) : storedCurrency(registration),
+        ticketPrice: final.price,
+        ticketCurrency: final.currency,
       },
     });
     });

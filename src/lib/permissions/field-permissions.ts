@@ -127,6 +127,9 @@ export function eventFieldPermissions(fields: Iterable<string>): PermissionKey[]
 export function bulkEmailTypePermission(emailType: unknown): PermissionKey | null {
   if (emailType === "certificate") return "certificates.issue";
   if (emailType === "survey-invitation") return "surveys.manage";
+  // It stamps a rate and price on each registration, so it needs the same key
+  // as the Send Registration Form button, not only the right to send email.
+  if (emailType === "registration-form") return "registrations.import";
   return null;
 }
 

@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api-fetch";
 
 import type { WebinarHandout } from "@/lib/webinar/handouts";
 import type { LivePollOption, PollTally } from "@/lib/webinar/live-polls";
+import type { RegistrationFormSkipReason } from "@/lib/registration-form-link";
 
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
@@ -1576,16 +1577,28 @@ export function useCSVImport(eventId: string, entityType: "registrations" | "spe
 }
 
 export function useSendCompletionEmails(eventId: string) {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (registrationIds: string[]) =>
-      fetchApi<{ sent: number; skipped: number; errors: string[] }>(
+    mutationFn: (input: { registrationIds: string[]; rate: string; sponsorId?: string; expiryDays: number }) =>
+      fetchApi<{
+        sent: number;
+        skipped: number;
+        skippedDetails: { registrationId: string; email: string | null; reason: RegistrationFormSkipReason }[];
+        errors: string[];
+        rateName: string;
+        rateClosesAt: string | null;
+      }>(
         `/api/events/${eventId}/import/registrations/send-completion-emails`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ registrationIds }),
+          body: JSON.stringify(input),
         }
       ),
+    // The send stamps the rate on each registration, so the list changes.
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+    },
   });
 }
 

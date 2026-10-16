@@ -63,12 +63,14 @@ describe("excludesCancelledByDefault", () => {
     expect(excludesCancelledByDefault("", "all")).toBe(false);
   });
 
-  it("holds exactly the three send types (a 4th must be a deliberate change)", () => {
+  it("holds exactly the four send types (a 5th must be a deliberate change)", () => {
     // Guards against a well-meaning "this one shouldn't reach cancelled people
     // either" being bolted on without the reasoning being written down.
     expect([...CANCELLED_EXCLUDED_EMAIL_TYPES].sort()).toEqual([
       "certificate",
       "payment-reminder",
+      // Oct 16, 2026: a cancelled registration is never sent a form to complete.
+      "registration-form",
       "survey-invitation",
     ]);
   });

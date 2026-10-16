@@ -20,7 +20,8 @@ import {
 } from "@/components/ui/select";
 import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, Download, Send } from "lucide-react";
 import { toast } from "sonner";
-import { useCSVImport, useSendCompletionEmails, useTickets } from "@/hooks/use-api";
+import { useCSVImport, useTickets } from "@/hooks/use-api";
+import { SendRegistrationFormDialog } from "@/components/registrations/registration-form-send";
 
 /** Sentinel for "no fallback" — Radix Select disallows an empty-string value. */
 const NO_DEFAULT_TICKET_TYPE = "__none__";
@@ -150,11 +151,12 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
   // default; unticked keeps the old skip-existing behaviour.
   const supportsUpdate = entityType === "speakers" || entityType === "registrations";
   const [updateExisting, setUpdateExisting] = useState(true);
-  const [sendResult, setSendResult] = useState<{ sent: number; skipped: number; errors: string[] } | null>(null);
+  // Send Registration Forms opens the shared dialog (rate, sponsor, link lifetime).
+  const [sendFormOpen, setSendFormOpen] = useState(false);
+  const [formsSent, setFormsSent] = useState(false);
   const [defaultTicketTypeId, setDefaultTicketTypeId] = useState<string>(NO_DEFAULT_TICKET_TYPE);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importMutation = useCSVImport(eventId, entityType);
-  const sendEmailsMutation = useSendCompletionEmails(eventId);
   const config = ENTITY_CONFIG[entityType];
 
   // Fallback registration type for rows with a blank `registrationType` cell.
@@ -233,7 +235,7 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
     setPreview(null);
     setPreviewHeaders(null);
     setResult(null);
-    setSendResult(null);
+    setFormsSent(false);
     setDefaultTicketTypeId(NO_DEFAULT_TICKET_TYPE);
     setUpdateExisting(true);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -502,50 +504,32 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
                 </div>
               )}
 
-              {/* Send Registration Forms button (registrations only) */}
-              {entityType === "registrations" && result.created > 0 && result.registrationIds && result.registrationIds.length > 0 && !sendResult && (
+              {/* Send Registration Forms (registrations only): the shared dialog asks the rate. */}
+              {entityType === "registrations" && result.created > 0 && result.registrationIds && result.registrationIds.length > 0 && (
                 <div className="border-t pt-3">
-                  <p className="text-xs text-muted-foreground mb-2">
-                    Send registration completion forms to imported registrants so they can fill in remaining details and create their accounts.
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={async () => {
-                      try {
-                        const data = await sendEmailsMutation.mutateAsync(result.registrationIds!);
-                        setSendResult(data);
-                        if (data.sent > 0) toast.success(`Sent ${data.sent} registration form${data.sent !== 1 ? "s" : ""}`);
-                      } catch (err) {
-                        toast.error(err instanceof Error ? err.message : "Failed to send emails");
-                      }
-                    }}
-                    disabled={sendEmailsMutation.isPending}
-                  >
-                    {sendEmailsMutation.isPending ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending...</>
-                    ) : (
-                      <><Send className="h-4 w-4 mr-2" /> Send Registration Forms</>
-                    )}
-                  </Button>
-                </div>
-              )}
-
-              {/* Send results */}
-              {sendResult && (
-                <div className="border-t pt-3 space-y-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Send className="h-4 w-4 text-primary" />
-                    <span><strong>{sendResult.sent}</strong> email{sendResult.sent !== 1 ? "s" : ""} sent</span>
-                    {sendResult.skipped > 0 && (
-                      <span className="text-muted-foreground">({sendResult.skipped} skipped — already have accounts)</span>
-                    )}
-                  </div>
-                  {sendResult.errors.length > 0 && (
-                    <ul className="text-xs text-destructive space-y-0.5">
-                      {sendResult.errors.map((err, i) => <li key={i}>{err}</li>)}
-                    </ul>
+                  {formsSent ? (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Send className="h-4 w-4 text-primary" />
+                      <span>Registration forms sent. Skipped people and reasons were shown when you sent.</span>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        Send each imported person their own link to complete their registration, at a rate you choose.
+                      </p>
+                      <Button variant="outline" size="sm" onClick={() => setSendFormOpen(true)}>
+                        <Send className="h-4 w-4 mr-2" /> Send Registration Forms
+                      </Button>
+                    </>
                   )}
+                  <SendRegistrationFormDialog
+                    eventId={eventId}
+                    open={sendFormOpen}
+                    onOpenChange={setSendFormOpen}
+                    registrationIds={result.registrationIds}
+                    recipientLabel={`${result.registrationIds.length} imported registrant${result.registrationIds.length === 1 ? "" : "s"}`}
+                    onSent={() => setFormsSent(true)}
+                  />
                 </div>
               )}
             </div>

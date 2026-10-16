@@ -106,6 +106,8 @@ interface PrefilledData {
     requiresStudentId?: boolean;
     requiresStudentIdExpiry?: boolean;
   }[];
+  /** The rate the link carries (docs/REGISTRATION_FORM_LINKS_PLAN.md); null on older links. */
+  linkRate?: { name: string; closed: boolean } | null;
 }
 
 const completionSchema = z.object({
@@ -188,6 +190,11 @@ function CompleteRegistrationContent() {
           setError("This registration has already been completed. You can sign in to manage your registration.");
           return;
         }
+        // The link's rate has closed: nothing to complete at it (owner D3).
+        if (result.linkRate?.closed) {
+          setError(`The ${result.linkRate.name} rate in your link has closed. Please contact the organising team for a new link.`);
+          return;
+        }
         setData(result);
         // Pre-fill editable fields from existing data
         const a = result.attendee;
@@ -211,6 +218,8 @@ function CompleteRegistrationContent() {
           password: "",
           confirmPassword: "",
           agreeTerms: undefined as unknown as true,
+          // A link with a rate starts on the person's current type; they may change it.
+          ...(result.linkRate && result.registration.ticketTypeId ? { ticketTypeId: result.registration.ticketTypeId } : {}),
         });
       } catch {
         setError("Failed to load registration details");
@@ -318,6 +327,8 @@ function CompleteRegistrationContent() {
   // the member/student conditional fields follow that live selection.
   const selectableTypes = data.selectableTicketTypes ?? [];
   const mustChooseType = !data.ticketType;
+  // A link with a rate lets the person change type, at that rate (owner D5).
+  const showTypePicker = mustChooseType || (!!data.linkRate && selectableTypes.length > 0);
   const chosenTypeId = form.watch("ticketTypeId");
   const chosenType = selectableTypes.find((t) => t.id === chosenTypeId);
   const evidencePolicy = readIdentityEvidencePolicy(chosenType ?? data.ticketType);
@@ -365,10 +376,13 @@ function CompleteRegistrationContent() {
             <p className="text-sm text-slate-500 mt-1">
               Review your details and fill in any missing information to finalize your registration.
             </p>
-            {data.ticketType && (
+            {(chosenType ?? data.ticketType) && (
               <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary/5 border border-primary/20 px-3 py-1.5">
                 <CheckCircle className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium text-primary">{data.ticketType.name}</span>
+                <span className="text-sm font-medium text-primary">
+                  {(chosenType ?? data.ticketType)?.name}
+                  {data.linkRate ? ` · ${data.linkRate.name}` : ""}
+                </span>
               </div>
             )}
           </div>
@@ -380,13 +394,14 @@ function CompleteRegistrationContent() {
                 {/* Section: Registration type — only when the organizer's
                     import didn't set one. Prices shown are today's rate; the
                     server re-resolves them on submit. */}
-                {mustChooseType && (
+                {showTypePicker && (
                   <div className="space-y-5">
                     <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">
                       Registration Type
                     </h3>
                     <p className="text-xs text-slate-500">
                       Choose the category that applies to you.
+                      {data.linkRate ? ` Every option is at the ${data.linkRate.name} rate.` : ""}
                     </p>
                     {selectableTypes.length === 0 ? (
                       <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">

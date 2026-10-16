@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registration form links at a rate (October 16)
+
+- Send Registration Form now asks for a **rate** (any rate on the event, or Complimentary), a **sponsor** for a sponsor-link rate, and how many days the link lasts (1 to 365, default 7). Plan and owner decisions: `docs/REGISTRATION_FORM_LINKS_PLAN.md`.
+- The rate is stamped on each registration when sent (price and payment status show at once), with an audit entry. People who are cancelled, completed, paid or invoiced, in a group, on a promo code, or whose type lacks the rate are skipped with the reason.
+- The link carries the rate (`regform:<id>:<rate>` token identifier, no schema change). On the form the person may change type at the same rate (the seat moves through `applyRegistrationTransition`); a closed rate is refused. Older `reg:<id>` links behave as before.
+- New "Registration Form" type in Communications, Send Email (registrations only, schedulable), needing `registrations.import` beside the send permission. One service, `registration-form-service.ts`, behind the button and the bulk type.
+- The email is now the editable `registration-form` template (`{{registrationFormLink}}`, `{{rateName}}`, `{{linkExpiresIn}}`, `{{linkExpiresOn}}`). The link lifetime rule is shared with survey links (`src/lib/link-expiry.ts`).
+
 ### Group registration: the link names the rate (October 16)
 
 - Group links are now one per rate (`/e/<slug>/group/register/early-bird`), copied from Settings, Registration, Group Registration. The coordinator still picks each member's type; only types that carry the link's rate are offered, all priced at it. Before, a group was priced at whichever rate was open with the lowest sort order.

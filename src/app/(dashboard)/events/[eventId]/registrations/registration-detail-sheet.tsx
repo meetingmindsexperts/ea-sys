@@ -87,7 +87,8 @@ import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from
 import { formatSerialId } from "@/lib/registration-serial";
 import { computeCancelledCreditState } from "@/lib/registration-financials";
 import { sponsorTierLabel } from "@/lib/sponsor-tiers";
-import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates, useEvent, useResendRegistrationDocuments, useEventSurveys } from "@/hooks/use-api";
+import { SendRegistrationFormDialog } from "@/components/registrations/registration-form-send";
+import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useEventTags, useEmailTemplates, useEvent, useResendRegistrationDocuments, useEventSurveys } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { singleSendSlugFor, singleSendTypesFor } from "@/lib/email-template-registry";
 
@@ -479,7 +480,6 @@ export function RegistrationDetailSheet({
   // Confirm dialog when cancelling a PAID registration (refund vs just cancel).
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [sendFormConfirmOpen, setSendFormConfirmOpen] = useState(false);
-  const sendCompletionEmails = useSendCompletionEmails(eventId);
   // Existing tags for autocomplete on the in-sheet edit. Cached with
   // bulkTagRegistrations invalidation so adding a tag here makes it
   // immediately appear in the dropdown for other sheets.
@@ -3539,64 +3539,17 @@ export function RegistrationDetailSheet({
       />
     )}
 
-    {/* Token-gated registration-completion link send. Shared rate-limit
-        bucket with the bulk-list-page action (5/hr per org). */}
+    {/* Send Registration Form for this person: rate, sponsor and link
+        lifetime chosen in the shared dialog (registration-form-send.tsx).
+        Shared rate-limit bucket with the list page (5/hr per org). */}
     {selectedRegistration && (
-      <Dialog open={sendFormConfirmOpen} onOpenChange={setSendFormConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Send registration form</DialogTitle>
-            <DialogDescription>
-              {selectedRegistration.attendee.firstName} will receive an email with
-              a 7-day token link to fill in their own details and create an
-              account.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="text-sm text-muted-foreground">
-            Sending to{" "}
-            <span className="font-medium text-foreground">
-              {selectedRegistration.attendee.email}
-            </span>
-            . This counts against the 5-per-hour bulk-send limit.
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setSendFormConfirmOpen(false)}
-              disabled={sendCompletionEmails.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={async () => {
-                try {
-                  const result = await sendCompletionEmails.mutateAsync([
-                    selectedRegistration.id,
-                  ]);
-                  setSendFormConfirmOpen(false);
-                  if (result.sent > 0) {
-                    toast.success(
-                      `Registration form sent to ${selectedRegistration.attendee.email}`,
-                    );
-                  } else if (result.skipped > 0) {
-                    toast.info(
-                      "Skipped — this registrant already has a linked account",
-                    );
-                  } else {
-                    toast.error(result.errors[0] ?? "Send failed");
-                  }
-                } catch (err) {
-                  const msg = err instanceof Error ? err.message : "Send failed";
-                  toast.error(msg);
-                }
-              }}
-              disabled={sendCompletionEmails.isPending}
-            >
-              {sendCompletionEmails.isPending ? "Sending..." : "Send"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SendRegistrationFormDialog
+        eventId={eventId}
+        open={sendFormConfirmOpen}
+        onOpenChange={setSendFormConfirmOpen}
+        registrationIds={[selectedRegistration.id]}
+        recipientLabel={`${selectedRegistration.attendee.firstName} ${selectedRegistration.attendee.lastName} (${selectedRegistration.attendee.email})`}
+      />
     )}
 
     {selectedRegistration && (
