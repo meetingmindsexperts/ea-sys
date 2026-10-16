@@ -129,7 +129,7 @@ const CASES: HandlerCase[] = [
     method: "POST",
     form: { file: { name: "regs.csv", type: "text/csv", content: "email,firstName,lastName\nimp@test.local,Ima,Port\n" } },
   },
-  { name: "POST import/registrations/send-completion-emails", handler: completionPOST, method: "POST", body: { registrationIds: ["r1"], rate: "complimentary" } },
+  { name: "POST import/registrations/send-completion-emails", handler: completionPOST, method: "POST", body: { registrationIds: ["r1"], rate: "_complimentary" } },
   { name: "GET tags", handler: tagsGET, method: "GET" },
   { name: "GET dtcm-pool", handler: dtcmGET, method: "GET" },
   { name: "POST dtcm-pool", handler: dtcmPOST, method: "POST", body: { registrationId: "r1" } },

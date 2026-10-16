@@ -36,7 +36,7 @@ import { COMPLIMENTARY_RATE, REGISTRATION_FORM_SKIP_LABELS, type RegistrationFor
 const SPONSOR_FROM_REGISTRATION = "__registration__";
 
 export interface RegistrationFormChoice {
-  /** A rate-name slug or "complimentary"; empty until chosen. */
+  /** A rate-name slug or COMPLIMENTARY_RATE; empty until chosen. */
   rate: string;
   sponsorId: string;
   /** What the organiser typed, digits only. */

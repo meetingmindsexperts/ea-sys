@@ -120,6 +120,18 @@ describe("the stamp (plan 3.2)", () => {
     expect(stampData()).toEqual({ sponsorId: null });
   });
 
+  it("a virtual attendee is stamped at the type's virtual price (review M3)", async () => {
+    mockDb.registration.findMany.mockResolvedValue([reg({ attendanceMode: "VIRTUAL", ticketType: { ...physician, virtualPrice: 40 } })]);
+    await prepareRegistrationForms(BASE);
+    expect(stampData()).toMatchObject({ pricingTierId: "t-eb", originalPrice: 40, paymentStatus: "UNASSIGNED" });
+  });
+
+  it("a sold-out rate is still sent: its seat count is checked when a seat moves, not here (review M2)", async () => {
+    mockDb.registration.findMany.mockResolvedValue([reg({ ticketType: { ...physician, pricingTiers: [rate({ soldCount: 5, quantity: 5 })] } })]);
+    const res = await prepareRegistrationForms(BASE);
+    expect(res).toMatchObject({ ok: true, skipped: [] });
+  });
+
   it("payment status follows the price, keeping an explicit UNPAID", () => {
     expect(stampedPaymentStatus("COMPLIMENTARY", 250, false)).toBe("UNASSIGNED");
     expect(stampedPaymentStatus("UNPAID", 250, false)).toBe("UNPAID");

@@ -17,6 +17,11 @@ describe("registration form link identifier", () => {
     });
   });
 
+  it("a rate actually named Complimentary stays an ordinary rate (review L6)", () => {
+    const id = registrationFormIdentifier("reg_1", { kind: "rate", slug: "Complimentary" });
+    expect(parseRegistrationFormIdentifier(id)).toEqual({ registrationId: "reg_1", rate: { kind: "rate", slug: "complimentary" } });
+  });
+
   it("still reads the older reg:<id> links, with no rate", () => {
     expect(parseRegistrationFormIdentifier("reg:reg_1")).toEqual({ registrationId: "reg_1", rate: null });
   });

@@ -170,7 +170,7 @@ describe("bulk pipeline: every registered (type, audience) renders its default t
       recipientType: audience,
       emailType: type as never,
       // The registration form needs its rate; Complimentary needs no rate row.
-      filters: type === "registration-form" ? { registrationFormRate: "complimentary" } : {},
+      filters: type === "registration-form" ? { registrationFormRate: "_complimentary" } : {},
       organizerName: "Organizer",
       organizerEmail: "org@x.test",
       organizationId: "org-1",

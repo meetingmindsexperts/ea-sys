@@ -22,6 +22,7 @@ const {
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findMany: vi.fn() },
+    pricingTier: { findMany: vi.fn() },
 
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
@@ -134,6 +135,7 @@ beforeEach(() => {
   mockGetDefaultTemplate.mockReturnValue(TEMPLATE);
   mockRenderAndWrap.mockReturnValue({ subject: "S", htmlContent: "<p>H</p>", textContent: "T" });
   mockSendEmail.mockResolvedValue({ success: true });
+  mockDb.pricingTier.findMany.mockResolvedValue([{ name: "Early Bird" }, { name: "Standard" }]);
   prepareMock.mockResolvedValue({
     ok: true,
     ready: [{ registrationId: "reg-jane" }],
@@ -176,7 +178,7 @@ describe("bulk registration form", () => {
   });
 
   it("complimentary, and the lifetime defaults to 7 days", async () => {
-    await executeBulkEmail({ ...BASE_INPUT, filters: { registrationFormRate: "complimentary" } });
+    await executeBulkEmail({ ...BASE_INPUT, filters: { registrationFormRate: "_complimentary" } });
     expect(prepareMock.mock.calls[0][0].rate).toEqual({ kind: "complimentary" });
     expect(mintMock.mock.calls[0][0].expiryDays).toBe(7);
   });
@@ -191,5 +193,11 @@ describe("bulk registration form", () => {
     await expect(executeBulkEmail({ ...BASE_INPUT })).rejects.toMatchObject({ status: 400 });
     await expect(executeBulkEmail({ ...BASE_INPUT, recipientType: "speakers", filters: { registrationFormRate: "early-bird" } })).rejects.toMatchObject({ status: 400 });
     expect(prepareMock).not.toHaveBeenCalled();
+  });
+
+  it("a rate the event does not have is refused when queued, before anything runs (review L4)", async () => {
+    await expect(executeBulkEmail({ ...BASE_INPUT, filters: { registrationFormRate: "onsite" } })).rejects.toMatchObject({ status: 400, code: "RATE_NOT_FOUND" });
+    expect(prepareMock).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
   });
 });

@@ -47,7 +47,7 @@ describe("Send Registration Form route", () => {
   });
 
   it("complimentary, and the lifetime defaults to 7 days", async () => {
-    await POST(req({ registrationIds: ["r1"], rate: "complimentary" }), params);
+    await POST(req({ registrationIds: ["r1"], rate: "_complimentary" }), params);
     expect(sendMock.mock.calls[0][0]).toMatchObject({ rate: { kind: "complimentary" }, expiryDays: 7 });
   });
 

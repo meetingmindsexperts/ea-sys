@@ -22,7 +22,7 @@ import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required
 import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { registerTierSlug } from "@/lib/main-register-tiers";
 import { DAY_MS } from "@/lib/link-expiry";
-import { priceAtLinkRate, RESTAMPABLE_STATUSES, stampedPaymentStatus } from "@/lib/registration-form-pricing";
+import { linkRatePrice, priceAtLinkRate, RESTAMPABLE_STATUSES, stampedPaymentStatus } from "@/lib/registration-form-pricing";
 import { applyRegistrationTransition } from "@/lib/registration-seat-db";
 import { formatDateInTz, resolveTimezone } from "@/lib/event-time";
 import {
@@ -97,7 +97,7 @@ type LoadedRegistration = Prisma.RegistrationGetPayload<{
     groupId: true; promoCodeId: true; sponsorId: true; ticketTypeId: true;
     pricingTierId: true; originalPrice: true; attendanceMode: true; createdSource: true;
     attendee: { select: { email: true; title: true; firstName: true; lastName: true } };
-    ticketType: { select: { id: true; name: true; pricingTiers: { select: typeof RATE_TIER_SELECT } } };
+    ticketType: { select: { id: true; name: true; virtualPrice: true; pricingTiers: { select: typeof RATE_TIER_SELECT } } };
     _count: { select: { payments: true; invoices: true } };
   };
 }>;
@@ -176,7 +176,7 @@ export async function prepareRegistrationForms(input: PrepareRegistrationFormsIn
       groupId: true, promoCodeId: true, sponsorId: true, ticketTypeId: true,
       pricingTierId: true, originalPrice: true, attendanceMode: true, createdSource: true,
       attendee: { select: { email: true, title: true, firstName: true, lastName: true } },
-      ticketType: { select: { id: true, name: true, pricingTiers: { select: RATE_TIER_SELECT } } },
+      ticketType: { select: { id: true, name: true, virtualPrice: true, pricingTiers: { select: RATE_TIER_SELECT } } },
       _count: { select: { payments: true, invoices: { where: { status: { not: "CANCELLED" } } } } },
     },
   });
@@ -251,6 +251,10 @@ async function stampRate(
       ? reg.ticketType.pricingTiers.find((t) => registerTierSlug(t.name) === (ctx.rate as { slug: string }).slug) ?? null
       : null;
   const sponsorId = ctx.sponsorRate ? ctx.sponsorId ?? reg.sponsorId : reg.sponsorId;
+  // A virtual attendee pays the type's virtual price when it has one (review M3).
+  const price = tier
+    ? linkRatePrice(Number(tier.price), { isVirtual: reg.attendanceMode === "VIRTUAL", virtualPrice: reg.ticketType?.virtualPrice ?? null })
+    : 0;
 
   const data: {
     pricingTierId?: string | null;
@@ -260,8 +264,8 @@ async function stampRate(
   } = reg.ticketTypeId
     ? {
         pricingTierId: tier?.id ?? null,
-        originalPrice: tier ? Number(tier.price) : 0,
-        paymentStatus: stampedPaymentStatus(reg.paymentStatus, tier ? Number(tier.price) : 0, ctx.sponsorRate),
+        originalPrice: price,
+        paymentStatus: stampedPaymentStatus(reg.paymentStatus, price, ctx.sponsorRate),
         sponsorId,
       }
     : { sponsorId };

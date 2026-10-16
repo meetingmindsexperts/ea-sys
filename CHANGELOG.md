@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The rate is stamped on each registration when sent (price and payment status show at once), with an audit entry. People who are cancelled, completed, paid or invoiced, in a group, on a promo code, or whose type lacks the rate are skipped with the reason.
 - The link carries the rate (`regform:<id>:<rate>` token identifier, no schema change). On the form the person may change type at the same rate (the seat moves through `applyRegistrationTransition`); a closed rate is refused. Older `reg:<id>` links behave as before.
 - New "Registration Form" type in Communications, Send Email (registrations only, schedulable), needing `registrations.import` beside the send permission. One service, `registration-form-service.ts`, behind the button and the bulk type.
+- Review fixes the same day: a link never re-prices a registration staff changed after the send (paid, invoiced, comped, moved); no double event seat for typeless people; a full rate no longer blocks people already on it; virtual attendees pay the virtual price; an unknown rate is refused when queued; a rate named "Complimentary" is an ordinary rate.
 - The email is now the editable `registration-form` template (`{{registrationFormLink}}`, `{{rateName}}`, `{{linkExpiresIn}}`, `{{linkExpiresOn}}`). The link lifetime rule is shared with survey links (`src/lib/link-expiry.ts`).
 
 ### Group registration: the link names the rate (October 16)

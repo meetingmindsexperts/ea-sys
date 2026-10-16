@@ -13,7 +13,12 @@
  */
 import { registerTierSlug } from "@/lib/main-register-tiers";
 
-export const COMPLIMENTARY_RATE = "complimentary";
+/**
+ * The key for "no rate, no charge". It starts with an underscore, which a rate
+ * slug never contains (registerTierSlug keeps only a-z, 0-9 and "-"), so a
+ * rate actually named "Complimentary" stays an ordinary rate (review L6).
+ */
+export const COMPLIMENTARY_RATE = "_complimentary";
 
 /** What the organiser chose when sending. */
 export type RegistrationFormRate = { kind: "rate"; slug: string } | { kind: "complimentary" };

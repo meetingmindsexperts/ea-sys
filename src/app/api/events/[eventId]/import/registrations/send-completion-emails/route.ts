@@ -8,6 +8,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { DEFAULT_LINK_EXPIRY_DAYS, linkExpiryDaysSchema } from "@/lib/link-expiry";
+import { COMPLIMENTARY_RATE } from "@/lib/registration-form-link";
 import { sendRegistrationForms, type PrepareRegistrationFormsErrorCode } from "@/services/registration-form-service";
 
 /**
@@ -18,7 +19,7 @@ import { sendRegistrationForms, type PrepareRegistrationFormsErrorCode } from "@
  */
 const bodySchema = z.object({
   registrationIds: z.array(z.string().min(1)).min(1).max(500),
-  /** A rate-name slug (`early-bird`) or "complimentary". Omitted by a page
+  /** A rate-name slug (`early-bird`) or COMPLIMENTARY_RATE. Omitted by a page
    *  loaded before rates were chosen here: then Complimentary is NOT assumed;
    *  the request is refused so nobody is stamped by accident. */
   rate: z.string().trim().min(1).max(100),
@@ -88,7 +89,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventId,
       organizationId: orgGuard.orgId,
       registrationIds,
-      rate: rate === "complimentary" ? { kind: "complimentary" } : { kind: "rate", slug: rate },
+      rate: rate === COMPLIMENTARY_RATE ? { kind: "complimentary" } : { kind: "rate", slug: rate },
       sponsorId: sponsorId ?? null,
       expiryDays: expiryDays ?? DEFAULT_LINK_EXPIRY_DAYS,
       actorUserId: session.user.id,

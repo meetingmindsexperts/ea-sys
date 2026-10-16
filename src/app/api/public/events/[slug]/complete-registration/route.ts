@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import type { PaymentStatus } from "@prisma/client";
+import type { PaymentStatus, Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
@@ -18,7 +18,8 @@ import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
 import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { parseRegistrationFormIdentifier, type RegistrationFormRate } from "@/lib/registration-form-link";
 import { linkMayReprice, priceAtLinkRate, RESTAMPABLE_STATUSES, stampedPaymentStatus, type LinkRepriceState } from "@/lib/registration-form-pricing";
-import { applyRegistrationTransition } from "@/lib/registration-seat-db";
+import { applyRegistrationTransition, claimSeat } from "@/lib/registration-seat-db";
+import { holdsSeat, seatCounter, type SeatState } from "@/lib/registration-seat";
 import { registerTierSlug } from "@/lib/main-register-tiers";
 import {
   readIdentityEvidencePolicy,
@@ -77,6 +78,8 @@ const SELECTABLE_TICKET_TYPE_SELECT = {
   quantity: true,
   soldCount: true,
   requiresApproval: true,
+  // A virtual attendee on a rated link pays this when set (review M3).
+  virtualPrice: true,
   pricingTiers: {
     select: {
       id: true, name: true, price: true, currency: true, quantity: true,
@@ -121,6 +124,7 @@ async function loadSelectableTicketTypes(eventId: string, sponsorLinkSlugs: stri
 
 /** What `effectiveLinkRate` reads from the registration. */
 const LINK_REPRICE_SELECT = {
+  attendanceMode: true,
   paymentStatus: true,
   refundedAmount: true,
   promoCodeId: true,
@@ -137,17 +141,21 @@ const LINK_REPRICE_SELECT = {
  * after the send (a payment, an invoice, a comp, a sponsor) wins.
  */
 async function effectiveLinkRate(
-  reg: LinkRepriceState & { id: string; sponsorId: string | null },
+  reg: LinkRepriceState & { id: string; sponsorId: string | null; attendanceMode: string },
   rate: RegistrationFormRate | null,
   settings: unknown,
 ): Promise<RegistrationFormRate | null> {
   if (!rate) return null;
-  const tiers = reg.ticketTypeId
-    ? await db.pricingTier.findMany({ where: { ticketTypeId: reg.ticketTypeId }, select: { id: true, name: true, price: true } })
-    : [];
+  const currentType = reg.ticketTypeId
+    ? await db.ticketType.findUnique({
+        where: { id: reg.ticketTypeId },
+        select: { virtualPrice: true, pricingTiers: { select: { id: true, name: true, price: true } } },
+      })
+    : null;
   const sponsorRate =
     rate.kind === "rate" && tierNeedsSponsorCode(rate.slug, readCodeRequiredTiers(settings)) && !!reg.sponsorId;
-  if (linkMayReprice(reg, rate, tiers, sponsorRate)) return rate;
+  const ctx = { isVirtual: reg.attendanceMode === "VIRTUAL", virtualPrice: currentType?.virtualPrice ?? null };
+  if (linkMayReprice(reg, rate, currentType?.pricingTiers ?? [], sponsorRate, ctx)) return rate;
   apiLogger.info({
     msg: "complete-registration:link-rate-not-applied",
     registrationId: reg.id,
@@ -168,6 +176,7 @@ async function loadRatedTicketTypes(
   eventId: string,
   rate: RegistrationFormRate,
   currentTicketTypeId: string | null,
+  isVirtual: boolean,
 ): Promise<{ types: SelectableTicketType[]; rateName: string; closed: boolean }> {
   const types = await db.ticketType.findMany({
     where: { eventId, isActive: true, isFaculty: false },
@@ -180,7 +189,7 @@ async function loadRatedTicketTypes(
     : undefined;
   const rateName = rate.kind === "complimentary" ? "Complimentary" : named?.name ?? rate.slug;
   const selectable = types.flatMap((tt) => {
-    const priced = priceAtLinkRate(tt.pricingTiers, rate, now);
+    const priced = priceAtLinkRate(tt.pricingTiers, rate, now, { isVirtual, virtualPrice: tt.virtualPrice });
     if (!priced.ok) return [];
     return [{
       id: tt.id,
@@ -350,7 +359,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     // already set (the person may change it at the same rate).
     const appliedRate = await effectiveLinkRate(registration, linkRate, eventSettings);
     if (appliedRate) {
-      const rated = await loadRatedTicketTypes(registration.event.id, appliedRate, registration.ticketTypeId);
+      const rated = await loadRatedTicketTypes(
+        registration.event.id,
+        appliedRate,
+        registration.ticketTypeId,
+        registration.attendanceMode === "VIRTUAL",
+      );
       if (rated.closed) {
         apiLogger.info({ msg: "complete-registration:link-rate-closed", registrationId, rate: rated.rateName });
       }
@@ -437,6 +451,28 @@ function storedPrice(registration: StoredPricing): number {
 function storedCurrency(registration: StoredPricing): string {
   if (registration.pricingTier) return registration.pricingTier.currency;
   return registration.ticketType?.currency ?? "USD";
+}
+
+/**
+ * Moves the seat for a completion on a rated link. A registration with no type
+ * yet was already counted on the EVENT at import ("an uncategorised row ... the
+ * event-wide counter still moves"), so it claims only its new type's counter,
+ * exactly as the legacy typeless path does (review of b269ff6e, M1); going
+ * through the transition would count the event seat a second time. Every
+ * other move (keep or change type) is the shared transition.
+ */
+async function moveLinkSeat(
+  tx: Prisma.TransactionClient,
+  eventId: string,
+  prev: SeatState,
+  next: SeatState,
+): Promise<void> {
+  if (prev.ticketTypeId) {
+    await applyRegistrationTransition(tx, { eventId, prev, next });
+    return;
+  }
+  const counter = holdsSeat(next.status, next.attendanceMode) ? seatCounter(next) : null;
+  if (counter && !(await claimSeat(tx, counter))) throw new Error("CAPACITY_EXCEEDED");
 }
 
 /** The type and price a completion settled on, for the email and the response. */
@@ -571,7 +607,6 @@ export async function POST(req: Request, { params }: RouteParams) {
         // Seat state, and what the link's rate may change (LINK_REPRICE_SELECT
         // includes paymentStatus: a status someone EXPLICITLY set, CSV column
         // or admin sheet, PAID, INCLUSIVE, …, must survive completion).
-        attendanceMode: true,
         createdSource: true,
         ...LINK_REPRICE_SELECT,
         ticketType: { select: { id: true, name: true, price: true, currency: true, ...IDENTITY_EVIDENCE_SELECT } },
@@ -643,7 +678,10 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 400 },
         );
       }
-      const priced = priceAtLinkRate(target.pricingTiers, appliedRate, new Date());
+      const priced = priceAtLinkRate(target.pricingTiers, appliedRate, new Date(), {
+        isVirtual: registration.attendanceMode === "VIRTUAL",
+        virtualPrice: target.virtualPrice,
+      });
       if (!priced.ok) {
         apiLogger.warn({ msg: "complete-registration:link-rate-refused", registrationId, targetTypeId, code: priced.code });
         const message = priced.code === "RATE_CLOSED"
@@ -782,12 +820,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           attendanceMode: registration.attendanceMode,
           createdSource: registration.createdSource,
         };
+        const next = { ...seatState, ticketTypeId: ratedPlan.type.id, pricingTierId: ratedPlan.tierId };
         try {
-          await applyRegistrationTransition(tx, {
-            eventId: registration.event.id,
-            prev: { ...seatState, ticketTypeId: registration.ticketTypeId, pricingTierId: registration.pricingTierId },
-            next: { ...seatState, ticketTypeId: ratedPlan.type.id, pricingTierId: ratedPlan.tierId },
-          });
+          await moveLinkSeat(tx, registration.event.id, { ...seatState, ticketTypeId: registration.ticketTypeId, pricingTierId: registration.pricingTierId }, next);
         } catch (seatErr) {
           if (seatErr instanceof Error && (seatErr.message === "CAPACITY_EXCEEDED" || seatErr.message === "EVENT_FULL")) {
             throw new SoldOutError();
@@ -913,7 +948,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         apiLogger.warn({
           msg: "Completion POST hit a sold-out registration type",
           registrationId,
-          ticketTypeId: resolvedType?.id,
+          ticketTypeId: ratedPlan?.type.id ?? resolvedType?.id,
         });
         return NextResponse.json(
           { error: "That registration type just sold out. Please choose another.", code: "REGISTRATION_TYPE_SOLD_OUT" },
@@ -927,7 +962,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         apiLogger.warn({
           msg: "Completion POST lost the type-set race to a concurrent assignment",
           registrationId,
-          chosenTicketTypeId: resolvedType?.id,
+          chosenTicketTypeId: ratedPlan?.type.id ?? resolvedType?.id,
         });
         return NextResponse.json(
           {

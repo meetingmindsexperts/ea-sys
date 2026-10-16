@@ -250,7 +250,7 @@ export interface BulkEmailFilters {
   surveyId?: string;
   /**
    * registration-form only: the rate the links carry (a rate-name slug or
-   * "complimentary"), the sponsor for a sponsor-link rate, and how many days
+   * COMPLIMENTARY_RATE), the sponsor for a sponsor-link rate, and how many days
    * the links last. Inside `filters` so a scheduled send reads them back.
    */
   registrationFormRate?: string;
@@ -1092,6 +1092,20 @@ export async function precheckBulkEmailViability(
   });
   if (!event) {
     throw new BulkEmailError("Event not found", 404);
+  }
+
+  // Registration form: the rate must exist on the event NOW, so a mistyped or
+  // renamed rate is refused when queued, not by the worker later (review L4).
+  const formRate = emailType === "registration-form" ? filters?.registrationFormRate : undefined;
+  if (formRate && formRate !== COMPLIMENTARY_RATE) {
+    const tiers = await db.pricingTier.findMany({
+      where: { ticketType: { eventId, isFaculty: false } },
+      select: { name: true },
+    });
+    if (!tiers.some((t) => registerTierSlug(t.name) === registerTierSlug(formRate))) {
+      apiLogger.warn({ msg: "bulk-email:registration-form-rate-unknown", eventId, rate: formRate });
+      throw new BulkEmailError("No registration type on this event has that rate.", 400, "RATE_NOT_FOUND");
+    }
   }
 
   const agreementMode = needsAgreementAttachment

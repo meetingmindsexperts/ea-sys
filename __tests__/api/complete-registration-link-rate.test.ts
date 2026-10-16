@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, tx, transitionMock, confirmationMock } = vi.hoisted(() => {
+const { mockDb, tx, transitionMock, claimSeatMock, confirmationMock } = vi.hoisted(() => {
   const tx = {
     registration: { updateMany: vi.fn() },
     ticketType: { updateMany: vi.fn() },
@@ -22,12 +22,12 @@ const { mockDb, tx, transitionMock, confirmationMock } = vi.hoisted(() => {
   return {
     tx,
     transitionMock: vi.fn(),
+    claimSeatMock: vi.fn(),
     confirmationMock: vi.fn(),
     mockDb: {
       verificationToken: { findUnique: vi.fn(), delete: vi.fn() },
       registration: { findFirst: vi.fn() },
-      ticketType: { findFirst: vi.fn(), findMany: vi.fn() },
-      pricingTier: { findMany: vi.fn() },
+      ticketType: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
       $transaction: vi.fn(),
     },
   };
@@ -47,7 +47,7 @@ vi.mock("@/lib/email", () => ({ sendRegistrationConfirmation: confirmationMock }
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/registrant-account", () => ({ ensureRegistrantAccount: vi.fn() }));
 vi.mock("@/lib/registration-confirmation", () => ({ buildEventConfirmationFields: vi.fn(() => ({})) }));
-vi.mock("@/lib/registration-seat-db", () => ({ applyRegistrationTransition: transitionMock }));
+vi.mock("@/lib/registration-seat-db", () => ({ applyRegistrationTransition: transitionMock, claimSeat: claimSeatMock }));
 
 import { GET, POST } from "@/app/api/public/events/[slug]/complete-registration/route";
 
@@ -124,8 +124,9 @@ beforeEach(() => {
   mockDb.registration.findFirst.mockResolvedValue(registration());
   mockDb.ticketType.findFirst.mockResolvedValue(PHYS);
   mockDb.ticketType.findMany.mockResolvedValue([PHYS, NURSE, EXH]);
-  // The current type's rates, read by linkMayReprice.
-  mockDb.pricingTier.findMany.mockResolvedValue(PHYS.pricingTiers);
+  // The current type, read by linkMayReprice.
+  mockDb.ticketType.findUnique.mockResolvedValue(PHYS);
+  claimSeatMock.mockResolvedValue(true);
   tx.registration.updateMany.mockResolvedValue({ count: 1 });
   tx.attendee.update.mockResolvedValue({});
   tx.verificationToken.delete.mockResolvedValue({});
@@ -188,7 +189,9 @@ describe("POST with a rated link", () => {
     expect(res.status).toBe(200);
     expect(rowWrite().where).toMatchObject({ id: "reg-1", ticketTypeId: null, userId: null });
     expect(rowWrite().data).toMatchObject({ ticketTypeId: "tt-phys", originalPrice: 250, paymentStatus: "UNASSIGNED" });
-    expect(transitionMock.mock.calls[0][1].prev).toMatchObject({ ticketTypeId: null });
+    // The event seat was counted at import: only the type counter is claimed (review M1).
+    expect(claimSeatMock.mock.calls[0][1]).toEqual({ kind: "ticketType", id: "tt-phys" });
+    expect(transitionMock).not.toHaveBeenCalled();
   });
 
   it("refuses a closed rate (D3) and writes nothing", async () => {
@@ -221,7 +224,7 @@ describe("POST with a rated link", () => {
       token();
       mockDb.registration.findFirst.mockResolvedValue(registration(over));
       mockDb.ticketType.findFirst.mockResolvedValue(NURSE);
-      mockDb.pricingTier.findMany.mockResolvedValue(PHYS.pricingTiers);
+      mockDb.ticketType.findUnique.mockResolvedValue(PHYS);
       tx.attendee.update.mockResolvedValue({});
       tx.verificationToken.delete.mockResolvedValue({});
       tx.auditLog.create.mockResolvedValue({});
@@ -275,15 +278,42 @@ describe("POST with a rated link", () => {
     token("regform:reg-1:inclusive");
     mockDb.registration.findFirst.mockResolvedValue(registration({ ticketTypeId: "tt-exh", sponsorId: "sp-1", pricingTierId: "t-inc", paymentStatus: "INCLUSIVE" }));
     mockDb.ticketType.findFirst.mockResolvedValue(EXH);
-    mockDb.pricingTier.findMany.mockResolvedValue(EXH.pricingTiers);
+    mockDb.ticketType.findUnique.mockResolvedValue(EXH);
     await post();
     expect(rowWrite().data).toMatchObject({ pricingTierId: "t-inc", originalPrice: 0, paymentStatus: "INCLUSIVE" });
   });
 
   it("complimentary: no rate, nothing to pay", async () => {
-    token("regform:reg-1:complimentary");
+    token("regform:reg-1:_complimentary");
     mockDb.registration.findFirst.mockResolvedValue(registration({ pricingTierId: null, paymentStatus: "COMPLIMENTARY" }));
     await post();
     expect(rowWrite().data).toMatchObject({ pricingTierId: null, originalPrice: 0, paymentStatus: "COMPLIMENTARY" });
+  });
+
+  it("a typeless person whose type is full is a 409 (review M1 path)", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(registration({ ticketTypeId: null, ticketType: null, pricingTier: null, pricingTierId: null, paymentStatus: "COMPLIMENTARY" }));
+    claimSeatMock.mockResolvedValue(false);
+    const res = await post({ ticketTypeId: "tt-phys" });
+    expect(res.status).toBe(409);
+  });
+
+  it("a rate that sold out still completes for someone already on it (review M2)", async () => {
+    const full = type({ pricingTiers: [rate({ soldCount: 50, quantity: 50 })] });
+    mockDb.ticketType.findFirst.mockResolvedValue(full);
+    mockDb.ticketType.findUnique.mockResolvedValue(full);
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(rowWrite().data).toMatchObject({ pricingTierId: "t-eb", originalPrice: 250 });
+  });
+
+  it("a virtual attendee pays the type's virtual price (review M3)", async () => {
+    const hybrid = type({ virtualPrice: "40" });
+    mockDb.registration.findFirst.mockResolvedValue(registration({ attendanceMode: "VIRTUAL" }));
+    mockDb.ticketType.findFirst.mockResolvedValue(hybrid);
+    mockDb.ticketType.findUnique.mockResolvedValue(hybrid);
+    // Stamped at the virtual price, so the link still applies.
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(rowWrite().data).toMatchObject({ pricingTierId: "t-eb", originalPrice: 40, paymentStatus: "UNASSIGNED" });
   });
 });

@@ -163,4 +163,13 @@ Touches registration pricing and payment status (staff-initiated), the public co
 - **The bulk type runs inside the bulk pipeline** (resume, BCC, logs, scheduling) rather than being delegated out like certificates: the pipeline calls `prepareRegistrationForms` before its batches and `mintRegistrationFormLink` per recipient.
 - **Permission:** the bulk type needs `registrations.import` beside `communications.send`, the same key as the button, because it re-prices registrations.
 - **The route resolves the event through `gate.eventWhere` before calling the service**; the route status matrix caught the service's organisation-only lookup.
+- **Review of b269ff6e (Oct 16, 2026).**
+  - H1: the link's rate applies only while the registration is as the send left it (`linkMayReprice`: nothing paid, refunded or invoiced, no promo, not in a group, still on the stamped rate). Otherwise the link completes details only.
+  - M1: a typeless person claims only their type's counter at completion, because the import already counted the event seat.
+  - M2: a rate is "open" by switch and sale dates only (`isLinkRateOpen`); capacity is enforced when a seat is actually claimed.
+  - M3: a virtual attendee is priced at the type's `virtualPrice` when set.
+  - L4: an unknown rate is refused when a bulk send is queued.
+  - L5: the log fields are corrected.
+  - L6: the Complimentary key is `_complimentary`, which no rate slug can equal.
+  - Left for later: L2 (a stamp landing during an open Stripe checkout) and L3 (the bulk send's link on failure or resume, and BCC copies carrying a live link).
 
