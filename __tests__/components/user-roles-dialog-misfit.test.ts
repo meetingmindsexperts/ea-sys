@@ -18,11 +18,16 @@ describe("roleMisfit", () => {
     expect(roleMisfit("ORGANIZER", corporate)).toBeNull();
   });
 
-  it("explains why it does not fit an Onsite or a CRM user", () => {
+  it("explains why it does not fit an Onsite or an HR user", () => {
     const onsite = roleMisfit("ONSITE", corporate);
     expect(onsite).toMatch(/^Doesn't fit an Onsite Staff base role: it adds /);
     expect(onsite).toContain("event management");
-    expect(roleMisfit("CRM_USER", corporate)).toMatch(/event management/);
+    expect(roleMisfit("HR_USER", corporate)).toMatch(/event management/);
+  });
+
+  it("fits a CRM user, who may be given event work by a role (owner, Oct 19, 2026)", () => {
+    expect(roleMisfit("CRM_USER", corporate)).toBeNull();
+    expect(roleMisfit("CRM_USER", [{ permission: "procurement.budgets.view", scope: null }])).toMatch(/Budgets/);
   });
 
   it("calls a wider scope in an area the role already has a wider scope, not a new area", () => {

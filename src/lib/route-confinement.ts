@@ -41,10 +41,12 @@ function homeOf(areas: readonly AreaGrant[]): string {
   return "/events";
 }
 
-function staffRedirect(areas: readonly AreaGrant[], pathname: string): string | null {
+function staffRedirect(areas: readonly AreaGrant[], pathname: string, homeAreas: readonly AreaGrant[] = areas): string | null {
   if (PERSONAL.some((p) => under(pathname, p))) return null;
   const has = (area: Area) => areas.some((a) => a.area === area);
-  const home = homeOf(areas);
+  // Home follows the BASE role, so a salesperson whose role adds events still
+  // starts in the CRM.
+  const home = homeOf(homeAreas);
   // A role with no areas (an unrecognised role, CUSTOM before Phase 5) keeps
   // the events list only, which resolves to the events it may see: none.
   if (areas.length === 0) return pathname === "/events" ? null : "/events";
@@ -82,6 +84,8 @@ export interface ConfinementGrants {
   procurementApproveUnlimited?: boolean | null;
   procurementApproveCeilingAed?: number | null;
   procurementPermissions?: readonly string[] | null;
+  /** Areas a held custom role adds beyond the base role (the session's `extraAreas`). */
+  extraAreas?: readonly string[] | null;
 }
 
 function personAreas(g: ConfinementGrants | null | undefined): AreaGrant[] {
@@ -108,9 +112,13 @@ export function confinementRedirect(role: string | null | undefined, pathname: s
   // A path outside them goes to the role's home area. Reviewers and
   // submitters are not catalogue roles and keep their own rule below.
   if (role && role !== "REVIEWER" && role !== "SUBMITTER") {
-    const base = systemRoleFor(role)?.areas ?? [];
+    const system = systemRoleFor(role);
+    const base = system?.areas ?? [];
     // Person grants add a module only to a role that works somewhere already.
-    return staffRedirect(base.length > 0 ? [...base, ...personAreas(grants)] : base, pathname);
+    // A custom role's extra areas count only where the base role lets a role
+    // extend into them (a CRM User with a sponsors role opens Events).
+    const extra = (system?.extendableAreas ?? []).filter((a) => (grants?.extraAreas ?? []).includes(a.area));
+    return staffRedirect(base.length > 0 ? [...base, ...personAreas(grants), ...extra] : base, pathname, base);
   }
 
   if (!role) return null;

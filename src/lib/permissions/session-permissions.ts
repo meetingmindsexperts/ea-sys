@@ -23,7 +23,9 @@
 import { db } from "@/lib/db";
 import { authLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { encodeSessionGrant, isGrantableKey } from "./catalogue";
+import { decodeSessionGrant, encodeSessionGrant, isGrantableKey } from "./catalogue";
+import { customGrantAreas } from "./key-areas";
+import { systemRoleFor } from "./system-roles";
 import { isCustomRolesEnabled } from "@/lib/module-flags";
 
 /** One held role as the token carries it. */
@@ -99,6 +101,23 @@ export async function permissionsForHeldSets(
 }
 
 /** Rough size of the cookie a token encodes to: JSON, encrypted and base64-encoded, is about 1.4 times its JSON. */
+/**
+ * The areas this person's held custom roles add beyond their base role, as
+ * area names for the cookie (customGrantAreas). Empty, with no query, for a
+ * base role that custom roles cannot extend, which is every role but CRM User
+ * today.
+ */
+export async function extraAreasForToken(
+  role: string | null | undefined,
+  organizationId: string | null | undefined,
+  held: readonly HeldSet[] | null | undefined,
+): Promise<string[]> {
+  if (!systemRoleFor(role)?.extendableAreas?.length) return [];
+  const keys = await permissionsForHeldSets(organizationId, held);
+  const grants = keys.map(decodeSessionGrant).map((g) => ({ permission: g.permission, scope: g.scope ?? null }));
+  return customGrantAreas(role, grants).map((a) => a.area);
+}
+
 export const COOKIE_WARN_BYTES = 3_000;
 export function estimatedCookieBytes(token: object): number {
   return Math.ceil(JSON.stringify(token).length * 1.4);

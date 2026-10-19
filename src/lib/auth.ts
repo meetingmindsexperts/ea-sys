@@ -21,6 +21,7 @@ import { procurementGrantsFromRow } from "@/lib/procurement-visibility";
 import {
   COOKIE_WARN_BYTES,
   estimatedCookieBytes,
+  extraAreasForToken,
   permissionsForHeldSets,
   readHeldSets,
   type HeldSet,
@@ -477,6 +478,21 @@ export const {
       }
 
       delete token.procurementPermissions;
+
+      // Areas a held custom role adds (a CRM User whose role adds sponsors
+      // works events), for the middleware's page confinement. Recomputed
+      // whenever heldRoles is: sign-in, an explicit update, the 5-minute pass.
+      if (user || trigger === "update" || dueForPeriodicCheck) {
+        try {
+          token.extraAreas = await extraAreasForToken(
+            token.role as string | undefined,
+            token.organizationId as string | null | undefined,
+            token.heldRoles as HeldSet[] | undefined,
+          );
+        } catch (err) {
+          authLogger.warn({ err, msg: "auth:extra-areas-failed", userId: token.id });
+        }
+      }
 
       // ROADMAP "Session cookie size" option 4: see the cookie growing long
       // before nginx refuses it (INC-006 was a 4k header buffer). Checked on

@@ -79,6 +79,13 @@ export interface SystemRole {
   impliedPersonGrants: readonly PersonGrant[];
   /** The parts of the app this role works in (see `Area`). */
   areas: readonly AreaGrant[];
+  /**
+   * Parts of the app a CUSTOM role may add to this base role, beyond `areas`
+   * (Oct 19, 2026). The person works in one only while a role they hold
+   * actually grants a key there (`customGrantAreas`); the base role alone
+   * still works only in `areas`. Absent: custom roles stay inside `areas`.
+   */
+  extendableAreas?: readonly AreaGrant[];
 }
 
 const STAFF_AREAS: readonly AreaGrant[] = [
@@ -467,6 +474,10 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     grants: org("crm.read", "crm.write", "crm.delete", "crm.inbox.read", "crm.dealValues.view", "contacts.read", "hr.read", "hr.write"),
     impliedPersonGrants: [],
     areas: [{ area: "crm" }],
+    // A salesperson may also work events through a custom role, such as one
+    // that adds sponsors (owner, Oct 19, 2026). The role decides how much;
+    // without one a CRM User still sees only the CRM.
+    extendableAreas: [{ area: "events", scope: "ALL" }, { area: "desk", scope: "ALL" }, { area: "org" }],
   },
   HR_USER: {
     key: "HR_USER",

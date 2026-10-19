@@ -19,6 +19,8 @@ declare module "next-auth" {
       procurementSettle?: boolean;
       /** Permission keys from this person's custom roles, the union across all of them, resolved per request on the server (never in the cookie). */
       procurementPermissions?: string[];
+      /** Areas a held custom role adds beyond the base role (`customGrantAreas`), for page confinement at the Edge. */
+      extraAreas?: string[];
     } & DefaultSession["user"];
   }
 
@@ -76,5 +78,12 @@ declare module "next-auth/jwt" {
     heldRoles?: ReadonlyArray<readonly [string, number]>;
     /** Carried by cookies issued before Oct 1, 2026; deleted on the next refresh. */
     procurementPermissions?: string[];
+    /**
+     * Areas a held custom role adds beyond the base role, such as `events` for
+     * a CRM User whose role adds sponsors (Oct 19, 2026). Area NAMES only, a
+     * few bytes: the Edge middleware cannot resolve keys, and confines pages
+     * by area. Refreshed with `heldRoles`.
+     */
+    extraAreas?: string[];
   }
 }

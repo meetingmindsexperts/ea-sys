@@ -1,5 +1,5 @@
 import { describePermission, type PermissionKey } from "./catalogue";
-import { systemRoleFor, type Area, type GrantScope } from "./system-roles";
+import { systemRoleFor, type Area, type AreaGrant, type GrantScope } from "./system-roles";
 
 /**
  * Which part of the app a permission belongs to, and whether a custom grant
@@ -58,11 +58,36 @@ export interface AreaGrantRequest {
 export function grantsOutsideAreas(baseRole: string | null | undefined, grants: readonly AreaGrantRequest[]): AreaGrantRequest[] {
   const role = systemRoleFor(baseRole);
   if (!role) return [...grants];
+  // A custom role may also add the areas the base role lets it extend into.
+  const allowed = [...role.areas, ...(role.extendableAreas ?? [])];
   return grants.filter((g) => {
     const ownGrant = role.grants.some((r) => r.permission === g.permission && scopeCovers(r.scope ?? null, g.scope));
     if (ownGrant) return false;
     const area = keyArea(g.permission);
-    const inside = role.areas.some((a) => a.area === area && scopeCovers(a.scope, g.scope));
+    const inside = allowed.some((a) => a.area === area && scopeCovers(a.scope, g.scope));
     return !inside;
   });
+}
+
+/**
+ * The extra areas a person works in because a custom role they hold grants a
+ * key in one of their base role's `extendableAreas` (a CRM User with a Sales
+ * role that adds sponsors works the events area). Only those areas, at the
+ * base role's scope for them: never more than the base role allows a role to
+ * add, and nothing at all for a role without extendable areas.
+ */
+export function customGrantAreas(baseRole: string | null | undefined, grants: readonly AreaGrantRequest[]): AreaGrant[] {
+  const role = systemRoleFor(baseRole);
+  const extendable = role?.extendableAreas ?? [];
+  if (!role || extendable.length === 0) return [];
+  const out: AreaGrant[] = [];
+  for (const g of grants) {
+    // A key the base role already holds adds nothing (a CRM User's own
+    // contacts.read must not open the organisation's Settings).
+    if (role.grants.some((r) => r.permission === g.permission && scopeCovers(r.scope ?? null, g.scope))) continue;
+    const area = keyArea(g.permission);
+    const allowedAs = extendable.find((a) => a.area === area && scopeCovers(a.scope, g.scope));
+    if (allowedAs && !out.some((a) => a.area === area)) out.push(allowedAs);
+  }
+  return out;
 }

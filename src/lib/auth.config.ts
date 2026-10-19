@@ -24,6 +24,9 @@ export function mapTokenToSessionUser(session: Session, token: JWT | null | unde
     session.user.procurementApproveCeilingAed = (token.procurementApproveCeilingAed as number | null | undefined) ?? null;
     session.user.procurementApproveUnlimited = (token.procurementApproveUnlimited as boolean | undefined) ?? false;
     session.user.procurementSettle = (token.procurementSettle as boolean | undefined) ?? false;
+    // Area names a held custom role adds (a CRM User with a sponsors role works
+    // events); the middleware confines pages by area and reads no keys.
+    session.user.extraAreas = Array.isArray(token.extraAreas) ? token.extraAreas : [];
     // `procurementPermissions` is NOT mapped here since Oct 1, 2026: the keys
     // left the cookie (custom roles Phase 1 slice 3) and the Node session
     // callback in auth.ts resolves them from `token.heldRoles`. The Edge

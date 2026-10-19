@@ -52,10 +52,15 @@ describe("custom grants stay inside the base role's areas", () => {
     expect(keyArea("contacts.export")).toBe("org");
   });
 
-  it("refuses a CRM user registrations and an HR user the CRM", () => {
-    expect(grantsOutsideAreas("CRM_USER", [g("registrations.export", "ALL")])).toHaveLength(1);
+  it("refuses an HR user the CRM; a CRM user may be given event work by a role (Oct 19, 2026)", () => {
     expect(grantsOutsideAreas("HR_USER", [g("crm.read")])).toHaveLength(1);
     expect(grantsOutsideAreas("CRM_USER", [g("crm.export")])).toHaveLength(0);
+    // Owner, Oct 19, 2026: a Sales role (see events, manage sponsors) goes on a CRM User.
+    expect(grantsOutsideAreas("CRM_USER", [g("events.read", "ALL"), g("sponsors.manage", "ALL"), g("registrations.read", "ALL")])).toHaveLength(0);
+    // Still nothing beyond events, the desk and the organisation: no HR keys it lacks, no Budgets.
+    expect(grantsOutsideAreas("CRM_USER", [g("procurement.budgets.create")])).toHaveLength(1);
+    // An HR user gained nothing: event work is still outside.
+    expect(grantsOutsideAreas("HR_USER", [g("sponsors.manage", "ALL")])).toHaveLength(1);
   });
 
   it("keeps the Onsite desk on its assigned events", () => {

@@ -476,11 +476,13 @@ describe("review fixes: areas, restore, removal", () => {
   /** An admin: holds no roles.manage, so the escalation rules bound them. */
   const admin = { organizationId: ORG, actorUserId: ACTOR, actor: principalFromUser({ id: ACTOR, role: "ADMIN", organizationId: ORG }) };
 
-  it("refuses to give a CRM user a role with event keys (M6)", async () => {
+  it("refuses to give an HR user a role with event keys (M6)", async () => {
+    // A CRM user may be given event work since Oct 19, 2026 (CRM_USER.extendableAreas);
+    // an HR user still may not.
     mockDb.permissionSet.findMany.mockResolvedValue([
       { id: "s1", name: "Exporter", archivedAt: null, permissions: [{ permission: "registrations.export", scope: "ALL" }] },
     ]);
-    mockDb.user.findFirst.mockResolvedValue({ role: "CRM_USER", firstName: "C", lastName: "U", email: "c@x", procurementApproveUnlimited: false, procurementRequest: false, procurementSettle: false });
+    mockDb.user.findFirst.mockResolvedValue({ role: "HR_USER", firstName: "H", lastName: "U", email: "h@x", procurementApproveUnlimited: false, procurementRequest: false, procurementSettle: false });
     const result = await setUserPermissionSets({ ...base, userId: "u1", permissionSetIds: ["s1"] });
     expect(result).toMatchObject({ ok: false, code: "OUTSIDE_AREAS" });
     expect(mockDb.userPermissionSet.deleteMany).not.toHaveBeenCalled();

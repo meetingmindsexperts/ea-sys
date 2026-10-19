@@ -26,6 +26,7 @@ import type { Prisma } from "@prisma/client";
 import { describePermission, type PermissionKey, type PersonGrant } from "./catalogue";
 import { decodeSessionGrant, isPermissionKey } from "./catalogue";
 import { assignedToEventWhere } from "@/lib/event-staff-where";
+import { customGrantAreas } from "./key-areas";
 import { LEGACY_PROCUREMENT_GRANTS, systemRoleFor, type Area, type AreaGrant, type Grant, type GrantScope } from "./system-roles";
 
 /** The grants that live on the PERSON (plan §3.4), as the `User` row carries them. */
@@ -97,7 +98,9 @@ export function systemPrincipal(input: {
       ...person,
       hrAccess: implied.has("hrAccess") || person.hrAccess === true,
     },
-    areas: system?.areas ?? [],
+    // The base role's areas, plus any its extendable areas a held custom role
+    // actually grants a key in (a CRM User with a sponsors role works events).
+    areas: [...(system?.areas ?? []), ...(fromApiKey ? [] : customGrantAreas(input.role, input.customGrants?.map((g) => ({ permission: g.permission, scope: g.scope ?? null })) ?? []))],
   };
 }
 
