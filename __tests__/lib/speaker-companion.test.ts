@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const ticketTypeFindFirst = vi.fn();
 const ticketTypeCreate = vi.fn();
 const registrationFindFirst = vi.fn();
+const registrationUpdateMany = vi.fn();
 const speakerUpdate = vi.fn();
 const speakerFindUnique = vi.fn();
 const txAttendeeCreate = vi.fn();
@@ -27,7 +28,10 @@ vi.mock("@/lib/db", () => ({
       findFirst: (...a: unknown[]) => ticketTypeFindFirst(...a),
       create: (...a: unknown[]) => ticketTypeCreate(...a),
     },
-    registration: { findFirst: (...a: unknown[]) => registrationFindFirst(...a) },
+    registration: {
+      findFirst: (...a: unknown[]) => registrationFindFirst(...a),
+      updateMany: (...a: unknown[]) => registrationUpdateMany(...a),
+    },
     speaker: {
       update: (...a: unknown[]) => speakerUpdate(...a),
       findUnique: (...a: unknown[]) => speakerFindUnique(...a),
@@ -69,6 +73,8 @@ beforeEach(() => {
   txRegistrationCreate.mockResolvedValue({ id: "reg_new" });
   // Default: the conditional link claim succeeds (no concurrent grant).
   txSpeakerUpdateMany.mockResolvedValue({ count: 1 });
+  registrationUpdateMany.mockReset();
+  registrationUpdateMany.mockResolvedValue({ count: 1 });
 });
 
 describe("ensureSpeakerCompanionRegistration", () => {
@@ -77,6 +83,23 @@ describe("ensureSpeakerCompanionRegistration", () => {
     expect(res).toEqual({ status: "already-linked", registrationId: "reg_existing" });
     expect(registrationFindFirst).not.toHaveBeenCalled();
     expect(txRegistrationCreate).not.toHaveBeenCalled();
+  });
+
+  it("a linked registration with no barcode gets one, so the speaker can be scanned (Oct 19, 2026)", async () => {
+    registrationFindFirst.mockResolvedValueOnce({ id: "reg_match", qrCode: null, attendanceMode: "IN_PERSON" });
+    await ensureSpeakerCompanionRegistration(base);
+    expect(registrationUpdateMany).toHaveBeenCalledWith({
+      where: { id: "reg_match", qrCode: null },
+      data: { qrCode: "BC-TEST-123" },
+    });
+  });
+
+  it("a linked registration keeps its barcode, and a virtual one gets none", async () => {
+    registrationFindFirst.mockResolvedValueOnce({ id: "reg_match", qrCode: "QR1", attendanceMode: "IN_PERSON" });
+    await ensureSpeakerCompanionRegistration(base);
+    registrationFindFirst.mockResolvedValueOnce({ id: "reg_v", qrCode: null, attendanceMode: "VIRTUAL" });
+    await ensureSpeakerCompanionRegistration(base);
+    expect(registrationUpdateMany).not.toHaveBeenCalled();
   });
 
   it("links an existing same-email registration instead of duplicating", async () => {

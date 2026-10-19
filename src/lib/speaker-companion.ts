@@ -154,7 +154,7 @@ export async function ensureSpeakerCompanionRegistration(
         attendee: { email: { equals: speaker.email, mode: "insensitive" } },
         status: { not: "CANCELLED" },
       },
-      select: { id: true },
+      select: { id: true, qrCode: true, attendanceMode: true },
       orderBy: { createdAt: "asc" },
     });
     if (existing) {
@@ -162,6 +162,18 @@ export async function ensureSpeakerCompanionRegistration(
         where: { id: speaker.id },
         data: { sourceRegistrationId: existing.id },
       });
+      // The speaker's badge and check-in use this registration's barcode. One
+      // made by a path that minted none (Import from Contacts, before Oct 19,
+      // 2026) gets one now; guarded on qrCode: null, so none is ever replaced.
+      if (!existing.qrCode && existing.attendanceMode === "IN_PERSON") {
+        const minted = await db.registration.updateMany({
+          where: { id: existing.id, qrCode: null },
+          data: { qrCode: generateBarcode() },
+        });
+        if (minted.count > 0) {
+          apiLogger.info({ msg: "speaker-companion:barcode-minted-on-link", speakerId: speaker.id, registrationId: existing.id });
+        }
+      }
       apiLogger.info({
         msg: "speaker-companion:linked-existing",
         speakerId: speaker.id,
