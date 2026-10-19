@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const ticketTypeFindFirst = vi.fn();
 const ticketTypeCreate = vi.fn();
+const ticketTypeUpdateMany = vi.fn();
 const registrationFindFirst = vi.fn();
 const registrationUpdateMany = vi.fn();
 const speakerUpdate = vi.fn();
@@ -27,6 +28,7 @@ vi.mock("@/lib/db", () => ({
     ticketType: {
       findFirst: (...a: unknown[]) => ticketTypeFindFirst(...a),
       create: (...a: unknown[]) => ticketTypeCreate(...a),
+      updateMany: (...a: unknown[]) => ticketTypeUpdateMany(...a),
     },
     registration: {
       findFirst: (...a: unknown[]) => registrationFindFirst(...a),
@@ -53,7 +55,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/utils", () => ({ generateBarcode: () => "BC-TEST-123" }));
 vi.mock("@/lib/registration-serial", () => ({ getNextSerialId: vi.fn(async () => 7) }));
 
-import { ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
+import { ensureFacultyTicketType, ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
 
 const base = {
   id: "spk_1",
@@ -239,5 +241,66 @@ describe("ensureSpeakerCompanionRegistration", () => {
     await ensureSpeakerCompanionRegistration(base);
     expect(ticketTypeCreate).not.toHaveBeenCalled();
     expect(txRegistrationCreate.mock.calls[0][0].data.ticketTypeId).toBe("ftype_existing");
+  });
+});
+
+// Oct 19, 2026: never a second type called "Faculty". An ordinary "Faculty"
+// (a clone leftover) is adopted when free with no money on it, otherwise the
+// speakers' type gets a name the two can be told apart by.
+describe("ensureFacultyTicketType beside an ordinary Faculty", () => {
+  const leftover = (over: Record<string, unknown> = {}) => ({
+    id: "tt_leftover", price: 0, virtualPrice: null, pricingTiers: [], _count: { registrations: 0 }, ...over,
+  });
+
+  beforeEach(() => {
+    ticketTypeFindFirst.mockReset();
+    ticketTypeCreate.mockReset().mockResolvedValue({ id: "tt_new" });
+    ticketTypeUpdateMany.mockReset().mockResolvedValue({ count: 1 });
+  });
+
+  it("keeps using an existing speakers' type and never looks for a leftover", async () => {
+    ticketTypeFindFirst.mockResolvedValueOnce({ id: "tt_faculty" });
+    expect(await ensureFacultyTicketType("evt_1")).toBe("tt_faculty");
+    expect(ticketTypeFindFirst).toHaveBeenCalledTimes(1);
+    expect(ticketTypeUpdateMany).not.toHaveBeenCalled();
+    expect(ticketTypeCreate).not.toHaveBeenCalled();
+  });
+
+  it("looks for the leftover by name ignoring case, among ordinary types only", async () => {
+    ticketTypeFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    await ensureFacultyTicketType("evt_1");
+    expect(ticketTypeFindFirst.mock.calls[1][0].where).toEqual({
+      eventId: "evt_1", isFaculty: false, name: { equals: "Faculty", mode: "insensitive" },
+    });
+    // No leftover: created as plain "Faculty", as before.
+    expect(ticketTypeCreate.mock.calls[0][0].data).toMatchObject({ name: "Faculty", isFaculty: true });
+  });
+
+  it("adopts a free leftover with no money on it, with a guarded write", async () => {
+    ticketTypeFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(leftover());
+    expect(await ensureFacultyTicketType("evt_1")).toBe("tt_leftover");
+    expect(ticketTypeUpdateMany).toHaveBeenCalledWith({
+      where: { id: "tt_leftover", isFaculty: false }, data: { isFaculty: true },
+    });
+    expect(ticketTypeCreate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a priced type", { price: 150 }],
+    ["a priced virtual price", { virtualPrice: 50 }],
+    ["a priced tier", { pricingTiers: [{ id: "tier_1" }] }],
+    ["registrations carrying money", { _count: { registrations: 2 } }],
+  ])("never adopts %s: creates \"Faculty (speakers)\" instead", async (_label, over) => {
+    ticketTypeFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(leftover(over));
+    expect(await ensureFacultyTicketType("evt_1")).toBe("tt_new");
+    expect(ticketTypeUpdateMany).not.toHaveBeenCalled();
+    expect(ticketTypeCreate.mock.calls[0][0].data).toMatchObject({ name: "Faculty (speakers)", isFaculty: true, price: 0 });
+  });
+
+  it("counts only registrations whose payment carries money", async () => {
+    ticketTypeFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(leftover());
+    await ensureFacultyTicketType("evt_1");
+    const counted = ticketTypeFindFirst.mock.calls[1][0].select._count.select.registrations.where.paymentStatus.in;
+    expect([...counted].sort()).toEqual(["FAILED", "INCLUSIVE", "PAID", "PENDING", "REFUNDED"]);
   });
 });

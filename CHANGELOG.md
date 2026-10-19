@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registration types: one "Faculty", and duplicate names refused ignoring case (October 19)
+
+- Six events on prod had two types called "Faculty" (acabc2026 and its two copies, EHBPU2026, gcc-hh26, hemnet2026): an ordinary one copied in by cloning before Jul 27, 2026 (when the clone dropped `isFaculty`), and the speakers' hidden one, created by the system, which never checked names. Existing events are left as they are (owner).
+- Registration Types page: the speakers' type carries a "Speakers (automatic)" badge and a line saying what it is; an ordinary "Faculty" beside it is flagged as not the speakers' type.
+- Creating or renaming a type is refused when the name matches another type on the event ignoring case and surrounding spaces (it was an exact match). Only on a rename, so an existing duplicate still saves when edited. "Add defaults" compares the same way.
+- `ensureFacultyTicketType`: when the event has no speakers' type but an ordinary "Faculty", it adopts that type (sets `isFaculty`) if it is free (type, virtual price and every tier at 0) and no registration on it carries money (PAID, PENDING, REFUNDED, FAILED, INCLUSIVE); otherwise it creates the speakers' type as "Faculty (speakers)". On prod this can only touch BIGSKY2027, AHP2026, CADF2026 and best-of-eha-in-cll-2026, all adoptable, and only when a speaker next needs a registration there.
+
 ### Registrations: Import from Contacts now gives an entry barcode (October 19)
 
 - "Import from Contacts" never minted `qrCode`, unlike every other way of adding someone, so those people could not be scanned at check-in and their badge printed without a barcode. Found on BHS2026 (Uzma Sharif, Dina Ortiz); 49 live in-person registrations on prod, mostly gcc-hh26 (28), EHBPU2026 (5) and BHS2026 (4).

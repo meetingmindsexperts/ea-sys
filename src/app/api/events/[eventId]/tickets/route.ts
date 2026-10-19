@@ -15,7 +15,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 export { DEFAULT_TIER_NAMES } from "@/lib/presenter-tiers";
 
 const createTicketTypeSchema = z.object({
-  name: z.string().min(1).max(255),
+  name: z.string().trim().min(1).max(255),
   description: z.string().max(2000).optional(),
   isActive: z.boolean().default(true),
   // Type-level approval gate (PENDING registrations) — previously only
@@ -161,14 +161,16 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { name, description, isActive, requiresApproval, sortOrder, quantity, pricingTiers, requiresDocument, documentRequired, documentLabel, documentInstructions, requiresMemberId, requiresStudentId, requiresStudentIdExpiry } = validated.data;
 
-    // Check for duplicate name within the event
+    // No two types on one event share a name, ignoring case ("faculty" next
+    // to "Faculty" is the same type to a person reading the list).
     const existing = await db.ticketType.findFirst({
-      where: { eventId, name },
-      select: { id: true },
+      where: { eventId, name: { equals: name, mode: "insensitive" } },
+      select: { id: true, name: true },
     });
     if (existing) {
+      apiLogger.warn({ msg: "events/tickets:duplicate-name", eventId, name, existingId: existing.id });
       return NextResponse.json(
-        { error: `Registration type "${name}" already exists for this event` },
+        { error: `This event already has a registration type called "${existing.name}"` },
         { status: 409 }
       );
     }

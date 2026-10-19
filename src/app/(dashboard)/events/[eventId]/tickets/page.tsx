@@ -36,6 +36,8 @@ import {
   Check,
   ExternalLink,
   Link2,
+  Mic,
+  AlertTriangle,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { DEFAULT_TIER_NAMES, isPresenterTierName } from "@/lib/presenter-tiers";
@@ -83,6 +85,8 @@ interface TicketType {
   description: string | null;
   isDefault: boolean;
   isActive: boolean;
+  /** The speakers' type: created by the system, hidden from public registration. */
+  isFaculty?: boolean;
   requiresApproval: boolean;
   sortOrder: number;
   quantity: number;
@@ -114,6 +118,31 @@ function parseSeatLimit(raw: string): number | null {
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1) return null;
   return n;
+}
+
+/**
+ * Explains the speakers' type, and flags an ordinary "Faculty" beside it: usually
+ * a leftover from cloning before Jul 27, 2026, which is NOT where speakers go.
+ */
+function FacultyNote({ type, speakersType }: { type: TicketType; speakersType: TicketType | undefined }) {
+  if (type.isFaculty) {
+    return (
+      <p className="text-xs text-sky-800 mt-1">
+        Created by the system for speakers&apos; badges, barcodes and check-in. Never shown on public
+        registration and not counted as delegates.
+      </p>
+    );
+  }
+  if (!speakersType || type.name.trim().toLowerCase() !== "faculty") return null;
+  return (
+    <p className="flex items-start gap-1 text-xs text-amber-800 mt-1">
+      <AlertTriangle className="h-3.5 w-3.5 mt-px shrink-0" />
+      <span>
+        Not the speakers&apos; type. Speakers are registered under &quot;{speakersType.name}&quot;
+        (Speakers, automatic). This is an ordinary type, usually copied in when the event was cloned.
+      </span>
+    </p>
+  );
 }
 
 function toSlug(name: string): string {
@@ -349,14 +378,16 @@ export default function TicketsPage() {
     } catch (err) { console.error("[tickets] operation failed", err); toast.error("Failed to delete"); }
   };
 
+  const speakersType = ticketTypes.find((tt) => tt.isFaculty);
   const totalRegs = ticketTypes.reduce((sum, tt) => sum + tt._count.registrations, 0);
 
   const DEFAULT_TYPES = ["Physician", "Allied Health", "Student", "Resident", "Member"];
   const DEFAULT_TIERS = DEFAULT_TIER_NAMES;
 
   const handleSeedDefaults = async () => {
-    const existingNames = new Set(ticketTypes.map((tt) => tt.name));
-    const missing = DEFAULT_TYPES.filter((name) => !existingNames.has(name));
+    // Ignoring case, like the server's duplicate-name check.
+    const existingNames = new Set(ticketTypes.map((tt) => tt.name.trim().toLowerCase()));
+    const missing = DEFAULT_TYPES.filter((name) => !existingNames.has(name.toLowerCase()));
 
     if (missing.length === 0) {
       // Check if existing types are missing tiers
@@ -509,7 +540,13 @@ export default function TicketsPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="text-base font-bold text-slate-900 truncate">{tt.name}</h3>
                       {tt.isDefault && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Default</Badge>}
+                      {tt.isFaculty && (
+                        <Badge className="text-[10px] px-1.5 py-0 bg-sky-100 text-sky-800 hover:bg-sky-100 border-sky-200">
+                          <Mic className="h-3 w-3 mr-0.5" /> Speakers (automatic)
+                        </Badge>
+                      )}
                     </div>
+                    <FacultyNote type={tt} speakersType={speakersType} />
                     {tt.description && (
                       <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{tt.description}</p>
                     )}

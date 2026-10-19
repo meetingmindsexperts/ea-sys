@@ -151,7 +151,7 @@ describe("POST /api/events/[eventId]/tickets", () => {
 
   it("rejects duplicate name within event", async () => {
     mockAuth.mockResolvedValue(adminSession);
-    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt-existing" }); // duplicate exists
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt-existing", name: "Physician" }); // duplicate exists
 
     const res = await CreateTicket(
       makeRequest("POST", { name: "Physician" }),
@@ -159,7 +159,19 @@ describe("POST /api/events/[eventId]/tickets", () => {
     );
     expect(res.status).toBe(409);
     const data = await res.json();
-    expect(data.error).toContain("already exists");
+    expect(data.error).toContain("already has a registration type called \"Physician\"");
+  });
+
+  it("matches a duplicate ignoring case and surrounding spaces (Oct 19, 2026)", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt-existing", name: "Faculty" });
+
+    const res = await CreateTicket(makeRequest("POST", { name: "  faculty " }), makeListParams("evt-1"));
+    expect(res.status).toBe(409);
+    expect(mockDb.ticketType.findFirst.mock.calls.at(-1)?.[0].where).toEqual({
+      eventId: "evt-1", name: { equals: "faculty", mode: "insensitive" },
+    });
+    expect(mockDb.ticketType.create).not.toHaveBeenCalled();
   });
 
   it("creates with optional pricing tiers", async () => {
@@ -310,13 +322,18 @@ describe("PUT /api/events/[eventId]/tickets/[ticketId]", () => {
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDb.ticketType.findFirst
       .mockResolvedValueOnce(sampleTicketType) // existing ticket
-      .mockResolvedValueOnce({ id: "tt-other" }); // duplicate found
+      .mockResolvedValueOnce({ id: "tt-other", name: "Student" }); // duplicate found
 
     const res = await UpdateTicket(
-      makeRequest("PUT", { name: "Student" }),
+      makeRequest("PUT", { name: "student" }),
       makeDetailParams("evt-1", "tt-1")
     );
     expect(res.status).toBe(409);
+    // Ignoring case, and never against the type being renamed.
+    expect(mockDb.ticketType.findFirst.mock.calls[1][0].where).toEqual({
+      eventId: "evt-1", name: { equals: "student", mode: "insensitive" }, id: { not: "tt-1" },
+    });
+    expect(mockDb.ticketType.update).not.toHaveBeenCalled();
   });
 
   it("returns 404 for non-existent type", async () => {

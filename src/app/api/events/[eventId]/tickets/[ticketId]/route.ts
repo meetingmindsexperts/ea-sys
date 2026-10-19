@@ -10,7 +10,7 @@ import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 
 const updateTicketTypeSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
+  name: z.string().trim().min(1).max(255).optional(),
   description: z.string().max(2000).optional(),
   isActive: z.boolean().optional(),
   // Type-level approval gate — editable so a tier-less type can toggle it.
@@ -136,15 +136,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
-    // Check uniqueness if name is changing
+    // Check uniqueness if name is changing, ignoring case. Only on a rename,
+    // so editing one of an event's existing duplicates still saves.
     if (data.name && data.name !== existing.name) {
       const dup = await db.ticketType.findFirst({
-        where: { eventId, name: data.name, id: { not: ticketId } },
-        select: { id: true },
+        where: { eventId, name: { equals: data.name, mode: "insensitive" }, id: { not: ticketId } },
+        select: { id: true, name: true },
       });
       if (dup) {
+        apiLogger.warn({ msg: "events/tickets:duplicate-name", eventId, ticketTypeId: ticketId, name: data.name, existingId: dup.id });
         return NextResponse.json(
-          { error: `Registration type "${data.name}" already exists` },
+          { error: `This event already has a registration type called "${dup.name}"` },
           { status: 409 }
         );
       }

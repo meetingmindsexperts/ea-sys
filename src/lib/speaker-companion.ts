@@ -17,10 +17,48 @@ import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { Prisma, type Title, type AttendeeRole, type SpeakerStatus } from "@prisma/client";
 
+/** The speakers' type's name when an ordinary "Faculty" already exists and cannot be adopted. */
+export const SPEAKER_FACULTY_FALLBACK_NAME = "Faculty (speakers)";
+
+/** Payment states that mean money was taken, owed or covered: a type holding any is never adopted. */
+const MONEY_PAYMENT_STATUSES = ["PAID", "PENDING", "REFUNDED", "FAILED", "INCLUSIVE"] as const;
+
+/**
+ * An ordinary "Faculty" type the speakers' type may take over, or null.
+ *
+ * Usually a leftover from cloning before Jul 27, 2026, when the clone dropped
+ * `isFaculty` and the hidden type came back as an ordinary one. Adopting it
+ * hides it from public registration and stops its registrations counting as
+ * delegates, so it is only done when the type is free (type, virtual and every
+ * tier at 0) and no registration on it carries money.
+ */
+async function adoptableFacultyType(eventId: string): Promise<{ id: string } | { blocked: string } | null> {
+  const leftover = await db.ticketType.findFirst({
+    where: { eventId, isFaculty: false, name: { equals: "Faculty", mode: "insensitive" } },
+    select: {
+      id: true,
+      price: true,
+      virtualPrice: true,
+      pricingTiers: { where: { price: { gt: 0 } }, select: { id: true }, take: 1 },
+      _count: { select: { registrations: { where: { paymentStatus: { in: [...MONEY_PAYMENT_STATUSES] } } } } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!leftover) return null;
+  const priced = Number(leftover.price) > 0 || Number(leftover.virtualPrice ?? 0) > 0 || leftover.pricingTiers.length > 0;
+  if (priced) return { blocked: "priced" };
+  if (leftover._count.registrations > 0) return { blocked: "paid-registrations" };
+  return { id: leftover.id };
+}
+
 /**
  * Find-or-create the event's hidden Faculty ticket type. Comp (price 0),
  * uncapped, `isFaculty: true` (excluded from public registration + paid
  * capacity). Rare concurrent duplicates are harmless — companions just use one.
+ *
+ * Never a second type called "Faculty" (Oct 19, 2026): an ordinary "Faculty"
+ * already on the event is adopted when that is safe, and otherwise the new
+ * type is named "Faculty (speakers)" so the two can be told apart.
  */
 export async function ensureFacultyTicketType(eventId: string): Promise<string> {
   const existing = await db.ticketType.findFirst({
@@ -30,6 +68,14 @@ export async function ensureFacultyTicketType(eventId: string): Promise<string> 
   });
   if (existing) return existing.id;
 
+  const leftover = await adoptableFacultyType(eventId);
+  if (leftover && "id" in leftover) {
+    // Guarded on isFaculty:false so a concurrent adopt is a no-op, not a second write.
+    await db.ticketType.updateMany({ where: { id: leftover.id, isFaculty: false }, data: { isFaculty: true } });
+    apiLogger.info({ msg: "speaker-companion:faculty-type-adopted", eventId, ticketTypeId: leftover.id });
+    return leftover.id;
+  }
+
   // Denormalized tenant key for the Faculty type (ticketing sweep). Derived
   // from the event; this create fires once per event, so the extra PK lookup
   // is negligible.
@@ -38,11 +84,12 @@ export async function ensureFacultyTicketType(eventId: string): Promise<string> 
     select: { organizationId: true },
   });
 
+  const name = leftover ? SPEAKER_FACULTY_FALLBACK_NAME : "Faculty";
   const created = await db.ticketType.create({
     data: {
       eventId,
       organizationId: ev?.organizationId ?? null,
-      name: "Faculty",
+      name,
       category: "Faculty",
       isFaculty: true,
       isActive: true,
@@ -51,6 +98,13 @@ export async function ensureFacultyTicketType(eventId: string): Promise<string> 
       quantity: 999999,
     },
     select: { id: true },
+  });
+  apiLogger.info({
+    msg: "speaker-companion:faculty-type-created",
+    eventId,
+    ticketTypeId: created.id,
+    name,
+    ...(leftover ? { leftoverNotAdopted: leftover.blocked } : {}),
   });
   return created.id;
 }
