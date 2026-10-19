@@ -56,4 +56,16 @@ describe("speakers import-registrations", () => {
     expect(res.status).toBe(200);
     expect(ensureMock.mock.calls.map((c) => c[0].id)).toEqual(["r1", "r2"]);
   });
+
+  it("a failed barcode mint does not fail the import (review L1)", async () => {
+    mockDb.registration.findMany.mockResolvedValue([reg("r1", "uzma@x.test", null), reg("r2", "dina@x.test", null)]);
+    ensureMock.mockRejectedValueOnce(new Error("db blip"));
+    const res = await POST(
+      new Request("http://localhost/api/x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registrationIds: ["r1", "r2"] }) }),
+      { params: Promise.resolve({ eventId: "ev-1" }) },
+    );
+    expect(res.status).toBe(200);
+    // The next row is still attempted.
+    expect(ensureMock.mock.calls.map((c) => c[0].id)).toEqual(["r1", "r2"]);
+  });
 });

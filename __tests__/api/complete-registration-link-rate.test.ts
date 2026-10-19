@@ -343,5 +343,7 @@ describe("POST with a rated link", () => {
     mockDb.registration.findFirst.mockResolvedValue(registration({ qrCode: null, attendanceMode: "VIRTUAL" }));
     await post();
     expect(tx.registration.updateMany.mock.calls.some((c) => c[0].data?.qrCode)).toBe(false);
+    // The email knows they attend online: no barcode, the virtual note (review L3).
+    expect(confirmationMock.mock.calls[0][0].attendanceMode).toBe("VIRTUAL");
   });
 });

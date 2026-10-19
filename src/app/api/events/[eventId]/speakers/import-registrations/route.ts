@@ -144,8 +144,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Each new speaker's badge and check-in use their registration's
       // barcode; one made without a barcode (Import from Contacts, before
       // Oct 19, 2026) gets one now.
+      // Failure-isolated per row (review of 35eb4e35, L1): the speakers are
+      // already created, so one failed mint must not turn the import into a
+      // 500 the organiser would retry for nothing (a retry skips them as
+      // existing). The backfill script recovers any that fail.
       for (const r of dedupedToCreate) {
-        await ensureEntryBarcode(r, "speaker-imported-from-registration");
+        try {
+          await ensureEntryBarcode(r, "speaker-imported-from-registration");
+        } catch (err) {
+          apiLogger.error({ err, msg: "speakers/import-registrations:barcode-mint-failed", eventId, registrationId: r.id });
+        }
       }
     }
 

@@ -94,6 +94,13 @@ describe("ensureSpeakerCompanionRegistration", () => {
     });
   });
 
+  it("a failed barcode mint still reports the speaker as linked (review L2)", async () => {
+    registrationFindFirst.mockResolvedValueOnce({ id: "reg_match", qrCode: null, attendanceMode: "IN_PERSON" });
+    registrationUpdateMany.mockRejectedValueOnce(new Error("db blip"));
+    const res = await ensureSpeakerCompanionRegistration(base);
+    expect(res).toEqual({ status: "linked-by-email", registrationId: "reg_match" });
+  });
+
   it("a linked registration keeps its barcode, and a virtual one gets none", async () => {
     registrationFindFirst.mockResolvedValueOnce({ id: "reg_match", qrCode: "QR1", attendanceMode: "IN_PERSON" });
     await ensureSpeakerCompanionRegistration(base);

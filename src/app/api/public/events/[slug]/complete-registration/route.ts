@@ -1056,6 +1056,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         registrationId,
         serialId: registration.serialId,
         qrCode: registration.qrCode ?? mintedQrCode ?? "",
+        // A virtual attendee's email carries no barcode and gets the virtual
+        // note (review of 35eb4e35, L3: the code is real now, not always "").
+        attendanceMode: registration.attendanceMode,
         eventSlug: registration.event.slug,
         ticketPrice: finalPrice,
         ticketCurrency: finalCurrency,

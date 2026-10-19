@@ -166,7 +166,14 @@ export async function ensureSpeakerCompanionRegistration(
       // The speaker's badge and check-in use this registration's barcode. One
       // made by a path that minted none (Import from Contacts, before Oct 19,
       // 2026) gets one now; guarded on qrCode: null, so none is ever replaced.
-      await ensureEntryBarcode(existing, "speaker-linked");
+      // Failure-isolated (review of 35eb4e35, L2): the link above is already
+      // made, so a failed mint must not report the speaker as failed. The
+      // backfill script recovers it.
+      try {
+        await ensureEntryBarcode(existing, "speaker-linked");
+      } catch (err) {
+        apiLogger.error({ err, msg: "speaker-companion:barcode-mint-failed", speakerId: speaker.id, registrationId: existing.id });
+      }
       apiLogger.info({
         msg: "speaker-companion:linked-existing",
         speakerId: speaker.id,
