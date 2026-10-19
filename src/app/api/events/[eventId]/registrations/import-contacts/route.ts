@@ -8,6 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getNextSerialId } from "@/lib/registration-serial";
+import { generateBarcode } from "@/lib/utils";
 import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 import { resolveImportFallbackTicketType } from "@/lib/import-ticket-type";
 
@@ -195,6 +196,11 @@ export async function POST(req: Request, { params }: RouteParams) {
               pricingTierId: tier?.id ?? null,
               attendeeId: attendee.id,
               serialId,
+              // The entry barcode, as every other way of adding someone mints
+              // one. This route never did (Oct 19, 2026: 49 in-person rows on
+              // prod with no barcode, so no scan at check-in and no barcode on
+              // the badge). Rows here are always in person (the default).
+              qrCode: generateBarcode(),
               // Stamp the price at create so finance surfaces resolve it
               // tier-aware (closes the deferred "unstamped import path").
               // Uncategorised rows have no price → stays null.

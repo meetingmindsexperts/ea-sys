@@ -139,6 +139,8 @@ describe("import-contacts — full contact field carry", () => {
     expect(regData.ticketTypeId).toBe("T");
     expect(regData.originalPrice).toBe(100);
     expect(regData.paymentStatus).toBeUndefined(); // typed rows keep schema defaults
+    // Every in-person row gets an entry barcode (Oct 19, 2026: this route never minted one).
+    expect(regData.qrCode).toEqual(expect.stringMatching(/^\d{13,}$/));
     expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "T", soldCount: { lte: 49 } } }),
     );
@@ -154,6 +156,7 @@ describe("import-contacts — typeless (uncategorised) import", () => {
     expect(regData.ticketTypeId).toBeNull();
     expect(regData.paymentStatus).toBe("COMPLIMENTARY"); // nothing to owe without a price
     expect(regData.originalPrice).toBeNull(); // no price to stamp
+    expect(regData.qrCode).toEqual(expect.stringMatching(/^\d{13,}$/));
     // No ticket-type counter to move — but the event-wide counter still counts them.
     expect(mockDb._tx.ticketType.updateMany).not.toHaveBeenCalled();
     expect(mockDb._tx.event.updateMany).toHaveBeenCalledWith(

@@ -21,6 +21,7 @@ import { linkMayReprice, priceAtLinkRate, RESTAMPABLE_STATUSES, stampedPaymentSt
 import { applyRegistrationTransition, claimSeat } from "@/lib/registration-seat-db";
 import { holdsSeat, seatCounter, type SeatState } from "@/lib/registration-seat";
 import { registerTierSlug } from "@/lib/main-register-tiers";
+import { generateBarcode } from "@/lib/utils";
 import {
   readIdentityEvidencePolicy,
   missingIdentityEvidence,
@@ -608,6 +609,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         // includes paymentStatus: a status someone EXPLICITLY set, CSV column
         // or admin sheet, PAID, INCLUSIVE, …, must survive completion).
         createdSource: true,
+        // An in-person registration that reached completion without an entry
+        // barcode is given one here (Oct 19, 2026: Import from Contacts never
+        // minted one).
+        qrCode: true,
         ...LINK_REPRICE_SELECT,
         ticketType: { select: { id: true, name: true, price: true, currency: true, ...IDENTITY_EVIDENCE_SELECT } },
         pricingTier: { select: { id: true, name: true, price: true, currency: true } },
@@ -785,6 +790,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     const flipToPending =
       !!selfSelectedType && selfSelectedType.requiresApproval && registration.status === "CONFIRMED";
 
+    // A barcode for an in-person registration that has none (see the tx).
+    const mintedQrCode = !registration.qrCode && registration.attendanceMode === "IN_PERSON" ? generateBarcode() : null;
+    if (mintedQrCode) apiLogger.info({ msg: "complete-registration:barcode-minted", registrationId });
+
     // Update attendee + delete token in transaction
     try {
     await tenantTransaction(async (tx) => {
@@ -899,6 +908,12 @@ export async function POST(req: Request, { params }: RouteParams) {
           ...(ratedPlan && { registrationType: ratedPlan.type.name }),
         },
       });
+
+      // The entry barcode, if this in-person registration never got one. The
+      // where keeps it to rows still without one, so nothing is replaced.
+      if (mintedQrCode) {
+        await tx.registration.updateMany({ where: { id: registrationId, qrCode: null }, data: { qrCode: mintedQrCode } });
+      }
 
       // Delete token (one-time use)
       await tx.verificationToken.delete({ where: { token: hashedToken } });
@@ -1043,7 +1058,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         pricingTierName: final.tierName,
         registrationId,
         serialId: registration.serialId,
-        qrCode: "",
+        qrCode: registration.qrCode ?? mintedQrCode ?? "",
         eventSlug: registration.event.slug,
         ticketPrice: finalPrice,
         ticketCurrency: finalCurrency,

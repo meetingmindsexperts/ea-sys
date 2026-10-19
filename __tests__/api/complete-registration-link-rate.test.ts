@@ -92,6 +92,7 @@ function registration(over: Record<string, unknown> = {}) {
     createdSource: "CSV_IMPORT",
     pricingTierId: "t-eb",
     sponsorId: null,
+    qrCode: "QR-EXISTING",
     refundedAmount: 0,
     promoCodeId: null,
     groupId: null,
@@ -315,5 +316,32 @@ describe("POST with a rated link", () => {
     const res = await post();
     expect(res.status).toBe(200);
     expect(rowWrite().data).toMatchObject({ pricingTierId: "t-eb", originalPrice: 40, paymentStatus: "UNASSIGNED" });
+  });
+
+  it("an in-person registration with no barcode gets one at completion, and it goes in the email", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(registration({ qrCode: null }));
+    const res = await post();
+    expect(res.status).toBe(200);
+    const mint = tx.registration.updateMany.mock.calls.find((c) => c[0].data?.qrCode);
+    expect(mint?.[0]).toMatchObject({ where: { id: "reg-1", qrCode: null }, data: { qrCode: expect.stringMatching(/^\d{13,}$/) } });
+    expect(confirmationMock.mock.calls[0][0].qrCode).toBe(mint?.[0].data.qrCode);
+  });
+
+  it("an existing barcode is kept, and a virtual attendee gets none", async () => {
+    await post();
+    expect(tx.registration.updateMany.mock.calls.some((c) => c[0].data?.qrCode)).toBe(false);
+    expect(confirmationMock.mock.calls[0][0].qrCode).toBe("QR-EXISTING");
+    vi.clearAllMocks();
+    token();
+    mockDb.ticketType.findFirst.mockResolvedValue(PHYS);
+    mockDb.ticketType.findUnique.mockResolvedValue(PHYS);
+    tx.registration.updateMany.mockResolvedValue({ count: 1 });
+    tx.attendee.update.mockResolvedValue({});
+    tx.verificationToken.delete.mockResolvedValue({});
+    tx.auditLog.create.mockResolvedValue({});
+    transitionMock.mockResolvedValue(undefined);
+    mockDb.registration.findFirst.mockResolvedValue(registration({ qrCode: null, attendanceMode: "VIRTUAL" }));
+    await post();
+    expect(tx.registration.updateMany.mock.calls.some((c) => c[0].data?.qrCode)).toBe(false);
   });
 });

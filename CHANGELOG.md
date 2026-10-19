@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations: Import from Contacts now gives an entry barcode (October 19)
+
+- "Import from Contacts" never minted `qrCode`, unlike every other way of adding someone, so those people could not be scanned at check-in and their badge printed without a barcode. Found on BHS2026 (Uzma Sharif, Dina Ortiz); 49 live in-person registrations on prod, mostly gcc-hh26 (28), EHBPU2026 (5) and BHS2026 (4).
+- The route now mints one per row. Safety net: completing a registration form mints one for an in-person registration that still has none, and the confirmation email carries it (it always sent an empty barcode before).
+- `scripts/backfill-registration-qrcodes.ts` revised for the existing rows: in-person and not cancelled only (it used to include virtual and cancelled rows), optional `--event <slug>`, dry run unless `--write`, guarded on `qrCode: null` so it never replaces a barcode, audited as BARCODE_BACKFILL. Run on the box: `docker exec ea-sys-worker npx tsx scripts/backfill-registration-qrcodes.ts [--event SLUG] [--write]`.
+
 ### Roles: a CRM User can be given event work (October 19)
 
 - Owner request: a salesperson (CRM User) given a "Sales" role to see events and add sponsors was refused as outside the base role. A custom role may now add events, the registration desk and organisation permissions to a CRM User (`CRM_USER.extendableAreas`), never Budgets or HR; other base roles are unchanged.
