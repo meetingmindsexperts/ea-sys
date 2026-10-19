@@ -8,6 +8,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { refreshEventStats } from "@/lib/event-stats";
+import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import { getClientIp } from "@/lib/security";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -140,6 +141,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         })),
         skipDuplicates: true,
       });
+      // Each new speaker's badge and check-in use their registration's
+      // barcode; one made without a barcode (Import from Contacts, before
+      // Oct 19, 2026) gets one now.
+      for (const r of dedupedToCreate) {
+        await ensureEntryBarcode(r, "speaker-imported-from-registration");
+      }
     }
 
     // Refresh denormalized event stats (fire-and-forget)

@@ -21,7 +21,7 @@ import { linkMayReprice, priceAtLinkRate, RESTAMPABLE_STATUSES, stampedPaymentSt
 import { applyRegistrationTransition, claimSeat } from "@/lib/registration-seat-db";
 import { holdsSeat, seatCounter, type SeatState } from "@/lib/registration-seat";
 import { registerTierSlug } from "@/lib/main-register-tiers";
-import { generateBarcode } from "@/lib/utils";
+import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import {
   readIdentityEvidencePolicy,
   missingIdentityEvidence,
@@ -790,9 +790,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const flipToPending =
       !!selfSelectedType && selfSelectedType.requiresApproval && registration.status === "CONFIRMED";
 
-    // A barcode for an in-person registration that has none (see the tx).
-    const mintedQrCode = !registration.qrCode && registration.attendanceMode === "IN_PERSON" ? generateBarcode() : null;
-    if (mintedQrCode) apiLogger.info({ msg: "complete-registration:barcode-minted", registrationId });
+    // A barcode for an in-person registration that has none, set in the tx.
+    let mintedQrCode: string | null = null;
 
     // Update attendee + delete token in transaction
     try {
@@ -911,9 +910,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       // The entry barcode, if this in-person registration never got one. The
       // where keeps it to rows still without one, so nothing is replaced.
-      if (mintedQrCode) {
-        await tx.registration.updateMany({ where: { id: registrationId, qrCode: null }, data: { qrCode: mintedQrCode } });
-      }
+      mintedQrCode = await ensureEntryBarcode(registration, "registration-completed", tx);
 
       // Delete token (one-time use)
       await tx.verificationToken.delete({ where: { token: hashedToken } });

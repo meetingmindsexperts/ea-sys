@@ -13,6 +13,7 @@
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
+import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { Prisma, type Title, type AttendeeRole, type SpeakerStatus } from "@prisma/client";
 
@@ -165,15 +166,7 @@ export async function ensureSpeakerCompanionRegistration(
       // The speaker's badge and check-in use this registration's barcode. One
       // made by a path that minted none (Import from Contacts, before Oct 19,
       // 2026) gets one now; guarded on qrCode: null, so none is ever replaced.
-      if (!existing.qrCode && existing.attendanceMode === "IN_PERSON") {
-        const minted = await db.registration.updateMany({
-          where: { id: existing.id, qrCode: null },
-          data: { qrCode: generateBarcode() },
-        });
-        if (minted.count > 0) {
-          apiLogger.info({ msg: "speaker-companion:barcode-minted-on-link", speakerId: speaker.id, registrationId: existing.id });
-        }
-      }
+      await ensureEntryBarcode(existing, "speaker-linked");
       apiLogger.info({
         msg: "speaker-companion:linked-existing",
         speakerId: speaker.id,
