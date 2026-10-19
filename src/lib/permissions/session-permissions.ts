@@ -24,7 +24,7 @@ import { db } from "@/lib/db";
 import { authLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { decodeSessionGrant, encodeSessionGrant, isGrantableKey } from "./catalogue";
-import { customGrantAreas } from "./key-areas";
+import { customGrantAreas, customOrgPages } from "./key-areas";
 import { systemRoleFor } from "./system-roles";
 import { isCustomRolesEnabled } from "@/lib/module-flags";
 
@@ -69,7 +69,20 @@ export async function permissionsForHeldSets(
   organizationId: string | null | undefined,
   held: readonly HeldSet[] | null | undefined,
 ): Promise<string[]> {
-  if (!organizationId || !held || held.length === 0) return [];
+  return (await resolveHeldKeys(organizationId, held)).keys;
+}
+
+/**
+ * The held roles' keys, and whether every role resolved. A failed lookup is
+ * logged and leaves `complete` false, so a caller that must not shrink on a
+ * database blip (the token's `extraAreas`) can keep what it had.
+ */
+async function resolveHeldKeys(
+  organizationId: string | null | undefined,
+  held: readonly HeldSet[] | null | undefined,
+): Promise<{ keys: string[]; complete: boolean }> {
+  if (!organizationId || !held || held.length === 0) return { keys: [], complete: true };
+  let complete = true;
 
   const missing = held.filter((h) => !keysBySetVersion.has(cacheKey(h)));
   if (missing.length > 0) {
@@ -91,16 +104,16 @@ export async function permissionsForHeldSets(
         keysBySetVersion.set(cacheKey([row.id, row.version]), keys);
       }
     } catch (err) {
+      complete = false;
       authLogger.warn({ err, msg: "auth:permissions-resolve-failed", organizationId, missing: missing.length });
     }
   }
 
   const union = new Set<string>();
   for (const h of held) for (const key of keysBySetVersion.get(cacheKey(h)) ?? []) union.add(key);
-  return [...union];
+  return { keys: [...union], complete };
 }
 
-/** Rough size of the cookie a token encodes to: JSON, encrypted and base64-encoded, is about 1.4 times its JSON. */
 /**
  * The areas this person's held custom roles add beyond their base role, as
  * area names for the cookie (customGrantAreas). Empty, with no query, for a
@@ -111,14 +124,19 @@ export async function extraAreasForToken(
   role: string | null | undefined,
   organizationId: string | null | undefined,
   held: readonly HeldSet[] | null | undefined,
-): Promise<string[]> {
+): Promise<string[] | null> {
   if (!systemRoleFor(role)?.extendableAreas?.length) return [];
-  const keys = await permissionsForHeldSets(organizationId, held);
+  const { keys, complete } = await resolveHeldKeys(organizationId, held);
+  // A lookup that failed must not shrink the person's pages on a blip
+  // (review of 4515a5ca, L2): null tells the caller to keep what it had.
+  if (!complete) return null;
   const grants = keys.map(decodeSessionGrant).map((g) => ({ permission: g.permission, scope: g.scope ?? null }));
-  return customGrantAreas(role, grants).map((a) => a.area);
+  // Areas by name, and organisation pages one by one as "org:/contacts" (L4).
+  return [...customGrantAreas(role, grants).map((a) => a.area), ...customOrgPages(role, grants).map((page) => `org:${page}`)];
 }
 
 export const COOKIE_WARN_BYTES = 3_000;
+/** Rough size of the cookie a token encodes to: JSON, encrypted and base64-encoded, is about 1.4 times its JSON. */
 export function estimatedCookieBytes(token: object): number {
   return Math.ceil(JSON.stringify(token).length * 1.4);
 }

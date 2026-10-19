@@ -6,7 +6,9 @@ import { systemRoleFor, type Area, type AreaGrant, type GrantScope } from "./sys
  * fits inside a person's base role (review M6, Oct 6, 2026).
  *
  * The design says a custom role ADDS keys within the areas the base role
- * already works in: no new areas. The sidebar and the middleware enforce
+ * already works in, plus any of the base role's `extendableAreas` (only CRM
+ * User has them, Oct 19, 2026: a role may give a salesperson event work, and
+ * the person then works that area through `customGrantAreas`). The sidebar and the middleware enforce
  * areas, the API does not, so without this a CRM user given "export
  * registrations" could pull them through the API while every page of theirs
  * redirected to the CRM. The rule is applied where a grant reaches a person:
@@ -76,6 +78,39 @@ export function grantsOutsideAreas(baseRole: string | null | undefined, grants: 
  * base role's scope for them: never more than the base role allows a role to
  * add, and nothing at all for a role without extendable areas.
  */
+/**
+ * The organisation pages, and the keys that open each (review of 4515a5ca,
+ * L4). A custom role that extends a base role into the organisation area
+ * opens only the pages whose keys it grants, never all of them: one "AI
+ * agent" key must not open Settings or the invoice book. Keys that open no
+ * page (the field-visibility keys) open nothing. Client-safe.
+ */
+export const ORG_PAGE_KEYS: Readonly<Record<string, readonly string[]>> = {
+  "/contacts": ["contacts.read", "contacts.write", "contacts.delete", "contacts.import", "contacts.export"],
+  "/invoices": ["invoices.ledger"],
+  "/media": ["media.library.manage"],
+  "/activity": ["activity.org.read", "loginActivity.read"],
+  "/agent": ["agent.use"],
+  "/settings": [
+    "org.settings", "org.credentials", "users.read", "users.invite", "users.manage", "roles.manage",
+    "billingAccounts.read", "billingAccounts.manage", "apiKeys.manage",
+  ],
+};
+
+/**
+ * The organisation pages a held custom role opens for a base role that may be
+ * extended into the organisation area: only pages whose keys the role grants
+ * and the base role does not already hold.
+ */
+export function customOrgPages(baseRole: string | null | undefined, grants: readonly AreaGrantRequest[]): string[] {
+  const role = systemRoleFor(baseRole);
+  if (!role?.extendableAreas?.some((a) => a.area === "org")) return [];
+  const added = grants.filter((g) => !role.grants.some((r) => r.permission === g.permission)).map((g) => g.permission);
+  return Object.entries(ORG_PAGE_KEYS)
+    .filter(([, keys]) => keys.some((k) => added.includes(k)))
+    .map(([page]) => page);
+}
+
 export function customGrantAreas(baseRole: string | null | undefined, grants: readonly AreaGrantRequest[]): AreaGrant[] {
   const role = systemRoleFor(baseRole);
   const extendable = role?.extendableAreas ?? [];
@@ -86,6 +121,9 @@ export function customGrantAreas(baseRole: string | null | undefined, grants: re
     // contacts.read must not open the organisation's Settings).
     if (role.grants.some((r) => r.permission === g.permission && scopeCovers(r.scope ?? null, g.scope))) continue;
     const area = keyArea(g.permission);
+    // The organisation area is never opened whole by a custom role: its pages
+    // open one by one (customOrgPages).
+    if (area === "org") continue;
     const allowedAs = extendable.find((a) => a.area === area && scopeCovers(a.scope, g.scope));
     if (allowedAs && !out.some((a) => a.area === area)) out.push(allowedAs);
   }

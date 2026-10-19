@@ -74,8 +74,9 @@ function staffRedirect(areas: readonly AreaGrant[], pathname: string, homeAreas:
  * legacy procurement columns or a custom procurement key opens Budgets. Without
  * them the middleware sent, say, a CRM user with a budget grant away from
  * /procurement although its API admitted them (review of 0875035c, Oct 7,
- * 2026). Custom roles never add an area (key-areas.ts), so these are the only
- * additions.
+ * 2026). The other addition is `extraAreas`: the areas a held custom role
+ * adds where the base role allows it (CRM User, Oct 19, 2026; key-areas.ts
+ * `customGrantAreas`), filtered again here against the base role.
  */
 export interface ConfinementGrants {
   hrAccess?: boolean | null;
@@ -117,7 +118,14 @@ export function confinementRedirect(role: string | null | undefined, pathname: s
     // Person grants add a module only to a role that works somewhere already.
     // A custom role's extra areas count only where the base role lets a role
     // extend into them (a CRM User with a sponsors role opens Events).
-    const extra = (system?.extendableAreas ?? []).filter((a) => (grants?.extraAreas ?? []).includes(a.area));
+    const extraNames = grants?.extraAreas ?? [];
+    const extra = (system?.extendableAreas ?? []).filter((a) => a.area !== "org" && extraNames.includes(a.area));
+    // Organisation pages open one by one ("org:/contacts"), and only where the
+    // base role may be extended into the organisation area (review L4).
+    if (system?.extendableAreas?.some((a) => a.area === "org")) {
+      const pages = extraNames.filter((n) => n.startsWith("org:")).map((n) => n.slice(4));
+      if (pages.some((page) => under(pathname, page))) return null;
+    }
     return staffRedirect(base.length > 0 ? [...base, ...personAreas(grants), ...extra] : base, pathname, base);
   }
 

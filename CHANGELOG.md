@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Roles: a CRM User can be given event work (October 19)
+
+- Owner request: a salesperson (CRM User) given a "Sales" role to see events and add sponsors was refused as outside the base role. A custom role may now add events, the registration desk and organisation permissions to a CRM User (`CRM_USER.extendableAreas`), never Budgets or HR; other base roles are unchanged.
+- The person works only what the role grants: pages and the sidebar follow the held roles through the session's `extraAreas`, and each organisation page opens only with its own key (`ORG_PAGE_KEYS`: "AI agent" opens the agent, not Settings). A plain CRM User is exactly as confined as before, and a salesperson still starts in the CRM. API decisions never read areas, only the role's keys.
+- Review fixes the same day: the pages follow a role change at once (recomputed on every staff request, not every 5 minutes); a database blip keeps the person's pages rather than shrinking them; the sidebar loads the event for a CRM User who works events; `extendableAreas` is pinned in the frozen role snapshot.
+
 ### Registration form links at a rate (October 16)
 
 - Send Registration Form now asks for a **rate** (any rate on the event, or Complimentary), a **sponsor** for a sponsor-link rate, and how many days the link lasts (1 to 365, default 7). Plan and owner decisions: `docs/REGISTRATION_FORM_LINKS_PLAN.md`.

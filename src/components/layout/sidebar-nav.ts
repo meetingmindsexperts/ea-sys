@@ -45,7 +45,8 @@ import { webinarModuleFilter } from "@/lib/webinar";
 import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-surfaces";
 import { holdsCustomProcurementKey } from "@/lib/procurement-visibility";
 import { can, inArea, principalFromUser, type EventFacts } from "@/lib/permissions/can";
-import type { PermissionKey } from "@/lib/permissions/catalogue";
+import { decodeSessionGrant, type PermissionKey } from "@/lib/permissions/catalogue";
+import { customOrgPages } from "@/lib/permissions/key-areas";
 import type { Area } from "@/lib/permissions/system-roles";
 
 // Surface the CRM entry in the normal staff sidebar (for roles with `canCrm`).
@@ -248,12 +249,17 @@ export interface SidebarNav {
   hidden: boolean;
 }
 
-/** Roles whose sidebar never branches on the event, so the event is not fetched. */
-export function sidebarSkipsEventFetch(role: string | null | undefined): boolean {
+/**
+ * Roles whose sidebar never branches on the event, so the event is not
+ * fetched. A CRM User whose custom role adds event work does branch on it
+ * (webinar-only modules, WEBINAR-scoped keys: review of 4515a5ca, L3), so
+ * `extraAreas` (the session's areas a held role adds) turns the fetch on.
+ */
+export function sidebarSkipsEventFetch(role: string | null | undefined, extraAreas?: readonly string[] | null): boolean {
   const isReviewer = role === "REVIEWER";
   const isSubmitter = role === "SUBMITTER";
   const isOnsite = role === "ONSITE";
-  const isCrmUser = role === "CRM_USER";
+  const isCrmUser = role === "CRM_USER" && !(extraAreas ?? []).includes("events");
   const isRestricted = isReviewer || isSubmitter;
   return isRestricted || isOnsite || isCrmUser;
 }
@@ -302,8 +308,15 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
   // and MEMBER lost both as base access: an organiser's old display rule
   // would now hide a CRM a custom role gave them.
 
+  // Organisation pages a held custom role opens one by one (a CRM User given
+  // "AI agent" sees Agent, not Settings: review of 4515a5ca, L4).
+  const extendedOrgPages = customOrgPages(
+    role,
+    (customKeys ?? []).map(decodeSessionGrant).map((g) => ({ permission: g.permission, scope: g.scope ?? null })),
+  );
   const baseNavigation = navigation.filter((item) => {
-    if (!item.areas.some((area) => inArea(p, area))) return false;
+    const openedOneByOne = extendedOrgPages.includes(item.href);
+    if (!openedOneByOne && !item.areas.some((area) => inArea(p, area))) return false;
     if (item.crmOnly && !CRM_IN_SIDEBAR) return false;
     if (item.hrOnly && !hrEnabled) return false;
     if (item.blueprintOnly && !blueprintEnabled) return false;

@@ -241,7 +241,7 @@ typed URL lands somewhere sensible.
 | Role | Allowed | Everything else |
 |---|---|---|
 | REGISTRANT | `/my-registration`, `/api/*` | redirected to `/my-registration` |
-| CRM_USER | `/crm*`, `/api/*`; plus `/events*` and organisation pages while a held custom role grants keys there (the session's `extraAreas`) | redirected to `/crm` |
+| CRM_USER | `/crm*`, `/api/*`; plus `/events*` while a held custom role grants event or desk keys, and each organisation page (`/agent`, `/contacts`, `/settings`, ...) only while the role grants that page's key (`ORG_PAGE_KEYS`; the session's `extraAreas`, e.g. `org:/agent`) | redirected to `/crm` |
 | HR_USER | `/hr*`, `/api/*` | redirected to `/hr` |
 | ONSITE | `/events` (list), an event's `/registrations*` and `/check-in*`, `/api/*` | dashboard, settings, logs, contacts redirect to `/events`; any other event page redirects to that event's registrations |
 | WEBINARS | `/events*` including `/events/new`, `/api/*` | dashboard, settings, logs, contacts, crm, admin, invoices redirect to `/events` |

@@ -12,6 +12,7 @@ exports[`built-in role grants > ADMIN 1`] = `
     "procurement",
   ],
   "baseRole": "ADMIN",
+  "extendableAreas": [],
   "grants": [
     "abstracts.criteria.manage@ALL",
     "abstracts.decide@ALL",
@@ -175,6 +176,7 @@ exports[`built-in role grants > API_KEY 1`] = `
 {
   "areas": [],
   "baseRole": null,
+  "extendableAreas": [],
   "grants": [
     "abstracts.criteria.manage@ALL",
     "abstracts.decide@ALL",
@@ -250,6 +252,11 @@ exports[`built-in role grants > CRM_USER 1`] = `
     "crm",
   ],
   "baseRole": "CRM_USER",
+  "extendableAreas": [
+    "desk@ALL",
+    "events@ALL",
+    "org",
+  ],
   "grants": [
     "contacts.read",
     "crm.dealValues.view",
@@ -270,6 +277,7 @@ exports[`built-in role grants > HR_USER 1`] = `
     "hr",
   ],
   "baseRole": "HR_USER",
+  "extendableAreas": [],
   "grants": [
     "hr.read",
     "hr.write",
@@ -292,6 +300,7 @@ exports[`built-in role grants > MEMBER 1`] = `
     "procurement",
   ],
   "baseRole": "MEMBER",
+  "extendableAreas": [],
   "grants": [
     "abstracts.read@ALL",
     "accommodation.read@ALL",
@@ -336,6 +345,7 @@ exports[`built-in role grants > ONSITE 1`] = `
     "desk@ASSIGNED",
   ],
   "baseRole": "ONSITE",
+  "extendableAreas": [],
   "grants": [
     "abstracts.read@ASSIGNED",
     "analytics.read@ASSIGNED",
@@ -379,6 +389,7 @@ exports[`built-in role grants > ORGANIZER 1`] = `
     "procurement",
   ],
   "baseRole": "ORGANIZER",
+  "extendableAreas": [],
   "grants": [
     "abstracts.criteria.manage@ALL",
     "abstracts.decide@ALL",
@@ -519,6 +530,7 @@ exports[`built-in role grants > SUPER_ADMIN 1`] = `
     "procurement",
   ],
   "baseRole": "SUPER_ADMIN",
+  "extendableAreas": [],
   "grants": [
     "abstracts.criteria.manage@ALL",
     "abstracts.decide@ALL",
@@ -694,6 +706,7 @@ exports[`built-in role grants > WEBINARS 1`] = `
     "procurement",
   ],
   "baseRole": "WEBINARS",
+  "extendableAreas": [],
   "grants": [
     "abstracts.read@WEBINAR",
     "analytics.read@WEBINAR",

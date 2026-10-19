@@ -481,17 +481,19 @@ export const {
 
       // Areas a held custom role adds (a CRM User whose role adds sponsors
       // works events), for the middleware's page confinement. Recomputed
-      // whenever heldRoles is: sign-in, an explicit update, the 5-minute pass.
-      if (user || trigger === "update" || dueForPeriodicCheck) {
-        try {
-          token.extraAreas = await extraAreasForToken(
-            token.role as string | undefined,
-            token.organizationId as string | null | undefined,
-            token.heldRoles as HeldSet[] | undefined,
-          );
-        } catch (err) {
-          authLogger.warn({ err, msg: "auth:extra-areas-failed", userId: token.id });
-        }
+      // whenever heldRoles can change: sign-in, an explicit update, every
+      // staff request (heldRoles is re-read on each, review L1) and the
+      // 5-minute pass. Cheap: the keys come from a per-version cache, and a
+      // role custom roles cannot extend asks nothing. A failed lookup keeps
+      // the previous value rather than shrinking access on a blip (L2).
+      if (user || trigger === "update" || isStaff || dueForPeriodicCheck) {
+        const extra = await extraAreasForToken(
+          token.role as string | undefined,
+          token.organizationId as string | null | undefined,
+          token.heldRoles as HeldSet[] | undefined,
+        );
+        if (extra) token.extraAreas = extra;
+        else authLogger.warn({ msg: "auth:extra-areas-kept-on-lookup-failure", userId: token.id });
       }
 
       // ROADMAP "Session cookie size" option 4: see the cookie growing long

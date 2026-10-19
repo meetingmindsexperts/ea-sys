@@ -64,7 +64,7 @@ export function Sidebar() {
 
   // Fetch event to know eventType (cached by React Query across navigation).
   // Skip fetch on non-event pages and for restricted roles whose sidebar doesn't branch.
-  const { data: currentEvent } = useEvent(isEventPage && !sidebarSkipsEventFetch(role) ? (eventId as string) : "");
+  const { data: currentEvent } = useEvent(isEventPage && !sidebarSkipsEventFetch(role, session?.user?.extraAreas) ? (eventId as string) : "");
   // Submitter surface separation — which of Abstracts / Session Proposals this
   // submitter's signup flow covers (null while loading → show neither).
   const { data: submitterCtx } = useSubmitterContext(

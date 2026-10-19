@@ -18,6 +18,9 @@ describe("built-in role grants", () => {
         baseRole: role.baseRole,
         grants: role.grants.map((g) => (g.scope ? `${g.permission}@${g.scope}` : g.permission)).sort(),
         areas: role.areas.map((a) => (a.scope ? `${a.area}@${a.scope}` : a.area)).sort(),
+        // Areas a custom role may ADD (Oct 19, 2026: CRM User only). Pinned so
+        // widening any role's reach is a reviewed snapshot change (review L5).
+        extendableAreas: (role.extendableAreas ?? []).map((a) => (a.scope ? `${a.area}@${a.scope}` : a.area)).sort(),
         impliedPersonGrants: [...role.impliedPersonGrants].sort(),
       }).toMatchSnapshot();
     });

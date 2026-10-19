@@ -15,10 +15,10 @@ vi.mock("@/lib/logger", () => ({ authLogger: { warn: vi.fn(), info: vi.fn(), err
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/module-flags", () => ({ isCustomRolesEnabled: () => true }));
 
-import { customGrantAreas, grantsOutsideAreas } from "@/lib/permissions/key-areas";
+import { customGrantAreas, customOrgPages, grantsOutsideAreas } from "@/lib/permissions/key-areas";
 import { can, inArea, principalFromUser } from "@/lib/permissions/can";
 import { confinementRedirect } from "@/lib/route-confinement";
-import { computeSidebarNav } from "@/components/layout/sidebar-nav";
+import { computeSidebarNav, sidebarSkipsEventFetch } from "@/components/layout/sidebar-nav";
 import { clearSessionPermissionCache, extraAreasForToken } from "@/lib/permissions/session-permissions";
 
 const SALES = ["events.read@ALL", "sponsors.read@ALL", "sponsors.manage@ALL", "crm.export"];
@@ -70,7 +70,7 @@ describe("pages and the sidebar", () => {
   });
 
   it("with the Sales role's areas, Events and an event's pages open; HR and Budgets do not", () => {
-    const grants = { extraAreas: ["events", "desk", "org"] };
+    const grants = { extraAreas: ["events", "desk"] };
     expect(confinementRedirect("CRM_USER", "/events", grants)).toBeNull();
     expect(confinementRedirect("CRM_USER", "/events/ev1/sponsors", grants)).toBeNull();
     expect(confinementRedirect("CRM_USER", "/crm", grants)).toBeNull();
@@ -113,11 +113,64 @@ describe("the session token", () => {
     mockDb.permissionSet.findMany.mockResolvedValue([
       { id: "sales", version: 1, archivedAt: null, permissions: [{ permission: "sponsors.manage", scope: "ALL" }, { permission: "events.read", scope: "ALL" }] },
     ]);
-    expect((await extraAreasForToken("CRM_USER", "org-1", [["sales", 1]])).sort()).toEqual(["desk", "events"]);
+    expect((await extraAreasForToken("CRM_USER", "org-1", [["sales", 1]]))?.sort()).toEqual(["desk", "events"]);
+  });
+
+  it("a failed lookup returns null, so the token keeps what it had (review L2)", async () => {
+    mockDb.permissionSet.findMany.mockRejectedValue(new Error("pgbouncer blip"));
+    expect(await extraAreasForToken("CRM_USER", "org-1", [["sales", 2]])).toBeNull();
   });
 
   it("asks nothing for a role custom roles cannot extend", async () => {
     expect(await extraAreasForToken("ORGANIZER", "org-1", [["sales", 1]])).toEqual([]);
     expect(mockDb.permissionSet.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("organisation pages open one by one (review of 4515a5ca, L4)", () => {
+  it("one organisation key opens only its page", () => {
+    expect(customOrgPages("CRM_USER", [{ permission: "agent.use", scope: null }])).toEqual(["/agent"]);
+    // The base role's own contacts.read opens nothing; a field-visibility key opens no page.
+    expect(customOrgPages("CRM_USER", [{ permission: "contacts.read", scope: null }, { permission: "finance.view", scope: null }])).toEqual([]);
+    expect(customOrgPages("ORGANIZER", [{ permission: "agent.use", scope: null }])).toEqual([]);
+    // The organisation area itself is never added whole.
+    expect(customGrantAreas("CRM_USER", [{ permission: "agent.use", scope: null }])).toEqual([]);
+  });
+
+  it("the Edge opens /agent and nothing else of the organisation's", () => {
+    const grants = { extraAreas: ["org:/agent"] };
+    expect(confinementRedirect("CRM_USER", "/agent", grants)).toBeNull();
+    expect(confinementRedirect("CRM_USER", "/settings", grants)).toBe("/crm");
+    expect(confinementRedirect("CRM_USER", "/invoices", grants)).toBe("/crm");
+    // A base role that cannot be extended ignores the entry.
+    expect(confinementRedirect("ONSITE", "/agent", grants)).not.toBeNull();
+  });
+
+  it("the sidebar shows AI Agent, not Settings", () => {
+    const names = computeSidebarNav({
+      user: { id: "u1", organizationId: "org-1", role: "CRM_USER", procurementPermissions: ["agent.use"] } as never,
+      hrEnabled: false,
+      procurementEnabled: false,
+      isEventPage: false,
+      currentEvent: undefined,
+      submitterCtx: undefined,
+    }).baseNavigation.map((i) => i.name);
+    expect(names).toContain("AI Agent");
+    expect(names).not.toContain("Settings");
+    expect(names).not.toContain("Invoices");
+  });
+
+  it("the token carries the page", async () => {
+    clearSessionPermissionCache();
+    mockDb.permissionSet.findMany.mockResolvedValue([{ id: "agent", version: 1, archivedAt: null, permissions: [{ permission: "agent.use", scope: null }] }]);
+    expect(await extraAreasForToken("CRM_USER", "org-1", [["agent", 1]])).toEqual(["org:/agent"]);
+  });
+});
+
+describe("the sidebar loads the event for a CRM User who works events (review L3)", () => {
+  it("skips the fetch for a plain CRM User only", () => {
+    expect(sidebarSkipsEventFetch("CRM_USER")).toBe(true);
+    expect(sidebarSkipsEventFetch("CRM_USER", ["events"])).toBe(false);
+    expect(sidebarSkipsEventFetch("ONSITE", ["events"])).toBe(true);
   });
 });
