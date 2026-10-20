@@ -56,6 +56,9 @@ export interface EntryBarcode {
   };
 }
 
+/** Quiet zone, in bar modules, on each side of the email barcode image. */
+const EMAIL_QUIET_ZONE = 10;
+
 /**
  * Render a recipient's entry barcode for the token.
  *
@@ -83,12 +86,16 @@ export async function buildEntryBarcode(params: {
   if (params.attendanceMode === "VIRTUAL" || !params.qrCode || !eventUsesEntryBarcode(params.eventType)) return null;
 
   const encoded = entryBarcodeValue(params.qrCode, params.serialId);
-  const png = await renderBarcodePng(encoded, { includetext: true });
+  // Opaque white with a 10-module quiet zone: the image itself carries the
+  // white ground the old bordered box gave it, so dark-mode mail clients
+  // cannot put the bars on a dark background. max-width 220px is a typical
+  // value's 200 bar modules plus the two quiet zones: one CSS pixel per bar.
+  const png = await renderBarcodePng(encoded, { includetext: true, quietZone: EMAIL_QUIET_ZONE });
 
   return {
     html: `<div style="text-align:center; margin:24px 0;">
         <p style="margin:0 0 8px; font-size:12px; letter-spacing:0.05em; color:#6b7280; font-weight:600;">YOUR ENTRY BARCODE</p>
-        <img src="cid:${BARCODE_CONTENT_ID}" alt="Entry barcode" style="display:block; margin:0 auto; max-width:200px; height:auto;" />
+        <img src="cid:${BARCODE_CONTENT_ID}" alt="Entry barcode" style="display:block; margin:0 auto; max-width:220px; height:auto;" />
         <p style="margin:10px 0 0; font-size:12px; color:#6b7280;">Show this at the registration desk for check-in.</p>
       </div>`,
     text: `\n\nYour entry barcode: ${encoded}\nShow this at the registration desk for check-in.`,

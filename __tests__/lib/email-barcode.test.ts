@@ -49,7 +49,7 @@ describe("buildEntryBarcode", () => {
   it("encodes {qrCode}-{serialId} when a serial is supplied (scanner-dump identification)", async () => {
     const result = await buildEntryBarcode({ qrCode: "17537912345", serialId: 7, attendanceMode: "IN_PERSON" });
     expect(result).not.toBeNull();
-    expect(renderBarcodePng).toHaveBeenCalledWith("17537912345-007", { includetext: true });
+    expect(renderBarcodePng).toHaveBeenCalledWith("17537912345-007", { includetext: true, quietZone: 10 });
     expect(result!.text).toContain("17537912345-007");
   });
 
@@ -64,7 +64,7 @@ describe("buildEntryBarcode", () => {
       contentType: "image/png",
       contentId: "reg-barcode",
     });
-    expect(renderBarcodePng).toHaveBeenCalledWith("ABC123", { includetext: true });
+    expect(renderBarcodePng).toHaveBeenCalledWith("ABC123", { includetext: true, quietZone: 10 });
   });
 
   it("returns null for virtual attendance (no entry barcode)", async () => {

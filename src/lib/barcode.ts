@@ -56,6 +56,13 @@ export interface RenderBarcodeOptions {
   scale?: number;
   /** Bar height in millimetres (bwip-js unit). Default 14 — matches the badge. */
   height?: number;
+  /**
+   * Paint an opaque white background with a quiet zone of this many modules
+   * on each side. bwip-js draws on a TRANSPARENT ground by default, which a
+   * dark-mode email client turns dark under black bars. Used by the email
+   * image; the badge and download renders are unchanged.
+   */
+  quietZone?: number;
 }
 
 /**
@@ -69,13 +76,14 @@ export async function renderBarcodePng(
   text: string,
   opts: RenderBarcodeOptions = {},
 ): Promise<Buffer> {
-  const { includetext = false, scale = 2, height = 14 } = opts;
+  const { includetext = false, scale = 2, height = 14, quietZone } = opts;
   return bwipjs.toBuffer({
     bcid: "code128",
     text,
     scale,
     height,
     includetext,
+    ...(quietZone ? { backgroundcolor: "FFFFFF", paddingwidth: quietZone, paddingheight: 4 } : {}),
     // Only meaningful when includetext is true — keeps the digits legible
     // and centred under the bars.
     ...(includetext ? { textxalign: "center", textsize: 11 } : {}),
