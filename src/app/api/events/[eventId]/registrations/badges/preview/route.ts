@@ -7,6 +7,8 @@ import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { rateLimited } from "@/lib/api-errors";
 import {
+  DEFAULT_BADGE_FIELDS,
+  EXHIBITOR_BADGE_ROLE,
   readBadgeLayout,
   type BadgeAlign,
   type BadgeBarcodeArrangement,
@@ -53,6 +55,18 @@ const SAMPLE: BadgeRegistration = {
     organization: "Meeting Minds Experts",
   },
 };
+
+/**
+ * The exhibitor switches as on screen: "off" means exhibitors print like
+ * everyone else, a comma list is the enabled keys (possibly none), and no
+ * param at all keeps what was saved.
+ */
+function readExhibitorParam(v: string | null, saved: BadgeLayout["exhibitorFields"]) {
+  if (v === null) return saved;
+  if (v === "off") return null;
+  const on = new Set(v.split(",").filter(Boolean));
+  return Object.fromEntries(Object.keys(DEFAULT_BADGE_FIELDS).map((k) => [k, on.has(k)]));
+}
 
 function numParam(v: string | null): number | undefined {
   if (v === null || v.trim() === "") return undefined;
@@ -133,6 +147,7 @@ export async function GET(req: Request, { params }: RouteParams) {
               Object.keys(saved.fields).map((k) => [k, enabled.has(k)]),
             )
           : saved.fields;
+        const exhibitorFields = readExhibitorParam(searchParams.get("ex"), saved.exhibitorFields);
 
         const overridden: BadgeLayout = readBadgeLayout({
           settings: {
@@ -145,6 +160,7 @@ export async function GET(req: Request, { params }: RouteParams) {
               barcodeArrangement:
                 (arrangement as BadgeBarcodeArrangement) ?? saved.barcodeArrangement,
               fields,
+              exhibitorFields,
               // Type sizes fall back per FIELD, matching every other override
               // here: a blank name box while the organiser is mid-typing must
               // not silently resize the role line too.
@@ -159,9 +175,14 @@ export async function GET(req: Request, { params }: RouteParams) {
 
         // A flagged event previews with the compliance band occupied, because
         // that band is the part most likely to fall off a shortened badge.
-        const sample: BadgeRegistration = event.requiresDtcmBarcode
-          ? { ...SAMPLE, dtcmBarcode: "00000000-0000-4000-8000-000000000000" }
-          : SAMPLE;
+        // `as=exhibitor` previews an exhibitor's badge, so the organiser can see
+        // both sets of switches before printing a mixed batch.
+        const role = searchParams.get("as") === "exhibitor" ? EXHIBITOR_BADGE_ROLE.toUpperCase() : SAMPLE.badgeType;
+        const sample: BadgeRegistration = {
+          ...SAMPLE,
+          badgeType: role,
+          ...(event.requiresDtcmBarcode ? { dtcmBarcode: "00000000-0000-4000-8000-000000000000" } : {}),
+        };
 
         const pdf = await generateBadgePDF([sample], overridden, !!event.requiresDtcmBarcode);
 

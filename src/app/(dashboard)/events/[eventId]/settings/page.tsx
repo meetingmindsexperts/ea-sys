@@ -83,8 +83,10 @@ import {
   barcodeTooNarrow,
   barcodeWidthPt,
   DEFAULT_BADGE_FIELDS,
+  EXHIBITOR_BADGE_ROLE,
   type BadgeAlign,
   type BadgeBarcodeArrangement,
+  type BadgeFields,
   DEFAULT_BADGE_FONT_SIZES,
 } from "@/lib/badge-layout";
 
@@ -105,6 +107,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { BadgeFieldSwitches, enabledBadgeFieldKeys } from "@/components/settings/badge-field-switches";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useEmailTemplates, useCreateEmailTemplate } from "@/hooks/use-api";
@@ -441,6 +444,7 @@ export default function EventSettingsPage() {
           barcodeArrangement: resolvedBadge.barcodeArrangement,
           allowKioskReprint: readBadgePolicy(settings).allowKioskReprint,
           fields: resolvedBadge.fields,
+          exhibitorFields: resolvedBadge.exhibitorFields,
           fontSizes: {
             name: String(resolvedBadge.fontSizes.name),
             detail: String(resolvedBadge.fontSizes.detail),
@@ -703,6 +707,8 @@ export default function EventSettingsPage() {
     // card and one Save, but it is read back through readBadgePolicy.
     allowKioskReprint: false,
     fields: DEFAULT_BADGE_FIELDS,
+    // Null = exhibitors print like everyone else. See fieldsForBadge.
+    exhibitorFields: null as BadgeFields | null,
     // Strings, like the mm sizes above, so the field can be empty mid-typing
     // instead of snapping to 0 on every keystroke.
     fontSizes: {
@@ -740,12 +746,13 @@ export default function EventSettingsPage() {
         offsetYPt: Number(badgeLayout.offsetYPt) || 0,
         barcodeArrangement: badgeLayout.barcodeArrangement,
         fields: badgeLayout.fields,
+        exhibitorFields: badgeLayout.exhibitorFields,
         fontSizes: badgeFontSizesPt(),
       },
     },
   });
 
-  const badgePreviewUrl = () => {
+  const badgePreviewUrl = (as?: "exhibitor") => {
     const q = new URLSearchParams({
       w: String(mmToPt(Number(badgeLayout.widthMm) || ptToMm(BASE_BADGE_W))),
       h: String(mmToPt(Number(badgeLayout.heightMm) || ptToMm(BASE_BADGE_H))),
@@ -758,10 +765,9 @@ export default function EventSettingsPage() {
       frole: String(badgeFontSizesPt().badgeType),
       // Enabled keys only. The preview has to show the switches as they sit on
       // screen, not as they were last saved, or it is not a calibration tool.
-      fields: Object.entries(badgeLayout.fields)
-        .filter(([, on]) => on)
-        .map(([k]) => k)
-        .join(","),
+      fields: enabledBadgeFieldKeys(badgeLayout.fields),
+      ex: badgeLayout.exhibitorFields ? enabledBadgeFieldKeys(badgeLayout.exhibitorFields) : "off",
+      ...(as ? { as } : {}),
     });
     return `/api/events/${eventId}/registrations/badges/preview?${q.toString()}`;
   };
@@ -814,6 +820,7 @@ export default function EventSettingsPage() {
               barcodeArrangement: badgeLayout.barcodeArrangement,
               allowKioskReprint: badgeLayout.allowKioskReprint,
               fields: badgeLayout.fields,
+              exhibitorFields: badgeLayout.exhibitorFields,
               fontSizes: badgeFontSizesPt(),
             },
             presenterRegistration: { payNowEnabled: presenterPayNow },
@@ -1768,96 +1775,54 @@ export default function EventSettingsPage() {
 
               <div className="mt-6 space-y-3">
                 <Label>What prints on the badge</Label>
-                <div className="grid gap-3 sm:grid-cols-2 max-w-2xl">
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch
-                      checked={badgeLayout.fields.border}
-                      onCheckedChange={(v) =>
-                        setBadgeLayout({
-                          ...badgeLayout,
-                          fields: { ...badgeLayout.fields, border: v },
-                        })
-                      }
-                    />
-                    Cutting border
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch
-                      checked={badgeLayout.fields.name}
-                      onCheckedChange={(v) =>
-                        setBadgeLayout({
-                          ...badgeLayout,
-                          fields: { ...badgeLayout.fields, name: v },
-                        })
-                      }
-                    />
-                    Name
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch
-                      checked={badgeLayout.fields.organization}
-                      onCheckedChange={(v) =>
-                        setBadgeLayout({
-                          ...badgeLayout,
-                          fields: { ...badgeLayout.fields, organization: v },
-                        })
-                      }
-                    />
-                    Organisation
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch
-                      checked={badgeLayout.fields.country}
-                      onCheckedChange={(v) =>
-                        setBadgeLayout({
-                          ...badgeLayout,
-                          fields: { ...badgeLayout.fields, country: v },
-                        })
-                      }
-                    />
-                    Country
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch
-                      checked={badgeLayout.fields.barcode}
-                      onCheckedChange={(v) =>
-                        setBadgeLayout({
-                          ...badgeLayout,
-                          fields: { ...badgeLayout.fields, barcode: v },
-                        })
-                      }
-                    />
-                    Entry barcode
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch
-                      checked={badgeLayout.fields.registrationNumber}
-                      onCheckedChange={(v) =>
-                        setBadgeLayout({
-                          ...badgeLayout,
-                          fields: { ...badgeLayout.fields, registrationNumber: v },
-                        })
-                      }
-                    />
-                    Registration number
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch
-                      checked={badgeLayout.fields.badgeType}
-                      onCheckedChange={(v) =>
-                        setBadgeLayout({
-                          ...badgeLayout,
-                          fields: { ...badgeLayout.fields, badgeType: v },
-                        })
-                      }
-                    />
-                    Role / badge type
-                  </label>
-                </div>
+                <BadgeFieldSwitches
+                  value={badgeLayout.fields}
+                  onChange={(fields) => setBadgeLayout({ ...badgeLayout, fields })}
+                />
                 <p className="text-xs text-muted-foreground">
                   Organisation and country print on one line under the name,
                   separated by a dot. Either one on its own prints on its own.
                 </p>
+              </div>
+
+              {/* Exhibitors (owner, Oct 20, 2026): a second set of switches for
+                  anyone whose badge role is Exhibitor, e.g. organisation on and
+                  no barcode, while delegates print the set above. */}
+              <div className="mt-6 space-y-3">
+                <label className="flex items-start gap-3 text-sm">
+                  <Switch
+                    className="mt-0.5"
+                    checked={!!badgeLayout.exhibitorFields}
+                    onCheckedChange={(on) =>
+                      setBadgeLayout({
+                        ...badgeLayout,
+                        exhibitorFields: on ? { ...badgeLayout.fields } : null,
+                      })
+                    }
+                  />
+                  <span>
+                    Exhibitors print a different badge
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      For anyone whose badge role is {EXHIBITOR_BADGE_ROLE} (set on the
+                      registration). Everyone else prints with the switches above. The
+                      cutting border and type sizes stay the same for both.
+                    </span>
+                  </span>
+                </label>
+                {badgeLayout.exhibitorFields && (
+                  <div className="ml-12 space-y-2">
+                    <Label className="text-xs font-normal text-muted-foreground">
+                      What prints on an exhibitor&apos;s badge
+                    </Label>
+                    <BadgeFieldSwitches
+                      value={badgeLayout.exhibitorFields}
+                      omit={["border"]}
+                      onChange={(exhibitorFields) =>
+                        setBadgeLayout({ ...badgeLayout, exhibitorFields })
+                      }
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Type sizes. Organiser-controlled rather than auto-fitted:
@@ -2015,11 +1980,20 @@ export default function EventSettingsPage() {
               </div>
 
               <div className="mt-6">
-                <Button type="button" variant="outline" size="sm" asChild>
-                  <a href={badgePreviewUrl()} target="_blank" rel="noopener noreferrer">
-                    Preview one badge
-                  </a>
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" asChild>
+                    <a href={badgePreviewUrl()} target="_blank" rel="noopener noreferrer">
+                      Preview one badge
+                    </a>
+                  </Button>
+                  {badgeLayout.exhibitorFields && (
+                    <Button type="button" variant="outline" size="sm" asChild>
+                      <a href={badgePreviewUrl("exhibitor")} target="_blank" rel="noopener noreferrer">
+                        Preview an exhibitor badge
+                      </a>
+                    </Button>
+                  )}
+                </div>
                 <p className="mt-2 text-xs text-muted-foreground">
                   Opens a sample badge using the values above, before you
                   save. Print it on your stock to check the alignment.

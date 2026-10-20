@@ -36,6 +36,7 @@ import {
   badgeNameTop,
   badgeScale,
   badgeSerialTop,
+  fieldsForBadge,
   resolveBadgeOrigin,
   resolveBarcodeRow,
   type BadgeLayout,
@@ -76,9 +77,12 @@ export async function generateBadgePDF(
   const barcodeBuffers = new Map<string, Buffer>();
   // Skip the rasterization entirely when the field is off: on an overprinted
   // badge this is thousands of CPU-bound renders for something never drawn.
-  const uniqueBarcodes = !layout.fields.barcode ? [] : [
+  // Per person: an exhibitor's badge may print no barcode while a delegate's
+  // does (fieldsForBadge), so only the badges that draw one are rasterised.
+  const uniqueBarcodes = [
     ...new Set(
       registrations
+        .filter((r) => fieldsForBadge(layout, r.badgeType).barcode)
         .map((r) => (r.qrCode ? entryBarcodeValue(r.qrCode, r.serialId) : null))
         .filter((c): c is string => !!c),
     ),
@@ -156,7 +160,7 @@ function drawBadge(
 ) {
   const badgeType = (reg.badgeType || "DELEGATE").toUpperCase();
   const { sy, sf } = badgeScale(layout);
-  const f = layout.fields;
+  const f = fieldsForBadge(layout, reg.badgeType);
   const fonts = layout.fontSizes;
   const W = layout.widthPt;
   const H = layout.heightPt;

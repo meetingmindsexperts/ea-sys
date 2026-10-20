@@ -169,6 +169,30 @@ export const DEFAULT_BADGE_FIELDS: BadgeFields = {
 };
 
 /**
+ * The badge role whose badges can print a different set of fields (owner,
+ * Oct 20, 2026: "turn off barcode for exhibitors, turn on organisation for
+ * exhibitors, and the reverse for delegates"). Matched on
+ * `Registration.badgeType`, the role printed on the card, ignoring case and
+ * surrounding spaces, so it follows the person whatever registration type
+ * they are on.
+ */
+export const EXHIBITOR_BADGE_ROLE = "Exhibitor";
+
+export function isExhibitorBadge(badgeType: string | null | undefined): boolean {
+  return (badgeType ?? "").trim().toLowerCase() === EXHIBITOR_BADGE_ROLE.toLowerCase();
+}
+
+/**
+ * The fields that print on THIS person's badge: the exhibitor set for an
+ * exhibitor when the event has one, otherwise the event's own set. The one
+ * place the choice is made, for the renderer, the preview and the warning.
+ */
+export function fieldsForBadge(layout: BadgeLayout, badgeType: string | null | undefined): BadgeFields {
+  if (layout.exhibitorFields && isExhibitorBadge(badgeType)) return layout.exhibitorFields;
+  return layout.fields;
+}
+
+/**
  * Type sizes, in points at the BASE badge size. Scaled by `sf` at render time
  * like every other font on the badge.
  *
@@ -216,6 +240,12 @@ export interface BadgeLayout {
   /** Entry barcode vs DTCM QR placement. Defaults to the historical layout. */
   barcodeArrangement: BadgeBarcodeArrangement;
   fields: BadgeFields;
+  /**
+   * What prints on an EXHIBITOR's badge, or null when exhibitors print like
+   * everyone else (the default, so no existing event changes). The border is
+   * always the event's: it belongs to the sheet of stock, not to the person.
+   */
+  exhibitorFields: BadgeFields | null;
   fontSizes: BadgeFontSizes;
 }
 
@@ -229,17 +259,22 @@ export const DEFAULT_BADGE_LAYOUT: BadgeLayout = {
   // existing event's badge the moment this shipped.
   barcodeArrangement: "stacked",
   fields: DEFAULT_BADGE_FIELDS,
+  exhibitorFields: null,
   fontSizes: DEFAULT_BADGE_FONT_SIZES,
 };
 
-/** Per-field read, so one bad key cannot switch off the whole badge. */
-function readFields(raw: unknown): BadgeFields {
+/**
+ * Per-field read, so one bad key cannot switch off the whole badge. A missing
+ * key takes `fallback`: the defaults for the event's set, the event's own set
+ * for the exhibitor one.
+ */
+function readFields(raw: unknown, fallback: BadgeFields = DEFAULT_BADGE_FIELDS): BadgeFields {
   const blob =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
   const flag = (k: keyof BadgeFields): boolean =>
-    typeof blob[k] === "boolean" ? (blob[k] as boolean) : DEFAULT_BADGE_FIELDS[k];
+    typeof blob[k] === "boolean" ? (blob[k] as boolean) : fallback[k];
 
   return {
     border: flag("border"),
@@ -323,6 +358,7 @@ export function readBadgeLayout(event: {
   // The legacy column is the fallback for the vertical nudge ONLY, and only
   // until an organiser saves the new form. One reader, so no drift.
   const legacyOffsetY = num(event.badgeVerticalOffset) ?? 0;
+  const fields = readFields(blob.fields);
 
   return {
     widthPt: clamp(num(blob.widthPt) ?? BASE_BADGE_W, MIN_SIDE_PT, A4_W),
@@ -335,9 +371,16 @@ export function readBadgeLayout(event: {
       MAX_OFFSET_PT,
     ),
     barcodeArrangement,
-    fields: readFields(blob.fields),
+    fields,
+    exhibitorFields: readExhibitorFields(blob.exhibitorFields, fields),
     fontSizes: readFontSizes(blob.fontSizes),
   };
+}
+
+/** Present as an object means "exhibitors print differently"; anything else is off. */
+function readExhibitorFields(raw: unknown, fields: BadgeFields): BadgeFields | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  return { ...readFields(raw, fields), border: fields.border };
 }
 
 function badgeAlignX(layout: BadgeLayout): number {
@@ -516,10 +559,10 @@ export function barcodeWidthPt(layout: BadgeLayout, hasDtcm = false): number {
 export const MIN_SCANNABLE_BARCODE_PT = 170; // ~60mm
 
 export function barcodeTooNarrow(layout: BadgeLayout, hasDtcm = false): boolean {
-  return (
-    layout.fields.barcode &&
-    barcodeWidthPt(layout, hasDtcm) < MIN_SCANNABLE_BARCODE_PT
-  );
+  // Either set printing a barcode is enough: an event with the barcode off for
+  // everyone but on for exhibitors still prints bars that must scan.
+  const printsBarcode = layout.fields.barcode || !!layout.exhibitorFields?.barcode;
+  return printsBarcode && barcodeWidthPt(layout, hasDtcm) < MIN_SCANNABLE_BARCODE_PT;
 }
 
 /**

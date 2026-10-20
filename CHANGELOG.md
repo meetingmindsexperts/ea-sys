@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Badges: a different badge for exhibitors (October 20)
+
+- Owner request: exhibitors print their organisation and no barcode, delegates the reverse. Settings, Registration, Badge has a new "Exhibitors print a different badge" switch with its own full set of fields (name, organisation, country, entry barcode, registration number, role). Everyone else prints with the existing switches.
+- Matched on the badge role "Exhibitor" (`Registration.badgeType`, ignoring case and spaces), not the registration type. Stored as `settings.badge.exhibitorFields`; absent means exhibitors print like everyone else, so no event changes until someone switches it on. The cutting border and type sizes stay event-wide.
+- One choice point, `fieldsForBadge` (src/lib/badge-layout.ts), used by the renderer (a mixed batch rasterises only the barcodes it draws), the preview ("Preview an exhibitor badge", `as=exhibitor`) and the narrow-badge warning (fires when either set prints a barcode).
+- Badge only: the confirmation email and My Registration still carry the barcode. The "Registration number" switch is now labelled "Registration number (reg ID)".
+
+### Email: the entry barcode carries its own white ground (October 20)
+
+- PR #38 removed the white box behind the email barcode, and bwip-js draws on a transparent ground, so dark-mode mail clients put black bars on a dark background. The email render asks for an opaque white image with a 10-module quiet zone (max-width 220px, one CSS pixel per bar); badge and download renders are unchanged.
+
 ### Registration types: one "Faculty", and duplicate names refused ignoring case (October 19)
 
 - Six events on prod had two types called "Faculty" (acabc2026 and its two copies, EHBPU2026, gcc-hh26, hemnet2026): an ordinary one copied in by cloning before Jul 27, 2026 (when the clone dropped `isFaculty`), and the speakers' hidden one, created by the system, which never checked names. Existing events are left as they are (owner).

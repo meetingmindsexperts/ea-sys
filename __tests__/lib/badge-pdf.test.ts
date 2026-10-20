@@ -415,3 +415,53 @@ describe("the organiser controls the type sizes", () => {
     expect(fontSizes).toContain(11); // 22 * 0.5
   });
 });
+
+// Owner, Oct 20, 2026: exhibitors print their organisation and no barcode,
+// delegates the reverse. A second set of switches for badge role Exhibitor.
+describe("exhibitors can print a different badge", () => {
+  const EXHIBITOR: BadgeRegistration = {
+    ...REG,
+    id: "r2",
+    serialId: 8,
+    qrCode: "EXHIB0000001",
+    badgeType: "Exhibitor",
+    attendee: { ...REG.attendee, firstName: "Omar", organization: "Acme Pharma" },
+  };
+  const owner: BadgeLayout = {
+    ...DEFAULT_BADGE_LAYOUT,
+    fields: { ...DEFAULT_BADGE_LAYOUT.fields, organization: false, barcode: true },
+    exhibitorFields: { ...DEFAULT_BADGE_LAYOUT.fields, organization: true, barcode: false },
+  };
+
+  it("a mixed batch: the delegate gets the barcode, the exhibitor the organisation", async () => {
+    vi.mocked(renderBarcodePng).mockClear();
+    await generateBadgePDF([REG, EXHIBITOR], owner, false);
+    // Only the delegate's barcode is rasterised.
+    expect(renderBarcodePng).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(renderBarcodePng).mock.calls[0][0]).toContain("ABCDEF123456");
+    expect(find("Acme Pharma")).toBeDefined();
+    expect(find("Meeting Minds Experts")).toBeUndefined();
+    expect(find("EXHIBITOR")).toBeDefined();
+  });
+
+  it("matches the role ignoring case and spaces", async () => {
+    vi.mocked(renderBarcodePng).mockClear();
+    await render(owner, { ...EXHIBITOR, badgeType: "  EXHIBITOR " });
+    expect(renderBarcodePng).not.toHaveBeenCalled();
+    expect(find("Acme Pharma")).toBeDefined();
+  });
+
+  it("with no exhibitor set, an exhibitor prints exactly like everyone else", async () => {
+    vi.mocked(renderBarcodePng).mockClear();
+    await render({ ...owner, exhibitorFields: null }, EXHIBITOR);
+    expect(renderBarcodePng).toHaveBeenCalledTimes(1);
+    expect(find("Acme Pharma")).toBeUndefined();
+  });
+
+  it("other roles never use the exhibitor set", async () => {
+    vi.mocked(renderBarcodePng).mockClear();
+    await render(owner, { ...EXHIBITOR, badgeType: "Faculty" });
+    expect(renderBarcodePng).toHaveBeenCalledTimes(1);
+    expect(find("Acme Pharma")).toBeUndefined();
+  });
+});

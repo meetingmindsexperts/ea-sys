@@ -493,3 +493,45 @@ describe("badge policy — kiosk reprint", () => {
     expect(DEFAULT_BADGE_POLICY).toEqual({ allowKioskReprint: false });
   });
 });
+
+describe("exhibitor badge fields (Oct 20, 2026)", () => {
+  it("is off unless saved as an object, so no existing event changes", async () => {
+    const { readBadgeLayout } = await import("@/lib/badge-layout");
+    expect(readBadgeLayout({ settings: {} }).exhibitorFields).toBeNull();
+    expect(readBadgeLayout({ settings: { badge: { exhibitorFields: true } } }).exhibitorFields).toBeNull();
+    expect(readBadgeLayout({ settings: { badge: { exhibitorFields: null } } }).exhibitorFields).toBeNull();
+  });
+
+  it("a missing key takes the event's own value, and the border is always the event's", async () => {
+    const { readBadgeLayout } = await import("@/lib/badge-layout");
+    const layout = readBadgeLayout({
+      settings: {
+        badge: {
+          fields: { border: false, organization: false, barcode: true },
+          exhibitorFields: { barcode: false, organization: true, border: true },
+        },
+      },
+    });
+    expect(layout.exhibitorFields).toMatchObject({ barcode: false, organization: true, border: false, name: true });
+  });
+
+  it("the narrow-badge warning fires when only exhibitors print a barcode", async () => {
+    const { readBadgeLayout, barcodeTooNarrow } = await import("@/lib/badge-layout");
+    const narrow = { widthPt: 200, heightPt: 150 };
+    const exhibitorOnly = readBadgeLayout({
+      settings: { badge: { ...narrow, fields: { barcode: false }, exhibitorFields: { barcode: true } } },
+    });
+    expect(barcodeTooNarrow(exhibitorOnly)).toBe(true);
+    const neither = readBadgeLayout({
+      settings: { badge: { ...narrow, fields: { barcode: false }, exhibitorFields: { barcode: false } } },
+    });
+    expect(barcodeTooNarrow(neither)).toBe(false);
+  });
+
+  it("isExhibitorBadge ignores case and spaces, and nothing else matches", async () => {
+    const { isExhibitorBadge } = await import("@/lib/badge-layout");
+    expect(isExhibitorBadge(" exhibitor ")).toBe(true);
+    expect(isExhibitorBadge("Exhibitors")).toBe(false);
+    expect(isExhibitorBadge(null)).toBe(false);
+  });
+});
