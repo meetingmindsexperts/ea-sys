@@ -88,7 +88,7 @@ export async function buildEntryBarcode(params: {
   return {
     html: `<div style="text-align:center; margin:24px 0; padding:16px; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px;">
         <p style="margin:0 0 8px; font-size:12px; letter-spacing:0.05em; color:#6b7280; font-weight:600;">YOUR ENTRY BARCODE</p>
-        <img src="cid:${BARCODE_CONTENT_ID}" alt="Entry barcode" style="display:block; margin:0 auto; max-width:280px; height:auto;" />
+        <img src="cid:${BARCODE_CONTENT_ID}" alt="Entry barcode" style="display:block; margin:0 auto; max-width:200px; height:auto;" />
         <p style="margin:10px 0 0; font-size:12px; color:#6b7280;">Show this at the registration desk for check-in.</p>
       </div>`,
     text: `\n\nYour entry barcode: ${encoded}\nShow this at the registration desk for check-in.`,
