@@ -7,6 +7,35 @@
 
 ---
 
+## Distributed L7 attack protection (recorded Oct 17, 2026): not started
+
+Current per-IP / per-email rate limits are blind to a distributed attack where
+thousands of bots each stay under the individual threshold but collectively
+overwhelm the system. The in-memory rate-limit store also resets on container
+restart. This item covers hardening against that scenario.
+
+**Priority order (owner to decide scope):**
+
+1. **CAPTCHA on public forms** — Add Cloudflare Turnstile (free) to the login,
+   public registration, and password-reset forms. Makes each bot pay a per-request
+   cost. ~2 hours to integrate.
+2. **nginx global rate limit on auth endpoints** — A `limit_req_zone` keyed on the
+   URI pattern (not per-IP) so `/api/auth/*` gets a hard aggregate ceiling
+   (e.g. 200 req/s total). One config change in `deploy/nginx.conf`.
+3. **AWS CloudFront + AWS WAF** — Edge-layer protection. WAF rate-based rules can
+   cap aggregate requests across all IPs; managed rule groups catch bot signatures,
+   credential stuffing, and known-bad IP reputation. CloudFront absorbs bandwidth
+   before it reaches the t3.large. ~half a day to set up; ~$5/month WAF + $1/M
+   requests CloudFront.
+4. **Global in-app request budget** — A second rate-limit check that counts ALL
+   requests to a given endpoint in a sliding window (not per-IP). When the global
+   count exceeds a threshold, start returning 503 or requiring proof-of-work.
+5. **Fail2ban → WAF IP-set escalation** — Extend the existing `infra/fail2ban/`
+   setup to push offending CIDRs into an AWS WAF IP-set for distributed patterns.
+
+Related: `docs/DDOS_RESPONSE_PLAN.md` (incident response),
+`docs/AWS_OPERATIONS.md` §4 (static security posture).
+
 ## Session cookie size: keep permissions out of the JWT (recorded Sep 30, 2026)
 
 The session JWT carries `procurementPermissions`, so the cookie grows with every

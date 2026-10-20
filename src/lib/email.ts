@@ -1218,7 +1218,8 @@ function responsiveImageBlock(src: string, alt: string): string {
  * before re-emitting them so the canonical set always wins.
  */
 export function normalizeBodyImages(html: string): string {
-  return html.replace(/<img\b([^>]*?)\/?>/gi, (_match, attrs: string) => {
+  return html.replace(/<img\b([^>]*?)\/?>/gi, (match, attrs: string) => {
+    if (/\bsrc\s*=\s*["']cid:/i.test(attrs)) return match;
     const cleaned = attrs
       .replace(/\s(?:width|border)\s*=\s*"[^"]*"/gi, "")
       .replace(/\s(?:width|border)\s*=\s*'[^']*'/gi, "")
