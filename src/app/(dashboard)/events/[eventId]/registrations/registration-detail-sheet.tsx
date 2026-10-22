@@ -1658,8 +1658,9 @@ export function RegistrationDetailSheet({
                       value={isEditing ? editData.ticketTypeId : (selectedRegistration.ticketType?.id ?? "")}
                       onValueChange={(value) =>
                         setEditData((p) => {
-                          const unpaid = (["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus);
-                          if (!unpaid) return { ...p, ticketTypeId: value }; // paid: tier isn't repriceable, leave it
+                          // Paid: the tier can't change, leave it. Unpaid, complimentary or
+                          // sponsor-paid: the staged tier must follow the type (review M).
+                          if (!tierChangeAllowed(selectedRegistration.paymentStatus)) return { ...p, ticketTypeId: value };
                           const loadedTypeId = selectedRegistration.ticketType?.id ?? "";
                           const loadedTierId = selectedRegistration.pricingTier?.id ?? "";
                           // M1: reverting to the ORIGINAL type restores its original tier

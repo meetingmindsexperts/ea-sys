@@ -24,6 +24,7 @@ import {
   repointOrgContactEmail,
 } from "@/lib/email-change";
 import { buildPaymentReminderVars } from "@/lib/payment-reminder";
+import { excludedAsNoBalance } from "@/lib/bulk-email-audience";
 import { executeBulkEmail, BulkEmailError } from "@/lib/bulk-email";
 import { surveyExpiryDaysSchema } from "@/lib/survey/expiry";
 
@@ -282,6 +283,18 @@ export async function POST(req: Request, { params }: RouteParams) {
         {
           error: "This registration is part of a group — the company is billed via the consolidated group invoice. Chase the payer, not the member.",
           code: "MEMBER_OF_GROUP",
+        },
+        { status: 400 },
+      );
+    }
+
+    // Nothing owed, never chased (Oct 22, 2026): same rule as the bulk audience.
+    if (type === "payment-reminder" && excludedAsNoBalance(type, registration.paymentStatus)) {
+      apiLogger.warn({ msg: "registration-email:no-balance-payment-reminder-refused", registrationId, eventId, paymentStatus: registration.paymentStatus });
+      return NextResponse.json(
+        {
+          error: "This registration is complimentary or sponsor-paid, so there is nothing to pay. Change its payment status first if they do owe.",
+          code: "NO_BALANCE_DUE",
         },
         { status: 400 },
       );

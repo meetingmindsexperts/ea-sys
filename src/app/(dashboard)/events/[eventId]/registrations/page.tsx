@@ -84,7 +84,7 @@ import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
-import { excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
+import { excludedAsNoBalance, excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
 import { BulkTagDialog } from "@/components/bulk-tag-dialog";
 import {
   Dialog,
@@ -392,6 +392,8 @@ export default function RegistrationsPage() {
       // Group members are never dunned individually (H2) — count matches send.
       if (excludesGroupMembers(f.emailType) && r.group)
         return false;
+      // Complimentary / sponsor-paid are never sent a payment reminder.
+      if (excludedAsNoBalance(f.emailType, r.paymentStatus)) return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
       if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;

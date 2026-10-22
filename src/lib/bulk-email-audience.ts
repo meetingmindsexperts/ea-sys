@@ -75,6 +75,20 @@ export function excludesGroupMembers(emailType: string | undefined): boolean {
   return emailType === "payment-reminder";
 }
 
+/** Payment statuses that owe nothing: the attendee is never asked to pay. */
+export const NO_BALANCE_PAYMENT_STATUSES: readonly string[] = ["COMPLIMENTARY", "INCLUSIVE"];
+
+/**
+ * Should this registration be left out of a send because it owes nothing?
+ * (Owner, Oct 22, 2026.) A complimentary or sponsor-paid registration is never
+ * sent a payment reminder: it would ask them to pay an amount checkout then
+ * refuses, and since its tier can now be changed, that amount could even be a
+ * new rate. UNCONDITIONAL for payment-reminder, like the group rule above.
+ */
+export function excludedAsNoBalance(emailType: string | undefined, paymentStatus: string): boolean {
+  return emailType === "payment-reminder" && NO_BALANCE_PAYMENT_STATUSES.includes(paymentStatus);
+}
+
 // ───────────────────────── Abstract email types ─────────────────────────
 // The status scope each abstract type applies, shared by the server's
 // recipient resolver AND the dialog's picker/count, for the same reason as the

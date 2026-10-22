@@ -195,3 +195,14 @@ describe("Survey Invitation to one registration", () => {
     expect(executeBulkEmailSpy).not.toHaveBeenCalled();
   });
 });
+
+// Oct 22, 2026 (owner): nothing owed, never chased; same rule as the bulk audience.
+describe("Payment Reminder to one registration", () => {
+  it.each(["COMPLIMENTARY", "INCLUSIVE"])("is refused for a %s registration before anything is sent", async (paymentStatus) => {
+    mockDb.registration.findFirst.mockResolvedValue(registration({ paymentStatus }));
+    const res = await send({ type: "payment-reminder" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "NO_BALANCE_DUE" });
+    expect(executeBulkEmailSpy).not.toHaveBeenCalled();
+  });
+});

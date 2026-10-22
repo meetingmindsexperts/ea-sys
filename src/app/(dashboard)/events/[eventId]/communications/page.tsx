@@ -66,7 +66,7 @@ import { SESSION_ROLE_OPTIONS } from "@/lib/session-enums";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { ABSTRACT_PICKER_FETCH_LIMIT, abstractStatusLabel, type AbstractPickerOption } from "@/lib/bulk-email-abstract-picker";
 import { AbstractPickerDialog, type AbstractSelection } from "@/components/abstracts/abstract-picker-dialog";
-import { excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
+import { excludedAsNoBalance, excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
 import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payment-stats";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { EmailActivityCard } from "@/components/communications/email-activity-card";
@@ -465,6 +465,8 @@ export default function CommunicationsPage() {
       // Group members are never dunned individually (H2) — count matches send.
       if (excludesGroupMembers(f.emailType) && r.group)
         return false;
+      // Complimentary / sponsor-paid are never sent a payment reminder.
+      if (excludedAsNoBalance(f.emailType, r.paymentStatus)) return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
       if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;

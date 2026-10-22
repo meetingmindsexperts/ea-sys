@@ -17,9 +17,11 @@ import { tierChangeAllowed } from "@/lib/tier-change-policy";
  * a provided tier against the EFFECTIVE (possibly new) type.
  *
  * Rules (identical to the REST route the tests pin):
- *  - Setting a tier (an id, or null=base) reprices `originalPrice`. UNPAID-ONLY;
- *    blocked if a promo/discount is applied (re-stamping the base without
- *    recomputing the discount can over-discount).
+ *  - Setting a tier (an id, or null=base) reprices `originalPrice`. Allowed while
+ *    unpaid, pending or unassigned, and on complimentary / sponsor-paid
+ *    registrations (Oct 22, 2026; `tierChangeAllowed`); refused once paid,
+ *    refunded or failed; blocked if a promo/discount is applied (re-stamping the
+ *    base without recomputing the discount can over-discount).
  *  - When the type ALSO changes, the tier is validated against the NEW type.
  *  - A bare type change (no tier provided) on an unpaid reg reprices to the NEW
  *    type's base price (else the reg keeps the OLD type's price); the tier is
@@ -85,7 +87,7 @@ export async function resolveRepricing(input: {
         code: "TIER_CHANGE_REQUIRES_UNPAID",
         status: 400,
         message:
-          "The price (tier / type) cannot be changed once the registration is paid. Refund the payment first.",
+          "The price (tier / type) cannot be changed on a paid, refunded or failed registration. For a paid one, refund the payment first.",
       };
     }
     if (existing.promoCodeId || Number(existing.discountAmount ?? 0) > 0) {

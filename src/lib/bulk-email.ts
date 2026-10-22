@@ -40,6 +40,7 @@ import { isDailyMode, type SurveyResponseModeValue } from "./survey/response-mod
 import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
   excludesGroupMembers,
+  NO_BALANCE_PAYMENT_STATUSES,
   excludesCancelledByDefault,
   PER_ABSTRACT_EMAIL_TYPES,
   ABSTRACT_DECISION_STATUSES,
@@ -1509,6 +1510,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         // Group members are never dunned individually (review H2) — the payer
         // owes via the consolidated invoice. Shared predicate with the counts.
         ...(excludesGroupMembers(emailType) ? { groupId: null } : {}),
+        // Nothing owed, never chased (Oct 22, 2026). AND, so a paymentStatus
+        // filter below cannot re-admit them. Shared predicate with the counts.
+        ...(emailType === "payment-reminder"
+          ? { AND: [{ paymentStatus: { notIn: [...NO_BALANCE_PAYMENT_STATUSES] as PaymentStatus[] } }] }
+          : {}),
         ...paymentStatusWhere(),
         ...ticketTypeWhere(),
         ...(filters?.badgeTypes?.length ? { badgeType: { in: filters.badgeTypes } } : {}),

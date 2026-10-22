@@ -6,8 +6,9 @@
  * Unpaid, pending or unassigned: the tier sets what they will pay.
  * Complimentary or sponsor-paid (Inclusive): nothing is owed, so the tier is a
  * label (which rate they came in on) and changing it charges no one (owner,
- * Oct 22, 2026). Payment reminders only chase the unpaid statuses, so a
- * re-stamped price is never billed.
+ * Oct 22, 2026). What guarantees that: checkout refuses both statuses, the
+ * registrant portal hides Pay for them, and payment reminders skip them. If
+ * staff later switch one to Unpaid, the price of the tier then set is owed.
  * Paid (and refunded or failed): locked, money moved at the old price.
  */
 export const UNPAID_TIER_STATUSES = ["UNASSIGNED", "UNPAID", "PENDING"] as const;
