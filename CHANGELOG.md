@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations: a registration moved onto the speakers' type can be moved back (October 22)
+
+- Found on BHS2026: Uzma Sharif was changed from Physician to the speakers' automatic "Faculty" type on Oct 20. The registration sheet then replaced the type picker with read-only text (showing only a dash, since her stored category is "Faculty"), so nobody could change it back. The server always allowed it.
+- The picker now stays on that type, labelled "Faculty (speakers)", so staff can move someone off it. It is offered only to a registration already on it: the sheet's picker and bulk Change Type no longer list it for anyone else, matching Add Registration (`pickableRegTypes` in src/lib/faculty-filter.ts).
+- Same sheet: the barcode image no longer logs next/image sizing warnings.
+
 ### Badges: a different badge for exhibitors (October 20)
 
 - Owner request: exhibitors print their organisation and no barcode, delegates the reverse. Settings, Registration, Badge has a new "Exhibitors print a different badge" switch with its own full set of fields (name, organisation, country, entry barcode, registration number, role). Everyone else prints with the existing switches.

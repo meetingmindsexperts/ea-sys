@@ -105,6 +105,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
+import { pickableRegTypes, SPEAKERS_TYPE_LABEL } from "@/lib/faculty-filter";
 import { displayRegistrationType } from "@/lib/faculty-filter";
 import { hasCustomBilling } from "./types";
 import { AddPayerDialog } from "@/components/billing/add-payer-dialog";
@@ -1646,42 +1647,33 @@ export function RegistrationDetailSheet({
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>Registration Type</Label>
-                    {selectedRegistration.ticketType?.isFaculty ? (
-                      // Faculty companion: show the profession (read-only). Its
-                      // ticket type is the hidden "Faculty" type — not a delegate
-                      // category — so it isn't reassignable from this picker.
-                      <div className="flex h-9 items-center text-sm font-medium">
-                        {displayRegistrationType({ ticketTypeName: selectedRegistration.ticketType?.name, isFaculty: true, attendeeRegistrationType: selectedRegistration.attendee.registrationType })}
-                      </div>
-                    ) : (
-                      <Select
-                        value={isEditing ? editData.ticketTypeId : (selectedRegistration.ticketType?.id ?? "")}
-                        onValueChange={(value) =>
-                          setEditData((p) => {
-                            const unpaid = (["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus);
-                            if (!unpaid) return { ...p, ticketTypeId: value }; // paid: tier isn't repriceable, leave it
-                            const loadedTypeId = selectedRegistration.ticketType?.id ?? "";
-                            const loadedTierId = selectedRegistration.pricingTier?.id ?? "";
-                            // M1: reverting to the ORIGINAL type restores its original tier
-                            // (so flipping A→B→A doesn't silently drop the tier + reprice to
-                            // base). Any OTHER type clears the tier so the organizer re-picks.
-                            return { ...p, ticketTypeId: value, pricingTierId: value === loadedTypeId ? loadedTierId : "" };
-                          })
-                        }
-                        disabled={!isEditing || updateRegistration.isPending}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(regTypes as TicketType[]).map((rt) => (
-                            <SelectItem key={rt.id} value={rt.id}>
-                              {rt.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
+                    <Select
+                      value={isEditing ? editData.ticketTypeId : (selectedRegistration.ticketType?.id ?? "")}
+                      onValueChange={(value) =>
+                        setEditData((p) => {
+                          const unpaid = (["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus);
+                          if (!unpaid) return { ...p, ticketTypeId: value }; // paid: tier isn't repriceable, leave it
+                          const loadedTypeId = selectedRegistration.ticketType?.id ?? "";
+                          const loadedTierId = selectedRegistration.pricingTier?.id ?? "";
+                          // M1: reverting to the ORIGINAL type restores its original tier
+                          // (so flipping A→B→A doesn't silently drop the tier + reprice to
+                          // base). Any OTHER type clears the tier so the organizer re-picks.
+                          return { ...p, ticketTypeId: value, pricingTierId: value === loadedTypeId ? loadedTierId : "" };
+                        })
+                      }
+                      disabled={!isEditing || updateRegistration.isPending}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pickableRegTypes(regTypes as TicketType[], selectedRegistration.ticketType?.id).map((rt) => (
+                          <SelectItem key={rt.id} value={rt.id}>
+                            {rt.isFaculty ? SPEAKERS_TYPE_LABEL : rt.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   {/* Webinars print no badges, so no badge type. */}
                   {!isWebinarEvent && (
@@ -2807,8 +2799,13 @@ export function RegistrationDetailSheet({
                       <Image
                         src={`/api/events/${eventId}/registrations/${selectedRegistration.id}/barcode`}
                         alt="Registration barcode"
-                        width={320}
-                        height={64}
+                        // The PNG's real size (scale 2: ~400x96), shown 4rem tall.
+                        // Both sides then scale, so next/image does not warn that
+                        // only one dimension was changed.
+                        width={400}
+                        height={96}
+                        // Often the largest thing in the open sheet; no reason to defer it.
+                        loading="eager"
                         unoptimized
                         className="h-16 w-auto max-w-full"
                       />

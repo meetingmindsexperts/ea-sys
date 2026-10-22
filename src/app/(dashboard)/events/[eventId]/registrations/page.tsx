@@ -63,7 +63,7 @@ import { formatSerialId } from "@/lib/registration-serial";
 import { SendRegistrationFormDialog } from "@/components/registrations/registration-form-send";
 import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useEventTags, useSponsors, useEventSurveys } from "@/hooks/use-api";
 import { matchesSurveyResponded, type SurveyRespondedFilter } from "@/lib/survey/responded-filter";
-import { displayRegistrationType } from "@/lib/faculty-filter";
+import { displayRegistrationType, pickableRegTypes } from "@/lib/faculty-filter";
 import { formatAttendeeRole } from "@/lib/schemas";
 import { TagFilter } from "@/components/registrations/tag-filter";
 import { useSession } from "next-auth/react";
@@ -1199,7 +1199,9 @@ export default function RegistrationsPage() {
                 <SelectValue placeholder="Select target type" />
               </SelectTrigger>
               <SelectContent>
-                {(ticketTypes as TicketType[]).map((rt) => (
+                {/* Never the speakers' type: moving people onto it by hand is the
+                    one-way trap the registration sheet had (Oct 22, 2026). */}
+                {pickableRegTypes(ticketTypes as TicketType[], null).map((rt) => (
                   <SelectItem key={rt.id} value={rt.id}>{rt.name}</SelectItem>
                 ))}
               </SelectContent>
