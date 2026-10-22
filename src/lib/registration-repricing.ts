@@ -1,5 +1,6 @@
 import { PaymentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { tierChangeAllowed } from "@/lib/tier-change-policy";
 
 /**
  * Shared "what does this ticket-type and/or pricing-tier change do to the
@@ -78,17 +79,13 @@ export async function resolveRepricing(input: {
   let originalPrice: number | undefined;
 
   if (isSettingTier) {
-    if (!unpaid) {
-      const noBalance =
-        existing.paymentStatus === PaymentStatus.COMPLIMENTARY ||
-        existing.paymentStatus === PaymentStatus.INCLUSIVE;
+    if (!tierChangeAllowed(existing.paymentStatus)) {
       return {
         ok: false,
         code: "TIER_CHANGE_REQUIRES_UNPAID",
         status: 400,
-        message: noBalance
-          ? "This registration has no balance due (complimentary / sponsor-paid). Change its payment status before changing the price."
-          : "The price (tier / type) can only be changed while the registration is unpaid. Refund the payment first.",
+        message:
+          "The price (tier / type) cannot be changed once the registration is paid. Refund the payment first.",
       };
     }
     if (existing.promoCodeId || Number(existing.discountAmount ?? 0) > 0) {

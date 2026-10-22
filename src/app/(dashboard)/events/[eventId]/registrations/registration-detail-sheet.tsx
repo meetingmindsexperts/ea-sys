@@ -107,6 +107,7 @@ import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
 import { displayRegistrationType, pickableRegTypes, SPEAKERS_TYPE_LABEL } from "@/lib/faculty-filter";
+import { tierChangeAllowed } from "@/lib/tier-change-policy";
 import { hasCustomBilling } from "./types";
 import { AddPayerDialog } from "@/components/billing/add-payer-dialog";
 import {
@@ -1766,6 +1767,9 @@ export function RegistrationDetailSheet({
                   this picker, or Save stays disabled (review H, Oct 22, 2026). */}
               {!activeTypeIsFaculty && (() => {
                 const unpaid = (["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus);
+                // Unpaid, or complimentary / sponsor-paid where the tier is a label
+                // (tier-change-policy.ts, the same rule the server applies).
+                const tierEditable = tierChangeAllowed(selectedRegistration.paymentStatus);
                 const editTt = (regTypes as TicketType[]).find((t) => t.id === editData.ticketTypeId);
                 const editTiers = editTt?.pricingTiers ?? [];
                 const viewTiers = (regTypes as TicketType[]).find((t) => t.id === (selectedRegistration.ticketType?.id ?? ""))?.pricingTiers ?? [];
@@ -1774,11 +1778,12 @@ export function RegistrationDetailSheet({
                 // tier is already assigned — a flat-priced type has no tier concept.
                 const relevant = (isEditing ? editTiers.length : viewTiers.length) > 0 || !!currentTierName;
                 if (!relevant) return null;
-                const promoBlocks = isEditing && unpaid && !isReviewer && !!selectedRegistration.promoCode && editTiers.length > 0;
-                const canEditTier = isEditing && unpaid && !isReviewer && editTiers.length > 0 && !selectedRegistration.promoCode;
+                const promoBlocks = isEditing && tierEditable && !isReviewer && !!selectedRegistration.promoCode && editTiers.length > 0;
+                const canEditTier = isEditing && tierEditable && !isReviewer && editTiers.length > 0 && !selectedRegistration.promoCode;
                 const typeChanged = editData.ticketTypeId !== (selectedRegistration.ticketType?.id ?? "");
                 const picked = editTiers.some((t) => t.id === editData.pricingTierId);
-                const needsTier = typeChanged && !picked;
+                // Only an unpaid registration MUST pick (its price follows the tier).
+                const needsTier = unpaid && typeChanged && !picked;
                 const unpickedTierValue = typeChanged ? "" : editData.pricingTierId || "__base__";
                 const tierReadOnly = () => {
                   if (promoBlocks) {
@@ -1833,7 +1838,9 @@ export function RegistrationDetailSheet({
                           </p>
                         ) : (
                           <p className="text-[11px] text-muted-foreground">
-                            Courtesy rate (e.g. Early Bird). Saved + re-priced with your other edits. Unpaid only.
+                            {unpaid
+                              ? "Courtesy rate (e.g. Early Bird). Saved + re-priced with your other edits."
+                              : "Which rate they came in on, for reports. Nothing is charged: this registration is complimentary or sponsor-paid."}
                           </p>
                         )}
                       </>

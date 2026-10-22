@@ -79,6 +79,17 @@ describe("resolveRepricing", () => {
     expect(r).toMatchObject({ ok: false, code: "TIER_CHANGE_REQUIRES_UNPAID", status: 400 });
   });
 
+  // Oct 22, 2026 (owner): nothing is owed, so the tier is a label.
+  it.each(["COMPLIMENTARY", "INCLUSIVE"])("re-tier on a %s reg is allowed and re-stamps the price", async (paymentStatus) => {
+    const r = await resolveRepricing({ eventId: "ev", existing: existing({ paymentStatus }), pricingTierId: TIER });
+    expect(r).toMatchObject({ ok: true, nextTierId: TIER });
+  });
+
+  it.each(["REFUNDED", "FAILED"])("re-tier on a %s reg stays refused", async (paymentStatus) => {
+    const r = await resolveRepricing({ eventId: "ev", existing: existing({ paymentStatus }), pricingTierId: TIER });
+    expect(r).toMatchObject({ ok: false, code: "TIER_CHANGE_REQUIRES_UNPAID" });
+  });
+
   it("re-tier with a promo applied → TIER_CHANGE_HAS_DISCOUNT (400)", async () => {
     const r = await resolveRepricing({ eventId: "ev", existing: existing({ promoCodeId: "promo1" }), pricingTierId: TIER });
     expect(r).toMatchObject({ ok: false, code: "TIER_CHANGE_HAS_DISCOUNT", status: 400 });

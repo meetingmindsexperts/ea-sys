@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations: the pricing tier can be changed on complimentary and sponsor-paid registrations (October 22)
+
+- Owner request. The tier was editable only while unpaid, pending or unassigned; complimentary and sponsor-paid (Inclusive) registrations were refused ("change its payment status first"). For them the tier is a label (which rate they came in on, for reports) and changing it charges no one: payment reminders only chase the unpaid statuses. Paid, refunded and failed stay locked; a promo code still blocks it.
+- One rule, `tierChangeAllowed` in the new client-safe src/lib/tier-change-policy.ts, used by the server resolver (`resolveRepricing`, so REST and the MCP `update_registration` tool) and the registration sheet. After a type change only an unpaid registration must pick a tier. MCP tool description updated; package version 0.4.47 so connected clients refresh.
+- User guide: the stale "Pricing Tier has its own Apply button on Billing & Payments" note now describes the Details-tab picker and when it is editable.
+
 ### Registrations: speakers with no recorded profession show "Faculty" (October 22)
 
 - The TYPE column, the registration sheet, exports and shared views showed a dash for a registration on the speakers' type with no recorded profession (or one stored as the literal "Faculty"), which read as missing data (Uzma Sharif, BHS2026). They now show the speakers' type's own name, normally "Faculty" (owner), so an organisation that renames the type sees its own wording; "Faculty" is only the last resort when the type has no name. A recorded profession still wins; ordinary delegates are unchanged. `displayRegistrationType` in src/lib/faculty-filter.ts.
