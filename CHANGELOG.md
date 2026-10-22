@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Registrations: speakers with no recorded profession show "Faculty" (October 22)
 
-- The TYPE column, the registration sheet, exports and shared views showed a dash for a registration on the speakers' type with no recorded profession (or one stored as the literal "Faculty"), which read as missing data (Uzma Sharif, BHS2026). They now show "Faculty" (owner). A recorded profession still wins; ordinary delegates are unchanged. `displayRegistrationType` / `FACULTY_TYPE_FALLBACK` in src/lib/faculty-filter.ts.
+- The TYPE column, the registration sheet, exports and shared views showed a dash for a registration on the speakers' type with no recorded profession (or one stored as the literal "Faculty"), which read as missing data (Uzma Sharif, BHS2026). They now show the speakers' type's own name, normally "Faculty" (owner), so an organisation that renames the type sees its own wording; "Faculty" is only the last resort when the type has no name. A recorded profession still wins; ordinary delegates are unchanged. `displayRegistrationType` in src/lib/faculty-filter.ts.
 
 ### Registrations: a registration moved onto the speakers' type can be moved back (October 22)
 

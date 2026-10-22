@@ -7,6 +7,24 @@
 
 ---
 
+## Per-organisation wording for system labels (recorded Oct 22, 2026): not started
+
+A few words are hard-coded in English and identical for every organisation,
+which a second tenant on the platform instance may call something else or use
+another language for:
+
+- the speakers' type is created as "Faculty" (`ensureFacultyTicketType`, src/lib/speaker-companion.ts);
+- a speaker's registration gets the badge role "Faculty" (same file);
+- the exhibitor badge settings match the badge role "Exhibitor" (`EXHIBITOR_BADGE_ROLE`, src/lib/badge-layout.ts).
+
+Already tenant-correct: the TYPE column for a speaker with no profession shows
+the speakers' type's own name, so renaming that type on Registration Types is
+enough (Oct 22, 2026). Proposed: one organisation-level setting for these
+labels, read where each is written, defaulting to today's words so nothing
+changes for MM Group. Not needed until a second organisation is onboarded.
+
+---
+
 ## Distributed L7 attack protection (recorded Oct 17, 2026): not started
 
 Current per-IP / per-email rate limits are blind to a distributed attack where

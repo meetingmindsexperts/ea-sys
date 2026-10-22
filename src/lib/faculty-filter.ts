@@ -24,7 +24,11 @@ export const FACULTY_ONLY_WHERE: Prisma.RegistrationWhereInput = {
   ticketType: { isFaculty: true },
 };
 
-/** What a registration on the speakers' type shows when no profession is recorded. */
+/**
+ * Last resort when a registration on the speakers' type has no profession AND
+ * the type has no name to show. Normally the type's own name is used, so each
+ * organisation's wording (renamed on Registration Types) shows through.
+ */
 export const FACULTY_TYPE_FALLBACK = "Faculty";
 
 /**
@@ -33,11 +37,22 @@ export const FACULTY_TYPE_FALLBACK = "Faculty";
  * For a faculty companion (the `isFaculty` ticket type) this returns the
  * person's profession (Physician / Allied Health / Nurse / Others) from the
  * attendee's `registrationType` when one is recorded. When none is (empty, or
- * the literal "Faculty"), it shows "Faculty" (owner, Oct 22, 2026): it used to
- * show a dash, which read as missing data when the real reason is that this is
- * a speaker's registration. For everyone else it's the ticket-type name, which
- * IS the professional category for a normal delegate. Pure + client-safe.
+ * just the type's own name or "Faculty"), it shows the speakers' type's OWN
+ * name (owner, Oct 22, 2026), so an organisation that renamed it "Speakers"
+ * sees "Speakers". It used to show a dash, which read as missing data. For
+ * everyone else it's the ticket-type name, which IS the professional category
+ * for a normal delegate. Pure + client-safe.
  */
+/** A speaker's profession, or the speakers' type's own name when none is recorded. */
+function facultyTypeLabel(typeName: string | null | undefined, profession: string | null | undefined): string {
+  const label = typeName?.trim() || FACULTY_TYPE_FALLBACK;
+  const recorded = profession?.trim();
+  if (!recorded) return label;
+  // A stored "Faculty" or the type's own name is a placeholder, not a profession.
+  const placeholders = [label.toLowerCase(), FACULTY_TYPE_FALLBACK.toLowerCase()];
+  return placeholders.includes(recorded.toLowerCase()) ? label : recorded;
+}
+
 export function displayRegistrationType(
   input: {
     ticketTypeName?: string | null;
@@ -46,10 +61,7 @@ export function displayRegistrationType(
   },
   emptyLabel = "—",
 ): string {
-  if (input.isFaculty) {
-    const rt = input.attendeeRegistrationType;
-    return rt && rt !== FACULTY_TYPE_FALLBACK ? rt : FACULTY_TYPE_FALLBACK;
-  }
+  if (input.isFaculty) return facultyTypeLabel(input.ticketTypeName, input.attendeeRegistrationType);
   return input.ticketTypeName ?? emptyLabel;
 }
 
