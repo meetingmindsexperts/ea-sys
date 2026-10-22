@@ -2,8 +2,8 @@
  * displayRegistrationType — the registration type shown in the registrations
  * list / detail / CSV. A faculty companion sits on the hidden "Faculty" ticket
  * type, so the raw ticket-type name reads "Faculty" (a badge/role, not a
- * profession). This helper shows the person's profession instead, never the
- * literal "Faculty".
+ * profession). This helper shows the person's profession when one is recorded,
+ * and "Faculty" when not (owner, Oct 22, 2026; it used to show a dash).
  */
 import { describe, it, expect } from "vitest";
 import { displayRegistrationType } from "@/lib/faculty-filter";
@@ -17,16 +17,16 @@ describe("displayRegistrationType", () => {
     expect(displayRegistrationType({ ticketTypeName: "Faculty", isFaculty: true, attendeeRegistrationType: "Nurse" })).toBe("Nurse");
   });
 
-  it("faculty whose attendee type is still literally 'Faculty': shows '—', never 'Faculty'", () => {
-    expect(displayRegistrationType({ ticketTypeName: "Faculty", isFaculty: true, attendeeRegistrationType: "Faculty" })).toBe("—");
+  it("faculty whose attendee type is literally 'Faculty': shows 'Faculty'", () => {
+    expect(displayRegistrationType({ ticketTypeName: "Faculty", isFaculty: true, attendeeRegistrationType: "Faculty" })).toBe("Faculty");
   });
 
-  it("faculty with no recorded profession: shows '—'", () => {
-    expect(displayRegistrationType({ ticketTypeName: "Faculty", isFaculty: true, attendeeRegistrationType: null })).toBe("—");
+  it("faculty with no recorded profession: shows 'Faculty', even with a custom empty label", () => {
+    expect(displayRegistrationType({ ticketTypeName: "Faculty", isFaculty: true, attendeeRegistrationType: null })).toBe("Faculty");
+    expect(displayRegistrationType({ ticketTypeName: "Faculty (speakers)", isFaculty: true, attendeeRegistrationType: "" }, "")).toBe("Faculty");
   });
 
-  it("honours a custom empty label (e.g. '' for CSV cells)", () => {
-    expect(displayRegistrationType({ ticketTypeName: "Faculty", isFaculty: true, attendeeRegistrationType: null }, "")).toBe("");
+  it("honours a custom empty label for a delegate with no type (e.g. '' for CSV cells)", () => {
     expect(displayRegistrationType({ ticketTypeName: null, isFaculty: false, attendeeRegistrationType: null }, "")).toBe("");
   });
 

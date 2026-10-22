@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations: speakers with no recorded profession show "Faculty" (October 22)
+
+- The TYPE column, the registration sheet, exports and shared views showed a dash for a registration on the speakers' type with no recorded profession (or one stored as the literal "Faculty"), which read as missing data (Uzma Sharif, BHS2026). They now show "Faculty" (owner). A recorded profession still wins; ordinary delegates are unchanged. `displayRegistrationType` / `FACULTY_TYPE_FALLBACK` in src/lib/faculty-filter.ts.
+
 ### Registrations: a registration moved onto the speakers' type can be moved back (October 22)
 
 - Found on BHS2026: Uzma Sharif was changed from Physician to the speakers' automatic "Faculty" type on Oct 20. The registration sheet then replaced the type picker with read-only text (showing only a dash, since her stored category is "Faculty"), so nobody could change it back. The server always allowed it.

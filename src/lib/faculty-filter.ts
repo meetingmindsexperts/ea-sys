@@ -24,15 +24,19 @@ export const FACULTY_ONLY_WHERE: Prisma.RegistrationWhereInput = {
   ticketType: { isFaculty: true },
 };
 
+/** What a registration on the speakers' type shows when no profession is recorded. */
+export const FACULTY_TYPE_FALLBACK = "Faculty";
+
 /**
  * The professional registration type to DISPLAY for a registration.
  *
  * For a faculty companion (the `isFaculty` ticket type) this returns the
  * person's profession (Physician / Allied Health / Nurse / Others) from the
- * attendee's `registrationType` — NEVER the literal "Faculty" (that's a
- * badge/role, not a profession), falling back to "—" when the profession wasn't
- * recorded. For everyone else it's the ticket-type name, which IS the
- * professional category for a normal delegate. Pure + client-safe.
+ * attendee's `registrationType` when one is recorded. When none is (empty, or
+ * the literal "Faculty"), it shows "Faculty" (owner, Oct 22, 2026): it used to
+ * show a dash, which read as missing data when the real reason is that this is
+ * a speaker's registration. For everyone else it's the ticket-type name, which
+ * IS the professional category for a normal delegate. Pure + client-safe.
  */
 export function displayRegistrationType(
   input: {
@@ -44,7 +48,7 @@ export function displayRegistrationType(
 ): string {
   if (input.isFaculty) {
     const rt = input.attendeeRegistrationType;
-    return rt && rt !== "Faculty" ? rt : emptyLabel;
+    return rt && rt !== FACULTY_TYPE_FALLBACK ? rt : FACULTY_TYPE_FALLBACK;
   }
   return input.ticketTypeName ?? emptyLabel;
 }
