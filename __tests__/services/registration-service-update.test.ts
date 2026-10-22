@@ -204,6 +204,21 @@ describe("guards + sentinels come back as result values", () => {
       expect.objectContaining({ where: { id: "tt-foreign", eventId: "ev1" } }),
     );
   });
+
+  // Oct 22, 2026 (review M): never ONTO the speakers' type, like create.
+  it("refuses moving a registration onto the speakers' Faculty type, before any write", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt-fac", isFaculty: true });
+    const r = await updateRegistration({ ...base, ticketTypeId: "tt-fac" });
+    expect(r).toMatchObject({ ok: false, code: "TICKET_TYPE_IS_FACULTY" });
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("still allows moving OFF the speakers' type", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt-fac", paymentStatus: "COMPLIMENTARY" }));
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt1", isFaculty: false });
+    const r = await updateRegistration({ ...base, ticketTypeId: "tt1" });
+    expect(r.ok).toBe(true);
+  });
 });
 
 describe("post-commit fan-out", () => {

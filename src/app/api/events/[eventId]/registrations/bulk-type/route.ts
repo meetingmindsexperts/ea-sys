@@ -62,11 +62,21 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // Verify the target ticket type exists and belongs to this event
     const targetType = await db.ticketType.findFirst({
       where: { id: ticketTypeId, eventId },
-      select: { id: true, name: true, quantity: true, price: true },
+      select: { id: true, name: true, quantity: true, price: true, isFaculty: true },
     });
 
     if (!targetType) {
+      apiLogger.warn({ msg: "registrations/bulk-type:type-not-found", eventId, ticketTypeId });
       return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
+    }
+    // Never onto the speakers' type (Oct 22, 2026, review M): same rule as
+    // create and the single edit.
+    if (targetType.isFaculty) {
+      apiLogger.warn({ msg: "registrations/bulk-type:target-is-faculty", eventId, ticketTypeId, count: registrationIds.length });
+      return NextResponse.json(
+        { error: "The speakers' Faculty type is reserved for speakers and is set automatically. Pick a delegate type.", code: "TICKET_TYPE_IS_FACULTY" },
+        { status: 400 },
+      );
     }
 
     // Fetch all registrations being moved (only non-cancelled, and not already

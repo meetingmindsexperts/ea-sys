@@ -81,6 +81,7 @@ import {
   Radar,
   StickyNote,
   RotateCcw,
+  AlertTriangle,
 } from "lucide-react";
 import { requiresSupportingDocument, supportingDocumentLabel } from "@/lib/supporting-document";
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
@@ -1679,6 +1680,17 @@ export function RegistrationDetailSheet({
                         ))}
                       </SelectContent>
                     </Select>
+                    {/* Review L (Oct 22, 2026): a speaker's own registration moved off the
+                        speakers' type quietly becomes a counted delegate. Say so. */}
+                    {isEditing && selectedRegistration.createdSource === "SPEAKER_COMPANION" && !stagedTypeIsFaculty && (
+                      <p className="flex items-start gap-1 text-xs text-amber-800">
+                        <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          This is a speaker&apos;s registration. On a delegate type they count as a
+                          delegate in statistics. Their badge role stays as set.
+                        </span>
+                      </p>
+                    )}
                   </div>
                   {/* Webinars print no badges, so no badge type. */}
                   {!isWebinarEvent && (

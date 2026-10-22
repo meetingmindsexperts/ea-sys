@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Found on BHS2026: Uzma Sharif was changed from Physician to the speakers' automatic "Faculty" type on Oct 20. The registration sheet then replaced the type picker with read-only text (showing only a dash, since her stored category is "Faculty"), so nobody could change it back. The server always allowed it.
 - The picker now stays on that type, labelled "Faculty (speakers)", so staff can move someone off it. It is offered only to a registration already on it: the sheet's picker and bulk Change Type no longer list it for anyone else, matching Add Registration (`pickableRegTypes` in src/lib/faculty-filter.ts).
 - Same sheet: the barcode image no longer logs next/image sizing warnings.
+- Review fixes the same day: the Pricing Tier picker follows the type being picked, so an unpaid registration moved off the speakers' type onto a tiered type can be saved (it was disabled with no picker). The server now refuses moving a registration ONTO the speakers' type, in the single edit and bulk Change Type (`TICKET_TYPE_IS_FACULTY`, 400), the same rule create already had; moving off stays allowed. A speaker's own registration (SPEAKER_COMPANION) moved off shows a note that they will count as a delegate.
 
 ### Badges: a different badge for exhibitors (October 20)
 

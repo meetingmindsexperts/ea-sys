@@ -77,6 +77,16 @@ describe("bulk-type — soldCount oversell guard", () => {
     mockDb._tx.$executeRaw.mockImplementation(seatRawExecutor());
   });
 
+  // Oct 22, 2026 (review M): never ONTO the speakers' type, like create and the single edit.
+  it("refuses the speakers' Faculty type as a target, before any registration is read or moved", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "F", name: "Faculty", quantity: 999999, isFaculty: true });
+    const res = await bulkType(req({ registrationIds: ["r1", "r2"], ticketTypeId: "F" }), { params });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "TICKET_TYPE_IS_FACULTY" });
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
   it("claims seats atomically with the capacity predicate (one guarded statement)", async () => {
     const res = await bulkType(req({ registrationIds: ["r1", "r2"], ticketTypeId: "T" }), { params });
     expect(res.status).toBeLessThan(400);

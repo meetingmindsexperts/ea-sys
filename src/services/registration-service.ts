@@ -1202,6 +1202,7 @@ export interface UpdateRegistrationInput {
 
 export type UpdateRegistrationErrorCode =
   | "REGISTRATION_NOT_FOUND"
+  | "TICKET_TYPE_IS_FACULTY"
   | "PAYMENT_STATUS_NOT_SETTABLE"
   | "INCLUSIVE_REQUIRES_SPONSOR"
   | "SPONSOR_NOT_FOUND"
@@ -1351,11 +1352,22 @@ export async function updateRegistration(
     if (ticketTypeId && ticketTypeId !== existing.ticketTypeId) {
       const tt = await db.ticketType.findFirst({
         where: { id: ticketTypeId, eventId },
-        select: { id: true },
+        select: { id: true, isFaculty: true },
       });
       if (!tt) {
         apiLogger.warn({ msg: "registration-update:ticket-type-not-found", registrationId, ticketTypeId, source });
         return { ok: false, code: "TICKET_TYPE_NOT_FOUND", message: `Ticket type ${ticketTypeId} not found in this event.` };
+      }
+      // Same rule as create (Oct 22, 2026, review M): the speakers' type is
+      // never a destination. A delegate moved onto it drops out of every
+      // delegate count and loses their profession; moving OFF it stays allowed.
+      if (tt.isFaculty) {
+        apiLogger.warn({ msg: "registration-update:ticket-type-is-faculty", registrationId, ticketTypeId, source });
+        return {
+          ok: false,
+          code: "TICKET_TYPE_IS_FACULTY",
+          message: "The speakers' Faculty type is reserved for speakers and is set automatically. Pick a delegate type.",
+        };
       }
     }
 
