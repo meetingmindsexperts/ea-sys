@@ -205,12 +205,11 @@ export function RegistrationDetailSheet({
   // button would otherwise be offered on all of them.
   const canSeeBarcodes = useCan("barcode.view") === "allowed";
   const canResetSurveyHere = useCan("surveys.reset", eventId) === "allowed";
-  // ONSITE + MEMBER are registration-desk operators: they can edit, check in,
-  // record payment, and print badges — but NOT delete or email a registration
-  // (those stay admin/organizer; the API enforces it too).
-  const isOnsite = userSession?.user?.role === "ONSITE";
-  const isMember = userSession?.user?.role === "MEMBER";
-  const isBaseDeskOperator = isOnsite || isMember;
+  // Delete and email follow the person's permissions, never the base role
+  // (Oct 22, 2026): a Member whose custom role adds them saw neither.
+  const canDelete = useCan("registrations.delete", eventId) === "allowed";
+  const canEmail = useCan("registrations.email", eventId) === "allowed";
+  const canReadTemplates = useCan("templates.read", eventId) === "allowed";
   // ONSITE + MEMBER now SEE money (they record payments) — canViewFinance
   // includes them, so the Billing tab + Payment Summary + amounts show.
   const showFinance = useCan("finance.view") === "allowed";
@@ -223,19 +222,11 @@ export function RegistrationDetailSheet({
   const canReadSponsors = useCan("sponsors.read", eventId) === "allowed";
   const { data: regTypes = [] } = useTickets(eventId, canReadTickets);
   const { data: eventForMode } = useEvent(eventId);
-  // WEBINARS on a NON-webinar event is desk-limited too (review M-3): its
-  // conference tier is ONSITE-equivalent, so hide the organizer-only actions
-  // whose APIs would 403/404 anyway. While the event is loading, WEBINARS
-  // gets the safe desk-limited view.
-  const isDeskOperator =
-    isBaseDeskOperator ||
-    (userSession?.user?.role === "WEBINARS" && eventForMode?.eventType !== "WEBINAR");
   // Active custom email templates — added as "Send Email" dropdown options so a
   // single registration can be sent a saved template, not just the built-ins.
-  // Fetched only when that menu can show: desk operators never see it, and
-  // ONSITE (and WEBINARS on a conference) may not read the templates, so the
-  // request would only put a 404 in the console.
-  const { data: emailTemplatesData } = useEmailTemplates(eventId, !isDeskOperator);
+  // Fetched only when that menu can show and the person may read templates,
+  // so the request never puts a 403 in the console.
+  const { data: emailTemplatesData } = useEmailTemplates(eventId, canEmail && canReadTemplates);
   const customTemplates = (
     (emailTemplatesData?.templates ?? []) as Array<{ slug: string; name: string; isActive: boolean }>
   ).filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
@@ -1140,7 +1131,7 @@ export function RegistrationDetailSheet({
                           Undo Check-in
                         </Button>
                       )}
-                      {!isDeskOperator && (
+                      {canDelete && (
                         <Button
                           size="sm"
                           variant="secondary"
@@ -2992,7 +2983,7 @@ export function RegistrationDetailSheet({
                       organizer, so the grid is 2 cols for them, 3 otherwise. */}
                   <div className={cn(
                     "grid gap-2",
-                    ACTION_GRID_COLS[(isWebinarEvent ? 0 : 1) + 1 + (isDeskOperator ? 0 : 1)],
+                    ACTION_GRID_COLS[(isWebinarEvent ? 0 : 1) + 1 + (canEmail ? 1 : 0)],
                   )}>
                   {!isWebinarEvent && (
                   <Button
@@ -3010,7 +3001,7 @@ export function RegistrationDetailSheet({
                       <Download className="mr-2 h-4 w-4" /> Download Quote
                     </a>
                   </Button>
-                  {!isDeskOperator && (
+                  {canEmail && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button size="sm" variant="outline" disabled={sendEmail.isPending}>

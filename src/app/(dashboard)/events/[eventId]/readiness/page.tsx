@@ -7,9 +7,9 @@
  * (paid registration + abstracts). Visible to any team role that can open the event.
  */
 
+import { useCan } from "@/hooks/use-can";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useSession } from "next-auth/react";
 import {
   Card,
   CardContent,
@@ -76,8 +76,10 @@ function Section({
 export default function EventReadinessPage() {
   const params = useParams<{ eventId: string }>();
   const eventId = params?.eventId;
-  const { data: session } = useSession();
-  const isViewer = session?.user?.role === "MEMBER";
+  // Read-only means "cannot edit this event", from permissions: a Member whose
+  // custom role adds event editing is not read-only (Oct 22, 2026).
+  const canEdit = useCan("events.update", eventId ?? "");
+  const isViewer = canEdit === "denied";
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
@@ -107,8 +109,8 @@ export default function EventReadinessPage() {
         <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            You&rsquo;re viewing as a <strong>Member</strong> (read-only). This is a reference — an
-            Organizer or Admin makes the changes below.
+            You can view this checklist, but your access does not include editing this event.
+            Someone who can edit it makes the changes below.
           </span>
         </div>
       )}

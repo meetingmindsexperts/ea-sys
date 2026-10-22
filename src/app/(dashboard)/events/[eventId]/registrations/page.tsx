@@ -154,23 +154,12 @@ export default function RegistrationsPage() {
   const eventId = params.eventId as string;
   const { data: userSession } = useSession();
   const isReviewer = userSession?.user?.role === "REVIEWER";
-  // Registration-desk operators (ONSITE + MEMBER) can add registrations, print
-  // badges, check in, and edit/record-payment via the detail sheet — but NOT
-  // the bulk/import/share write actions on this list (those stay admin/
-  // organizer). MEMBER additionally has full read elsewhere; ONSITE is
-  // nav-restricted. On this list both get the same (no-bulk) treatment.
-  // Desk-limited UI: ONSITE always; WEBINARS on NON-webinar events (its
-  // conference tier is ONSITE-equivalent — review M-3: without this the full
-  // organizer chrome renders and every non-desk action dies 403/404 at the
-  // API). `event` loads below; while undefined, WEBINARS gets the safe
-  // desk-limited view rather than a flash of organizer chrome.
-  const roleName = userSession?.user?.role;
-  const isOnsite = roleName === "ONSITE";
-  const isMember = roleName === "MEMBER";
+  // What each person may do on this list comes from their permissions (the
+  // can* checks below), never from their base role: custom roles add to it.
   // A payer's detail is its money on EVERY event, so it needs the
-  // organisation's invoice book (`invoices.ledger`), which ONSITE and WEBINARS
-  // do not hold: for them the payer's name is shown, not linked.
-  const canOpenPayer = !isOnsite && roleName !== "WEBINARS";
+  // organisation's invoice book (`invoices.ledger`): without it the payer's
+  // name is shown, not linked.
+  const canOpenPayer = useCan("invoices.ledger") === "allowed";
 
   // Tag filter state declared up here so useRegistrations can read it.
   // Empty array = no filter (URL omits the `tags=` param).
@@ -211,19 +200,24 @@ export default function RegistrationsPage() {
   const { data: ticketTypes = [] } = ticketsQuery;
   const { data: event } = useEvent(eventId);
   const eventIsWebinar = isWebinar(event ?? undefined);
-  // WEBINARS on a NON-webinar event is desk-limited too (its conference tier
-  // is ONSITE-equivalent). While `event` is still loading, WEBINARS gets the
-  // safe desk-limited view rather than a flash of organizer chrome.
-  const isDeskOperator =
-    isOnsite || isMember || (roleName === "WEBINARS" && event?.eventType !== "WEBINAR");
-  // NOT `!isDeskOperator`: that set includes MEMBER (excluded from barcodes)
-  // and excludes ONSITE (the desk, who must see them). The two boundaries
-  // genuinely disagree, which is why barcode visibility has its own predicate.
+  // Barcode visibility has its own key: a Member is excluded from it while
+  // ONSITE (the desk) needs it, so no single "desk" flag can stand for both.
   const canSeeBarcodes = useCan("barcode.view") === "allowed";
   // "Paid / Due" column: the API attaches `rowMoney` only for roles that can
   // see money (redactFinancialFields strips it otherwise), so the column is
   // gated on the same predicate rather than on a per-row field check.
   const canSeeMoney = useCan("finance.view") === "allowed";
+  // The organiser tools follow the person's permissions, not their base role
+  // (Oct 22, 2026): a Member whose custom role adds importing, bulk edits or
+  // email saw none of these, because they hung off isDeskOperator (a role
+  // check). Each key is the one its route checks.
+  const canImport = useCan("registrations.import", eventId) === "allowed";
+  const canReadContacts = useCan("contacts.read") === "allowed";
+  const canBulk = useCan("registrations.bulk", eventId) === "allowed";
+  const canSendEmail = useCan("communications.send", eventId) === "allowed";
+  const canImportDtcm = useCan("dtcm.import", eventId) === "allowed";
+  const canUpdate = useCan("registrations.update", eventId) === "allowed";
+  const canSelect = canBulk || canSendEmail || canImport;
   // Payer column only when someone on this list actually has a third-party
   // payer. It read "-" on nearly every row, and the width is better spent on
   // Country and Paid / Due (organiser request, Sep 10 2026). The payer field
@@ -512,7 +506,7 @@ export default function RegistrationsPage() {
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           </Button>
-          {!isReviewer && !isDeskOperator && (
+          {!isReviewer && canUpdate && (
             <Button
               variant="outline"
               size="sm"
@@ -567,7 +561,7 @@ export default function RegistrationsPage() {
           {!isReviewer && (
             <>
               {/* Management-only actions — hidden for ONSITE (desk staff). */}
-              {!isDeskOperator && registrations.length > 0 && (
+              {canSelect && registrations.length > 0 && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -577,7 +571,7 @@ export default function RegistrationsPage() {
                   Select by IDs
                 </Button>
               )}
-              {!isDeskOperator && registrations.length > 0 && (
+              {canSendEmail && registrations.length > 0 && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -587,17 +581,17 @@ export default function RegistrationsPage() {
                   {selectedIds.size > 0 ? `Email (${selectedIds.size})` : "Email All"}
                 </Button>
               )}
-              {!isDeskOperator && <CSVImportButton eventId={eventId} entityType="registrations" />}
+              {canImport && <CSVImportButton eventId={eventId} entityType="registrations" />}
               {/* DTCM barcode import is Dubai-only — only surface it when the
                   event is flagged (Settings → Registration). Keeps the import
                   path consistent with the now-gated DTCM field. */}
-              {!isDeskOperator && event?.requiresDtcmBarcode && <BarcodeImportDialog eventId={eventId} />}
+              {canImportDtcm && event?.requiresDtcmBarcode && <BarcodeImportDialog eventId={eventId} />}
               {/* ONSITE keeps badge printing + add registration. Webinars
                   print no badges (no entry barcode). */}
               {!eventIsWebinar && (
                 <BadgeDialog eventId={eventId} selectedIds={selectedIds} totalCount={registrations.length} />
               )}
-              {!isDeskOperator && <ImportContactsButton eventId={eventId} mode="registration" />}
+              {canImport && canReadContacts && <ImportContactsButton eventId={eventId} mode="registration" />}
               <Button asChild className="btn-gradient shadow-sm">
                 <Link href={`/events/${eventId}/registrations/new`}>
                   <Plus className="mr-2 h-4 w-4" />
@@ -616,43 +610,51 @@ export default function RegistrationsPage() {
       )}
 
       {/* Bulk Selection Toolbar */}
-      {selectedIds.size > 0 && !isReviewer && !isDeskOperator && (
+      {selectedIds.size > 0 && !isReviewer && canSelect && (
         <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3 shadow-sm">
           <span className="text-sm font-medium">
             {selectedIds.size} registration{selectedIds.size !== 1 ? "s" : ""} selected
           </span>
           <div className="flex gap-2 ml-auto">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => { setTargetTypeId(""); setChangeTypeDialogOpen(true); }}
-            >
-              <ArrowRightLeft className="mr-2 h-4 w-4" />
-              Change Type
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setTagDialogOpen(true)}
-            >
-              <Tag className="mr-2 h-4 w-4" />
-              Manage Tags
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setSendFormConfirmOpen(true)}
-            >
-              <Mail className="mr-2 h-4 w-4" />
-              Send Registration Form
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => setBulkEmailOpen(true)}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              Send Email
-            </Button>
+            {canBulk && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setTargetTypeId(""); setChangeTypeDialogOpen(true); }}
+              >
+                <ArrowRightLeft className="mr-2 h-4 w-4" />
+                Change Type
+              </Button>
+            )}
+            {canBulk && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setTagDialogOpen(true)}
+              >
+                <Tag className="mr-2 h-4 w-4" />
+                Manage Tags
+              </Button>
+            )}
+            {canImport && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setSendFormConfirmOpen(true)}
+              >
+                <Mail className="mr-2 h-4 w-4" />
+                Send Registration Form
+              </Button>
+            )}
+            {canSendEmail && (
+              <Button
+                size="sm"
+                onClick={() => setBulkEmailOpen(true)}
+              >
+                <Send className="mr-2 h-4 w-4" />
+                Send Email
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
@@ -831,7 +833,7 @@ export default function RegistrationsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  {!isReviewer && !isDeskOperator && (
+                  {!isReviewer && canSelect && (
                     <TableHead className="w-10">
                       <Checkbox
                         checked={selectAllCheckedState(allOnPageSelected, someOnPageSelected)}
@@ -861,7 +863,7 @@ export default function RegistrationsPage() {
                     className={`cursor-pointer hover:bg-muted/50 ${selectedIds.has(registration.id) ? "bg-primary/5" : ""}`}
                     onClick={() => handleRowClick(registration)}
                   >
-                    {!isReviewer && !isDeskOperator && (
+                    {!isReviewer && canSelect && (
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={selectedIds.has(registration.id)}
