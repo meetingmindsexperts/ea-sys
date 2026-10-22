@@ -105,8 +105,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
-import { pickableRegTypes, SPEAKERS_TYPE_LABEL } from "@/lib/faculty-filter";
-import { displayRegistrationType } from "@/lib/faculty-filter";
+import { displayRegistrationType, pickableRegTypes, SPEAKERS_TYPE_LABEL } from "@/lib/faculty-filter";
 import { hasCustomBilling } from "./types";
 import { AddPayerDialog } from "@/components/billing/add-payer-dialog";
 import {
@@ -906,6 +905,12 @@ export function RegistrationDetailSheet({
   // tiers, they must explicitly pick one of the NEW type's tiers before saving
   // — tier-priced types usually have a $0 base, so defaulting to base would
   // silently make the registration free. Unpaid-only (repricing is unpaid-only).
+  // Is the type the sheet is showing the speakers' type? While editing, the
+  // staged type (looked up in the type list); otherwise the registration's own
+  // flag, which also holds for staff who cannot read the type list.
+  const stagedTypeIsFaculty = !!(regTypes as TicketType[]).find((t) => t.id === editData.ticketTypeId)?.isFaculty;
+  const activeTypeIsFaculty = isEditing ? stagedTypeIsFaculty : !!selectedRegistration?.ticketType?.isFaculty;
+
   const tierSelectionRequired = (() => {
     if (!selectedRegistration) return false;
     // H1: with a promo applied the tier can't be changed (server blocks it) and
@@ -1744,7 +1749,10 @@ export function RegistrationDetailSheet({
                   (unpaid, non-faculty, tiered type). Changing the type clears the
                   pick so the organizer explicitly re-picks a tier of the new type
                   (re-stamps originalPrice via the shared repricing resolver). */}
-              {!selectedRegistration.ticketType?.isFaculty && (() => {
+              {/* Gated on the type in the ACTIVE mode, not the stored one: moving an
+                  unpaid registration off the speakers' type onto a tiered type needs
+                  this picker, or Save stays disabled (review H, Oct 22, 2026). */}
+              {!activeTypeIsFaculty && (() => {
                 const unpaid = (["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus);
                 const editTt = (regTypes as TicketType[]).find((t) => t.id === editData.ticketTypeId);
                 const editTiers = editTt?.pricingTiers ?? [];
