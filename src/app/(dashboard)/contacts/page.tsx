@@ -9,7 +9,6 @@ import {
   useBulkTagContacts,
 } from "@/hooks/use-api";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,7 +53,6 @@ import { ContactDetailSheet } from "@/components/contacts/contact-detail-sheet";
 import { TagFilterPopover, getTagColor, type TagUsage } from "@/components/contacts/tag-filter-popover";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatAttendeeRole } from "@/lib/schemas";
-import { isOrgAdmin } from "@/lib/team-roles";
 import { useCan } from "@/hooks/use-can";
 
 interface Contact {
@@ -103,8 +101,6 @@ function emptyContactsHint(filtered: boolean, canAdd: boolean): string {
 }
 
 export default function ContactsPage() {
-  const { data: userSession } = useSession();
-  const isAdmin = isOrgAdmin(userSession?.user?.role);
   // The EventsAir import reads the organisation's EventsAir credentials: offered only to who may use them.
   const canImportContacts = useCan("contacts.import");
   const canReadCredentials = useCan("org.credentials");
@@ -654,7 +650,7 @@ export default function ContactsPage() {
                               </Link>
                             </Button>
                           )}
-                          {isAdmin && canDeleteContacts && (
+                          {canDeleteContacts && (
                             <Button
                               variant="outline"
                               size="icon"

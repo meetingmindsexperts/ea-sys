@@ -44,6 +44,7 @@ import { useRuntimeFlags } from "@/components/runtime-flags";
 import { cn } from "@/lib/utils";
 import { useHelpChat, type ChatMessage } from "./use-help-chat";
 import { canViewProcurement } from "@/lib/procurement-visibility";
+import { can, principalFromUser } from "@/lib/permissions/can";
 
 interface HelpChatSheetProps {
   open: boolean;
@@ -83,7 +84,7 @@ const STARTERS_BY_ROLE: Record<string, string[]> = {
   ],
   MEMBER: [
     "What can I view in this dashboard?",
-    "Why don't I see financial data?",
+    "How do I record a payment at the registration desk?",
     "What does my role allow me to do?",
   ],
   REVIEWER: [
@@ -106,17 +107,23 @@ const STARTERS_BY_ROLE: Record<string, string[]> = {
 /** Budgets & Procurement is a flagged module: its starter appears only where the module is on and the role can read it. */
 const PROCUREMENT_STARTER = "What is a budget close-out, and what does freeze mean?";
 
-function startersFor(role: string | null | undefined, procurementEnabled: boolean): string[] {
+type SessionUser = Parameters<typeof principalFromUser>[0] & Parameters<typeof canViewProcurement>[0];
+
+function startersFor(user: SessionUser | null | undefined, procurementEnabled: boolean): string[] {
+  // A Member whose custom role lets them edit events runs events, so they get
+  // the event-running starters, not the read-only ones (Oct 22, 2026).
+  const role =
+    user?.role === "MEMBER" && can(principalFromUser(user), "events.update") ? "ORGANIZER" : user?.role;
   const base = role && STARTERS_BY_ROLE[role] ? STARTERS_BY_ROLE[role] : STARTERS_BY_ROLE.ADMIN;
-  // The module's own read predicate, from the role alone (the sheet has no grants to hand).
-  return procurementEnabled && canViewProcurement({ role }) ? [...base, PROCUREMENT_STARTER] : base;
+  // The session carries the person's grants and custom keys, so Budgets
+  // follows them rather than the base role alone.
+  return procurementEnabled && canViewProcurement(user) ? [...base, PROCUREMENT_STARTER] : base;
 }
 
 export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
   const { data: session } = useSession();
   const { procurementEnabled } = useRuntimeFlags();
   const userId = session?.user?.id;
-  const role = session?.user?.role ?? null;
 
   const { messages, isStreaming, error, send, clear } = useHelpChat(userId);
   const [input, setInput] = useState("");
@@ -227,7 +234,7 @@ export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
                 Try one of these, or type your own question below.
               </p>
               <div className="w-full space-y-2">
-                {startersFor(role, procurementEnabled).map((q) => (
+                {startersFor(session?.user, procurementEnabled).map((q) => (
                   <button
                     key={q}
                     type="button"
