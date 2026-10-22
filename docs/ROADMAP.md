@@ -7,6 +7,29 @@
 
 ---
 
+## Registrations page: tools that need a second permission (recorded Oct 22, 2026): not started
+
+From the review of `d1c6efe5` (the Registrations tools now follow permissions,
+not the Member role). Each tool shows when the person holds the key its route
+checks, but two dialogs also READ data behind other keys:
+
+- **Send Registration Form** (`registrations.import`) loads the registration
+  types (`tickets.read`) and sponsors (`sponsors.read`). A custom role with
+  import but without those reads opens a dialog with an empty type list and
+  403s in the console.
+- **Import from Contacts** already asks for `contacts.read` beside
+  `registrations.import`; the pattern to copy.
+
+Fix: show Send Registration Form only with `tickets.read` too (sponsors are
+optional in the dialog, so degrade instead). Not urgent: every built-in role
+and the Corporate role hold all three; it bites only when someone builds a
+role with import and without reading registration types. Two cosmetic notes
+from the same review, deliberately not fixed: the copy-registration-link button
+now shows to plain Members and Onsite (it copies the public URL), and the
+toolbar buttons appear a moment after load while the permission check settles.
+
+---
+
 ## Per-organisation wording for system labels (recorded Oct 22, 2026): not started
 
 A few words are hard-coded in English and identical for every organisation,
