@@ -85,6 +85,28 @@ describe("resolveRepricing", () => {
     expect(r).toMatchObject({ ok: true, nextTierId: TIER });
   });
 
+  // Review M + L (Oct 22, 2026): for nothing-owed regs, "type change + tier cleared"
+  // is a bare type change: a sponsor promo does not block it, and the sheet and
+  // the MCP tool reprice the same way.
+  it.each(["COMPLIMENTARY", "INCLUSIVE"])("%s: type change clearing the tier is not blocked by a promo", async (paymentStatus) => {
+    const r = await resolveRepricing({
+      eventId: "ev", existing: existing({ paymentStatus, promoCodeId: "promo1", pricingTierId: "old-tier" }),
+      ticketTypeId: NEW_TYPE, pricingTierId: null,
+    });
+    expect(r).toMatchObject({ ok: true, isChangingType: true, nextTierId: null, originalPrice: 250 });
+  });
+
+  it("COMPLIMENTARY: the sheet's tier-cleared type change and a bare one give the same result", async () => {
+    const sheet = await resolveRepricing({ eventId: "ev", existing: existing({ paymentStatus: "COMPLIMENTARY" }), ticketTypeId: NEW_TYPE, pricingTierId: null });
+    const bare = await resolveRepricing({ eventId: "ev", existing: existing({ paymentStatus: "COMPLIMENTARY" }), ticketTypeId: NEW_TYPE });
+    expect(sheet).toEqual(bare);
+  });
+
+  it("UNPAID with a promo: clearing the tier on a type change is still refused (unchanged)", async () => {
+    const r = await resolveRepricing({ eventId: "ev", existing: existing({ promoCodeId: "promo1" }), ticketTypeId: NEW_TYPE, pricingTierId: null });
+    expect(r).toMatchObject({ ok: false, code: "TIER_CHANGE_HAS_DISCOUNT" });
+  });
+
   it.each(["REFUNDED", "FAILED"])("re-tier on a %s reg stays refused", async (paymentStatus) => {
     const r = await resolveRepricing({ eventId: "ev", existing: existing({ paymentStatus }), pricingTierId: TIER });
     expect(r).toMatchObject({ ok: false, code: "TIER_CHANGE_REQUIRES_UNPAID" });

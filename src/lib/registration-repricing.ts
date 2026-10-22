@@ -1,6 +1,6 @@
 import { PaymentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
-import { tierChangeAllowed } from "@/lib/tier-change-policy";
+import { NO_BALANCE_TIER_STATUSES, tierChangeAllowed } from "@/lib/tier-change-policy";
 
 /**
  * Shared "what does this ticket-type and/or pricing-tier change do to the
@@ -23,9 +23,11 @@ import { tierChangeAllowed } from "@/lib/tier-change-policy";
  *    refunded or failed; blocked if a promo/discount is applied (re-stamping the
  *    base without recomputing the discount can over-discount).
  *  - When the type ALSO changes, the tier is validated against the NEW type.
- *  - A bare type change (no tier provided) on an unpaid reg reprices to the NEW
- *    type's base price (else the reg keeps the OLD type's price); the tier is
- *    nulled (tiers belong to a type). Paid regs are left untouched.
+ *  - A bare type change (no tier provided) on an unpaid, complimentary or
+ *    sponsor-paid reg reprices to the NEW type's base price (else the reg keeps
+ *    the OLD type's price); the tier is nulled (tiers belong to a type). For
+ *    complimentary / sponsor-paid, "type change + tier cleared" counts as bare.
+ *    Paid regs are left untouched.
  */
 
 export type RepricingResolution =
@@ -60,9 +62,16 @@ export async function resolveRepricing(input: {
   /** Requested tier: an id, `null` (base), or `undefined` (not provided). */
   pricingTierId?: string | null;
 }): Promise<RepricingResolution> {
-  const { eventId, existing, ticketTypeId, pricingTierId } = input;
+  const { eventId, existing, ticketTypeId } = input;
 
   const isChangingType = !!(ticketTypeId && ticketTypeId !== existing.ticketTypeId);
+  const noBalance = (NO_BALANCE_TIER_STATUSES as readonly string[]).includes(existing.paymentStatus);
+  // Complimentary / sponsor-paid: a type change that only clears the tier IS a
+  // bare type change (review M, Oct 22, 2026). The sheet sends it that way, the
+  // MCP tool sends no tier at all; both must land on the same result, and a
+  // sponsor promo must not block it (removing the promo loses the sponsor).
+  const pricingTierId =
+    noBalance && isChangingType && input.pricingTierId === null ? undefined : input.pricingTierId;
   const effectiveTypeId = ticketTypeId || existing.ticketTypeId;
   // (Re)setting the tier when it's provided (id or null=base) and it differs —
   // including the type-change case, where the old tier can't carry over.
@@ -132,9 +141,10 @@ export async function resolveRepricing(input: {
       }
       originalPrice = Number(tier.price);
     }
-  } else if (isChangingType && unpaid && effectiveTypeId) {
+  } else if (isChangingType && (unpaid || noBalance) && effectiveTypeId) {
     // M2: bare type change (no tier provided) on an unpaid reg reprices to the
-    // NEW type's base — else it keeps the OLD type's price.
+    // NEW type's base, else it keeps the OLD type's price. Complimentary and
+    // sponsor-paid follow the same rule (nothing is owed either way).
     const baseTt = await db.ticketType.findFirst({
       where: { id: effectiveTypeId, eventId },
       select: { price: true },
