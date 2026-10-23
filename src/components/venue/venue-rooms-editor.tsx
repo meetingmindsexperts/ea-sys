@@ -21,6 +21,7 @@ import { useCan } from "@/hooks/use-can";
 import { useSaveVenueRooms, useSetVenueOpen, useVenueRooms } from "@/hooks/use-api";
 import { ApiError } from "@/lib/api-fetch";
 import { VenueFloorPlan } from "@/components/venue/venue-floor-plan";
+import { VenuePlanPdfButton } from "@/components/venue/venue-plan-pdf-button";
 import { VenueProgrammeCard } from "@/components/venue/venue-programme-card";
 import { BlueprintNotes, BlueprintReplaceRow, BlueprintStartCard } from "@/components/venue/venue-blueprint-start";
 import { ROOM_KINDS, ROOM_KIND_INFO, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type VenueRoom } from "@/lib/venue/rooms";
@@ -142,7 +143,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           {dirty && <p className="text-sm text-muted-foreground">Not saved yet.</p>}
           {!dirty && saved && data?.slug && <OpenCard eventId={eventId} slug={data.slug} open={!!data.open} canEdit={canEdit} />}
           {issues.length === 0 && <VenueProgrammeCard rooms={rooms} programme={data?.programme} />}
-          {issues.length === 0 && <VenueFloorPlan rooms={rooms} eventName="" />}
+          {issues.length === 0 && <VenueFloorPlan rooms={rooms} eventName="" actions={<PlanPdfAction eventId={eventId} saved={!!saved && !dirty} />} />}
         </>
       )}
       <Card>
@@ -355,4 +356,10 @@ function Summary({ rooms }: { rooms: VenueRoom[] }) {
       {foyer && Number.isFinite(foyer.capacity) ? `; the foyer holds ${foyer.capacity.toLocaleString("en-GB")}` : ""}.
     </p>
   );
+}
+
+/** The PDF is drawn from the SAVED rooms, so it is offered only when what is on screen is saved. */
+function PlanPdfAction({ eventId, saved }: { eventId: string; saved: boolean }) {
+  if (saved) return <VenuePlanPdfButton eventId={eventId} />;
+  return <p className="text-xs text-muted-foreground">Save the rooms to download the plan as a PDF.</p>;
 }

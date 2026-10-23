@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: download the floor plan as a PDF (October 23)
+
+- Owner request, phase 0a of docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md (written the same day; the owner accepted decisions F1 to F8 as recommended). "Download PDF" above the Venue tab's floor plan gives an A3 or A4 PDF drawn from the saved rooms: the same `VenueLayout` the plan view and the walkable venue use. Event name, dates (in the event's time zone) and place; rooms with capacity, walls, doors, corridor, entrance; numbered stands with a key to the sponsor on each (stand n to the nth sponsor, the venue's own rule); a round printed scale (1 : 300, not 1 : 287), scale bar, north arrow and legend. The page turns portrait or landscape to the plan, and room labels move off stands when the centre would hide them.
+- `src/lib/venue/floor-plan-pdf.ts` (pdfkit, server only; `chooseScale`, `placeLabel`, `fitLabel`, `planDateLine` are pure and tested), `GET /api/events/[eventId]/venue/plan-pdf?paper=A3|A4` (`events.read`, `gate.eventWhere`, 404 while `VENUE_MODULE_ENABLED` is off, 409 `NO_ROOMS` / `LAYOUT_BROKEN`, 30 renders an hour per person), and `VenuePlanPdfButton` (fetch, so refusals are toasts). Text goes through `sanitizePdfText`, so Arabic or emoji names cannot fail a render.
+
 ### Contacts: pick several specialties or countries (October 23)
 
 - Owner request. Specialty and Country on the Contacts page are now checklists (src/components/contacts/multi-value-filter.tsx, the tag filter's shape): tick several, matched as any-of within the field and AND across fields, with chips for each choice. Ticking "United Arab Emirates" and "UAE" together is the answer to the country spelling variants without a data clean-up. Role stays a single choice.

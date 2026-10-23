@@ -6,7 +6,7 @@
  * from the room list as it is edited, with the walkability check's verdict.
  * North is up; the entrance is at the bottom.
  */
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { CheckCircle2, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionHeading } from "@/components/ui/typography";
@@ -53,7 +53,7 @@ function Item({ it }: { it: LayoutItem }) {
   return <rect x={f.x0} y={f.z0} width={f.x1 - f.x0} height={f.z1 - f.z0} className={tone} rx={it.t === "sofa" ? 0.4 : 0} />;
 }
 
-export function VenueFloorPlan({ rooms, eventName }: { rooms: VenueRoom[]; eventName: string }) {
+export function VenueFloorPlan({ rooms, eventName, actions }: { rooms: VenueRoom[]; eventName: string; actions?: ReactNode }) {
   const { layout, check } = useMemo(() => {
     const l = generateLayout(rooms, { eventName });
     return { layout: l, check: checkLayout(l) };
@@ -68,6 +68,7 @@ export function VenueFloorPlan({ rooms, eventName }: { rooms: VenueRoom[]; event
       <SectionHeading
         title="Floor plan"
         description={`The building made from these rooms: ${Math.round(width)} m across and ${Math.round(depth)} m deep. North is up; the entrance is at the bottom.`}
+        actions={actions}
       />
       <Card>
         <CardContent className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_16rem]">

@@ -1,0 +1,394 @@
+/**
+ * The venue's 2D floor plan as a PDF (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md,
+ * section 3.7, phase 0a). Drawn from the same `VenueLayout` the plan view and
+ * the walkable venue use, so the paper matches the screen and the 3D building.
+ * SERVER ONLY (pdfkit).
+ *
+ * The page: the event's name, dates and place at the top; the plan, north up,
+ * at a printed scale from a list of round ratios (1 : 400, not 1 : 437); a
+ * scale bar, a north arrow, a legend of the room types present and, when
+ * stands carry sponsors, a key from stand number to sponsor. Stands show their
+ * number on the plan: at plan scale a 3 m stand is too small for a name.
+ */
+import PDFDocument from "pdfkit";
+import { apiLogger } from "@/lib/logger";
+import { sanitizePdfText } from "@/lib/pdf/pdf-text";
+import { formatFooterTimestamp } from "@/lib/pdf/document-layout";
+import type { LayoutItem, LayoutWall, Rect, VenueLayout, ZoneKind } from "./layout";
+
+export type PlanPaper = "A3" | "A4";
+export const PLAN_PAPERS: readonly PlanPaper[] = ["A3", "A4"];
+
+export interface FloorPlanPdfInput {
+  layout: VenueLayout;
+  eventName: string;
+  /** "12 to 14 March 2027", already in the event's time zone. */
+  dateLine: string | null;
+  /** "Atlantis The Palm, Dubai, United Arab Emirates". */
+  place: string | null;
+  /** The sponsor on each stand: index n - 1 for stand n, the venue's own rule. */
+  sponsorsByStand: (string | null)[];
+  paper: PlanPaper;
+  generatedAt: Date;
+}
+
+/** Points per millimetre. */
+const PT_PER_MM = 72 / 25.4;
+const MARGIN = 36;
+const HEADER_H = 54;
+const FOOTER_H = 20;
+const LEGEND_ROW_H = 14;
+/** Room below the plan for the ENTRANCE label and its arrow. */
+const ENTRANCE_H = 26;
+
+/** Scales a plan may be printed at: round numbers a reader can measure with. */
+export const PLAN_SCALES = [50, 100, 125, 150, 200, 250, 300, 400, 500, 600, 750, 1000, 1250, 1500, 2000, 2500, 3000, 5000] as const;
+
+/**
+ * The printed scale: the smallest round ratio at which a plan this size fits
+ * the space. Returns the ratio (1 : ratio) and points per metre at it.
+ */
+export function chooseScale(widthM: number, depthM: number, availW: number, availH: number): { ratio: number; ptPerM: number } {
+  const fit = Math.min(availW / widthM, availH / depthM);
+  const exact = (1000 * PT_PER_MM) / fit;
+  const ratio = PLAN_SCALES.find((r) => r >= exact) ?? Math.ceil(exact / 1000) * 1000;
+  return { ratio, ptPerM: (1000 * PT_PER_MM) / ratio };
+}
+
+/** Portrait for a plan deeper than it is wide, landscape otherwise. */
+export function chooseOrientation(bounds: Rect): "portrait" | "landscape" {
+  const [x0, z0, x1, z1] = bounds;
+  return z1 - z0 > x1 - x0 ? "portrait" : "landscape";
+}
+
+/** A scale bar length in metres that reads cleanly: 5, 10, 20 or 50 m, about a fifth of the plan's width. */
+export function scaleBarMetres(planWidthM: number): number {
+  const target = planWidthM / 5;
+  return [5, 10, 20, 50, 100].find((m) => m >= target) ?? 100;
+}
+
+const ZONE_FILL: Record<ZoneKind, string> = {
+  foyer: "#fdf3dc",
+  corridor: "#efedea",
+  plenary: "#fbe4e7",
+  hall: "#e2eff8",
+  workshop: "#dff3f0",
+  posters: "#ece5f8",
+  exhibition: "#e1f3e7",
+  lounge: "#fdebdc",
+};
+
+const ZONE_LABEL: Record<ZoneKind, string> = {
+  foyer: "Foyer and registration",
+  corridor: "Corridor",
+  plenary: "Plenary hall",
+  hall: "Parallel hall",
+  workshop: "Workshop room",
+  posters: "Poster gallery",
+  exhibition: "Exhibition hall",
+  lounge: "Networking lounge",
+};
+
+const INK = "#1f2937";
+const MUTED = "#6b7280";
+const WALL = "#2b2f36";
+const GLASS = "#3b9ad9";
+const STAND_FILL = "#7cc49a";
+const FURNITURE = "#c9ccd1";
+const SEATS = "#9fbfd8";
+const ITEM_FILL: Partial<Record<LayoutItem["t"], string>> = { row: SEATS, stage: "#8d939b" };
+
+type Doc = PDFKit.PDFDocument;
+
+/** Text that fits `maxW` at the largest size from `size` down to `min`, else cut with an ellipsis at `min`. */
+export function fitLabel(widthOf: (text: string, size: number) => number, text: string, maxW: number, size: number, min: number): { text: string; size: number } {
+  for (let s = size; s >= min; s -= 0.5) {
+    if (widthOf(text, s) <= maxW) return { text, size: s };
+  }
+  let cut = text;
+  while (cut.length > 1 && widthOf(`${cut}…`, min) > maxW) cut = cut.slice(0, -1);
+  return { text: `${cut}…`, size: min };
+}
+
+export async function renderFloorPlanPdf(input: FloorPlanPdfInput): Promise<Buffer> {
+  const { layout } = input;
+  const layoutDir = chooseOrientation(layout.bounds);
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: input.paper, layout: layoutDir, margin: MARGIN, info: { Title: sanitizePdfText(`${input.eventName} floor plan`) } });
+      const chunks: Buffer[] = [];
+      doc.on("data", (c: Buffer) => chunks.push(c));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", (err: Error) => {
+        apiLogger.error({ err, msg: "venue-plan-pdf:stream-error" });
+        reject(err);
+      });
+      drawPage(doc, input);
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+function drawPage(doc: Doc, input: FloorPlanPdfInput) {
+  const { layout } = input;
+  const pageW = doc.page.width;
+  const pageH = doc.page.height;
+  const kinds = [...new Set(layout.zones.map((z) => z.kind))];
+  const stands = layout.items.filter((it): it is Extract<LayoutItem, { t: "stand" }> => it.t === "stand");
+  const keyed = stands.map((s) => ({ n: s.n, name: input.sponsorsByStand[s.n - 1] ?? null })).filter((s) => s.name);
+
+  // The key under the plan: one row of room types, then the stand key in columns.
+  const keyCols = Math.max(1, Math.floor((pageW - MARGIN * 2) / 150));
+  const keyRows = keyed.length ? Math.ceil(keyed.length / keyCols) + 1 : 0;
+  const bottomH = LEGEND_ROW_H * (2 + keyRows) + 8;
+
+  drawHeader(doc, input, pageW);
+
+  const [x0, z0, x1, z1] = layout.bounds;
+  const widthM = x1 - x0;
+  const depthM = z1 - z0;
+  const areaTop = MARGIN + HEADER_H;
+  const areaW = pageW - MARGIN * 2;
+  const areaH = pageH - areaTop - bottomH - FOOTER_H - MARGIN - ENTRANCE_H;
+  const { ratio, ptPerM } = chooseScale(widthM, depthM, areaW, areaH);
+  const ox = MARGIN + (areaW - widthM * ptPerM) / 2;
+  const oy = areaTop + (areaH - depthM * ptPerM) / 2;
+  const P = (x: number, z: number): [number, number] => [ox + (x - x0) * ptPerM, oy + (z - z0) * ptPerM];
+
+  drawZones(doc, layout, P, ptPerM);
+  drawItems(doc, layout.items, P, ptPerM);
+  drawWalls(doc, layout.walls, P, ptPerM);
+  drawRoomLabels(doc, layout, P, ptPerM);
+  drawEntrance(doc, layout.walls, P);
+  drawNorthArrow(doc, MARGIN + areaW - 18, areaTop + 6);
+
+  const legendTop = pageH - MARGIN - FOOTER_H - bottomH + 8;
+  drawScaleBar(doc, MARGIN + 8, legendTop, widthM, ptPerM, ratio, input.paper);
+  drawLegend(doc, kinds, MARGIN, legendTop + LEGEND_ROW_H, areaW);
+  if (keyed.length) drawStandKey(doc, keyed, MARGIN, legendTop + LEGEND_ROW_H * 2, keyCols, areaW);
+
+  doc.font("Helvetica").fontSize(7).fillColor(MUTED);
+  doc.text(
+    sanitizePdfText(`Generated ${formatFooterTimestamp(input.generatedAt)} from the event's Venue tab. North is up. Seat rows are drawn up to 420 per room.`),
+    MARGIN,
+    pageH - MARGIN - 10,
+    { width: areaW, lineBreak: false },
+  );
+}
+
+function drawHeader(doc: Doc, input: FloorPlanPdfInput, pageW: number) {
+  const w = pageW - MARGIN * 2;
+  doc.font("Helvetica-Bold").fontSize(16).fillColor(INK).text(sanitizePdfText(input.eventName), MARGIN, MARGIN, { width: w - 140, lineBreak: false, ellipsis: true });
+  const sub = [input.dateLine, input.place].filter(Boolean).join("  ·  ");
+  if (sub) doc.font("Helvetica").fontSize(10).fillColor(MUTED).text(sanitizePdfText(sub), MARGIN, MARGIN + 21, { width: w - 140, lineBreak: false, ellipsis: true });
+  doc.font("Helvetica-Bold").fontSize(11).fillColor(INK).text("Floor plan", MARGIN, MARGIN + 2, { width: w, align: "right" });
+  doc.moveTo(MARGIN, MARGIN + HEADER_H - 12).lineTo(MARGIN + w, MARGIN + HEADER_H - 12).lineWidth(0.5).strokeColor("#d1d5db").stroke();
+}
+
+type Project = (x: number, z: number) => [number, number];
+
+function rectOf(P: Project, r: Rect, ptPerM: number): [number, number, number, number] {
+  const [ax, ay] = P(r[0], r[1]);
+  return [ax, ay, (r[2] - r[0]) * ptPerM, (r[3] - r[1]) * ptPerM];
+}
+
+function drawZones(doc: Doc, layout: VenueLayout, P: Project, ptPerM: number) {
+  for (const z of layout.zones) {
+    const [x, y, w, h] = rectOf(P, z.rect, ptPerM);
+    doc.rect(x, y, w, h).fill(ZONE_FILL[z.kind]);
+  }
+}
+
+function drawItems(doc: Doc, items: LayoutItem[], P: Project, ptPerM: number) {
+  for (const it of items) {
+    if (it.t === "sign" || it.t === "screen") continue;
+    const f = it.foot;
+    if ("r" in f) {
+      const [cx, cy] = P(f.cx, f.cz);
+      const r = (it.t === "plant" ? 0.45 : f.r * 0.62) * ptPerM;
+      doc.circle(cx, cy, r).fill(it.t === "plant" ? "#9cc89a" : FURNITURE);
+      continue;
+    }
+    const [x, y] = P(f.x0, f.z0);
+    const w = (f.x1 - f.x0) * ptPerM;
+    const h = (f.z1 - f.z0) * ptPerM;
+    if (it.t === "stand") {
+      doc.rect(x, y, w, h).fillAndStroke(STAND_FILL, "#3f8a5f");
+      const size = Math.max(4, Math.min(9, Math.min(w, h) * 0.5));
+      doc.font("Helvetica-Bold").fontSize(size).fillColor(INK).text(String(it.n), x, y + h / 2 - size / 2, { width: w, align: "center", lineBreak: false });
+      continue;
+    }
+    doc.rect(x, y, w, h).fill(ITEM_FILL[it.t] ?? FURNITURE);
+  }
+}
+
+/** A wall's solid stretches: everything but its openings. Glass stays solid here and is drawn on top. */
+function wallSegments(w: LayoutWall): [number, number][] {
+  const segs: [number, number][] = [];
+  let cur = w.a0;
+  for (const o of [...w.opens].sort((p, q) => p.a - q.a)) {
+    if (o.glass) continue;
+    if (o.a > cur) segs.push([cur, o.a]);
+    cur = Math.max(cur, o.b);
+  }
+  if (cur < w.a1) segs.push([cur, w.a1]);
+  return segs;
+}
+
+function drawWalls(doc: Doc, walls: LayoutWall[], P: Project, ptPerM: number) {
+  const thick = Math.max(0.8, 0.3 * ptPerM);
+  doc.lineCap("butt");
+  for (const w of walls) {
+    for (const [a, b] of wallSegments(w)) {
+      const [p, q] = w.axis === "x" ? [P(a, w.k), P(b, w.k)] : [P(w.k, a), P(w.k, b)];
+      doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(thick).strokeColor(WALL).stroke();
+    }
+    for (const o of w.opens.filter((x) => x.glass)) {
+      const [p, q] = w.axis === "x" ? [P(o.a, w.k), P(o.b, w.k)] : [P(w.k, o.a), P(w.k, o.b)];
+      doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(thick).strokeColor("#ffffff").stroke();
+      doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(thick * 0.6).dash(2, { space: 1.5 }).strokeColor(GLASS).stroke().undash();
+    }
+  }
+}
+
+type Box = [number, number, number, number];
+const overlap = (a: Box, b: Box) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+
+/**
+ * Where a room's label goes: the centre unless that covers stands or furniture,
+ * else whichever of the top, bottom, left or right of the room covers least.
+ * Stands count four times over: a hidden stand number cannot be read at all.
+ */
+export function placeLabel(room: Box, label: { w: number; h: number }, obstacles: { box: Box; weight: number }[]): { x: number; y: number } {
+  const [rx, ry, rw, rh] = room;
+  const inset = 4;
+  const cx = rx + rw / 2 - label.w / 2;
+  const cy = ry + rh / 2 - label.h / 2;
+  const spots = [
+    { x: cx, y: cy },
+    { x: cx, y: ry + inset },
+    { x: cx, y: ry + rh - label.h - inset },
+    { x: rx + inset, y: cy },
+    { x: rx + rw - label.w - inset, y: cy },
+  ];
+  let best = spots[0];
+  let bestCost = Infinity;
+  for (const s of spots) {
+    const box: Box = [s.x, s.y, s.x + label.w, s.y + label.h];
+    const cost = obstacles.reduce((n, o) => n + overlap(box, o.box) * o.weight, 0);
+    if (cost < bestCost - 0.5) {
+      best = s;
+      bestCost = cost;
+    }
+  }
+  return best;
+}
+
+function drawRoomLabels(doc: Doc, layout: VenueLayout, P: Project, ptPerM: number) {
+  const widthOf = (font: string) => (text: string, size: number) => doc.font(font).fontSize(size).widthOfString(text);
+  const obstacles = layout.items
+    .filter((it) => it.t === "stand" || (it.solid && it.t !== "row"))
+    .map((it) => {
+      const f = it.foot;
+      const r: Rect = "r" in f ? [f.cx - f.r, f.cz - f.r, f.cx + f.r, f.cz + f.r] : [f.x0, f.z0, f.x1, f.z1];
+      const [x, y] = P(r[0], r[1]);
+      return { box: [x, y, x + (r[2] - r[0]) * ptPerM, y + (r[3] - r[1]) * ptPerM] as Box, weight: it.t === "stand" ? 4 : 1 };
+    });
+  for (const z of layout.zones) {
+    const [x, y, w, h] = rectOf(P, z.rect, ptPerM);
+    const name = sanitizePdfText(z.name);
+    if (z.kind === "corridor") {
+      const label = fitLabel(widthOf("Helvetica-Oblique"), name, h - 8, 7, 4);
+      doc.save().translate(x + w / 2, y + h / 2).rotate(-90);
+      doc.font("Helvetica-Oblique").fontSize(label.size).fillColor(MUTED).text(label.text, -h / 2, -label.size / 2, { width: h, align: "center", lineBreak: false });
+      doc.restore();
+      continue;
+    }
+    const title = fitLabel(widthOf("Helvetica-Bold"), name, w - 6, 10, 5);
+    const sub = z.capacity > 0 ? fitLabel(widthOf("Helvetica"), `${z.capacity.toLocaleString("en-GB")} people`, w - 6, 7.5, 4) : null;
+    const blockH = title.size + (sub ? sub.size + 2 : 0);
+    const bandW = Math.min(w - 2, Math.max(doc.font("Helvetica-Bold").fontSize(title.size).widthOfString(title.text), sub ? doc.font("Helvetica").fontSize(sub.size).widthOfString(sub.text) : 0) + 6);
+    const at = placeLabel([x, y, w, h], { w: bandW, h: blockH + 4 }, obstacles);
+    // A white band behind the words keeps them readable over seat rows.
+    doc.rect(at.x, at.y, bandW, blockH + 4).fillOpacity(0.85).fill("#ffffff").fillOpacity(1);
+    doc.font("Helvetica-Bold").fontSize(title.size).fillColor(INK).text(title.text, at.x, at.y + 2, { width: bandW, align: "center", lineBreak: false });
+    if (sub) doc.font("Helvetica").fontSize(sub.size).fillColor(MUTED).text(sub.text, at.x, at.y + 2 + title.size + 2, { width: bandW, align: "center", lineBreak: false });
+  }
+}
+
+function drawEntrance(doc: Doc, walls: LayoutWall[], P: Project) {
+  for (const w of walls) {
+    for (const o of w.opens.filter((x) => x.glass)) {
+      const mid = (o.a + o.b) / 2;
+      const [px, py] = w.axis === "x" ? P(mid, w.k) : P(w.k, mid);
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(GLASS).text("ENTRANCE", px - 40, py + 5, { width: 80, align: "center", lineBreak: false });
+      doc.moveTo(px, py + 17).lineTo(px - 3, py + 21).lineTo(px + 3, py + 21).closePath().fill(GLASS);
+    }
+  }
+}
+
+function drawNorthArrow(doc: Doc, cx: number, top: number) {
+  doc.moveTo(cx, top).lineTo(cx - 5, top + 14).lineTo(cx, top + 10).lineTo(cx + 5, top + 14).closePath().fill(INK);
+  doc.font("Helvetica-Bold").fontSize(8).fillColor(INK).text("N", cx - 10, top + 16, { width: 20, align: "center", lineBreak: false });
+}
+
+function drawScaleBar(doc: Doc, x: number, y: number, planWidthM: number, ptPerM: number, ratio: number, paper: PlanPaper) {
+  const metres = scaleBarMetres(planWidthM);
+  const len = metres * ptPerM;
+  const half = len / 2;
+  doc.rect(x, y + 2, half, 4).fill(INK);
+  doc.rect(x + half, y + 2, half, 4).lineWidth(0.6).fillAndStroke("#ffffff", INK);
+  // The figures sit on the bar's own line, so nothing spills into the legend row below.
+  doc.font("Helvetica").fontSize(7).fillColor(INK);
+  doc.text("0", x - 7, y + 1, { lineBreak: false });
+  doc.text(`${metres} m   ·   Scale 1 : ${ratio.toLocaleString("en-GB")} when printed on ${paper}`, x + len + 5, y + 1, { lineBreak: false });
+}
+
+function drawLegend(doc: Doc, kinds: ZoneKind[], x: number, y: number, width: number) {
+  let cx = x;
+  const entries: { fill: string; label: string; stroke?: string }[] = kinds.map((k) => ({ fill: ZONE_FILL[k], label: ZONE_LABEL[k] }));
+  entries.push({ fill: STAND_FILL, label: "Exhibition stand (numbered)", stroke: "#3f8a5f" });
+  doc.font("Helvetica").fontSize(7);
+  for (const e of entries) {
+    const w = doc.widthOfString(e.label) + 18;
+    if (cx + w > x + width) break;
+    doc.rect(cx, y + 2, 9, 7);
+    if (e.stroke) doc.lineWidth(0.5).fillAndStroke(e.fill, e.stroke);
+    else doc.lineWidth(0.5).fillAndStroke(e.fill, "#b8bcc2");
+    doc.fillColor(INK).text(e.label, cx + 12, y + 2, { lineBreak: false });
+    cx += w + 6;
+  }
+}
+
+function drawStandKey(doc: Doc, keyed: { n: number; name: string | null }[], x: number, y: number, cols: number, width: number) {
+  const colW = width / cols;
+  doc.font("Helvetica-Bold").fontSize(7.5).fillColor(INK).text("Stands", x, y + 2, { lineBreak: false });
+  const widthOf = (text: string, size: number) => doc.font("Helvetica").fontSize(size).widthOfString(text);
+  keyed.forEach((s, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const label = fitLabel(widthOf, sanitizePdfText(`${s.n}  ${s.name}`), colW - 8, 7, 5);
+    doc.font("Helvetica").fontSize(label.size).fillColor(INK).text(label.text, x + col * colW, y + LEGEND_ROW_H * (row + 1) + 2, { lineBreak: false });
+  });
+}
+
+/**
+ * The event's dates for the page header, in the event's own time zone:
+ * "14 March 2027", "12 to 14 March 2027", "30 March to 2 April 2027" or
+ * "30 December 2026 to 2 January 2027".
+ */
+export function planDateLine(start: Date, end: Date, timeZone: string): string {
+  const parts = (d: Date) => {
+    const p = new Intl.DateTimeFormat("en-GB", { timeZone, day: "numeric", month: "long", year: "numeric" }).formatToParts(d);
+    const get = (t: string) => p.find((x) => x.type === t)?.value ?? "";
+    return { day: get("day"), month: get("month"), year: get("year") };
+  };
+  const a = parts(start);
+  const b = parts(end);
+  if (a.year !== b.year) return `${a.day} ${a.month} ${a.year} to ${b.day} ${b.month} ${b.year}`;
+  if (a.month !== b.month) return `${a.day} ${a.month} to ${b.day} ${b.month} ${b.year}`;
+  if (a.day !== b.day) return `${a.day} to ${b.day} ${b.month} ${b.year}`;
+  return `${a.day} ${a.month} ${a.year}`;
+}
