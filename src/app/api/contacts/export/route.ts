@@ -5,9 +5,10 @@ import { getOrgContext } from "@/lib/api-auth";
 import { auth } from "@/lib/auth";
 import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
-import { recordExport } from "@/lib/audit-data-transfer";
+import { fingerprintSearchTerm, recordExport } from "@/lib/audit-data-transfer";
 import { escapeCsvCell as escapeCSV } from "@/lib/csv-escape";
-import { exportCell, parseExportColumns, type ExportColumn } from "@/lib/contact-export";
+import { EXPORT_ROW_CAP, exportCell, parseExportColumns, type ExportColumn } from "@/lib/contact-export";
+import { contactFiltersAudit, contactFiltersWhere, hasContactFilters, parseContactFilters } from "@/lib/contact-filters";
 
 /**
  * Full-CRM CSV export — the highest-value object in the contact domain: every
@@ -50,6 +51,21 @@ export async function GET(req: Request) {
     }
     const columns = parsed.columns;
 
+    // The Contacts page's filters (Oct 23, 2026): the export is what the page
+    // shows. The cap below is 25,000 and the book is larger, so this is how a
+    // complete file is taken. Same refusal rule as the list.
+    const filterParse = parseContactFilters(new URL(req.url).searchParams);
+    if (!filterParse.ok) {
+      apiLogger.warn({
+        msg: "contacts-export:invalid-filter",
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        field: filterParse.field,
+      });
+      return new Response(JSON.stringify({ error: filterParse.error }), { status: 400 });
+    }
+    const filters = filterParse.filters;
+
     // A bulk PII export deserves its own budget, separate from the read routes.
     const limit = checkRateLimit({
       key: `contacts-export:org:${ctx.organizationId}`,
@@ -74,10 +90,9 @@ export async function GET(req: Request) {
     // ~57k with the contacts_centralv1 import. Truncating SILENTLY would be
     // worse than either extreme — the file would look complete — so the header
     // row below reports it and the response carries an explicit header.
-    const EXPORT_ROW_CAP = 25_000;
 
     const contacts = await db.contact.findMany({
-      where: { organizationId: ctx.organizationId },
+      where: contactFiltersWhere(ctx.organizationId, filters),
       orderBy: { createdAt: "desc" },
       take: EXPORT_ROW_CAP,
       select: Object.fromEntries(columns.map((c) => [c, true])) as Record<ExportColumn, true>,
@@ -100,7 +115,11 @@ export async function GET(req: Request) {
       rowCount: contacts.length,
       format: "csv",
       // Which columns left, so a names-only pull reads differently from the whole book.
-      filters: { columns },
+      filters: {
+        columns,
+        ...contactFiltersAudit(filters),
+        ...(filters.search ? { q: fingerprintSearchTerm(filters.search) } : {}),
+      },
     });
 
     // A cap that nobody is told about produces a file that looks complete and
@@ -122,6 +141,7 @@ export async function GET(req: Request) {
       role: ctx.role,
       rowCount: contacts.length,
       columnCount: columns.length,
+      filtered: hasContactFilters(filters),
       truncated,
     });
 

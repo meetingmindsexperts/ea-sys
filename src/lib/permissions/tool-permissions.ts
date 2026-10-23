@@ -182,7 +182,7 @@ export const REST_API_KEY_PERMISSIONS: readonly { route: string; permission: Per
   { route: "GET /api/events/[eventId]/sessions", permission: "sessions.read" },
   { route: "GET /api/events/[eventId]/speakers", permission: "speakers.read" },
   { route: "GET /api/registration-types", permission: "tickets.read" },
-  { route: "GET /api/contacts, /api/contacts/[contactId], /api/contacts/tags", permission: "contacts.read" },
+  { route: "GET /api/contacts, /api/contacts/[contactId], /api/contacts/tags, /api/contacts/filter-options", permission: "contacts.read" },
   { route: "POST /api/contacts, PUT /api/contacts/[contactId], POST .../email, PATCH /api/contacts/bulk-tags", permission: "contacts.write" },
   { route: "DELETE /api/contacts/[contactId]", permission: "contacts.delete" },
   { route: "POST /api/contacts/import", permission: "contacts.import" },

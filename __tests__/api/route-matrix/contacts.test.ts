@@ -34,6 +34,7 @@ import { GET as detailGET, PUT as detailPUT, DELETE as detailDELETE } from "@/ap
 import { PATCH as emailPATCH } from "@/app/api/contacts/[contactId]/email/route";
 import { PATCH as bulkTagsPATCH } from "@/app/api/contacts/bulk-tags/route";
 import { GET as tagsGET } from "@/app/api/contacts/tags/route";
+import { GET as filterOptionsGET } from "@/app/api/contacts/filter-options/route";
 import { GET as exportGET } from "@/app/api/contacts/export/route";
 import { POST as importPOST } from "@/app/api/contacts/import/route";
 import { POST as eventsAirPOST } from "@/app/api/contacts/import-eventsair/route";
@@ -50,6 +51,7 @@ const CASES: HandlerCase[] = [
   { name: "PATCH contacts/[contactId]/email", handler: emailPATCH, method: "PATCH", params: contact, body: { newEmail: "moved@test.local" }, ...org },
   { name: "PATCH contacts/bulk-tags", handler: bulkTagsPATCH, method: "PATCH", body: { contactIds: ["ct1"], addTags: ["vip"] }, ...org },
   { name: "GET contacts/tags", handler: tagsGET, method: "GET", ...org },
+  { name: "GET contacts/filter-options", handler: filterOptionsGET, method: "GET", ...org },
   { name: "GET contacts/export", handler: exportGET, method: "GET", ...org },
   { name: "POST contacts/import (JSON, not multipart)", handler: importPOST, method: "POST", body: {}, ...org },
   { name: "POST contacts/import-eventsair", handler: eventsAirPOST, method: "POST", body: { eventsAirEventId: "ea1" }, ...org },

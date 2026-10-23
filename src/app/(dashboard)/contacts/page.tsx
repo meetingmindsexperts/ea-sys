@@ -51,6 +51,8 @@ import {
 import { EventsAirContactsImportDialog } from "@/components/import/eventsair-contacts-import-dialog";
 import { ContactDetailSheet } from "@/components/contacts/contact-detail-sheet";
 import { ExportContactsDialog } from "@/components/contacts/export-contacts-dialog";
+import { ContactFieldFilters, type ContactFieldFilterValues } from "@/components/contacts/contact-field-filters";
+import { contactFiltersQuery } from "@/lib/contact-filters";
 import { TagFilterPopover, getTagColor, type TagUsage } from "@/components/contacts/tag-filter-popover";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatAttendeeRole } from "@/lib/schemas";
@@ -117,6 +119,7 @@ export default function ContactsPage() {
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
+  const [fieldFilters, setFieldFilters] = useState<ContactFieldFilterValues>({ specialty: null, country: null, role: null });
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -132,9 +135,17 @@ export default function ContactsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const filters: Record<string, string> = { page: String(page), limit: String(pageSize) };
-  if (search) filters.search = search;
-  if (tagFilter.size > 0) filters.tags = [...tagFilter].join(",");
+  // One set of filter params for the list and the export, so Export takes
+  // exactly the contacts the page shows (Oct 23, 2026).
+  const filterQuery = contactFiltersQuery({
+    search,
+    tags: [...tagFilter],
+    specialty: fieldFilters.specialty,
+    country: fieldFilters.country,
+    role: fieldFilters.role,
+  });
+  const isFiltered = Object.keys(filterQuery).length > 0;
+  const filters: Record<string, string> = { page: String(page), limit: String(pageSize), ...filterQuery };
 
   const { data, isLoading, isFetching, refetch: refetchContacts } = useContacts(filters);
   const { data: tagsData, refetch: refetchTags } = useContactTags();
@@ -443,6 +454,30 @@ export default function ContactsPage() {
           onClear={() => { setTagFilter(new Set()); setPage(1); }}
         />
         </div>
+        {/* Specialty, country and role (Oct 23, 2026): their own wrapping row,
+            because the row above does not wrap and three more pickers pushed
+            the last one off the page. Export follows these filters too. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <ContactFieldFilters
+            value={fieldFilters}
+            onChange={(next) => { setFieldFilters(next); setPage(1); }}
+          />
+          {isFiltered && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 text-xs text-gray-500"
+              onClick={() => {
+                handleSearchChange("");
+                setTagFilter(new Set());
+                setFieldFilters({ specialty: null, country: null, role: null });
+                setPage(1);
+              }}
+            >
+              Clear filters
+            </Button>
+          )}
+        </div>
         {/* Bulk actions bar */}
         {canWriteContacts && selectedIds.size > 0 && (
           <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/5 rounded-xl border border-primary/20">
@@ -535,7 +570,7 @@ export default function ContactsPage() {
                           {search || tagFilter.size > 0 ? "No contacts match" : "No contacts yet"}
                         </p>
                         <p className="text-xs text-gray-400">
-                          {emptyContactsHint(!!search || tagFilter.size > 0, canWriteContacts || canImportCsv)}
+                          {emptyContactsHint(isFiltered, canWriteContacts || canImportCsv)}
                         </p>
                       </div>
                       {canWriteContacts && !search && tagFilter.size === 0 && (
@@ -838,7 +873,9 @@ export default function ContactsPage() {
         </DialogContent>
       </Dialog>
 
-      {canExportContacts && <ExportContactsDialog open={exportOpen} onOpenChange={setExportOpen} />}
+      {canExportContacts && (
+        <ExportContactsDialog open={exportOpen} onOpenChange={setExportOpen} filterQuery={filterQuery} matching={total} />
+      )}
 
       {/* Contact Detail Sheet */}
       <ContactDetailSheet

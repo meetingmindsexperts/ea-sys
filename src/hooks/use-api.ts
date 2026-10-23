@@ -896,6 +896,23 @@ export function useContactTags() {
   });
 }
 
+export interface ContactFilterOptions {
+  specialties: { value: string; count: number }[];
+  specialtyNotSet: number;
+  countries: { value: string; count: number }[];
+  countryNotSet: number;
+  roles: { value: string; count: number }[];
+  roleNotSet: number;
+}
+
+/** Choices (with counts) for the Contacts page's Specialty, Country and Role filters. */
+export function useContactFilterOptions() {
+  return useQuery({
+    queryKey: [...queryKeys.contacts, "filter-options"],
+    queryFn: () => fetchApi<ContactFilterOptions>("/api/contacts/filter-options"),
+  });
+}
+
 export function useUpdateContactTags() {
   const queryClient = useQueryClient();
   return useMutation({

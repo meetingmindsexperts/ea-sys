@@ -165,6 +165,7 @@ SWEPT=(
   "src/app/api/contacts/[contactId]/email/route.ts"
   "src/app/api/contacts/bulk-tags/route.ts"
   "src/app/api/contacts/tags/route.ts"
+  "src/app/api/contacts/filter-options/route.ts"
   "src/app/api/contacts/export/route.ts"
   "src/app/api/contacts/import/route.ts"
   "src/app/api/contacts/import-eventsair/route.ts"

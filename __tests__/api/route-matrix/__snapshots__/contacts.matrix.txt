@@ -138,6 +138,23 @@ GET contacts/tags
   API_KEY     200
   NONE        401
 
+GET contacts/filter-options
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
 GET contacts/export
   caller      -
   SUPER_ADMIN 200 w

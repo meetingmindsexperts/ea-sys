@@ -16,6 +16,7 @@ import { Download } from "lucide-react";
 import {
   DEFAULT_EXPORT_COLUMNS,
   EXPORT_COLUMNS,
+  EXPORT_ROW_CAP,
   EXPORT_COLUMN_GROUPS,
   type ExportColumn,
 } from "@/lib/contact-export";
@@ -24,13 +25,21 @@ import {
  * Choose the columns before a contacts export (Oct 23, 2026). Opens on the
  * basic set every time, so phone, bio, notes and ID numbers leave only when
  * someone ticks them. The server accepts only known columns.
+ *
+ * The export takes the page's filters (`filterQuery`), so it is exactly the
+ * contacts the list shows; `matching` is that list's total, used to warn when
+ * the file would stop at the row cap.
  */
 export function ExportContactsDialog({
   open,
   onOpenChange,
+  filterQuery,
+  matching,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  filterQuery: Record<string, string>;
+  matching: number;
 }) {
   const [chosen, setChosen] = useState<Set<ExportColumn>>(() => new Set(DEFAULT_EXPORT_COLUMNS));
 
@@ -53,7 +62,8 @@ export function ExportContactsDialog({
 
   const handleExport = () => {
     const columns = EXPORT_COLUMNS.filter((c) => chosen.has(c));
-    window.location.href = `/api/contacts/export?columns=${encodeURIComponent(columns.join(","))}`;
+    const query = new URLSearchParams({ ...filterQuery, columns: columns.join(",") });
+    window.location.href = `/api/contacts/export?${query.toString()}`;
     handleOpenChange(false);
   };
 
@@ -66,6 +76,8 @@ export function ExportContactsDialog({
             Choose the columns for the CSV. Only what you tick leaves the system.
           </DialogDescription>
         </DialogHeader>
+
+        <ExportScope matching={matching} filtered={Object.keys(filterQuery).length > 0} />
 
         <div className="flex gap-2 text-xs">
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setChosen(new Set(EXPORT_COLUMNS))}>
@@ -120,5 +132,24 @@ export function ExportContactsDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** How many contacts the file will hold, and a warning when it would be cut short. */
+function ExportScope({ matching, filtered }: { matching: number; filtered: boolean }) {
+  const scope = filtered ? "match the filters on the page" : "are in your contacts (no filters set)";
+  if (matching <= EXPORT_ROW_CAP) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        <span className="font-medium text-foreground tabular-nums">{matching.toLocaleString()}</span> contacts {scope}.
+      </p>
+    );
+  }
+  return (
+    <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+      <span className="font-medium tabular-nums">{matching.toLocaleString()}</span> contacts {scope}. One file holds
+      at most {EXPORT_ROW_CAP.toLocaleString()}, so only the newest {EXPORT_ROW_CAP.toLocaleString()} would be included.
+      Narrow the filters (specialty, country, role or tags) to export them all.
+    </p>
   );
 }

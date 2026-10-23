@@ -16,7 +16,7 @@ const { mockDb, rateLimit, recordExport, warn } = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn, error: vi.fn() } }));
-vi.mock("@/lib/audit-data-transfer", () => ({ recordExport }));
+vi.mock("@/lib/audit-data-transfer", () => ({ recordExport, fingerprintSearchTerm: () => "fp123" }));
 vi.mock("@/lib/security", () => ({ checkRateLimit: rateLimit }));
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }));
 vi.mock("@/lib/api-auth", () => ({
@@ -62,5 +62,29 @@ describe("GET /api/contacts/export", () => {
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "contacts-export:invalid-columns", unknown: ["password"] }));
     expect(rateLimit).not.toHaveBeenCalled();
     expect(mockDb.contact.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/contacts/export with the page's filters", () => {
+  it("applies specialty, country and role and audits them, search as a fingerprint", async () => {
+    const res = await get("?columns=email&specialty=Cardiology&country=India&role=PHYSICIAN&search=amina");
+    expect(res.status).toBe(200);
+    const where = mockDb.contact.findMany.mock.calls[0][0].where;
+    expect(where.organizationId).toBe("org1");
+    expect(where.AND).toEqual(expect.arrayContaining([
+      { specialty: { equals: "Cardiology", mode: "insensitive" } },
+      { country: { equals: "India", mode: "insensitive" } },
+      { role: "PHYSICIAN" },
+    ]));
+    const audit = recordExport.mock.calls[0][1].filters;
+    expect(audit).toMatchObject({ specialty: "Cardiology", country: "India", role: "PHYSICIAN", q: "fp123" });
+    expect(JSON.stringify(audit)).not.toContain("amina");
+  });
+
+  it("refuses an unknown role with a logged 400 before the rate limit", async () => {
+    const res = await get("?role=astronaut");
+    expect(res.status).toBe(400);
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "contacts-export:invalid-filter", field: "role" }));
+    expect(rateLimit).not.toHaveBeenCalled();
   });
 });

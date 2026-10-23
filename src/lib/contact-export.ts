@@ -14,6 +14,13 @@ export const EXPORT_COLUMNS = [
 ] as const;
 export type ExportColumn = (typeof EXPORT_COLUMNS)[number];
 
+/**
+ * Most rows one export returns. The route builds the file in memory on the box
+ * that also serves the door scanner; the dialog reads this to warn before a
+ * file would be cut short, since the book is larger than the cap.
+ */
+export const EXPORT_ROW_CAP = 25_000;
+
 /** One value as CSV text: arrays comma-joined, dates as YYYY-MM-DD. */
 export function exportCell(value: unknown): string | null {
   if (value == null) return null;

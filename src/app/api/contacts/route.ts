@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { contactFiltersWhere, parseContactFilters } from "@/lib/contact-filters";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -63,28 +64,18 @@ export async function GET(req: Request) {
     // change; on an RLS deployment every query below rides the org's lane.
     return await runWithTenant(ctx.organizationId, async () => {
     const { searchParams } = new URL(req.url);
-    const search = searchParams.get("search") || "";
-    const tagsParam = searchParams.get("tags") || "";
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50")));
     const skip = (page - 1) * limit;
 
-    const tags = tagsParam ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean) : [];
-
-    const where = {
-      organizationId: ctx.organizationId,
-      ...(search && {
-        OR: [
-          { firstName: { contains: search, mode: "insensitive" as const } },
-          { lastName: { contains: search, mode: "insensitive" as const } },
-          { email: { contains: search, mode: "insensitive" as const } },
-          { organization: { contains: search, mode: "insensitive" as const } },
-        ],
-      }),
-      ...(tags.length > 0 && {
-        tags: { hasSome: tags },
-      }),
-    };
+    // The page's filters (search, tags, specialty, country, role), shared with
+    // the export so a filtered export is exactly this list (Oct 23, 2026).
+    const parsed = parseContactFilters(searchParams);
+    if (!parsed.ok) {
+      apiLogger.warn({ msg: "contacts:invalid-filter", organizationId: ctx.organizationId, userId: ctx.userId, field: parsed.field });
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+    const where = contactFiltersWhere(ctx.organizationId, parsed.filters);
 
     const [contacts, total] = await Promise.all([
       db.contact.findMany({
@@ -102,6 +93,7 @@ export async function GET(req: Request) {
           organization: true,
           jobTitle: true,
           specialty: true,
+          country: true,
           phone: true,
           tags: true,
           createdAt: true,

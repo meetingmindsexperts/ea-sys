@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Contacts: filter by specialty, country and role, and export what the page shows (October 23)
+
+- Owner request. The contacts export ignored the page and always took the whole book, which is capped at 25,000 rows while the book holds about 56,000, so every export silently lacked the oldest ~31,000 contacts. The owner does not need the whole book at once; a filtered export is enough.
+- The Contacts page gains Specialty, Country and Role pickers (src/components/contacts/contact-field-filters.tsx) on their own row, each listing the values in use with counts, plus "Not set" and Clear filters. The choices come from the new `GET /api/contacts/filter-options` (`contacts.read`, SQL aggregate; spellings differing only in case are one choice, shown as the most common spelling).
+- One filter module (src/lib/contact-filters.ts) builds the where for both `GET /api/contacts` and `GET /api/contacts/export`, so an export is exactly the list. Specialty and country match whole values ignoring case; an unknown role is a logged 400, never the whole book. The export audit row records the filters, with any search stored as its fingerprint (`fingerprintSearchTerm`), never the text.
+- The export dialog says how many contacts match and warns, before exporting, when more than 25,000 do (`EXPORT_ROW_CAP`, now shared with the route).
+- Data note: 50,197 of 55,979 contacts have no role, and country carries variant spellings ("UAE", typos) that only a clean-up would merge.
+
 ### Contacts: choose the columns before an export; city and country included (October 23)
 
 - Owner report: the contacts CSV had no city or country. The export wrote a hand-kept list of 12 columns, so every Contact field added later (city, state, zip code, country, additional email, role, custom specialty, association, member ID, student ID and expiry) was never exported. One list in the new src/lib/contact-export.ts now drives the select, the header row and the cells; `photo` (a storage path) and `eventIds` (internal ids) stay out on purpose.
