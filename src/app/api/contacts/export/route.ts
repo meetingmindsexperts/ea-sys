@@ -7,6 +7,7 @@ import { principalFromCaller, requirePermission } from "@/lib/permissions/requir
 import { checkRateLimit } from "@/lib/security";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { escapeCsvCell as escapeCSV } from "@/lib/csv-escape";
+import { exportCell, parseExportColumns, type ExportColumn } from "@/lib/contact-export";
 
 /**
  * Full-CRM CSV export — the highest-value object in the contact domain: every
@@ -34,6 +35,20 @@ export async function GET(req: Request) {
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     return await runWithTenant(ctx.organizationId, async () => {
+
+    // The organiser's chosen columns (Oct 23, 2026); absent means all of them.
+    // Checked before the rate limit so a typo does not spend an export.
+    const parsed = parseExportColumns(new URL(req.url).searchParams.get("columns"));
+    if (!parsed.ok) {
+      apiLogger.warn({
+        msg: "contacts-export:invalid-columns",
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        unknown: parsed.unknown,
+      });
+      return new Response(JSON.stringify({ error: parsed.error }), { status: 400 });
+    }
+    const columns = parsed.columns;
 
     // A bulk PII export deserves its own budget, separate from the read routes.
     const limit = checkRateLimit({
@@ -65,37 +80,11 @@ export async function GET(req: Request) {
       where: { organizationId: ctx.organizationId },
       orderBy: { createdAt: "desc" },
       take: EXPORT_ROW_CAP,
-      select: {
-        title: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        organization: true,
-        jobTitle: true,
-        specialty: true,
-        registrationType: true,
-        bio: true,
-        phone: true,
-        tags: true,
-        notes: true,
-      },
+      select: Object.fromEntries(columns.map((c) => [c, true])) as Record<ExportColumn, true>,
     });
 
-    const headers = ["title", "firstName", "lastName", "email", "organization", "jobTitle", "specialty", "registrationType", "bio", "phone", "tags", "notes"];
-    const rows = contacts.map((c) => [
-      escapeCSV(c.title),
-      escapeCSV(c.firstName),
-      escapeCSV(c.lastName),
-      escapeCSV(c.email),
-      escapeCSV(c.organization),
-      escapeCSV(c.jobTitle),
-      escapeCSV(c.specialty),
-      escapeCSV(c.registrationType),
-      escapeCSV(c.bio),
-      escapeCSV(c.phone),
-      escapeCSV(c.tags.join(",")),
-      escapeCSV(c.notes),
-    ]);
+    const headers: string[] = columns;
+    const rows = contacts.map((c) => columns.map((col) => escapeCSV(exportCell((c as Record<ExportColumn, unknown>)[col]))));
 
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
 
@@ -110,6 +99,8 @@ export async function GET(req: Request) {
       source: ctx.fromApiKey ? "api" : "rest",
       rowCount: contacts.length,
       format: "csv",
+      // Which columns left, so a names-only pull reads differently from the whole book.
+      filters: { columns },
     });
 
     // A cap that nobody is told about produces a file that looks complete and
@@ -130,6 +121,7 @@ export async function GET(req: Request) {
       userId: ctx.userId,
       role: ctx.role,
       rowCount: contacts.length,
+      columnCount: columns.length,
       truncated,
     });
 

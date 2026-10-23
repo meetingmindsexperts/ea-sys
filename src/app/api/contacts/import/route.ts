@@ -9,6 +9,8 @@ import { auth } from "@/lib/auth";
 import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { parseAttendeeRole, parseTitle, type AttendeeRoleValue, type TitleValue } from "@/lib/schemas";
+import { IMPORT_MAX_LENGTH, IMPORT_REQUIRED_MAX, IMPORT_TEXT_COLUMNS, parseImportDate, type ImportCappedColumn } from "@/lib/contact-export";
+import { unescapeCsvCell } from "@/lib/csv-escape";
 
 export async function POST(req: Request) {
   try {
@@ -67,7 +69,12 @@ export async function POST(req: Request) {
       phone: headers.indexOf("phone"),
       tags: headers.indexOf("tags"),
       notes: headers.indexOf("notes"),
+      studentIdExpiry: headers.indexOf("studentidexpiry"),
     };
+    // The plain text columns the importer used to drop (Oct 23, 2026): city,
+    // country and the rest. Same names as the export writes, so an exported
+    // file comes back in whole.
+    const textIdx = IMPORT_TEXT_COLUMNS.map((col) => [col, headers.indexOf(col.toLowerCase())] as const);
 
     if (idx.firstName === -1 || idx.lastName === -1 || idx.email === -1) {
       apiLogger.warn({ msg: "Contacts CSV missing required columns", userId: ctx.userId, headers });
@@ -88,30 +95,39 @@ export async function POST(req: Request) {
     let unrecognizedRole = 0;
 
     let unrecognizedTitle = 0;
-    const contacts: {
+
+    let unreadableExpiry = 0;
+
+    let invalidAdditionalEmail = 0;
+
+    let tooLong = 0;
+    const contacts: ({
       organizationId: string;
       email: string;
       title?: TitleValue | null;
       firstName: string;
       lastName: string;
-      organization?: string;
-      jobTitle?: string;
-      specialty?: string;
       role?: AttendeeRoleValue | null;
-      bio?: string;
-      phone?: string;
       tags: string[];
-      notes?: string;
-    }[] = [];
+      studentIdExpiry?: Date | null;
+    } & Partial<Record<ImportCappedColumn, string>>)[] = [];
 
     for (let i = 0; i < rows.length; i++) {
       const fields = rows[i];
-      const email = getField(fields, idx.email)?.toLowerCase();
-      const firstName = getField(fields, idx.firstName);
-      const lastName = getField(fields, idx.lastName);
+      // Every cell passes through the reverse of the export's formula guard,
+      // so an exported file imports back as it was (`'-A123` -> `-A123`).
+      const cell = (at: number) => unescapeCsvCell(getField(fields, at));
+      const email = cell(idx.email)?.toLowerCase();
+      const firstName = cell(idx.firstName);
+      const lastName = cell(idx.lastName);
 
       if (!email || !firstName || !lastName) {
         errors.push(`Row ${i + 2}: missing required fields (firstName, lastName, email)`);
+        continue;
+      }
+
+      if (firstName.length > IMPORT_REQUIRED_MAX.firstName || lastName.length > IMPORT_REQUIRED_MAX.lastName || email.length > IMPORT_REQUIRED_MAX.email) {
+        errors.push(`Row ${i + 2}: name over 100 characters or email over 255`);
         continue;
       }
 
@@ -120,14 +136,43 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const titleCell = getField(fields, idx.title);
+      const titleCell = cell(idx.title);
       const title = parseTitle(titleCell);
       if (titleCell && !title) unrecognizedTitle++;
-      const roleCell = getField(fields, idx.role);
+      const roleCell = cell(idx.role);
       const role = parseAttendeeRole(roleCell);
       if (roleCell && !role) unrecognizedRole++;
 
+      const expiryCell = cell(idx.studentIdExpiry);
+      const studentIdExpiry = parseImportDate(expiryCell);
+      if (expiryCell && !studentIdExpiry) unreadableExpiry++;
+
+      const text: Partial<Record<ImportCappedColumn, string>> = {
+        organization: cell(idx.organization),
+        jobTitle: cell(idx.jobTitle),
+        specialty: cell(idx.specialty),
+        bio: cell(idx.bio),
+        phone: cell(idx.phone),
+        notes: cell(idx.notes),
+      };
+      for (const [col, at] of textIdx) text[col] = cell(at);
+      // Over the form's cap: left empty and counted, never stored or cut.
+      for (const col of Object.keys(text) as ImportCappedColumn[]) {
+        const value = text[col];
+        if (value && value.length <= IMPORT_MAX_LENGTH[col]) continue;
+        if (value) tooLong++;
+        delete text[col];
+      }
+      // A malformed second address is dropped, not saved: it would be mailed.
+      if (text.additionalEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text.additionalEmail)) {
+        invalidAdditionalEmail++;
+        delete text.additionalEmail;
+      }
+      if (text.additionalEmail) text.additionalEmail = text.additionalEmail.toLowerCase();
+
       contacts.push({
+        ...text,
+        studentIdExpiry,
         organizationId: ctx.organizationId,
         email,
         // Honorific — the Contact model has carried `title` all along; this
@@ -135,16 +180,10 @@ export async function POST(req: Request) {
         title,
         firstName,
         lastName,
-        organization: getField(fields, idx.organization),
-        jobTitle: getField(fields, idx.jobTitle),
-        specialty: getField(fields, idx.specialty),
         // Profession category — shared parser, same acceptance rules as the
         // registrations/speakers imports (was silently dropped here).
         role,
-        bio: getField(fields, idx.bio),
-        phone: getField(fields, idx.phone),
-        tags: parseTags(getField(fields, idx.tags)),
-        notes: getField(fields, idx.notes),
+        tags: parseTags(cell(idx.tags)),
       });
     }
 
@@ -171,6 +210,12 @@ export async function POST(req: Request) {
 
     if (unrecognizedRole > 0 || unrecognizedTitle > 0) {
       apiLogger.warn({ msg: "Import unrecognized enum cells", importType: "contacts", source: "csv", userId: ctx.userId, organizationId: ctx.organizationId, unrecognizedRole, unrecognizedTitle });
+    }
+    if (unreadableExpiry > 0 || invalidAdditionalEmail > 0 || tooLong > 0) {
+      apiLogger.warn({ msg: "contacts/import:cells-dropped", userId: ctx.userId, organizationId: ctx.organizationId, unreadableExpiry, invalidAdditionalEmail, tooLong });
+      if (tooLong > 0) errors.push(`${tooLong} value(s) were longer than the contact form allows and were left empty`);
+      if (unreadableExpiry > 0) errors.push(`${unreadableExpiry} student ID expiry value(s) were not a date (use YYYY-MM-DD) and were left empty`);
+      if (invalidAdditionalEmail > 0) errors.push(`${invalidAdditionalEmail} additional email value(s) were not valid and were left empty`);
     }
 
     recordImport(req, {

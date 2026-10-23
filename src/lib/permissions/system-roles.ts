@@ -405,8 +405,9 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     baseRole: "MEMBER",
     // Internal read-everything staff, money included (June 17 2026), with the
     // desk. No CRM and no Budgets since Oct 7, 2026 (owner): a custom role adds
-    // either. No codes, no export, no supporting documents, no per-event
-    // activity (`canWrite`), no RSVP roster. Lists a speaker's documents but
+    // either. No codes, no event exports (it keeps the contacts export; owner,
+    // Oct 23, 2026), no supporting documents, no per-event activity
+    // (`canWrite`), no RSVP roster. Lists a speaker's documents but
     // cannot open the files (`speakers.documents.open`; owner, Oct 2, 2026).
     grants: [
       ...at("ALL", ...EVENT_READ, ...DESK, "speakers.documents.read"),

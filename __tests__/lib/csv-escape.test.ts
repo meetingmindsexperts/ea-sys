@@ -5,7 +5,7 @@
  * the cell. These pin the neutralization AND the phone-number exemption.
  */
 import { describe, it, expect } from "vitest";
-import { escapeCsvCell, toCsvRow, toCsv } from "@/lib/csv-escape";
+import { escapeCsvCell, toCsvRow, toCsv, unescapeCsvCell } from "@/lib/csv-escape";
 
 describe("escapeCsvCell — formula neutralization", () => {
   it("neutralizes a leading = (HYPERLINK exfiltration)", () => {
@@ -68,5 +68,21 @@ describe("row/document builders", () => {
 
   it("toCsv joins rows with the requested EOL", () => {
     expect(toCsv([["h1", "h2"], ["=x", "y"]], "\r\n")).toBe("h1,h2\r\n'=x,y");
+  });
+});
+
+describe("unescapeCsvCell", () => {
+  it("removes only the guard the export added", () => {
+    for (const v of ["-A123", "=HYPERLINK(1)", "@cmd", "+abc"]) {
+      expect(unescapeCsvCell(escapeCsvCell(v))).toBe(v);
+    }
+  });
+
+  it("keeps an apostrophe the person typed", () => {
+    expect(unescapeCsvCell("'quoted'")).toBe("'quoted'");
+    expect(unescapeCsvCell("'5")).toBe("'5");
+    expect(unescapeCsvCell("'+971 4 555")).toBe("'+971 4 555");
+    expect(unescapeCsvCell("O'Brien")).toBe("O'Brien");
+    expect(unescapeCsvCell(undefined)).toBeUndefined();
   });
 });

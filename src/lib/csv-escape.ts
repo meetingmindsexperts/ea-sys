@@ -21,15 +21,33 @@
 /** `+`/`-`-prefixed cells that are just numbers/phones — harmless, keep as-is. */
 const BENIGN_NUMERIC = /^[+-][\d\s()./-]*$/;
 
+/** Would a spreadsheet read this cell as a formula? */
+function startsLikeFormula(s: string): boolean {
+  const first = s.charAt(0);
+  if (first === "=" || first === "@" || first === "\t" || first === "\r") return true;
+  return (first === "+" || first === "-") && !BENIGN_NUMERIC.test(s);
+}
+
 /** Escape one CSV cell: neutralize formula prefixes, then RFC 4180-quote. */
 export function escapeCsvCell(value: unknown): string {
   const s = value === null || value === undefined ? "" : String(value);
-  const first = s.charAt(0);
-  const dangerous =
-    first === "=" || first === "@" || first === "\t" || first === "\r" ||
-    ((first === "+" || first === "-") && !BENIGN_NUMERIC.test(s));
-  const body = dangerous ? `'${s}` : s;
+  const body = startsLikeFormula(s) ? `'${s}` : s;
   return /[",\n\r]/.test(body) ? `"${body.replace(/"/g, '""')}"` : body;
+}
+
+/**
+ * The reverse of the formula guard, for an importer reading back one of our
+ * own exports (Oct 23, 2026): `'-A123` returns as `-A123`. Only a `'` that the
+ * guard would have added is removed, so `'quoted'` or `'5` stay as typed. The
+ * value is stored, never evaluated, so the bare form is safe in the database;
+ * the next export guards it again.
+ */
+export function unescapeCsvCell(value: string): string;
+export function unescapeCsvCell(value: string | undefined): string | undefined;
+export function unescapeCsvCell(value: string | undefined): string | undefined {
+  if (!value?.startsWith("'")) return value;
+  const rest = value.slice(1);
+  return startsLikeFormula(rest) ? rest : value;
 }
 
 /** Join one row of cells through `escapeCsvCell`. */

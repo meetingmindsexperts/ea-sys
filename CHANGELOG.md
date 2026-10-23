@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Contacts: choose the columns before an export; city and country included (October 23)
+
+- Owner report: the contacts CSV had no city or country. The export wrote a hand-kept list of 12 columns, so every Contact field added later (city, state, zip code, country, additional email, role, custom specialty, association, member ID, student ID and expiry) was never exported. One list in the new src/lib/contact-export.ts now drives the select, the header row and the cells; `photo` (a storage path) and `eventIds` (internal ids) stay out on purpose.
+- Export now opens a column picker (src/components/contacts/export-contacts-dialog.tsx). It opens on a basic set each time (name, email, organisation, job title, specialty, city, country; owner choice), so phone, bio, notes and ID numbers leave only when ticked.
+- `GET /api/contacts/export?columns=a,b` accepts only known columns and refuses an unknown one with a logged 400 rather than skipping it; with no `columns` it still returns every column, so API-key callers are unchanged. The audit row records the columns taken.
+- Member keeps the contacts export (owner); the stale "no export" comment on the Member role now says no EVENT exports.
+- Import CSV had the same gap: it read only the original twelve columns, so city, country and the rest in a file were dropped while the import reported success. It now reads every column the export writes (`IMPORT_TEXT_COLUMNS` plus `studentIdExpiry` as YYYY-MM-DD), so an exported file imports back; the download template lists them. An unreadable expiry or an invalid additional email is left empty, logged (`contacts/import:cells-dropped`) and reported in the result. Import still only adds new contacts; updating existing ones is a separate owner decision.
+- Review fixes the same day: the export dialog now resets to the basic set when it closes (it reset only on a user-initiated open, which never happens, so the last export's sensitive ticks came back); an unknown `columns` value is refused before the rate limit, so a typo does not spend one of the org's 10 exports an hour; import applies the Add/Edit Contact form's length caps (an over-long value is left empty and reported, an over-long name or email fails its row), so a CSV is not the one door around them into the marketing mirror; import strips the export's formula guard (`unescapeCsvCell`, `'-A123` back to `-A123`) without touching an apostrophe someone typed; a route test pins the export's select, header, guard, audit columns and the 400.
+- User guide: the Contacts section describes the export picker and the import columns.
+
 ### RSVPs: filters in Import invitees (October 23)
 
 - Dina asked for more filters. Import invitees (an RSVP's Import button) now filters Registrations by registration type, status, payment status and badge role, and Speakers / Submitters by status; "Select all matching" then adds the whole group. Cancelled registrations are left out by default ("Any status" brings them back). Client-side over the lists the dialog already loads, so no new request. Rules in src/lib/rsvp-import-filters.ts. The dialog also gets the description it was missing (a console warning).

@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 import { EventsAirContactsImportDialog } from "@/components/import/eventsair-contacts-import-dialog";
 import { ContactDetailSheet } from "@/components/contacts/contact-detail-sheet";
+import { ExportContactsDialog } from "@/components/contacts/export-contacts-dialog";
 import { TagFilterPopover, getTagColor, type TagUsage } from "@/components/contacts/tag-filter-popover";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatAttendeeRole } from "@/lib/schemas";
@@ -111,6 +112,7 @@ export default function ContactsPage() {
   const canExportContacts = useCan("contacts.export") === "allowed";
 
   const [page, setPage] = useState(1);
+  const [exportOpen, setExportOpen] = useState(false);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -263,15 +265,15 @@ export default function ContactsPage() {
       });
   };
 
-  const handleExportCSV = () => { window.location.href = "/api/contacts/export"; };
+  const handleExportCSV = () => setExportOpen(true);
 
   const handleDownloadTemplate = () => {
     const csv = [
       // Identity fields grouped first — matches the registrations/speakers
       // templates. Column ORDER is presentation only; the importer resolves
       // every column by name.
-      "title,firstName,lastName,email,phone,organization,jobTitle,specialty,role,tags,notes",
-      'Dr,John,Smith,john@example.com,+1-555-0123,Acme Corp,CEO,Cardiology,PHYSICIAN,"VIP, Speaker",Met at conference 2025',
+      "title,firstName,lastName,email,phone,additionalEmail,organization,jobTitle,specialty,customSpecialty,role,registrationType,city,state,zipCode,country,associationName,memberId,studentId,studentIdExpiry,tags,notes",
+      'Dr,John,Smith,john@example.com,+1-555-0123,,Acme Corp,CEO,Cardiology,,PHYSICIAN,Physician,Dubai,,,United Arab Emirates,,,,,"VIP, Speaker",Met at conference 2025',
     ].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -835,6 +837,8 @@ export default function ContactsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {canExportContacts && <ExportContactsDialog open={exportOpen} onOpenChange={setExportOpen} />}
 
       {/* Contact Detail Sheet */}
       <ContactDetailSheet
