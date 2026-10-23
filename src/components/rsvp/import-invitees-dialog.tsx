@@ -14,6 +14,12 @@
  * proposal self-signup doors), so they need no separate fetch — just a filter
  * over the speakers we already have.
  *
+ * Filters (Oct 23, 2026, Dina): registrations by type, status, payment status
+ * and badge role; speakers and submitters by speaker status. They narrow the
+ * list already loaded (no extra request), and "Select all" picks what they
+ * leave, so a whole group is two clicks. Cancelled registrations are left out
+ * by default; "Any status" brings them back.
+ *
  * Docs: docs/RSVP.md.
  */
 
@@ -22,9 +28,21 @@ import { Loader2, Search, Users, Mic, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  ANY,
+  DEFAULT_FILTERS,
+  NOT_CANCELLED,
+  SPEAKER_DEFAULT_FILTERS,
+  distinct,
+  matchesFilters,
+  titleCase,
+  type Filters,
+} from "@/lib/rsvp-import-filters";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -37,6 +55,38 @@ interface Person {
   email: string;
   registrationId?: string;
   speakerId?: string;
+  /** Registration status, or the speaker's status on the speaker tabs. */
+  status?: string;
+  /** Registrations only. */
+  typeId?: string;
+  typeName?: string;
+  paymentStatus?: string;
+  badgeType?: string;
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="h-8 w-auto min-w-[9rem] text-xs" aria-label={label}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 function selectAllChecked(allSelected: boolean, selectedCount: number): boolean | "indeterminate" {
@@ -68,11 +118,19 @@ export function ImportInviteesDialog({
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const setFilter = (k: keyof Filters) => (v: string) => setFilters((f) => ({ ...f, [k]: v }));
+  const switchSource = (next: typeof source) => {
+    setSource(next);
+    setFilters(next === "registrations" ? DEFAULT_FILTERS : SPEAKER_DEFAULT_FILTERS);
+  };
 
   useEffect(() => {
     if (!open) return;
     setSelected(new Set());
     setSearch("");
+    setSource("registrations");
+    setFilters(DEFAULT_FILTERS);
     setLoading(true);
     (async () => {
       try {
@@ -85,6 +143,10 @@ export function ImportInviteesDialog({
           setRegs(
             (Array.isArray(rows) ? rows : []).flatMap((r: {
               id: string;
+              status?: string;
+              paymentStatus?: string;
+              badgeType?: string | null;
+              ticketType?: { id?: string; name?: string } | null;
               attendee?: { firstName?: string; lastName?: string; email?: string };
             }) =>
               r.attendee?.email
@@ -93,6 +155,11 @@ export function ImportInviteesDialog({
                     name: `${r.attendee.firstName ?? ""} ${r.attendee.lastName ?? ""}`.trim() || r.attendee.email,
                     email: r.attendee.email,
                     registrationId: r.id,
+                    status: r.status,
+                    paymentStatus: r.paymentStatus,
+                    badgeType: r.badgeType?.trim() || undefined,
+                    typeId: r.ticketType?.id,
+                    typeName: r.ticketType?.name?.trim(),
                   }]
                 : [],
             ),
@@ -110,6 +177,7 @@ export function ImportInviteesDialog({
             firstName?: string;
             lastName?: string;
             email?: string;
+            status?: string;
             submitterSource?: string | null;
           }) =>
             s.email
@@ -119,6 +187,7 @@ export function ImportInviteesDialog({
                     name: `${s.firstName ?? ""} ${s.lastName ?? ""}`.trim() || s.email,
                     email: s.email,
                     speakerId: s.id,
+                    status: s.status,
                   } as Person,
                   isSubmitter: Boolean(s.submitterSource),
                 }]
@@ -145,9 +214,22 @@ export function ImportInviteesDialog({
   const people = { registrations: regs, speakers, submitters }[source];
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return people;
-    return people.filter((p) => p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q));
-  }, [people, search]);
+    return people.filter((p) => {
+      if (!matchesFilters(p, filters)) return false;
+      return !q || p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q);
+    });
+  }, [people, search, filters]);
+  const defaults = source === "registrations" ? DEFAULT_FILTERS : SPEAKER_DEFAULT_FILTERS;
+  const narrowed = !!search.trim() || JSON.stringify(filters) !== JSON.stringify(defaults);
+
+  // Options come from the people loaded, so a filter never offers an empty choice.
+  const typeOptions = useMemo(() => {
+    const byId = new Map(regs.filter((r) => r.typeId).map((r) => [r.typeId as string, r.typeName || "Untitled type"]));
+    return [...byId].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label }));
+  }, [regs]);
+  const statusValues = useMemo(() => distinct(people.map((p) => p.status)), [people]);
+  const paymentValues = useMemo(() => distinct(regs.map((r) => r.paymentStatus)), [regs]);
+  const badgeValues = useMemo(() => distinct(regs.map((r) => r.badgeType)), [regs]);
 
   const toggle = (key: string) =>
     setSelected((prev) => {
@@ -227,27 +309,30 @@ export function ImportInviteesDialog({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Import invitees</DialogTitle>
+          <DialogDescription>
+            Pick people from this event. Narrow the list with the filters, then use Select all to add a whole group.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex gap-2">
           <Button
             size="sm"
             variant={source === "registrations" ? "default" : "outline"}
-            onClick={() => setSource("registrations")}
+            onClick={() => switchSource("registrations")}
           >
             <Users className="h-4 w-4 mr-1" /> Registrations ({regs.length})
           </Button>
           <Button
             size="sm"
             variant={source === "speakers" ? "default" : "outline"}
-            onClick={() => setSource("speakers")}
+            onClick={() => switchSource("speakers")}
           >
             <Mic className="h-4 w-4 mr-1" /> Speakers ({speakers.length})
           </Button>
           <Button
             size="sm"
             variant={source === "submitters" ? "default" : "outline"}
-            onClick={() => setSource("submitters")}
+            onClick={() => switchSource("submitters")}
           >
             <FileText className="h-4 w-4 mr-1" /> Submitters ({submitters.length})
           </Button>
@@ -261,6 +346,54 @@ export function ImportInviteesDialog({
             placeholder="Search by name or email"
             className="pl-8"
           />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {source === "registrations" && (
+            <FilterSelect
+              label="Registration type"
+              value={filters.type}
+              onChange={setFilter("type")}
+              options={[{ value: ANY, label: "Any type" }, ...typeOptions]}
+            />
+          )}
+          <FilterSelect
+            label="Status"
+            value={filters.status}
+            onChange={setFilter("status")}
+            options={[
+              ...(source === "registrations" ? [{ value: NOT_CANCELLED, label: "Not cancelled" }] : []),
+              { value: ANY, label: "Any status" },
+              ...statusValues.map((v) => ({ value: v, label: titleCase(v) })),
+            ]}
+          />
+          {source === "registrations" && (
+            <>
+              <FilterSelect
+                label="Payment status"
+                value={filters.payment}
+                onChange={setFilter("payment")}
+                options={[{ value: ANY, label: "Any payment" }, ...paymentValues.map((v) => ({ value: v, label: titleCase(v) }))]}
+              />
+              <FilterSelect
+                label="Badge role"
+                value={filters.badge}
+                onChange={setFilter("badge")}
+                options={[{ value: ANY, label: "Any badge role" }, ...badgeValues.map((v) => ({ value: v, label: v }))]}
+              />
+            </>
+          )}
+          {narrowed && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => { setFilters(defaults); setSearch(""); }}
+            >
+              Clear filters
+            </Button>
+          )}
         </div>
 
         <div className="border rounded-lg max-h-[45vh] overflow-y-auto divide-y">
@@ -283,7 +416,7 @@ export function ImportInviteesDialog({
                     aria-label="Select all listed people"
                   />
                   <span className="flex-1 text-sm font-medium">
-                    Select all{search.trim() ? " matching" : ""} ({addable.length})
+                    Select all{narrowed ? " matching" : ""} ({addable.length})
                   </span>
                   {selected.size > 0 && (
                     <span className="text-xs text-muted-foreground">{selected.size} selected</span>

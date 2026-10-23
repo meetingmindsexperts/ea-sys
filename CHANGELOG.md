@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### RSVPs: filters in Import invitees (October 23)
+
+- Dina asked for more filters. Import invitees (an RSVP's Import button) now filters Registrations by registration type, status, payment status and badge role, and Speakers / Submitters by status; "Select all matching" then adds the whole group. Cancelled registrations are left out by default ("Any status" brings them back). Client-side over the lists the dialog already loads, so no new request. Rules in src/lib/rsvp-import-filters.ts. The dialog also gets the description it was missing (a console warning).
+
 ### Registrations: the pricing tier can be changed on complimentary and sponsor-paid registrations (October 22)
 
 - Owner request. The tier was editable only while unpaid, pending or unassigned; complimentary and sponsor-paid (Inclusive) registrations were refused ("change its payment status first"). For them the tier is a label (which rate they came in on, for reports) and changing it charges no one: payment reminders only chase the unpaid statuses. Paid, refunded and failed stay locked; a promo code still blocks it.
