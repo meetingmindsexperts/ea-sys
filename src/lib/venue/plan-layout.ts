@@ -99,6 +99,8 @@ export function layoutFromPlan(rooms: VenueRoom[], plan: VenuePlan, opts: { even
   const zoneAt = (x: number, z: number) => zones.find((zn) => inside(zn.rect, x, z));
 
   // ── Doors: each room's, onto whatever is on the other side ──
+  // The foyer is the first zone, so its own door is the first door out of the foyer; the 3D venue's banners
+  // (world.js) flank that one, and a room whose door opens into the foyer comes after it (venue-plan-edit.test.ts).
   const doors: LayoutDoor[] = [];
   for (const zn of zones) {
     const d = doorOf.get(zn.id);

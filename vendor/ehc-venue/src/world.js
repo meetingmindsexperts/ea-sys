@@ -210,7 +210,8 @@ function buildWorld(R, Q) {
 
   // event banners (EA-SYS: shared by EHC's rooms and generated venues; a banner stands at z = 0.6)
   let bannerR = null;
-  const banner = (x) => {
+  // EA-SYS (floor plan editor): placed at (x, z) facing `yaw`; EHC's own banners pass z 0.6, yaw 0.
+  const banner = (x, z = 0.6, yaw = 0) => {
     const r = bannerR || (bannerR = A.alloc(220, 500)), x2 = A.x; x2.save(); x2.translate(r.x, r.y);
     const g = x2.createLinearGradient(0, 0, 0, 500); g.addColorStop(0, '#6d1624'); g.addColorStop(1, '#2a0a12'); x2.fillStyle = g; x2.fillRect(0, 0, 220, 500);
     x2.strokeStyle = 'rgba(200,164,106,.35)'; x2.lineWidth = 1.5; for (let k = 0; k < 7; k++) { x2.beginPath(); x2.arc(110, 520, 60 + k * 26, Math.PI, 0); x2.stroke(); }
@@ -229,8 +230,8 @@ function buildWorld(R, Q) {
     if (year) { x2.fillStyle = '#c8a46a'; x2.font = `400 64px ${FONT_DISPLAY}`; x2.fillText(year, 20, 300); }
     x2.fillStyle = 'rgba(243,236,228,.8)'; x2.font = `500 15px ${FONT_BODY}`; x2.fillText(EVENT.date, 22, 350); x2.fillText(EVENT.venue, 22, 372);
     x2.restore();
-    quad('signs', x, 3.0, 0.6, 2.2, 5, 0, [1, 1, 1, 0], { mode: 'rect', r: r.uv });
-    cyl('metal', x, 0, 0.6, 0.03, 5.6, [0.7, 0.58, 0.4, 0]); cyl('metal', x, 0, 0.5, 0.35, 0.04, [0.2, 0.2, 0.2, 0]);
+    quad('signs', x, 3.0, z, 2.2, 5, yaw, [1, 1, 1, 0], { mode: 'rect', r: r.uv });
+    cyl('metal', x, 0, z, 0.03, 5.6, [0.7, 0.58, 0.4, 0]); cyl('metal', x - Math.sin(yaw) * 0.1, 0, z - Math.cos(yaw) * 0.1, 0.35, 0.04, [0.2, 0.2, 0.2, 0]);
   };
 
   // ===== EHC 2026: the hand-built venue, the preset when EA-SYS sends no layout =====
@@ -588,22 +589,31 @@ function buildWorld(R, Q) {
       sign(cx - dx * 1.02, 3.6, cz - dz * 1.02, 5, 1.0, yaw, { title: 'Coffee Bar', sub: 'Espresso · Tea · Water' });
       blob(cx, cz, x1 - x0 + 1.4, z1 - z0 + 1.4);
     };
-    const desk = (x0, z0, x1, z1, title, sub) => {
-      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    // EA-SYS (floor plan editor): a desk faces `yaw` (towards the entrance), so a drawn plan's foyer can have
+    // its entrance in any wall; the template's desks face south (yaw 0), as before.
+    const desk = (x0, z0, x1, z1, yaw, title, sub) => {
+      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, [dx, dz] = dirOf(yaw), alongX = !dx, len = alongX ? x1 - x0 : z1 - z0;
       box('wood', x0, 0, z0, x1, 1.0, z1, [0.55, 0.38, 0.28, 0], { col: true });
       box('marble', x0 - 0.1, 1.0, z0 - 0.1, x1 + 0.1, 1.08, z1 + 0.1, [0.95, 0.92, 0.88, 0]);
-      box('emis', x0, 0.12, z1 + 0.01, x1, 0.16, z1 + 0.03, [0.95, 0.25, 0.32, 0.9]);
-      sign(cx, 4.3, cz, Math.min(7, x1 - x0), 1.3, 0, { kicker: EVENT.name, title, sub });
-      for (const ddx of [-2.8, 2.8]) if (Math.abs(ddx) < (x1 - x0) / 2) cyl('metal', cx + ddx, 4.95, cz, 0.015, 7, [0.6, 0.6, 0.6, 0], { lo: true });
-      blob(cx, cz, x1 - x0 + 1, 2.2);
+      if (dz > 0) box('emis', x0, 0.12, z1 + 0.01, x1, 0.16, z1 + 0.03, [0.95, 0.25, 0.32, 0.9]);
+      else if (dz < 0) box('emis', x0, 0.12, z0 - 0.03, x1, 0.16, z0 - 0.01, [0.95, 0.25, 0.32, 0.9]);
+      else if (dx > 0) box('emis', x1 + 0.01, 0.12, z0, x1 + 0.03, 0.16, z1, [0.95, 0.25, 0.32, 0.9]);
+      else box('emis', x0 - 0.03, 0.12, z0, x0 - 0.01, 0.16, z1, [0.95, 0.25, 0.32, 0.9]);
+      sign(cx, 4.3, cz, Math.min(7, len), 1.3, yaw, { kicker: EVENT.name, title, sub });
+      for (const d of [-2.8, 2.8]) if (Math.abs(d) < len / 2) cyl('metal', alongX ? cx + d : cx, 4.95, alongX ? cz : cz + d, 0.015, 7, [0.6, 0.6, 0.6, 0], { lo: true });
+      blob(cx, cz, alongX ? len + 1 : 2.2, alongX ? 2.2 : len + 1);
     };
-    const directory = (cx, cz) => {
-      const arrow = (z) => { const [x0, z0, x1, z1] = z.rect, dx = (x0 + x1) / 2 - cx, dz = (z0 + z1) / 2 - cz, a = Math.atan2(dx, -dz) / (Math.PI / 4); return ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'][((Math.round(a) % 8) + 8) % 8]; };
+    // EA-SYS (floor plan editor): the board faces `yaw` (towards the entrance) and its arrows point the way
+    // a person reading it would turn; the template's board faces south (yaw 0), as before.
+    const directory = (cx, cz, yaw) => {
+      const [fx, fz] = dirOf(yaw), rx = Math.round(Math.cos(yaw)), rz = -Math.round(Math.sin(yaw));
+      const arrow = (z) => { const [x0, z0, x1, z1] = z.rect, dx = (x0 + x1) / 2 - cx, dz = (z0 + z1) / 2 - cz, a = Math.atan2(dx * rx + dz * rz, -(dx * fx + dz * fz)) / (Math.PI / 4); return ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'][((Math.round(a) % 8) + 8) % 8]; };
       const rows = ZONES.filter((z) => z.kind !== 'corridor' && z.kind !== 'foyer').slice(0, 9).map((z) => [z.name, arrow(z)]);
       const r = DRAW.directory(A, 300, 560, [...rows, ['Registration', '·'], ['Information', '·']].slice(0, 11));
-      quad('signs', cx, 1.75, cz + 0.12, 1.3, 2.4, 0, [1, 1, 1, 0], { mode: 'rect', r: r.uv });
-      box('plain', cx - 0.7, 0, cz - 0.05, cx + 0.7, 3.05, cz + 0.05, [0.1, 0.08, 0.08, 0], { col: true });
-      blob(cx, cz, 1.8, 0.8);
+      quad('signs', cx + fx * 0.12, 1.75, cz + fz * 0.12, 1.3, 2.4, yaw, [1, 1, 1, 0], { mode: 'rect', r: r.uv });
+      if (fz) box('plain', cx - 0.7, 0, cz - 0.05, cx + 0.7, 3.05, cz + 0.05, [0.1, 0.08, 0.08, 0], { col: true });
+      else box('plain', cx - 0.05, 0, cz - 0.7, cx + 0.05, 3.05, cz + 0.7, [0.1, 0.08, 0.08, 0], { col: true });
+      blob(cx, cz, fz ? 1.8 : 0.8, fz ? 0.8 : 1.8);
     };
     for (const it of L.items) {
       const [x0, z0, x1, z1] = rectOf(it.foot), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, big = zoneOf(it.zone).kind === 'plenary';
@@ -624,8 +634,8 @@ function buildWorld(R, Q) {
       else if (it.t === 'poster') poster(x0, z0, x1, z1);
       else if (it.t === 'sofa') sofas(x0, z0, x1, z1);
       else if (it.t === 'bar') bar(x0, z0, x1, z1, it.yaw);
-      else if (it.t === 'desk') desk(x0, z0, x1, z1, it.title, it.sub);
-      else if (it.t === 'directory') directory(cx, cz);
+      else if (it.t === 'desk') desk(x0, z0, x1, z1, it.yaw || 0, it.title, it.sub);
+      else if (it.t === 'directory') directory(cx, cz, it.yaw || 0);
       else if (it.t === 'plant') plant(it.cx, it.cz, it.s);
       else if (it.t === 'sign') sign(it.x, it.y, it.z, it.w, it.hgt, it.yaw, it.kicker ? { kicker: it.kicker, title: it.title, sub: it.sub } : { title: it.title, sub: it.sub });
     }
@@ -636,9 +646,21 @@ function buildWorld(R, Q) {
       hit(h.id, h.x, h.z, h.r, 'Visit ' + sp.name, sp.name, sp.about || tierWord(sp.tier) + ' of ' + EVENT.short + '.', h.kind);
       interact[interact.length - 1].sponsor = sp;
     }
-    // the event's banners either side of the way into the corridor, inside the foyer
-    const cor = zoneOfKind('corridor'), foy = zoneOfKind('foyer');
-    if (cor && foy) for (const x of [cor.rect[0] - 1.6, cor.rect[2] + 1.6]) if (x > foy.rect[0] + 1.2 && x < foy.rect[2] - 1.2) banner(x);
+    // the event's banners either side of the foyer's way on into the building, inside the foyer, facing it.
+    // EA-SYS (floor plan editor): read from the foyer's door, so it holds for a way on in any wall. 1.9 m from
+    // the door's edge: the template records its foyer door 0.6 m narrower than the corridor, so its banners
+    // stay 1.6 m outside the corridor, where they always stood.
+    const foy = zoneOfKind('foyer'), way = foy && (L.doors || []).find((d) => d.between[0] === foy.id);
+    if (foy && way) {
+      const [fx0, fz0, fx1, fz1] = foy.rect;
+      if (way.axis === 'x') {
+        const s = (fz0 + fz1) / 2 > way.z ? 1 : -1;
+        for (const x of [way.x - way.width / 2 - 1.9, way.x + way.width / 2 + 1.9]) if (x > fx0 + 1.2 && x < fx1 - 1.2) banner(x, way.z + s * 0.6, s > 0 ? 0 : Math.PI);
+      } else {
+        const s = (fx0 + fx1) / 2 > way.x ? 1 : -1;
+        for (const z of [way.z - way.width / 2 - 1.9, way.z + way.width / 2 + 1.9]) if (z > fz0 + 1.2 && z < fz1 - 1.2) banner(way.x + s * 0.6, z, s > 0 ? Math.PI / 2 : -Math.PI / 2);
+      }
+    }
     return L.routes.map((pts) => ({ pts, n: 3, loop: true }));
   }
   const routes = LAYOUT ? buildLayout() : buildEhc();

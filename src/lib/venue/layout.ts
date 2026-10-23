@@ -255,7 +255,7 @@ const posterBoards = (W: number, D: number) => Math.max(1, Math.floor((W - 4) / 
 const posterBoardsWanted = (capacity: number) => clamp(Math.round(capacity / 5), 6, 40);
 
 /** Does a W (across) by D (door to far wall) room hold this room's people? */
-function fits(room: VenueRoom, W: number, D: number): boolean {
+export function fits(room: VenueRoom, W: number, D: number): boolean {
   switch (room.kind) {
     case "plenary":
     case "hall":

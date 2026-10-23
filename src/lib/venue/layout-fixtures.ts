@@ -3,6 +3,8 @@
  * writes their layouts into vendor/ehc-venue/tests/fixtures/layouts/): every
  * template, and the shapes most likely to break a generated building.
  */
+import { generateLayout } from "./layout";
+import { planFromLayout, type VenuePlan } from "./plan";
 import { TEMPLATES, type VenueRoom } from "./rooms";
 
 const room = (kind: VenueRoom["kind"], capacity: number, i = 0): VenueRoom => ({ id: `${kind}-${i}`, name: `${kind[0].toUpperCase()}${kind.slice(1)} ${i + 1}`, kind, capacity });
@@ -23,4 +25,37 @@ export const LAYOUT_FIXTURES: Record<string, VenueRoom[]> = {
   "edge-one-side": [room("foyer", 1581), room("hall", 118, 0), room("hall", 800, 1), room("hall", 757, 2)],
   // The smallest venue the rules allow.
   "edge-foyer-only": [room("foyer", 20)],
+};
+
+/**
+ * Drawn plans the venue's browser tests walk too (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md,
+ * 3.6): the shapes the template never makes. Doors in north and south walls,
+ * two walkways meeting at a corner, a foyer entered from the west with its
+ * way on in its east wall, and the congress with its entrance moved.
+ */
+export const PLAN_FIXTURES: Record<string, { rooms: VenueRoom[]; plan: VenuePlan }> = {
+  "drawn-sideways": {
+    rooms: TEMPLATES.summit.rooms,
+    plan: {
+      v: 1,
+      rooms: [
+        { id: "foyer", rect: [0, 0, 14, 30], door: { wall: "e", at: 15, width: 6 } },
+        { id: "plenary", rect: [20, 0, 50, 30], door: { wall: "w", at: 15, width: 5 } },
+        { id: "breakout-1", rect: [20, -26, 36, -6], door: { wall: "s", at: 28, width: 2.6 } },
+        { id: "breakout-2", rect: [36, -26, 52, -6], door: { wall: "s", at: 44, width: 2.6 } },
+        { id: "lounge", rect: [52, -20, 60, -6], door: { wall: "s", at: 56, width: 2.6 } },
+      ],
+      corridors: [
+        { id: "walkway-1", name: "Concourse", rect: [14, 0, 20, 30] },
+        { id: "walkway-2", name: "North Walk", rect: [14, -6, 60, 0] },
+      ],
+      entrance: { wall: "w", at: 15, width: 10 },
+    },
+  },
+  "drawn-congress-west-entrance": (() => {
+    const rooms = TEMPLATES.congress.rooms;
+    const plan = planFromLayout(generateLayout(rooms, { eventName: "" }));
+    const foyer = plan.rooms.find((p) => p.id === "foyer")!;
+    return { rooms, plan: { ...plan, entrance: { wall: "w", at: (foyer.rect[1] + foyer.rect[3]) / 2, width: 8 } } };
+  })(),
 };

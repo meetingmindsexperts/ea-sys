@@ -1,0 +1,263 @@
+/**
+ * The floor plan editor's edits (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md, 3.5):
+ * pure functions from one plan to the next, so the canvas, the side panel and
+ * undo all go through the same few rules and the tests can pin them.
+ *
+ * Every edit keeps each area on the 0.5 m grid, keeps each area at least
+ * PLAN_MIN_SIDE each way and inside PLAN_EXTENT, and keeps each door on its
+ * wall (a door never ends up in the air because its room shrank). A room
+ * carries its door with it; the foyer also carries the entrance.
+ *
+ * Client-safe: pure, no Node imports.
+ */
+import { clamp, fits, generateLayout, r2, type Rect } from "./layout";
+import { PLAN_DOOR_MAX, PLAN_DOOR_MIN, PLAN_EXTENT, PLAN_MAX_WALKWAYS, PLAN_MIN_SIDE, wallSpan, type PlacedRoom, type PlanDoor, type PlanWall, type VenuePlan } from "./plan";
+import type { VenueRoom } from "./rooms";
+
+export const PLAN_GRID = 0.5;
+export const snap = (n: number) => r2(Math.round(n / PLAN_GRID) * PLAN_GRID);
+
+/** Which area of the plan is meant: a room (by its room id), a walkway (by its id), or nothing. */
+export type PlanTarget = { kind: "room"; id: string } | { kind: "corridor"; id: string };
+
+/** The edges a resize handle moves: any of west, north, east, south, or two for a corner. */
+export interface Edges {
+  w?: boolean;
+  n?: boolean;
+  e?: boolean;
+  s?: boolean;
+}
+
+const isNS = (w: PlanWall) => w === "n" || w === "s";
+
+/** The door kept on its wall: its width no longer than the wall, its centre so the whole door fits. */
+export function fitDoor(rect: Rect, door: PlanDoor): PlanDoor {
+  const [a0, a1] = wallSpan(rect, door.wall);
+  const width = r2(clamp(door.width, PLAN_DOOR_MIN, Math.min(PLAN_DOOR_MAX, a1 - a0)));
+  return { ...door, width, at: r2(clamp(door.at, a0 + width / 2, a1 - width / 2)) };
+}
+
+/** A rectangle kept inside the building limit, keeping its size. */
+function keepInside(rect: Rect): Rect {
+  const [x0, z0, x1, z1] = rect;
+  const dx = clamp(x0, -PLAN_EXTENT, PLAN_EXTENT - (x1 - x0)) - x0;
+  const dz = clamp(z0, -PLAN_EXTENT, PLAN_EXTENT - (z1 - z0)) - z0;
+  return [r2(x0 + dx), r2(z0 + dz), r2(x1 + dx), r2(z1 + dz)];
+}
+
+/** A door moved with its room by (dx, dz). */
+const shiftDoor = (door: PlanDoor, dx: number, dz: number): PlanDoor => ({ ...door, at: r2(door.at + (isNS(door.wall) ? dx : dz)) });
+
+/** The rectangle of a room or walkway on the plan. */
+export function rectOf(plan: VenuePlan, t: PlanTarget): Rect | null {
+  if (t.kind === "room") return plan.rooms.find((p) => p.id === t.id)?.rect ?? null;
+  return plan.corridors.find((c) => c.id === t.id)?.rect ?? null;
+}
+
+/** An area given a new rectangle. `moved` (a move, never a resize) carries the door along by the same shift. */
+function withRect(plan: VenuePlan, t: PlanTarget, next: Rect, foyerId: string | null, moved = false): VenuePlan {
+  const prev = rectOf(plan, t);
+  if (!prev) return plan;
+  if (t.kind === "corridor") return { ...plan, corridors: plan.corridors.map((c) => (c.id === t.id ? { ...c, rect: next } : c)) };
+  const dx = next[0] - prev[0];
+  const dz = next[1] - prev[1];
+  const carry = (door: PlanDoor) => fitDoor(next, moved ? shiftDoor(door, dx, dz) : door);
+  return {
+    ...plan,
+    rooms: plan.rooms.map((p) => (p.id === t.id ? { ...p, rect: next, door: carry(p.door) } : p)),
+    entrance: t.id === foyerId ? carry(plan.entrance) : plan.entrance,
+  };
+}
+
+/** Move an area so its north-west corner lands at (x0, z0), snapped; its door (and the foyer's entrance) go with it. */
+export function moveTo(plan: VenuePlan, t: PlanTarget, x0: number, z0: number, foyerId: string | null): VenuePlan {
+  const r = rectOf(plan, t);
+  if (!r) return plan;
+  const w = r[2] - r[0];
+  const d = r[3] - r[1];
+  const next = keepInside([snap(x0), snap(z0), snap(x0) + w, snap(z0) + d]);
+  return withRect(plan, t, next, foyerId, true);
+}
+
+/** Drag the chosen edges of an area to the point (x, z), snapped, never smaller than the minimum side. */
+export function resizeTo(plan: VenuePlan, t: PlanTarget, edges: Edges, x: number, z: number, foyerId: string | null): VenuePlan {
+  const r = rectOf(plan, t);
+  if (!r) return plan;
+  let [x0, z0, x1, z1] = r;
+  const sx = clamp(snap(x), -PLAN_EXTENT, PLAN_EXTENT);
+  const sz = clamp(snap(z), -PLAN_EXTENT, PLAN_EXTENT);
+  if (edges.w) x0 = Math.min(sx, x1 - PLAN_MIN_SIDE);
+  if (edges.e) x1 = Math.max(sx, x0 + PLAN_MIN_SIDE);
+  if (edges.n) z0 = Math.min(sz, z1 - PLAN_MIN_SIDE);
+  if (edges.s) z1 = Math.max(sz, z0 + PLAN_MIN_SIDE);
+  return withRect(plan, t, [r2(x0), r2(z0), r2(x1), r2(z1)], foyerId);
+}
+
+/** Set an area's size directly (the side panel): width east-west, depth north-south, from its north-west corner. */
+export function setSize(plan: VenuePlan, t: PlanTarget, width: number, depth: number, foyerId: string | null): VenuePlan {
+  const r = rectOf(plan, t);
+  if (!r) return plan;
+  const w = Math.max(PLAN_MIN_SIDE, snap(width));
+  const d = Math.max(PLAN_MIN_SIDE, snap(depth));
+  return withRect(plan, t, keepInside([r[0], r[1], r2(r[0] + w), r2(r[1] + d)]), foyerId);
+}
+
+const TURN: Record<PlanWall, PlanWall> = { n: "e", e: "s", s: "w", w: "n" };
+
+/** Towards zero, to the grid: odd, so a turn's shift and the next turn's cancel exactly. */
+const snapIn = (n: number) => r2(Math.trunc(n / PLAN_GRID) * PLAN_GRID);
+
+/**
+ * A door turned a quarter clockwise with its room, from `prev` to `next`. Kept
+ * by its distance along its wall, not by coordinates: the north wall's west
+ * end becomes the east wall's north end, and so on round, so four turns put it
+ * back exactly.
+ */
+function turnDoor(door: PlanDoor, prev: Rect, next: Rect): PlanDoor {
+  const along = isNS(door.wall) ? door.at - prev[0] : door.at - prev[1];
+  const at = door.wall === "n" || door.wall === "s" ? next[1] + along : next[2] - along;
+  return { ...door, wall: TURN[door.wall], at: r2(at) };
+}
+
+/**
+ * Turn a room or walkway a quarter clockwise about its centre (decision F1:
+ * 90 degree steps). Width and depth swap; the door turns to the next wall
+ * round; the foyer's entrance turns with it. The corners stay on the grid:
+ * when the centre would put them a quarter metre off, the room shifts that
+ * quarter towards its old corner, and the next turn shifts it back, so four
+ * turns are exactly where it started.
+ */
+export function turn(plan: VenuePlan, t: PlanTarget, foyerId: string | null): VenuePlan {
+  const r = rectOf(plan, t);
+  if (!r) return plan;
+  const w = r[2] - r[0];
+  const d = r[3] - r[1];
+  const x0 = r2(r[0] + snapIn((w - d) / 2));
+  const z0 = r2(r[1] + snapIn((d - w) / 2));
+  const next = keepInside([x0, z0, r2(x0 + d), r2(z0 + w)]);
+  if (t.kind === "corridor") return withRect(plan, t, next, foyerId);
+  const fit = (door: PlanDoor) => fitDoor(next, turnDoor(door, r, next));
+  return {
+    ...plan,
+    rooms: plan.rooms.map((p) => (p.id === t.id ? { ...p, rect: next, door: fit(p.door) } : p)),
+    entrance: t.id === foyerId ? fit(plan.entrance) : plan.entrance,
+  };
+}
+
+/** Put a room's door (or, with `entrance`, the foyer's entrance) on a wall, at a point along it. */
+export function setDoor(plan: VenuePlan, roomId: string, patch: Partial<PlanDoor>, entrance = false): VenuePlan {
+  const p = plan.rooms.find((r) => r.id === roomId);
+  if (!p) return plan;
+  const cur = entrance ? plan.entrance : p.door;
+  const wallChanged = patch.wall !== undefined && patch.wall !== cur.wall;
+  // A door moved to another wall starts at that wall's middle.
+  const [a0, a1] = wallSpan(p.rect, patch.wall ?? cur.wall);
+  const next = fitDoor(p.rect, { ...cur, ...patch, ...(wallChanged && patch.at === undefined && { at: (a0 + a1) / 2 }) });
+  if (entrance) return { ...plan, entrance: next };
+  return { ...plan, rooms: plan.rooms.map((r) => (r.id === roomId ? { ...r, door: next } : r)) };
+}
+
+/** A walkway drawn from one corner to the other, snapped and at least the minimum side; null when the drag was too small to mean one. */
+export function walkwayRect(ax: number, az: number, bx: number, bz: number): Rect | null {
+  const x0 = snap(Math.min(ax, bx));
+  const z0 = snap(Math.min(az, bz));
+  const x1 = snap(Math.max(ax, bx));
+  const z1 = snap(Math.max(az, bz));
+  if (x1 - x0 < 1 && z1 - z0 < 1) return null;
+  return keepInside([x0, z0, Math.max(x1, r2(x0 + PLAN_MIN_SIDE)), Math.max(z1, r2(z0 + PLAN_MIN_SIDE))]);
+}
+
+/** Room for one more walkway (a plan holds at most PLAN_MAX_WALKWAYS). */
+export const canAddWalkway = (plan: VenuePlan) => plan.corridors.length < PLAN_MAX_WALKWAYS;
+
+/** Add a walkway with the next free id and name ("Walkway 2"); null when the plan already holds the most it can. */
+export function addWalkway(plan: VenuePlan, rect: Rect): { plan: VenuePlan; id: string } | null {
+  if (!canAddWalkway(plan)) return null;
+  const ids = new Set([...plan.corridors.map((c) => c.id), ...plan.rooms.map((p) => p.id)]);
+  let n = plan.corridors.length + 1;
+  while (ids.has(`walkway-${n}`)) n++;
+  const id = `walkway-${n}`;
+  return { plan: { ...plan, corridors: [...plan.corridors, { id, name: `Walkway ${n}`, rect }] }, id };
+}
+
+export function removeWalkway(plan: VenuePlan, id: string): VenuePlan {
+  return { ...plan, corridors: plan.corridors.filter((c) => c.id !== id) };
+}
+
+export function renameWalkway(plan: VenuePlan, id: string, name: string): VenuePlan {
+  return { ...plan, corridors: plan.corridors.map((c) => (c.id === id ? { ...c, name } : c)) };
+}
+
+const touches = (a: Rect, b: Rect) => a[0] <= b[2] + 0.01 && b[0] <= a[2] + 0.01 && a[1] <= b[3] + 0.01 && b[1] <= a[3] + 0.01;
+
+/**
+ * A free spot w x d beside the building, to its east: below anything already
+ * waiting there, so two things put beside the plan never land on each other.
+ * "Waiting" is an area touching nothing else (put there by this and not yet
+ * dragged into the building); the building's edge is measured without them.
+ */
+export function spotBeside(plan: VenuePlan, w: number, d: number): Rect {
+  const all = [...plan.rooms.map((p) => p.rect), ...plan.corridors.map((c) => c.rect)];
+  const alone = (r: Rect) => !all.some((o) => o !== r && touches(r, o));
+  const building = all.filter((r) => !alone(r));
+  const base = building.length ? building : all;
+  const east = base.length ? Math.max(...base.map((r) => r[2])) : 0;
+  const north = base.length ? Math.min(...base.map((r) => r[1])) : 0;
+  const waiting = all.filter((r) => alone(r) && r[0] >= east - 0.01);
+  const z0 = snap(waiting.length ? Math.max(...waiting.map((r) => r[3])) + 2 : north);
+  const x0 = snap(east + 6);
+  return keepInside([x0, z0, r2(x0 + snap(w)), r2(z0 + snap(d))]);
+}
+
+/**
+ * Put a room that is on the list but not yet on the plan beside the building,
+ * at the size the automatic layout gives it, door on its west wall. The
+ * organiser then drags it where it belongs (section 3.4).
+ */
+export function placeRoom(plan: VenuePlan, rooms: VenueRoom[], id: string): VenuePlan {
+  if (plan.rooms.some((p) => p.id === id) || !rooms.some((r) => r.id === id)) return plan;
+  const auto = generateLayout(rooms, { eventName: "" }).zones.find((z) => z.id === id);
+  const rect = spotBeside(plan, auto ? auto.rect[2] - auto.rect[0] : 12, auto ? auto.rect[3] - auto.rect[1] : 12);
+  const door = fitDoor(rect, { wall: "w", at: (rect[1] + rect[3]) / 2, width: 2.6 });
+  const placed: PlacedRoom = { id, rect, door };
+  return { ...plan, rooms: [...plan.rooms, placed] };
+}
+
+/** Rooms on the list that the plan does not place yet. */
+export const unplacedRooms = (plan: VenuePlan, rooms: VenueRoom[]) => rooms.filter((r) => !plan.rooms.some((p) => p.id === r.id));
+
+/** A plan with only the rooms still on the list (a room removed from the list since drops out). */
+export const keepListedRooms = (plan: VenuePlan, rooms: VenueRoom[]): VenuePlan => ({ ...plan, rooms: plan.rooms.filter((p) => rooms.some((r) => r.id === p.id)) });
+
+/**
+ * Rooms drawn too small for the people they hold (decision F2: a warning, not
+ * a refusal). Measured the way the furnishers lay a room out: across from its
+ * door, and from the door to the far wall.
+ */
+export function tooSmall(plan: VenuePlan, rooms: VenueRoom[]): string[] {
+  const out: string[] = [];
+  for (const p of plan.rooms) {
+    const room = rooms.find((r) => r.id === p.id);
+    if (!room) continue;
+    const across = isNS(p.door.wall) ? p.rect[2] - p.rect[0] : p.rect[3] - p.rect[1];
+    const deep = isNS(p.door.wall) ? p.rect[3] - p.rect[1] : p.rect[2] - p.rect[0];
+    if (!fits(room, across, deep)) out.push(`${room.name} is drawn too small for ${room.capacity.toLocaleString("en-GB")} people; the venue will show fewer seats or stands`);
+  }
+  return out;
+}
+
+/** Areas that overlap another, by id, to tint on the canvas. */
+export function overlapping(plan: VenuePlan): Set<string> {
+  const areas = [...plan.rooms.map((p) => ({ id: p.id, r: p.rect })), ...plan.corridors.map((c) => ({ id: c.id, r: c.rect }))];
+  const hit = new Set<string>();
+  for (let i = 0; i < areas.length; i++) {
+    for (let j = i + 1; j < areas.length; j++) {
+      const a = areas[i].r;
+      const b = areas[j].r;
+      const ox = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+      const oz = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+      if (ox > 0.01 && oz > 0.01) hit.add(areas[i].id).add(areas[j].id);
+    }
+  }
+  return hit;
+}

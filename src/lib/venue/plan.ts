@@ -65,12 +65,20 @@ const coord = z.number().finite().min(-PLAN_EXTENT).max(PLAN_EXTENT);
 const rectSchema = z
   .tuple([coord, coord, coord, coord])
   .refine(([x0, z0, x1, z1]) => x1 - x0 >= PLAN_MIN_SIDE && z1 - z0 >= PLAN_MIN_SIDE, `Every room and walkway is at least ${PLAN_MIN_SIDE} m each way`);
-const doorSchema = z.object({ wall: z.enum(PLAN_WALLS), at: coord, width: z.number().finite().min(PLAN_DOOR_MIN).max(PLAN_DOOR_MAX) });
+const doorSchema = z.object({
+  wall: z.enum(PLAN_WALLS),
+  at: coord,
+  width: z.number().finite().min(PLAN_DOOR_MIN, `A door is at least ${PLAN_DOOR_MIN} m wide`).max(PLAN_DOOR_MAX, `A door is at most ${PLAN_DOOR_MAX} m wide`),
+});
+/** The most walkways a plan holds. */
+export const PLAN_MAX_WALKWAYS = 12;
 
 export const planSchema = z.object({
   v: z.literal(1),
   rooms: z.array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), rect: rectSchema, door: doorSchema })).min(1).max(20),
-  corridors: z.array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), name: z.string().trim().min(1).max(60), rect: rectSchema })).max(12),
+  corridors: z
+    .array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), name: z.string().trim().min(1, "Every walkway needs a name").max(60), rect: rectSchema }))
+    .max(PLAN_MAX_WALKWAYS, `A plan has at most ${PLAN_MAX_WALKWAYS} walkways`),
   entrance: doorSchema,
 });
 

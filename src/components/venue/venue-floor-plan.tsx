@@ -1,16 +1,16 @@
 "use client";
 
 /**
- * The generated venue, drawn from above (docs/EVENT_BLUEPRINT_PLAN.md, D10):
- * the same layout the walkable venue is built from, generated in the browser
- * from the room list as it is edited, with the walkability check's verdict.
- * North is up; the entrance is at the bottom.
+ * The venue drawn from above: the same layout the walkable venue is built
+ * from (the drawn plan when there is one that fits, else the automatic one,
+ * docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md), built in the browser from the room
+ * list as it is edited, with the walkability check's verdict. North is up.
  */
 import { useMemo, type ReactNode } from "react";
 import { CheckCircle2, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionHeading } from "@/components/ui/typography";
-import type { LayoutItem, ZoneKind } from "@/lib/venue/layout";
+import type { LayoutItem, LayoutWall, VenueLayout, ZoneKind } from "@/lib/venue/layout";
 import { buildVenueLayout } from "@/lib/venue/plan-layout";
 import type { VenuePlan } from "@/lib/venue/plan";
 import { checkLayout } from "@/lib/venue/layout-check";
@@ -55,11 +55,72 @@ function Item({ it }: { it: LayoutItem }) {
   return <rect x={f.x0} y={f.z0} width={f.x1 - f.x0} height={f.z1 - f.z0} className={tone} rx={it.t === "sofa" ? 0.4 : 0} />;
 }
 
+/** A line along a wall, from a to b on its own axis. */
+function WallLine({ w, a, b, className, dash }: { w: LayoutWall; a: number; b: number; className: string; dash?: string }) {
+  if (w.axis === "x") return <line x1={a} y1={w.k} x2={b} y2={w.k} className={className} strokeWidth={0.35} strokeDasharray={dash} />;
+  return <line x1={w.k} y1={a} x2={w.k} y2={b} className={className} strokeWidth={0.35} strokeDasharray={dash} />;
+}
+
+/** A wall's solid pieces: everything but its openings. */
+function solidPieces(w: LayoutWall): [number, number][] {
+  const segs: [number, number][] = [];
+  let cur = w.a0;
+  for (const o of [...w.opens].sort((p, q) => p.a - q.a)) {
+    if (o.glass) continue;
+    if (o.a > cur) segs.push([cur, o.a]);
+    cur = o.b;
+  }
+  if (cur < w.a1) segs.push([cur, w.a1]);
+  return segs;
+}
+
+/** The building drawn from above: floors, furniture, walls with their openings, the glass entrance and room names. Shared by the plan view and the editor. */
+export function LayoutDrawing({ layout }: { layout: VenueLayout }) {
+  return (
+    <g>
+      {layout.zones.map((z) => (
+        <rect key={z.id} x={z.rect[0]} y={z.rect[1]} width={z.rect[2] - z.rect[0]} height={z.rect[3] - z.rect[1]} className={ZONE_FILL[z.kind]} />
+      ))}
+      {layout.items.map((it, i) => (
+        <Item key={i} it={it} />
+      ))}
+      {layout.walls.map((w, i) =>
+        solidPieces(w).map(([a, b], j) => <WallLine key={`${i}-${j}`} w={w} a={a} b={b} className="stroke-stone-700 dark:stroke-stone-300" />),
+      )}
+      {layout.walls.map((w, i) =>
+        w.opens.filter((o) => o.glass).map((o, j) => <WallLine key={`g${i}-${j}`} w={w} a={o.a} b={o.b} className="stroke-sky-400" dash="0.8 0.5" />),
+      )}
+      {layout.zones
+        .filter((z) => z.kind !== "corridor")
+        .map((z) => {
+          const w = z.rect[2] - z.rect[0];
+          const size = Math.max(1.1, Math.min(2.2, w / 9));
+          return (
+            <text
+              key={`t${z.id}`}
+              x={(z.rect[0] + z.rect[2]) / 2}
+              y={(z.rect[1] + z.rect[3]) / 2}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize={size}
+              className="pointer-events-none fill-foreground font-medium"
+              paintOrder="stroke"
+              stroke="var(--background)"
+              strokeWidth={size * 0.35}
+            >
+              {z.name}
+            </text>
+          );
+        })}
+    </g>
+  );
+}
+
 export function VenueFloorPlan({ rooms, eventName, actions, plan = null }: { rooms: VenueRoom[]; eventName: string; actions?: ReactNode; plan?: VenuePlan | null }) {
   // The saved drawn plan when it still fits these rooms, else the automatic one: what the venue and the PDF use.
-  const { layout, check } = useMemo(() => {
-    const l = buildVenueLayout(rooms, plan, { eventName }).layout;
-    return { layout: l, check: checkLayout(l) };
+  const { layout, check, mode, notUsed } = useMemo(() => {
+    const built = buildVenueLayout(rooms, plan, { eventName });
+    return { layout: built.layout, check: checkLayout(built.layout), mode: built.mode, notUsed: built.planIssues };
   }, [rooms, eventName, plan]);
   const [x0, z0, x1, z1] = layout.bounds;
   const pad = 3;
@@ -70,72 +131,31 @@ export function VenueFloorPlan({ rooms, eventName, actions, plan = null }: { roo
     <section className="space-y-3">
       <SectionHeading
         title="Floor plan"
-        description={`The building made from these rooms: ${Math.round(width)} m across and ${Math.round(depth)} m deep. North is up; the entrance is at the bottom.`}
+        description={`${mode === "drawn" ? "The plan drawn for this event" : "The building made from these rooms"}: ${Math.round(width)} m across and ${Math.round(depth)} m deep. North is up; the blue dashed line is the entrance.`}
         actions={actions}
       />
       <Card>
         <CardContent className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_16rem]">
           <svg
-            viewBox={`${x0 - pad} ${z0 - pad} ${width + pad * 2} ${depth + pad * 2 + 4}`}
+            viewBox={`${x0 - pad} ${z0 - pad} ${width + pad * 2} ${depth + pad * 2}`}
             className="max-h-[42rem] w-full"
             role="img"
             aria-label={`Floor plan with ${layout.zones.length} areas`}
           >
-            {layout.zones.map((z) => (
-              <rect key={z.id} x={z.rect[0]} y={z.rect[1]} width={z.rect[2] - z.rect[0]} height={z.rect[3] - z.rect[1]} className={ZONE_FILL[z.kind]} />
-            ))}
-            {layout.items.map((it, i) => (
-              <Item key={i} it={it} />
-            ))}
-            {layout.walls.map((w, i) => {
-              const segs: [number, number][] = [];
-              let cur = w.a0;
-              for (const o of [...w.opens].sort((p, q) => p.a - q.a)) {
-                if (o.glass) continue;
-                if (o.a > cur) segs.push([cur, o.a]);
-                cur = o.b;
-              }
-              if (cur < w.a1) segs.push([cur, w.a1]);
-              return segs.map(([a, b], j) =>
-                w.axis === "x" ? (
-                  <line key={`${i}-${j}`} x1={a} y1={w.k} x2={b} y2={w.k} className="stroke-stone-700 dark:stroke-stone-300" strokeWidth={0.35} />
-                ) : (
-                  <line key={`${i}-${j}`} x1={w.k} y1={a} x2={w.k} y2={b} className="stroke-stone-700 dark:stroke-stone-300" strokeWidth={0.35} />
-                ),
-              );
-            })}
-            {layout.walls
-              .flatMap((w) => w.opens.filter((o) => o.glass).map((o) => ({ w, o })))
-              .map(({ w, o }, i) => (
-                <line key={`g${i}`} x1={o.a} y1={w.k} x2={o.b} y2={w.k} className="stroke-sky-400" strokeWidth={0.35} strokeDasharray="0.8 0.5" />
-              ))}
-            {layout.zones
-              .filter((z) => z.kind !== "corridor")
-              .map((z) => {
-                const w = z.rect[2] - z.rect[0];
-                const size = Math.max(1.1, Math.min(2.2, w / 9));
-                return (
-                  <text
-                    key={`t${z.id}`}
-                    x={(z.rect[0] + z.rect[2]) / 2}
-                    y={(z.rect[1] + z.rect[3]) / 2}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fontSize={size}
-                    className="fill-foreground font-medium"
-                    paintOrder="stroke"
-                    stroke="var(--background)"
-                    strokeWidth={size * 0.35}
-                  >
-                    {z.name}
-                  </text>
-                );
-              })}
-            <text x={(x0 + x1) / 2} y={z1 + 3.2} textAnchor="middle" fontSize={1.6} className="fill-muted-foreground">
-              ↑ Entrance
-            </text>
+            <LayoutDrawing layout={layout} />
           </svg>
           <div className="space-y-4 text-sm">
+            {notUsed.length > 0 && (
+              <div role="status" className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                <p className="font-medium">The drawn plan is not used, so this is the automatic one.</p>
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {notUsed.map((m) => (
+                    <li key={m}>{m}</li>
+                  ))}
+                </ul>
+                <p>Edit the floor plan to fix it.</p>
+              </div>
+            )}
             <div className={cn("flex gap-2", check.ok ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400")}>
               {check.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />}
               <p>{check.ok ? "Walkable: every room, doorway, stand and desk can be reached from the entrance." : "Not walkable yet:"}</p>

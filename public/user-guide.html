@@ -3645,13 +3645,39 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       <p>At most 14 rooms in all. The page tells you, before you save, anything that breaks these rules.</p>
 
       <h3>The floor plan</h3>
-      <p>Below the rooms, the page draws the building those rooms make, and redraws it as you edit. Every
-      venue follows the same plan: the foyer at the entrance, a main corridor, the plenary at the far end,
-      halls, workshops and posters along one side, the exhibition and lounge along the other. Each room is
-      sized to hold its people. The plan is checked so that <b>every room, doorway, stand and desk can be
-      reached from the entrance</b>; a list that would make a building someone could get stuck in cannot be
-      saved. You cannot drag rooms around yet: the layout is automatic for now, and an editor for moving and
-      resizing rooms is planned.</p>
+      <p>Below the rooms, the page draws the building those rooms make, and redraws it as you edit. Until you
+      draw your own, every venue follows the same plan: the foyer at the entrance, a main corridor, the plenary
+      at the far end, halls, workshops and posters along one side, the exhibition and lounge along the other.
+      Each room is sized to hold its people. The plan is checked so that <b>every room, doorway, stand and desk
+      can be reached from the entrance</b>; a list that would make a building someone could get stuck in cannot
+      be saved.</p>
+
+      <h3>Edit the floor plan</h3>
+      <p>To lay the venue out your own way, save the rooms, then click <b>Edit the floor plan</b> above the plan
+      (on a computer: on a phone the plan can be viewed but not edited). The editor starts from the plan you
+      already see.</p>
+      <ul>
+        <li><b>Move</b> a room or walkway by dragging it. <b>Resize</b> it by dragging the small squares on its
+        edges and corners. Everything snaps to half a metre; the grid squares are 5&nbsp;m.</li>
+        <li>Click a room to open its details on the right: type an exact <b>width</b>, <b>depth</b> or position,
+        <b>Turn a quarter</b> (rooms turn in 90&deg; steps), and choose the <b>wall its door is in</b>, where along
+        the wall and how wide. The door is the amber dot. A door must open onto a walkway, the foyer or another
+        room, never onto the outside.</li>
+        <li>The foyer has two openings: its <b>way on into the building</b> and the <b>entrance</b> (the blue dot,
+        glass doors from outside), which must be on an outside wall.</li>
+        <li><b>Draw a walkway</b>, then drag across empty floor to add one. Select a walkway to rename or remove
+        it. Walkways that touch join into one open space.</li>
+        <li><b>Undo</b> and <b>Redo</b> (Ctrl or Cmd&nbsp;+&nbsp;Z) step back through your changes.</li>
+      </ul>
+      <p>Below the plan, the editor says at once whether the plan works. Rooms that overlap turn red, and every
+      problem is listed in words (&ldquo;Networking Lounge and Poster Gallery overlap&rdquo;, &ldquo;Lounge: its door
+      opens onto the outside&rdquo;, &ldquo;Walkway 2 cannot be reached from the entrance&rdquo;). <b>Save plan</b>
+      stays off until there are none. A room drawn too small for the people it holds is only a warning: you can
+      save, and the venue shows fewer seats or stands.</p>
+      <p>Once saved, the plan on the Venue tab, the PDF and the walkable venue all follow it, at once. If you
+      later add a room to the list, the venue goes back to the automatic plan until you open the editor and
+      click <b>Put &hellip; on the plan</b> for the new room; the Venue tab says so. A removed room simply
+      drops off the plan. <b>Reset to automatic</b> in the editor deletes the drawn plan.</p>
       <p><b>Download the plan as a PDF.</b> Once the rooms are saved, <b>Download PDF</b> above the plan gives a
       printable floor plan in <b>A3</b> (best for printing) or <b>A4</b>. It shows the event&rsquo;s name, dates
       and place, every room with how many people it holds, the walls, doors, corridor and entrance, and the

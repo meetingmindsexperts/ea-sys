@@ -3293,6 +3293,21 @@ export function useSaveVenueRooms(eventId: string) {
   });
 }
 
+/** Save the drawn floor plan, or with `plan: null` go back to the automatic one. A refusal is an ApiError whose `data.issues` lists every reason. */
+export function useSaveVenuePlan(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { plan: VenuePlan | null; planVersion: number }) =>
+      fetchApi<{ plan: VenuePlan | null; planVersion: number }>(`/api/events/${eventId}/venue`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+      }),
+    // The GET says which plan the venue now uses (and why not), so it is read again.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.venueRooms(eventId) }),
+  });
+}
+
 export function useSetVenueOpen(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({

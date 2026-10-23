@@ -3,13 +3,14 @@
 /**
  * The Venue tab (docs/EVENT_BLUEPRINT_PLAN.md, D9 and D10): organisers pick a
  * template, then name the rooms, choose what each is for and how many people
- * it holds. The floor plan's shape is fixed (D10), so there is nothing to
- * place. The same rules the server applies (lib/venue/rooms.ts) run here as
- * the list is edited, so a list that cannot be saved says why before Save.
+ * it holds. The plan is automatic until someone draws one with the floor plan
+ * editor (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md). The same rules the server
+ * applies (lib/venue/rooms.ts) run here as the list is edited, so a list that
+ * cannot be saved says why before Save.
  */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AlertCircle, Building2, ExternalLink, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Building2, ExternalLink, Loader2, PencilRuler, Plus, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,6 +23,7 @@ import { useSaveVenueRooms, useSetVenueOpen, useVenueRooms } from "@/hooks/use-a
 import { ApiError } from "@/lib/api-fetch";
 import { VenueFloorPlan } from "@/components/venue/venue-floor-plan";
 import { VenuePlanPdfButton } from "@/components/venue/venue-plan-pdf-button";
+import { VenuePlanEditor } from "@/components/venue/venue-plan-editor";
 import { VenueProgrammeCard } from "@/components/venue/venue-programme-card";
 import { BlueprintNotes, BlueprintReplaceRow, BlueprintStartCard } from "@/components/venue/venue-blueprint-start";
 import { ROOM_KINDS, ROOM_KIND_INFO, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type VenueRoom } from "@/lib/venue/rooms";
@@ -35,6 +37,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
   const [draft, setDraft] = useState<VenueRoom[] | null>(null);
   // The draft came from the Blueprint (step 5): its fit notes show until it is saved or discarded.
   const [fromBlueprint, setFromBlueprint] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(false);
   const blueprint = data?.blueprint ?? null;
   const applyBlueprint = () => {
     if (!blueprint) return;
@@ -107,6 +110,14 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
       </div>
     );
   }
+  if (editingPlan && data?.rooms) {
+    return (
+      <div className="space-y-6">
+        <PageHeader icon={Building2} title="Online venue" description="Draw where each room goes. The 2D plan, the PDF and the walkable venue are all built from this plan." />
+        <VenuePlanEditor eventId={eventId} rooms={data.rooms} stored={data.plan ?? null} onClose={() => setEditingPlan(false)} />
+      </div>
+    );
+  }
   if (error) {
     return (
       <div className="space-y-6">
@@ -144,7 +155,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           {!dirty && saved && data?.slug && <OpenCard eventId={eventId} slug={data.slug} open={!!data.open} canEdit={canEdit} />}
           {issues.length === 0 && <VenueProgrammeCard rooms={rooms} programme={data?.programme} plan={data?.plan?.plan ?? null} />}
           {issues.length === 0 && (
-            <VenueFloorPlan rooms={rooms} eventName="" plan={data?.plan?.plan ?? null} actions={<PlanPdfAction eventId={eventId} saved={!!saved && !dirty} />} />
+            <VenueFloorPlan rooms={rooms} eventName="" plan={data?.plan?.plan ?? null} actions={<PlanActions eventId={eventId} saved={!!saved && !dirty} canEdit={canEdit} onEdit={() => setEditingPlan(true)} />} />
           )}
         </>
       )}
@@ -152,9 +163,9 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
         <CardContent className="space-y-1 p-5 text-sm">
           <p className="font-medium">How the venue is laid out</p>
           <p className="text-muted-foreground">
-            Every venue follows the same plan: the foyer at the entrance, a main corridor, the plenary hall at the end, session rooms, workshops and
-            posters along one side, the exhibition and lounge along the other. Each room is sized from the people it holds, and the plan above is redrawn
-            as you edit. The walkable venue is built from the saved rooms each time someone opens it.
+            Until you draw a plan, every venue follows the same one: the foyer at the entrance, a main corridor, the plenary hall at the end, session
+            rooms, workshops and posters along one side, the exhibition and lounge along the other, each room sized from the people it holds. Use Edit
+            the floor plan to move, resize and turn rooms, choose their doors and draw walkways; the walkable venue and the PDF then follow your plan.
           </p>
         </CardContent>
       </Card>
@@ -360,8 +371,25 @@ function Summary({ rooms }: { rooms: VenueRoom[] }) {
   );
 }
 
-/** The PDF is drawn from the SAVED rooms, so it is offered only when what is on screen is saved. */
-function PlanPdfAction({ eventId, saved }: { eventId: string; saved: boolean }) {
-  if (saved) return <VenuePlanPdfButton eventId={eventId} />;
-  return <p className="text-xs text-muted-foreground">Save the rooms to download the plan as a PDF.</p>;
+/**
+ * The PDF and the plan editor both work from the SAVED rooms, so they are
+ * offered only when what is on screen is saved. Editing is for a computer
+ * (decision F5): on a phone the plan stays viewable.
+ */
+function PlanActions({ eventId, saved, canEdit, onEdit }: { eventId: string; saved: boolean; canEdit: boolean; onEdit: () => void }) {
+  if (!saved) return <p className="text-xs text-muted-foreground">Save the rooms to edit the plan or download it as a PDF.</p>;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {canEdit && (
+        <>
+          <Button variant="outline" className="hidden lg:inline-flex" onClick={onEdit}>
+            <PencilRuler className="h-4 w-4" aria-hidden />
+            Edit the floor plan
+          </Button>
+          <p className="text-xs text-muted-foreground lg:hidden">Open this page on a computer to edit the plan.</p>
+        </>
+      )}
+      <VenuePlanPdfButton eventId={eventId} />
+    </div>
+  );
 }
