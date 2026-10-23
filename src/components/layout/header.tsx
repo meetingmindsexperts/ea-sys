@@ -23,6 +23,7 @@ import {
   Video,
   Handshake,
   CalendarClock,
+  KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -181,6 +182,18 @@ const ROLE_META: Record<string, RoleMeta> = {
       { label: "Manage events",         allowed: false },
       { label: "See event finances",    allowed: false },
     ],
+  },
+
+  // No default permissions: what the person can do is whatever their custom
+  // roles add (docs/BASE_ROLE_PLAN.md), so the list says only that.
+  BASE: {
+    label: "Base role",
+    description: "Access from custom roles",
+    color: "bg-slate-100 text-slate-700",
+    icon: KeyRound,
+    // One row: a custom role may grant anything outside Budgets, CRM and HR,
+    // so a fixed "no" here could be wrong (review, Oct 23, 2026).
+    permissions: [{ label: "What your custom roles add", allowed: true }],
   },
 };
 

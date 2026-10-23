@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { isBaseRole } from "@/lib/team-roles";
 import { useRuntimeFlags } from "@/components/runtime-flags";
 import { ProcurementGrantsDialog, hasProcurementAccess } from "@/components/settings/procurement-grants-dialog";
 import { UserRolesDialog } from "@/components/settings/user-roles-dialog";
@@ -23,6 +24,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -184,6 +186,11 @@ const dateFormats = [
 function userSubmitLabel(editing: boolean, deliveryMode: string): string {
   if (editing) return "Save Changes";
   return deliveryMode === "password" ? "Create Account" : "Send Invitation";
+}
+
+/** The role as the Users list shows it: the enum, except where a name reads better. */
+function roleBadgeLabel(role: string): string {
+  return isBaseRole(role) ? "Base role" : role;
 }
 
 export default function SettingsPage() {
@@ -584,6 +591,7 @@ export default function SettingsPage() {
     WEBINARS: "bg-violet-100 text-violet-800",
     CRM_USER: "bg-green-100 text-green-800",
     HR_USER: "bg-rose-100 text-rose-800",
+    BASE: "bg-slate-100 text-slate-800",
   };
 
   if (loading) {
@@ -1024,6 +1032,9 @@ export default function SettingsPage() {
                         <DialogTitle>
                           {editingUser ? "Edit User" : "Add New User"}
                         </DialogTitle>
+                        <DialogDescription>
+                          {editingUser ? "Change this person's name or role." : "Add a team member and choose their role."}
+                        </DialogDescription>
                       </DialogHeader>
                       <form onSubmit={handleUserSubmit} className="space-y-4">
                         {!editingUser && (
@@ -1097,8 +1108,19 @@ export default function SettingsPage() {
                               {hrEnabled && (
                                 <SelectItem value="HR_USER">HR User</SelectItem>
                               )}
+                              {/* No permissions of its own, so only where custom
+                                  roles exist to attach (the routes refuse it too). */}
+                              {customRolesEnabled && (
+                                <SelectItem value="BASE">Base role</SelectItem>
+                              )}
                             </SelectContent>
                           </Select>
+                          {isBaseRole(userFormData.role) && (
+                            <p className="text-xs text-muted-foreground">
+                              No default permissions: attach a custom role after saving (the shield
+                              icon on the user&apos;s row). Until then they can sign in but reach nothing.
+                            </p>
+                          )}
                         </div>
                         {!editingUser && (
                           <div className="space-y-3">
@@ -1220,7 +1242,7 @@ export default function SettingsPage() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Badge className={roleColors[user.role]} variant="outline">
-                            {user.role}
+                            {roleBadgeLabel(user.role)}
                           </Badge>
                           {/* Role is kept while deactivated, so both are shown:
                               the badge says what they WOULD be if reactivated. */}
@@ -1273,7 +1295,8 @@ export default function SettingsPage() {
                                 ADMIN, so an admin who can grant it could simply
                                 re-admit themselves. Hidden for SUPER_ADMIN
                                 targets, whose access comes from the role. */}
-                            {isSuperAdmin && hrEnabled && user.role !== "SUPER_ADMIN" && (
+                            {/* Not for the Base role: no module ticks (owner D3; the route refuses too). */}
+                            {isSuperAdmin && hrEnabled && user.role !== "SUPER_ADMIN" && !isBaseRole(user.role) && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1292,7 +1315,7 @@ export default function SettingsPage() {
                             {/* Procurement grants sit beside the HR grant for
                                 the same reason: a super admin decides who may
                                 approve money, per person, never by title. */}
-                            {isSuperAdmin && procurementEnabled && user.role !== "SUPER_ADMIN" && (
+                            {isSuperAdmin && procurementEnabled && user.role !== "SUPER_ADMIN" && !isBaseRole(user.role) && (
                               <Button
                                 variant="ghost"
                                 size="sm"

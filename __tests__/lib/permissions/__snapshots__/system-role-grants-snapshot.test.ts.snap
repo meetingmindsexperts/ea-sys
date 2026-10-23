@@ -46,6 +46,7 @@ exports[`built-in role grants > ADMIN 1`] = `
     "communications.send@ALL",
     "contacts.delete",
     "contacts.export",
+    "contacts.export.sensitive",
     "contacts.import",
     "contacts.read",
     "contacts.write",
@@ -193,6 +194,7 @@ exports[`built-in role grants > API_KEY 1`] = `
     "communications.send@ALL",
     "contacts.delete",
     "contacts.export",
+    "contacts.export.sensitive",
     "contacts.import",
     "contacts.read",
     "contacts.write",
@@ -242,6 +244,20 @@ exports[`built-in role grants > API_KEY 1`] = `
     "zoom.meetings.manage@ALL",
     "zoomHost.view",
   ],
+  "impliedPersonGrants": [],
+}
+`;
+
+exports[`built-in role grants > BASE 1`] = `
+{
+  "areas": [],
+  "baseRole": "BASE",
+  "extendableAreas": [
+    "desk@ALL",
+    "events@ALL",
+    "org",
+  ],
+  "grants": [],
   "impliedPersonGrants": [],
 }
 `;
@@ -309,6 +325,7 @@ exports[`built-in role grants > MEMBER 1`] = `
     "billingAccounts.read",
     "blueprints.view",
     "contacts.export",
+    "contacts.export.sensitive",
     "contacts.read",
     "events.read@ALL",
     "finance.view",
@@ -351,6 +368,7 @@ exports[`built-in role grants > ONSITE 1`] = `
     "analytics.read@ASSIGNED",
     "barcode.view",
     "billingAccounts.read",
+    "contacts.export.sensitive",
     "dtcm.assign@ASSIGNED",
     "events.read@ASSIGNED",
     "finance.view",
@@ -419,6 +437,7 @@ exports[`built-in role grants > ORGANIZER 1`] = `
     "communications.send@ALL",
     "contacts.delete",
     "contacts.export",
+    "contacts.export.sensitive",
     "contacts.import",
     "contacts.read",
     "contacts.write",
@@ -566,6 +585,7 @@ exports[`built-in role grants > SUPER_ADMIN 1`] = `
     "communications.send@ALL",
     "contacts.delete",
     "contacts.export",
+    "contacts.export.sensitive",
     "contacts.import",
     "contacts.read",
     "contacts.write",
@@ -714,6 +734,7 @@ exports[`built-in role grants > WEBINARS 1`] = `
     "billingAccounts.read",
     "communications.schedule@WEBINAR",
     "communications.send@WEBINAR",
+    "contacts.export.sensitive",
     "dtcm.assign@ALL",
     "emailLogs.read@ALL",
     "events.create@WEBINAR",
@@ -775,6 +796,7 @@ exports[`visibility boundaries by role > answers each boundary per built-in role
   "ADMIN": "finance.view barcode.view contacts.read contacts.export registrations.export activity.org.read supportingDocs.view zoomHost.view honorarium.view agent.use crm.read crm.write crm.dealValues.view crm.inbox.read crm.delete crm.export users.manage org.settings",
   "ADMIN+hrAccess": "finance.view barcode.view contacts.read contacts.export registrations.export activity.org.read supportingDocs.view zoomHost.view honorarium.view agent.use hr.read hr.write crm.read crm.write crm.dealValues.view crm.inbox.read crm.delete crm.export users.manage org.settings",
   "API_KEY": "finance.view barcode.view contacts.read contacts.export registrations.export zoomHost.view crm.read crm.write crm.dealValues.view crm.inbox.read crm.delete crm.export",
+  "BASE": "",
   "CRM_USER": "contacts.read crm.read crm.write crm.dealValues.view crm.inbox.read crm.delete",
   "HR_USER": "hr.read hr.write",
   "MEMBER": "finance.view contacts.read contacts.export agent.use",

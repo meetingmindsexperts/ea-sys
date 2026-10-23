@@ -87,6 +87,12 @@ const STARTERS_BY_ROLE: Record<string, string[]> = {
     "How do I record a payment at the registration desk?",
     "What does my role allow me to do?",
   ],
+  // No default permissions; the common custom role is exporting (Oct 23, 2026).
+  BASE: [
+    "How do I export an event's registrations?",
+    "How do I export contacts?",
+    "What does my access allow me to do?",
+  ],
   REVIEWER: [
     "Where do I review abstracts?",
     "How is the abstract score calculated?",

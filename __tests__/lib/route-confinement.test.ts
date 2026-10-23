@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { confinementRedirect } from "@/lib/route-confinement";
 
-const ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "REVIEWER", "SUBMITTER", "REGISTRANT", "CUSTOM", "UNKNOWN", ""];
+const ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "BASE", "REVIEWER", "SUBMITTER", "REGISTRANT", "CUSTOM", "UNKNOWN", ""];
 
 // Every path the middleware matcher covers, by kind.
 const PATHS = [

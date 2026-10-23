@@ -13,6 +13,8 @@ GET organization
   WEBINARS    404
   CRM_USER    404
   HR_USER     404
+  BASE        404
+  BASE_MKT    404
   REVIEWER    404
   SUBMITTER   404
   REGISTRANT  404
@@ -30,6 +32,8 @@ PUT organization
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -47,6 +51,8 @@ GET organization/branding
   WEBINARS    200
   CRM_USER    200
   HR_USER     200
+  BASE        200
+  BASE_MKT    200
   REVIEWER    200
   SUBMITTER   200
   REGISTRANT  200
@@ -64,6 +70,8 @@ GET organization/active-users
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -81,6 +89,8 @@ GET organization/login-activity
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -98,6 +108,8 @@ GET organization/ai/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -115,6 +127,8 @@ PUT organization/ai/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -132,6 +146,8 @@ DELETE organization/ai/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -149,6 +165,8 @@ POST organization/ai/test-connection
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -166,6 +184,8 @@ GET organization/stripe/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -183,6 +203,8 @@ PUT organization/stripe/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -200,6 +222,8 @@ DELETE organization/stripe/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -217,6 +241,8 @@ POST organization/stripe/test-connection
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -234,6 +260,8 @@ GET organization/zoom/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -251,6 +279,8 @@ PUT organization/zoom/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -268,6 +298,8 @@ DELETE organization/zoom/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -285,6 +317,8 @@ POST organization/zoom/test-connection
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -302,6 +336,8 @@ GET organization/eventsair/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -319,6 +355,8 @@ PUT organization/eventsair/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -336,6 +374,8 @@ GET organization/eventsair/events
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -353,6 +393,8 @@ POST organization/eventsair/test-connection
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -370,6 +412,8 @@ GET organization/api-keys
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -387,6 +431,8 @@ POST organization/api-keys
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -404,6 +450,8 @@ POST organization/api-keys (INTERNAL tier)
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -421,6 +469,8 @@ DELETE organization/api-keys/[keyId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -438,6 +488,8 @@ GET organization/oauth-clients
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -455,6 +507,8 @@ PATCH organization/oauth-clients/[clientId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -472,6 +526,8 @@ GET organization/permission-sets
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -489,6 +545,8 @@ POST organization/permission-sets
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -506,6 +564,8 @@ PATCH organization/permission-sets/[permissionSetId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -523,6 +583,8 @@ GET organization/permission-sets/holders
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -540,6 +602,8 @@ GET organization/users/[userId]/permission-sets
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -557,6 +621,8 @@ PUT organization/users/[userId]/permission-sets
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -574,6 +640,8 @@ POST organization/users/[userId]/revoke-sessions
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -591,6 +659,8 @@ GET organization/onsite-staff
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -608,6 +678,8 @@ GET activity (organisation)
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403

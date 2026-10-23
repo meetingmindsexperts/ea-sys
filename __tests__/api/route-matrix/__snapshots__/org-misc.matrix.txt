@@ -13,6 +13,8 @@ GET email-logs (REGISTRATION)
   WEBINARS    404 e
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -30,6 +32,8 @@ GET email-logs (SPEAKER)
   WEBINARS    404 e
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -47,6 +51,8 @@ GET email-logs (CONTACT)
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -64,6 +70,8 @@ GET email-logs (USER)
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -81,6 +89,8 @@ GET email-logs (OTHER)
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -98,6 +108,8 @@ GET email-logs/[emailLogId]/body
   WEBINARS    404 e
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -115,6 +127,8 @@ GET media
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -132,6 +146,8 @@ POST media (png file)
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -149,6 +165,8 @@ DELETE media/[mediaId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -166,6 +184,8 @@ POST upload/pdf (png file)
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -183,6 +203,8 @@ POST upload/photo (png file)
   WEBINARS    400
   CRM_USER    400
   HR_USER     400
+  BASE        400
+  BASE_MKT    400
   REVIEWER    400
   SUBMITTER   400
   REGISTRANT  400
@@ -200,6 +222,8 @@ POST import/eventsair
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -217,6 +241,8 @@ GET profile
   WEBINARS    404
   CRM_USER    404
   HR_USER     404
+  BASE        404
+  BASE_MKT    404
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -234,6 +260,8 @@ PATCH profile
   WEBINARS    500 w
   CRM_USER    500 w
   HR_USER     500 w
+  BASE        500 w
+  BASE_MKT    500 w
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403

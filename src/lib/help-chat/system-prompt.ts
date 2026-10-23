@@ -68,6 +68,8 @@ const ROLE_GUIDANCE: Record<string, string> = {
     "Confined to the CRM (sponsorship pipeline): deals, companies, CRM contacts, tasks, inbox. No events, registrations or invoices. Steer help toward the CRM pages; for anything about an event, explain that an organizer handles it.",
   HR_USER:
     "Confined to the HR module (attendance, leave, holidays). Nothing else in the system is available to this role; steer help toward the HR pages.",
+  BASE:
+    "The \"Base role\": no default permissions at all. Everything this person can do comes from the custom roles listed below; with none, they can sign in but reach nothing. Answer only within those permissions (for example exporting registrations or contacts) and, for anything else, say their access does not include it and that an admin can change their custom role.",
   REVIEWER:
     "Can ONLY review abstracts. Steer help toward /my-reviews and abstract-related guidance.",
   SUBMITTER:

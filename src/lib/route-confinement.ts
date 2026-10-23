@@ -103,6 +103,26 @@ function personAreas(g: ConfinementGrants | null | undefined): AreaGrant[] {
   return out;
 }
 
+/**
+ * A role with no area of its own (BASE, "Base role", docs/BASE_ROLE_PLAN.md)
+ * works only where its custom roles take it. Before Oct 23, 2026 the areas a
+ * custom role added were dropped here when the base held none, so such a
+ * person could never open an event's Registrations page.
+ *
+ * - Person grants (the HR tick, Budgets) never open a module for it: it is not
+ *   HR-tickable (owner, D3) and cannot extend into Budgets.
+ * - Home is something it may open, so there is no redirect loop: the events
+ *   list when a custom role adds events or the desk, else its first
+ *   organisation page (a contacts-only role lands on Contacts), else the empty
+ *   events list (no custom role yet).
+ */
+function emptyBaseRedirect(extra: readonly AreaGrant[], pages: readonly string[], pathname: string): string | null {
+  if (extra.length > 0) return staffRedirect(extra, pathname);
+  if (pages.length === 0) return staffRedirect([], pathname);
+  if (PERSONAL.some((p) => under(pathname, p))) return null;
+  return pages[0];
+}
+
 export function confinementRedirect(role: string | null | undefined, pathname: string, grants?: ConfinementGrants | null): string | null {
   if (pathname.startsWith("/api/")) return null;
 
@@ -122,11 +142,12 @@ export function confinementRedirect(role: string | null | undefined, pathname: s
     const extra = (system?.extendableAreas ?? []).filter((a) => a.area !== "org" && extraNames.includes(a.area));
     // Organisation pages open one by one ("org:/contacts"), and only where the
     // base role may be extended into the organisation area (review L4).
-    if (system?.extendableAreas?.some((a) => a.area === "org")) {
-      const pages = extraNames.filter((n) => n.startsWith("org:")).map((n) => n.slice(4));
-      if (pages.some((page) => under(pathname, page))) return null;
-    }
-    return staffRedirect(base.length > 0 ? [...base, ...personAreas(grants), ...extra] : base, pathname, base);
+    const pages = system?.extendableAreas?.some((a) => a.area === "org")
+      ? extraNames.filter((n) => n.startsWith("org:")).map((n) => n.slice(4))
+      : [];
+    if (pages.some((page) => under(pathname, page))) return null;
+    if (base.length > 0) return staffRedirect([...base, ...personAreas(grants), ...extra], pathname, base);
+    return emptyBaseRedirect(extra, pages, pathname);
   }
 
   if (!role) return null;

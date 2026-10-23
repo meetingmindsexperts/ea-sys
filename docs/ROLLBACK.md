@@ -155,6 +155,14 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   answers) or accept that their pages error until rolled forward. Read-only check:
   `SELECT id, "eventId" FROM "Survey" WHERE "responseMode" = 'ONCE_PER_DAY';`
 
+- **The "Base role" (`BASE`, Oct 23, 2026; migration `20261023120000_add_base_role`).** Once
+  anyone holds it, an image older than this release cannot read their user row: its Prisma
+  client throws on the unknown enum value wherever that person is loaded (sign-in, Settings,
+  Users). Before rolling back past it, move every Base role person to another role and move
+  them back after rolling forward. Read-only check:
+  `SELECT email FROM "User" WHERE role = 'BASE';`. Never delete the enum value; retire it
+  through `RETIRED_ROLES`.
+
 - **Bind mounts are untouched**: `public/uploads/`, `logs/`, and `.env` live on the host
   and survive any image swap. (The DB is untouched too — a code rollback never touches data.)
 

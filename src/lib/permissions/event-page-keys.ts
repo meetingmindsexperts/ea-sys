@@ -19,7 +19,10 @@ export const EVENT_PAGE_KEYS: Readonly<Record<string, PermissionKey>> = {
   agent: "agent.use",
   analytics: "analytics.read",
   certificates: "certificates.read",
-  "check-in": "registrations.read",
+  // The check-in key, not read (Oct 23, 2026): an export-only custom role holds
+  // registrations.read and would otherwise open a page whose every action
+  // refuses it. Every built-in role that reads registrations also checks in.
+  "check-in": "registrations.checkin",
   communications: "templates.read",
   dinner: "rsvp.manage",
   "email-templates": "templates.read",

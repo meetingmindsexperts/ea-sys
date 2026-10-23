@@ -581,6 +581,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!can(gate.principal, "supportingDocs.view")) {
       payload = redactSupportingDocumentFields(payload);
     }
+    // The files only (D4, Oct 23, 2026; docs/BASE_ROLE_PLAN.md): the phone
+    // number is a private detail, like in the contacts CSV. Every built-in role
+    // that exports holds the key; a custom export role (marketing) does not, and
+    // gets the column blank. The on-screen list is unchanged.
+    if (wantsFile && !can(gate.principal, "contacts.export.sensitive")) {
+      payload = payload.map((r) => (r.attendee ? { ...r, attendee: { ...r.attendee, phone: null } } : r));
+    }
 
     // ── CSV export ────────────────────────────────────────────────────────
     // Deliberately a mode on THIS route rather than a sibling endpoint: the

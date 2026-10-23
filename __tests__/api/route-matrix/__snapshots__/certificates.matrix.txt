@@ -13,6 +13,8 @@ GET certificates/auto-issue/analytics
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -30,6 +32,8 @@ GET certificates/templates
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -47,6 +51,8 @@ POST certificates/templates
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -64,6 +70,8 @@ PATCH certificates/templates/[templateId]
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -81,6 +89,8 @@ DELETE certificates/templates/[templateId]
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -98,6 +108,8 @@ POST certificates/templates/[templateId]/duplicate
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -115,6 +127,8 @@ POST certificates/templates/starter
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -132,6 +146,8 @@ GET certificates/settings
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -149,6 +165,8 @@ PATCH certificates/settings
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -166,6 +184,8 @@ GET certificates/eligible
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -183,6 +203,8 @@ GET certificates/preview
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -200,6 +222,8 @@ POST certificates/issue
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -217,6 +241,8 @@ POST certificates/issue-single
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -234,6 +260,8 @@ GET certificates/runs
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -251,6 +279,8 @@ GET certificates/runs/[runId]
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -268,6 +298,8 @@ GET certificates/runs/[runId]/download
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -285,6 +317,8 @@ POST certificates/runs/[runId]/cancel
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -302,6 +336,8 @@ POST certificates/runs/[runId]/retry-failed
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -319,6 +355,8 @@ POST certificates/runs/[runId]/send
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -336,6 +374,8 @@ GET certificates/issued
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -353,6 +393,8 @@ POST certificates/issued/[certificateId]/reissue
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -370,6 +412,8 @@ POST certificates/issued/resend-bundle
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -387,6 +431,8 @@ POST certificates/issued/resend-preview
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -404,6 +450,8 @@ POST certificates/bulk-reissue
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403

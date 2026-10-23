@@ -20,8 +20,10 @@ import {
   EXPORT_COLUMNS,
   EXPORT_ROW_CAP,
   EXPORT_COLUMN_GROUPS,
+  SENSITIVE_EXPORT_COLUMNS,
   type ExportColumn,
 } from "@/lib/contact-export";
+import { useCan } from "@/hooks/use-can";
 
 /**
  * Choose the columns before a contacts export (Oct 23, 2026). Opens on the
@@ -54,6 +56,13 @@ export function ExportContactsDialog({
   matching: number | null;
   onClearFilters: () => void;
 }) {
+  // Phone, notes and the ID numbers only for whoever may export them (D4,
+  // Oct 23, 2026); the server refuses them too.
+  const canExportSensitive = useCan("contacts.export.sensitive") === "allowed";
+  const offered = canExportSensitive ? EXPORT_COLUMNS : EXPORT_COLUMNS.filter((c) => !SENSITIVE_EXPORT_COLUMNS.includes(c));
+  const groups = EXPORT_COLUMN_GROUPS.map((g) => ({ ...g, columns: g.columns.filter((c) => offered.includes(c.key)) })).filter(
+    (g) => g.columns.length > 0,
+  );
   const [chosen, setChosen] = useState<Set<ExportColumn>>(() => new Set(DEFAULT_EXPORT_COLUMNS));
   const [busy, setBusy] = useState(false);
 
@@ -106,14 +115,17 @@ export function ExportContactsDialog({
           <DialogTitle>Export contacts</DialogTitle>
           <DialogDescription>
             Choose the columns for the CSV. Only what you tick leaves the system. The list starts on the basic
-            columns each time: tick Phone, Notes or the ID numbers when you need them.
+            columns each time
+            {canExportSensitive
+              ? ": tick Phone, Notes or the ID numbers when you need them."
+              : ". Phone, notes and ID numbers are not part of your access."}
           </DialogDescription>
         </DialogHeader>
 
         <ExportScope matching={matching} filterSummary={filterSummary} onClearFilters={onClearFilters} />
 
         <div className="flex gap-2 text-xs">
-          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setChosen(new Set(EXPORT_COLUMNS))}>
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setChosen(new Set(offered))}>
             Select all
           </Button>
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setChosen(new Set(DEFAULT_EXPORT_COLUMNS))}>
@@ -125,7 +137,7 @@ export function ExportContactsDialog({
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 max-h-[55vh] overflow-y-auto pr-1">
-          {EXPORT_COLUMN_GROUPS.map((group) => (
+          {groups.map((group) => (
             <fieldset key={group.label} className="space-y-2">
               <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
                 {group.label}
@@ -151,7 +163,7 @@ export function ExportContactsDialog({
 
         <DialogFooter className="items-center gap-2 sm:justify-between">
           <span className="text-xs text-muted-foreground tabular-nums">
-            {chosen.size === 0 ? "Tick at least one column" : `${chosen.size} of ${EXPORT_COLUMNS.length} columns`}
+            {chosen.size === 0 ? "Tick at least one column" : `${chosen.size} of ${offered.length} columns`}
           </span>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={busy}>

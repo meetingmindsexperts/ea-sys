@@ -52,6 +52,6 @@ export const canWriteHr = (user: { role?: string | null; hrAccess?: boolean | nu
   roleCan("hr.write", user?.role, false, user?.hrAccess === true);
 
 /** The roles holding `agent.use` (was `AGENT_ROLES`). */
-export const AGENT_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER"].filter((r) =>
+export const AGENT_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "BASE"].filter((r) =>
   roleCan("agent.use", r),
 );

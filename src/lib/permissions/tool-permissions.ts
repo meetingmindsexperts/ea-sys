@@ -195,5 +195,9 @@ export const REST_API_KEY_PERMISSIONS: readonly { route: string; permission: Per
   { route: "deal values on /api/crm/* (canViewDealValues)", permission: "crm.dealValues.view" },
 ];
 
-/** The field keys a key holds because the redaction predicates answer yes to `isApiKey`. */
-export const API_KEY_FIELD_PERMISSIONS: readonly PermissionKey[] = ["finance.view", "barcode.view", "zoomHost.view"];
+/**
+ * The field keys a key holds because the redaction predicates answer yes to
+ * `isApiKey`. `contacts.export.sensitive` (Oct 23, 2026) picks the private
+ * columns of the contacts export, which a key reaches; a full key keeps them.
+ */
+export const API_KEY_FIELD_PERMISSIONS: readonly PermissionKey[] = ["finance.view", "barcode.view", "zoomHost.view", "contacts.export.sensitive"];

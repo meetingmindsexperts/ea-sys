@@ -20,6 +20,8 @@ export const TEAM_ROLES = [
   "CRM_USER",
   "WEBINARS",
   "HR_USER",
+  // No permissions of its own; everything comes from custom roles (Oct 23, 2026).
+  "BASE",
 ] as const;
 
 /**
@@ -91,12 +93,33 @@ export function isOnsiteDeskAccount(role: string | null | undefined): boolean {
 }
 
 /**
- * HR_USER is only grantable where the HR module is switched on: the enum value
- * exists on every silo, but on a deployment without the module the role would
- * be a login that reaches nothing. The authoritative check for both the invite
- * and the role-change routes (the dropdown that hides it is only UX).
+ * The "Base role" (docs/BASE_ROLE_PLAN.md): no default permissions, so no
+ * per-person module ticks either (owner D3: no HR access; it cannot work
+ * Budgets). A helper so the user routes, held to no staff role names by
+ * `check-permission-guards.sh`, can ask about the target's role.
  */
-export function isRoleGrantableHere(role: string, hrModuleEnabled: boolean): boolean {
-  return role !== "HR_USER" || hrModuleEnabled;
+export function isBaseRole(role: string | null | undefined): boolean {
+  return role === "BASE";
+}
+
+/**
+ * Some roles are only grantable where what they need is switched on: the enum
+ * values exist on every silo, but elsewhere the role would be a login that
+ * reaches nothing.
+ *
+ * - HR_USER needs the HR module.
+ * - BASE needs custom roles: it holds no permissions of its own, so without a
+ *   custom role to attach it reaches nothing (docs/BASE_ROLE_PLAN.md).
+ *
+ * The authoritative check for both the invite and the role-change routes (the
+ * dropdown that hides them is only UX).
+ */
+export function isRoleGrantableHere(
+  role: string,
+  enabled: { hrModuleEnabled: boolean; customRolesEnabled: boolean },
+): boolean {
+  if (role === "HR_USER") return enabled.hrModuleEnabled;
+  if (role === "BASE") return enabled.customRolesEnabled;
+  return true;
 }
 

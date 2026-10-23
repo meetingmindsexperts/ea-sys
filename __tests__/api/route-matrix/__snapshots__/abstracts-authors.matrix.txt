@@ -13,6 +13,8 @@ GET abstracts
   WEBINARS    404         404         200 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         200 r       404         200 r
   SUBMITTER   404         200 r       404         200 r
   REGISTRANT  404         404         404         404
@@ -30,6 +32,8 @@ POST abstracts
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   404         403 r       404         403 r
   REGISTRANT  403         403         403         403
@@ -47,6 +51,8 @@ GET abstracts/[abstractId]
   WEBINARS    404         404         200 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         200 r       404         200 r
   SUBMITTER   404         200 r       404         200 r
   REGISTRANT  404         404         404         404
@@ -64,6 +70,8 @@ PUT abstracts/[abstractId]
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    404         403 r       404         403 r
   SUBMITTER   404         403 r       404         403 r
   REGISTRANT  403         403         403         403
@@ -81,6 +89,8 @@ PUT abstracts/[abstractId] (review status only)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    404         500 r e     404         500 r e
   SUBMITTER   404         403 r       404         403 r
   REGISTRANT  403         403         403         403
@@ -98,6 +108,8 @@ DELETE abstracts/[abstractId]
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -115,6 +127,8 @@ GET abstracts/[abstractId]/submissions
   WEBINARS    404         404         200 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         200 r       404         200 r
   SUBMITTER   404         200 r       404         200 r
   REGISTRANT  404         404         404         404
@@ -132,6 +146,8 @@ POST abstracts/[abstractId]/submissions
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    500 r w     500 r w     500 r w     500 r w
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -149,6 +165,8 @@ GET abstracts/my-profile
   WEBINARS    404         404         404 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         404 r       404         404 r
   SUBMITTER   404         200 r       404         200 r
   REGISTRANT  404         404         404         404
@@ -166,6 +184,8 @@ PATCH abstracts/my-profile
   WEBINARS    404         404         404 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         404 r       404         404 r
   SUBMITTER   404         400 r       404         400 r
   REGISTRANT  404         404         404         404
@@ -183,6 +203,8 @@ GET session-proposals
   WEBINARS    404         404         200 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         200 r       404         200 r
   SUBMITTER   404         200 r       404         200 r
   REGISTRANT  404         404         404         404
@@ -200,6 +222,8 @@ POST session-proposals
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   404         403 r       404         403 r
   REGISTRANT  403         403         403         403
@@ -217,6 +241,8 @@ GET session-proposals/[proposalId]
   WEBINARS    404         404         200 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         200 r       404         200 r
   SUBMITTER   404         200 r       404         200 r
   REGISTRANT  404         404         404         404
@@ -234,6 +260,8 @@ PUT session-proposals/[proposalId]
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   404         403 r       404         403 r
   REGISTRANT  403         403         403         403
@@ -251,6 +279,8 @@ DELETE session-proposals/[proposalId]
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -268,6 +298,8 @@ GET submitter-context
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   200 r       200 r       200 r       200 r
   REGISTRANT  403         403         403         403

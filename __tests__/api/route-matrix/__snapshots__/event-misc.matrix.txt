@@ -13,6 +13,8 @@ GET analytics
   WEBINARS    404         404         200 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         404         404         404
   SUBMITTER   404         404         404         404
   REGISTRANT  404         404         404         404
@@ -30,6 +32,8 @@ GET analytics (csv)
   WEBINARS    404         404         200 r w     404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         404         404         404
   SUBMITTER   404         404         404         404
   REGISTRANT  404         404         404         404
@@ -47,6 +51,8 @@ GET analytics (check-in log)
   WEBINARS    404         404         200 r w     404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         404         404         404
   SUBMITTER   404         404         404         404
   REGISTRANT  404         404         404         404
@@ -64,6 +70,8 @@ GET analytics/traffic
   WEBINARS    404         404         200 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         404         404         404
   SUBMITTER   404         404         404         404
   REGISTRANT  404         404         404         404
@@ -81,6 +89,8 @@ GET activity
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -98,6 +108,8 @@ GET media
   WEBINARS    404         404         200 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -115,6 +127,8 @@ POST media (JSON, not multipart)
   WEBINARS    500         500         500 r       500
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -132,6 +146,8 @@ DELETE media/[mediaId]
   WEBINARS    404         404         404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -149,6 +165,8 @@ GET sponsors
   WEBINARS    404         404         200 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -166,6 +184,8 @@ PUT sponsors
   WEBINARS    404         404         200 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -183,6 +203,8 @@ POST clone
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -200,6 +222,8 @@ GET export-bundle
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -217,6 +241,8 @@ POST import/abstracts (JSON, not multipart)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -234,6 +260,8 @@ POST import/barcodes (JSON, not multipart)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -251,6 +279,8 @@ POST import/eventsair
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    401         401         401         401
   SUBMITTER   401         401         401         401
   REGISTRANT  401         401         401         401
@@ -268,6 +298,8 @@ POST import/sessions (JSON, not multipart)
   WEBINARS    500         500         500         500
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -285,6 +317,8 @@ POST import/speakers (JSON, not multipart)
   WEBINARS    500         500         500         500
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -302,6 +336,8 @@ GET import-logs
   WEBINARS    404         404         200 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    404         404         404         404
   SUBMITTER   404         404         404         404
   REGISTRANT  404         404         404         404
@@ -319,6 +355,8 @@ POST agreement-pdf-images (JSON, not multipart)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -336,6 +374,8 @@ DELETE agreement-pdf-images
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -353,6 +393,8 @@ GET speaker-agreement-template
   WEBINARS    404         404         200 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -370,6 +412,8 @@ POST speaker-agreement-template (JSON, not multipart)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -387,6 +431,8 @@ DELETE speaker-agreement-template
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -404,6 +450,8 @@ POST import/speakers (csv file)
   WEBINARS    404         404         500 r w     404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -421,6 +469,8 @@ POST import/abstracts (csv file)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -438,6 +488,8 @@ POST import/sessions (csv file)
   WEBINARS    404         404         200 r w     404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -455,6 +507,8 @@ POST import/barcodes (csv file)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -472,6 +526,8 @@ POST media (png file)
   WEBINARS    404         404         400 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -489,6 +545,8 @@ POST agreement-pdf-images (png file)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -506,6 +564,8 @@ POST speaker-agreement-template (docx file)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -523,6 +583,8 @@ POST agent/execute (empty body)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -540,6 +602,8 @@ GET submitter-context
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   404 r       404 r       404 r       404 r
   REGISTRANT  403         403         403         403

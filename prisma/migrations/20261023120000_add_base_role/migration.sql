@@ -1,0 +1,14 @@
+-- Add the BASE role: an org-bound team role with no permissions of its own;
+-- everything comes from the custom roles the person holds
+-- (docs/BASE_ROLE_PLAN.md).
+--
+-- ADDITIVE + IDEMPOTENT. `ADD VALUE IF NOT EXISTS` is blue-green safe: the
+-- still-running old container never encounters the value (no user holds it yet),
+-- and a re-run is a no-op. This is the ONLY statement in the file, so the value
+-- is never used in the same transaction that creates it (a Postgres restriction
+-- on new enum values). Precedent: 20260827120000_add_hr_user_role.
+--
+-- EXISTING is not the same as GRANTABLE: the value is offered only while custom
+-- roles are switched on (CUSTOM_ROLES_ENABLED). Never delete it: removing an
+-- enum value is not blue-green safe; retire it through RETIRED_ROLES instead.
+ALTER TYPE "UserRole" ADD VALUE IF NOT EXISTS 'BASE';

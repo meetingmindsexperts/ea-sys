@@ -38,6 +38,7 @@ import { EmailLogCard } from "@/components/communications/email-log-card";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useCan } from "@/hooks/use-can";
 
 const TAG_COLORS = [
   "bg-sky-50 text-sky-700 border-sky-200",
@@ -71,6 +72,9 @@ export function ContactDetailSheet({
   const eventHistory = contactData?.eventHistory ?? [];
   const updateContact = useUpdateContact(contactId ?? "");
   const deleteContact = useDeleteContact();
+  // A contact's email history is organisation mail (emailLogs.org.read): without
+  // it the card's request is refused, so it is not shown (Base role plan).
+  const canReadContactEmails = useCan("emailLogs.org.read") === "allowed";
 
   const [isEditing, setIsEditing] = useState(false);
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
@@ -622,7 +626,7 @@ export function ContactDetailSheet({
           )}
 
           {/* ── Email history ─────────────────────────────────────── */}
-          {contact && (
+          {contact && canReadContactEmails && (
             <EmailLogCard entityType="CONTACT" entityId={contact.id} />
           )}
         </div>

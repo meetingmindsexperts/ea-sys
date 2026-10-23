@@ -237,7 +237,10 @@ export function RegistrationDetailSheet({
   // the EventBillingAccount junction. Mirrors the picker on the Add
   // Registration form so reassignment can't pick a payer that wasn't
   // authorized for this event. Manage attachments in Settings → Billing.
-  const { data: billingAccounts = [] } = useBillingAccounts({ eventId });
+  // Only fetched for someone who may read payers: a custom role without
+  // billingAccounts.read (an export-only Base role person) would get a 403.
+  const canReadBillingAccounts = useCan("billingAccounts.read") === "allowed";
+  const { data: billingAccounts = [] } = useBillingAccounts({ eventId }, canReadBillingAccounts);
   const sponsors = sponsorsRes?.sponsors ?? [];
   const sponsorById = (id: string | null) =>
     id ? sponsors.find((s) => s.id === id) ?? null : null;
@@ -483,7 +486,8 @@ export function RegistrationDetailSheet({
   const isWebinarEvent = (eventForMode as { eventType?: string } | undefined)?.eventType === "WEBINAR";
   // The Survey Invitation is offered only when the event has a survey built.
   const surveyConfig = (eventForMode as { surveyConfig?: unknown } | undefined)?.surveyConfig;
-  const { data: eventSurveys = [] } = useEventSurveys(eventId, open);
+  const canReadSurveysHere = useCan("surveys.read", eventId) === "allowed";
+  const { data: eventSurveys = [] } = useEventSurveys(eventId, open && canReadSurveysHere);
   const sendableSurveys = eventSurveys
     .filter((sv) => sv.isActive && Array.isArray(sv.config) && sv.config.length > 0)
     .sort((a, b) => Number(b.gatesCertificates) - Number(a.gatesCertificates));

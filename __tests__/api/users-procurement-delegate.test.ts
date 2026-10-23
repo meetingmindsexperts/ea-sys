@@ -34,8 +34,8 @@ vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: typeof mockDb) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("@/lib/security", () => ({ getClientIp: () => "127.0.0.1" }));
-vi.mock("@/lib/auth-guards", () => ({ ASSIGNABLE_USER_ROLES: ["ADMIN", "ORGANIZER", "MEMBER"] }));
-vi.mock("@/lib/module-flags", () => ({ isHrModuleEnabled: () => true, isProcurementModuleEnabled: () => true }));
+vi.mock("@/lib/auth-guards", () => ({ ASSIGNABLE_USER_ROLES: ["ADMIN", "ORGANIZER", "MEMBER", "BASE"] }));
+vi.mock("@/lib/module-flags", () => ({ isHrModuleEnabled: () => true, isProcurementModuleEnabled: () => true, isCustomRolesEnabled: () => true }));
 vi.mock("@/lib/event-settings", () => ({ removeUserFromEventSettings: vi.fn() }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: mockRunWithTenant }));
 vi.mock("@/lib/permissions/permission-set-service", () => ({ readUserPermissions: mockReadPermissions }));
@@ -52,6 +52,7 @@ const ROWS: Record<string, Record<string, unknown>> = {
   owner: { id: "owner", role: "ORGANIZER", ...grants() },
   muthu: { id: "muthu", role: "MEMBER", ...grants({ procurementSettle: true }) },
   reg: { id: "reg", role: "REGISTRANT", ...grants({ procurementApproveCeilingAed: "5000" }) },
+  mira: { id: "mira", role: "BASE", hrAccess: false, ...grants() },
 };
 
 const put = (userId: string, body: Record<string, unknown>) =>
@@ -337,5 +338,37 @@ describe("review fixes on the user edit", () => {
   it("leaves custom roles alone when the role does not change", async () => {
     expect((await put("owner", { role: "ORGANIZER" })).status).toBe(200);
     expect(mockDb.userPermissionSet.deleteMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("the Base role takes no module ticks (owner D3, Oct 23, 2026)", () => {
+  it("refuses HR access on a Base role person, logged, nothing written", async () => {
+    const res = await put("mira", { hrAccess: true });
+    expect(res.status).toBe(400);
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "organization/users:module-grant-base-role" }));
+    expect(mockDb.user.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a Budgets grant on a Base role person", async () => {
+    expect((await put("mira", { procurementRequest: true })).status).toBe(400);
+    expect((await put("mira", { procurementApproveCeilingAed: 5000 })).status).toBe(400);
+    expect(mockDb.user.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a grant sent with a change TO the Base role", async () => {
+    expect((await put("owner", { role: "BASE", procurementRequest: true })).status).toBe(400);
+    // Refused by THIS rule, not by validation.
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "organization/users:module-grant-base-role" }));
+    expect(mockDb.user.update).not.toHaveBeenCalled();
+  });
+
+  it("turning a tick off is still allowed", async () => {
+    expect((await put("mira", { hrAccess: false, procurementRequest: false })).status).toBe(200);
+  });
+
+  it("a change to the Base role clears the person's custom roles, like any role change", async () => {
+    mockDb.userPermissionSet.deleteMany.mockResolvedValueOnce({ count: 1 });
+    expect((await put("owner", { role: "BASE" })).status).toBe(200);
+    expect(mockDb.userPermissionSet.deleteMany).toHaveBeenCalledWith({ where: { organizationId: "org1", userId: "owner" } });
   });
 });

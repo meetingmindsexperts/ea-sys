@@ -41,6 +41,7 @@ export type SystemRoleKey =
   | "WEBINARS"
   | "CRM_USER"
   | "HR_USER"
+  | "BASE"
   | "API_KEY";
 
 /**
@@ -296,6 +297,7 @@ const ORGANIZER_ORG: PermissionKey[] = [
   "contacts.delete",
   "contacts.import",
   "contacts.export",
+  "contacts.export.sensitive",
   "agent.use",
   "finance.view",
   "barcode.view",
@@ -411,7 +413,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     // cannot open the files (`speakers.documents.open`; owner, Oct 2, 2026).
     grants: [
       ...at("ALL", ...EVENT_READ, ...DESK, "speakers.documents.read"),
-      ...org("invoices.ledger", "billingAccounts.read", "users.read", "contacts.read", "contacts.export", "agent.use", "finance.view", "hr.read", "hr.write"),
+      ...org("invoices.ledger", "billingAccounts.read", "users.read", "contacts.read", "contacts.export", "contacts.export.sensitive", "agent.use", "finance.view", "hr.read", "hr.write"),
       ...org(...BLUEPRINT_MEMBER),
     ],
     impliedPersonGrants: [],
@@ -439,7 +441,9 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       // The assigned event's analytics and sponsors (the desk's sponsor picker),
       // recorded by the remaining-routes matrix and kept as found, Oct 5, 2026.
       ...at("ASSIGNED", "analytics.read", "sponsors.read"),
-      ...org("finance.view", "barcode.view", "billingAccounts.read", "hr.read", "hr.write"),
+      // The phone column of the registrations CSV they already export (D4,
+      // Oct 23, 2026): held so the export stays exactly as it was.
+      ...org("finance.view", "barcode.view", "billingAccounts.read", "hr.read", "hr.write", "contacts.export.sensitive"),
     ],
     impliedPersonGrants: [],
     areas: [{ area: "desk", scope: "ASSIGNED" }],
@@ -463,7 +467,9 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       ...at("WEBINAR", "abstracts.read", "proposals.read"),
       // The payer list the desk's add-registration form reads (recorded by
       // the money matrix, kept as found, Oct 5, 2026).
-      ...org("finance.view", "barcode.view", "zoomHost.view", "billingAccounts.read", "hr.read", "hr.write"),
+      // The phone column of the registrations CSV they already export (D4,
+      // Oct 23, 2026): held so the export stays exactly as it was.
+      ...org("finance.view", "barcode.view", "zoomHost.view", "billingAccounts.read", "hr.read", "hr.write", "contacts.export.sensitive"),
     ],
     impliedPersonGrants: [],
     areas: [{ area: "desk", scope: "ALL" }, { area: "events", scope: "WEBINAR" }, { area: "procurement" }],
@@ -487,6 +493,20 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     grants: org("hr.read", "hr.write"),
     impliedPersonGrants: ["hrAccess"],
     areas: [{ area: "hr" }],
+  },
+  // "Base role" (owner, Oct 23, 2026; docs/BASE_ROLE_PLAN.md): no default
+  // permissions and no area of its own. Everything comes from the custom roles
+  // the person holds, which may extend into events, the desk and single
+  // organisation pages, never Budgets, CRM or HR (D3: no HR access). Without a
+  // custom role the person reaches nothing.
+  BASE: {
+    key: "BASE",
+    name: "Base role",
+    baseRole: "BASE",
+    grants: [],
+    impliedPersonGrants: [],
+    areas: [],
+    extendableAreas: [{ area: "events", scope: "ALL" }, { area: "desk", scope: "ALL" }, { area: "org" }],
   },
   API_KEY: {
     key: "API_KEY",
@@ -557,6 +577,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
         "contacts.delete",
         "contacts.import",
         "contacts.export",
+        "contacts.export.sensitive",
         "crm.read",
         "crm.write",
         "crm.delete",

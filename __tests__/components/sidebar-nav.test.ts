@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { computeSidebarNav, type SidebarNavInput } from "@/components/layout/sidebar-nav";
 
-const ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "REVIEWER", "SUBMITTER", "REGISTRANT"];
+const ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "BASE", "REVIEWER", "SUBMITTER", "REGISTRANT"];
 
 /** Person variants that change what a role sees. */
 const PEOPLE: { label: string; extra: Record<string, unknown> }[] = [
@@ -74,7 +74,7 @@ describe("the Blueprints entry (BLUEPRINT_MODULE_ENABLED and blueprints.view)", 
     expect(sees(role, true)).toBe(true);
   });
 
-  it.each(["ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "REVIEWER", "SUBMITTER", "REGISTRANT"])("%s never sees it", (role) => {
+  it.each(["ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "BASE", "REVIEWER", "SUBMITTER", "REGISTRANT"])("%s never sees it", (role) => {
     expect(sees(role, true)).toBe(false);
   });
 

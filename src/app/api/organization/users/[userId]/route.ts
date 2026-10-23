@@ -6,10 +6,10 @@ import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { revokeUserOAuthTokens } from "@/lib/mcp-oauth";
 import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
-import { isOnsiteDeskAccount, isRoleGrantableHere, isTeamRole } from "@/lib/team-roles";
+import { isBaseRole, isOnsiteDeskAccount, isRoleGrantableHere, isTeamRole } from "@/lib/team-roles";
 import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
 import { can, principalFromUser } from "@/lib/permissions/can";
-import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
+import { isCustomRolesEnabled, isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { removeUserFromEventSettings } from "@/lib/event-settings";
 import { approvalCeilingAed, hasAnyProcurementGrant, isFinalApproverHoldingRequestGrant, procurementGrantsFromRow } from "@/lib/procurement-visibility";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -175,10 +175,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
-    // HR_USER is only grantable where the HR module is switched on. Same
+    // HR_USER needs the HR module and BASE needs custom roles. Same
     // authoritative check as the invite route: a role that can reach nothing is
     // a support ticket, and the dropdown that hides it is only UX.
-    if (validated.data.role && !isRoleGrantableHere(validated.data.role, isHrModuleEnabled())) {
+    const grantable = { hrModuleEnabled: isHrModuleEnabled(), customRolesEnabled: isCustomRolesEnabled() };
+    if (validated.data.role && !isRoleGrantableHere(validated.data.role, grantable)) {
       apiLogger.warn({
         msg: "organization/users:role-not-grantable-on-this-deployment",
         role: validated.data.role,
@@ -333,6 +334,28 @@ export async function PUT(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
+    // The Base role holds no default access, so no module ticks either (owner
+    // D3, Oct 23, 2026): turning HR access or a Budgets grant ON for someone who
+    // is, or is becoming, Base role is refused. Turning one off stays allowed.
+    const grantsModuleAccess =
+      validated.data.hrAccess === true ||
+      validated.data.procurementRequest === true ||
+      validated.data.procurementSettle === true ||
+      validated.data.procurementApproveUnlimited === true ||
+      (validated.data.procurementApproveCeilingAed ?? 0) > 0 ||
+      !!validated.data.procurementDelegateUserId;
+    if (grantsModuleAccess && isBaseRole(validated.data.role ?? user.role)) {
+      apiLogger.warn({
+        msg: "organization/users:module-grant-base-role",
+        targetUserId: userId,
+        callerId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: "A Base role person gets access only from custom roles: HR access and Budgets grants are not available." },
+        { status: 400 },
+      );
+    }
+
     // Set when the stored delegate no longer fits and this save only carries it along.
     let clearStaleDelegate = false;
     // Spec §8.8: the final approver never requests, so requester != approver

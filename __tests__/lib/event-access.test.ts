@@ -11,7 +11,7 @@ describe("buildEventAccessWhere", () => {
   // Staff no longer come through here (custom roles Phase 6): their lookups ask
   // a permission. A staff role that reaches this predicate gets no events.
   it("gives staff roles no events (fail closed)", () => {
-    for (const role of ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER"]) {
+    for (const role of ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "BASE"]) {
       expect(buildEventAccessWhere({ id: "u1", role, organizationId: "org-1" }, "evt-1")).toEqual({ id: { in: [] } });
     }
   });

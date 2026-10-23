@@ -13,6 +13,8 @@ GET integrations/quickbooks/callback
   WEBINARS    302
   CRM_USER    302
   HR_USER     302
+  BASE        302
+  BASE_MKT    302
   REVIEWER    302
   SUBMITTER   302
   REGISTRANT  302
@@ -30,6 +32,8 @@ GET integrations/quickbooks/chart
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -47,6 +51,8 @@ GET integrations/quickbooks/connect
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -64,6 +70,8 @@ GET integrations/quickbooks/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -81,6 +89,8 @@ PUT integrations/quickbooks/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -98,6 +108,8 @@ DELETE integrations/quickbooks/credentials
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -115,6 +127,8 @@ GET integrations/quickbooks
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -132,6 +146,8 @@ DELETE integrations/quickbooks
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -149,6 +165,8 @@ POST integrations/quickbooks/test
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -166,6 +184,8 @@ GET procurement/approval-chain
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -183,6 +203,8 @@ PUT procurement/approval-chain
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -200,6 +222,8 @@ POST procurement/approvals/[requestId]/decide
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -217,6 +241,8 @@ GET procurement/approvals
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -234,6 +260,8 @@ GET procurement/budgets/[budgetId]/activity
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -251,6 +279,8 @@ POST procurement/budgets/[budgetId]/decide
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -268,6 +298,8 @@ GET procurement/budgets/[budgetId]/export
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -285,6 +317,8 @@ PATCH procurement/budgets/[budgetId]/lines/[lineId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -302,6 +336,8 @@ DELETE procurement/budgets/[budgetId]/lines/[lineId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -319,6 +355,8 @@ POST procurement/budgets/[budgetId]/lines
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -336,6 +374,8 @@ POST procurement/budgets/[budgetId]/reallocate
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -353,6 +393,8 @@ PATCH procurement/budgets/[budgetId]/revenue/[lineId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -370,6 +412,8 @@ DELETE procurement/budgets/[budgetId]/revenue/[lineId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -387,6 +431,8 @@ GET procurement/budgets/[budgetId]/revenue
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -404,6 +450,8 @@ POST procurement/budgets/[budgetId]/revenue
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -421,6 +469,8 @@ GET procurement/budgets/[budgetId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -438,6 +488,8 @@ PATCH procurement/budgets/[budgetId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -455,6 +507,8 @@ DELETE procurement/budgets/[budgetId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -472,6 +526,8 @@ POST procurement/budgets/[budgetId]/submit
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -489,6 +545,8 @@ POST procurement/budgets/[budgetId]/transition
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -506,6 +564,8 @@ POST procurement/budgets/[budgetId]/versions
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -523,6 +583,8 @@ GET procurement/budgets
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -540,6 +602,8 @@ POST procurement/budgets
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -557,6 +621,8 @@ PATCH procurement/categories/[categoryId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -574,6 +640,8 @@ GET procurement/categories
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -591,6 +659,8 @@ POST procurement/categories
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -608,6 +678,8 @@ POST procurement/commitments/[commitmentId]/cancel
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -625,6 +697,8 @@ POST procurement/commitments/[commitmentId]/confirm-receipt
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -642,6 +716,8 @@ GET procurement/commitments/[commitmentId]/pdf
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -659,6 +735,8 @@ POST procurement/commitments/[commitmentId]/receive
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -676,6 +754,8 @@ GET procurement/commitments/[commitmentId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -693,6 +773,8 @@ POST procurement/commitments/[commitmentId]/send
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -710,6 +792,8 @@ POST procurement/commitments/[commitmentId]/undo-receipt
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -727,6 +811,8 @@ GET procurement/commitments
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -744,6 +830,8 @@ PATCH procurement/products/[productId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -761,6 +849,8 @@ POST procurement/products/import
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -778,6 +868,8 @@ GET procurement/products
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -795,6 +887,8 @@ POST procurement/products
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -812,6 +906,8 @@ POST procurement/requests/[requestId]/amend
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -829,6 +925,8 @@ POST procurement/requests/[requestId]/order
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -846,6 +944,8 @@ POST procurement/requests/[requestId]/quotes/[quoteId]/file
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -863,6 +963,8 @@ GET procurement/requests/[requestId]/quotes/[quoteId]/file
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -880,6 +982,8 @@ DELETE procurement/requests/[requestId]/quotes/[quoteId]/file
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -897,6 +1001,8 @@ DELETE procurement/requests/[requestId]/quotes/[quoteId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -914,6 +1020,8 @@ POST procurement/requests/[requestId]/quotes
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -931,6 +1039,8 @@ GET procurement/requests/[requestId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -948,6 +1058,8 @@ PATCH procurement/requests/[requestId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -965,6 +1077,8 @@ POST procurement/requests/[requestId]/submit
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -982,6 +1096,8 @@ POST procurement/requests/[requestId]/transition
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -999,6 +1115,8 @@ GET procurement/requests/budget-check
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1016,6 +1134,8 @@ GET procurement/requests
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1033,6 +1153,8 @@ POST procurement/requests
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1050,6 +1172,8 @@ POST procurement/suppliers/[supplierId]/decide
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1067,6 +1191,8 @@ GET procurement/suppliers/[supplierId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1084,6 +1210,8 @@ PATCH procurement/suppliers/[supplierId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1101,6 +1229,8 @@ GET procurement/suppliers/export
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1118,6 +1248,8 @@ POST procurement/suppliers/import
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1135,6 +1267,8 @@ GET procurement/suppliers
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1152,6 +1286,8 @@ POST procurement/suppliers
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1169,6 +1305,8 @@ PATCH procurement/templates/[templateId]/lines/[lineId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1186,6 +1324,8 @@ DELETE procurement/templates/[templateId]/lines/[lineId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1203,6 +1343,8 @@ POST procurement/templates/[templateId]/lines
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1220,6 +1362,8 @@ PATCH procurement/templates/[templateId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1237,6 +1381,8 @@ GET procurement/templates
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -1254,6 +1400,8 @@ POST procurement/templates
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403

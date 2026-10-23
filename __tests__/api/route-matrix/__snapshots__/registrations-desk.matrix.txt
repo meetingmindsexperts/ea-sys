@@ -13,6 +13,8 @@ GET registrations
   WEBINARS    200 r       200 r       200 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    200 r       200 r       200 r       404
   REVIEWER    401         401         401         401
   SUBMITTER   401         401         401         401
   REGISTRANT  401         401         401         401
@@ -30,6 +32,8 @@ GET registrations (csv)
   WEBINARS    200 r w     200 r w     200 r w     404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    200 r w     200 r w     200 r w     404
   REVIEWER    401         401         401         401
   SUBMITTER   401         401         401         401
   REGISTRANT  401         401         401         401
@@ -47,6 +51,8 @@ GET registrations (sales csv)
   WEBINARS    200 r w     200 r w     200 r w     404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    200 r w     200 r w     200 r w     404
   REVIEWER    401         401         401         401
   SUBMITTER   401         401         401         401
   REGISTRANT  401         401         401         401
@@ -64,6 +70,8 @@ POST registrations
   WEBINARS    404 r       404 r       404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -81,6 +89,8 @@ GET registrations/[registrationId]
   WEBINARS    404 r       404 r       404 r       404
   CRM_USER    404         404         404         404
   HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404 r       404 r       404 r       404
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -98,6 +108,8 @@ PUT registrations/[registrationId]
   WEBINARS    404 r       404 r       404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -115,6 +127,8 @@ DELETE registrations/[registrationId]
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -132,6 +146,8 @@ GET registrations/[registrationId]/activity
   WEBINARS    404 r       404 r       404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    404 r       404 r       404 r       404
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -149,6 +165,8 @@ GET registrations/[registrationId]/barcode
   WEBINARS    404 r       404 r       404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -166,6 +184,8 @@ POST registrations/[registrationId]/check-in
   WEBINARS    404 r       404 r       404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -183,6 +203,8 @@ PUT registrations/[registrationId]/check-in
   WEBINARS    404 r       404 r       404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -200,6 +222,8 @@ DELETE registrations/[registrationId]/check-in
   WEBINARS    404 r       404 r       404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -217,6 +241,8 @@ POST registrations/[registrationId]/payments
   WEBINARS    404 r       404 r       404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -234,6 +260,8 @@ POST registrations/[registrationId]/email
   WEBINARS    404         404         404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -251,6 +279,8 @@ PATCH registrations/[registrationId]/email
   WEBINARS    404         404         404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -268,6 +298,8 @@ POST registrations/[registrationId]/documents/resend
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -285,6 +317,8 @@ GET registrations/[registrationId]/supporting-document
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -302,6 +336,8 @@ POST registrations/badges
   WEBINARS    400 r       400 r       400 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -319,6 +355,8 @@ GET registrations/badges/preview
   WEBINARS    200 r       200 r       200 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -336,6 +374,8 @@ PATCH registrations/bulk-tags
   WEBINARS    404         404         404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -353,6 +393,8 @@ PATCH registrations/bulk-type
   WEBINARS    404         404         404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -370,6 +412,8 @@ POST registrations/import-contacts
   WEBINARS    404         404         200 r w     404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -387,6 +431,8 @@ POST import/registrations (JSON, not multipart)
   WEBINARS    500         500         500         500
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -404,6 +450,8 @@ POST import/registrations (csv file)
   WEBINARS    404         404         200 r w     404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -421,6 +469,8 @@ POST import/registrations/send-completion-emails
   WEBINARS    404         404         404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -438,6 +488,8 @@ GET tags
   WEBINARS    200 r       200 r       200 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    200 r       200 r       200 r       404
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -455,6 +507,8 @@ GET dtcm-pool
   WEBINARS    200 r       200 r       200 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -472,6 +526,8 @@ POST dtcm-pool
   WEBINARS    400 r       400 r       400 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -489,6 +545,8 @@ GET registration-shares
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -506,6 +564,8 @@ POST registration-shares
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -523,6 +583,8 @@ PUT registration-shares/[viewId]
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -540,6 +602,8 @@ DELETE registration-shares/[viewId]
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -557,6 +621,8 @@ POST registration-shares/[viewId]/regenerate
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -574,6 +640,8 @@ GET onsite-staff
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -591,6 +659,8 @@ POST onsite-staff
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -608,6 +678,8 @@ DELETE onsite-staff
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403

@@ -91,6 +91,20 @@ export const DEFAULT_EXPORT_COLUMNS: readonly ExportColumn[] = [
   "firstName", "lastName", "email", "organization", "jobTitle", "specialty", "city", "country",
 ];
 
+/**
+ * Private rather than marketing data (owner, Oct 23, 2026; docs/BASE_ROLE_PLAN.md
+ * D4): exported only with `contacts.export.sensitive`. Every built-in role
+ * that exports contacts holds it, so this narrows custom roles only, such as a
+ * marketing colleague's export role.
+ */
+export const SENSITIVE_EXPORT_COLUMNS: readonly ExportColumn[] = ["phone", "notes", "memberId", "studentId", "studentIdExpiry"];
+const SENSITIVE = new Set<string>(SENSITIVE_EXPORT_COLUMNS);
+
+/** The sensitive columns among the chosen ones. */
+export function sensitiveColumnsIn(columns: readonly ExportColumn[]): ExportColumn[] {
+  return columns.filter((c) => SENSITIVE.has(c));
+}
+
 const KNOWN = new Set<string>(EXPORT_COLUMNS);
 
 /**

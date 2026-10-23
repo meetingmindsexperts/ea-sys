@@ -9,6 +9,7 @@ import { httpStatusOf } from "@/lib/session-expiry";
 import { can, principalFromUser } from "@/lib/permissions/can";
 import { EVENT_PAGE_KEYS, eventPageSegment } from "@/lib/permissions/event-page-keys";
 import { NoAccess } from "./no-access";
+import { isTeamRole } from "@/lib/team-roles";
 
 /**
  * Every event page (owner, Oct 5, 2026):
@@ -34,7 +35,10 @@ export function EventAccessGate({ children }: { children: React.ReactNode }) {
   const key = EVENT_PAGE_KEYS[eventPageSegment(pathname)];
   if (!key || !session?.user) return <>{children}</>;
   const p = principalFromUser(session.user);
-  if (p.areas.length === 0) return <>{children}</>;
+  // Only the outside identities (reviewer, submitter, registrant) pass on to
+  // their own guards. Staff with no area, such as a Base role person without a
+  // custom role, are judged like everyone else (review, Oct 23, 2026).
+  if (!isTeamRole(session.user.role)) return <>{children}</>;
   // A gated page waits for the event (usually already cached by the sidebar),
   // so a page the person cannot use never mounts and never fires its requests.
   const facts = eventFactsOf(event.data);

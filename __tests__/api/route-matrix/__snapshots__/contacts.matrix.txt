@@ -13,6 +13,8 @@ GET contacts
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    200
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -30,6 +32,8 @@ POST contacts
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -47,6 +51,8 @@ GET contacts/[contactId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    404
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -64,6 +70,8 @@ PUT contacts/[contactId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -81,6 +89,8 @@ DELETE contacts/[contactId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -98,6 +108,8 @@ PATCH contacts/[contactId]/email
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -115,6 +127,8 @@ PATCH contacts/bulk-tags
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -132,6 +146,8 @@ GET contacts/tags
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    200
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -149,6 +165,8 @@ GET contacts/filter-options
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    200
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -166,6 +184,8 @@ GET contacts/export
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    200 w
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -183,6 +203,8 @@ POST contacts/import (JSON, not multipart)
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -200,6 +222,8 @@ POST contacts/import-eventsair
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401

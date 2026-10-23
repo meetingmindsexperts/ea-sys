@@ -7,7 +7,8 @@ import { principalFromCaller, requirePermission } from "@/lib/permissions/requir
 import { checkRateLimit } from "@/lib/security";
 import { fingerprintSearchTerm, recordExport } from "@/lib/audit-data-transfer";
 import { escapeCsvCell as escapeCSV } from "@/lib/csv-escape";
-import { EXPORT_ROW_CAP, exportCell, parseExportColumns, type ExportColumn } from "@/lib/contact-export";
+import { EXPORT_ROW_CAP, exportCell, parseExportColumns, sensitiveColumnsIn, type ExportColumn } from "@/lib/contact-export";
+import { can } from "@/lib/permissions/can";
 import { contactFiltersAudit, contactFiltersWhere, hasContactFilters, parseContactFilters } from "@/lib/contact-filters";
 
 /**
@@ -57,7 +58,26 @@ export async function GET(req: Request) {
       });
       return jsonError(parsed.error, 400);
     }
-    const columns = parsed.columns;
+    // Phone, notes and the ID numbers need their own key (D4, Oct 23, 2026).
+    // Without it, a request that names one is refused with the names; a request
+    // with no column list (every column) simply leaves them out.
+    const mayExportSensitive = can(gate.principal, "contacts.export.sensitive");
+    const askedSensitive = sensitiveColumnsIn(parsed.columns);
+    const columnsExplicit = new URL(req.url).searchParams.get("columns") !== null;
+    if (!mayExportSensitive && columnsExplicit && askedSensitive.length > 0) {
+      apiLogger.warn({
+        msg: "contacts-export:sensitive-columns-refused",
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        columns: askedSensitive,
+      });
+      return jsonError(`Your access does not include these columns: ${askedSensitive.join(", ")}`, 403);
+    }
+    const columns = mayExportSensitive ? parsed.columns : parsed.columns.filter((c) => !askedSensitive.includes(c));
+    if (columns.length === 0) {
+      apiLogger.warn({ msg: "contacts-export:no-columns-left", organizationId: ctx.organizationId, userId: ctx.userId });
+      return jsonError("Choose at least one column", 400);
+    }
 
     // The Contacts page's filters (Oct 23, 2026): the export is what the page
     // shows. The cap below is 25,000 and the book is larger, so this is how a

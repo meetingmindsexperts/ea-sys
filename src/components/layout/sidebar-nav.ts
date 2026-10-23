@@ -333,7 +333,14 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
   // the event to load, so the sidebar never flashes modules the role may not have.
   const eventsScoped = p.areas.some((a) => a.area === "events" && a.scope !== undefined && a.scope !== "ALL");
   const facts: EventFacts = { organizationId: p.organizationId ?? "", eventType: currentEvent?.eventType ?? "", staffUserIds: [] };
-  const deskPair = eventNavigation.filter((item) => ["Registrations", "Check-In"].includes(item.name));
+  // Each desk item by its own key: an export-only custom role (registrations.read
+  // without registrations.checkin) is shown Registrations, not a Check-In page
+  // whose every action would refuse it (Base role plan, Oct 23, 2026). Asked
+  // WITHOUT the event: ONSITE's keys are scoped to its assigned events, which
+  // the sidebar does not know, and the routes judge the event anyway.
+  const deskPair = eventNavigation.filter(
+    (item) => ["Registrations", "Check-In"].includes(item.name) && can(p, item.key),
+  );
   const webinarFilter = webinarModuleFilter(currentEvent?.eventType ?? null);
 
   let visibleEventSections: { label: string; items: EventNavItem[] }[];

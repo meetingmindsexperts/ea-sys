@@ -395,7 +395,7 @@ SWEPT=(
 # REGISTRANT) are not flagged as literals: plan §1 keeps their own checks (an
 # author edits only their own abstract), and a route may test an invitee's
 # account type.
-STAFF='(SUPER_ADMIN|ADMIN|ORGANIZER|MEMBER|ONSITE|WEBINARS|CRM_USER|HR_USER)'
+STAFF='(SUPER_ADMIN|ADMIN|ORGANIZER|MEMBER|ONSITE|WEBINARS|CRM_USER|HR_USER|BASE)'
 PATTERN="denyReviewer\\(|[A-Za-z_]+_ALLOW\\b|[!=]==[[:space:]]*\"${STAFF}\"|\"${STAFF}\"[[:space:]]*[!=]==|session\\.user\\.role[[:space:]]*[!=]==[[:space:]]*[^\"[:space:]]|[^\"[:space:]][[:space:]]*[!=]==[[:space:]]*session\\.user\\.role"
 
 fail=0

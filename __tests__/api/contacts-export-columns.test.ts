@@ -6,11 +6,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, rateLimit, recordExport, warn } = vi.hoisted(() => ({
+const { mockDb, rateLimit, recordExport, warn, gatePrincipal } = vi.hoisted(() => ({
   mockDb: { contact: { findMany: vi.fn(), count: vi.fn() } },
   rateLimit: vi.fn(() => ({ allowed: true })),
   recordExport: vi.fn(),
   warn: vi.fn(),
+  // The principal the gate hands the route; set per test (real `can()` reads it).
+  gatePrincipal: { current: null as unknown },
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -22,18 +24,27 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }));
 vi.mock("@/lib/api-auth", () => ({
   getOrgContext: vi.fn(async () => ({ organizationId: "org1", userId: "u1", role: "ORGANIZER", fromApiKey: false })),
 }));
-vi.mock("@/lib/permissions/require-permission", () => ({
+vi.mock("@/lib/permissions/require-permission", async () => ({
+  ...(await vi.importActual<object>("@/lib/permissions/require-permission")),
   principalFromCaller: () => ({}),
-  requirePermission: () => ({ ok: true }),
+  requirePermission: () => ({ ok: true, principal: gatePrincipal.current }),
 }));
+vi.mock("@/lib/module-flags", async () => ({ ...(await vi.importActual<object>("@/lib/module-flags")), isCustomRolesEnabled: () => true }));
 
 import { GET } from "@/app/api/contacts/export/route";
-import { EXPORT_COLUMNS } from "@/lib/contact-export";
+import { EXPORT_COLUMNS, SENSITIVE_EXPORT_COLUMNS } from "@/lib/contact-export";
+import { principalFromUser } from "@/lib/permissions/can";
+import { principalFromApiKey } from "@/lib/permissions/require-permission";
+
+const organizer = principalFromUser({ id: "u1", role: "ORGANIZER", organizationId: "org1" });
+/** The Base role with a Marketing custom role: export, but not the private columns. */
+const marketing = principalFromUser({ id: "u2", role: "BASE", organizationId: "org1", procurementPermissions: ["contacts.read", "contacts.export"] });
 
 const get = (query = "") => GET(new Request(`http://localhost/api/contacts/export${query}`));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  gatePrincipal.current = organizer;
   mockDb.contact.findMany.mockResolvedValue([
     { firstName: "Amina", email: "a@x.com", city: "=HYPERLINK(\"x\")", country: "United Arab Emirates" },
   ]);
@@ -106,5 +117,53 @@ describe("GET /api/contacts/export row headers", () => {
   it("every refusal is JSON, so the dialog can show it", async () => {
     const res = await get("?columns=nope");
     expect(res.headers.get("Content-Type")).toBe("application/json");
+  });
+});
+
+describe("private columns need contacts.export.sensitive (D4, Oct 23, 2026)", () => {
+  it("an organiser holds it: phone and notes export as before", async () => {
+    const res = await get("?columns=email,phone,notes");
+    expect(res.status).toBe(200);
+    expect((await res.text()).split("\n")[0]).toBe("email,phone,notes");
+  });
+
+  it("Marketing naming a private column is refused with the names, logged, before the rate limit", async () => {
+    gatePrincipal.current = marketing;
+    const res = await get("?columns=email,phone,notes");
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toContain("phone, notes");
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "contacts-export:sensitive-columns-refused" }));
+    expect(rateLimit).not.toHaveBeenCalled();
+    expect(mockDb.contact.findMany).not.toHaveBeenCalled();
+  });
+
+  it("Marketing with no column list gets every column except the private ones", async () => {
+    gatePrincipal.current = marketing;
+    const res = await get();
+    expect(res.status).toBe(200);
+    const header = (await res.text()).split("\n")[0].split(",");
+    expect(header).toEqual(EXPORT_COLUMNS.filter((c) => !SENSITIVE_EXPORT_COLUMNS.includes(c)));
+    expect(Object.keys(mockDb.contact.findMany.mock.calls[0][0].select)).not.toContain("notes");
+  });
+
+  it("Marketing's basic columns export normally", async () => {
+    gatePrincipal.current = marketing;
+    const res = await get("?columns=firstName,email,country");
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("API keys and the private columns", () => {
+  it("a full API key keeps them", async () => {
+    gatePrincipal.current = principalFromApiKey("org1");
+    const res = await get("?columns=email,phone");
+    expect(res.status).toBe(200);
+  });
+
+  it("a key bound to a role without the key gets the ordinary columns only", async () => {
+    gatePrincipal.current = principalFromApiKey("org1", [{ permission: "contacts.export" }]);
+    expect((await get("?columns=email,phone")).status).toBe(403);
+    const res = await get();
+    expect((await res.text()).split("\n")[0].split(",")).not.toContain("phone");
   });
 });

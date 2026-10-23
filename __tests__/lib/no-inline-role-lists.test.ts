@@ -30,7 +30,7 @@ import path from "node:path";
  * and REGISTRANT are outside identities whose checks route portals
  * (`role === "REVIEWER" || role === "SUBMITTER"` in proxy.ts) and stay fixed.
  */
-const ROLE = `"(SUPER_ADMIN|ADMIN|ORGANIZER|MEMBER|ONSITE|WEBINARS|CRM_USER|HR_USER)"`;
+const ROLE = `"(SUPER_ADMIN|ADMIN|ORGANIZER|MEMBER|ONSITE|WEBINARS|CRM_USER|HR_USER|BASE)"`;
 const IDENT = String.raw`[\w$.?!]+`;
 const CMP = String.raw`(?:${IDENT}\s*[!=]==\s*${ROLE}|${ROLE}\s*[!=]==\s*${IDENT})`;
 const JOIN = String.raw`\s*(?:\|\||&&)\s*!?`;

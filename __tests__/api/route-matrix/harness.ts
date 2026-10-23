@@ -54,6 +54,8 @@ const U = {
   webinars: "u-webinars",
   crm: "u-crm",
   hr: "u-hr",
+  base: "u-base",
+  baseMkt: "u-base-mkt",
   reviewer: "u-reviewer",
   submitter: "u-submitter",
   registrant: "u-registrant",
@@ -384,10 +386,15 @@ export interface Caller {
   apiKey?: boolean;
 }
 
-const staff = (label: string, role: string, id: string, organizationId: string | null = ORG): Caller => ({
+const staff = (label: string, role: string, id: string, organizationId: string | null = ORG, customKeys?: string[]): Caller => ({
   label,
-  session: { user: { id, role, organizationId, firstName: "F", lastName: "L" } },
+  session: {
+    user: { id, role, organizationId, firstName: "F", lastName: "L", ...(customKeys && { procurementPermissions: customKeys }) },
+  },
 });
+
+/** The Marketing custom role on the Base role (docs/BASE_ROLE_PLAN.md). */
+const MARKETING_KEYS = ["events.read@ALL", "registrations.read@ALL", "registrations.export@ALL", "contacts.read", "contacts.export"];
 
 export const CALLERS: readonly Caller[] = [
   staff("SUPER_ADMIN", "SUPER_ADMIN", U.superAdmin),
@@ -399,6 +406,10 @@ export const CALLERS: readonly Caller[] = [
   staff("WEBINARS", "WEBINARS", U.webinars),
   staff("CRM_USER", "CRM_USER", U.crm),
   staff("HR_USER", "HR_USER", U.hr),
+  // The Base role: plain (expect a refusal everywhere a key is needed) and with
+  // the Marketing role (expect only its five keys' routes to answer).
+  staff("BASE", "BASE", U.base),
+  staff("BASE_MKT", "BASE", U.baseMkt, ORG, MARKETING_KEYS),
   staff("REVIEWER", "REVIEWER", U.reviewer, null),
   staff("SUBMITTER", "SUBMITTER", U.submitter, null),
   staff("REGISTRANT", "REGISTRANT", U.registrant, null),

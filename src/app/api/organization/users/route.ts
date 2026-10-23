@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { isHrModuleEnabled } from "@/lib/module-flags";
+import { isCustomRolesEnabled, isHrModuleEnabled } from "@/lib/module-flags";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { auth } from "@/lib/auth";
@@ -28,6 +28,7 @@ const ROLE_LABELS: Record<string, string> = {
   REVIEWER: "Reviewer",
   CRM_USER: "CRM User",
   HR_USER: "HR User",
+  BASE: "Base role",
 };
 
 /**
@@ -40,7 +41,7 @@ const ROLE_LABELS: Record<string, string> = {
  * dropdown is UX and this is the boundary.
  */
 function roleIsGrantableHere(role: string): boolean {
-  return isRoleGrantableHere(role, isHrModuleEnabled());
+  return isRoleGrantableHere(role, { hrModuleEnabled: isHrModuleEnabled(), customRolesEnabled: isCustomRolesEnabled() });
 }
 
 const inviteUserSchema = z.object({

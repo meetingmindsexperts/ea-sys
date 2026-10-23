@@ -745,11 +745,13 @@ export interface BillingAccountDetail extends BillingAccountRow {
 
 // Pass `{ eventId }` to filter by per-event scoping (junction membership).
 // Omit `eventId` for the org-wide Settings view.
-export function useBillingAccounts(params?: Record<string, string>) {
+/** `enabled` false skips the request for someone without `billingAccounts.read`. */
+export function useBillingAccounts(params?: Record<string, string>, enabled = true) {
   const queryString = buildQueryString(params);
   return useQuery({
     queryKey: params ? [...queryKeys.billingAccounts, params] : queryKeys.billingAccounts,
     queryFn: () => fetchApi<BillingAccountRow[]>(`/api/billing-accounts${queryString}`),
+    enabled,
   });
 }
 

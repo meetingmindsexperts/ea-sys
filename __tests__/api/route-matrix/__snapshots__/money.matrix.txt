@@ -13,6 +13,8 @@ POST registrations/[registrationId]/refund
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -30,6 +32,8 @@ POST registrations/[registrationId]/cancel
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -47,6 +51,8 @@ POST registrations/[registrationId]/credit-notes
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -64,6 +70,8 @@ POST registrations/[registrationId]/promo
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -81,6 +89,8 @@ DELETE registrations/[registrationId]/promo
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -98,6 +108,8 @@ GET registrations/[registrationId]/quote
   WEBINARS    404         404         404 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -115,6 +127,8 @@ POST billing-accounts (attach to event)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -132,6 +146,8 @@ POST billing-accounts/[billingAccountId] (event)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -149,6 +165,8 @@ DELETE billing-accounts/[billingAccountId] (event)
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -166,6 +184,8 @@ GET invoices
   WEBINARS    404         404         200 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -183,6 +203,8 @@ POST invoices
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -200,6 +222,8 @@ GET invoices/[invoiceId]
   WEBINARS    404         404         404 e       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -217,6 +241,8 @@ PUT invoices/[invoiceId]
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -234,6 +260,8 @@ GET invoices/[invoiceId]/pdf
   WEBINARS    404         404         404 e       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -251,6 +279,8 @@ POST invoices/[invoiceId]/send
   WEBINARS    403         403         403         403
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -268,6 +298,8 @@ GET invoices/export
   WEBINARS    404         404         200 r w     404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
   SUBMITTER   403         403         403         403
   REGISTRANT  403         403         403         403
@@ -285,6 +317,8 @@ GET /api/invoices (org ledger)
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -302,6 +336,8 @@ GET /api/invoices/export (org ledger)
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -319,6 +355,8 @@ GET /api/billing-accounts
   WEBINARS    200
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -336,6 +374,8 @@ POST /api/billing-accounts
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -353,6 +393,8 @@ GET /api/billing-accounts/[billingAccountId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -370,6 +412,8 @@ PATCH /api/billing-accounts/[billingAccountId]
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403
@@ -387,6 +431,8 @@ POST /api/billing-accounts/[billingAccountId]/merge
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    403
   SUBMITTER   403
   REGISTRANT  403

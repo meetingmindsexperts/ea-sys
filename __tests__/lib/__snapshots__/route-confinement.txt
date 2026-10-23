@@ -246,6 +246,37 @@
   /media -> /hr
   /my-registration -> pass
   /api/events -> pass
+# BASE
+  /dashboard -> /events
+  /events -> pass
+  /events/new -> /events
+  /events/e1 -> /events
+  /events/e1/registrations -> /events
+  /events/e1/registrations/r1 -> /events
+  /events/e1/check-in -> /events
+  /events/e1/check-in/kiosk -> /events
+  /events/e1/speakers -> /events
+  /events/e1/abstracts -> /events
+  /events/e1/abstracts/new -> /events
+  /events/e1/session-proposals -> /events
+  /events/e1/my-details -> /events
+  /events/e1/settings -> /events
+  /events/e1/webinar -> /events
+  /settings -> /events
+  /contacts -> /events
+  /contacts/c1 -> /events
+  /profile -> pass
+  /logs -> /events
+  /agent -> /events
+  /invoices -> /events
+  /analytics -> /events
+  /crm -> /events
+  /hr -> /events
+  /procurement -> /events
+  /activity -> /events
+  /media -> /events
+  /my-registration -> pass
+  /api/events -> pass
 # REVIEWER
   /dashboard -> /events
   /events -> pass

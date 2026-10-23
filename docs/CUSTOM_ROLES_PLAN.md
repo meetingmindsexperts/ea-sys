@@ -265,6 +265,12 @@ one. The smallest storage is a nullable `User.baseRoleKey` read ahead of
 `User.role`; an enum value would touch `TEAM_ROLES`, `ASSIGNABLE_USER_ROLES`
 and the compile guard, which is what D15 avoids.
 
+**Phase 5 outcome (Oct 23, 2026).** Stored as the enum value `BASE` after all
+([BASE_ROLE_PLAN.md](BASE_ROLE_PLAN.md) §3): with a `baseRoleKey` the person's
+`role` would still say MEMBER to the ~120 files that read it, and a rollback past
+the column would silently restore full Member access. An enum value fails
+closed in code that does not know it, and the three lists cost three lines.
+
 After Phase 0 every predicate a route still uses is an allow-list, so a role
 that grants something not yet swept fails closed. That is what makes "custom
 roles stay off until the sweep is complete" structural rather than a promise.
@@ -1602,7 +1608,7 @@ Before save, the editor flags:
 | D12 | A custom-role user's `User.role` holds a new `CUSTOM` value? | Yes (§3.3) **Superseded Sep 30, 2026 by D15: no `CUSTOM` value.** |
 | D13 | Custom-role grants read in a lane borrowed from the user row, or exempt the role tables from RLS? | Borrow the lane (§3.5) |
 | D17 | Checkboxes on a named role or directly on the person? | **Named role** (owner, Sep 16 2026); see PROCUREMENT_ROLES_PLAN §8a |
-| D15 | A person with no base access: add `UserRole.CUSTOM`, or seed a "No base access" system role? | Open; the seeded role is smaller (§3.3) **Ruled: "No base access" system role (owner, Sep 30, 2026); storage decided in Phase 5, §3.3.** |
+| D15 | A person with no base access: add `UserRole.CUSTOM`, or seed a "No base access" system role? | Open; the seeded role is smaller (§3.3) **Ruled: "No base access" system role (owner, Sep 30, 2026); storage decided in Phase 5, §3.3.** **Storage decided Oct 23, 2026: a `UserRole` value `BASE` ("Base role") backed by a system role with an empty grant set; see [BASE_ROLE_PLAN.md](BASE_ROLE_PLAN.md) §3 for why not `User.baseRoleKey`.** |
 | D16 | Build order | **Reversed the same day.** Procurement roles first (PROCUREMENT_ROLES_PLAN §0: three staff are blocked or over-permissioned today and Phase 0 fixes none of it). Phase 0 step 1 shipped on its own; the rest follows |
 | D14 | Should the org-wide ORGANIZER scope be recorded as intended, since the docs say "assigned events only"? | Owner call; the migration preserves the code either way |
 

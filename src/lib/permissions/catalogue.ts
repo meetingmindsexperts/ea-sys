@@ -196,6 +196,7 @@ export const PERMISSION_KEYS = [
   "contacts.delete",
   "contacts.import",
   "contacts.export",
+  "contacts.export.sensitive",
   // CRM
   "crm.read",
   "crm.write",
@@ -614,6 +615,17 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("contacts.delete", "Contacts", "Delete contacts", "Remove contacts from the store.", S),
   app("contacts.import", "Contacts", "Import contacts", "Load contacts from a spreadsheet."),
   app("contacts.export", "Contacts", "Export contacts", "Download the contact store as a spreadsheet.", S),
+  // Oct 23, 2026 (docs/BASE_ROLE_PLAN.md D4): the columns that are private
+  // rather than marketing data, in the contacts AND registrations CSVs. Every
+  // built-in role that exports either holds it too, so only a custom role (a
+  // marketing export role) leaves it out. It narrows files, not screens.
+  app(
+    "contacts.export.sensitive",
+    "Contacts",
+    "Export private contact details",
+    "Include phone numbers, organisers' notes, member ID and student ID in exported files (the contacts and registrations CSVs).",
+    S,
+  ),
 
   // ── CRM ──
   app("crm.read", "CRM", "See the CRM", "Open deals, companies, contacts and tasks."),

@@ -135,6 +135,7 @@ describe("buildRoleTail — role-aware differentiation", () => {
       "WEBINARS",
       "CRM_USER",
       "HR_USER",
+      "BASE",
       "REVIEWER",
       "SUBMITTER",
       "REGISTRANT",

@@ -13,6 +13,8 @@ GET crm/activity/export
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -30,6 +32,8 @@ GET crm/activity/feed
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -47,6 +51,8 @@ GET crm/activity
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -64,6 +70,8 @@ GET crm/companies/[companyId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -81,6 +89,8 @@ PATCH crm/companies/[companyId]
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -98,6 +108,8 @@ DELETE crm/companies/[companyId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -115,6 +127,8 @@ GET crm/companies/facets
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -132,6 +146,8 @@ GET crm/companies
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -149,6 +165,8 @@ POST crm/companies
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -166,6 +184,8 @@ GET crm/companies/tags
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -183,6 +203,8 @@ GET crm/contacts/[crmContactId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -200,6 +222,8 @@ PATCH crm/contacts/[crmContactId]
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -217,6 +241,8 @@ DELETE crm/contacts/[crmContactId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -234,6 +260,8 @@ GET crm/contacts
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -251,6 +279,8 @@ POST crm/contacts
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -268,6 +298,8 @@ GET crm/contacts/tags
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -285,6 +317,8 @@ PATCH crm/deal-types/[dealTypeId]
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -302,6 +336,8 @@ GET crm/deal-types
   WEBINARS    403
   CRM_USER    200 w
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -319,6 +355,8 @@ POST crm/deal-types
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -336,6 +374,8 @@ PATCH crm/deal-types
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -353,6 +393,8 @@ POST crm/deals/[dealId]/close
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -370,6 +412,8 @@ POST crm/deals/[dealId]/contacts
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -387,6 +431,8 @@ DELETE crm/deals/[dealId]/contacts
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -404,6 +450,8 @@ GET crm/deals/[dealId]/documents/[documentId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -421,6 +469,8 @@ DELETE crm/deals/[dealId]/documents/[documentId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -438,6 +488,8 @@ GET crm/deals/[dealId]/documents
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -455,6 +507,8 @@ POST crm/deals/[dealId]/documents
   WEBINARS    403
   CRM_USER    500
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -472,6 +526,8 @@ GET crm/deals/[dealId]/products
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -489,6 +545,8 @@ POST crm/deals/[dealId]/products
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -506,6 +564,8 @@ PATCH crm/deals/[dealId]/products
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -523,6 +583,8 @@ DELETE crm/deals/[dealId]/products
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -540,6 +602,8 @@ GET crm/deals/[dealId]/quote
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -557,6 +621,8 @@ POST crm/deals/[dealId]/quote
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -574,6 +640,8 @@ PATCH crm/deals/[dealId]/quotes/[quoteId]
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -591,6 +659,8 @@ DELETE crm/deals/[dealId]/quotes/[quoteId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -608,6 +678,8 @@ GET crm/deals/[dealId]/quotes
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -625,6 +697,8 @@ GET crm/deals/[dealId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -642,6 +716,8 @@ PATCH crm/deals/[dealId]
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -659,6 +735,8 @@ DELETE crm/deals/[dealId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -676,6 +754,8 @@ PATCH crm/deals/[dealId]/stage
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -693,6 +773,8 @@ GET crm/deals/export
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -710,6 +792,8 @@ GET crm/deals
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -727,6 +811,8 @@ POST crm/deals
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -744,6 +830,8 @@ PATCH crm/email-templates/[templateId]
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -761,6 +849,8 @@ DELETE crm/email-templates/[templateId]
   WEBINARS    403
   CRM_USER    500 w
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -778,6 +868,8 @@ GET crm/email-templates
   WEBINARS    403
   CRM_USER    200 w
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -795,6 +887,8 @@ POST crm/email-templates
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -812,6 +906,8 @@ GET crm/events-lite
   WEBINARS    403
   CRM_USER    500
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -829,6 +925,8 @@ POST crm/import/companies
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -846,6 +944,8 @@ POST crm/import/contacts
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -863,6 +963,8 @@ POST crm/import/deals
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -880,6 +982,8 @@ GET crm/inbox/[threadId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -897,6 +1001,8 @@ GET crm/inbox/messages/[messageId]/attachments/[index]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -914,6 +1020,8 @@ GET crm/inbox
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -931,6 +1039,8 @@ PATCH crm/notes/[noteId]
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -948,6 +1058,8 @@ DELETE crm/notes/[noteId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -965,6 +1077,8 @@ GET crm/notes
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -982,6 +1096,8 @@ POST crm/notes
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -999,6 +1115,8 @@ GET crm/notifications
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1016,6 +1134,8 @@ PATCH crm/notifications
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1033,6 +1153,8 @@ PATCH crm/pipeline-stages/[stageId]
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1050,6 +1172,8 @@ DELETE crm/pipeline-stages/[stageId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1067,6 +1191,8 @@ GET crm/pipeline-stages
   WEBINARS    403
   CRM_USER    200 w
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1084,6 +1210,8 @@ POST crm/pipeline-stages
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1101,6 +1229,8 @@ PATCH crm/pipeline-stages
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1118,6 +1248,8 @@ PATCH crm/products/[productId]
   WEBINARS    403
   CRM_USER    500 w
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1135,6 +1267,8 @@ DELETE crm/products/[productId]
   WEBINARS    403
   CRM_USER    500 w
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1152,6 +1286,8 @@ GET crm/products
   WEBINARS    403
   CRM_USER    200 w
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1169,6 +1305,8 @@ POST crm/products
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1186,6 +1324,8 @@ POST crm/purge
   WEBINARS    403
   CRM_USER    403
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1203,6 +1343,8 @@ GET crm/reports
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1220,6 +1362,8 @@ GET crm/reps
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1237,6 +1381,8 @@ GET crm/sponsor-email/recipients
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1254,6 +1400,8 @@ POST crm/sponsor-email/send
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1271,6 +1419,8 @@ PATCH crm/tasks/[taskId]
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1288,6 +1438,8 @@ DELETE crm/tasks/[taskId]
   WEBINARS    403
   CRM_USER    404
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1305,6 +1457,8 @@ GET crm/tasks
   WEBINARS    403
   CRM_USER    200
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401
@@ -1322,6 +1476,8 @@ POST crm/tasks
   WEBINARS    403
   CRM_USER    400
   HR_USER     403
+  BASE        403
+  BASE_MKT    403
   REVIEWER    401
   SUBMITTER   401
   REGISTRANT  401

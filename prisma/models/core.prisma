@@ -364,6 +364,14 @@ enum UserRole {
   // because the enum is shared; being grantable is a different question from
   // existing.
   HR_USER
+  // Base role ("No default permissions: attach a custom role"). Added
+  // 2026-10-23 (docs/BASE_ROLE_PLAN.md; owner ruling D15 of the custom roles
+  // plan). An org-bound team role whose system role holds ZERO permissions and
+  // no areas: everything the person can do comes from the custom roles they
+  // hold, extended into events, the desk and single organisation pages. First
+  // use: a marketing colleague who exports registrations and contacts. Grantable
+  // only while custom roles are on (CUSTOM_ROLES_ENABLED); never notified.
+  BASE
 }
 
 enum Title {

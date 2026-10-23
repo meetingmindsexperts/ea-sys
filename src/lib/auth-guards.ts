@@ -46,6 +46,7 @@ export const ASSIGNABLE_USER_ROLES = [
   "ONSITE",
   "CRM_USER",
   "HR_USER",
+  "BASE",
   "REVIEWER",
 ] as const;
 
