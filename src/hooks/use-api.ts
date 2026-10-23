@@ -897,6 +897,8 @@ export function useContactTags() {
 }
 
 export interface ContactFilterOptions {
+  /** Every contact in the organisation, for "of N" beside a filtered count. */
+  total: number;
   specialties: { value: string; count: number }[];
   specialtyNotSet: number;
   countries: { value: string; count: number }[];
@@ -905,11 +907,18 @@ export interface ContactFilterOptions {
   roleNotSet: number;
 }
 
-/** Choices (with counts) for the Contacts page's Specialty, Country and Role filters. */
-export function useContactFilterOptions() {
+/**
+ * Choices (with counts) for the Contacts page's Specialty, Country and Role
+ * filters. Each picker's counts follow the other filters, so the page's filter
+ * params are part of the key; the previous choices stay on screen while the
+ * next set loads instead of the pickers emptying.
+ */
+export function useContactFilterOptions(filters: Record<string, string>) {
+  const qs = new URLSearchParams(filters).toString();
   return useQuery({
-    queryKey: [...queryKeys.contacts, "filter-options"],
-    queryFn: () => fetchApi<ContactFilterOptions>("/api/contacts/filter-options"),
+    queryKey: [...queryKeys.contacts, "filter-options", filters],
+    queryFn: () => fetchApi<ContactFilterOptions>(`/api/contacts/filter-options${qs ? `?${qs}` : ""}`),
+    placeholderData: (previous) => previous,
   });
 }
 

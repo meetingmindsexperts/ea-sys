@@ -4,12 +4,15 @@
 import { describe, it, expect } from "vitest";
 import {
   NOT_SET,
+  contactExportFileName,
   contactFiltersAudit,
   contactFiltersQuery,
   contactFiltersWhere,
+  groupFilterValues,
   hasContactFilters,
   parseContactFilters,
 } from "@/lib/contact-filters";
+import { describeContactFilters } from "@/components/contacts/contact-field-filters";
 
 const parse = (q: string) => parseContactFilters(new URLSearchParams(q));
 
@@ -79,5 +82,67 @@ describe("query and audit helpers", () => {
   it("the audit form never carries the search text", () => {
     const a = contactFiltersAudit({ search: "amina@x.com", tags: [], specialty: "Cardiology", country: null, role: null });
     expect(a).toEqual({ specialty: "Cardiology" });
+  });
+});
+
+describe("wildcards and the Not recorded sentinel", () => {
+  const base = { search: "", tags: [], specialty: null, country: null, role: null };
+
+  it("escapes % and _ so a value only matches itself (insensitive equals is ILIKE)", () => {
+    const w = contactFiltersWhere("org1", { ...base, specialty: "%", country: "a_b\\c" });
+    expect(w.AND).toEqual([
+      { specialty: { equals: "\\%", mode: "insensitive" } },
+      { country: { equals: "a\\_b\\\\c", mode: "insensitive" } },
+    ]);
+  });
+
+  it("a real value of 'none' is a value, not the blank choice", () => {
+    const w = contactFiltersWhere("org1", { ...base, specialty: "none" });
+    expect(w.AND).toEqual([{ specialty: { equals: "none", mode: "insensitive" } }]);
+  });
+});
+
+describe("groupFilterValues", () => {
+  it("merges case variants under the most common spelling and totals them", () => {
+    const { options, notSet } = groupFilterValues([
+      { value: "United Arab Emirates", count: 100 },
+      { value: "UNITED ARAB EMIRATES", count: 7 },
+      { value: "India", count: 50 },
+      { value: null, count: 9 },
+      { value: "", count: 1 },
+      { value: "   ", count: 2 },
+    ]);
+    expect(options).toEqual([
+      { value: "United Arab Emirates", count: 107 },
+      { value: "India", count: 50 },
+    ]);
+    expect(notSet).toBe(12);
+  });
+
+  it("orders ties by name", () => {
+    const { options } = groupFilterValues([{ value: "B", count: 3 }, { value: "A", count: 3 }]);
+    expect(options.map((o) => o.value)).toEqual(["A", "B"]);
+  });
+});
+
+describe("export file name and filter wording", () => {
+  const day = new Date("2026-10-23T09:00:00Z");
+
+  it("names the file after the filters, never the search text", () => {
+    expect(contactExportFileName({ country: "India", specialty: "Cardiology", search: "amina" }, day)).toBe(
+      "contacts-india-cardiology-search-2026-10-23.csv",
+    );
+    expect(contactExportFileName({ role: NOT_SET }, day)).toBe("contacts-not-recorded-2026-10-23.csv");
+    expect(contactExportFileName({}, day)).toBe("contacts-all-2026-10-23.csv");
+  });
+
+  it("describes the filters in words for the export dialog", () => {
+    expect(describeContactFilters({ search: "amina", tags: "vip,kol", country: "India", role: "ALLIED_HEALTH", specialty: NOT_SET })).toEqual([
+      "Search: “amina”",
+      "Tags: vip, kol",
+      "Specialty: Not recorded",
+      "Country: India",
+      "Role: Allied Health",
+    ]);
   });
 });

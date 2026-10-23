@@ -7,7 +7,10 @@ import {
   useContactTags,
   useUpdateContactTags,
   useBulkTagContacts,
+  useContactFilterOptions,
+  queryKeys,
 } from "@/hooks/use-api";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +36,6 @@ import {
 import { toast } from "sonner";
 import {
   UserPlus,
-  Upload,
   Download,
   FileDown,
   Search,
@@ -51,7 +53,14 @@ import {
 import { EventsAirContactsImportDialog } from "@/components/import/eventsair-contacts-import-dialog";
 import { ContactDetailSheet } from "@/components/contacts/contact-detail-sheet";
 import { ExportContactsDialog } from "@/components/contacts/export-contacts-dialog";
-import { ContactFieldFilters, type ContactFieldFilterValues } from "@/components/contacts/contact-field-filters";
+import { ImportContactsCsv, downloadContactsTemplate } from "@/components/contacts/import-contacts-csv";
+import {
+  ContactFieldFilters,
+  ContactFieldFiltersHint,
+  EMPTY_FIELD_FILTERS,
+  describeContactFilters,
+  type ContactFieldFilterValues,
+} from "@/components/contacts/contact-field-filters";
 import { contactFiltersQuery } from "@/lib/contact-filters";
 import { TagFilterPopover, getTagColor, type TagUsage } from "@/components/contacts/tag-filter-popover";
 import { formatDate, formatPersonName } from "@/lib/utils";
@@ -113,13 +122,14 @@ export default function ContactsPage() {
   const canDeleteContacts = useCan("contacts.delete") === "allowed";
   const canExportContacts = useCan("contacts.export") === "allowed";
 
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [exportOpen, setExportOpen] = useState(false);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
-  const [fieldFilters, setFieldFilters] = useState<ContactFieldFilterValues>({ specialty: null, country: null, role: null });
+  const [fieldFilters, setFieldFilters] = useState<ContactFieldFilterValues>(EMPTY_FIELD_FILTERS);
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -132,7 +142,6 @@ export default function ContactsPage() {
   const [tagDialogValue, setTagDialogValue] = useState<string[]>([]);
 
   const [eventsAirOpen, setEventsAirOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // One set of filter params for the list and the export, so Export takes
@@ -148,6 +157,8 @@ export default function ContactsPage() {
   const filters: Record<string, string> = { page: String(page), limit: String(pageSize), ...filterQuery };
 
   const { data, isLoading, isFetching, refetch: refetchContacts } = useContacts(filters);
+  const filterOptions = useContactFilterOptions(filterQuery);
+  const bookTotal = filterOptions.data?.total;
   const { data: tagsData, refetch: refetchTags } = useContactTags();
   const updateContactTags = useUpdateContactTags();
   const bulkTagContacts = useBulkTagContacts();
@@ -247,52 +258,21 @@ export default function ContactsPage() {
     }
   };
 
-  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append("file", file);
-    e.target.value = "";
-    const toastId = toast.loading("Importing contacts in background…", { duration: Infinity });
-
-    // Fire-and-forget: import runs in the background while user continues working
-    fetch("/api/contacts/import", { method: "POST", body: formData })
-      .then(async (res) => {
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || "Import failed");
-        toast.dismiss(toastId);
-        toast.success(
-          `Imported ${json.created} contacts` +
-          (json.skipped > 0 ? `, ${json.skipped} skipped (duplicates)` : "") +
-          (json.errors?.length > 0 ? `, ${json.errors.length} errors` : "")
-        );
-        setPage(1);
-        refetchContacts();
-        refetchTags();
-      })
-      .catch((err: unknown) => {
-        toast.dismiss(toastId);
-        toast.error(err instanceof Error ? err.message : "Import failed");
-      });
+  // Everything under ["contacts"], the filter choices and tag counts included:
+  // the import used to refetch only the list and tags, so the filter counts
+  // lagged behind (review L4, Oct 23, 2026).
+  const handleImported = () => {
+    setPage(1);
+    queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
   };
 
   const handleExportCSV = () => setExportOpen(true);
 
-  const handleDownloadTemplate = () => {
-    const csv = [
-      // Identity fields grouped first — matches the registrations/speakers
-      // templates. Column ORDER is presentation only; the importer resolves
-      // every column by name.
-      "title,firstName,lastName,email,phone,additionalEmail,organization,jobTitle,specialty,customSpecialty,role,registrationType,city,state,zipCode,country,associationName,memberId,studentId,studentIdExpiry,tags,notes",
-      'Dr,John,Smith,john@example.com,+1-555-0123,,Acme Corp,CEO,Cardiology,,PHYSICIAN,Physician,Dubai,,,United Arab Emirates,,,,,"VIP, Speaker",Met at conference 2025',
-    ].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "contacts-template.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+  const clearAllFilters = () => {
+    handleSearchChange("");
+    setTagFilter(new Set());
+    setFieldFilters(EMPTY_FIELD_FILTERS);
+    setPage(1);
   };
 
   const toggleSelect = (id: string) => {
@@ -333,7 +313,6 @@ export default function ContactsPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
-            <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
             <Button
               variant="ghost"
               size="sm"
@@ -348,7 +327,7 @@ export default function ContactsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={handleDownloadTemplate}
+              onClick={downloadContactsTemplate}
               className="h-8 text-xs border-gray-200 text-gray-600 hover:text-gray-900"
             >
               <FileDown className="h-3.5 w-3.5 mr-1.5" />
@@ -365,17 +344,7 @@ export default function ContactsPage() {
                 EventsAir
               </Button>
             )}
-            {canImportCsv && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-                className="h-8 text-xs border-gray-200 text-gray-600 hover:text-gray-900"
-              >
-                <Upload className="h-3.5 w-3.5 mr-1.5" />
-                Import CSV
-              </Button>
-            )}
+            {canImportCsv && <ImportContactsCsv onImported={handleImported} />}
             {canExportContacts && (
               <Button
                 variant="outline"
@@ -408,8 +377,14 @@ export default function ContactsPage() {
               <Users className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Contacts</div>
+              {/* Filtered, the card says so: the number is no longer the whole book. */}
+              <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                {isFiltered ? "Matching contacts" : "Contacts"}
+              </div>
               <div className="text-xl font-bold text-gray-900 leading-tight tabular-nums">{total.toLocaleString()}</div>
+              {isFiltered && bookTotal !== undefined && (
+                <div className="text-[10px] text-gray-400 tabular-nums">of {bookTotal.toLocaleString()} in total</div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3 bg-white rounded-xl border border-gray-200 px-4 py-3.5 shadow-sm">
@@ -461,22 +436,22 @@ export default function ContactsPage() {
           <ContactFieldFilters
             value={fieldFilters}
             onChange={(next) => { setFieldFilters(next); setPage(1); }}
+            options={filterOptions.data}
+            loading={filterOptions.isLoading}
+            failed={filterOptions.isError}
           />
-          {isFiltered && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-9 text-xs text-gray-500"
-              onClick={() => {
-                handleSearchChange("");
-                setTagFilter(new Set());
-                setFieldFilters({ specialty: null, country: null, role: null });
-                setPage(1);
-              }}
-            >
-              Clear filters
-            </Button>
-          )}
+          {/* Always shown, disabled when there is nothing to clear, so people
+              learn it exists; it clears search and tags too. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 text-xs text-gray-500"
+            disabled={!isFiltered}
+            onClick={clearAllFilters}
+          >
+            Clear all filters
+          </Button>
+          <ContactFieldFiltersHint />
         </div>
         {/* Bulk actions bar */}
         {canWriteContacts && selectedIds.size > 0 && (
@@ -567,13 +542,18 @@ export default function ContactsPage() {
                       </div>
                       <div className="space-y-1">
                         <p className="text-sm font-medium text-gray-600">
-                          {search || tagFilter.size > 0 ? "No contacts match" : "No contacts yet"}
+                          {isFiltered ? "No contacts match these filters" : "No contacts yet"}
                         </p>
                         <p className="text-xs text-gray-400">
                           {emptyContactsHint(isFiltered, canWriteContacts || canImportCsv)}
                         </p>
                       </div>
-                      {canWriteContacts && !search && tagFilter.size === 0 && (
+                      {isFiltered && (
+                        <Button size="sm" variant="outline" className="mt-1" onClick={clearAllFilters}>
+                          Clear all filters
+                        </Button>
+                      )}
+                      {canWriteContacts && !isFiltered && (
                         <Button size="sm" className="btn-gradient mt-1" asChild>
                           <Link href="/contacts/new">
                             <UserPlus className="h-3.5 w-3.5 mr-1.5" />
@@ -874,7 +854,14 @@ export default function ContactsPage() {
       </Dialog>
 
       {canExportContacts && (
-        <ExportContactsDialog open={exportOpen} onOpenChange={setExportOpen} filterQuery={filterQuery} matching={total} />
+        <ExportContactsDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          filterQuery={filterQuery}
+          filterSummary={describeContactFilters(filterQuery)}
+          matching={isLoading || isFetching ? null : total}
+          onClearFilters={clearAllFilters}
+        />
       )}
 
       {/* Contact Detail Sheet */}

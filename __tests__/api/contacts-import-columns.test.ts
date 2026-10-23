@@ -86,8 +86,10 @@ describe("POST /api/contacts/import columns", () => {
     const row = mockDb.contact.createMany.mock.calls[0][0].data[0];
     expect(row.studentIdExpiry).toBeNull();
     expect(row).not.toHaveProperty("additionalEmail");
-    expect(body.errors.join(" ")).toMatch(/expiry.*YYYY-MM-DD/);
-    expect(body.errors.join(" ")).toMatch(/additional email/);
+    // Imported with values left blank: warnings, not row errors.
+    expect(body.errors).toEqual([]);
+    expect(body.warnings.join(" ")).toMatch(/expiry.*YYYY-MM-DD/);
+    expect(body.warnings.join(" ")).toMatch(/additional email/);
   });
 
   it("an empty cell writes nothing for that column", async () => {
@@ -106,7 +108,7 @@ describe("POST /api/contacts/import limits and round trip", () => {
     expect(row).not.toHaveProperty("city");
     expect(row).not.toHaveProperty("memberId");
     expect(row.country).toBe("India");
-    expect(body.errors.join(" ")).toMatch(/2 value\(s\) were longer/);
+    expect(body.warnings.join(" ")).toMatch(/2 value\(s\) were longer/);
   });
 
   it("fails a row whose name is over 100 characters", async () => {
@@ -122,5 +124,17 @@ describe("POST /api/contacts/import limits and round trip", () => {
     const row = mockDb.contact.createMany.mock.calls[0][0].data[0];
     expect(row.memberId).toBe("-A123");
     expect(row.notes).toBe("=SUM(1)");
+  });
+});
+
+describe("POST /api/contacts/import unrecognised role and title", () => {
+  it("imports the row, leaves them blank and says which values are accepted", async () => {
+    const csv = ["title,firstName,lastName,email,role", "Doctor,A,B,a@x.com,Surgeon"].join("\n");
+    const body = await (await POST(upload(csv))).json();
+    const row = mockDb.contact.createMany.mock.calls[0][0].data[0];
+    expect(row.role).toBeNull();
+    expect(row.title).toBeNull();
+    expect(body.warnings.join(" ")).toMatch(/1 role value\(s\) were not recognised.*Physician/);
+    expect(body.warnings.join(" ")).toMatch(/1 title value\(s\).*Dr, Prof/);
   });
 });

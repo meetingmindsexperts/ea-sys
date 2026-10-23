@@ -20,12 +20,20 @@ import { contactFiltersAudit, contactFiltersWhere, hasContactFilters, parseConta
  * the entire organization's contact book, with no role gate, no audit trail and
  * no rate limit. Now: staff + MEMBER only, audited, and rate-limited.
  */
+/** Every refusal as JSON, so the dialog's fetch can show the message. */
+function jsonError(error: string, status: number, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify({ error }), {
+    status,
+    headers: { "Content-Type": "application/json", ...headers },
+  });
+}
+
 export async function GET(req: Request) {
   try {
     const ctx = await getOrgContext(req);
 
     if (!ctx) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+      return jsonError("Unauthorized", 401);
     }
 
     // `contacts.export` is narrower than read: CRM_USER may search and read
@@ -47,7 +55,7 @@ export async function GET(req: Request) {
         userId: ctx.userId,
         unknown: parsed.unknown,
       });
-      return new Response(JSON.stringify({ error: parsed.error }), { status: 400 });
+      return jsonError(parsed.error, 400);
     }
     const columns = parsed.columns;
 
@@ -62,7 +70,7 @@ export async function GET(req: Request) {
         userId: ctx.userId,
         field: filterParse.field,
       });
-      return new Response(JSON.stringify({ error: filterParse.error }), { status: 400 });
+      return jsonError(filterParse.error, 400);
     }
     const filters = filterParse.filters;
 
@@ -79,20 +87,21 @@ export async function GET(req: Request) {
         userId: ctx.userId,
         retryAfterSeconds: limit.retryAfterSeconds,
       });
-      return new Response(
-        JSON.stringify({ error: "Export limit reached. Maximum 10 per hour." }),
-        { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
-      );
+      return jsonError("Export limit reached. Maximum 10 per hour.", 429, {
+        "Retry-After": String(limit.retryAfterSeconds),
+      });
     }
 
     // Row cap. This route builds the whole CSV in memory on a t3.large that is
     // also serving the door scanner, and the contact book went from ~3.3k to
     // ~57k with the contacts_centralv1 import. Truncating SILENTLY would be
-    // worse than either extreme — the file would look complete — so the header
-    // row below reports it and the response carries an explicit header.
+    // worse than either extreme — the file would look complete — so the
+    // response carries X-Export-Truncated and X-Export-Matching, which the
+    // export dialog turns into a notice (it downloads with fetch, Oct 23, 2026).
 
+    const where = contactFiltersWhere(ctx.organizationId, filters);
     const contacts = await db.contact.findMany({
-      where: contactFiltersWhere(ctx.organizationId, filters),
+      where,
       orderBy: { createdAt: "desc" },
       take: EXPORT_ROW_CAP,
       select: Object.fromEntries(columns.map((c) => [c, true])) as Record<ExportColumn, true>,
@@ -125,12 +134,15 @@ export async function GET(req: Request) {
     // A cap that nobody is told about produces a file that looks complete and
     // is not — the silent-truncation class this repo has been bitten by before.
     const truncated = contacts.length === EXPORT_ROW_CAP;
+    // Counted only when the cap was hit, so the dialog can say "25,000 of N".
+    const matching = truncated ? await db.contact.count({ where }) : contacts.length;
     if (truncated) {
       apiLogger.warn({
         msg: "contacts-export:truncated",
         organizationId: ctx.organizationId,
         userId: ctx.userId,
         cap: EXPORT_ROW_CAP,
+        matching,
       });
     }
 
@@ -149,12 +161,13 @@ export async function GET(req: Request) {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="contacts-${Date.now()}.csv"`,
-        ...(truncated ? { "X-Export-Truncated": String(EXPORT_ROW_CAP) } : {}),
+        "X-Export-Rows": String(contacts.length),
+        ...(truncated ? { "X-Export-Truncated": String(EXPORT_ROW_CAP), "X-Export-Matching": String(matching) } : {}),
       },
     });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error exporting contacts" });
-    return new Response(JSON.stringify({ error: "Failed to export contacts" }), { status: 500 });
+    return jsonError("Failed to export contacts", 500);
   }
 }

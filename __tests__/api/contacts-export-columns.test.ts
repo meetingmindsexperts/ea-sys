@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, rateLimit, recordExport, warn } = vi.hoisted(() => ({
-  mockDb: { contact: { findMany: vi.fn() } },
+  mockDb: { contact: { findMany: vi.fn(), count: vi.fn() } },
   rateLimit: vi.fn(() => ({ allowed: true })),
   recordExport: vi.fn(),
   warn: vi.fn(),
@@ -86,5 +86,25 @@ describe("GET /api/contacts/export with the page's filters", () => {
     expect(res.status).toBe(400);
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "contacts-export:invalid-filter", field: "role" }));
     expect(rateLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/contacts/export row headers", () => {
+  it("reports the row count, and the matching total when the cap cuts the file", async () => {
+    const small = await get("?columns=email");
+    expect(small.headers.get("X-Export-Rows")).toBe("1");
+    expect(small.headers.get("X-Export-Truncated")).toBeNull();
+
+    mockDb.contact.findMany.mockResolvedValueOnce(Array.from({ length: 25_000 }, () => ({ email: "a@x.com" })));
+    mockDb.contact.count.mockResolvedValueOnce(31_400);
+    const big = await get("?columns=email");
+    expect(big.headers.get("X-Export-Rows")).toBe("25000");
+    expect(big.headers.get("X-Export-Truncated")).toBe("25000");
+    expect(big.headers.get("X-Export-Matching")).toBe("31400");
+  });
+
+  it("every refusal is JSON, so the dialog can show it", async () => {
+    const res = await get("?columns=nope");
+    expect(res.headers.get("Content-Type")).toBe("application/json");
   });
 });

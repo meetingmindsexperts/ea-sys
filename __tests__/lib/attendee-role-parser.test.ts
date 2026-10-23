@@ -108,7 +108,7 @@ describe("parseTitle", () => {
 
 describe("contacts CSV template", () => {
   it("groups identity columns first and offers title + role", () => {
-    const src = readFileSync("src/app/(dashboard)/contacts/page.tsx", "utf8");
+    const src = readFileSync("src/components/contacts/import-contacts-csv.tsx", "utf8");
     const header = /"(title,firstName[^"]*)"/.exec(src);
     expect(header, "contacts template header not found").toBeTruthy();
     const cols = header![1].split(",");

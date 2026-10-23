@@ -162,15 +162,19 @@ export function buildOpenApiSpec(serverUrl: string): Json {
         get: {
           tags: ["Contacts"],
           summary: "List contacts",
-          description: "Your organization's contact store (CRM), paginated. Search by name/email/organization or filter by tags.",
+          description: "Your organization's contact store (CRM), paginated. Search by name/email/organization, or filter by tags, specialty, country and role (all filters combine with AND).",
           parameters: [
             { name: "search", in: "query", required: false, schema: { type: "string" } },
             { name: "tags", in: "query", required: false, schema: { type: "string" }, description: "Comma-separated tag names (OR match)." },
+            { name: "specialty", in: "query", required: false, schema: { type: "string" }, description: "Whole value, case-insensitive. `__none__` matches contacts with no specialty." },
+            { name: "country", in: "query", required: false, schema: { type: "string" }, description: "Whole value, case-insensitive. `__none__` matches contacts with no country." },
+            { name: "role", in: "query", required: false, schema: { type: "string", enum: ["ACADEMIA", "ALLIED_HEALTH", "MEDICAL_DEVICES", "PHARMA", "PHYSICIAN", "RESIDENT", "SPEAKER", "STUDENT", "OTHERS", "__none__"] }, description: "An unknown role is refused with 400 rather than ignored." },
             { name: "page", in: "query", required: false, schema: { type: "integer", default: 1, minimum: 1 } },
             { name: "limit", in: "query", required: false, schema: { type: "integer", default: 50, minimum: 1, maximum: 100 } },
           ],
           responses: {
             "200": { description: "Paginated contacts", content: { "application/json": { schema: { $ref: "#/components/schemas/ContactList" } } } },
+            "400": { $ref: "#/components/responses/BadRequest" },
             "401": { $ref: "#/components/responses/Unauthorized" },
           },
         },

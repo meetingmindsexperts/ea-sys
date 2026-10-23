@@ -1,8 +1,12 @@
 import type { Prisma } from "@prisma/client";
 import { parseAttendeeRole, type AttendeeRoleValue } from "@/lib/schemas";
 
-/** The "Not set" choice for specialty, country and role. */
-export const NOT_SET = "none";
+/**
+ * The "Not recorded" choice for specialty, country and role. A sentinel no real
+ * value uses (a specialty literally called "none" would otherwise be read as
+ * blank).
+ */
+export const NOT_SET = "__none__";
 
 /**
  * The Contacts page filters, shared by the list (`GET /api/contacts`) and the
@@ -11,8 +15,8 @@ export const NOT_SET = "none";
  * ~56,000, so filtering is how a usable file is taken.
  *
  * Specialty and country match whole values, ignoring case: the data carries
- * "UNITED ARAB EMIRATES" beside "United Arab Emirates". For all three, the
- * value "none" is the "Not set" choice; role is otherwise the AttendeeRole enum.
+ * "UNITED ARAB EMIRATES" beside "United Arab Emirates". For all three,
+ * `NOT_SET` is the "Not recorded" choice; role is otherwise the AttendeeRole enum.
  */
 export interface ContactFilters {
   search: string;
@@ -44,18 +48,29 @@ export function parseContactFilters(params: URLSearchParams): ParsedContactFilte
   };
 }
 
-/** One text column: a value (case-insensitive) or "Not set" (null or empty). */
+/**
+ * Prisma compiles a case-insensitive `equals` to ILIKE on Postgres, where `%`
+ * and `_` are wildcards: a specialty of "%" matched 43,518 contacts. Escaped
+ * here so a value only ever matches itself.
+ */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/** One text column: a value (case-insensitive) or "Not recorded" (null or empty). */
 function textColumnWhere(
   column: "specialty" | "country",
   value: string | null,
 ): Prisma.ContactWhereInput | null {
   if (!value) return null;
   if (value === NOT_SET) return { OR: [{ [column]: null }, { [column]: "" }] };
-  return { [column]: { equals: value, mode: "insensitive" } };
+  return { [column]: { equals: escapeLike(value), mode: "insensitive" } };
 }
 
 /** The Prisma where for one organisation's contacts under these filters. */
 export function contactFiltersWhere(organizationId: string, f: ContactFilters): Prisma.ContactWhereInput {
+  // A facet counts under every OTHER filter, so this also serves the options
+  // route with one field blanked (`{ ...f, specialty: null }`).
   const and: Prisma.ContactWhereInput[] = [];
   if (f.search) {
     and.push({
@@ -106,4 +121,59 @@ export function contactFiltersAudit(f: ContactFilters): Record<string, string | 
   if (f.country) out.country = f.country;
   if (f.role) out.role = f.role;
   return out;
+}
+
+export interface FilterOption { value: string; count: number }
+
+/**
+ * Distinct values with counts, grouped ignoring case, each shown as its most
+ * common spelling; blanks go to `notSet`. The filter matches ignoring case, so
+ * picking an option reproduces its count. Surrounding spaces are trimmed here
+ * for display; no stored value carries them today (checked Oct 23, 2026).
+ */
+export function groupFilterValues(rows: { value: string | null; count: number }[]): { options: FilterOption[]; notSet: number } {
+  const groups = new Map<string, { best: string; bestCount: number; count: number }>();
+  let notSet = 0;
+  for (const r of rows) {
+    const value = r.value?.trim();
+    if (!value) {
+      notSet += r.count;
+      continue;
+    }
+    const key = value.toLowerCase();
+    const g = groups.get(key);
+    if (!g) {
+      groups.set(key, { best: value, bestCount: r.count, count: r.count });
+      continue;
+    }
+    g.count += r.count;
+    if (r.count > g.bestCount || (r.count === g.bestCount && value < g.best)) {
+      g.best = value;
+      g.bestCount = r.count;
+    }
+  }
+  const options = [...groups.values()]
+    .map((g) => ({ value: g.best, count: g.count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+  return { options, notSet };
+}
+
+/**
+ * A download name that says what is inside: `contacts-india-cardiology-2026-10-23.csv`
+ * rather than `contacts-1761209.csv`, so a file kept for later is not mistaken
+ * for the whole book. The search text is left out of the name on purpose.
+ */
+export function contactExportFileName(query: Record<string, string>, today: Date = new Date()): string {
+  const parts = [query.country, query.specialty, query.role, query.tags]
+    .filter((v): v is string => !!v)
+    .map((v) => (v === NOT_SET ? "not-recorded" : v));
+  if (query.search) parts.push("search");
+  const slug = parts
+    .join("-")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  const date = today.toISOString().slice(0, 10);
+  return slug ? `contacts-${slug}-${date}.csv` : `contacts-all-${date}.csv`;
 }

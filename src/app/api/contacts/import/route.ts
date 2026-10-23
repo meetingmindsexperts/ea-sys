@@ -8,7 +8,7 @@ import { getOrgContext } from "@/lib/api-auth";
 import { auth } from "@/lib/auth";
 import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
-import { parseAttendeeRole, parseTitle, type AttendeeRoleValue, type TitleValue } from "@/lib/schemas";
+import { ATTENDEE_ROLE_ORDER, formatAttendeeRole, parseAttendeeRole, parseTitle, type AttendeeRoleValue, type TitleValue } from "@/lib/schemas";
 import { IMPORT_MAX_LENGTH, IMPORT_REQUIRED_MAX, IMPORT_TEXT_COLUMNS, parseImportDate, type ImportCappedColumn } from "@/lib/contact-export";
 import { unescapeCsvCell } from "@/lib/csv-escape";
 
@@ -46,6 +46,7 @@ export async function POST(req: Request) {
     const file = formData.get("file") as File | null;
 
     if (!file) {
+      apiLogger.warn({ msg: "contacts/import:no-file", organizationId: ctx.organizationId, userId: ctx.userId });
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
@@ -188,7 +189,7 @@ export async function POST(req: Request) {
     }
 
     if (contacts.length === 0) {
-      return NextResponse.json({ created: 0, skipped: 0, errors });
+      return NextResponse.json({ created: 0, skipped: 0, errors, warnings: [] });
     }
 
     // Get count before to calculate created vs skipped
@@ -208,14 +209,20 @@ export async function POST(req: Request) {
     const created = countAfter - countBefore;
     const skipped = contacts.length - created;
 
+    // `errors` are rows NOT imported; `warnings` are rows imported with a value
+    // left blank (Oct 23, 2026), so the page can say each plainly. Before this
+    // an unrecognised role or title vanished with only a server log line.
+    const warnings: string[] = [];
     if (unrecognizedRole > 0 || unrecognizedTitle > 0) {
       apiLogger.warn({ msg: "Import unrecognized enum cells", importType: "contacts", source: "csv", userId: ctx.userId, organizationId: ctx.organizationId, unrecognizedRole, unrecognizedTitle });
+      if (unrecognizedRole > 0) warnings.push(`${unrecognizedRole} role value(s) were not recognised and were left blank. Use one of: ${ATTENDEE_ROLE_ORDER.map((r) => formatAttendeeRole(r)).join(", ")}.`);
+      if (unrecognizedTitle > 0) warnings.push(`${unrecognizedTitle} title value(s) were not recognised and were left blank. Use one of: Dr, Prof, Mr, Mrs, Ms.`);
     }
     if (unreadableExpiry > 0 || invalidAdditionalEmail > 0 || tooLong > 0) {
       apiLogger.warn({ msg: "contacts/import:cells-dropped", userId: ctx.userId, organizationId: ctx.organizationId, unreadableExpiry, invalidAdditionalEmail, tooLong });
-      if (tooLong > 0) errors.push(`${tooLong} value(s) were longer than the contact form allows and were left empty`);
-      if (unreadableExpiry > 0) errors.push(`${unreadableExpiry} student ID expiry value(s) were not a date (use YYYY-MM-DD) and were left empty`);
-      if (invalidAdditionalEmail > 0) errors.push(`${invalidAdditionalEmail} additional email value(s) were not valid and were left empty`);
+      if (tooLong > 0) warnings.push(`${tooLong} value(s) were longer than the contact form allows and were left blank.`);
+      if (unreadableExpiry > 0) warnings.push(`${unreadableExpiry} student ID expiry date(s) were not in YYYY-MM-DD format (for example 2027-06-30) and were left blank.`);
+      if (invalidAdditionalEmail > 0) warnings.push(`${invalidAdditionalEmail} additional email address(es) were not valid and were left blank.`);
     }
 
     recordImport(req, {
@@ -231,7 +238,7 @@ export async function POST(req: Request) {
       format: "csv",
     });
 
-    return NextResponse.json({ created, skipped, errors });
+    return NextResponse.json({ created, skipped, errors, warnings });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing contacts" });
