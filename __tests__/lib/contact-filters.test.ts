@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  MAX_VALUES_PER_FIELD,
   NOT_SET,
   contactExportFileName,
   contactFiltersAudit,
@@ -40,6 +41,14 @@ describe("parseContactFilters", () => {
   it("accepts the Not set choice for role", () => {
     const r = parse(`role=${NOT_SET}`);
     expect(r.ok && r.filters.role).toBe(NOT_SET);
+  });
+
+  it("refuses more than MAX_VALUES_PER_FIELD values for one field", () => {
+    const many = Array.from({ length: MAX_VALUES_PER_FIELD + 1 }, (_, i) => `country=c${i}`).join("&");
+    const r = parse(many);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.field).toBe("country");
+    expect(parse(Array.from({ length: MAX_VALUES_PER_FIELD }, (_, i) => `country=c${i}`).join("&")).ok).toBe(true);
   });
 
   it("refuses an unknown role instead of returning the whole book", () => {

@@ -9,6 +9,11 @@
  * Rows chosen when the popover opened stay at the top while it is open, and
  * the order is not re-sorted on each click, so the next row never slides
  * under the cursor.
+ *
+ * Chosen values are compared IGNORING CASE (review M, Oct 23, 2026): a group
+ * is shown under its most common spelling, which can change with the other
+ * filters ("UAE" becomes "Uae" under Dermatology). An exact compare showed the
+ * chosen row unticked and a click added a second value instead of removing it.
  */
 
 import { useState } from "react";
@@ -44,22 +49,30 @@ export function MultiValueFilter({
   disabled?: boolean;
 }) {
   const [search, setSearch] = useState("");
-  const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set(selected));
-  const chosen = new Set(selected);
+  const [pinned, setPinned] = useState<ReadonlySet<string>>(lowerSet(selected));
+  const chosen = lowerSet(selected);
 
   const q = search.trim().toLowerCase();
   const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
-  const ordered = [...filtered.filter((o) => pinned.has(o.value)), ...filtered.filter((o) => !pinned.has(o.value))];
+  const ordered = [
+    ...filtered.filter((o) => pinned.has(o.value.toLowerCase())),
+    ...filtered.filter((o) => !pinned.has(o.value.toLowerCase())),
+  ];
 
   const toggle = (value: string) => {
-    onChange(chosen.has(value) ? selected.filter((v) => v !== value) : [...selected, value]);
+    const key = value.toLowerCase();
+    if (chosen.has(key)) {
+      onChange(selected.filter((v) => v.toLowerCase() !== key));
+      return;
+    }
+    onChange([...selected, value]);
   };
 
   return (
     <div className="flex max-w-full flex-wrap items-center gap-1.5">
       <Popover
         onOpenChange={(open) => {
-          if (open) setPinned(new Set(selected));
+          if (open) setPinned(lowerSet(selected));
           else setSearch("");
         }}
       >
@@ -97,18 +110,19 @@ export function MultiValueFilter({
               Tick as many as you like. Contacts matching any of them are shown.
             </p>
           </div>
-          <div className="max-h-72 overflow-y-auto p-1" role="listbox" aria-multiselectable="true">
+          <div className="max-h-72 overflow-y-auto p-1" role="group" aria-label={label}>
             {ordered.length === 0 && (
               <div className="p-3 text-center text-xs text-muted-foreground">Nothing matches what you typed.</div>
             )}
             {ordered.map((o) => {
-              const active = chosen.has(o.value);
+              const active = chosen.has(o.value.toLowerCase());
               return (
                 <button
                   key={o.value}
                   type="button"
-                  role="option"
-                  aria-selected={active}
+                  role="checkbox"
+                  aria-checked={active}
+                  aria-label={`${o.label}, ${o.count.toLocaleString()} contact${o.count === 1 ? "" : "s"}`}
                   onClick={() => toggle(o.value)}
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
                 >
@@ -150,6 +164,7 @@ export function MultiValueFilter({
             type="button"
             onClick={() => toggle(v)}
             title="Remove this choice"
+            aria-label={`Remove ${labelFor(v)}`}
             className="flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary hover:opacity-70"
           >
             {labelFor(v)}
@@ -165,4 +180,9 @@ function triggerText(label: string, selected: string[], labelFor: (v: string) =>
   if (selected.length === 0) return label;
   if (selected.length === 1) return labelFor(selected[0]);
   return `${labelFor(selected[0])} + ${selected.length - 1} more`;
+}
+
+/** Values lower-cased, for the case-blind compare described above. */
+function lowerSet(values: string[]): Set<string> {
+  return new Set(values.map((v) => v.toLowerCase()));
 }

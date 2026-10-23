@@ -43,6 +43,13 @@ export function toSearchParams(params: ContactFilterParams): URLSearchParams {
   return out;
 }
 
+/**
+ * Most values one field accepts. The book has ~160 countries and ~70
+ * specialties, so this is never reached from the page; it bounds what an API
+ * caller can turn into one OR of ILIKEs.
+ */
+export const MAX_VALUES_PER_FIELD = 200;
+
 /** Every value of a repeated parameter, trimmed, blanks dropped, duplicates removed. */
 function allValues(params: URLSearchParams, key: string): string[] {
   return [...new Set(params.getAll(key).map((v) => v.trim()).filter(Boolean))];
@@ -58,13 +65,21 @@ export function parseContactFilters(params: URLSearchParams): ParsedContactFilte
   // An unknown role is refused, not ignored: ignoring it would return the
   // whole book while the caller believes it filtered.
   if (roleParam && !role) return { ok: false, error: `Unknown role: ${roleParam}`, field: "role" };
+  const specialty = allValues(params, "specialty");
+  const country = allValues(params, "country");
+  // Refused, not trimmed: dropping values would quietly widen or narrow the result.
+  for (const [field, values] of [["specialty", specialty], ["country", country]] as const) {
+    if (values.length > MAX_VALUES_PER_FIELD) {
+      return { ok: false, error: `Too many ${field} values (at most ${MAX_VALUES_PER_FIELD})`, field };
+    }
+  }
   return {
     ok: true,
     filters: {
       search: params.get("search")?.trim() || "",
       tags: (params.get("tags") || "").split(",").map((t) => t.trim()).filter(Boolean),
-      specialty: allValues(params, "specialty"),
-      country: allValues(params, "country"),
+      specialty,
+      country,
       role,
     },
   };

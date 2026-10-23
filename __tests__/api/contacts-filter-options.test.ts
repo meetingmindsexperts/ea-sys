@@ -68,6 +68,8 @@ describe("GET /api/contacts/filter-options", () => {
     expect(JSON.stringify(whereFor("country"))).not.toContain("India");
     expect(JSON.stringify(whereFor("role"))).toContain("India");
     expect(JSON.stringify(whereFor("specialty"))).toContain("Oman");
+    // The rule that keeps counts right: a facet never filters by itself.
+    expect(JSON.stringify(whereFor("country"))).not.toContain("Oman");
   });
 
   it("refuses an unknown role with a logged 400", async () => {
