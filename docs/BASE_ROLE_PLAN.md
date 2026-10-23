@@ -1,6 +1,6 @@
 # The "Base role": a role that starts with nothing
 
-**Status:** BUILT, Oct 23, 2026: steps 1 to 6 (D4 included, once the contacts filters work landed). **D5 is held** for the owner. §10 records what was built and verified.
+**Status:** BUILT, Oct 23, 2026: steps 1 to 6, D4 and D5 included. §10 records what was built and verified.
 
 > **Naming (owner, Oct 23):** on screen the role is **"Base role"**, described as
 > *"No default permissions: attach a custom role."* In code the enum value and
@@ -64,7 +64,7 @@ What the exports contain, checked against the code:
 | **D2** | Name on screen | **Ruled: "Base role", with the description "No default permissions: attach a custom role."** |
 | **D3** | May a Base role person be ticked for HR access? | **Ruled: no.** |
 | **D4** | Split Notes, Phone, Member ID and Student ID out of `contacts.export` into `contacts.export.sensitive`? | **Ruled: yes.** Admins and organisers hold both, so nothing changes for them. |
-| **D5** | Contacts export rate limit (10 per hour per organisation) and the 25,000-row cap, with about 60,000 contacts in the store. | **Held:** the owner is reworking the contacts filters first and will confirm. Not part of this build. |
+| **D5** | Contacts export rate limit (10 per hour per organisation) and the 25,000-row cap, with about 60,000 contacts in the store. | **Ruled (owner, Oct 23): keep a limit, per person.** It guards the server (each export builds up to 25,000 rows in memory beside the door scanner), not the data; the permission and the audit row protect the data. 10 per hour per person; the org's API keys share one budget. The 25,000-row cap stays the same for every role; the contacts filters give complete files in parts. |
 | **D6** | Who may invite and assign it? | **Ruled: admins may invite**; only the super admin assigns custom roles, as today. The option only appears while custom roles are switched on. |
 
 **Why a new value rather than `baseRoleKey` (D1).** With `baseRoleKey` the
@@ -235,7 +235,7 @@ roles are per organisation and named by the organisation.
   - Every built-in role that holds `contacts.export` holds it too: super admin, admin, organiser, member and the full API key. A test pins this, so **no existing role loses a column**; only a custom role without the key is narrowed.
   - The route refuses an explicit request for those columns with a logged 403 naming them, before the rate limit. A request with no column list leaves them out.
   - The dialog hides them.
-- **D5 not built:** the rate limit is still per organisation, held for the owner.
+- **D5 built:** the contacts export limit is 10 per hour per person (it was 10 per organisation, shared); the row cap is unchanged.
 - **Tests:**
   - `__tests__/permissions/base-role.test.ts` (16): the role, grantable rule, area rule, pages, no-loop, sidebar, token;
   - `__tests__/api/base-role-registration-export.test.ts` (3): the export blanks money and barcodes, and the blanks follow the keys;

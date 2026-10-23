@@ -182,3 +182,10 @@ describe("GET /api/contacts/export with several countries", () => {
     ]);
   });
 });
+
+describe("the export budget is per person (owner, Oct 23, 2026)", () => {
+  it("keys the rate limit on the person, not the whole organisation", async () => {
+    await get("?columns=email");
+    expect(rateLimit).toHaveBeenCalledWith(expect.objectContaining({ key: "contacts-export:org1:u1", limit: 10 }));
+  });
+});

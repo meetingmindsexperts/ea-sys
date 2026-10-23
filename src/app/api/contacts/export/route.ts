@@ -94,11 +94,16 @@ export async function GET(req: Request) {
     }
     const filters = filterParse.filters;
 
-    // A bulk PII export deserves its own budget, separate from the read routes.
+    // A guard for the box, not for the data (owner, Oct 23, 2026): each export
+    // builds up to 25,000 rows in memory on the server that runs the door
+    // scanner, so a runaway loop (a stuck script, a leaked key) stops after 10.
+    // PER PERSON, so one busy exporter never blocks the team; the org's API
+    // keys share one budget (the context carries no key id). What protects the
+    // data is the permission and the audit row every export writes.
     const limit = checkRateLimit({
-      key: `contacts-export:org:${ctx.organizationId}`,
+      key: `contacts-export:${ctx.organizationId}:${ctx.userId ?? "api-key"}`,
       limit: 10,
-      windowMs: 60 * 60 * 1000, // 10 full-CRM exports per hour per org
+      windowMs: 60 * 60 * 1000, // 10 exports per hour per person
     });
     if (!limit.allowed) {
       apiLogger.warn({
