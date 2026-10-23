@@ -3196,6 +3196,7 @@ export function useResendPanelistInvite(eventId: string) {
 import type { SponsorEntry, SponsorTier } from "@/lib/webinar";
 import type { SponsorTierDef } from "@/lib/sponsor-tiers";
 import type { VenueRoom } from "@/lib/venue/rooms";
+import type { VenuePlan } from "@/lib/venue/plan";
 export type { SponsorEntry, SponsorTier, SponsorTierDef };
 
 export function useSponsors(eventId: string, enabled = true) {
@@ -3263,6 +3264,12 @@ export interface VenueRoomsData {
   programme?: { sessions: { title: string; location: string | null; track: string | null }[]; sponsors: number } | null;
   /** The event's approved Blueprint, its spaces as rooms and what was changed to fit; null without one or without blueprints.view. */
   blueprint?: { id: string; title: string; ref: string | null; spaces: number; rooms: VenueRoom[]; notes: string[] } | null;
+  /**
+   * The drawn floor plan (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md), null while the
+   * venue is automatic. `mode` says which the venue uses; `issues` say why a
+   * saved plan no longer fits the rooms (the venue is then automatic).
+   */
+  plan?: { plan: VenuePlan; version: number; mode: "automatic" | "drawn"; issues: string[] } | null;
 }
 
 export function useVenueRooms(eventId: string) {

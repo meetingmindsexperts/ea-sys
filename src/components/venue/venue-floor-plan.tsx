@@ -10,7 +10,9 @@ import { useMemo, type ReactNode } from "react";
 import { CheckCircle2, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionHeading } from "@/components/ui/typography";
-import { generateLayout, type LayoutItem, type ZoneKind } from "@/lib/venue/layout";
+import type { LayoutItem, ZoneKind } from "@/lib/venue/layout";
+import { buildVenueLayout } from "@/lib/venue/plan-layout";
+import type { VenuePlan } from "@/lib/venue/plan";
 import { checkLayout } from "@/lib/venue/layout-check";
 import type { VenueRoom } from "@/lib/venue/rooms";
 import { cn } from "@/lib/utils";
@@ -53,11 +55,12 @@ function Item({ it }: { it: LayoutItem }) {
   return <rect x={f.x0} y={f.z0} width={f.x1 - f.x0} height={f.z1 - f.z0} className={tone} rx={it.t === "sofa" ? 0.4 : 0} />;
 }
 
-export function VenueFloorPlan({ rooms, eventName, actions }: { rooms: VenueRoom[]; eventName: string; actions?: ReactNode }) {
+export function VenueFloorPlan({ rooms, eventName, actions, plan = null }: { rooms: VenueRoom[]; eventName: string; actions?: ReactNode; plan?: VenuePlan | null }) {
+  // The saved drawn plan when it still fits these rooms, else the automatic one: what the venue and the PDF use.
   const { layout, check } = useMemo(() => {
-    const l = generateLayout(rooms, { eventName });
+    const l = buildVenueLayout(rooms, plan, { eventName }).layout;
     return { layout: l, check: checkLayout(l) };
-  }, [rooms, eventName]);
+  }, [rooms, eventName, plan]);
   const [x0, z0, x1, z1] = layout.bounds;
   const pad = 3;
   const width = x1 - x0;

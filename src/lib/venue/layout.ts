@@ -141,9 +141,9 @@ const SPACE: Record<RoomKind, { perPerson: number; base: number; min: number }> 
   lounge: { perPerson: 2.0, base: 50, min: 160 },
 };
 
-const CEIL: Record<ZoneKind, number> = { foyer: 7, plenary: 9, hall: 6, workshop: 5.5, posters: 5.5, exhibition: 7, lounge: 5.5, corridor: 5 };
-const FLOOR: Record<ZoneKind, LayoutZone["floor"]> = { foyer: "marble", plenary: "carpetG", hall: "carpet", workshop: "carpet", posters: "wood", exhibition: "carpet", lounge: "wood", corridor: "marble" };
-const SUB: Record<ZoneKind, string> = {
+export const CEIL: Record<ZoneKind, number> = { foyer: 7, plenary: 9, hall: 6, workshop: 5.5, posters: 5.5, exhibition: 7, lounge: 5.5, corridor: 5 };
+export const FLOOR: Record<ZoneKind, LayoutZone["floor"]> = { foyer: "marble", plenary: "carpetG", hall: "carpet", workshop: "carpet", posters: "wood", exhibition: "carpet", lounge: "wood", corridor: "marble" };
+export const SUB: Record<ZoneKind, string> = {
   foyer: "Registration · Welcome",
   plenary: "Main stage",
   hall: "Parallel sessions",
@@ -153,15 +153,15 @@ const SUB: Record<ZoneKind, string> = {
   lounge: "Coffee · Meetings",
   corridor: "To every room",
 };
-const HALL_TINTS: [number, number, number][] = [[0.3, 0.5, 0.52], [0.38, 0.4, 0.64], [0.56, 0.34, 0.48], [0.4, 0.52, 0.4], [0.6, 0.48, 0.34], [0.36, 0.44, 0.56]];
+export const HALL_TINTS: [number, number, number][] = [[0.3, 0.5, 0.52], [0.38, 0.4, 0.64], [0.56, 0.34, 0.48], [0.4, 0.52, 0.4], [0.6, 0.48, 0.34], [0.36, 0.44, 0.56]];
 
 const CORRIDOR_MIN = 6;
 /** Where a person arriving through a door stands: inside the room, clear of the first row or table. */
-const ENTRY = 1.4;
+export const ENTRY = 1.4;
 const BUILDING_MIN = 24;
-const DOOR = 2.6;
-const r2 = (n: number) => Math.round(n * 100) / 100;
-const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+export const DOOR = 2.6;
+export const r2 = (n: number) => Math.round(n * 100) / 100;
+export const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const areaOf = (room: VenueRoom) => Math.max(SPACE[room.kind].min, SPACE[room.kind].base + room.capacity * SPACE[room.kind].perPerson);
 
 const WEST_KINDS: RoomKind[] = ["hall", "workshop", "posters"];
@@ -280,7 +280,9 @@ function sizeToFit(room: VenueRoom, start: number, max: number, holds: (size: nu
 
 // ── Frames: furnish a room from its door (v = 0) to its far wall (v = D) ─────
 
-interface Frame {
+export type FrameDoor = "east" | "west" | "south" | "north";
+
+export interface Frame {
   zone: LayoutZone;
   /** Across the room. */
   W: number;
@@ -292,7 +294,7 @@ interface Frame {
   box: (u0: number, v0: number, u1: number, v1: number) => { x0: number; z0: number; x1: number; z1: number };
 }
 
-function frame(zone: LayoutZone, door: "east" | "west" | "south"): Frame {
+export function frame(zone: LayoutZone, door: FrameDoor): Frame {
   const [x0, z0, x1, z1] = zone.rect;
   const xc = (x0 + x1) / 2;
   const zc = (z0 + z1) / 2;
@@ -302,6 +304,8 @@ function frame(zone: LayoutZone, door: "east" | "west" | "south"): Frame {
     west: { at: (u: number, v: number): [number, number] => [r2(x0 + v), r2(zc - u)], W: z1 - z0, D: x1 - x0, yaw: Math.PI / 2 },
     // Door (or entrance) in the south wall: the room runs north, u runs west to east.
     south: { at: (u: number, v: number): [number, number] => [r2(xc + u), r2(z1 - v)], W: x1 - x0, D: z1 - z0, yaw: Math.PI },
+    // Door in the north wall (drawn plans): the room runs south, u runs east to west.
+    north: { at: (u: number, v: number): [number, number] => [r2(xc - u), r2(z0 + v)], W: x1 - x0, D: z1 - z0, yaw: 0 },
   };
   const { at, W, D, yaw } = FRAMES[door];
   const box = (u0: number, v0: number, u1: number, v1: number) => {
@@ -314,7 +318,7 @@ function frame(zone: LayoutZone, door: "east" | "west" | "south"): Frame {
 
 const MAX_SEATS_DRAWN = 420;
 
-interface Out {
+export interface Out {
   items: LayoutItem[];
   people: LayoutPerson[];
   hotspots: LayoutHotspot[];
@@ -451,16 +455,30 @@ function furnishLounge(f: Frame, out: Out) {
   }
 }
 
-function furnishFoyer(f: Frame, entranceX: number, out: Out, eventName: string) {
+/** A yaw in (-PI, PI]: the foyer faces back toward its entrance, which is 0 for the template's south entrance. */
+const normYaw = (y: number) => {
+  let n = y;
+  while (n > Math.PI) n -= 2 * Math.PI;
+  while (n <= -Math.PI) n += 2 * Math.PI;
+  return n;
+};
+
+/**
+ * The foyer, furnished from its entrance (v = 0). `lineU` is where, across
+ * the foyer, the way on into the building starts (the template's corridor),
+ * so the directory stands beside that line and never on it.
+ */
+function furnishFoyer(f: Frame, lineU: number, out: Out, eventName: string) {
   const id = f.zone.id;
+  const facing = r2(normYaw(f.yaw + Math.PI));
   const v = f.D * 0.5;
   const deskW = Math.min(12, f.W * 0.28);
   for (const [u0, title, sub] of [[-f.W / 2 + 2.5, "Registration", "Badge collection · Delegate services"], [f.W / 2 - 2.5 - deskW, "Information", "Programme and venue help"]] as const) {
-    out.items.push({ t: "desk", zone: id, solid: true, yaw: 0, title, sub: `${sub}`, foot: f.box(u0, v - 0.5, u0 + deskW, v + 0.5) });
+    out.items.push({ t: "desk", zone: id, solid: true, yaw: facing, title, sub: `${sub}`, foot: f.box(u0, v - 0.5, u0 + deskW, v + 0.5) });
     const staff = Math.max(2, Math.round(deskW / 4));
     for (let i = 0; i < staff; i++) {
       const [px, pz] = f.at(u0 + (i + 0.5) * (deskW / staff), v + 1.1);
-      out.people.push({ x: px, z: pz, yaw: 0, pose: "stand", role: "staff" });
+      out.people.push({ x: px, z: pz, yaw: facing, pose: "stand", role: "staff" });
     }
     const [hx, hz] = f.at(u0 + deskW / 2, v - 1.6);
     out.hotspots.push({
@@ -471,18 +489,34 @@ function furnishFoyer(f: Frame, entranceX: number, out: Out, eventName: string) 
   }
   // The directory stands beside the line from the entrance to the corridor, never on it: east of the
   // line, or west when the corridor runs along the building's east edge.
-  const line = entranceX - f.at(0, 0)[0];
-  const du = line + 3.2 <= f.W / 2 - 2 ? line + 3.2 : line - 3.2;
+  const du = lineU + 3.2 <= f.W / 2 - 2 ? lineU + 3.2 : lineU - 3.2;
   const [dx, dz] = f.at(du, 4.5);
-  out.items.push({ t: "directory", zone: id, solid: true, yaw: 0, foot: { x0: r2(dx - 0.7), z0: r2(dz - 0.1), x1: r2(dx + 0.7), z1: r2(dz + 0.1) } });
+  // The board runs across the foyer: along x for an entrance in a north or south wall, along z otherwise.
+  const [hx, hz] = Math.abs(Math.sin(f.yaw)) > 0.5 ? [0.1, 0.7] : [0.7, 0.1];
+  out.items.push({ t: "directory", zone: id, solid: true, yaw: facing, foot: { x0: r2(dx - hx), z0: r2(dz - hz), x1: r2(dx + hx), z1: r2(dz + hz) } });
   for (const [u, vv] of [[-f.W / 2 + 1.5, 1.5], [f.W / 2 - 1.5, 1.5], [-f.W / 2 + 1.5, f.D - 1.5], [f.W / 2 - 1.5, f.D - 1.5]]) {
     const [px, pz] = f.at(u, vv);
     out.items.push({ t: "plant", zone: id, solid: true, cx: px, cz: pz, s: 1.15, foot: { cx: px, cz: pz, r: 0.5 } });
   }
   for (const [u, vv] of [[-3, 5.5], [3, 6]]) {
     const [gx, gz] = f.at(u, vv);
-    out.people.push({ x: gx, z: gz, yaw: r2(u > 0 ? -0.9 : 0.9), pose: "talk", role: "guest" });
+    out.people.push({ x: gx, z: gz, yaw: r2(facing + (u > 0 ? -0.9 : 0.9)), pose: "talk", role: "guest" });
   }
+}
+
+/**
+ * Furnish one room from its door (the foyer from its entrance). Shared by the
+ * template and by drawn plans (plan-layout.ts), so a room holds the same
+ * furniture whichever made the building.
+ */
+export function furnishZone(z: LayoutZone, door: FrameDoor, out: Out, foyer: { lineU: number; eventName: string }) {
+  const f = frame(z, door);
+  if (z.kind === "foyer") furnishFoyer(f, foyer.lineU, out, foyer.eventName);
+  else if (z.kind === "plenary" || z.kind === "hall") furnishTheatre(f, out);
+  else if (z.kind === "workshop") furnishWorkshop(f, out);
+  else if (z.kind === "posters") furnishPosters(f, out);
+  else if (z.kind === "exhibition") furnishExhibition(f, out);
+  else if (z.kind === "lounge") furnishLounge(f, out);
 }
 
 // ── Walls and doors ───────────────────────────────────────────────────────────
@@ -576,16 +610,10 @@ export function generateLayout(rooms: VenueRoom[], opts: { eventName: string }):
   const out: Out = { items: [], people: [], hotspots: [] };
   for (const z of p.zones) {
     if (z.kind === "corridor") continue;
-    if (z.kind === "foyer") {
-      furnishFoyer(frame(z, "south"), (p.cx0 + p.cx1) / 2, out, opts.eventName);
-      continue;
-    }
-    const f = frame(z, doorSide(z, p.west));
-    if (z.kind === "plenary" || z.kind === "hall") furnishTheatre(f, out);
-    else if (z.kind === "workshop") furnishWorkshop(f, out);
-    else if (z.kind === "posters") furnishPosters(f, out);
-    else if (z.kind === "exhibition") furnishExhibition(f, out);
-    else if (z.kind === "lounge") furnishLounge(f, out);
+    const door: FrameDoor = z.kind === "foyer" ? "south" : doorSide(z, p.west);
+    // The corridor starts at the corridor's centre, measured across the foyer from its own centre.
+    const lineU = (p.cx0 + p.cx1) / 2 - frame(z, "south").at(0, 0)[0];
+    furnishZone(z, door, out, { lineU, eventName: opts.eventName });
   }
   doorSigns(p, doors, out);
   const north = -p.L - p.Dp;

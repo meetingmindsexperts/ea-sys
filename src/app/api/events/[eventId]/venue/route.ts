@@ -11,6 +11,12 @@
  *         cannot lay it out.
  *   PUT { open } → open the generated venue to staff, or close it; 409
  *         NO_ROOMS when opening with no saved rooms.
+ *   PUT { plan, planVersion } → save a drawn floor plan, or with plan null go
+ *         back to the automatic one (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md);
+ *         409 STALE_VERSION / NO_ROOMS, 400 INVALID_PLAN with every reason.
+ *   GET also returns the plan, its version, and whether the venue is using
+ *         it ("drawn") or the automatic plan, with why when a saved plan no
+ *         longer fits the rooms.
  *
  * ACCESS: `events.read` to look, `events.update` to save; the event lookup is
  * `gate.eventWhere`. The whole route answers 404 while VENUE_MODULE_ENABLED is
@@ -27,7 +33,9 @@ import { can } from "@/lib/permissions/can";
 import { isBlueprintModuleEnabled, isVenueModuleEnabled } from "@/lib/module-flags";
 import { readBlueprintSpaces, roomsFromBlueprint } from "@/lib/venue/blueprint-rooms";
 import { readVenueOpen, readVenueRooms } from "@/lib/venue/rooms";
-import { saveVenueRooms, setVenueOpen } from "@/services/venue-rooms-service";
+import { saveVenuePlan, saveVenueRooms, setVenueOpen } from "@/services/venue-rooms-service";
+import { readVenuePlan } from "@/lib/venue/plan";
+import { buildVenueLayout } from "@/lib/venue/plan-layout";
 import { loadProgrammeSummary } from "@/services/venue-programme-service";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -35,6 +43,7 @@ type RouteParams = { params: Promise<{ eventId: string }> };
 const putSchema = z.union([
   z.object({ rooms: z.array(z.unknown()).max(50), version: z.number().int().min(0) }),
   z.object({ open: z.boolean() }),
+  z.object({ plan: z.union([z.null(), z.record(z.string(), z.unknown())]), planVersion: z.number().int().min(0) }),
 ]);
 
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -70,8 +79,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
       ]);
       const read = bp ? readBlueprintSpaces(bp.data) : null;
       const blueprint = bp && read ? { id: bp.id, title: bp.title, ref: bp.ref, spaces: read.spaces.length, ...roomsFromBlueprint(read.spaces, read.attendance) } : null;
+      const storedPlan = readVenuePlan(event.settings);
+      const built = saved && storedPlan ? buildVenueLayout(saved.rooms, storedPlan.plan, { eventName: "" }) : null;
+      const plan = storedPlan
+        ? { plan: storedPlan.plan, version: storedPlan.updatedAt, mode: built?.mode ?? "automatic", issues: built?.planIssues ?? [] }
+        : null;
       return NextResponse.json(
-        { rooms: saved?.rooms ?? null, version: saved?.updatedAt ?? 0, open: readVenueOpen(event.settings), slug: event.slug, programme, blueprint },
+        { rooms: saved?.rooms ?? null, version: saved?.updatedAt ?? 0, open: readVenueOpen(event.settings), slug: event.slug, programme, blueprint, plan },
         { headers: { "Cache-Control": "private, no-store" } },
       );
     });
@@ -112,6 +126,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
         const opened = await setVenueOpen(caller, parsed.data.open);
         if (!opened.ok) return NextResponse.json({ error: opened.message, code: opened.code }, { status: 409 });
         return NextResponse.json({ open: opened.open });
+      }
+      if ("plan" in parsed.data) {
+        const res = await saveVenuePlan(caller, parsed.data.plan, parsed.data.planVersion);
+        if (!res.ok) {
+          const status = res.code === "INVALID_PLAN" ? 400 : 409;
+          return NextResponse.json({ error: res.message, code: res.code, ...("issues" in res && { issues: res.issues }) }, { status });
+        }
+        return NextResponse.json({ plan: res.saved?.plan ?? null, planVersion: res.saved?.updatedAt ?? 0 });
       }
       const res = await saveVenueRooms(caller, parsed.data.rooms, parsed.data.version);
       if (!res.ok) {

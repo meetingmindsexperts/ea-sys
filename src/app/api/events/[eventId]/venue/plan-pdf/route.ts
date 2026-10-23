@@ -17,7 +17,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { isVenueModuleEnabled } from "@/lib/module-flags";
-import { generateLayout } from "@/lib/venue/layout";
+import { readVenuePlan } from "@/lib/venue/plan";
+import { buildVenueLayout } from "@/lib/venue/plan-layout";
 import { checkLayout } from "@/lib/venue/layout-check";
 import { readVenueRooms } from "@/lib/venue/rooms";
 import { PLAN_PAPERS, planDateLine, renderFloorPlanPdf, type PlanPaper } from "@/lib/venue/floor-plan-pdf";
@@ -85,7 +86,10 @@ export async function GET(req: Request, { params }: RouteParams) {
         apiLogger.warn({ msg: `${ROUTE}:no-rooms`, eventId, userId: session.user.id });
         return fail("Save the venue's rooms first; the PDF is drawn from the saved rooms.", 409, "NO_ROOMS");
       }
-      const layout = generateLayout(saved.rooms, { eventName: event.name });
+      // The drawn plan when there is one that still fits the rooms, else the automatic one: what the venue shows.
+      const built = buildVenueLayout(saved.rooms, readVenuePlan(event.settings)?.plan ?? null, { eventName: event.name });
+      if (built.planIssues.length) apiLogger.warn({ msg: `${ROUTE}:plan-not-used`, eventId, issues: built.planIssues });
+      const layout = built.layout;
       const check = checkLayout(layout);
       if (!check.ok) {
         apiLogger.error({ msg: `${ROUTE}:layout-not-walkable`, eventId, issues: check.issues });

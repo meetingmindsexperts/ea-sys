@@ -142,8 +142,10 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           <Summary rooms={rooms} />
           {dirty && <p className="text-sm text-muted-foreground">Not saved yet.</p>}
           {!dirty && saved && data?.slug && <OpenCard eventId={eventId} slug={data.slug} open={!!data.open} canEdit={canEdit} />}
-          {issues.length === 0 && <VenueProgrammeCard rooms={rooms} programme={data?.programme} />}
-          {issues.length === 0 && <VenueFloorPlan rooms={rooms} eventName="" actions={<PlanPdfAction eventId={eventId} saved={!!saved && !dirty} />} />}
+          {issues.length === 0 && <VenueProgrammeCard rooms={rooms} programme={data?.programme} plan={data?.plan?.plan ?? null} />}
+          {issues.length === 0 && (
+            <VenueFloorPlan rooms={rooms} eventName="" plan={data?.plan?.plan ?? null} actions={<PlanPdfAction eventId={eventId} saved={!!saved && !dirty} />} />
+          )}
         </>
       )}
       <Card>

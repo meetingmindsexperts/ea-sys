@@ -10,7 +10,8 @@ import { useMemo } from "react";
 import { AlertCircle, CalendarDays } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionHeading } from "@/components/ui/typography";
-import { generateLayout } from "@/lib/venue/layout";
+import { buildVenueLayout } from "@/lib/venue/plan-layout";
+import type { VenuePlan } from "@/lib/venue/plan";
 import { roomOfSession } from "@/lib/venue/programme";
 import type { VenueRoom } from "@/lib/venue/rooms";
 import type { VenueRoomsData } from "@/hooks/use-api";
@@ -25,7 +26,7 @@ function sponsorLine(sponsors: number, stands: number): string {
   return `${plural(sponsors, "sponsor")} on ${plural(stands, "stand")}, platinum first; the rest show plain stand numbers.`;
 }
 
-export function VenueProgrammeCard({ rooms, programme }: { rooms: VenueRoom[]; programme: VenueRoomsData["programme"] }) {
+export function VenueProgrammeCard({ rooms, programme, plan = null }: { rooms: VenueRoom[]; programme: VenueRoomsData["programme"]; plan?: VenuePlan | null }) {
   const placed = useMemo(() => {
     if (!programme) return null;
     const refs = rooms.map((r) => ({ id: r.id, name: r.name }));
@@ -36,9 +37,9 @@ export function VenueProgrammeCard({ rooms, programme }: { rooms: VenueRoom[]; p
       if (room) counts.set(room, (counts.get(room) ?? 0) + 1);
       else unplaced.push({ title: s.title, names: s.location?.trim() || s.track?.trim() || null });
     }
-    const stands = generateLayout(rooms, { eventName: "" }).items.filter((it) => it.t === "stand").length;
+    const stands = buildVenueLayout(rooms, plan, { eventName: "" }).layout.items.filter((it) => it.t === "stand").length;
     return { counts, unplaced, stands };
-  }, [rooms, programme]);
+  }, [rooms, programme, plan]);
 
   return (
     <section className="space-y-3">

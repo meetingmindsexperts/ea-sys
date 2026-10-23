@@ -10,9 +10,11 @@
  */
 import { apiLogger } from "@/lib/logger";
 import { isVenueEnabledFor, isVenueModuleEnabled } from "@/lib/module-flags";
-import { generateLayout, type VenueLayout } from "./layout";
+import type { VenueLayout } from "./layout";
 import { checkLayout } from "./layout-check";
 import { readVenueOpen, readVenueRooms } from "./rooms";
+import { readVenuePlan } from "./plan";
+import { buildVenueLayout } from "./plan-layout";
 import type { VenueRoomRef } from "./programme";
 import vocab from "./persona-vocab.generated.json";
 
@@ -27,7 +29,10 @@ export type EventLayout = { kind: "preset" } | { kind: "generated"; layout: Venu
 export function eventLayout(event: { id: string; name: string; settings: unknown }): EventLayout {
   const saved = readVenueRooms(event.settings);
   if (!saved || !isVenueModuleEnabled()) return { kind: "preset" };
-  const layout = generateLayout(saved.rooms, { eventName: event.name });
+  // The drawn plan when there is one that still fits the rooms, else the automatic template.
+  const built = buildVenueLayout(saved.rooms, readVenuePlan(event.settings)?.plan ?? null, { eventName: event.name });
+  if (built.planIssues.length) apiLogger.warn({ msg: "venue:plan-not-used", eventId: event.id, issues: built.planIssues });
+  const layout = built.layout;
   const check = checkLayout(layout);
   if (check.ok) return { kind: "generated", layout };
   apiLogger.error({ msg: "venue:layout-not-walkable", eventId: event.id, issues: check.issues });

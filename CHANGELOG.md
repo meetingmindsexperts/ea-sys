@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: drawn floor plans, the model under the editor (October 23)
+
+- Phase 0 of docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md; no editor yet, so nothing changes for users. A drawn plan (`Event.settings.venue.plan`, `src/lib/venue/plan.ts`) places each room as a rectangle with its door (wall, position, width), plus walkways and the entrance. `layoutFromPlan()` (`plan-layout.ts`) builds the same `VenueLayout` the template does: walls are found from the rectangles (wherever two different areas meet or an area meets the outside, never between two walkways), doors and the glass entrance cut openings, and each room is furnished by the template's own furnishers (a north-door frame added; the foyer furnishes from any entrance wall).
+- Proof: every layout fixture, turned into a plan with `planFromLayout()` and built back, is the same building (zones, doors, furniture, people, hotspots, crowd loops, outline, walls, walkable). The generator refactor that shares the furnishers is byte-identical on every template.
+- `buildVenueLayout()` is now the one way the venue, the floor plan PDF and the Venue tab's plan are built: the drawn plan when it still fits the room list, else automatic, with the reasons logged (`venue:plan-not-used`) and returned by GET. `PUT /api/events/[eventId]/venue { plan, planVersion }` saves one (version-checked; refused with every reason: unplaced or overlapping rooms, a door onto the outside, an entrance into a room, not walkable); `plan: null` goes back to automatic. Saving the room list drops a removed room's placement.
+
 ### Venue: download the floor plan as a PDF (October 23)
 
 - Owner request, phase 0a of docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md (written the same day; the owner accepted decisions F1 to F8 as recommended). "Download PDF" above the Venue tab's floor plan gives an A3 or A4 PDF drawn from the saved rooms: the same `VenueLayout` the plan view and the walkable venue use. Event name, dates (in the event's time zone) and place; rooms with capacity, walls, doors, corridor, entrance; numbered stands with a key to the sponsor on each (stand n to the nth sponsor, the venue's own rule); a round printed scale (1 : 300, not 1 : 287), scale bar, north arrow and legend. The page turns portrait or landscape to the plan, and room labels move off stands when the centre would hide them.

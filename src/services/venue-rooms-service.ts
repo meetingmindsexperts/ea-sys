@@ -11,6 +11,8 @@ import { updateEventSettings } from "@/lib/event-settings";
 import { readVenueRooms, roomsSchema, type StoredVenueRooms } from "@/lib/venue/rooms";
 import { generateLayout } from "@/lib/venue/layout";
 import { checkLayout } from "@/lib/venue/layout-check";
+import { planIssues, planSchema, readVenuePlan, type StoredVenuePlan, type VenuePlan } from "@/lib/venue/plan";
+import { layoutFromPlan } from "@/lib/venue/plan-layout";
 
 export type SaveRoomsResult =
   | { ok: true; saved: StoredVenueRooms }
@@ -51,7 +53,7 @@ export async function saveVenueRooms(c: Caller, raw: unknown, version: number): 
         const current = readVenueRooms(cur);
         if ((current?.updatedAt ?? 0) !== version) throw new StaleVersion();
         const venue = cur.venue && typeof cur.venue === "object" ? (cur.venue as Record<string, unknown>) : {};
-        return { ...cur, venue: { ...venue, rooms: { list: saved.rooms, updatedAt: saved.updatedAt, updatedBy: saved.updatedBy } } };
+        return { ...cur, venue: { ...venue, rooms: { list: saved.rooms, updatedAt: saved.updatedAt, updatedBy: saved.updatedBy }, ...prunedPlan(cur, saved.rooms) } };
       }),
     );
   } catch (err) {
@@ -86,3 +88,89 @@ export async function setVenueOpen(c: Caller, open: boolean): Promise<OpenVenueR
   return { ok: true, open };
 }
 
+
+/**
+ * A drawn plan follows the room list: a removed room's placement goes with
+ * it. A room added since the plan was drawn has no placement yet, so the
+ * venue stays automatic until the plan places it (the Venue tab says so).
+ */
+function prunedPlan(cur: Record<string, unknown>, rooms: { id: string }[]): { plan?: unknown } {
+  const stored = readVenuePlan(cur);
+  if (!stored) return {};
+  const keep = new Set(rooms.map((r) => r.id));
+  const placed = stored.plan.rooms.filter((p) => keep.has(p.id));
+  if (placed.length === stored.plan.rooms.length) return {};
+  return { plan: { plan: { ...stored.plan, rooms: placed }, updatedAt: stored.updatedAt, updatedBy: stored.updatedBy } };
+}
+
+export type SavePlanResult =
+  | { ok: true; saved: StoredVenuePlan | null }
+  | { ok: false; code: "INVALID_PLAN"; message: string; issues: string[] }
+  | { ok: false; code: "NO_ROOMS"; message: string }
+  | { ok: false; code: "STALE_VERSION"; message: string };
+
+/**
+ * Save a drawn plan, or (`raw` null) go back to the automatic plan.
+ * `version` is the plan's `updatedAt` the editor loaded (0 when none). A plan
+ * is refused unless every room on the list is placed, nothing overlaps, every
+ * door opens onto a walkway or a room, the entrance is on an outside wall,
+ * and the building it makes is walkable.
+ */
+export async function saveVenuePlan(c: Caller, raw: unknown, version: number): Promise<SavePlanResult> {
+  const ctx = { organizationId: c.organizationId, eventId: c.eventId, userId: c.userId };
+  let plan: VenuePlan | null = null;
+  if (raw !== null) {
+    const parsed = planSchema.safeParse(raw);
+    if (!parsed.success) {
+      const issues = [...new Set(parsed.error.issues.map((i) => i.message))];
+      apiLogger.warn({ msg: "venue-plan:refused", code: "INVALID_PLAN", ...ctx, issues });
+      return { ok: false, code: "INVALID_PLAN", message: issues[0] ?? "The plan could not be saved", issues };
+    }
+    plan = parsed.data;
+  }
+  class NoRooms extends Error {}
+  class Invalid extends Error {
+    constructor(readonly issues: string[]) {
+      super("invalid plan");
+    }
+  }
+  const saved: StoredVenuePlan | null = plan ? { plan, updatedAt: Date.now(), updatedBy: c.userId } : null;
+  try {
+    await runWithTenant(c.organizationId, () =>
+      updateEventSettings(c.eventId, (cur) => {
+        // Checked inside the locked update, against the room list as saved at this moment.
+        const rooms = readVenueRooms(cur);
+        if (!rooms) throw new NoRooms();
+        if ((readVenuePlan(cur)?.updatedAt ?? 0) !== version) throw new StaleVersion();
+        if (plan) {
+          const shape = planIssues(rooms.rooms, plan);
+          if (shape.length) throw new Invalid(shape);
+          const built = layoutFromPlan(rooms.rooms, plan, { eventName: "" });
+          if (built.issues.length) throw new Invalid(built.issues);
+          const check = checkLayout(built.layout);
+          if (!check.ok) throw new Invalid(check.issues);
+        }
+        const venue = cur.venue && typeof cur.venue === "object" ? { ...(cur.venue as Record<string, unknown>) } : {};
+        if (saved) venue.plan = { plan: saved.plan, updatedAt: saved.updatedAt, updatedBy: saved.updatedBy };
+        else delete venue.plan;
+        return { ...cur, venue };
+      }),
+    );
+  } catch (err) {
+    if (err instanceof NoRooms) {
+      apiLogger.warn({ msg: "venue-plan:refused", code: "NO_ROOMS", ...ctx });
+      return { ok: false, code: "NO_ROOMS", message: "Save the room list before drawing the plan" };
+    }
+    if (err instanceof StaleVersion) {
+      apiLogger.warn({ msg: "venue-plan:refused", code: "STALE_VERSION", ...ctx, version });
+      return { ok: false, code: "STALE_VERSION", message: "Someone else saved the plan since you opened it. Reload to see their changes." };
+    }
+    if (err instanceof Invalid) {
+      apiLogger.warn({ msg: "venue-plan:refused", code: "INVALID_PLAN", ...ctx, issues: err.issues });
+      return { ok: false, code: "INVALID_PLAN", message: err.issues[0], issues: err.issues };
+    }
+    throw err;
+  }
+  apiLogger.info({ msg: saved ? "venue-plan:saved" : "venue-plan:reset-to-automatic", ...ctx, rooms: saved?.plan.rooms.length ?? 0 });
+  return { ok: true, saved };
+}

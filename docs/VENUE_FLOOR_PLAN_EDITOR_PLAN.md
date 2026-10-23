@@ -1,6 +1,6 @@
 # Venue floor plan editor: plan
 
-Status: IN BUILD (Oct 23, 2026). Phase 0a (PDF export) BUILT the same day; the owner accepted F1 to F8 as recommended ("proceed, phase by phase"). Owner request: "we want to drag rooms
+Status: IN BUILD (Oct 23, 2026). Phases 0a (PDF export) and 0 (the plan model, no editor yet) BUILT the same day; the owner accepted F1 to F8 as recommended ("proceed, phase by phase"). Owner request: "we want to drag rooms
 and adjust room size and sides and so on; eventually a real floor plan image will
 be used; the 3D walkable venue takes whatever 2D plan is made", and "the 2D floor
 plan is exportable as PDF too".
@@ -157,6 +157,14 @@ the plan stays viewable there):
 
 ### 3.6 The 3D venue
 
+**Found in phase 0 (to do in phase 1):** three spots in `world.js` still assume
+the template's south entrance with the corridor north of the foyer: the foyer
+directory board is drawn facing south (fixed yaw and an x-wide box), the
+registration desks the same, and the event banners are placed beside the first
+corridor's mouth by x. The layout already carries the right yaw and footprint
+for each (the furnishers face the entrance), so the fix is to read them.
+
+
 `buildLayout()` already builds walls, doors and furniture from coordinates. The
 changes are small and in our copy of the vendor code (D5):
 
@@ -215,7 +223,7 @@ automatic mode untouched.
 | Phase | What | Size | Done when |
 |---|---|---|---|
 | 0a | PDF export of the current 2D plan (3.7), automatic plans included | 1 session | The congress template downloads as an A3 PDF with rooms, doors, stands, scale bar and north arrow |
-| 0 | Data model, `planFromLayout()`, `layoutFromPlan()`, north frame, save route + service, no UI | 1 session | A golden test: automatic layout, turned into a plan, rebuilt from the plan, gives the same layout (zones, doors, furniture, walkable) for every template |
+| 0 | Data model, `planFromLayout()`, `layoutFromPlan()`, north frame, save route + service, no UI | 1 session | A golden test: automatic layout, turned into a plan, rebuilt from the plan, gives the same layout (zones, doors, furniture, walkable) for every template. **BUILT Oct 23**: `src/lib/venue/plan.ts` (model, `planFromLayout`, `planIssues`), `plan-layout.ts` (`layoutFromPlan`, walls found from the rectangles, `buildVenueLayout`); exact round trip on all seven layout fixtures (`venue-plan.test.ts`); `PUT /venue { plan, planVersion }`, plan null resets; a room removed from the list drops its placement, a room added leaves the venue automatic until placed. The plan extent is 600 m, since the automatic layout's largest building is 388 m deep |
 | 1 | Editor: drag, resize, turn, door wall, walkways, entrance, live checks, undo, save, Reset to automatic; 3D doors on any wall, several corridors | 2 to 3 sessions | An organiser rearranges the congress template, saves, and walks it in 3D; a broken plan cannot be saved and says why |
 | 2 | Polish: snapping to edges, zoom and pan, Preview in 3D before saving, keyboard nudging, the room list and plan kept in step (3.4) | 1 session | Field test with the events team on one real event |
 | 3 | Stands: count, drag stands, choose the sponsor per stand (replacing "nth stand to nth sponsor by tier" when set) | 1 session | Sponsors land on the stands the team chose, in 2D and 3D |

@@ -6,6 +6,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { TEMPLATES } from "@/lib/venue/rooms";
+import { generateLayout } from "@/lib/venue/layout";
+import { planFromLayout } from "@/lib/venue/plan";
 
 const { mockAuth, mockDb, settingsStore } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
@@ -54,7 +56,7 @@ describe("/api/events/:eventId/venue", () => {
 
   it("a member reads the rooms; only events.update saves them", async () => {
     as("MEMBER");
-    expect(await (await GET(new Request("http://localhost/x"), params)).json()).toEqual({ rooms: null, version: 0, open: false, slug: undefined, programme: SUMMARY, blueprint: null });
+    expect(await (await GET(new Request("http://localhost/x"), params)).json()).toEqual({ rooms: null, version: 0, open: false, slug: undefined, programme: SUMMARY, blueprint: null, plan: null });
     expect((await put({ rooms, version: 0 })).status).toBe(403);
     as("ORGANIZER");
     const res = await put({ rooms, version: 0 });
@@ -125,5 +127,67 @@ describe("/api/events/:eventId/venue", () => {
     expect(await (await GET(new Request("http://localhost/x"), params)).json()).toMatchObject({ open: true });
     as("MEMBER");
     expect((await put({ open: false })).status).toBe(403);
+  });
+});
+
+describe("/api/events/:eventId/venue drawn plans", () => {
+  const savedRooms = async () => {
+    as("ORGANIZER");
+    const res = await put({ rooms, version: 0 });
+    expect(res.status).toBe(200);
+  };
+  const drawn = () => planFromLayout(generateLayout(rooms, { eventName: "" }));
+
+  it("refuses a plan before the rooms are saved", async () => {
+    as("ORGANIZER");
+    const res = await put({ plan: drawn(), planVersion: 0 });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("NO_ROOMS");
+  });
+
+  it("saves a plan, reports it in use, and keeps the other venue keys", async () => {
+    await savedRooms();
+    const res = await put({ plan: drawn(), planVersion: 0 });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.planVersion).toBeGreaterThan(0);
+    const venue = settingsStore.current.venue as Record<string, unknown>;
+    expect(venue.ai).toEqual({ on: false });
+    expect(venue.rooms).toBeTruthy();
+    const got = await (await GET(new Request("http://localhost/x"), params)).json();
+    expect((got.plan as { mode: string; version: number }).mode).toBe("drawn");
+    expect((got.plan as { version: number }).version).toBe(body.planVersion);
+  });
+
+  it("refuses an older version, an overlap with its reason, and anyone without events.update", async () => {
+    await savedRooms();
+    const first = await (await put({ plan: drawn(), planVersion: 0 })).json();
+    expect((await put({ plan: drawn(), planVersion: 0 })).status).toBe(409);
+    const bad = drawn();
+    bad.rooms[1] = { ...bad.rooms[1], rect: bad.rooms[2].rect };
+    const res = await put({ plan: bad, planVersion: first.planVersion as number });
+    expect(res.status).toBe(400);
+    expect(((await res.json()).issues as string[]).join(" ")).toMatch(/overlap/);
+    as("MEMBER");
+    expect((await put({ plan: drawn(), planVersion: first.planVersion as number })).status).toBe(403);
+  });
+
+  it("plan null goes back to automatic", async () => {
+    await savedRooms();
+    const first = await (await put({ plan: drawn(), planVersion: 0 })).json();
+    const res = await put({ plan: null, planVersion: first.planVersion as number });
+    expect(res.status).toBe(200);
+    expect((settingsStore.current.venue as Record<string, unknown>).plan).toBeUndefined();
+  });
+
+  it("removing a room from the list drops its placement, and the venue falls back to automatic until it fits", async () => {
+    await savedRooms();
+    await put({ plan: drawn(), planVersion: 0 });
+    const roomsVersion = (await (await GET(new Request("http://localhost/x"), params)).json()).version as number;
+    const fewer = rooms.filter((r) => r.kind !== "lounge");
+    expect((await put({ rooms: fewer, version: roomsVersion })).status).toBe(200);
+    const plan = ((settingsStore.current.venue as Record<string, unknown>).plan as { plan: { rooms: { id: string }[] } }).plan;
+    // The plan keeps its drawing order; it now places exactly the rooms still on the list.
+    expect(plan.rooms.map((r) => r.id).sort()).toEqual(fewer.map((r) => r.id).sort());
   });
 });
