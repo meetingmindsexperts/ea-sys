@@ -36,12 +36,16 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-function buildQueryString(filters?: Record<string, string>): string {
+function buildQueryString(filters?: Record<string, string | string[]>): string {
   if (!filters) {
     return "";
   }
 
-  const params = new URLSearchParams(filters);
+  // An array value repeats its key (`country=A&country=B`).
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    for (const v of Array.isArray(value) ? value : [value]) params.append(key, v);
+  }
   const queryString = params.toString();
 
   return queryString ? `?${queryString}` : "";
@@ -680,7 +684,7 @@ export function useUnassignAbstractReviewer(eventId: string, abstractId: string)
 }
 
 // ============ CONTACTS ============
-export function useContacts(filters?: Record<string, string>) {
+export function useContacts(filters?: Record<string, string | string[]>) {
   const queryString = buildQueryString(filters);
   return useQuery({
     queryKey: filters ? [...queryKeys.contacts, filters] : queryKeys.contacts,
@@ -915,11 +919,11 @@ export interface ContactFilterOptions {
  * params are part of the key; the previous choices stay on screen while the
  * next set loads instead of the pickers emptying.
  */
-export function useContactFilterOptions(filters: Record<string, string>) {
-  const qs = new URLSearchParams(filters).toString();
+export function useContactFilterOptions(filters: Record<string, string | string[]>) {
+  const qs = buildQueryString(filters);
   return useQuery({
     queryKey: [...queryKeys.contacts, "filter-options", filters],
-    queryFn: () => fetchApi<ContactFilterOptions>(`/api/contacts/filter-options${qs ? `?${qs}` : ""}`),
+    queryFn: () => fetchApi<ContactFilterOptions>(`/api/contacts/filter-options${qs}`),
     placeholderData: (previous) => previous,
   });
 }

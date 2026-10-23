@@ -154,7 +154,7 @@ export default function ContactsPage() {
     role: fieldFilters.role,
   });
   const isFiltered = Object.keys(filterQuery).length > 0;
-  const filters: Record<string, string> = { page: String(page), limit: String(pageSize), ...filterQuery };
+  const filters: Record<string, string | string[]> = { page: String(page), limit: String(pageSize), ...filterQuery };
 
   const { data, isLoading, isFetching, refetch: refetchContacts } = useContacts(filters);
   const filterOptions = useContactFilterOptions(filterQuery);

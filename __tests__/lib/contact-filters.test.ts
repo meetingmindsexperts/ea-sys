@@ -11,6 +11,7 @@ import {
   groupFilterValues,
   hasContactFilters,
   parseContactFilters,
+  toSearchParams,
 } from "@/lib/contact-filters";
 import { describeContactFilters } from "@/components/contacts/contact-field-filters";
 
@@ -21,8 +22,14 @@ describe("parseContactFilters", () => {
     const r = parse("search= amina &tags=vip, kol&specialty=Cardiology&country=India&role=physician");
     expect(r).toEqual({
       ok: true,
-      filters: { search: "amina", tags: ["vip", "kol"], specialty: "Cardiology", country: "India", role: "PHYSICIAN" },
+      filters: { search: "amina", tags: ["vip", "kol"], specialty: ["Cardiology"], country: ["India"], role: "PHYSICIAN" },
     });
+  });
+
+  it("reads several specialties and countries as repeated parameters, commas kept", () => {
+    const r = parse("specialty=Others, please specify&specialty=Cardiology&country=UAE&country= UAE &country=India");
+    expect(r.ok && r.filters.specialty).toEqual(["Others, please specify", "Cardiology"]);
+    expect(r.ok && r.filters.country).toEqual(["UAE", "India"]);
   });
 
   it("no params means no filters", () => {
@@ -43,24 +50,39 @@ describe("parseContactFilters", () => {
 });
 
 describe("contactFiltersWhere", () => {
-  const base = { search: "", tags: [], specialty: null, country: null, role: null };
+  const base = { search: "", tags: [], specialty: [] as string[], country: [] as string[], role: null };
 
   it("no filters is the organisation only", () => {
     expect(contactFiltersWhere("org1", base)).toEqual({ organizationId: "org1" });
   });
 
   it("specialty and country match whole values ignoring case", () => {
-    expect(contactFiltersWhere("org1", { ...base, specialty: "cardiology", country: "UNITED ARAB EMIRATES" })).toEqual({
+    expect(contactFiltersWhere("org1", { ...base, specialty: ["cardiology"], country: ["UNITED ARAB EMIRATES"] })).toEqual({
       organizationId: "org1",
       AND: [
-        { specialty: { equals: "cardiology", mode: "insensitive" } },
-        { country: { equals: "UNITED ARAB EMIRATES", mode: "insensitive" } },
+        { OR: [{ specialty: { equals: "cardiology", mode: "insensitive" } }] },
+        { OR: [{ country: { equals: "UNITED ARAB EMIRATES", mode: "insensitive" } }] },
       ],
     });
   });
 
+  it("several values of one field match any of them; fields still combine with AND", () => {
+    const w = contactFiltersWhere("org1", { ...base, country: ["UAE", "United Arab Emirates", NOT_SET], role: "PHYSICIAN" });
+    expect(w.AND).toEqual([
+      { role: "PHYSICIAN" },
+      {
+        OR: [
+          { country: { equals: "UAE", mode: "insensitive" } },
+          { country: { equals: "United Arab Emirates", mode: "insensitive" } },
+          { country: null },
+          { country: "" },
+        ],
+      },
+    ]);
+  });
+
   it("Not set matches null or empty, for role null only", () => {
-    const w = contactFiltersWhere("org1", { ...base, country: NOT_SET, role: NOT_SET });
+    const w = contactFiltersWhere("org1", { ...base, country: [NOT_SET], role: NOT_SET });
     expect(w.AND).toEqual([{ role: null }, { OR: [{ country: null }, { country: "" }] }]);
   });
 
@@ -73,32 +95,32 @@ describe("contactFiltersWhere", () => {
 
 describe("query and audit helpers", () => {
   it("contactFiltersQuery round-trips through the parser", () => {
-    const q = contactFiltersQuery({ search: "a", tags: ["vip"], specialty: "Cardiology", country: null, role: "PHYSICIAN" });
-    expect(q).toEqual({ search: "a", tags: "vip", specialty: "Cardiology", role: "PHYSICIAN" });
-    const r = parseContactFilters(new URLSearchParams(q));
-    expect(r.ok && r.filters.specialty).toBe("Cardiology");
+    const q = contactFiltersQuery({ search: "a", tags: ["vip"], specialty: ["Cardiology", "Others, please specify"], country: [], role: "PHYSICIAN" });
+    expect(q).toEqual({ search: "a", tags: "vip", specialty: ["Cardiology", "Others, please specify"], role: "PHYSICIAN" });
+    const r = parseContactFilters(toSearchParams(q));
+    expect(r.ok && r.filters.specialty).toEqual(["Cardiology", "Others, please specify"]);
   });
 
   it("the audit form never carries the search text", () => {
-    const a = contactFiltersAudit({ search: "amina@x.com", tags: [], specialty: "Cardiology", country: null, role: null });
-    expect(a).toEqual({ specialty: "Cardiology" });
+    const a = contactFiltersAudit({ search: "amina@x.com", tags: [], specialty: ["Cardiology"], country: [], role: null });
+    expect(a).toEqual({ specialty: ["Cardiology"] });
   });
 });
 
 describe("wildcards and the Not recorded sentinel", () => {
-  const base = { search: "", tags: [], specialty: null, country: null, role: null };
+  const base = { search: "", tags: [], specialty: [] as string[], country: [] as string[], role: null };
 
   it("escapes % and _ so a value only matches itself (insensitive equals is ILIKE)", () => {
-    const w = contactFiltersWhere("org1", { ...base, specialty: "%", country: "a_b\\c" });
+    const w = contactFiltersWhere("org1", { ...base, specialty: ["%"], country: ["a_b\\c"] });
     expect(w.AND).toEqual([
-      { specialty: { equals: "\\%", mode: "insensitive" } },
-      { country: { equals: "a\\_b\\\\c", mode: "insensitive" } },
+      { OR: [{ specialty: { equals: "\\%", mode: "insensitive" } }] },
+      { OR: [{ country: { equals: "a\\_b\\\\c", mode: "insensitive" } }] },
     ]);
   });
 
   it("a real value of 'none' is a value, not the blank choice", () => {
-    const w = contactFiltersWhere("org1", { ...base, specialty: "none" });
-    expect(w.AND).toEqual([{ specialty: { equals: "none", mode: "insensitive" } }]);
+    const w = contactFiltersWhere("org1", { ...base, specialty: ["none"] });
+    expect(w.AND).toEqual([{ OR: [{ specialty: { equals: "none", mode: "insensitive" } }] }]);
   });
 });
 
@@ -133,15 +155,20 @@ describe("export file name and filter wording", () => {
       "contacts-india-cardiology-search-2026-10-23.csv",
     );
     expect(contactExportFileName({ role: NOT_SET }, day)).toBe("contacts-not-recorded-2026-10-23.csv");
+    expect(contactExportFileName({ country: ["UAE", "United Arab Emirates"] }, day)).toBe(
+      "contacts-uae-united-arab-emirates-2026-10-23.csv",
+    );
     expect(contactExportFileName({}, day)).toBe("contacts-all-2026-10-23.csv");
   });
 
   it("describes the filters in words for the export dialog", () => {
-    expect(describeContactFilters({ search: "amina", tags: "vip,kol", country: "India", role: "ALLIED_HEALTH", specialty: NOT_SET })).toEqual([
+    expect(
+      describeContactFilters({ search: "amina", tags: "vip,kol", country: ["India", "UAE"], role: "ALLIED_HEALTH", specialty: [NOT_SET] }),
+    ).toEqual([
       "Search: “amina”",
       "Tags: vip, kol",
       "Specialty: Not recorded",
-      "Country: India",
+      "Country: India or UAE",
       "Role: Allied Health",
     ]);
   });

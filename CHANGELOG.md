@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Contacts: pick several specialties or countries (October 23)
+
+- Owner request. Specialty and Country on the Contacts page are now checklists (src/components/contacts/multi-value-filter.tsx, the tag filter's shape): tick several, matched as any-of within the field and AND across fields, with chips for each choice. Ticking "United Arab Emirates" and "UAE" together is the answer to the country spelling variants without a data clean-up. Role stays a single choice.
+- Several values travel as repeated parameters (`country=UAE&country=United%20Arab%20Emirates`), never one comma list, because real values contain commas ("Others, please specify"). `ContactFilters.specialty` / `.country` are arrays; `toSearchParams` and `buildQueryString` repeat a key for an array. The list, the export, filter-options, the export file name, the dialog's filter wording ("Country: UAE or United Arab Emirates") and the audit row all follow; a single value still works as before. OpenAPI documents the repeat.
+
 ### Contacts: review fixes and plain-English notices for filters, export and import (October 23)
 
 - Review of the filters and export picker (no HIGHs). Fixed: the export dialog's count could read 0 or stale while the list reloaded, skipping the over-cap warning (it now says "Counting…" and Export waits); a picker showed "All" while still filtering when its value dropped out of the list; an export refusal (rate limit, bad filter, failure) replaced the tab with raw JSON and the 25,000 cut-off was invisible (the dialog now downloads with fetch, every refusal is JSON, and `X-Export-Rows` / `X-Export-Matching` drive the toasts).

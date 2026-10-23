@@ -59,7 +59,7 @@ describe("GET /api/contacts/filter-options", () => {
   });
 
   it("counts each picker under the other filters but not its own", async () => {
-    await GET(new Request("http://localhost/api/contacts/filter-options?country=India&specialty=Cardiology"));
+    await GET(new Request("http://localhost/api/contacts/filter-options?country=India&country=Oman&specialty=Cardiology"));
     const whereFor = (col: string) =>
       (mockDb.contact.groupBy.mock.calls.find(([a]) => (a as GroupArgs).by[0] === col)![0] as GroupArgs).where;
     expect(JSON.stringify(whereFor("specialty"))).toContain("India");
@@ -67,6 +67,7 @@ describe("GET /api/contacts/filter-options", () => {
     expect(JSON.stringify(whereFor("country"))).toContain("Cardiology");
     expect(JSON.stringify(whereFor("country"))).not.toContain("India");
     expect(JSON.stringify(whereFor("role"))).toContain("India");
+    expect(JSON.stringify(whereFor("specialty"))).toContain("Oman");
   });
 
   it("refuses an unknown role with a logged 400", async () => {

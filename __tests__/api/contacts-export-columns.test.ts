@@ -83,12 +83,12 @@ describe("GET /api/contacts/export with the page's filters", () => {
     const where = mockDb.contact.findMany.mock.calls[0][0].where;
     expect(where.organizationId).toBe("org1");
     expect(where.AND).toEqual(expect.arrayContaining([
-      { specialty: { equals: "Cardiology", mode: "insensitive" } },
-      { country: { equals: "India", mode: "insensitive" } },
+      { OR: [{ specialty: { equals: "Cardiology", mode: "insensitive" } }] },
+      { OR: [{ country: { equals: "India", mode: "insensitive" } }] },
       { role: "PHYSICIAN" },
     ]));
     const audit = recordExport.mock.calls[0][1].filters;
-    expect(audit).toMatchObject({ specialty: "Cardiology", country: "India", role: "PHYSICIAN", q: "fp123" });
+    expect(audit).toMatchObject({ specialty: ["Cardiology"], country: ["India"], role: "PHYSICIAN", q: "fp123" });
     expect(JSON.stringify(audit)).not.toContain("amina");
   });
 
@@ -165,5 +165,20 @@ describe("API keys and the private columns", () => {
     expect((await get("?columns=email,phone")).status).toBe(403);
     const res = await get();
     expect((await res.text()).split("\n")[0].split(",")).not.toContain("phone");
+  });
+});
+
+describe("GET /api/contacts/export with several countries", () => {
+  it("matches any of the chosen countries", async () => {
+    await get("?columns=email&country=UAE&country=United%20Arab%20Emirates");
+    const where = mockDb.contact.findMany.mock.calls[0][0].where;
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { country: { equals: "UAE", mode: "insensitive" } },
+          { country: { equals: "United Arab Emirates", mode: "insensitive" } },
+        ],
+      },
+    ]);
   });
 });

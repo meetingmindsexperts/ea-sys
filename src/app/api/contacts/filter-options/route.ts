@@ -38,8 +38,8 @@ export async function GET(req: Request) {
 
     return await runWithTenant(orgId, async () => {
       const [specialtyRows, countryRows, roleRows, total] = await Promise.all([
-        db.contact.groupBy({ by: ["specialty"], where: contactFiltersWhere(orgId, { ...f, specialty: null }), _count: { _all: true } }),
-        db.contact.groupBy({ by: ["country"], where: contactFiltersWhere(orgId, { ...f, country: null }), _count: { _all: true } }),
+        db.contact.groupBy({ by: ["specialty"], where: contactFiltersWhere(orgId, { ...f, specialty: [] }), _count: { _all: true } }),
+        db.contact.groupBy({ by: ["country"], where: contactFiltersWhere(orgId, { ...f, country: [] }), _count: { _all: true } }),
         db.contact.groupBy({ by: ["role"], where: contactFiltersWhere(orgId, { ...f, role: null }), _count: { _all: true } }),
         db.contact.count({ where: { organizationId: orgId } }),
       ]);

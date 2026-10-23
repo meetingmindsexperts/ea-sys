@@ -166,8 +166,8 @@ export function buildOpenApiSpec(serverUrl: string): Json {
           parameters: [
             { name: "search", in: "query", required: false, schema: { type: "string" } },
             { name: "tags", in: "query", required: false, schema: { type: "string" }, description: "Comma-separated tag names (OR match)." },
-            { name: "specialty", in: "query", required: false, schema: { type: "string" }, description: "Whole value, case-insensitive. `__none__` matches contacts with no specialty." },
-            { name: "country", in: "query", required: false, schema: { type: "string" }, description: "Whole value, case-insensitive. `__none__` matches contacts with no country." },
+            { name: "specialty", in: "query", required: false, style: "form", explode: true, schema: { type: "array", items: { type: "string" } }, description: "Repeat for several (`specialty=A&specialty=B`, matches any). Whole value, case-insensitive. `__none__` matches contacts with no specialty." },
+            { name: "country", in: "query", required: false, style: "form", explode: true, schema: { type: "array", items: { type: "string" } }, description: "Repeat for several (`country=A&country=B`, matches any). Whole value, case-insensitive. `__none__` matches contacts with no country." },
             { name: "role", in: "query", required: false, schema: { type: "string", enum: ["ACADEMIA", "ALLIED_HEALTH", "MEDICAL_DEVICES", "PHARMA", "PHYSICIAN", "RESIDENT", "SPEAKER", "STUDENT", "OTHERS", "__none__"] }, description: "An unknown role is refused with 400 rather than ignored." },
             { name: "page", in: "query", required: false, schema: { type: "integer", default: 1, minimum: 1 } },
             { name: "limit", in: "query", required: false, schema: { type: "integer", default: 50, minimum: 1, maximum: 100 } },

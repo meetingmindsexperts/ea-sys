@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Download, Loader2 } from "lucide-react";
-import { contactExportFileName } from "@/lib/contact-filters";
+import { contactExportFileName, toSearchParams, type ContactFilterParams } from "@/lib/contact-filters";
 import {
   DEFAULT_EXPORT_COLUMNS,
   EXPORT_COLUMNS,
@@ -50,7 +50,7 @@ export function ExportContactsDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  filterQuery: Record<string, string>;
+  filterQuery: ContactFilterParams;
   /** The active filters in words, e.g. "Country: India". Empty when none. */
   filterSummary: string[];
   matching: number | null;
@@ -85,7 +85,7 @@ export function ExportContactsDialog({
 
   const handleExport = async () => {
     const columns = EXPORT_COLUMNS.filter((c) => chosen.has(c));
-    const query = new URLSearchParams({ ...filterQuery, columns: columns.join(",") });
+    const query = toSearchParams({ ...filterQuery, columns: columns.join(",") });
     setBusy(true);
     try {
       const res = await fetch(`/api/contacts/export?${query.toString()}`);
