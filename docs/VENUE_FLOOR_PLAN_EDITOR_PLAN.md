@@ -271,7 +271,7 @@ axis), `checkLayout` would rasterise them, and `world.js` would build rotated
 wall boxes. Furniture already uses yaw, so rooms could follow. This is a
 separate plan, only when a real venue needs it.
 
-## Open review findings, phase 2b (Oct 24, pushed as is by the owner, fix next)
+## Review findings, phase 2b (Oct 24): pushed as is by the owner, all FIXED the same day
 
 - MED: removing a room from the room list keeps fixtures that stood in it, which then fail `planIssues`, so the venue falls back to automatic (`prunedPlan` in venue-rooms-service.ts should drop fixtures no area holds).
 - MED: moving, resizing or turning a room leaves its fixtures where they were (`withRect` / `turn` in plan-edit.ts should carry or clamp them).

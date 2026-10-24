@@ -630,7 +630,7 @@ function buildWorld(R, Q) {
       if (it.kind === 'pillar') { box('plain', x0, 0, z0, x1, ceil, z1, [0.86, 0.84, 0.8, 0], { col: true }); blob(cx, cz, x1 - x0 + 0.6, z1 - z0 + 0.6); return; }
       if (it.kind === 'exit') {
         panel(Math.min(1.6, across), 2.3, [0.32, 0.34, 0.36, 0]);
-        front(2.75, 1.6, 0.5, { title: 'EXIT', sub: it.name !== 'Emergency exit' ? it.name : 'Emergency exit' });
+        front(2.75, 1.6, 0.5, { title: 'EXIT', sub: it.name });
         return;
       }
       if (it.kind === 'catering') {
@@ -640,13 +640,18 @@ function buildWorld(R, Q) {
         return;
       }
       if (it.kind === 'stairs') {
-        // Treads 0.3 m deep, 0.17 m high, rising towards the way it faces; a rail along each side.
-        const len = dz ? z1 - z0 : x1 - x0, n = Math.max(1, Math.floor(len / 0.3)), sgn = dz || dx;
+        // Treads 0.3 m deep, 0.17 m high, rising towards the way it faces; a rail along each side. Only the
+        // first metre can be climbed: the rest of the flight is drawn but walled off by an unseen block from
+        // floor to ceiling, so nobody walks up into the ceiling of a one-floor venue (review, Oct 24).
+        const len = dz ? z1 - z0 : x1 - x0, n = Math.max(1, Math.floor(len / 0.3)), sgn = dz || dx, CLIMB = 1.0;
+        let high = null;
         for (let i = 0; i < n; i++) {
-          const h = Math.min(ceil - 0.3, (i + 1) * 0.17), a = sgn > 0 ? i * 0.3 : len - (i + 1) * 0.3;
-          if (dz) box('marble', x0, 0, z0 + a, x1, h, z0 + a + 0.3, [0.92, 0.9, 0.86, 0], { col: true });
-          else box('marble', x0 + a, 0, z0, x0 + a + 0.3, h, z1, [0.92, 0.9, 0.86, 0], { col: true });
+          const h = Math.min(ceil - 0.3, (i + 1) * 0.17), a = sgn > 0 ? i * 0.3 : len - (i + 1) * 0.3, climb = h <= CLIMB;
+          if (!climb) high = high ? [Math.min(high[0], a), Math.max(high[1], a + 0.3)] : [a, a + 0.3];
+          if (dz) box('marble', x0, 0, z0 + a, x1, h, z0 + a + 0.3, [0.92, 0.9, 0.86, 0], { col: climb });
+          else box('marble', x0 + a, 0, z0, x0 + a + 0.3, h, z1, [0.92, 0.9, 0.86, 0], { col: climb });
         }
+        if (high) colliders.push(dz ? { x0, y0: 0, z0: z0 + high[0], x1, y1: ceil, z1: z0 + high[1] } : { x0: x0 + high[0], y0: 0, z0, x1: x0 + high[1], y1: ceil, z1 });
         for (const side of [0, 1]) {
           if (dz) { const x = side ? x1 - 0.04 : x0 + 0.04; box('metal', x - 0.03, 0.9, z0, x + 0.03, 0.96, z1, [0.6, 0.6, 0.62, 0]); }
           else { const z = side ? z1 - 0.04 : z0 + 0.04; box('metal', x0, 0.9, z - 0.03, x1, 0.96, z + 0.03, [0.6, 0.6, 0.62, 0]); }

@@ -14,6 +14,7 @@ import { clamp, fits, generateLayout, r2, type Rect } from "./layout";
 import {
   FIXTURE_INFO,
   FIXTURE_MIN_SIDE,
+  heldFixtures,
   PLAN_DOOR_MAX,
   PLAN_DOOR_MIN,
   PLAN_EXTENT,
@@ -74,17 +75,41 @@ export function rectOf(plan: VenuePlan, t: PlanTarget): Rect | null {
 /** The smallest side an edit leaves: a room or walkway 3 m, a fixture 0.3 m (a pillar can be thin). */
 const minSide = (t: PlanTarget) => (t.kind === "fixture" ? FIXTURE_MIN_SIDE : PLAN_MIN_SIDE);
 
+const contains = (outer: Rect, inner: Rect) => inner[0] >= outer[0] - 0.01 && inner[1] >= outer[1] - 0.01 && inner[2] <= outer[2] + 0.01 && inner[3] <= outer[3] + 0.01;
+
+/** A rectangle slid (not resized) to lie inside `host`, when it fits; unchanged when it does not. */
+function slideInto(rect: Rect, host: Rect): Rect {
+  const w = rect[2] - rect[0];
+  const d = rect[3] - rect[1];
+  if (w > host[2] - host[0] + 0.01 || d > host[3] - host[1] + 0.01) return rect;
+  const x0 = clamp(rect[0], host[0], host[2] - w);
+  const z0 = clamp(rect[1], host[1], host[3] - d);
+  return [r2(x0), r2(z0), r2(x0 + w), r2(z0 + d)];
+}
+
+/**
+ * The fixtures standing in an area go with it (review MED, Oct 24): moved by
+ * the same shift on a move, turned with it on a turn (`place`), and on a
+ * resize slid back inside it where the new edges would leave them out.
+ */
+function carryFixtures(plan: VenuePlan, prev: Rect, place: (f: PlanFixture) => PlanFixture): PlanFixture[] {
+  return plan.fixtures.map((f) => (contains(prev, f.rect) ? place(f) : f));
+}
+
 /** An area given a new rectangle. `moved` (a move, never a resize) carries the door along by the same shift. */
 function withRect(plan: VenuePlan, t: PlanTarget, next: Rect, foyerId: string | null, moved = false): VenuePlan {
   const prev = rectOf(plan, t);
   if (!prev) return plan;
-  if (t.kind === "corridor") return { ...plan, corridors: plan.corridors.map((c) => (c.id === t.id ? { ...c, rect: next } : c)) };
   if (t.kind === "fixture") return { ...plan, fixtures: plan.fixtures.map((f) => (f.id === t.id ? { ...f, rect: next } : f)) };
   const dx = next[0] - prev[0];
   const dz = next[1] - prev[1];
+  const shift = (f: PlanFixture): PlanFixture => ({ ...f, rect: [r2(f.rect[0] + dx), r2(f.rect[1] + dz), r2(f.rect[2] + dx), r2(f.rect[3] + dz)] });
+  const fixtures = carryFixtures(plan, prev, moved ? shift : (f) => ({ ...f, rect: slideInto(f.rect, next) }));
+  if (t.kind === "corridor") return { ...plan, fixtures, corridors: plan.corridors.map((c) => (c.id === t.id ? { ...c, rect: next } : c)) };
   const carry = (door: PlanDoor) => fitDoor(next, moved ? shiftDoor(door, dx, dz) : door);
   return {
     ...plan,
+    fixtures,
     rooms: plan.rooms.map((p) => (p.id === t.id ? { ...p, rect: next, door: carry(p.door) } : p)),
     entrance: t.id === foyerId ? carry(plan.entrance) : plan.entrance,
   };
@@ -242,17 +267,48 @@ export function turn(plan: VenuePlan, t: PlanTarget, foyerId: string | null): Ve
   if (!r) return plan;
   const w = r[2] - r[0];
   const d = r[3] - r[1];
+  if (t.kind === "fixture") return turnFixture(plan, t.id);
   const x0 = r2(r[0] + snapIn((w - d) / 2));
   const z0 = r2(r[1] + snapIn((d - w) / 2));
   const next = keepInside([x0, z0, r2(x0 + d), r2(z0 + w)]);
-  if (t.kind === "corridor") return withRect(plan, t, next, foyerId);
-  if (t.kind === "fixture") return { ...plan, fixtures: plan.fixtures.map((f) => (f.id === t.id ? { ...f, rect: next, dir: TURN[f.dir] } : f)) };
+  // The fixtures inside turn with the area: about its centre, then by the same grid shift the area took.
+  const cx = (r[0] + r[2]) / 2;
+  const cz = (r[1] + r[3]) / 2;
+  const ox = next[0] - (cx - d / 2);
+  const oz = next[1] - (cz - w / 2);
+  const spin = (f: PlanFixture): PlanFixture => {
+    const [fx0, fz0, fx1, fz1] = f.rect;
+    const rect: Rect = [r2(cx - (fz1 - cz) + ox), r2(cz + (fx0 - cx) + oz), r2(cx - (fz0 - cz) + ox), r2(cz + (fx1 - cx) + oz)];
+    return { ...f, rect: slideInto(rect, next), dir: TURN[f.dir] };
+  };
+  const fixtures = carryFixtures(plan, r, spin);
+  if (t.kind === "corridor") return { ...plan, fixtures, corridors: plan.corridors.map((c) => (c.id === t.id ? { ...c, rect: next } : c)) };
   const fit = (door: PlanDoor) => fitDoor(next, turnDoor(door, r, next));
   return {
     ...plan,
+    fixtures,
     rooms: plan.rooms.map((p) => (p.id === t.id ? { ...p, rect: next, door: fit(p.door) } : p)),
     entrance: t.id === foyerId ? fit(plan.entrance) : plan.entrance,
   };
+}
+
+/**
+ * Turn a fixture a quarter clockwise about its exact centre (a 0.4 m exit sign
+ * is not on the 0.5 m grid), then slide it back inside the room or walkway it
+ * stood in, so turning one against a wall keeps it in its room (review LOW).
+ */
+function turnFixture(plan: VenuePlan, id: string): VenuePlan {
+  const f = plan.fixtures.find((x) => x.id === id);
+  if (!f) return plan;
+  const host = [...plan.rooms.map((p) => p.rect), ...plan.corridors.map((c) => c.rect)].find((a) => contains(a, f.rect));
+  const [x0, z0, x1, z1] = f.rect;
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  const hw = (z1 - z0) / 2;
+  const hd = (x1 - x0) / 2;
+  const spun: Rect = [r2(cx - hw), r2(cz - hd), r2(cx + hw), r2(cz + hd)];
+  const rect = host ? slideInto(spun, host) : spun;
+  return { ...plan, fixtures: plan.fixtures.map((x) => (x.id === id ? { ...x, rect, dir: TURN[x.dir] } : x)) };
 }
 
 /** Put a room's door (or, with `entrance`, the foyer's entrance) on a wall, at a point along it. */
@@ -308,15 +364,29 @@ export function addFixture(plan: VenuePlan, kind: FixtureKind, inside: Rect | nu
   // Never bigger than the area it goes in.
   const w = Math.min(w0, host[2] - host[0]);
   const d = Math.min(d0, host[3] - host[1]);
-  // A quarter of the way in from the north-west corner, not the middle, where the room's name is written.
-  const x0 = r2(Math.min(host[0] + (host[2] - host[0]) / 4, host[2] - w));
-  const z0 = r2(Math.min(host[1] + (host[3] - host[1]) / 4, host[3] - d));
+  // A quarter of the way in from the north-west corner, not the middle, where the room's name is written,
+  // then the first free spot along and down from there, so a new fixture never lands on one already there.
+  const [x0, z0] = freeSpot(plan, host, w, d);
   const ids = new Set([...plan.fixtures.map((f) => f.id), ...plan.rooms.map((p) => p.id), ...plan.corridors.map((c) => c.id)]);
   let n = plan.fixtures.filter((f) => f.kind === kind).length + 1;
   while (ids.has(`${kind}-${n}`)) n++;
   const id = `${kind}-${n}`;
   const fixture: PlanFixture = { id, kind, name: "", rect: [x0, z0, r2(x0 + w), r2(z0 + d)], dir: "s" };
   return { plan: { ...plan, fixtures: [...plan.fixtures, fixture] }, id };
+}
+
+/** The first place in `host`, scanning in 1 m steps from a quarter of the way in, where a w x d fixture overlaps none already there. */
+function freeSpot(plan: VenuePlan, host: Rect, w: number, d: number): [number, number] {
+  const sx = Math.min(host[0] + (host[2] - host[0]) / 4, host[2] - w);
+  const sz = Math.min(host[1] + (host[3] - host[1]) / 4, host[3] - d);
+  const others = plan.fixtures.map((f) => f.rect);
+  const clear = (x: number, z: number) => !others.some((o) => x < o[2] + 0.2 && o[0] < x + w + 0.2 && z < o[3] + 0.2 && o[1] < z + d + 0.2);
+  for (let z = sz; z <= host[3] - d + 0.01; z += 1) {
+    for (let x = sx; x <= host[2] - w + 0.01; x += 1) if (clear(x, z)) return [r2(x), r2(z)];
+    for (let x = host[0]; x < sx; x += 1) if (clear(x, z)) return [r2(x), r2(z)];
+  }
+  // A room full of fixtures: the usual spot, flagged as overlapping until moved.
+  return [r2(sx), r2(sz)];
 }
 
 export function removeFixture(plan: VenuePlan, id: string): VenuePlan {
@@ -375,7 +445,11 @@ export function placeRoom(plan: VenuePlan, rooms: VenueRoom[], id: string): Venu
 export const unplacedRooms = (plan: VenuePlan, rooms: VenueRoom[]) => rooms.filter((r) => !plan.rooms.some((p) => p.id === r.id));
 
 /** A plan with only the rooms still on the list (a room removed from the list since drops out). */
-export const keepListedRooms = (plan: VenuePlan, rooms: VenueRoom[]): VenuePlan => ({ ...plan, rooms: plan.rooms.filter((p) => rooms.some((r) => r.id === p.id)) });
+export function keepListedRooms(plan: VenuePlan, rooms: VenueRoom[]): VenuePlan {
+  const kept = { ...plan, rooms: plan.rooms.filter((p) => rooms.some((r) => r.id === p.id)) };
+  // The fixtures that stood in a dropped room go with it.
+  return { ...kept, fixtures: heldFixtures(kept) };
+}
 
 /**
  * Rooms drawn too small for the people they hold (decision F2: a warning, not

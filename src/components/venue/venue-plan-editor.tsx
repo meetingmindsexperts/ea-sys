@@ -734,7 +734,7 @@ function PlanPanel({
       {(corridor || fixture) && (
         <Button size="sm" variant="outline" className="text-destructive" onClick={onRemove}>
           <Trash2 className="h-4 w-4" aria-hidden />
-          {corridor ? "Remove walkway" : "Remove"}
+          {corridor ? "Remove walkway" : `Remove ${(fixture && FIXTURE_INFO[fixture.kind].label.toLowerCase()) ?? ""}`}
         </Button>
       )}
     </div>

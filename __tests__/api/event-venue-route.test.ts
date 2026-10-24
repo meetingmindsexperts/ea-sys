@@ -190,4 +190,29 @@ describe("/api/events/:eventId/venue drawn plans", () => {
     // The plan keeps its drawing order; it now places exactly the rooms still on the list.
     expect(plan.rooms.map((r) => r.id).sort()).toEqual(fewer.map((r) => r.id).sort());
   });
+
+  it("removing a room takes the fixtures that stood in it, so the plan stays in use", async () => {
+    await savedRooms();
+    const base = drawn();
+    const lounge = base.rooms.find((r) => r.id === rooms.find((x) => x.kind === "lounge")!.id)!;
+    const foyer = base.rooms.find((r) => r.id === rooms.find((x) => x.kind === "foyer")!.id)!;
+    const [lx0, lz0] = lounge.rect;
+    const [fx0, fz0] = foyer.rect;
+    const withFixtures = {
+      ...base,
+      fixtures: [
+        { id: "pillar-1", kind: "pillar", name: "", rect: [lx0 + 1, lz0 + 1, lx0 + 1.8, lz0 + 1.8], dir: "n" },
+        { id: "pillar-2", kind: "pillar", name: "", rect: [fx0 + 1, fz0 + 1, fx0 + 1.8, fz0 + 1.8], dir: "n" },
+      ],
+    };
+    expect((await put({ plan: withFixtures, planVersion: 0 })).status).toBe(200);
+    const roomsVersion = (await (await GET(new Request("http://localhost/x"), params)).json()).version as number;
+    // Removing the lounge and adding nothing: every remaining room is still placed.
+    expect((await put({ rooms: rooms.filter((r) => r.kind !== "lounge"), version: roomsVersion })).status).toBe(200);
+    const plan = ((settingsStore.current.venue as Record<string, unknown>).plan as { plan: { fixtures: { id: string }[] } }).plan;
+    expect(plan.fixtures.map((f) => f.id)).toEqual(["pillar-2"]);
+    const got = await (await GET(new Request("http://localhost/x"), params)).json();
+    expect((got.plan as { mode: string; issues: string[] }).issues).toEqual([]);
+    expect((got.plan as { mode: string }).mode).toBe("drawn");
+  });
 });

@@ -204,6 +204,19 @@ describe("fixtures (stairs, lifts, toilets, exits, pillars, catering)", () => {
     expect(checkLayout(after).issues).toEqual([]);
   });
 
+  it("a fixture on a stand's visit point removes that stand too, so no sponsor sits on a stand nobody can visit", () => {
+    const { rooms, plan } = lPlan();
+    const before = layoutFromPlan(rooms, plan, { eventName: "" }).layout;
+    const spot = before.hotspots.find((h) => h.kind === "stand")!;
+    const onSpot = { ...plan, fixtures: [{ id: "p1", kind: "pillar" as const, name: "", rect: [spot.x - 0.3, spot.z - 0.3, spot.x + 0.3, spot.z + 0.3] as Rect, dir: "n" as const }] };
+    const after = layoutFromPlan(rooms, onSpot, { eventName: "" }).layout;
+    const stands = after.items.filter((it): it is Extract<LayoutItem, { t: "stand" }> => it.t === "stand");
+    const visits = after.hotspots.filter((h) => h.kind === "stand").map((h) => h.id).sort();
+    expect(stands.length).toBeLessThan(before.items.filter((it) => it.t === "stand").length);
+    // Every stand left has its visit point, and every visit point its stand.
+    expect(visits).toEqual(stands.map((s) => `stand-${s.n}`).sort());
+  });
+
   it("a fixture that blocks the only way into a room is refused by the walk check, with the room named", () => {
     const { rooms, plan } = lPlan();
     // The lounge's door is on its south wall at x 28; a pillar the width of the walkway in front of it.

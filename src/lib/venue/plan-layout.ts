@@ -194,7 +194,11 @@ function placeFixtures(plan: VenuePlan, zones: LayoutZone[], out: Out) {
       const keep: Rect = [x0 - FIXTURE_CLEARANCE, z0 - FIXTURE_CLEARANCE, x1 + FIXTURE_CLEARANCE, z1 + FIXTURE_CLEARANCE];
       out.items = out.items.filter((it) => it.zone !== zone.id || it.t === "fixture" || it.t === "sign" || it.t === "screen" || !hits(boxOf(it.foot), keep));
       out.people = out.people.filter((p) => !hits([p.x - 0.3, p.z - 0.3, p.x + 0.3, p.z + 0.3], keep));
-      out.hotspots = out.hotspots.filter((h) => !hits([h.x - 0.5, h.z - 0.5, h.x + 0.5, h.z + 0.5], keep));
+      const blocked = out.hotspots.filter((h) => hits([h.x - 0.5, h.z - 0.5, h.x + 0.5, h.z + 0.5], keep));
+      out.hotspots = out.hotspots.filter((h) => !blocked.includes(h));
+      // A stand whose visit point the fixture covers goes too: it could not be visited, yet would show a sponsor.
+      const lost = new Set(blocked.filter((h) => h.kind === "stand").map((h) => h.id));
+      out.items = out.items.filter((it) => it.t !== "stand" || !lost.has(`stand-${it.n}`));
     }
     out.items.push({ t: "fixture", zone: zone.id, solid: info.solid, foot: { x0, z0, x1, z1 }, kind: f.kind, name: f.name || info.label, yaw: FACING[f.dir] });
   }

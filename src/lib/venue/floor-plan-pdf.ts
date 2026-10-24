@@ -140,10 +140,14 @@ function drawPage(doc: Doc, input: FloorPlanPdfInput) {
   const stands = layout.items.filter((it): it is Extract<LayoutItem, { t: "stand" }> => it.t === "stand");
   const keyed = stands.map((s) => ({ n: s.n, name: input.sponsorsByStand[s.n - 1] ?? null })).filter((s) => s.name);
 
-  // The key under the plan: one row of room types, then the stand key in columns.
+  // The key under the plan: the scale bar, the legend (wrapping to as many rows as it needs, so a busy plan's
+  // fixtures are never cut), then the stand key in columns.
+  const fixtureKinds = [...new Set(layout.items.flatMap((it) => (it.t === "fixture" ? [it.kind] : [])))];
+  const legend = legendEntries(kinds, fixtureKinds, stands.length > 0);
+  const legendRows = layoutLegend(doc, legend, pageW - MARGIN * 2).rows;
   const keyCols = Math.max(1, Math.floor((pageW - MARGIN * 2) / 150));
   const keyRows = keyed.length ? Math.ceil(keyed.length / keyCols) + 1 : 0;
-  const bottomH = LEGEND_ROW_H * (2 + keyRows) + 8;
+  const bottomH = LEGEND_ROW_H * (1 + legendRows + keyRows) + 8;
 
   drawHeader(doc, input, pageW);
 
@@ -163,15 +167,14 @@ function drawPage(doc: Doc, input: FloorPlanPdfInput) {
   drawDoorSwings(doc, layout, P, ptPerM);
   drawWalls(doc, layout, P, ptPerM);
   drawRoomLabels(doc, layout, P, ptPerM);
-  drawEntrance(doc, layout, P);
+  // The label stays on the page and below the header, whichever wall the entrance is in.
+  drawEntrance(doc, layout, P, { minX: MARGIN, maxX: pageW - MARGIN, minY: areaTop - 8 });
   drawNorthArrow(doc, MARGIN + areaW - 18, areaTop + 6);
 
   const legendTop = pageH - MARGIN - FOOTER_H - bottomH + 8;
   drawScaleBar(doc, MARGIN + 8, legendTop, widthM, ptPerM, ratio, input.paper);
-  const fixtureKinds = [...new Set(layout.items.flatMap((it) => (it.t === "fixture" ? [it.kind] : [])))];
-  const hasStands = layout.items.some((it) => it.t === "stand");
-  drawLegend(doc, kinds, fixtureKinds, hasStands, MARGIN, legendTop + LEGEND_ROW_H, areaW);
-  if (keyed.length) drawStandKey(doc, keyed, MARGIN, legendTop + LEGEND_ROW_H * 2, keyCols, areaW);
+  drawLegend(doc, legend, MARGIN, legendTop + LEGEND_ROW_H, areaW);
+  if (keyed.length) drawStandKey(doc, keyed, MARGIN, legendTop + LEGEND_ROW_H * (1 + legendRows), keyCols, areaW);
 
   doc.font("Helvetica").fontSize(7).fillColor(MUTED);
   doc.text(
@@ -255,15 +258,17 @@ function outsideWall(layout: VenueLayout, w: LayoutWall): boolean {
 }
 
 function drawWalls(doc: Doc, layout: VenueLayout, P: Project, ptPerM: number) {
+  doc.lineCap("butt");
   for (const w of layout.walls) {
-    // Square ends, so walls meet at corners without gaps; the glazing below keeps butt ends.
-    doc.lineCap("square");
-    const thick = Math.max(0.8, (outsideWall(layout, w) ? 0.5 : 0.3) * ptPerM);
+    const t = outsideWall(layout, w) ? 0.5 : 0.3;
+    const thick = Math.max(0.8, t * ptPerM);
     for (const [a, b] of wallSegments(w)) {
-      const [p, q] = w.axis === "x" ? [P(a, w.k), P(b, w.k)] : [P(w.k, a), P(w.k, b)];
+      // Grown by half the thickness only at the wall's own ends, to close the corners; never into a doorway.
+      const s = a <= w.a0 + 0.01 ? a - t / 2 : a;
+      const e = b >= w.a1 - 0.01 ? b + t / 2 : b;
+      const [p, q] = w.axis === "x" ? [P(s, w.k), P(e, w.k)] : [P(w.k, s), P(w.k, e)];
       doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(thick).strokeColor(WALL).stroke();
     }
-    doc.lineCap("butt");
     for (const o of w.opens.filter((x) => x.glass)) {
       const [p, q] = w.axis === "x" ? [P(o.a, w.k), P(o.b, w.k)] : [P(w.k, o.a), P(w.k, o.b)];
       doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(thick).strokeColor("#ffffff").stroke();
@@ -354,6 +359,7 @@ function drawFixture(doc: Doc, it: Extract<LayoutItem, { t: "fixture" }>, [x, y,
 }
 
 type Box = [number, number, number, number];
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const overlap = (a: Box, b: Box) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
 
 /**
@@ -419,7 +425,7 @@ function drawRoomLabels(doc: Doc, layout: VenueLayout, P: Project, ptPerM: numbe
 }
 
 /** "ENTRANCE" outside the glass doors, whichever wall they are in, with an arrow pointing in. */
-function drawEntrance(doc: Doc, layout: VenueLayout, P: Project) {
+function drawEntrance(doc: Doc, layout: VenueLayout, P: Project, page: { minX: number; maxX: number; minY: number }) {
   for (const w of layout.walls) {
     for (const o of w.opens.filter((x) => x.glass)) {
       const mid = (o.a + o.b) / 2;
@@ -428,8 +434,9 @@ function drawEntrance(doc: Doc, layout: VenueLayout, P: Project) {
       if (w.axis === "x") {
         // Outside is the side with no room: below for a south entrance, above for a north one.
         const below = inZone(layout, mid, w.k - 0.3);
-        const ty = below ? py + 5 : py - 26;
-        doc.text("ENTRANCE", px - 40, ty, { width: 80, align: "center", lineBreak: false });
+        const ty = below ? py + 5 : Math.max(page.minY, py - 26);
+        const tx = clamp(px - 40, page.minX, page.maxX - 80);
+        doc.text("ENTRANCE", tx, ty, { width: 80, align: "center", lineBreak: false });
         const tip = below ? py + 17 : py - 13;
         const base = below ? tip + 4 : tip - 4;
         doc.moveTo(px, tip).lineTo(px - 3, base).lineTo(px + 3, base).closePath().fill(GLASS);
@@ -438,7 +445,7 @@ function drawEntrance(doc: Doc, layout: VenueLayout, P: Project) {
       // A west or east entrance: the word beside the wall on the outside, the arrow at its end pointing in.
       const west = inZone(layout, w.k + 0.3, mid);
       const label = doc.widthOfString("ENTRANCE");
-      const tx = west ? px - label - 16 : px + 16;
+      const tx = clamp(west ? px - label - 16 : px + 16, page.minX, page.maxX - label);
       doc.text("ENTRANCE", tx, py - 4, { lineBreak: false });
       const tip = west ? px - 6 : px + 6;
       const base = west ? tip - 4 : tip + 4;
@@ -464,22 +471,44 @@ function drawScaleBar(doc: Doc, x: number, y: number, planWidthM: number, ptPerM
   doc.text(`${metres} m   ·   Scale 1 : ${ratio.toLocaleString("en-GB")} when printed on ${paper}`, x + len + 5, y + 1, { lineBreak: false });
 }
 
-function drawLegend(doc: Doc, kinds: ZoneKind[], fixtures: FixtureKind[], stands: boolean, x: number, y: number, width: number) {
-  let cx = x;
-  const entries: { fill: string; label: string; stroke?: string }[] = kinds.map((k) => ({ fill: ZONE_FILL[k], label: ZONE_LABEL[k] }));
-  // Only what is on this plan: a building without an exhibition has no stand in its key.
+type LegendEntry = { fill: string; label: string; stroke?: string };
+
+/** What the key lists: only what is on this plan (a building without an exhibition has no stand in its key). */
+function legendEntries(kinds: ZoneKind[], fixtures: FixtureKind[], stands: boolean): LegendEntry[] {
+  const entries: LegendEntry[] = kinds.map((k) => ({ fill: ZONE_FILL[k], label: ZONE_LABEL[k] }));
   if (stands) entries.push({ fill: STAND_FILL, label: "Exhibition stand (numbered)", stroke: "#3f8a5f" });
   for (const k of fixtures) entries.push({ fill: FIXTURE_FILL[k], label: FIXTURE_LEGEND[k], stroke: WALL });
+  return entries;
+}
+
+/** Where each key entry goes, row by row within `width`. */
+function layoutLegend(doc: Doc, entries: LegendEntry[], width: number): { rows: number; at: { x: number; row: number }[] } {
   doc.font("Helvetica").fontSize(7);
+  const at: { x: number; row: number }[] = [];
+  let x = 0;
+  let row = 0;
   for (const e of entries) {
     const w = doc.widthOfString(e.label) + 18;
-    if (cx + w > x + width) break;
-    doc.rect(cx, y + 2, 9, 7);
-    if (e.stroke) doc.lineWidth(0.5).fillAndStroke(e.fill, e.stroke);
-    else doc.lineWidth(0.5).fillAndStroke(e.fill, "#b8bcc2");
-    doc.fillColor(INK).text(e.label, cx + 12, y + 2, { lineBreak: false });
-    cx += w + 6;
+    if (x > 0 && x + w > width) {
+      row += 1;
+      x = 0;
+    }
+    at.push({ x, row });
+    x += w + 6;
   }
+  return { rows: entries.length ? row + 1 : 0, at };
+}
+
+function drawLegend(doc: Doc, entries: LegendEntry[], x: number, y: number, width: number) {
+  const { at } = layoutLegend(doc, entries, width);
+  doc.font("Helvetica").fontSize(7);
+  entries.forEach((e, i) => {
+    const cx = x + at[i].x;
+    const cy = y + at[i].row * LEGEND_ROW_H;
+    doc.rect(cx, cy + 2, 9, 7);
+    doc.lineWidth(0.5).fillAndStroke(e.fill, e.stroke ?? "#b8bcc2");
+    doc.fillColor(INK).text(e.label, cx + 12, cy + 2, { lineBreak: false });
+  });
 }
 
 function drawStandKey(doc: Doc, keyed: { n: number; name: string | null }[], x: number, y: number, cols: number, width: number) {

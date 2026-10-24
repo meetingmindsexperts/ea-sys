@@ -381,8 +381,77 @@ describe("fixtures in the editor", () => {
     const one = addFixture(p, "pillar", foyer)!;
     expect(overlapping(one.plan).has(one.id)).toBe(false);
     const two = addFixture(one.plan, "pillar", foyer)!;
-    expect([...overlapping(two.plan)]).toEqual(expect.arrayContaining([one.id, two.id]));
+    // Slid onto the first one.
+    const r1 = rectOf(two.plan, { kind: "fixture", id: one.id })!;
+    const onTop = moveTo(two.plan, { kind: "fixture", id: two.id }, r1[0], r1[1], foyerId);
+    expect([...overlapping(onTop)]).toEqual(expect.arrayContaining([one.id, two.id]));
     const outside = nudge(one.plan, { kind: "fixture", id: one.id }, 500, 0, foyerId);
     expect(overlapping(outside).has(one.id)).toBe(true);
+  });
+});
+
+describe("fixtures follow their room (phase 2b review fixes)", () => {
+  const withLift = () => {
+    const p = start();
+    return addFixture(p, "lift", room(p, foyerId).rect)!;
+  };
+
+  it("a moved room takes its fixtures by the same shift", () => {
+    const { plan, id } = withLift();
+    const before = plan.fixtures.find((f) => f.id === id)!.rect;
+    const r = room(plan, foyerId).rect;
+    const moved = moveTo(plan, { kind: "room", id: foyerId }, r[0] + 20, r[1] + 5, foyerId);
+    const after = moved.fixtures.find((f) => f.id === id)!.rect;
+    expect(after).toEqual([before[0] + 20, before[1] + 5, before[2] + 20, before[3] + 5]);
+  });
+
+  it("a room shrunk past a fixture slides it back inside", () => {
+    const { plan, id } = withLift();
+    const r = room(plan, foyerId).rect;
+    const shrunk = resizeTo(plan, { kind: "room", id: foyerId }, { e: true }, r[0] + 12, 0, foyerId);
+    const f = shrunk.fixtures.find((x) => x.id === id)!.rect;
+    const nr = room(shrunk, foyerId).rect;
+    expect(f[2]).toBeLessThanOrEqual(nr[2] + 1e-9);
+    expect(f[0]).toBeGreaterThanOrEqual(nr[0] - 1e-9);
+  });
+
+  it("a turned room turns its fixtures with it, inside the turned room, facing the next way round", () => {
+    const { plan, id } = withLift();
+    const turned = turn(plan, { kind: "room", id: foyerId }, foyerId);
+    const f = turned.fixtures.find((x) => x.id === id)!;
+    const nr = room(turned, foyerId).rect;
+    expect(f.dir).toBe("w");
+    expect(f.rect[0] >= nr[0] - 1e-9 && f.rect[2] <= nr[2] + 1e-9 && f.rect[1] >= nr[1] - 1e-9 && f.rect[3] <= nr[3] + 1e-9).toBe(true);
+  });
+
+  it("a fixture turned against a wall stays inside its room", () => {
+    const p = start();
+    const r = room(p, foyerId).rect;
+    // An exit 2 x 0.4 m flat against the foyer's east wall.
+    const exit = { id: "exit-1", kind: "exit" as const, name: "", rect: [r[2] - 2, r[1] + 4, r[2], r[1] + 4.4] as Rect, dir: "e" as const };
+    const turned = turn({ ...p, fixtures: [exit] }, { kind: "fixture", id: "exit-1" }, foyerId).fixtures[0];
+    expect(turned.rect[2]).toBeLessThanOrEqual(r[2] + 1e-9);
+    expect(turned.rect[2] - turned.rect[0]).toBeCloseTo(0.4);
+    expect(turned.dir).toBe("s");
+  });
+
+  it("one of every kind added to the same room lands in a free spot each, none overlapping", () => {
+    let p = start();
+    const foyer = room(p, foyerId).rect;
+    for (const k of ["stairs", "lift", "toilets", "exit", "pillar", "catering"] as const) p = addFixture(p, k, foyer)!.plan;
+    expect(overlapping(p).size).toBe(0);
+    expect(builds(p)).toEqual([]);
+  });
+
+  it("a second fixture of a kind does not land on the first", () => {
+    const { plan } = withLift();
+    const second = addFixture(plan, "lift", room(plan, foyerId).rect)!;
+    expect(overlapping(second.plan).size).toBe(0);
+  });
+
+  it("removing a room from the list drops the fixtures that stood in it", () => {
+    const { plan } = withLift();
+    const kept = keepListedRooms(plan, rooms.filter((r) => r.kind !== "foyer"));
+    expect(kept.fixtures).toEqual([]);
   });
 });

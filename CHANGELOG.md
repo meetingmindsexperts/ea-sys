@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: phase 2b review fixes (October 24)
+
+- All eleven findings from the phase 2b review, which the owner had pushed as is. MED: removing a room from the list now also removes the fixtures that stood in it, so the drawn plan stays in use instead of falling back to automatic (`heldFixtures` in plan.ts, used by `prunedPlan` and the editor); moving, resizing or turning a room or walkway carries its fixtures (shifted, slid back inside, or turned about its centre and facing the next way round); in 3D only the first metre of a staircase can be climbed, the rest is walled off by an unseen block to the ceiling.
+- LOW: the glass entrance is a gap in the wall on screen; walls grow only at their own ends, so doorways show their full width (screen and PDF); the PDF entrance label stays on the page; a fixture turned against a wall stays in its room; a stand whose visit point a fixture covers is removed with it; the PDF legend wraps instead of cutting the fixture entries; a new fixture lands in the first free spot instead of on one already there; "Remove pillar" names what it removes; a small pillar's handles shrink so it can still be dragged; a no-op in world.js; the user guide says stand numbers follow fixtures, so set the exhibition up before the event opens.
+
 ### Registrations: badge prints on each registration (October 24)
 
 - Owner: badge printing was tracked (first print time and a print count per registration, one audit row per print run) but only visible as event totals and in the organisation's Activity log. A registration's detail sheet now shows "Badge: printed 2 times, first 24 Oct, 10:15" or "Not printed yet", and its Activity timeline (and its linked speaker's) has an entry per print: "Badge printed", then "Badge reprinted", with who, when, the IP address and "One of 48 badges printed together" or "Printed on its own". The timeline finds the print runs naming the registration in `changes.registrationIds` (`activity-feed.ts`, proven against the local copy of prod), and the badge route now records every id in the run instead of the first 200 (a print is capped at 2,500, about 65 KB); older large batches name only their first 200.

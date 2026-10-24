@@ -156,14 +156,13 @@ function Stairs({ box, dx, dz, thin }: { box: { x0: number; z0: number; x1: numb
   );
 }
 
-/** A wall's solid pieces: everything but its openings. */
+/** A wall's solid pieces: everything but its openings, the glass entrance included (its glazing is drawn on its own). */
 function solidPieces(w: LayoutWall): [number, number][] {
   const segs: [number, number][] = [];
   let cur = w.a0;
   for (const o of [...w.opens].sort((p, q) => p.a - q.a)) {
-    if (o.glass) continue;
     if (o.a > cur) segs.push([cur, o.a]);
-    cur = o.b;
+    cur = Math.max(cur, o.b);
   }
   if (cur < w.a1) segs.push([cur, w.a1]);
   return segs;
@@ -183,13 +182,16 @@ function Walls({ layout }: { layout: VenueLayout }) {
     <g>
       {layout.walls.map((w, i) => {
         const t = isOutside(layout.zones, w) ? OUTSIDE_WALL : WALL;
-        return solidPieces(w).map(([a, b], j) =>
-          w.axis === "x" ? (
-            <rect key={`${i}-${j}`} x={a - t / 2} y={w.k - t / 2} width={b - a + t} height={t} className={INK} />
+        return solidPieces(w).map(([a, b], j) => {
+          // Grown by half the thickness only at the wall's own ends, to close the corners; never into a doorway.
+          const s = a <= w.a0 + 0.01 ? a - t / 2 : a;
+          const e = b >= w.a1 - 0.01 ? b + t / 2 : b;
+          return w.axis === "x" ? (
+            <rect key={`${i}-${j}`} x={s} y={w.k - t / 2} width={e - s} height={t} className={INK} />
           ) : (
-            <rect key={`${i}-${j}`} x={w.k - t / 2} y={a - t / 2} width={t} height={b - a + t} className={INK} />
-          ),
-        );
+            <rect key={`${i}-${j}`} x={w.k - t / 2} y={s} width={t} height={e - s} className={INK} />
+          );
+        });
       })}
     </g>
   );

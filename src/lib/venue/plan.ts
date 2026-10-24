@@ -203,6 +203,16 @@ function toPlanDoor(rect: Rect, x: number, z: number, width: number): PlanDoor {
 
 // ── Shape rules ──────────────────────────────────────────────────────────────
 
+/**
+ * The fixtures some room or walkway still holds. A room removed from the list
+ * takes the stairs, toilets or exit standing in it with it, or they would fail
+ * the plan's checks and switch the venue back to automatic (review MED, Oct 24).
+ */
+export function heldFixtures(plan: VenuePlan): PlanFixture[] {
+  const areas = [...plan.rooms.map((p) => p.rect), ...plan.corridors.map((c) => c.rect)];
+  return plan.fixtures.filter((f) => areas.some((a) => within(f.rect, a)));
+}
+
 /** `inner` lies wholly inside `outer`. */
 const within = (inner: Rect, outer: Rect) => inner[0] >= outer[0] - EPS && inner[1] >= outer[1] - EPS && inner[2] <= outer[2] + EPS && inner[3] <= outer[3] + EPS;
 

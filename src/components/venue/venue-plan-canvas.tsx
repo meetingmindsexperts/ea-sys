@@ -384,15 +384,17 @@ export function VenuePlanCanvas({
           tool === "select" &&
           HANDLES.map((h, i) => {
             const [x, z] = h.at(sel.rect);
+            // On a small fixture (a 0.8 m pillar) the handles shrink, so its middle stays free to grab and drag.
+            const size = Math.min(handle, Math.min(sel.rect[2] - sel.rect[0], sel.rect[3] - sel.rect[1]) / 3);
             return (
               <rect
                 key={i}
-                x={x - handle / 2}
-                y={z - handle / 2}
-                width={handle}
-                height={handle}
+                x={x - size / 2}
+                y={z - size / 2}
+                width={size}
+                height={size}
                 className={cn("fill-background stroke-primary", h.cursor)}
-                strokeWidth={handle / 5}
+                strokeWidth={size / 5}
                 onPointerDown={(e) => startResize(e, sel.target, h.edges)}
               />
             );

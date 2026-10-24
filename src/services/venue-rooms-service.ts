@@ -11,7 +11,7 @@ import { updateEventSettings } from "@/lib/event-settings";
 import { readVenueRooms, roomsSchema, type StoredVenueRooms } from "@/lib/venue/rooms";
 import { generateLayout } from "@/lib/venue/layout";
 import { checkLayout } from "@/lib/venue/layout-check";
-import { planIssues, planSchema, readVenuePlan, type StoredVenuePlan, type VenuePlan } from "@/lib/venue/plan";
+import { heldFixtures, planIssues, planSchema, readVenuePlan, type StoredVenuePlan, type VenuePlan } from "@/lib/venue/plan";
 import { layoutFromPlan } from "@/lib/venue/plan-layout";
 
 export type SaveRoomsResult =
@@ -91,8 +91,9 @@ export async function setVenueOpen(c: Caller, open: boolean): Promise<OpenVenueR
 
 /**
  * A drawn plan follows the room list: a removed room's placement goes with
- * it. A room added since the plan was drawn has no placement yet, so the
- * venue stays automatic until the plan places it (the Venue tab says so).
+ * it, and so do the fixtures that stood in it. A room added since the plan
+ * was drawn has no placement yet, so the venue stays automatic until the plan
+ * places it (the Venue tab says so).
  */
 function prunedPlan(cur: Record<string, unknown>, rooms: { id: string }[]): { plan?: unknown } {
   const stored = readVenuePlan(cur);
@@ -100,7 +101,8 @@ function prunedPlan(cur: Record<string, unknown>, rooms: { id: string }[]): { pl
   const keep = new Set(rooms.map((r) => r.id));
   const placed = stored.plan.rooms.filter((p) => keep.has(p.id));
   if (placed.length === stored.plan.rooms.length) return {};
-  return { plan: { plan: { ...stored.plan, rooms: placed }, updatedAt: stored.updatedAt, updatedBy: stored.updatedBy } };
+  const fixtures = heldFixtures({ ...stored.plan, rooms: placed });
+  return { plan: { plan: { ...stored.plan, rooms: placed, fixtures }, updatedAt: stored.updatedAt, updatedBy: stored.updatedBy } };
 }
 
 export type SavePlanResult =
