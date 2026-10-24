@@ -265,7 +265,8 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
               <ToolHint tool={tool} walkwaysFull={walkwaysFull} />
             </p>
           </div>
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
+          {/* The panel sits beside the plan only where both fit with the plan at least 760 px wide; below that it drops under it. */}
+          <div className="grid items-start gap-4 min-[1400px]:grid-cols-[minmax(0,1fr)_17rem]">
             <VenuePlanCanvas
               plan={plan}
               layout={layout}

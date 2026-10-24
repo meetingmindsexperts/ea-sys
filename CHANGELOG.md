@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: a wider floor plan editor (October 24)
+
+- Owner: the editor was too narrow. The canvas fitted the building to a fixed height, so a tall congress plan was drawn about 260 px wide. It now fills the width (at least 760 px) with its height following the plan, scrolling inside its frame; the margin around the building is 8 m, not 14. The side panel sits beside the plan from 1400 px wide and drops under it below that, so the plan is 844 px wide at 1440 and 972 px at 1280.
+
 ### Venue: the floor plan editor (October 23)
 
 - Phase 1 of docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md. On the Venue tab, with the rooms saved, **Edit the floor plan** (desktop only; on a phone the plan stays viewable, F5) opens an editor that starts from the saved drawn plan or from the automatic one: drag to move, edge and corner handles to resize, Turn a quarter (F1), each door's wall, position and width, the foyer's entrance, draw, rename and remove walkways, undo and redo (one step per gesture or field), Save plan and Reset to automatic (confirmed). Rooms added to the list since the plan was drawn are offered as "Put … on the plan", placed beside the building at their automatic size.

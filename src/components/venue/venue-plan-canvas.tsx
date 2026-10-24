@@ -42,7 +42,7 @@ const HANDLES: { edges: Edges; at: (r: Rect) => [number, number]; cursor: string
 ];
 
 /** Room around the building on the canvas, in metres, so there is floor to drag onto and draw on. */
-const MARGIN = 14;
+const MARGIN = 8;
 
 function viewOf(plan: VenuePlan): [number, number, number, number] {
   const rects = [...plan.rooms.map((p) => p.rect), ...plan.corridors.map((c) => c.rect)];
@@ -184,82 +184,87 @@ export function VenuePlanCanvas({
   const foyer = foyerId ? plan.rooms.find((p) => p.id === foyerId) : undefined;
 
   return (
-    <svg
-      ref={svgRef}
-      viewBox={view.join(" ")}
-      className={cn("h-[min(70vh,48rem)] w-full touch-none select-none rounded-md border bg-background", tool === "walkway" && "cursor-crosshair")}
-      role="group"
-      aria-label="Floor plan editor. Drag a room or walkway to move it; drag the handles of the selected one to resize it. Everything here can also be done from the panel beside the plan and the Add a walkway button."
-      onPointerDown={onBackground}
-      onPointerMove={onMove}
-      onPointerUp={end}
-      onPointerCancel={end}
-      onLostPointerCapture={end}
-    >
-      <defs>
-        <pattern id={gridId} width={5} height={5} patternUnits="userSpaceOnUse">
-          <path d="M 5 0 L 0 0 0 5" className="fill-none stroke-border" strokeWidth={0.08} />
-        </pattern>
-      </defs>
-      <rect x={view[0]} y={view[1]} width={view[2]} height={view[3]} fill={`url(#${gridId})`} />
-      <LayoutDrawing layout={layout} />
-      {areas.map((a) => {
-        const isSel = sel?.target === a.target;
-        const bad = flagged.has(a.target.id);
-        return (
-          <rect
-            key={`${a.target.kind}:${a.target.id}`}
-            x={a.rect[0]}
-            y={a.rect[1]}
-            width={a.rect[2] - a.rect[0]}
-            height={a.rect[3] - a.rect[1]}
-            className={cn(
-              tool === "select" && "cursor-move",
-              bad ? "fill-red-500/15 stroke-red-600" : "fill-transparent stroke-transparent",
-              isSel && !bad && "stroke-primary",
-              tool === "select" && !isSel && !bad && "hover:stroke-primary/50",
-            )}
-            strokeWidth={isSel ? 0.4 : 0.3}
-            pointerEvents={tool === "select" ? "all" : "none"}
-            onPointerDown={(e) => startMove(e, a.target)}
-          >
-            <title>{a.name}</title>
-          </rect>
-        );
-      })}
-      {plan.rooms.map((p) => {
-        const [x, z] = doorPoint(p.rect, p.door);
-        return <circle key={`d${p.id}`} cx={x} cy={z} r={handle * 0.55} className="pointer-events-none fill-amber-500" />;
-      })}
-      {foyer && <circle cx={doorPoint(foyer.rect, plan.entrance)[0]} cy={doorPoint(foyer.rect, plan.entrance)[1]} r={handle * 0.7} className="pointer-events-none fill-sky-500" />}
-      {sel &&
-        tool === "select" &&
-        HANDLES.map((h, i) => {
-          const [x, z] = h.at(sel.rect);
+    // Drawn to the full width (never under 760 px, owner Oct 24: a tall building fitted to the height came out
+    // about 260 px wide), its height following the plan's shape; a tall plan scrolls inside the frame.
+    <div className="max-h-[80vh] overflow-auto rounded-md border">
+      <svg
+        ref={svgRef}
+        viewBox={view.join(" ")}
+        style={{ aspectRatio: `${view[2]} / ${view[3]}` }}
+        className={cn("block w-full min-w-[760px] touch-none select-none bg-background", tool === "walkway" && "cursor-crosshair")}
+        role="group"
+        aria-label="Floor plan editor. Drag a room or walkway to move it; drag the handles of the selected one to resize it. Everything here can also be done from the panel beside the plan and the Add a walkway button."
+        onPointerDown={onBackground}
+        onPointerMove={onMove}
+        onPointerUp={end}
+        onPointerCancel={end}
+        onLostPointerCapture={end}
+      >
+        <defs>
+          <pattern id={gridId} width={5} height={5} patternUnits="userSpaceOnUse">
+            <path d="M 5 0 L 0 0 0 5" className="fill-none stroke-border" strokeWidth={0.08} />
+          </pattern>
+        </defs>
+        <rect x={view[0]} y={view[1]} width={view[2]} height={view[3]} fill={`url(#${gridId})`} />
+        <LayoutDrawing layout={layout} />
+        {areas.map((a) => {
+          const isSel = sel?.target === a.target;
+          const bad = flagged.has(a.target.id);
           return (
             <rect
-              key={i}
-              x={x - handle / 2}
-              y={z - handle / 2}
-              width={handle}
-              height={handle}
-              className={cn("fill-background stroke-primary", h.cursor)}
-              strokeWidth={handle / 5}
-              onPointerDown={(e) => startResize(e, sel.target, h.edges)}
-            />
+              key={`${a.target.kind}:${a.target.id}`}
+              x={a.rect[0]}
+              y={a.rect[1]}
+              width={a.rect[2] - a.rect[0]}
+              height={a.rect[3] - a.rect[1]}
+              className={cn(
+                tool === "select" && "cursor-move",
+                bad ? "fill-red-500/15 stroke-red-600" : "fill-transparent stroke-transparent",
+                isSel && !bad && "stroke-primary",
+                tool === "select" && !isSel && !bad && "hover:stroke-primary/50",
+              )}
+              strokeWidth={isSel ? 0.4 : 0.3}
+              pointerEvents={tool === "select" ? "all" : "none"}
+              onPointerDown={(e) => startMove(e, a.target)}
+            >
+              <title>{a.name}</title>
+            </rect>
           );
         })}
-      {drawing && (
-        <rect
-          x={drawing[0]}
-          y={drawing[1]}
-          width={drawing[2] - drawing[0]}
-          height={drawing[3] - drawing[1]}
-          className="pointer-events-none fill-stone-300/40 stroke-primary"
-          strokeWidth={0.3}
-          strokeDasharray="1 0.6"
-        />
-      )}
-    </svg>
+        {plan.rooms.map((p) => {
+          const [x, z] = doorPoint(p.rect, p.door);
+          return <circle key={`d${p.id}`} cx={x} cy={z} r={handle * 0.55} className="pointer-events-none fill-amber-500" />;
+        })}
+        {foyer && <circle cx={doorPoint(foyer.rect, plan.entrance)[0]} cy={doorPoint(foyer.rect, plan.entrance)[1]} r={handle * 0.7} className="pointer-events-none fill-sky-500" />}
+        {sel &&
+          tool === "select" &&
+          HANDLES.map((h, i) => {
+            const [x, z] = h.at(sel.rect);
+            return (
+              <rect
+                key={i}
+                x={x - handle / 2}
+                y={z - handle / 2}
+                width={handle}
+                height={handle}
+                className={cn("fill-background stroke-primary", h.cursor)}
+                strokeWidth={handle / 5}
+                onPointerDown={(e) => startResize(e, sel.target, h.edges)}
+              />
+            );
+          })}
+        {drawing && (
+          <rect
+            x={drawing[0]}
+            y={drawing[1]}
+            width={drawing[2] - drawing[0]}
+            height={drawing[3] - drawing[1]}
+            className="pointer-events-none fill-stone-300/40 stroke-primary"
+            strokeWidth={0.3}
+            strokeDasharray="1 0.6"
+          />
+        )}
+      </svg>
+    </div>
   );
 }
