@@ -7,7 +7,7 @@
  * plans the template could never make.
  */
 import { describe, it, expect } from "vitest";
-import { generateLayout, type LayoutWall, type VenueLayout } from "@/lib/venue/layout";
+import { generateLayout, type LayoutItem, type LayoutWall, type Rect, type VenueLayout } from "@/lib/venue/layout";
 import { checkLayout } from "@/lib/venue/layout-check";
 import { LAYOUT_FIXTURES } from "@/lib/venue/layout-fixtures";
 import { planFromLayout, planIssues, planSchema, readVenuePlan, type VenuePlan } from "@/lib/venue/plan";
@@ -91,6 +91,7 @@ function lPlan(): { rooms: VenueRoom[]; plan: VenuePlan } {
       { id: "walk-2", name: "Link", rect: [0, 0, 6, 16] },
     ],
     entrance: { wall: "w", at: 8, width: 6 },
+    fixtures: [],
   };
   return { rooms, plan };
 }
@@ -158,5 +159,56 @@ describe("readVenuePlan", () => {
     expect(readVenuePlan({ venue: { plan: { plan, updatedAt: 7, updatedBy: "u1" } } })).toEqual({ plan, updatedAt: 7, updatedBy: "u1" });
     expect(readVenuePlan({ venue: { plan: { plan: { ...plan, v: 2 } } } })).toBeNull();
     expect(readVenuePlan({})).toBeNull();
+  });
+});
+
+describe("fixtures (stairs, lifts, toilets, exits, pillars, catering)", () => {
+  it("a plan saved before fixtures existed still reads, with none", () => {
+    const { plan } = lPlan();
+    const { fixtures: _none, ...old } = plan;
+    void _none;
+    expect(planSchema.parse(old).fixtures).toEqual([]);
+  });
+
+  it("refuses a fixture outside every room, overlapping another, or with a clashing id", () => {
+    const { rooms, plan } = lPlan();
+    const issues = planIssues(rooms, {
+      ...plan,
+      fixtures: [
+        { id: "p1", kind: "pillar", name: "", rect: [100, 100, 101, 101], dir: "n" },
+        { id: "p2", kind: "pillar", name: "Column A", rect: [-10, 5, -9, 6], dir: "n" },
+        { id: "p3", kind: "pillar", name: "Column B", rect: [-9.5, 5.5, -8.5, 6.5], dir: "n" },
+        { id: "expo", kind: "lift", name: "", rect: [10, 10, 12, 12], dir: "n" },
+      ],
+    });
+    expect(issues).toEqual(
+      expect.arrayContaining(["Pillar is not inside a room or walkway", "Column A and Column B overlap", "Lift shares its id with another part of the plan"]),
+    );
+  });
+
+  it("drops the furniture a solid fixture stands on and numbers the stands again from 1", () => {
+    const { rooms, plan } = lPlan();
+    const before = layoutFromPlan(rooms, plan, { eventName: "" }).layout;
+    const stands = before.items.filter((it): it is Extract<LayoutItem, { t: "stand" }> => it.t === "stand");
+    const first = stands[0].foot as { x0: number; z0: number; x1: number; z1: number };
+    // A pillar right on stand 1.
+    const withPillar = { ...plan, fixtures: [{ id: "p1", kind: "pillar" as const, name: "", rect: [first.x0 + 0.5, first.z0 + 0.5, first.x0 + 1.3, first.z0 + 1.3] as Rect, dir: "n" as const }] };
+    const after = layoutFromPlan(rooms, withPillar, { eventName: "" }).layout;
+    const left = after.items.filter((it): it is Extract<LayoutItem, { t: "stand" }> => it.t === "stand");
+    expect(left.length).toBe(stands.length - 1);
+    expect(left.map((s) => s.n)).toEqual(left.map((_, i) => i + 1));
+    expect(left.map((s) => s.label)).toEqual(left.map((_, i) => `Stand ${i + 1}`));
+    const standSpots = after.hotspots.filter((h) => h.kind === "stand").map((h) => h.id).sort();
+    expect(standSpots).toEqual(left.map((s) => `stand-${s.n}`).sort());
+    expect(after.items.filter((it) => it.t === "fixture")).toHaveLength(1);
+    expect(checkLayout(after).issues).toEqual([]);
+  });
+
+  it("a fixture that blocks the only way into a room is refused by the walk check, with the room named", () => {
+    const { rooms, plan } = lPlan();
+    // The lounge's door is on its south wall at x 28; a pillar the width of the walkway in front of it.
+    const blocked = { ...plan, fixtures: [{ id: "wall-of-pillar", kind: "pillar" as const, name: "", rect: [24, -6, 34, 0] as Rect, dir: "n" as const }] };
+    const issues = checkLayout(layoutFromPlan(rooms, blocked, { eventName: "" }).layout).issues;
+    expect(issues.join(" ")).toMatch(/lounge/i);
   });
 });

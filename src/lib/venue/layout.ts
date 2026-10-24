@@ -25,6 +25,7 @@
  * room on either side.
  */
 import type { RoomKind, VenueRoom } from "./rooms";
+import type { FixtureKind } from "./plan";
 
 export type Rect = [number, number, number, number];
 export type ZoneKind = RoomKind | "corridor";
@@ -93,6 +94,8 @@ export type LayoutItem = ItemBase &
     | { t: "directory"; yaw: number }
     | { t: "plant"; cx: number; cz: number; s: number }
     | { t: "sign"; x: number; y: number; z: number; w: number; hgt: number; yaw: number; kicker: string; title: string; sub: string }
+    /** A drawn plan's stairs, lift, toilets, exit, pillar or catering point; `yaw` is the way it faces (its door, front or "up"). */
+    | { t: "fixture"; kind: FixtureKind; name: string; yaw: number }
   );
 
 export interface LayoutPerson {

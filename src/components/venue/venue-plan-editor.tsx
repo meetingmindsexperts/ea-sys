@@ -32,13 +32,29 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { SectionHeading } from "@/components/ui/typography";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useSaveVenuePlan, type VenueRoomsData } from "@/hooks/use-api";
 import { ApiError } from "@/lib/api-fetch";
 import { generateLayout, type Rect } from "@/lib/venue/layout";
 import { checkLayout } from "@/lib/venue/layout-check";
-import { PLAN_MAX_WALKWAYS, PLAN_WALLS, planFromLayout, planIssues, planSchema, wallSpan, type PlanDoor, type PlanWall, type VenuePlan } from "@/lib/venue/plan";
+import {
+  FIXTURE_INFO,
+  FIXTURE_KINDS,
+  FIXTURE_MIN_SIDE,
+  PLAN_MAX_WALKWAYS,
+  PLAN_WALLS,
+  planFromLayout,
+  planIssues,
+  planSchema,
+  wallSpan,
+  type FixtureKind,
+  type PlanFixture, type PlanDoor, type PlanWall, type VenuePlan } from "@/lib/venue/plan";
 import { layoutFromPlan } from "@/lib/venue/plan-layout";
 import {
+  addFixture,
+  canAddFixture,
+  removeFixture,
+  setFixture,
   addWalkway,
   canAddWalkway,
   spotBeside,
@@ -214,11 +230,23 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
   };
   const walkwaysFull = !canAddWalkway(plan);
 
+  /** Remove the selected walkway or fixture (rooms come and go on the room list, not here). */
   const removeSelected = useCallback(() => {
-    if (selected?.kind !== "corridor") return;
-    change(removeWalkway(plan, selected.id));
+    if (selected?.kind === "corridor") change(removeWalkway(plan, selected.id));
+    else if (selected?.kind === "fixture") change(removeFixture(plan, selected.id));
+    else return;
     setSelected(null);
   }, [selected, plan, change]);
+
+  const addFixtureOf = (kind: FixtureKind) => {
+    // In the selected room or walkway, else the foyer: somewhere the organiser is looking.
+    const host = selected && selected.kind !== "fixture" ? rectOf(plan, selected) : (plan.rooms.find((p) => p.id === foyerId)?.rect ?? null);
+    const added = addFixture(plan, kind, host);
+    if (!added) return;
+    change(added.plan);
+    setTool("select");
+    setSelected({ kind: "fixture", id: added.id });
+  };
 
   // Undo, redo, delete a walkway, and Escape, from anywhere on the page except while typing in a field.
   useEffect(() => {
@@ -244,7 +272,7 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
         setSelected(null);
         return;
       }
-      if ((e.key === "Delete" || e.key === "Backspace") && selected?.kind === "corridor") {
+      if ((e.key === "Delete" || e.key === "Backspace") && (selected?.kind === "corridor" || selected?.kind === "fixture")) {
         e.preventDefault();
         removeSelected();
         return;
@@ -379,6 +407,22 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
               <Plus className="h-4 w-4" aria-hidden />
               Add a walkway
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" disabled={!canAddFixture(plan)}>
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Add stairs, lift, toilets…
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-80">
+                {FIXTURE_KINDS.map((k) => (
+                  <DropdownMenuItem key={k} onSelect={() => addFixtureOf(k)} className="flex-col items-start gap-0.5">
+                    <span className="font-medium">{FIXTURE_INFO[k].label}</span>
+                    <span className="text-xs text-muted-foreground">{FIXTURE_INFO[k].help}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <span className="mx-1 h-6 w-px bg-border" aria-hidden />
             <Button size="sm" variant="ghost" onClick={hist.undo} disabled={!hist.canUndo} aria-label="Undo">
               <Undo2 className="h-4 w-4" aria-hidden />
@@ -428,7 +472,7 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
               unplaced={unplaced}
               onSelect={setSelected}
               onChange={change}
-              onRemoveWalkway={removeSelected}
+              onRemove={removeSelected}
             />
           </div>
           <Status ok={ok} checking={checking} problems={problems} warnings={verdict.warnings} />
@@ -528,7 +572,8 @@ function MetreField({ id, label, value, onCommit, min }: { id: string; label: st
         inputMode="decimal"
         // The minimum is applied on commit, not as an attribute: with min 1.2 and step 0.5 the browser marks 5.4 as invalid.
         step={0.5}
-        value={text ?? String(value)}
+        // Shown to the centimetre: sums like 9.6 - 8.8 carry float noise (0.8000000000000007).
+        value={text ?? String(Math.round(value * 100) / 100)}
         onChange={(e) => setText(e.target.value)}
         onBlur={apply}
         onKeyDown={onKey}
@@ -547,7 +592,7 @@ function PlanPanel({
   unplaced,
   onSelect,
   onChange,
-  onRemoveWalkway,
+  onRemove,
 }: {
   plan: VenuePlan;
   rooms: VenueRoom[];
@@ -557,7 +602,8 @@ function PlanPanel({
   unplaced: VenueRoom[];
   onSelect: (t: PlanTarget | null) => void;
   onChange: (p: VenuePlan) => void;
-  onRemoveWalkway: () => void;
+  /** Remove the selected walkway or fixture. */
+  onRemove: () => void;
 }) {
   const rect = selected ? rectOf(plan, selected) : null;
   if (!selected || !rect) {
@@ -599,6 +645,14 @@ function PlanPanel({
               </button>
             </li>
           ))}
+          {plan.fixtures.map((f) => (
+            <li key={f.id}>
+              <button type="button" className="w-full rounded px-2 py-1 text-left text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary" onClick={() => onSelect({ kind: "fixture", id: f.id })}>
+                {f.name || FIXTURE_INFO[f.kind].label}
+                {f.name ? ` (${FIXTURE_INFO[f.kind].label.toLowerCase()})` : ""}
+              </button>
+            </li>
+          ))}
         </ul>
       </div>
     );
@@ -608,6 +662,8 @@ function PlanPanel({
   const room = selected.kind === "room" ? rooms.find((r) => r.id === selected.id) : undefined;
   const placed = selected.kind === "room" ? plan.rooms.find((p) => p.id === selected.id) : undefined;
   const corridor = selected.kind === "corridor" ? plan.corridors.find((c) => c.id === selected.id) : undefined;
+  const fixture = selected.kind === "fixture" ? plan.fixtures.find((f) => f.id === selected.id) : undefined;
+  const minSide = fixture ? FIXTURE_MIN_SIDE : 3;
   const w = rect[2] - rect[0];
   const d = rect[3] - rect[1];
 
@@ -615,9 +671,9 @@ function PlanPanel({
     <div className="space-y-4 text-sm">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-base font-semibold">{room?.name ?? corridor?.name}</p>
+          <p className="text-base font-semibold">{room?.name ?? corridor?.name ?? (fixture && (fixture.name || FIXTURE_INFO[fixture.kind].label))}</p>
           <p className="text-xs text-muted-foreground">
-            {room ? `${ROOM_KIND_INFO[room.kind].label}, ${room.capacity.toLocaleString("en-GB")} people` : "Walkway"}
+            <SelectedKind room={room} fixture={fixture} />
           </p>
         </div>
         <Button size="sm" variant="ghost" onClick={() => onSelect(null)}>
@@ -643,10 +699,11 @@ function PlanPanel({
           />
         </div>
       )}
+      {fixture && <FixtureFields key={`${key}-${fixture.name}-${fixture.dir}`} id={key} plan={plan} fixture={fixture} onChange={onChange} />}
       <fieldset className="grid grid-cols-2 gap-2">
         <legend className="mb-1 text-xs font-medium">Size and place (metres)</legend>
-        <MetreField key={`${key}-w-${w}`} id={`${key}-w`} label="Width (west to east)" value={w} min={3} onCommit={(n) => onChange(setSize(plan, selected, n, d, foyerId))} />
-        <MetreField key={`${key}-d-${d}`} id={`${key}-d`} label="Depth (north to south)" value={d} min={3} onCommit={(n) => onChange(setSize(plan, selected, w, n, foyerId))} />
+        <MetreField key={`${key}-w-${w}`} id={`${key}-w`} label="Width (west to east)" value={w} min={minSide} onCommit={(n) => onChange(setSize(plan, selected, n, d, foyerId))} />
+        <MetreField key={`${key}-d-${d}`} id={`${key}-d`} label="Depth (north to south)" value={d} min={minSide} onCommit={(n) => onChange(setSize(plan, selected, w, n, foyerId))} />
         <MetreField key={`${key}-x-${rect[0]}`} id={`${key}-x`} label="West edge at" value={rect[0]} onCommit={(n) => onChange(moveTo(plan, selected, n, rect[1], foyerId))} />
         <MetreField key={`${key}-z-${rect[1]}`} id={`${key}-z`} label="North edge at" value={rect[1]} onCommit={(n) => onChange(moveTo(plan, selected, rect[0], n, foyerId))} />
       </fieldset>
@@ -674,12 +731,61 @@ function PlanPanel({
           onChange={(patch) => onChange(setDoor(plan, placed.id, patch, true))}
         />
       )}
-      {corridor && (
-        <Button size="sm" variant="outline" className="text-destructive" onClick={onRemoveWalkway}>
+      {(corridor || fixture) && (
+        <Button size="sm" variant="outline" className="text-destructive" onClick={onRemove}>
           <Trash2 className="h-4 w-4" aria-hidden />
-          Remove walkway
+          {corridor ? "Remove walkway" : "Remove"}
         </Button>
       )}
+    </div>
+  );
+}
+
+function SelectedKind({ room, fixture }: { room: VenueRoom | undefined; fixture: PlanFixture | undefined }) {
+  if (room) return <>{`${ROOM_KIND_INFO[room.kind].label}, ${room.capacity.toLocaleString("en-GB")} people`}</>;
+  if (fixture) return <>{FIXTURE_INFO[fixture.kind].help}</>;
+  return <>Walkway</>;
+}
+
+/** A fixture's name (on its sign) and the way it faces. */
+function FixtureFields({ id, plan, fixture, onChange }: { id: string; plan: VenuePlan; fixture: PlanFixture; onChange: (p: VenuePlan) => void }) {
+  const label = FIXTURE_INFO[fixture.kind].label;
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div className="space-y-1">
+        <Label htmlFor={`${id}-name`} className="text-xs text-muted-foreground">
+          Name on the plan
+        </Label>
+        <Input
+          id={`${id}-name`}
+          name={`${id}-name`}
+          defaultValue={fixture.name}
+          placeholder={label}
+          maxLength={60}
+          className="h-8"
+          onBlur={(e) => {
+            const name = e.target.value.trim();
+            if (name !== fixture.name) onChange(setFixture(plan, fixture.id, { name }));
+          }}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor={`${id}-dir`} className="text-xs text-muted-foreground">
+          {fixture.kind === "stairs" ? "Goes up towards" : "Faces"}
+        </Label>
+        <Select value={fixture.dir} onValueChange={(v) => onChange(setFixture(plan, fixture.id, { dir: v as PlanWall }))}>
+          <SelectTrigger id={`${id}-dir`} className="h-8 w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PLAN_WALLS.map((wl) => (
+              <SelectItem key={wl} value={wl}>
+                {WALL_LABEL[wl]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }

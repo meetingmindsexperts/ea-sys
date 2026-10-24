@@ -31,7 +31,8 @@ export const LAYOUT_FIXTURES: Record<string, VenueRoom[]> = {
  * Drawn plans the venue's browser tests walk too (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md,
  * 3.6): the shapes the template never makes. Doors in north and south walls,
  * two walkways meeting at a corner, a foyer entered from the west with its
- * way on in its east wall, and the congress with its entrance moved.
+ * way on in its east wall, one of each fixture, and the congress with its
+ * entrance moved.
  */
 export const PLAN_FIXTURES: Record<string, { rooms: VenueRoom[]; plan: VenuePlan }> = {
   "drawn-sideways": {
@@ -50,6 +51,15 @@ export const PLAN_FIXTURES: Record<string, { rooms: VenueRoom[]; plan: VenuePlan
         { id: "walkway-2", name: "North Walk", rect: [14, -6, 60, 0] },
       ],
       entrance: { wall: "w", at: 15, width: 10 },
+      // One of each fixture: the lift and toilets stand where the foyer's plants would be, which are dropped.
+      fixtures: [
+        { id: "lift", kind: "lift", name: "", rect: [10.5, 1, 13.5, 4], dir: "w" },
+        { id: "stairs", kind: "stairs", name: "", rect: [1, 24, 4, 29], dir: "n" },
+        { id: "toilets", kind: "toilets", name: "", rect: [8.5, 24.5, 13.5, 29.5], dir: "w" },
+        { id: "pillar", kind: "pillar", name: "", rect: [30, -3.4, 30.8, -2.6], dir: "n" },
+        { id: "catering", kind: "catering", name: "Coffee point", rect: [18.6, 22, 19.8, 27], dir: "w" },
+        { id: "exit", kind: "exit", name: "", rect: [49.6, 14, 50, 16], dir: "w" },
+      ],
     },
   },
   "drawn-congress-west-entrance": (() => {

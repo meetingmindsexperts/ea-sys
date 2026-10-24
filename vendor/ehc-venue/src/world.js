@@ -615,6 +615,54 @@ function buildWorld(R, Q) {
       else box('plain', cx - 0.05, 0, cz - 0.7, cx + 0.05, 3.05, cz + 0.7, [0.1, 0.08, 0.08, 0], { col: true });
       blob(cx, cz, fz ? 1.8 : 0.8, fz ? 0.8 : 1.8);
     };
+    // EA-SYS (floor plan editor, Oct 24): a drawn plan's fixtures. `yaw` is the way each faces: its doors, its
+    // front, or (stairs) the way up. Single-floor venue, so the stairs climb to the ceiling and stop there.
+    // Where a box's face lies along one axis: its far side for a positive direction, its near side for a
+    // negative one, the middle when the direction runs along the other axis; `out` steps it off the face.
+    const faceAt = (d, lo, hi, out) => { if (d > 0) return hi + out; if (d < 0) return lo - out; return (lo + hi) / 2; };
+    const fixture = (it, x0, z0, x1, z1) => {
+      const [dx, dz] = dirOf(it.yaw), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, ceil = zoneOf(it.zone).ceil || 5;
+      // The front face: where its sign hangs and its doors are, a hair out from the box.
+      const fx = faceAt(dx, x0, x1, 0.02), fz = faceAt(dz, z0, z1, 0.02);
+      const across = dz ? x1 - x0 : z1 - z0;
+      const front = (y, w, h, spec) => sign(fx, y, fz, Math.min(w, across - 0.2), h, it.yaw, spec);
+      const panel = (w, h, col) => (dz ? box('plain', cx - w / 2, 0, fz - 0.03, cx + w / 2, h, fz + 0.03, col) : box('plain', fx - 0.03, 0, cz - w / 2, fx + 0.03, h, cz + w / 2, col));
+      if (it.kind === 'pillar') { box('plain', x0, 0, z0, x1, ceil, z1, [0.86, 0.84, 0.8, 0], { col: true }); blob(cx, cz, x1 - x0 + 0.6, z1 - z0 + 0.6); return; }
+      if (it.kind === 'exit') {
+        panel(Math.min(1.6, across), 2.3, [0.32, 0.34, 0.36, 0]);
+        front(2.75, 1.6, 0.5, { title: 'EXIT', sub: it.name !== 'Emergency exit' ? it.name : 'Emergency exit' });
+        return;
+      }
+      if (it.kind === 'catering') {
+        box('wood', x0, 0, z0, x1, 1.05, z1, [0.32, 0.2, 0.16, 0], { col: true }); box('marble', x0 - 0.1, 1.05, z0 - 0.1, x1 + 0.1, 1.12, z1 + 0.1, [0.95, 0.93, 0.9, 0]);
+        sign(cx, 3.1, cz, Math.min(5, Math.max(x1 - x0, z1 - z0)), 0.9, it.yaw, { title: it.name, sub: 'Coffee · Lunch' });
+        blob(cx, cz, x1 - x0 + 1.4, z1 - z0 + 1.4);
+        return;
+      }
+      if (it.kind === 'stairs') {
+        // Treads 0.3 m deep, 0.17 m high, rising towards the way it faces; a rail along each side.
+        const len = dz ? z1 - z0 : x1 - x0, n = Math.max(1, Math.floor(len / 0.3)), sgn = dz || dx;
+        for (let i = 0; i < n; i++) {
+          const h = Math.min(ceil - 0.3, (i + 1) * 0.17), a = sgn > 0 ? i * 0.3 : len - (i + 1) * 0.3;
+          if (dz) box('marble', x0, 0, z0 + a, x1, h, z0 + a + 0.3, [0.92, 0.9, 0.86, 0], { col: true });
+          else box('marble', x0 + a, 0, z0, x0 + a + 0.3, h, z1, [0.92, 0.9, 0.86, 0], { col: true });
+        }
+        for (const side of [0, 1]) {
+          if (dz) { const x = side ? x1 - 0.04 : x0 + 0.04; box('metal', x - 0.03, 0.9, z0, x + 0.03, 0.96, z1, [0.6, 0.6, 0.62, 0]); }
+          else { const z = side ? z1 - 0.04 : z0 + 0.04; box('metal', x0, 0.9, z - 0.03, x1, 0.96, z + 0.03, [0.6, 0.6, 0.62, 0]); }
+        }
+        // The sign at the foot of the stairs, facing whoever walks up to them.
+        const bx = faceAt(-dx, x0, x1, 0.02), bz = faceAt(-dz, z0, z1, 0.02);
+        sign(bx, 2.6, bz, Math.min(2.4, across - 0.2), 0.6, it.yaw + Math.PI, { title: it.name, sub: 'Up' });
+        return;
+      }
+      // Lift and toilets: a walled block with doors on its front.
+      const lift = it.kind === 'lift';
+      box('plain', x0, 0, z0, x1, lift ? ceil : 3, z1, lift ? [0.7, 0.72, 0.74, 0] : [0.9, 0.9, 0.88, 0], { col: true });
+      panel(Math.min(lift ? 1.4 : 1, across - 0.4), 2.2, lift ? [0.55, 0.57, 0.6, 0] : [0.42, 0.36, 0.3, 0]);
+      front(2.65, 2, 0.5, { title: it.name, sub: lift ? 'Step-free access' : 'Washrooms' });
+      blob(cx, cz, x1 - x0 + 0.8, z1 - z0 + 0.8);
+    };
     for (const it of L.items) {
       const [x0, z0, x1, z1] = rectOf(it.foot), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, big = zoneOf(it.zone).kind === 'plenary';
       if (it.t === 'stage') { box('wood', x0, 0, z0, x1, it.h, z1, [0.22, 0.15, 0.13, 0], { col: true }); box('emis', x0 - 0.01, it.h - 0.06, z0 - 0.01, x1 + 0.01, it.h - 0.02, z1 + 0.01, [0.4, 0.8, 0.9, 0.8]); }
@@ -637,6 +685,7 @@ function buildWorld(R, Q) {
       else if (it.t === 'desk') desk(x0, z0, x1, z1, it.yaw || 0, it.title, it.sub);
       else if (it.t === 'directory') directory(cx, cz, it.yaw || 0);
       else if (it.t === 'plant') plant(it.cx, it.cz, it.s);
+      else if (it.t === 'fixture') fixture(it, x0, z0, x1, z1);
       else if (it.t === 'sign') sign(it.x, it.y, it.z, it.w, it.hgt, it.yaw, it.kicker ? { kicker: it.kicker, title: it.title, sub: it.sub } : { title: it.title, sub: it.sub });
     }
     for (const p of L.people) people.push({ ...p });

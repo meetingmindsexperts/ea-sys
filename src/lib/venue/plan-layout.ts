@@ -21,6 +21,7 @@ import {
   furnishZone,
   generateLayout,
   r2,
+  type Footprint,
   type FrameDoor,
   type LayoutDoor,
   type LayoutItem,
@@ -31,7 +32,7 @@ import {
   type VenueLayout,
   type WallOpening,
 } from "./layout";
-import { doorPoint, planIssues, type PlanDoor, type PlanWall, type VenuePlan } from "./plan";
+import { FIXTURE_INFO, doorPoint, planIssues, type PlanDoor, type PlanWall, type VenuePlan } from "./plan";
 import type { VenueRoom } from "./rooms";
 
 const EPS = 0.01;
@@ -152,6 +153,7 @@ export function layoutFromPlan(rooms: VenueRoom[], plan: VenuePlan, opts: { even
     furnishZone(zn, fd, out, { lineU: foyerLineU(zn, fd, doorOf.get(zn.id)), eventName: opts.eventName });
   }
   for (const d of doors) out.items.push(...doorSign(zones, d));
+  placeFixtures(plan, zones, out);
 
   const routes: [number, number][][] = [];
   for (const zn of zones) if (zn.kind === "corridor") routes.push(corridorLoop(zn.rect));
@@ -166,6 +168,58 @@ export function layoutFromPlan(rooms: VenueRoom[], plan: VenuePlan, opts: { even
     layout: { v: 1, bounds: bounds.map(r2) as Rect, zones, walls, doors, items: out.items, people: out.people, hotspots: out.hotspots, routes },
     issues,
   };
+}
+
+/** The yaw that faces each way, as the furnishers use it: (sin, cos) of yaw is the direction, +z south. */
+const FACING: Record<PlanWall, number> = { n: r2(Math.PI), s: 0, e: r2(Math.PI / 2), w: r2(-Math.PI / 2) };
+
+const boxOf = (f: Footprint): Rect => ("r" in f ? [f.cx - f.r, f.cz - f.r, f.cx + f.r, f.cz + f.r] : [f.x0, f.z0, f.x1, f.z1]);
+const hits = (a: Rect, b: Rect) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+/** Room kept around a solid fixture: furniture nearer than this would leave no way past. */
+const FIXTURE_CLEARANCE = 0.3;
+
+/**
+ * The plan's fixtures as items in the room or walkway that holds them. The
+ * furnishers do not know about fixtures, so the furniture, people and stand
+ * points a solid fixture stands on (or crowds) are dropped, and the stands
+ * left are numbered again from 1, since stand n carries the nth sponsor.
+ */
+function placeFixtures(plan: VenuePlan, zones: LayoutZone[], out: Out) {
+  for (const f of plan.fixtures) {
+    const zone = zones.find((z) => f.rect[0] >= z.rect[0] - EPS && f.rect[1] >= z.rect[1] - EPS && f.rect[2] <= z.rect[2] + EPS && f.rect[3] <= z.rect[3] + EPS);
+    if (!zone) continue;
+    const info = FIXTURE_INFO[f.kind];
+    const [x0, z0, x1, z1] = f.rect.map(r2);
+    if (info.solid) {
+      const keep: Rect = [x0 - FIXTURE_CLEARANCE, z0 - FIXTURE_CLEARANCE, x1 + FIXTURE_CLEARANCE, z1 + FIXTURE_CLEARANCE];
+      out.items = out.items.filter((it) => it.zone !== zone.id || it.t === "fixture" || it.t === "sign" || it.t === "screen" || !hits(boxOf(it.foot), keep));
+      out.people = out.people.filter((p) => !hits([p.x - 0.3, p.z - 0.3, p.x + 0.3, p.z + 0.3], keep));
+      out.hotspots = out.hotspots.filter((h) => !hits([h.x - 0.5, h.z - 0.5, h.x + 0.5, h.z + 0.5], keep));
+    }
+    out.items.push({ t: "fixture", zone: zone.id, solid: info.solid, foot: { x0, z0, x1, z1 }, kind: f.kind, name: f.name || info.label, yaw: FACING[f.dir] });
+  }
+  renumberStands(out);
+}
+
+/** Stands numbered 1, 2, 3 in order again, with their visit points, after some were dropped. */
+function renumberStands(out: Out) {
+  const stands = out.items.filter((it): it is Extract<LayoutItem, { t: "stand" }> => it.t === "stand");
+  const kept = new Set(stands.map((s) => `stand-${s.n}`));
+  out.hotspots = out.hotspots.filter((h) => h.kind !== "stand" || kept.has(h.id));
+  const next = new Map(stands.map((s, i) => [s.n, i + 1]));
+  for (const s of stands) {
+    const n = next.get(s.n)!;
+    // As the exhibition furnisher numbers them: the first two stands are the larger tier.
+    Object.assign(s, { n, label: `Stand ${n}`, tier: n <= 2 ? 1 : 2 });
+  }
+  for (const h of out.hotspots) {
+    if (h.kind !== "stand") continue;
+    const n = next.get(Number(h.id.replace("stand-", "")));
+    if (!n) continue;
+    h.id = `stand-${n}`;
+    h.prompt = `Visit Stand ${n}`;
+    h.title = `Stand ${n}`;
+  }
 }
 
 const nameOf = (zones: LayoutZone[], id: string) => zones.find((z) => z.id === id)?.name ?? id;

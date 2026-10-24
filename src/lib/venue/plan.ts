@@ -40,6 +40,29 @@ export interface PlanCorridor {
   rect: Rect;
 }
 
+/** What can stand in a room or walkway besides its own furniture (floor plan editor, owner Oct 24). */
+export const FIXTURE_KINDS = ["stairs", "lift", "toilets", "exit", "pillar", "catering"] as const;
+export type FixtureKind = (typeof FIXTURE_KINDS)[number];
+
+export const FIXTURE_INFO: Record<FixtureKind, { label: string; size: [number, number]; solid: boolean; help: string }> = {
+  stairs: { label: "Stairs", size: [3, 6], solid: true, help: "A staircase; the arrow points up the flight." },
+  lift: { label: "Lift", size: [2.6, 2.6], solid: true, help: "A lift; its doors face the arrow." },
+  toilets: { label: "Toilets", size: [5, 6], solid: true, help: "Washrooms, as a block with a sign; their entrance faces the arrow." },
+  exit: { label: "Emergency exit", size: [2, 0.4], solid: false, help: "An exit sign over a door; put it against a wall, facing the arrow." },
+  pillar: { label: "Pillar", size: [0.8, 0.8], solid: true, help: "A column people walk around." },
+  catering: { label: "Catering point", size: [5, 1.2], solid: true, help: "A coffee and lunch counter; staff stand behind it, guests come from the arrow's side." },
+};
+
+export interface PlanFixture {
+  id: string;
+  kind: FixtureKind;
+  /** Shown on the plan and on its sign; the kind's label when empty. */
+  name: string;
+  rect: Rect;
+  /** The way it faces: where its front, door or arrow points. */
+  dir: PlanWall;
+}
+
 export interface VenuePlan {
   v: 1;
   /** In drawing order; the building's zones follow it. */
@@ -47,6 +70,8 @@ export interface VenuePlan {
   corridors: PlanCorridor[];
   /** The glass entrance, in an outside wall of the foyer. */
   entrance: PlanDoor;
+  /** Stairs, lifts, toilets, exits, pillars and catering points, each inside a room or walkway. */
+  fixtures: PlanFixture[];
 }
 
 /**
@@ -72,6 +97,13 @@ const doorSchema = z.object({
 });
 /** The most walkways a plan holds. */
 export const PLAN_MAX_WALKWAYS = 12;
+/** The most fixtures a plan holds. */
+export const PLAN_MAX_FIXTURES = 60;
+/** A fixture's smallest side: a pillar can be thin, an exit sign thinner. */
+export const FIXTURE_MIN_SIDE = 0.3;
+const fixtureRect = z
+  .tuple([coord, coord, coord, coord])
+  .refine(([x0, z0, x1, z1]) => x1 - x0 >= FIXTURE_MIN_SIDE && z1 - z0 >= FIXTURE_MIN_SIDE && x1 - x0 <= 40 && z1 - z0 <= 40, "A fixture is between 0.3 m and 40 m each way");
 
 export const planSchema = z.object({
   v: z.literal(1),
@@ -80,6 +112,11 @@ export const planSchema = z.object({
     .array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), name: z.string().trim().min(1, "Every walkway needs a name").max(60), rect: rectSchema }))
     .max(PLAN_MAX_WALKWAYS, `A plan has at most ${PLAN_MAX_WALKWAYS} walkways`),
   entrance: doorSchema,
+  // Plans saved before fixtures existed have none.
+  fixtures: z
+    .array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), kind: z.enum(FIXTURE_KINDS), name: z.string().trim().max(60), rect: fixtureRect, dir: z.enum(PLAN_WALLS) }))
+    .max(PLAN_MAX_FIXTURES, `A plan has at most ${PLAN_MAX_FIXTURES} stairs, lifts, toilets, exits, pillars and catering points`)
+    .default([]),
 });
 
 export interface StoredVenuePlan {
@@ -156,7 +193,7 @@ export function planFromLayout(layout: VenueLayout): VenuePlan {
     }
   }
   const corridors = layout.zones.filter((z) => z.kind === "corridor").map((z) => ({ id: z.id, name: z.name, rect: z.rect }));
-  return { v: 1, rooms, corridors, entrance };
+  return { v: 1, rooms, corridors, entrance, fixtures: [] };
 }
 
 function toPlanDoor(rect: Rect, x: number, z: number, width: number): PlanDoor {
@@ -165,6 +202,9 @@ function toPlanDoor(rect: Rect, x: number, z: number, width: number): PlanDoor {
 }
 
 // ── Shape rules ──────────────────────────────────────────────────────────────
+
+/** `inner` lies wholly inside `outer`. */
+const within = (inner: Rect, outer: Rect) => inner[0] >= outer[0] - EPS && inner[1] >= outer[1] - EPS && inner[2] <= outer[2] + EPS && inner[3] <= outer[3] + EPS;
 
 const overlapArea = (a: Rect, b: Rect) =>
   Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
@@ -203,6 +243,22 @@ export function planIssues(rooms: VenueRoom[], plan: VenuePlan): string[] {
     const [a0, a1] = wallSpan(p.rect, p.door.wall);
     if (p.door.at - p.door.width / 2 < a0 - EPS || p.door.at + p.door.width / 2 > a1 + EPS) {
       issues.push(`${name}: its door does not fit on its wall`);
+    }
+  }
+
+  // Each fixture stands wholly inside one room or walkway, and fixtures do not overlap each other.
+  const fixtureIds = new Set<string>();
+  for (const f of plan.fixtures) {
+    const label = f.name || FIXTURE_INFO[f.kind].label;
+    if (fixtureIds.has(f.id) || names.has(f.id) || ids.has(f.id)) issues.push(`${label} shares its id with another part of the plan`);
+    fixtureIds.add(f.id);
+    if (!areas.some((a) => within(f.rect, a.rect))) issues.push(`${label} is not inside a room or walkway`);
+  }
+  for (let i = 0; i < plan.fixtures.length; i++) {
+    for (let j = i + 1; j < plan.fixtures.length; j++) {
+      const a = plan.fixtures[i];
+      const b = plan.fixtures[j];
+      if (overlapArea(a.rect, b.rect) > EPS) issues.push(`${a.name || FIXTURE_INFO[a.kind].label} and ${b.name || FIXTURE_INFO[b.kind].label} overlap`);
     }
   }
 

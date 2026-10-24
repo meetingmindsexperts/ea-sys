@@ -15,6 +15,7 @@ import { apiLogger } from "@/lib/logger";
 import { sanitizePdfText } from "@/lib/pdf/pdf-text";
 import { formatFooterTimestamp } from "@/lib/pdf/document-layout";
 import type { LayoutItem, LayoutWall, Rect, VenueLayout, ZoneKind } from "./layout";
+import type { FixtureKind } from "./plan";
 
 export type PlanPaper = "A3" | "A4";
 export const PLAN_PAPERS: readonly PlanPaper[] = ["A3", "A4"];
@@ -159,14 +160,17 @@ function drawPage(doc: Doc, input: FloorPlanPdfInput) {
 
   drawZones(doc, layout, P, ptPerM);
   drawItems(doc, layout.items, P, ptPerM);
-  drawWalls(doc, layout.walls, P, ptPerM);
+  drawDoorSwings(doc, layout, P, ptPerM);
+  drawWalls(doc, layout, P, ptPerM);
   drawRoomLabels(doc, layout, P, ptPerM);
-  drawEntrance(doc, layout.walls, P);
+  drawEntrance(doc, layout, P);
   drawNorthArrow(doc, MARGIN + areaW - 18, areaTop + 6);
 
   const legendTop = pageH - MARGIN - FOOTER_H - bottomH + 8;
   drawScaleBar(doc, MARGIN + 8, legendTop, widthM, ptPerM, ratio, input.paper);
-  drawLegend(doc, kinds, MARGIN, legendTop + LEGEND_ROW_H, areaW);
+  const fixtureKinds = [...new Set(layout.items.flatMap((it) => (it.t === "fixture" ? [it.kind] : [])))];
+  const hasStands = layout.items.some((it) => it.t === "stand");
+  drawLegend(doc, kinds, fixtureKinds, hasStands, MARGIN, legendTop + LEGEND_ROW_H, areaW);
   if (keyed.length) drawStandKey(doc, keyed, MARGIN, legendTop + LEGEND_ROW_H * 2, keyCols, areaW);
 
   doc.font("Helvetica").fontSize(7).fillColor(MUTED);
@@ -214,6 +218,10 @@ function drawItems(doc: Doc, items: LayoutItem[], P: Project, ptPerM: number) {
     const [x, y] = P(f.x0, f.z0);
     const w = (f.x1 - f.x0) * ptPerM;
     const h = (f.z1 - f.z0) * ptPerM;
+    if (it.t === "fixture") {
+      drawFixture(doc, it, [x, y, w, h]);
+      continue;
+    }
     if (it.t === "stand") {
       doc.rect(x, y, w, h).fillAndStroke(STAND_FILL, "#3f8a5f");
       const size = Math.max(4, Math.min(9, Math.min(w, h) * 0.5));
@@ -237,20 +245,112 @@ function wallSegments(w: LayoutWall): [number, number][] {
   return segs;
 }
 
-function drawWalls(doc: Doc, walls: LayoutWall[], P: Project, ptPerM: number) {
-  const thick = Math.max(0.8, 0.3 * ptPerM);
-  doc.lineCap("butt");
-  for (const w of walls) {
+const inZone = (layout: VenueLayout, x: number, z: number) => layout.zones.some((zn) => x > zn.rect[0] && x < zn.rect[2] && z > zn.rect[1] && z < zn.rect[3]);
+
+/** Outside on one side: the building's edge, drawn heavier as on an architect's plan. */
+function outsideWall(layout: VenueLayout, w: LayoutWall): boolean {
+  const m = (w.a0 + w.a1) / 2;
+  if (w.axis === "x") return !inZone(layout, m, w.k - 0.3) || !inZone(layout, m, w.k + 0.3);
+  return !inZone(layout, w.k - 0.3, m) || !inZone(layout, w.k + 0.3, m);
+}
+
+function drawWalls(doc: Doc, layout: VenueLayout, P: Project, ptPerM: number) {
+  for (const w of layout.walls) {
+    // Square ends, so walls meet at corners without gaps; the glazing below keeps butt ends.
+    doc.lineCap("square");
+    const thick = Math.max(0.8, (outsideWall(layout, w) ? 0.5 : 0.3) * ptPerM);
     for (const [a, b] of wallSegments(w)) {
       const [p, q] = w.axis === "x" ? [P(a, w.k), P(b, w.k)] : [P(w.k, a), P(w.k, b)];
       doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(thick).strokeColor(WALL).stroke();
     }
+    doc.lineCap("butt");
     for (const o of w.opens.filter((x) => x.glass)) {
       const [p, q] = w.axis === "x" ? [P(o.a, w.k), P(o.b, w.k)] : [P(w.k, o.a), P(w.k, o.b)];
       doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(thick).strokeColor("#ffffff").stroke();
       doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(thick * 0.6).dash(2, { space: 1.5 }).strokeColor(GLASS).stroke().undash();
     }
   }
+}
+
+/**
+ * Each door's leaf and swing into the room it leads to, as on the plan view:
+ * one leaf up to 3 m, a pair up to 6 m, wider openings left open.
+ */
+function drawDoorSwings(doc: Doc, layout: VenueLayout, P: Project, ptPerM: number) {
+  for (const d of layout.doors) {
+    const room = layout.zones.find((z) => z.id === d.between[1]);
+    if (!room || d.width > 6) continue;
+    const leaves = d.width > 3 ? 2 : 1;
+    const r = (d.width / leaves) * ptPerM;
+    for (let k = 0; k < leaves; k++) {
+      const end = k === 0 ? -1 : 1;
+      const alongX = d.axis === "x";
+      const into = alongX ? Math.sign((room.rect[1] + room.rect[3]) / 2 - d.z) : Math.sign((room.rect[0] + room.rect[2]) / 2 - d.x);
+      const [hx, hy] = alongX ? P(d.x + (end * d.width) / 2, d.z) : P(d.x, d.z + (end * d.width) / 2);
+      // The leaf stands open into the room; the arc runs from it back to where it closes.
+      const leaf: [number, number] = alongX ? [hx, hy + into * r] : [hx + into * r, hy];
+      const shut: [number, number] = alongX ? [hx - end * r, hy] : [hx, hy - end * r];
+      doc.moveTo(hx, hy).lineTo(leaf[0], leaf[1]).lineWidth(0.6).strokeColor(WALL).stroke();
+      const c = 0.5523 * r;
+      const ctrl1: [number, number] = alongX ? [leaf[0] - end * c, leaf[1]] : [leaf[0], leaf[1] - end * c];
+      const ctrl2: [number, number] = alongX ? [shut[0], shut[1] + into * c] : [shut[0] + into * c, shut[1]];
+      doc.moveTo(leaf[0], leaf[1]).bezierCurveTo(ctrl1[0], ctrl1[1], ctrl2[0], ctrl2[1], shut[0], shut[1]).lineWidth(0.35).strokeColor("#9ca3af").stroke();
+    }
+  }
+}
+
+const ARROW = "#0369a1";
+const FIXTURE_FILL: Record<FixtureKind, string> = { stairs: "#ffffff", lift: "#e5e7eb", toilets: "#e0f2fe", exit: "#16a34a", pillar: "#374151", catering: "#fde68a" };
+const FIXTURE_TEXT: Partial<Record<FixtureKind, string>> = { toilets: "WC", exit: "EXIT" };
+const FIXTURE_LEGEND: Record<FixtureKind, string> = { stairs: "Stairs (arrow up)", lift: "Lift", toilets: "Toilets (WC)", exit: "Emergency exit", pillar: "Pillar", catering: "Catering point" };
+
+/** A fixture's plan symbol: stairs with treads and an arrow up, a lift crossed, the rest filled and named. */
+function drawFixture(doc: Doc, it: Extract<LayoutItem, { t: "fixture" }>, [x, y, w, h]: Box) {
+  doc.rect(x, y, w, h).fillAndStroke(FIXTURE_FILL[it.kind], it.kind === "pillar" ? FIXTURE_FILL.pillar : WALL);
+  const dx = Math.round(Math.sin(it.yaw));
+  const dz = Math.round(Math.cos(it.yaw));
+  if (it.kind === "lift") {
+    doc.moveTo(x, y).lineTo(x + w, y + h).moveTo(x + w, y).lineTo(x, y + h).lineWidth(0.4).strokeColor(WALL).stroke();
+    return;
+  }
+  if (it.kind === "stairs") {
+    const alongY = dz !== 0;
+    const len = alongY ? h : w;
+    const step = Math.max(1.5, len / Math.max(1, Math.round(len / 3)));
+    for (let a = step; a < len - 0.5; a += step) {
+      if (alongY) doc.moveTo(x, y + a).lineTo(x + w, y + a);
+      else doc.moveTo(x + a, y).lineTo(x + a, y + h);
+    }
+    doc.lineWidth(0.3).strokeColor(WALL).stroke();
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const half = len / 2 - 1;
+    const sgn = dz || dx;
+    const tip: [number, number] = alongY ? [cx, cy + sgn * half] : [cx + sgn * half, cy];
+    const tail: [number, number] = alongY ? [cx, cy - sgn * half] : [cx - sgn * half, cy];
+    // An arrow up the flight, the way a plan marks which way stairs climb.
+    const head = Math.min(w, h) * 0.22;
+    const wing = (s: number): [number, number] => (alongY ? [tip[0] + s * head, tip[1] - sgn * head] : [tip[0] - sgn * head, tip[1] + s * head]);
+    doc.moveTo(tail[0], tail[1]).lineTo(tip[0], tip[1]).lineWidth(0.9).strokeColor(ARROW).stroke();
+    doc.moveTo(...wing(-1)).lineTo(tip[0], tip[1]).lineTo(...wing(1)).lineWidth(0.9).strokeColor(ARROW).stroke();
+    return;
+  }
+  const text = FIXTURE_TEXT[it.kind] ?? (it.kind === "catering" ? it.name : "");
+  if (!text) return;
+  // Along the longer side, turned for a tall box, so a narrow counter still reads.
+  const tall = h > w * 1.4;
+  const along = tall ? h : w;
+  const size = Math.max(3, Math.min(7, Math.min(w, h) * 0.55));
+  doc.font("Helvetica-Bold").fontSize(size).fillColor(it.kind === "exit" ? "#ffffff" : INK);
+  if (!tall) {
+    doc.text(sanitizePdfText(text), x, y + h / 2 - size / 2, { width: w, align: "center", lineBreak: false, ellipsis: true });
+    return;
+  }
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  doc.save().rotate(-90, { origin: [cx, cy] });
+  doc.text(sanitizePdfText(text), cx - along / 2, cy - size / 2, { width: along, align: "center", lineBreak: false, ellipsis: true });
+  doc.restore();
 }
 
 type Box = [number, number, number, number];
@@ -318,13 +418,31 @@ function drawRoomLabels(doc: Doc, layout: VenueLayout, P: Project, ptPerM: numbe
   }
 }
 
-function drawEntrance(doc: Doc, walls: LayoutWall[], P: Project) {
-  for (const w of walls) {
+/** "ENTRANCE" outside the glass doors, whichever wall they are in, with an arrow pointing in. */
+function drawEntrance(doc: Doc, layout: VenueLayout, P: Project) {
+  for (const w of layout.walls) {
     for (const o of w.opens.filter((x) => x.glass)) {
       const mid = (o.a + o.b) / 2;
       const [px, py] = w.axis === "x" ? P(mid, w.k) : P(w.k, mid);
-      doc.font("Helvetica-Bold").fontSize(8).fillColor(GLASS).text("ENTRANCE", px - 40, py + 5, { width: 80, align: "center", lineBreak: false });
-      doc.moveTo(px, py + 17).lineTo(px - 3, py + 21).lineTo(px + 3, py + 21).closePath().fill(GLASS);
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(GLASS);
+      if (w.axis === "x") {
+        // Outside is the side with no room: below for a south entrance, above for a north one.
+        const below = inZone(layout, mid, w.k - 0.3);
+        const ty = below ? py + 5 : py - 26;
+        doc.text("ENTRANCE", px - 40, ty, { width: 80, align: "center", lineBreak: false });
+        const tip = below ? py + 17 : py - 13;
+        const base = below ? tip + 4 : tip - 4;
+        doc.moveTo(px, tip).lineTo(px - 3, base).lineTo(px + 3, base).closePath().fill(GLASS);
+        continue;
+      }
+      // A west or east entrance: the word beside the wall on the outside, the arrow at its end pointing in.
+      const west = inZone(layout, w.k + 0.3, mid);
+      const label = doc.widthOfString("ENTRANCE");
+      const tx = west ? px - label - 16 : px + 16;
+      doc.text("ENTRANCE", tx, py - 4, { lineBreak: false });
+      const tip = west ? px - 6 : px + 6;
+      const base = west ? tip - 4 : tip + 4;
+      doc.moveTo(tip, py).lineTo(base, py - 3).lineTo(base, py + 3).closePath().fill(GLASS);
     }
   }
 }
@@ -346,10 +464,12 @@ function drawScaleBar(doc: Doc, x: number, y: number, planWidthM: number, ptPerM
   doc.text(`${metres} m   ·   Scale 1 : ${ratio.toLocaleString("en-GB")} when printed on ${paper}`, x + len + 5, y + 1, { lineBreak: false });
 }
 
-function drawLegend(doc: Doc, kinds: ZoneKind[], x: number, y: number, width: number) {
+function drawLegend(doc: Doc, kinds: ZoneKind[], fixtures: FixtureKind[], stands: boolean, x: number, y: number, width: number) {
   let cx = x;
   const entries: { fill: string; label: string; stroke?: string }[] = kinds.map((k) => ({ fill: ZONE_FILL[k], label: ZONE_LABEL[k] }));
-  entries.push({ fill: STAND_FILL, label: "Exhibition stand (numbered)", stroke: "#3f8a5f" });
+  // Only what is on this plan: a building without an exhibition has no stand in its key.
+  if (stands) entries.push({ fill: STAND_FILL, label: "Exhibition stand (numbered)", stroke: "#3f8a5f" });
+  for (const k of fixtures) entries.push({ fill: FIXTURE_FILL[k], label: FIXTURE_LEGEND[k], stroke: WALL });
   doc.font("Helvetica").fontSize(7);
   for (const e of entries) {
     const w = doc.widthOfString(e.label) + 18;

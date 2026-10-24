@@ -11,14 +11,30 @@
  * Client-safe: pure, no Node imports.
  */
 import { clamp, fits, generateLayout, r2, type Rect } from "./layout";
-import { PLAN_DOOR_MAX, PLAN_DOOR_MIN, PLAN_EXTENT, PLAN_MAX_WALKWAYS, PLAN_MIN_SIDE, wallSpan, type PlacedRoom, type PlanDoor, type PlanWall, type VenuePlan } from "./plan";
+import {
+  FIXTURE_INFO,
+  FIXTURE_MIN_SIDE,
+  PLAN_DOOR_MAX,
+  PLAN_DOOR_MIN,
+  PLAN_EXTENT,
+  PLAN_MAX_FIXTURES,
+  PLAN_MAX_WALKWAYS,
+  PLAN_MIN_SIDE,
+  wallSpan,
+  type FixtureKind,
+  type PlacedRoom,
+  type PlanDoor,
+  type PlanFixture,
+  type PlanWall,
+  type VenuePlan,
+} from "./plan";
 import type { VenueRoom } from "./rooms";
 
 export const PLAN_GRID = 0.5;
 export const snap = (n: number) => r2(Math.round(n / PLAN_GRID) * PLAN_GRID);
 
 /** Which area of the plan is meant: a room (by its room id), a walkway (by its id), or nothing. */
-export type PlanTarget = { kind: "room"; id: string } | { kind: "corridor"; id: string };
+export type PlanTarget = { kind: "room"; id: string } | { kind: "corridor"; id: string } | { kind: "fixture"; id: string };
 
 /** The edges a resize handle moves: any of west, north, east, south, or two for a corner. */
 export interface Edges {
@@ -51,14 +67,19 @@ const shiftDoor = (door: PlanDoor, dx: number, dz: number): PlanDoor => ({ ...do
 /** The rectangle of a room or walkway on the plan. */
 export function rectOf(plan: VenuePlan, t: PlanTarget): Rect | null {
   if (t.kind === "room") return plan.rooms.find((p) => p.id === t.id)?.rect ?? null;
+  if (t.kind === "fixture") return plan.fixtures.find((f) => f.id === t.id)?.rect ?? null;
   return plan.corridors.find((c) => c.id === t.id)?.rect ?? null;
 }
+
+/** The smallest side an edit leaves: a room or walkway 3 m, a fixture 0.3 m (a pillar can be thin). */
+const minSide = (t: PlanTarget) => (t.kind === "fixture" ? FIXTURE_MIN_SIDE : PLAN_MIN_SIDE);
 
 /** An area given a new rectangle. `moved` (a move, never a resize) carries the door along by the same shift. */
 function withRect(plan: VenuePlan, t: PlanTarget, next: Rect, foyerId: string | null, moved = false): VenuePlan {
   const prev = rectOf(plan, t);
   if (!prev) return plan;
   if (t.kind === "corridor") return { ...plan, corridors: plan.corridors.map((c) => (c.id === t.id ? { ...c, rect: next } : c)) };
+  if (t.kind === "fixture") return { ...plan, fixtures: plan.fixtures.map((f) => (f.id === t.id ? { ...f, rect: next } : f)) };
   const dx = next[0] - prev[0];
   const dz = next[1] - prev[1];
   const carry = (door: PlanDoor) => fitDoor(next, moved ? shiftDoor(door, dx, dz) : door);
@@ -101,9 +122,11 @@ export interface SnapGuides {
 
 /** Every other area's edges, per axis. */
 function edgesBesides(plan: VenuePlan, t: PlanTarget): { xs: number[]; zs: number[] } {
+  // A fixture also lines up with other fixtures (a row of pillars); a room or walkway only with rooms and walkways.
   const rects = [
     ...plan.rooms.filter((p) => !(t.kind === "room" && p.id === t.id)).map((p) => p.rect),
     ...plan.corridors.filter((c) => !(t.kind === "corridor" && c.id === t.id)).map((c) => c.rect),
+    ...(t.kind === "fixture" ? plan.fixtures.filter((f) => f.id !== t.id).map((f) => f.rect) : []),
   ];
   return { xs: rects.flatMap((r) => [r[0], r[2]]), zs: rects.flatMap((r) => [r[1], r[3]]) };
 }
@@ -170,10 +193,11 @@ function resizeExact(plan: VenuePlan, t: PlanTarget, edges: Edges, x: number, z:
   let [x0, z0, x1, z1] = r;
   const sx = clamp(x, -PLAN_EXTENT, PLAN_EXTENT);
   const sz = clamp(z, -PLAN_EXTENT, PLAN_EXTENT);
-  if (edges.w) x0 = Math.min(sx, x1 - PLAN_MIN_SIDE);
-  if (edges.e) x1 = Math.max(sx, x0 + PLAN_MIN_SIDE);
-  if (edges.n) z0 = Math.min(sz, z1 - PLAN_MIN_SIDE);
-  if (edges.s) z1 = Math.max(sz, z0 + PLAN_MIN_SIDE);
+  const min = minSide(t);
+  if (edges.w) x0 = Math.min(sx, x1 - min);
+  if (edges.e) x1 = Math.max(sx, x0 + min);
+  if (edges.n) z0 = Math.min(sz, z1 - min);
+  if (edges.s) z1 = Math.max(sz, z0 + min);
   return withRect(plan, t, [r2(x0), r2(z0), r2(x1), r2(z1)], foyerId);
 }
 
@@ -181,8 +205,10 @@ function resizeExact(plan: VenuePlan, t: PlanTarget, edges: Edges, x: number, z:
 export function setSize(plan: VenuePlan, t: PlanTarget, width: number, depth: number, foyerId: string | null): VenuePlan {
   const r = rectOf(plan, t);
   if (!r) return plan;
-  const w = Math.max(PLAN_MIN_SIDE, snap(width));
-  const d = Math.max(PLAN_MIN_SIDE, snap(depth));
+  // A fixture is sized to the 0.1 m (a 0.8 m pillar); rooms and walkways to the grid.
+  const fine = t.kind === "fixture";
+  const w = Math.max(minSide(t), fine ? r2(width) : snap(width));
+  const d = Math.max(minSide(t), fine ? r2(depth) : snap(depth));
   return withRect(plan, t, keepInside([r[0], r[1], r2(r[0] + w), r2(r[1] + d)]), foyerId);
 }
 
@@ -220,6 +246,7 @@ export function turn(plan: VenuePlan, t: PlanTarget, foyerId: string | null): Ve
   const z0 = r2(r[1] + snapIn((d - w) / 2));
   const next = keepInside([x0, z0, r2(x0 + d), r2(z0 + w)]);
   if (t.kind === "corridor") return withRect(plan, t, next, foyerId);
+  if (t.kind === "fixture") return { ...plan, fixtures: plan.fixtures.map((f) => (f.id === t.id ? { ...f, rect: next, dir: TURN[f.dir] } : f)) };
   const fit = (door: PlanDoor) => fitDoor(next, turnDoor(door, r, next));
   return {
     ...plan,
@@ -262,6 +289,43 @@ export function addWalkway(plan: VenuePlan, rect: Rect): { plan: VenuePlan; id: 
   while (ids.has(`walkway-${n}`)) n++;
   const id = `walkway-${n}`;
   return { plan: { ...plan, corridors: [...plan.corridors, { id, name: `Walkway ${n}`, rect }] }, id };
+}
+
+// ── Fixtures ─────────────────────────────────────────────────────────────────
+
+export const canAddFixture = (plan: VenuePlan) => plan.fixtures.length < PLAN_MAX_FIXTURES;
+
+/**
+ * Add a fixture at its usual size, a quarter of the way into `inside` (the selected room or
+ * walkway, else the foyer, else the first area), facing south, with the next
+ * free id ("pillar-2"). Null when the plan holds the most it can.
+ */
+export function addFixture(plan: VenuePlan, kind: FixtureKind, inside: Rect | null): { plan: VenuePlan; id: string } | null {
+  if (!canAddFixture(plan)) return null;
+  const host = inside ?? plan.rooms[0]?.rect ?? plan.corridors[0]?.rect;
+  if (!host) return null;
+  const [w0, d0] = FIXTURE_INFO[kind].size;
+  // Never bigger than the area it goes in.
+  const w = Math.min(w0, host[2] - host[0]);
+  const d = Math.min(d0, host[3] - host[1]);
+  // A quarter of the way in from the north-west corner, not the middle, where the room's name is written.
+  const x0 = r2(Math.min(host[0] + (host[2] - host[0]) / 4, host[2] - w));
+  const z0 = r2(Math.min(host[1] + (host[3] - host[1]) / 4, host[3] - d));
+  const ids = new Set([...plan.fixtures.map((f) => f.id), ...plan.rooms.map((p) => p.id), ...plan.corridors.map((c) => c.id)]);
+  let n = plan.fixtures.filter((f) => f.kind === kind).length + 1;
+  while (ids.has(`${kind}-${n}`)) n++;
+  const id = `${kind}-${n}`;
+  const fixture: PlanFixture = { id, kind, name: "", rect: [x0, z0, r2(x0 + w), r2(z0 + d)], dir: "s" };
+  return { plan: { ...plan, fixtures: [...plan.fixtures, fixture] }, id };
+}
+
+export function removeFixture(plan: VenuePlan, id: string): VenuePlan {
+  return { ...plan, fixtures: plan.fixtures.filter((f) => f.id !== id) };
+}
+
+/** A fixture's name (shown on its sign; blank uses the kind's own) or the way it faces. */
+export function setFixture(plan: VenuePlan, id: string, patch: Partial<Pick<PlanFixture, "name" | "dir">>): VenuePlan {
+  return { ...plan, fixtures: plan.fixtures.map((f) => (f.id === id ? { ...f, ...patch } : f)) };
 }
 
 export function removeWalkway(plan: VenuePlan, id: string): VenuePlan {
@@ -334,14 +398,21 @@ export function tooSmall(plan: VenuePlan, rooms: VenueRoom[]): string[] {
 export function overlapping(plan: VenuePlan): Set<string> {
   const areas = [...plan.rooms.map((p) => ({ id: p.id, r: p.rect })), ...plan.corridors.map((c) => ({ id: c.id, r: c.rect }))];
   const hit = new Set<string>();
-  for (let i = 0; i < areas.length; i++) {
-    for (let j = i + 1; j < areas.length; j++) {
-      const a = areas[i].r;
-      const b = areas[j].r;
-      const ox = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
-      const oz = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
-      if (ox > 0.01 && oz > 0.01) hit.add(areas[i].id).add(areas[j].id);
+  const markOverlaps = (list: { id: string; r: Rect }[]) => {
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i].r;
+        const b = list[j].r;
+        const ox = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+        const oz = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+        if (ox > 0.01 && oz > 0.01) hit.add(list[i].id).add(list[j].id);
+      }
     }
-  }
+  };
+  markOverlaps(areas);
+  // Fixtures stand inside areas, so they are wrong only on each other, or when no one area holds them.
+  markOverlaps(plan.fixtures.map((f) => ({ id: f.id, r: f.rect })));
+  const holds = (r: Rect, o: Rect) => r[0] >= o[0] - 0.01 && r[1] >= o[1] - 0.01 && r[2] <= o[2] + 0.01 && r[3] <= o[3] + 0.01;
+  for (const f of plan.fixtures) if (!areas.some((a) => holds(f.rect, a.r))) hit.add(f.id);
   return hit;
 }

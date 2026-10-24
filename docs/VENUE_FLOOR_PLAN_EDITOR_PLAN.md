@@ -228,7 +228,9 @@ automatic mode untouched.
 | 2 | Polish: snapping to edges, zoom and pan, Preview in 3D before saving, keyboard nudging, the room list and plan kept in step (3.4) | 1 session | Field test with the events team on one real event. **BUILT Oct 24** (field test still to run): edges line up with other areas' edges within 0.75 m, with guide lines (Alt places freely); zoom 100 to 400 % by buttons or Ctrl/Cmd + wheel about the pointer, the frame scrolls, Space + drag or the middle button pans; arrow keys nudge 0.5 m, Shift 5 m; **Preview in 3D** posts the unsaved plan to `POST /e/:slug/venue/preview` (event team, same origin, checked as a save, rendered offline with a preview strip, nothing stored); unsaved changes are kept in the browser and offered back; the attendees' directions (social.js) and the AI attendees' venue description (ai-prompt.ts) name what each door opens onto, keeping the automatic plan's wording. Room list and plan in step (3.4) was done in phase 1, except the Blueprint "start from rooms" question, which has no caller yet |
 | 3 | Stands: count, drag stands, choose the sponsor per stand (replacing "nth stand to nth sponsor by tier" when set) | 1 session | Sponsors land on the stands the team chose, in 2D and 3D |
 | 4 | Underlay image: upload, scale by a known wall, opacity, trace | 1 to 2 sessions | The team traces a real hotel plan and walks it |
-| later | Angled walls and non-rectangular rooms (L-shapes), several floors | separate plan | Only if a real venue needs it |
+| 2b | The architectural 2D look (owner Oct 24: "walls and stairs and similar need better visual representations"): solid walls, heavier outside; door leaves and swings; glazing; room sizes; fixtures (stairs, lift, toilets, emergency exit, pillar, catering point) placed in the editor, drawn as plan symbols, in the PDF and its legend, and built in 3D | 1 session | **BUILT Oct 24**: `plan.fixtures` (schema default `[]`, so saved plans read unchanged), `venue-plan-drawing.tsx`, `drawFixture` / `drawDoorSwings` in the PDF, `fixture()` in world.js; a solid fixture drops the furniture it stands on and stands are numbered again |
+| 5 | Several floors (section 9) | 2 to 3 sessions | PLANNED, NOT BUILT: owner decisions F9 to F12 first |
+| later | Angled walls and non-rectangular rooms (L-shapes) | separate plan | Only if a real venue needs it |
 
 ## 5. Decisions for the owner
 
@@ -257,7 +259,7 @@ automatic mode untouched.
 
 ## 7. Not in scope
 
-- Several floors, stairs and lifts.
+- Several floors: planned in section 9, not built. (Stairs and lifts as fixtures on one floor were built Oct 24, phase 2b.)
 - Seat-level editing (choosing individual chairs or rows).
 - Importing CAD files (DWG, DXF).
 - Showing the uploaded image inside the 3D venue.
@@ -268,3 +270,63 @@ The layout's walls would gain a free direction (two end points instead of an
 axis), `checkLayout` would rasterise them, and `world.js` would build rotated
 wall boxes. Furniture already uses yaw, so rooms could follow. This is a
 separate plan, only when a real venue needs it.
+
+## Open review findings, phase 2b (Oct 24, pushed as is by the owner, fix next)
+
+- MED: removing a room from the room list keeps fixtures that stood in it, which then fail `planIssues`, so the venue falls back to automatic (`prunedPlan` in venue-rooms-service.ts should drop fixtures no area holds).
+- MED: moving, resizing or turning a room leaves its fixtures where they were (`withRect` / `turn` in plan-edit.ts should carry or clamp them).
+- MED: in 3D the stair treads are climbable up to the ceiling and beyond (cap the climbable height below the ceiling and make the rest solid, world.js `fixture()`).
+- LOW: on screen the glass entrance is drawn over a solid wall; wall ends run into door openings; the PDF "ENTRANCE" label can leave the page for a west, east or north entrance; turning a fixture against a wall pushes it out of its room; a pillar in an aisle can drop a stand's visit point but keep the stand; fixtures renumber stands, which shifts stand activity during a live event (accepted, to be noted for organisers); the PDF legend can cut the fixture entries in a busy plan; cleanups (a no-op ternary in world.js, "Remove" to name the fixture, a second fixture of a kind lands on the first, a small pillar's handles cover it).
+
+## 9. Several floors (planned, not built)
+
+Owner, Oct 24: "what if we have multi floors?". Hotels often put the ballroom on
+one floor and the exhibition or meeting rooms on another, so this is a real
+case, but no event on EA-SYS has needed it yet. Recommended approach (**A,
+floors linked by stairs and lifts**), chosen over **B, stacked floors you
+climb**, because B means reworking the 3D engine's route finding, camera,
+crowd and minimap for heights, for little gain in an online venue.
+
+**Model.** The plan gains floors; each floor holds its own rooms, walkways and
+fixtures; the entrance is on one floor (the ground floor by default). A saved
+one-floor plan reads as a single floor, so nothing saved breaks.
+
+```ts
+interface VenuePlan {
+  v: 2;
+  floors: { id: string; name: string; level: number; rooms: PlacedRoom[]; corridors: PlanCorridor[]; fixtures: PlanFixture[] }[];
+  entrance: PlanDoor & { floor: string };
+}
+// Stairs and lifts gain `link`: fixtures with the same link on different floors connect.
+interface PlanFixture { /* as today */ link?: string }
+```
+
+**Building.** One `VenueLayout` per floor, made exactly as today. The walkable
+venue receives all of them, laid side by side far apart (so one world holds
+them and nothing about the engine's flat floor changes). Walking into a linked
+lift or stair offers "Go to Level 1"; taking it fades out and places you at the
+matching lift or stair on the other floor. The minimap and the venue guide
+show the floor you are on, with floor buttons.
+
+**Checks.** Each floor is checked walkable from its own links (the entrance
+floor from the entrance), and every floor must be reachable through links from
+the entrance floor. A link with nothing on another floor is an issue ("Lift A
+on Level 1 goes nowhere").
+
+**2D, PDF, programme.** Floor tabs in the plan view and the editor; the PDF
+prints one page per floor; sessions still find their room by name, whatever
+floor it is on; the attendees' directions say "on Level 1, take the lift".
+
+**Decisions for the owner** (before building):
+
+| # | Question | Recommendation |
+|---|---|---|
+| F9 | Floor names: fixed (Ground, Level 1, Level 2) or typed by the organiser ("Ballroom level")? | Typed, starting as Ground / Level 1 |
+| F10 | Does a lift serve every floor it is drawn on, and do stairs join only neighbouring floors? | Yes to both, as in a real building |
+| F11 | Moving between floors in 3D: a short fade (recommended), or an animated lift ride? | Fade; a ride is polish for later |
+| F12 | Most floors per venue | 4 |
+
+**Risks.** The world's size grows with each floor (draw calls, the 1 m
+navigation grid): measure on a 4-floor congress before shipping; an
+organiser drawing a floor nobody can reach is caught by the checks above.
+

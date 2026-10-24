@@ -17,9 +17,9 @@
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Rect, VenueLayout } from "@/lib/venue/layout";
-import { doorPoint, type VenuePlan } from "@/lib/venue/plan";
+import { FIXTURE_INFO, doorPoint, type VenuePlan } from "@/lib/venue/plan";
 import { moveSnapped, moveTo, rectOf, resizeSnapped, resizeTo, walkwayRect, type Edges, type PlanTarget, type SnapGuides } from "@/lib/venue/plan-edit";
-import { LayoutDrawing } from "@/components/venue/venue-floor-plan";
+import { LayoutDrawing } from "@/components/venue/venue-plan-drawing";
 import { cn } from "@/lib/utils";
 
 export type PlanTool = "select" | "walkway";
@@ -309,6 +309,8 @@ export function VenuePlanCanvas({
   const areas = [
     ...plan.corridors.map((c) => ({ target: { kind: "corridor", id: c.id } as PlanTarget, rect: c.rect, name: c.name })),
     ...plan.rooms.map((p) => ({ target: { kind: "room", id: p.id } as PlanTarget, rect: p.rect, name: names.get(p.id) ?? p.id })),
+    // Last, so a fixture is on top of the room it stands in and takes the click.
+    ...plan.fixtures.map((f) => ({ target: { kind: "fixture", id: f.id } as PlanTarget, rect: f.rect, name: f.name || FIXTURE_INFO[f.kind].label })),
   ];
   const sel = selected ? areas.find((a) => a.target.kind === selected.kind && a.target.id === selected.id) : undefined;
   const foyer = foyerId ? plan.rooms.find((p) => p.id === foyerId) : undefined;

@@ -5,11 +5,15 @@
  * rearranged with these edits, is still a plan the venue can build and walk.
  */
 import { describe, it, expect } from "vitest";
-import { generateLayout } from "@/lib/venue/layout";
+import { generateLayout, type Rect } from "@/lib/venue/layout";
 import { checkLayout } from "@/lib/venue/layout-check";
-import { PLAN_DOOR_MAX, PLAN_EXTENT, PLAN_MAX_WALKWAYS, PLAN_MIN_SIDE, planFromLayout, planIssues, planSchema, wallSpan, type VenuePlan } from "@/lib/venue/plan";
+import { PLAN_MAX_FIXTURES, PLAN_DOOR_MAX, PLAN_EXTENT, PLAN_MAX_WALKWAYS, PLAN_MIN_SIDE, planFromLayout, planIssues, planSchema, wallSpan, type VenuePlan } from "@/lib/venue/plan";
 import { layoutFromPlan } from "@/lib/venue/plan-layout";
 import {
+  addFixture,
+  canAddFixture,
+  removeFixture,
+  setFixture,
   addWalkway,
   moveSnapped,
   nudge,
@@ -329,5 +333,56 @@ describe("snapping to other areas' edges and nudging (phase 2)", () => {
     const after = room(nudge(p, { kind: "room", id: "lounge" }, 0.5, 0, foyerId), "lounge");
     const shift = isNS(after.door.wall) ? 0.5 : 0;
     expect(after.door.at - lounge.door.at).toBeCloseTo(shift);
+  });
+});
+
+describe("fixtures in the editor", () => {
+  it("adds a fixture at its usual size a quarter of the way into the chosen area, facing south, with a free id", () => {
+    const p = start();
+    const foyer = room(p, foyerId).rect;
+    const a = addFixture(p, "lift", foyer)!;
+    const lift = a.plan.fixtures[0];
+    expect(lift).toMatchObject({ id: "lift-1", kind: "lift", dir: "s", name: "" });
+    expect(lift.rect[2] - lift.rect[0]).toBeCloseTo(2.6);
+    expect(lift.rect[0]).toBeCloseTo(foyer[0] + (foyer[2] - foyer[0]) / 4);
+    expect(addFixture(a.plan, "lift", foyer)!.id).toBe("lift-2");
+    expect(builds(a.plan)).toEqual([]);
+  });
+
+  it("never makes a fixture bigger than the area it goes in, and stops at the most a plan holds", () => {
+    const p = start();
+    const small: Rect = [0, 0, 2, 3];
+    const t = addFixture(p, "toilets", small)!.plan.fixtures[0];
+    expect(t.rect).toEqual([0, 0, 2, 3]);
+    let full = p;
+    while (canAddFixture(full)) full = addFixture(full, "pillar", room(p, foyerId).rect)!.plan;
+    expect(full.fixtures).toHaveLength(PLAN_MAX_FIXTURES);
+    expect(addFixture(full, "pillar", null)).toBeNull();
+  });
+
+  it("moves, resizes down to 0.3 m, turns (facing the next way round), renames and removes", () => {
+    const added = addFixture(start(), "catering", room(start(), foyerId).rect)!;
+    const t = { kind: "fixture" as const, id: added.id };
+    let p = nudge(added.plan, t, 1, 0, foyerId);
+    expect(rectOf(p, t)![0]).toBe(rectOf(added.plan, t)![0] + 1);
+    p = resizeTo(p, t, { e: true }, -1000, 0, foyerId);
+    expect(rectOf(p, t)![2] - rectOf(p, t)![0]).toBeCloseTo(0.3);
+    const before = rectOf(added.plan, t)!;
+    const turned = turn(added.plan, t, foyerId);
+    expect(turned.fixtures[0].dir).toBe("w");
+    expect(rectOf(turned, t)![2] - rectOf(turned, t)![0]).toBeCloseTo(before[3] - before[1]);
+    expect(setFixture(added.plan, added.id, { name: "Coffee", dir: "n" }).fixtures[0]).toMatchObject({ name: "Coffee", dir: "n" });
+    expect(removeFixture(added.plan, added.id).fixtures).toEqual([]);
+  });
+
+  it("flags fixtures that overlap each other or stand outside every area, not ones simply inside a room", () => {
+    const p = start();
+    const foyer = room(p, foyerId).rect;
+    const one = addFixture(p, "pillar", foyer)!;
+    expect(overlapping(one.plan).has(one.id)).toBe(false);
+    const two = addFixture(one.plan, "pillar", foyer)!;
+    expect([...overlapping(two.plan)]).toEqual(expect.arrayContaining([one.id, two.id]));
+    const outside = nudge(one.plan, { kind: "fixture", id: one.id }, 500, 0, foyerId);
+    expect(overlapping(outside).has(one.id)).toBe(true);
   });
 });
