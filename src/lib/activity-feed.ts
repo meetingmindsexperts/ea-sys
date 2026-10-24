@@ -9,6 +9,8 @@
  *   • EmailLog        (entityType "SPEAKER" / "REGISTRATION")
  *   • IssuedCertificate (linked via speakerId / registrationId) — with the
  *     pdfUrl so the UI can open/preview it.
+ *   • Badge prints: the BADGE_PRINTED rows whose `changes.registrationIds`
+ *     names the registration (one row per print run, so not by entityId).
  *
  * Counterpart resolution (pointed, never duplicated):
  *   • speaker → registration:  Speaker.sourceRegistrationId, else a
@@ -54,8 +56,29 @@ function compareDescending(a: string, b: string): number {
   return 0;
 }
 
+type BadgeRow = { id: string; createdAt: Date; ipAddress: string | null; changes: unknown; user: { firstName: string | null; lastName: string | null } | null };
+
+/** Each print of this registration's badge, the first as "printed" and the rest as "reprinted", with the batch it was in. */
+function pushBadgePrints(rows: BadgeRow[], items: ActivityItem[]) {
+  rows.forEach((r, i) => {
+    const count = r.changes && typeof r.changes === "object" ? Number((r.changes as Record<string, unknown>).count) : NaN;
+    const detail = Number.isFinite(count) && count > 1 ? `One of ${count.toLocaleString("en-GB")} badges printed together` : "Printed on its own";
+    items.push({
+      id: `audit:${r.id}`,
+      source: "registration",
+      kind: "audit",
+      at: r.createdAt.toISOString(),
+      action: i === 0 ? "BADGE_PRINTED" : "BADGE_REPRINTED",
+      actor: actorLabel(r.user),
+      ipAddress: r.ipAddress,
+      detail,
+    });
+  });
+}
+
 /** Collect + map activity for whichever of the two entities are present. */
 async function collect(
+  eventId: string,
   speakerId: string | null,
   registrationId: string | null,
   organizationId: string | null | undefined,
@@ -64,7 +87,7 @@ async function collect(
 ): Promise<ActivityItem[]> {
   const items: ActivityItem[] = [];
 
-  const [spkAudit, spkEmail, spkCerts, regAudit, regEmail, regCerts, reimbAudit] = await Promise.all([
+  const [spkAudit, spkEmail, spkCerts, regAudit, regEmail, regCerts, reimbAudit, badgePrints] = await Promise.all([
     speakerId
       ? db.auditLog.findMany({
           where: { entityType: "Speaker", entityId: speakerId },
@@ -114,6 +137,16 @@ async function collect(
                 })
               : [],
           )
+      : Promise.resolve([]),
+    // Badge prints: one audit row per print run (badges/route.ts), naming every registration printed in
+    // `changes.registrationIds`, so they are found by membership, not by entityId.
+    registrationId
+      ? db.auditLog.findMany({
+          where: { eventId, action: "BADGE_PRINTED", changes: { path: ["registrationIds"], array_contains: [registrationId] } },
+          orderBy: { createdAt: "asc" },
+          take: 100,
+          select: AUDIT_SELECT,
+        })
       : Promise.resolve([]),
   ]);
 
@@ -192,6 +225,7 @@ async function collect(
     "speaker",
   );
   pushAudit(regAudit, "registration");
+  pushBadgePrints(badgePrints, items);
   pushEmail(regEmail, "registration");
   pushCerts(regCerts, "registration");
 
@@ -262,6 +296,7 @@ export async function buildSpeakerActivity(
 ): Promise<ActivityFeed> {
   const linked = await resolveLinkedRegistration(eventId, speaker);
   const items = await collect(
+    eventId,
     speaker.id,
     linked?.id ?? null,
     organizationId,
@@ -287,6 +322,7 @@ export async function buildRegistrationActivity(
 ): Promise<ActivityFeed> {
   const linked = await resolveLinkedSpeaker(eventId, registration);
   const items = await collect(
+    eventId,
     linked?.id ?? null,
     registration.id,
     organizationId,

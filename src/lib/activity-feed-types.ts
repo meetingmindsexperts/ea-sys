@@ -30,6 +30,8 @@ export interface ActivityItem {
    * redacted for non-finance viewers. Empty/absent for non-UPDATE entries.
    */
   diffs?: ActivityFieldDiff[];
+  /** A plain line under the entry (a badge print: "One of 48 badges printed together"). */
+  detail?: string;
   // email
   subject?: string;
   to?: string;

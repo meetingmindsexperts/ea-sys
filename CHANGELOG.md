@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations: badge prints on each registration (October 24)
+
+- Owner: badge printing was tracked (first print time and a print count per registration, one audit row per print run) but only visible as event totals and in the organisation's Activity log. A registration's detail sheet now shows "Badge: printed 2 times, first 24 Oct, 10:15" or "Not printed yet", and its Activity timeline (and its linked speaker's) has an entry per print: "Badge printed", then "Badge reprinted", with who, when, the IP address and "One of 48 badges printed together" or "Printed on its own". The timeline finds the print runs naming the registration in `changes.registrationIds` (`activity-feed.ts`, proven against the local copy of prod), and the badge route now records every id in the run instead of the first 200 (a print is capped at 2,500, about 65 KB); older large batches name only their first 200.
+
 ### Registrations: Add registration only asks for payers when the person may see them (October 24)
 
 - Prod logs (Oct 24): a CRM user whose custom role adds registration work, but not "See billing accounts", was refused `GET /api/billing-accounts` five times a minute by the Add registration page, which loaded the payer list without asking first (the registration detail sheet already asked). The page now loads payers and shows its Billing card only with `billingAccounts.read`, and offers "Add a new payer" only with `billingAccounts.manage` (what its route checks). Without them the registration is self-pay, as before. ONSITE keeps reading the payer list, as documented in docs/ROLES_AND_PERMISSIONS.md.

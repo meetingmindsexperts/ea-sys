@@ -20,6 +20,7 @@ import {
   ExternalLink,
   Paperclip,
   RotateCcw,
+  Printer,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ViewEmailDialog } from "@/components/communications/view-email-dialog";
@@ -44,6 +45,9 @@ const AUDIT_LABELS: Record<string, string> = {
   SPEAKER_AGREEMENT_REVOKED: "Agreement revoked",
   PANELIST_SYNC: "Synced as Zoom panelist",
   CHECK_IN: "Checked in",
+  // A badge print run that included this registration (activity-feed.ts): the first, then any later ones.
+  BADGE_PRINTED: "Badge printed",
+  BADGE_REPRINTED: "Badge reprinted",
   // An organizer cleared a submitted survey (registrations/[id]/survey).
   SURVEY_RESET: "Survey reset",
   // Speaker reimbursement (actions remapped in activity-feed.ts)
@@ -104,6 +108,9 @@ function iconFor(item: ActivityItem) {
       return Users;
     case "CHECK_IN":
       return LogIn;
+    case "BADGE_PRINTED":
+    case "BADGE_REPRINTED":
+      return Printer;
     case "SURVEY_RESET":
       return RotateCcw;
     case "EMAIL_SENT":
@@ -240,6 +247,7 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
                   <p className="text-xs text-slate-500 truncate">
                     {itemSubline(item)}
                   </p>
+                  {item.detail && <p className="text-xs text-slate-500">{item.detail}</p>}
                   {item.kind === "audit" && item.diffs && item.diffs.length > 0 && (
                     <ul className="mt-1.5 space-y-0.5">
                       {item.diffs.map((d, di) => (

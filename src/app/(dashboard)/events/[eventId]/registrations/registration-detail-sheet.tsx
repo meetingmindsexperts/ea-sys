@@ -58,6 +58,7 @@ import {
   Barcode,
   CheckCircle,
   CheckSquare,
+  Printer,
   Square,
   Calendar,
   CreditCard,
@@ -3324,6 +3325,16 @@ export function RegistrationDetailSheet({
                       </div>
                     </div>
                   )}
+                  {/* Badge: printed how often and first when; who printed each run is in the Activity timeline. */}
+                  <div className="flex items-center gap-3 text-sm">
+                    <Printer className={selectedRegistration.badgePrintedAt ? "h-4 w-4 text-green-600" : "h-4 w-4 text-muted-foreground"} />
+                    <div>
+                      <div className="text-muted-foreground">Badge</div>
+                      <div className="font-medium">
+                        <BadgePrintLine printedAt={selectedRegistration.badgePrintedAt ?? null} count={selectedRegistration.badgePrintCount ?? 0} />
+                      </div>
+                    </div>
+                  </div>
                   {/* Survey completion — a checked box + timestamp when the
                       registrant has submitted the event survey, unchecked
                       otherwise. Read-only; set when they submit the survey. */}
@@ -3859,6 +3870,17 @@ export function RegistrationDetailSheet({
         </Dialog>
       </>
     )}
+    </>
+  );
+}
+
+/** "Printed 2 times, first 24 Oct 2026, 10:15", or "Not printed yet". */
+function BadgePrintLine({ printedAt, count }: { printedAt: string | null; count: number }) {
+  if (!printedAt || count < 1) return <>Not printed yet</>;
+  const times = count === 1 ? "once" : `${count} times`;
+  return (
+    <>
+      Printed {times}, first {formatDateTime(printedAt)}
     </>
   );
 }

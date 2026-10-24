@@ -157,6 +157,9 @@ export interface Registration {
   webinarFirstJoinedAt?: string | null;
   /** When this registrant completed the event survey (write-once, set on submit). */
   surveyCompletedAt?: string | null;
+  /** First badge print (null until printed) and how many times it has been printed, reprints included. */
+  badgePrintedAt?: string | null;
+  badgePrintCount?: number;
   notes: string | null;
   /** Path to the uploaded supporting document (null = none on file). Read
    *  only through the authed supporting-document route. */

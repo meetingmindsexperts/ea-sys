@@ -234,15 +234,17 @@ export async function POST(req: Request, { params }: RouteParams) {
             action: "BADGE_PRINTED",
             entityType: "Registration",
             entityId: `bulk:${printedIds.length}`,
-            // Cap the id list so a 1000-badge print doesn't bloat the row;
-            // the count is the headline figure for analytics.
+            // Every id (a print is capped at MAX_BADGES_PER_REQUEST, so at most
+            // about 65 KB): each person's activity timeline finds its prints
+            // here (activity-feed.ts). Until Oct 24, 2026 only the first 200
+            // were kept, so older large batches name only part of the run.
             changes: {
               count: printedIds.length,
               all: !!all,
               // DTCM audit trail (Badge=Faculty-style): how many printed badges
               // carried the Dubai compliance QR vs were still missing a code.
               dtcmQrCount: dtcmCount,
-              registrationIds: printedIds.slice(0, 200),
+              registrationIds: printedIds,
             },
             ipAddress: getClientIp(req),
           },
