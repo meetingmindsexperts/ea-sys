@@ -7,6 +7,47 @@
 
 ---
 
+## Public forms on a phone: a failed tap shows nothing (found Oct 24, 2026): not started, owner fixing Monday Oct 26
+
+Found during BHS2026 (live, Oct 24). The production web server log shows two
+phone visitors on the sponsor link (`/e/BHS2026/register/inclusive`) apply a
+valid sponsor code and then never send the registration (iPhone 05:16 UTC,
+Android 05:23 UTC); two others on the same link registered within seconds of
+applying theirs. No registration was refused in the logs, because the form
+stops in the browser before sending.
+
+Reproduced locally at iPhone width on BHS2026:
+
+- **The cause.** Leave any ONE of Title, Country, Specialty or Role empty and tap
+  Complete Registration: nothing is sent, the page does not move, and the red
+  "is required" message sits 900 to 1,300px above the screen. react-hook-form
+  jumps to the first error by focusing it, and these four are custom pickers
+  (`TitleSelect`, `CountrySelect`, `SpecialtySelect`, `RoleSelect`) that never
+  give it a focusable ref.
+- **Same class, complete-registration page.** A registration imported without a
+  type must pick one; that check runs in `onSubmit` after the schema
+  (`form.setError("ticketTypeId")`), so it never scrolls either. The error is
+  ~2,000px above the button.
+- **The Title / Position / Organization row** (`grid-cols-[100px_1fr_1fr]`)
+  stays three columns on phones: at 320px Position is 68px wide and
+  Organization runs past the card edge, label and error included. In
+  `register/[category]/page.tsx` (with First / Last name), the complete
+  registration page and `submitter-register.tsx`.
+- **The button** on complete-registration and submitter is 36px tall and
+  right-aligned; 44px and full width on phones is the target.
+
+Fix (front end only, all three public forms: register, complete-registration,
+submitter): on a failed submit, scroll to the first error whatever the field
+type (pass `onInvalid` to `handleSubmit` and scroll to the field's
+`FormItem`, not focus), cover the errors set in `onSubmit` the same way, and show
+a line by the button naming what is missing ("Please fill in: Country"); stack
+the three-column row below `sm`; full-width 44px button on phones.
+
+Workaround until then: tell the registrant to scroll up for the red text
+(usually Title or Country), or register them at the desk.
+
+---
+
 ## Registrations page: tools that need a second permission (recorded Oct 22, 2026): not started
 
 From the review of `d1c6efe5` (the Registrations tools now follow permissions,
@@ -19,7 +60,6 @@ checks, but two dialogs also READ data behind other keys:
   403s in the console.
 - **Import from Contacts** already asks for `contacts.read` beside
   `registrations.import`; the pattern to copy.
-
 Fix: show Send Registration Form only with `tickets.read` too (sponsors are
 optional in the dialog, so degrade instead). Not urgent: every built-in role
 and the Corporate role hold all three; it bites only when someone builds a
