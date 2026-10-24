@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations: Add registration only asks for payers when the person may see them (October 24)
+
+- Prod logs (Oct 24): a CRM user whose custom role adds registration work, but not "See billing accounts", was refused `GET /api/billing-accounts` five times a minute by the Add registration page, which loaded the payer list without asking first (the registration detail sheet already asked). The page now loads payers and shows its Billing card only with `billingAccounts.read`, and offers "Add a new payer" only with `billingAccounts.manage` (what its route checks). Without them the registration is self-pay, as before. ONSITE keeps reading the payer list, as documented in docs/ROLES_AND_PERMISSIONS.md.
+
 ### Venue: an architect's floor plan, with stairs, lifts, toilets, exits, pillars and catering (October 24)
 
 - Owner: the 3D venue is great, the 2D plan's walls, stairs and the like needed a better look. The plan view, the editor and the PDF now draw solid walls (heavier on the outside), each door's leaf and swing into its room (one leaf to 3 m, a pair to 6 m, wider openings open), the glass entrance as glazing, and each room's size under its name (`src/components/venue/venue-plan-drawing.tsx`; `drawDoorSwings` and heavier outside walls in floor-plan-pdf.ts). The PDF's "ENTRANCE" label now sits outside whichever wall the entrance is in, and its legend lists only what is on the plan.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useCan } from "@/hooks/use-can";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,7 +60,11 @@ export default function NewRegistrationPage() {
   // Per-event scoped: only payers attached to THIS event via the
   // EventBillingAccount junction appear here. Manage attachments from
   // Settings → Billing → Used in N events.
-  const { data: billingAccounts = [] } = useBillingAccounts({ eventId });
+  // Only for someone who may read payers: without billingAccounts.read the list is a 403 (a custom role that may
+  // add registrations, prod Oct 24), and the registration is self-pay. Adding a payer needs billingAccounts.manage.
+  const canReadPayers = useCan("billingAccounts.read") === "allowed";
+  const canAddPayer = useCan("billingAccounts.manage", eventId) === "allowed";
+  const { data: billingAccounts = [] } = useBillingAccounts({ eventId }, canReadPayers);
   const [addPayerOpen, setAddPayerOpen] = useState(false);
   // Feed the tag autocomplete dropdown — same source as the bulk-tag
   // dialog and the filter, so the operator sees a consistent set of
@@ -423,95 +428,99 @@ export default function NewRegistrationPage() {
         </Card>
 
         {/* Section 1b: Billing — charge to another account */}
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle className="text-base">Billing</CardTitle>
-            <CardDescription>
-              By default the attendee is billed. To charge a hospital,
-              company, or grant instead, pick a payer — the invoice is
-              addressed to them. This does not change the payment status;
-              money is still owed until the payer settles.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="payer">Charge to</Label>
-                <Select
-                  value={formData.billingAccountId || "__self__"}
-                  onValueChange={(value) =>
-                    setFormData({
-                      ...formData,
-                      billingAccountId: value === "__self__" ? "" : value,
-                      payerReference: value === "__self__" ? "" : formData.payerReference,
-                      attendeeIsGuarantor:
-                        value === "__self__" ? false : formData.attendeeIsGuarantor,
-                    })
-                  }
-                >
-                  <SelectTrigger id="payer" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__self__">The attendee (self-pay)</SelectItem>
-                    {billingAccounts.map((ba) => (
-                      <SelectItem key={ba.id} value={ba.id}>
-                        {ba.name} ({ba.type})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <button
-                  type="button"
-                  onClick={() => setAddPayerOpen(true)}
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  + Add a new payer
-                </button>
-                <p className="text-xs text-muted-foreground">
-                  Payers are saved to your organization and reused across events; manage them in Settings → Billing.
-                </p>
-                <AddPayerDialog
-                  eventId={eventId}
-                  open={addPayerOpen}
-                  onOpenChange={setAddPayerOpen}
-                  onCreated={(payer) =>
-                    setFormData((prev) => ({ ...prev, billingAccountId: payer.id }))
-                  }
-                />
+        {canReadPayers && (
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">Billing</CardTitle>
+              <CardDescription>
+                By default the attendee is billed. To charge a hospital,
+                company, or grant instead, pick a payer — the invoice is
+                addressed to them. This does not change the payment status;
+                money is still owed until the payer settles.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="payer">Charge to</Label>
+                  <Select
+                    value={formData.billingAccountId || "__self__"}
+                    onValueChange={(value) =>
+                      setFormData({
+                        ...formData,
+                        billingAccountId: value === "__self__" ? "" : value,
+                        payerReference: value === "__self__" ? "" : formData.payerReference,
+                        attendeeIsGuarantor:
+                          value === "__self__" ? false : formData.attendeeIsGuarantor,
+                      })
+                    }
+                  >
+                    <SelectTrigger id="payer" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__self__">The attendee (self-pay)</SelectItem>
+                      {billingAccounts.map((ba) => (
+                        <SelectItem key={ba.id} value={ba.id}>
+                          {ba.name} ({ba.type})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {canAddPayer && (
+                    <button
+                      type="button"
+                      onClick={() => setAddPayerOpen(true)}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      + Add a new payer
+                    </button>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Payers are saved to your organization and reused across events; manage them in Settings → Billing.
+                  </p>
+                  <AddPayerDialog
+                    eventId={eventId}
+                    open={addPayerOpen}
+                    onOpenChange={setAddPayerOpen}
+                    onCreated={(payer) =>
+                      setFormData((prev) => ({ ...prev, billingAccountId: payer.id }))
+                    }
+                  />
+                </div>
+                {formData.billingAccountId && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="payerRef">PO / Grant reference (optional)</Label>
+                      <Input
+                        id="payerRef"
+                        value={formData.payerReference}
+                        onChange={(e) =>
+                          setFormData({ ...formData, payerReference: e.target.value })
+                        }
+                        placeholder="PO-12345 / grant code — printed on the invoice"
+                      />
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        id="guarantor"
+                        checked={formData.attendeeIsGuarantor}
+                        onCheckedChange={(c) =>
+                          setFormData({ ...formData, attendeeIsGuarantor: c === true })
+                        }
+                      />
+                      <Label htmlFor="guarantor" className="text-sm font-normal leading-snug">
+                        Attendee is guarantor — if the payer doesn&apos;t settle,
+                        the balance can be reverted to the attendee (keeps their
+                        Pay-Now path available).
+                      </Label>
+                    </div>
+                  </>
+                )}
               </div>
-              {formData.billingAccountId && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="payerRef">PO / Grant reference (optional)</Label>
-                    <Input
-                      id="payerRef"
-                      value={formData.payerReference}
-                      onChange={(e) =>
-                        setFormData({ ...formData, payerReference: e.target.value })
-                      }
-                      placeholder="PO-12345 / grant code — printed on the invoice"
-                    />
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Checkbox
-                      id="guarantor"
-                      checked={formData.attendeeIsGuarantor}
-                      onCheckedChange={(c) =>
-                        setFormData({ ...formData, attendeeIsGuarantor: c === true })
-                      }
-                    />
-                    <Label htmlFor="guarantor" className="text-sm font-normal leading-snug">
-                      Attendee is guarantor — if the payer doesn&apos;t settle,
-                      the balance can be reverted to the attendee (keeps their
-                      Pay-Now path available).
-                    </Label>
-                  </div>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Section 2: Attendee Details */}
         <Card>
