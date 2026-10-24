@@ -5,43 +5,18 @@
  * named in VENUE_EVENT_SLUGS or whose rooms the event team saved and opened on
  * the Venue tab (phase 6). Saved rooms are sent as the venue's layout
  * (window.EHC_LAYOUT), generated and checked walkable on every load. Served as the vendor built it
- * (vendor/ehc-venue, generated into page-html.generated.json), after three
- * small scripts: the event's real name, dates and venue (window.EHC_EVENT),
- * its recordings per screen (window.EHC_SCREENS),
- * this person's runtime settings (window.EHC_VENUE), and the EA-SYS runtime
- * the vendor code talks to (/venue-runtime.js).
+ * (vendor/ehc-venue), built by lib/venue/venue-page.ts, which the preview of
+ * an unsaved floor plan (./preview) shares.
  */
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 import { venueGuard } from "@/lib/venue/route-guard";
-import { venueDisplayName } from "@/lib/venue/display-name";
-import { venueDateRange } from "@/lib/venue/date-range";
-import { resolveTimezone } from "@/lib/event-time";
-import { VENUE_SAFETY_INBOX, readVenueConfig } from "@/services/venue-service";
-import { readVenueAi } from "@/services/venue-ai-service";
-import { eventLayout, venueRooms } from "@/lib/venue/event-venue";
-import { loadVenueProgramme } from "@/services/venue-programme-service";
-import venuePage from "@/lib/venue/page-html.generated.json";
+import { eventLayout } from "@/lib/venue/event-venue";
+import { plainVenuePage, venuePageResponse } from "@/lib/venue/venue-page";
 
 type Params = { params: Promise<{ slug: string }> };
 
 const ROUTE = "venue:page";
-
-/** A value as a script literal that can never close the <script> it sits in. */
-const literal = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
-
-const MESSAGES: Record<number, string> = {
-  403: "You do not have access to this venue.",
-  404: "Not found.",
-  503: "This venue's rooms cannot be laid out right now. The event team has been told.",
-};
-
-function plainPage(status: number): NextResponse {
-  return new NextResponse(
-    `<!doctype html><meta charset="utf-8"><title>Online venue</title><p style="font:16px system-ui;margin:2rem">${MESSAGES[status] ?? "Something went wrong."}</p>`,
-    { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
-  );
-}
 
 export async function GET(req: Request, { params }: Params) {
   try {
@@ -53,40 +28,16 @@ export async function GET(req: Request, { params }: Params) {
       login.searchParams.set("callbackUrl", `/e/${encodeURIComponent(slug)}/venue`);
       return NextResponse.redirect(login);
     }
-    if (!gate.ok) return plainPage(gate.response.status);
+    if (!gate.ok) return plainVenuePage(gate.response.status);
 
     const e = gate.event;
     const built = eventLayout(e);
-    if (built.kind === "broken") return plainPage(503);
-    const layout = built.kind === "generated" ? built.layout : null;
-    const tz = resolveTimezone(e.timezone);
-    // The sessions and sponsors the screens, agenda and stands show (phase 6 step 4).
-    const programme = await loadVenueProgramme({ organizationId: gate.organizationId, eventId: e.id }, venueRooms(built), tz);
-    const ehcEvent = {
-      name: e.name,
-      date: venueDateRange(e.startDate, e.endDate, tz),
-      ...(e.venue && { venue: e.venue }),
-      // A generated venue names its own event everywhere; EHC's rooms keep EHC's short name and society.
-      ...(layout && { short: (e.code || e.name).slice(0, 24), ...(e.organization?.name && { organiser: e.organization.name }) }),
-    };
-    // Recordings per screen from the event's settings; an empty map stops the
-    // vendor page looking for a screens.json beside itself (it would 404).
-    const screens = readVenueConfig(e.settings).screens ?? {};
-    const ehcVenue = { api: `/api/venue/${e.id}`, userId: gate.userId, name: venueDisplayName(gate.session), team: gate.team, ai: readVenueAi(e.settings).on };
-    const page =
-      '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
-      '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
-      "<style>body{margin:0}[hidden]{display:none!important}</style></head><body>" +
-      `<script>window.EHC_LAYOUT=${layout ? literal(layout) : "null"};window.EHC_EVENT=${literal(ehcEvent)};window.EHC_VENUE=${literal(ehcVenue)};window.EHC_CONTACT=${literal(VENUE_SAFETY_INBOX)};window.EHC_SCREENS=${literal(screens)};window.EHC_PROGRAMME=${literal(programme)};</script>` +
-      '<script src="/venue-runtime.js"></script>' +
-      venuePage.html +
-      "</body></html>";
-    apiLogger.info({ msg: `${ROUTE}:opened`, userId: gate.userId, eventId: e.id, team: gate.team, venue: built.kind, sessions: programme.sessions.length, sponsors: programme.sponsors.length });
-    return new NextResponse(page, {
-      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" },
-    });
+    if (built.kind === "broken") return plainVenuePage(503);
+    const page = await venuePageResponse(gate, built);
+    apiLogger.info({ msg: `${ROUTE}:opened`, userId: gate.userId, eventId: e.id, team: gate.team, venue: built.kind, sessions: page.sessions, sponsors: page.sponsors });
+    return page.response;
   } catch (err) {
     apiLogger.error({ err, msg: `${ROUTE}:failed` });
-    return plainPage(500);
+    return plainVenuePage(500);
   }
 }

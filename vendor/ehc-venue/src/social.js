@@ -351,16 +351,31 @@ class Social {
       `After your sentences, on a new line, add exactly one tag [gesture: X] where X is one of nod, wave, laugh, think, point, shake, none. If you suggest they go somewhere, also add [go: Y] where Y is one of foyer, plenary, posters, hallA, hallB, hallC, workshop, lounge, expo.`,
     ].join('\n\n');
   }
+  // EA-SYS (floor plan editor): how to get to a room, from what its door opens onto: "off the North Walk",
+  // "through the Exhibition Hall". `end`: say "at the far end of" when the door closes the end of a long
+  // corridor (the automatic plan's main stage). The automatic plan's corridor is "the main corridor".
+  wayTo(Z, end = false) {
+    const d = Z && (LAYOUT.doors || []).find((x) => x.between[1] === Z.id && x.between[0] !== Z.id);
+    const from = d && ZONES.find((z) => z.id === d.between[0]);
+    if (!from) return 'off the main corridor';
+    const name = from.kind === 'corridor' && from.name === 'Main Corridor' ? 'main corridor' : from.name;
+    if (from.kind !== 'corridor' && from.kind !== 'foyer') return `through the ${name}`;
+    const [x0, z0, x1, z1] = from.rect, long = z1 - z0 >= x1 - x0;
+    if (end && from.kind === 'corridor' && long && d.axis === 'x' && (Math.abs(d.z - z0) < 0.01 || Math.abs(d.z - z1) < 0.01)) return `at the far end of the ${name}`;
+    return `off the ${name}`;
+  }
   // EA-SYS (phase 6): the pre-written answers for a generated venue, naming its own rooms. Null for
   // anything that is not about where things are, so the persona's own lines below still answer.
   layoutAnswer(q) {
-    const s = q.toLowerCase(), room = (kind) => zoneOfKind(kind), corridor = 'off the main corridor';
+    // EA-SYS (floor plan editor): "off the X" names what the room's door opens onto, so a drawn plan's
+    // directions are true too; the automatic plan's corridor keeps its old words ("off the main corridor").
+    const s = q.toLowerCase(), room = (kind) => zoneOfKind(kind), corridor = (kind) => this.wayTo(room(kind));
     const at = (kind, text, gesture = 'point') => { const Z = room(kind); return Z ? { text: text(Z.name), go: Z.id, gesture } : null; };
-    if (/coffee|tea|drink|قهوة/.test(s)) return at('lounge', (n) => `The coffee bar is in the ${n}, ${corridor}.`) || { text: 'There’s no coffee bar in this venue, I’m afraid. The foyer is a good place to meet.', gesture: 'think' };
-    if (/poster|abstract/.test(s)) return at('posters', (n) => `The posters are in the ${n}, ${corridor}.`);
-    if (/exhib|booth|stand|sponsor|society/.test(s)) return at('exhibition', (n) => `The partner stands are in the ${n}, ${corridor}.`);
-    if (/plenary|main stage|keynote|opening|ballroom/.test(s)) return at('plenary', (n) => `The ${n} is at the far end of the main corridor.`);
-    if (/workshop/.test(s)) return at('workshop', (n) => `The ${n} is ${corridor}.`);
+    if (/coffee|tea|drink|قهوة/.test(s)) return at('lounge', (n) => `The coffee bar is in the ${n}, ${corridor('lounge')}.`) || { text: 'There’s no coffee bar in this venue, I’m afraid. The foyer is a good place to meet.', gesture: 'think' };
+    if (/poster|abstract/.test(s)) return at('posters', (n) => `The posters are in the ${n}, ${corridor('posters')}.`);
+    if (/exhib|booth|stand|sponsor|society/.test(s)) return at('exhibition', (n) => `The partner stands are in the ${n}, ${corridor('exhibition')}.`);
+    if (/plenary|main stage|keynote|opening|ballroom/.test(s)) return at('plenary', (n) => `The ${n} is ${this.wayTo(room('plenary'), true)}.`);
+    if (/workshop/.test(s)) return at('workshop', (n) => `The ${n} is ${corridor('workshop')}.`);
     if (/programme|program|agenda|session|talk|track|speaker|hall/.test(s)) return { text: 'I don’t have the programme in front of me. Check the Venue guide or the information desk in the foyer.', go: (room('foyer') || {}).id, gesture: 'think' };
     if (/regist|badge/.test(s)) return at('foyer', (n) => `Registration is the long desk in the ${n}, as you come in.`);
     return null;

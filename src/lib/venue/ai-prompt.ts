@@ -168,22 +168,65 @@ const KIND_WORDS: Record<string, string> = {
   plenary: "the main stage", hall: "parallel sessions", workshop: "hands-on sessions", posters: "abstract posters", exhibition: "partner stands", lounge: "a coffee bar and seats",
 };
 
-/** The generated building, in the words an attendee would use (the fixed plan of D10). */
+/**
+ * The building, in the words an attendee would use. The automatic plan (D10)
+ * keeps its own sentence: one main corridor from the foyer to the main stage,
+ * rooms along its two sides. A drawn plan (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md)
+ * can be any shape, so it is described by what each door opens onto, which is
+ * true of every plan: "Off the Concourse: Main Stage (the main stage)."
+ */
 export function describeVenue(layout: VenueLayout): string {
   const zones = layout.zones;
-  const corridor = zones.find((z) => z.kind === "corridor");
+  const corridors = zones.filter((z) => z.kind === "corridor");
   const foyer = zones.find((z) => z.kind === "foyer");
   const plenary = zones.find((z) => z.kind === "plenary");
+  const corridor = corridors[0];
+  // Every room's door opens onto the one corridor, the foyer's included: the automatic plan's shape.
+  // and that corridor runs north to south, so its two sides are its left and right.
+  const automatic =
+    corridors.length === 1 && corridor.rect[3] - corridor.rect[1] >= corridor.rect[2] - corridor.rect[0] && layout.doors.every((d) => d.between.includes(corridor.id));
+  if (!automatic) return describeByDoors(layout, foyer);
   const side = (west: boolean) =>
-    zones.filter((z) => !["foyer", "corridor", "plenary"].includes(z.kind) && corridor && (west ? z.rect[2] <= corridor.rect[0] + 0.01 : z.rect[0] >= corridor.rect[2] - 0.01));
-  const list = (rooms: typeof zones) => rooms.map((z) => `${z.name} (${KIND_WORDS[z.kind] ?? z.kind})`).join(", ");
+    zones.filter((z) => !["foyer", "corridor", "plenary"].includes(z.kind) && (west ? z.rect[2] <= corridor.rect[0] + 0.01 : z.rect[0] >= corridor.rect[2] - 0.01));
   const left = side(true);
   const right = side(false);
+  // The sentence also needs every room on one side or the other, and the main stage closing the corridor's far end.
+  const sided = zones.filter((z) => !["foyer", "corridor", "plenary"].includes(z.kind)).length === left.length + right.length;
+  const stageDoor = plenary && layout.doors.find((d) => d.between[1] === plenary.id);
+  const atEnd = !plenary || (stageDoor?.axis === "x" && Math.abs(stageDoor.z - corridor.rect[1]) < 0.01);
+  if (!sided || !atEnd) return describeByDoors(layout, foyer);
   return [
     `Venue you know: ${foyer?.name ?? "The foyer"} is the entrance, with registration and information desks; a main corridor runs from it`,
     plenary ? ` to ${plenary.name} (the main stage) at the far end.` : ".",
-    left.length ? ` Along the left of the corridor: ${list(left)}.` : "",
-    right.length ? ` Along the right: ${list(right)}.` : "",
+    left.length ? ` Along the left of the corridor: ${roomList(left)}.` : "",
+    right.length ? ` Along the right: ${roomList(right)}.` : "",
+  ].join("");
+}
+
+const roomList = (rooms: VenueLayout["zones"]) => rooms.map((z) => `${z.name} (${KIND_WORDS[z.kind] ?? z.kind})`).join(", ");
+
+/** A drawn plan: where the foyer leads, then each area with the rooms whose doors open onto it. */
+function describeByDoors(layout: VenueLayout, foyer: VenueLayout["zones"][number] | undefined): string {
+  const byId = new Map(layout.zones.map((z) => [z.id, z]));
+  // The foyer's own door is the first door out of it (plan-layout.ts); the rest are rooms opening into it.
+  const way = foyer ? layout.doors.find((d) => d.between[0] === foyer.id) : undefined;
+  const onward = way ? byId.get(way.between[1]) : undefined;
+  const off = new Map<string, VenueLayout["zones"]>();
+  for (const d of layout.doors) {
+    if (d === way) continue;
+    const room = byId.get(d.between[1]);
+    if (!room || room.kind === "corridor") continue;
+    off.set(d.between[0], [...(off.get(d.between[0]) ?? []), room]);
+  }
+  const places = [...off.entries()].map(([id, rooms]) => {
+    const from = byId.get(id);
+    const where = from?.kind === "corridor" || from?.kind === "foyer" ? `Off the ${from.name}` : `Through the ${from?.name ?? id}`;
+    return ` ${where}: ${roomList(rooms)}.`;
+  });
+  return [
+    `Venue you know: ${foyer?.name ?? "The foyer"} is the entrance, with registration and information desks`,
+    onward ? `; from it you go on into the ${onward.name}.` : ".",
+    ...places,
   ].join("");
 }
 

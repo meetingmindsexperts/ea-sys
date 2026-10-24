@@ -11,6 +11,9 @@ import { PLAN_DOOR_MAX, PLAN_EXTENT, PLAN_MAX_WALKWAYS, PLAN_MIN_SIDE, planFromL
 import { layoutFromPlan } from "@/lib/venue/plan-layout";
 import {
   addWalkway,
+  moveSnapped,
+  nudge,
+  resizeSnapped,
   canAddWalkway,
   spotBeside,
   fitDoor,
@@ -280,5 +283,51 @@ describe("the foyer's own door (what the 3D banners flank)", () => {
     expect(builds(p)).toEqual([]);
     const doors = layoutFromPlan(rooms, p, { eventName: "" }).layout.doors.filter((d) => d.between[0] === foyerId);
     expect(doors.map((d) => d.between[1])).toEqual(["corridor", "hall-a"]);
+  });
+});
+
+describe("snapping to other areas' edges and nudging (phase 2)", () => {
+  // Two walkways side by side: B is off the grid at x 20.3, so only edge snapping can put A flush against it.
+  const two = (): VenuePlan => ({
+    ...start(),
+    corridors: [
+      { id: "a", name: "A", rect: [0, 0, 6, 20] },
+      { id: "b", name: "B", rect: [20.3, 0, 26.3, 20] },
+    ],
+  });
+
+  it("lines a moved area up with a nearby edge, off the grid if need be, and says where", () => {
+    const { plan, guides } = moveSnapped(two(), { kind: "corridor", id: "a" }, 14.1, 0, foyerId);
+    expect(rectOf(plan, { kind: "corridor", id: "a" })).toEqual([14.3, 0, 20.3, 20]);
+    expect(guides.x).toEqual([20.3]);
+  });
+
+  it("leaves it on the grid when no edge is within reach", () => {
+    const { plan, guides } = moveSnapped(two(), { kind: "corridor", id: "a" }, 10.2, 40, foyerId);
+    expect(rectOf(plan, { kind: "corridor", id: "a" })![0]).toBe(10);
+    expect(guides.x).toEqual([]);
+  });
+
+  it("snaps a dragged edge, not the others", () => {
+    const { plan, guides } = resizeSnapped(two(), { kind: "corridor", id: "a" }, { e: true }, 19.9, 0, foyerId);
+    expect(rectOf(plan, { kind: "corridor", id: "a" })).toEqual([0, 0, 20.3, 20]);
+    expect(guides).toEqual({ x: [20.3], z: [] });
+  });
+
+  it("shows no guide where the minimum size held the edge back", () => {
+    const p: VenuePlan = { ...two(), corridors: [{ id: "a", name: "A", rect: [0, 0, 6, 20] }, { id: "b", name: "B", rect: [1.2, 30, 8, 40] }] };
+    const { plan, guides } = resizeSnapped(p, { kind: "corridor", id: "a" }, { e: true }, 1.1, 0, foyerId);
+    expect(rectOf(plan, { kind: "corridor", id: "a" })![2]).toBe(3);
+    expect(guides.x).toEqual([]);
+  });
+
+  it("nudges by exactly the step, keeping an off-grid offset, door and all", () => {
+    const p = two();
+    const moved = nudge(p, { kind: "corridor", id: "b" }, 0.5, -5, foyerId);
+    expect(rectOf(moved, { kind: "corridor", id: "b" })).toEqual([20.8, -5, 26.8, 15]);
+    const lounge = room(p, "lounge");
+    const after = room(nudge(p, { kind: "room", id: "lounge" }, 0.5, 0, foyerId), "lounge");
+    const shift = isNS(after.door.wall) ? 0.5 : 0;
+    expect(after.door.at - lounge.door.at).toBeCloseTo(shift);
   });
 });

@@ -14,7 +14,8 @@
  */
 import { useCallback, useDeferredValue, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { toast } from "sonner";
-import { AlertCircle, CheckCircle2, Loader2, MousePointer2, Plus, Redo2, RotateCw, Route, Trash2, Undo2 } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { AlertCircle, Box, CheckCircle2, Loader2, MousePointer2, Plus, Redo2, RotateCw, Route, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,6 +43,7 @@ import {
   canAddWalkway,
   spotBeside,
   keepListedRooms,
+  nudge,
   overlapping,
   placeRoom,
   rectOf,
@@ -56,7 +58,7 @@ import {
   type PlanTarget,
 } from "@/lib/venue/plan-edit";
 import { ROOM_KIND_INFO, type VenueRoom } from "@/lib/venue/rooms";
-import { VenuePlanCanvas, type PlanTool } from "@/components/venue/venue-plan-canvas";
+import { PLAN_ZOOMS, VenuePlanCanvas, stepZoom, type PlanTool } from "@/components/venue/venue-plan-canvas";
 
 const WALL_LABEL: Record<PlanWall, string> = { n: "North", e: "East", s: "South", w: "West" };
 const isNS = (w: PlanWall) => w === "n" || w === "s";
@@ -100,9 +102,72 @@ function useHistory(initial: VenuePlan) {
   };
 }
 
+/** Inside an open dropdown, list or dialog: its own keys (arrows choose an option) must not also edit the plan. */
+const inPopup = (el: EventTarget | null) => el instanceof Element && !!el.closest('[role="listbox"],[role="option"],[role="menu"],[role="dialog"],[role="alertdialog"]');
+
 const typingIn = (el: EventTarget | null) => el instanceof HTMLElement && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.getAttribute("role") === "combobox");
 
-export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: string; rooms: VenueRoom[]; stored: StoredPlan | null; onClose: () => void }) {
+/** Where unsaved changes wait in this browser, per event (phase 2): a tab closed by accident loses nothing. */
+/** Per event and per person: colleagues sharing a computer do not see each other's drafts. */
+const draftKey = (eventId: string, userId: string) => `ea-sys:venue-plan-draft:${eventId}:${userId}`;
+/** A draft older than this is not offered (a week-old change is more likely forgotten than wanted). */
+const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+interface PlanDraft {
+  /** The saved plan's version the changes were made on: a draft over an older version is not offered. */
+  version: number;
+  savedAt: number;
+  plan: VenuePlan;
+}
+
+function readDraft(eventId: string, userId: string, version: number): PlanDraft | null {
+  try {
+    const raw = window.localStorage.getItem(draftKey(eventId, userId));
+    if (!raw) return null;
+    const d = JSON.parse(raw) as Partial<PlanDraft>;
+    const plan = planSchema.safeParse(d.plan);
+    if (d.version !== version || typeof d.savedAt !== "number" || Date.now() - d.savedAt > DRAFT_MAX_AGE_MS || !plan.success) {
+      window.localStorage.removeItem(draftKey(eventId, userId));
+      return null;
+    }
+    return { version, savedAt: d.savedAt, plan: plan.data };
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(eventId: string, userId: string, draft: PlanDraft | null) {
+  try {
+    if (draft) window.localStorage.setItem(draftKey(eventId, userId), JSON.stringify(draft));
+    else window.localStorage.removeItem(draftKey(eventId, userId));
+  } catch {
+    // Storage can be full or blocked (a private window); the draft is a convenience, so editing goes on without it.
+  }
+}
+
+/**
+ * Open the walkable venue in a new tab with this plan, unsaved (phase 2). A
+ * form POST, because the plan is too large for a link and the new tab needs a
+ * page of its own; the server checks the plan exactly as a save would.
+ */
+function previewIn3d(slug: string, plan: VenuePlan) {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = `/e/${encodeURIComponent(slug)}/venue/preview`;
+  form.target = "_blank";
+  const field = document.createElement("input");
+  field.type = "hidden";
+  field.name = "plan";
+  field.value = JSON.stringify(plan);
+  form.appendChild(field);
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
+}
+
+const NUDGE: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eventId: string; slug: string | null; rooms: VenueRoom[]; stored: StoredPlan | null; onClose: () => void }) {
   const save = useSaveVenuePlan(eventId);
   const initial = useMemo(() => (stored ? keepListedRooms(stored.plan, rooms) : planFromLayout(generateLayout(rooms, { eventName: "" }))), [stored, rooms]);
   const hist = useHistory(initial);
@@ -114,6 +179,13 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
   const [tool, setTool] = useState<PlanTool>("select");
   const [serverIssues, setServerIssues] = useState<string[]>([]);
   const [confirm, setConfirm] = useState<"discard" | "reset" | null>(null);
+  const [zoom, setZoom] = useState(1);
+  // Changes left unsaved in this browser last time, offered once when the editor opens.
+  const userId = useSession().data?.user?.id ?? "";
+  const [draft, setDraft] = useState<PlanDraft | null>(() => {
+    const d = typeof window === "undefined" || !userId ? null : readDraft(eventId, userId, version);
+    return d && JSON.stringify(d.plan) !== JSON.stringify(initial) ? d : null;
+  });
 
   const names = useMemo(() => new Map(rooms.map((r) => [r.id, r.name])), [rooms]);
   const foyerId = rooms.find((r) => r.kind === "foyer")?.id ?? null;
@@ -151,7 +223,8 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
   // Undo, redo, delete a walkway, and Escape, from anywhere on the page except while typing in a field.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (typingIn(e.target)) return;
+      // A key a dropdown or dialog already handled, or one pressed inside it, is not for the plan.
+      if (e.defaultPrevented || typingIn(e.target) || inPopup(e.target) || document.querySelector('[role="alertdialog"]')) return;
       const mod = e.metaKey || e.ctrlKey;
       // Mid-drag, undo would be overwritten when the drag lands; the drag finishes first.
       if (mod && hist.dragging) return;
@@ -174,11 +247,31 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
       if ((e.key === "Delete" || e.key === "Backspace") && selected?.kind === "corridor") {
         e.preventDefault();
         removeSelected();
+        return;
       }
+      // Arrow keys nudge the selected area half a metre, Shift five.
+      const dir = NUDGE[e.key];
+      if (!dir || !selected || mod || hist.dragging) return;
+      e.preventDefault();
+      const step = e.shiftKey ? 5 : 0.5;
+      change(nudge(hist.committed, selected, dir[0] * step, dir[1] * step, foyerId));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [hist, selected, removeSelected]);
+  }, [hist, selected, removeSelected, change, foyerId]);
+
+  // Unsaved changes wait in this browser until saved or thrown away (not while last time's are still on offer).
+  // Editing without answering the offer means starting afresh: the offer goes and the new changes become the draft (the banner says so).
+  const offer = hist.canUndo ? null : draft;
+  useEffect(() => {
+    if (offer || !userId) return;
+    writeDraft(eventId, userId, hist.dirty ? { version, savedAt: Date.now(), plan: hist.committed } : null);
+  }, [eventId, userId, version, offer, hist.dirty, hist.committed]);
+
+  const leave = () => {
+    writeDraft(eventId, userId, null);
+    onClose();
+  };
 
   // Leaving the page with unsaved changes asks first.
   useEffect(() => {
@@ -192,7 +285,7 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
     try {
       await save.mutateAsync({ plan: hist.committed, planVersion: version });
       toast.success("Floor plan saved. The venue, its plan and the PDF now use it.");
-      onClose();
+      leave();
     } catch (e) {
       const issues = e instanceof ApiError && Array.isArray(e.data?.issues) ? (e.data.issues as string[]) : [];
       setServerIssues(issues);
@@ -206,7 +299,7 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
     try {
       await save.mutateAsync({ plan: null, planVersion: version });
       toast.success("The venue is back on the automatic plan");
-      onClose();
+      leave();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't reset the floor plan");
     }
@@ -227,7 +320,13 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
                 Reset to automatic
               </Button>
             )}
-            <Button variant="outline" onClick={() => (hist.dirty ? setConfirm("discard") : onClose())} disabled={save.isPending}>
+            {slug && (
+              <Button variant="outline" onClick={() => previewIn3d(slug, hist.committed)} disabled={!ok || checking}>
+                <Box className="h-4 w-4" aria-hidden />
+                Preview in 3D
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => (hist.dirty ? setConfirm("discard") : leave())} disabled={save.isPending}>
               {hist.dirty ? "Discard changes" : "Close"}
             </Button>
             <Button onClick={onSave} disabled={!hist.dirty || !ok || checking || save.isPending}>
@@ -239,6 +338,34 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
       />
       <Card>
         <CardContent className="space-y-3 p-4">
+          {offer && (
+            <div role="status" className="flex flex-wrap items-center gap-3 rounded-md border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200">
+              <p className="flex-1">
+                You have unsaved changes to this plan from {new Date(offer.savedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}, kept in this browser.
+                Editing the plan before choosing starts afresh instead.
+              </p>
+              <Button
+                size="sm"
+                onClick={() => {
+                  change(keepListedRooms(offer.plan, rooms));
+                  setDraft(null);
+                }}
+              >
+                Restore them
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-background"
+                onClick={() => {
+                  writeDraft(eventId, userId, null);
+                  setDraft(null);
+                }}
+              >
+                Throw them away
+              </Button>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="Floor plan tools">
             <Button size="sm" variant={tool === "select" ? "default" : "outline"} aria-pressed={tool === "select"} onClick={() => setTool("select")}>
               <MousePointer2 className="h-4 w-4" aria-hidden />
@@ -261,6 +388,16 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
               <Redo2 className="h-4 w-4" aria-hidden />
               Redo
             </Button>
+            <span className="mx-1 h-6 w-px bg-border" aria-hidden />
+            <Button size="sm" variant="ghost" onClick={() => setZoom(stepZoom(zoom, -1))} disabled={zoom <= PLAN_ZOOMS[0]} aria-label="Zoom out">
+              <ZoomOut className="h-4 w-4" aria-hidden />
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setZoom(1)} aria-label="Zoom to fit the width" className="w-14 tabular-nums">
+              {Math.round(zoom * 100)}%
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setZoom(stepZoom(zoom, 1))} disabled={zoom >= PLAN_ZOOMS[PLAN_ZOOMS.length - 1]} aria-label="Zoom in">
+              <ZoomIn className="h-4 w-4" aria-hidden />
+            </Button>
             <p className="ml-auto text-xs text-muted-foreground">
               <ToolHint tool={tool} walkwaysFull={walkwaysFull} />
             </p>
@@ -279,6 +416,8 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
               onLive={hist.setLive}
               onCommit={change}
               onDrawn={addAndSelect}
+              zoom={zoom}
+              onZoom={setZoom}
             />
             <PlanPanel
               plan={plan}
@@ -307,7 +446,7 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep editing</AlertDialogCancel>
-            <AlertDialogAction onClick={confirm === "reset" ? onReset : onClose}>{confirm === "reset" ? "Reset to automatic" : "Discard changes"}</AlertDialogAction>
+            <AlertDialogAction onClick={confirm === "reset" ? onReset : leave}>{confirm === "reset" ? "Reset to automatic" : "Discard changes"}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -318,7 +457,7 @@ export function VenuePlanEditor({ eventId, rooms, stored, onClose }: { eventId: 
 function ToolHint({ tool, walkwaysFull }: { tool: PlanTool; walkwaysFull: boolean }) {
   if (walkwaysFull) return <>A plan has at most {PLAN_MAX_WALKWAYS} walkways. Remove one to add another.</>;
   if (tool === "walkway") return <>Drag across the floor to draw a walkway. Esc to stop.</>;
-  return <>Ctrl or Cmd + Z to undo.</>;
+  return <>Arrows nudge, Alt places freely, Ctrl or Cmd + scroll zooms, Space + drag pans, Ctrl or Cmd + Z undoes.</>;
 }
 
 function Status({ ok, checking, problems, warnings }: { ok: boolean; checking: boolean; problems: string[]; warnings: string[] }) {

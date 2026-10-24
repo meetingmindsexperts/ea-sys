@@ -71,21 +71,105 @@ function withRect(plan: VenuePlan, t: PlanTarget, next: Rect, foyerId: string | 
 
 /** Move an area so its north-west corner lands at (x0, z0), snapped; its door (and the foyer's entrance) go with it. */
 export function moveTo(plan: VenuePlan, t: PlanTarget, x0: number, z0: number, foyerId: string | null): VenuePlan {
+  return placeAt(plan, t, snap(x0), snap(z0), foyerId);
+}
+
+/** An area moved so its north-west corner is exactly (x0, z0), kept inside the building limit. */
+function placeAt(plan: VenuePlan, t: PlanTarget, x0: number, z0: number, foyerId: string | null): VenuePlan {
   const r = rectOf(plan, t);
   if (!r) return plan;
+  const next = keepInside([r2(x0), r2(z0), r2(x0 + r[2] - r[0]), r2(z0 + r[3] - r[1])]);
+  return withRect(plan, t, next, foyerId, true);
+}
+
+/** Move an area by exactly (dx, dz), for the arrow keys: an area off the grid keeps its offset. */
+export function nudge(plan: VenuePlan, t: PlanTarget, dx: number, dz: number, foyerId: string | null): VenuePlan {
+  const r = rectOf(plan, t);
+  return r ? placeAt(plan, t, r[0] + dx, r[1] + dz, foyerId) : plan;
+}
+
+// ── Snapping to other areas' edges (phase 2) ─────────────────────────────────
+
+/** How close, in metres, an edge must come to another area's edge to line up with it. */
+export const EDGE_SNAP = 0.75;
+
+/** The lines an edge snapped to, to draw as guides: x values (north-south lines) and z values (east-west lines). */
+export interface SnapGuides {
+  x: number[];
+  z: number[];
+}
+
+/** Every other area's edges, per axis. */
+function edgesBesides(plan: VenuePlan, t: PlanTarget): { xs: number[]; zs: number[] } {
+  const rects = [
+    ...plan.rooms.filter((p) => !(t.kind === "room" && p.id === t.id)).map((p) => p.rect),
+    ...plan.corridors.filter((c) => !(t.kind === "corridor" && c.id === t.id)).map((c) => c.rect),
+  ];
+  return { xs: rects.flatMap((r) => [r[0], r[2]]), zs: rects.flatMap((r) => [r[1], r[3]]) };
+}
+
+/** The smallest shift that puts one of `mine` on one of `theirs`, within EDGE_SNAP; null when none is that close. */
+function closest(mine: number[], theirs: number[]): { shift: number; at: number } | null {
+  let best: { shift: number; at: number } | null = null;
+  for (const m of mine) {
+    for (const o of theirs) {
+      const shift = o - m;
+      if (Math.abs(shift) <= EDGE_SNAP && (!best || Math.abs(shift) < Math.abs(best.shift))) best = { shift, at: o };
+    }
+  }
+  return best;
+}
+
+/**
+ * Move as `moveTo` does, then line the area up with another area's edge when
+ * one of its edges comes within EDGE_SNAP of it, so rooms sit flush even
+ * where the grid would leave a gap (an area drawn off the grid by the
+ * automatic layout, say). Returns the lines it lined up on.
+ */
+export function moveSnapped(plan: VenuePlan, t: PlanTarget, x0: number, z0: number, foyerId: string | null): { plan: VenuePlan; guides: SnapGuides } {
+  const r = rectOf(plan, t);
+  if (!r) return { plan, guides: { x: [], z: [] } };
   const w = r[2] - r[0];
   const d = r[3] - r[1];
-  const next = keepInside([snap(x0), snap(z0), snap(x0) + w, snap(z0) + d]);
-  return withRect(plan, t, next, foyerId, true);
+  const { xs, zs } = edgesBesides(plan, t);
+  let sx = snap(x0);
+  let sz = snap(z0);
+  const gx = closest([sx, sx + w], xs);
+  const gz = closest([sz, sz + d], zs);
+  if (gx) sx += gx.shift;
+  if (gz) sz += gz.shift;
+  const next = placeAt(plan, t, sx, sz, foyerId);
+  // A guide only where an edge really sits on the line (the building limit can push the area off it).
+  const at = rectOf(next, t) ?? r;
+  const on = (v: number, a: number, b: number) => r2(v) === a || r2(v) === b;
+  return { plan: next, guides: { x: gx && on(gx.at, at[0], at[2]) ? [gx.at] : [], z: gz && on(gz.at, at[1], at[3]) ? [gz.at] : [] } };
+}
+
+/** Resize as `resizeTo` does, each dragged edge lining up with another area's edge within EDGE_SNAP. */
+export function resizeSnapped(plan: VenuePlan, t: PlanTarget, edges: Edges, x: number, z: number, foyerId: string | null): { plan: VenuePlan; guides: SnapGuides } {
+  const { xs, zs } = edgesBesides(plan, t);
+  const gx = edges.w || edges.e ? closest([snap(x)], xs) : null;
+  const gz = edges.n || edges.s ? closest([snap(z)], zs) : null;
+  const next = resizeExact(plan, t, edges, gx ? gx.at : snap(x), gz ? gz.at : snap(z), foyerId);
+  const r = rectOf(next, t);
+  // A guide only where the edge really landed on the line (the minimum size can hold it back).
+  const landedX = gx && r && (r[0] === r2(gx.at) || r[2] === r2(gx.at));
+  const landedZ = gz && r && (r[1] === r2(gz.at) || r[3] === r2(gz.at));
+  return { plan: next, guides: { x: landedX ? [gx.at] : [], z: landedZ ? [gz.at] : [] } };
 }
 
 /** Drag the chosen edges of an area to the point (x, z), snapped, never smaller than the minimum side. */
 export function resizeTo(plan: VenuePlan, t: PlanTarget, edges: Edges, x: number, z: number, foyerId: string | null): VenuePlan {
+  return resizeExact(plan, t, edges, snap(x), snap(z), foyerId);
+}
+
+/** The chosen edges moved to exactly x and z, never smaller than the minimum side or outside the building limit. */
+function resizeExact(plan: VenuePlan, t: PlanTarget, edges: Edges, x: number, z: number, foyerId: string | null): VenuePlan {
   const r = rectOf(plan, t);
   if (!r) return plan;
   let [x0, z0, x1, z1] = r;
-  const sx = clamp(snap(x), -PLAN_EXTENT, PLAN_EXTENT);
-  const sz = clamp(snap(z), -PLAN_EXTENT, PLAN_EXTENT);
+  const sx = clamp(x, -PLAN_EXTENT, PLAN_EXTENT);
+  const sz = clamp(z, -PLAN_EXTENT, PLAN_EXTENT);
   if (edges.w) x0 = Math.min(sx, x1 - PLAN_MIN_SIDE);
   if (edges.e) x1 = Math.max(sx, x0 + PLAN_MIN_SIDE);
   if (edges.n) z0 = Math.min(sz, z1 - PLAN_MIN_SIDE);

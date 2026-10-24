@@ -11,7 +11,9 @@ import path from "node:path";
 import vm from "node:vm";
 import vocab from "@/lib/venue/persona-vocab.generated.json";
 import { TEMPLATES } from "@/lib/venue/rooms";
-import { buildInstructions, checkGreeting, checkPersona, cleanTurns, FLOOR_GREETING, greetingFor, MAX_TURN_CHARS } from "@/lib/venue/ai-prompt";
+import { buildInstructions, checkGreeting, checkPersona, cleanTurns, describeVenue, FLOOR_GREETING, greetingFor, MAX_TURN_CHARS } from "@/lib/venue/ai-prompt";
+import { PLAN_FIXTURES } from "@/lib/venue/layout-fixtures";
+import { layoutFromPlan } from "@/lib/venue/plan-layout";
 import { extractVocab } from "../../scripts/venue-vocab.mjs";
 
 const SRC = path.join(process.cwd(), "vendor/ehc-venue/src");
@@ -134,3 +136,29 @@ describe("a generated venue", () => {
   });
 });
 
+
+describe("describeVenue on a drawn plan (floor plan editor phase 2)", () => {
+  it("names what each door opens onto instead of the automatic plan's one corridor", () => {
+    const { rooms, plan } = PLAN_FIXTURES["drawn-sideways"];
+    const text = describeVenue(layoutFromPlan(rooms, plan, { eventName: "" }).layout);
+    expect(text).toBe(
+      "Venue you know: Foyer is the entrance, with registration and information desks; from it you go on into the Concourse. Off the Concourse: Main Stage (the main stage). Off the North Walk: Breakout 1 (parallel sessions), Breakout 2 (parallel sessions), Lounge (a coffee bar and seats).",
+    );
+    expect(text).not.toMatch(/main corridor/);
+  });
+
+  it("drops the 'far end' sentence once the main stage's door no longer opens onto the corridor's end", () => {
+    const { rooms, plan } = PLAN_FIXTURES["drawn-congress-west-entrance"];
+    const stage = plan.rooms.find((p) => p.id === "plenary")!;
+    // Moved west along its south wall, the main stage's door opens into Hall C rather than the corridor.
+    const moved = { ...plan, rooms: plan.rooms.map((p) => (p.id === "plenary" ? { ...p, door: { ...p.door, wall: "s" as const, at: stage.rect[0] + 3 } } : p)) };
+    const text = describeVenue(layoutFromPlan(rooms, moved, { eventName: "" }).layout);
+    expect(text).not.toMatch(/far end/);
+    expect(text).toContain("Through the Hall C: Plenary Hall (the main stage).");
+  });
+
+  it("keeps the automatic plan's sentence for a plan that still has its shape", () => {
+    const { rooms, plan } = PLAN_FIXTURES["drawn-congress-west-entrance"];
+    expect(describeVenue(layoutFromPlan(rooms, plan, { eventName: "" }).layout)).toMatch(/^Venue you know: Grand Foyer is the entrance, with registration and information desks; a main corridor runs from it to Plenary Hall/);
+  });
+});

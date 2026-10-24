@@ -114,7 +114,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
     return (
       <div className="space-y-6">
         <PageHeader icon={Building2} title="Online venue" description="Draw where each room goes. The 2D plan, the PDF and the walkable venue are all built from this plan." />
-        <VenuePlanEditor eventId={eventId} rooms={data.rooms} stored={data.plan ?? null} onClose={() => setEditingPlan(false)} />
+        <VenuePlanEditor eventId={eventId} slug={data.slug ?? null} rooms={data.rooms} stored={data.plan ?? null} onClose={() => setEditingPlan(false)} />
       </div>
     );
   }

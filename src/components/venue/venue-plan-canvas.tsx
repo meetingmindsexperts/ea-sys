@@ -9,11 +9,16 @@
  * It owns only the gesture. Every change goes through lib/venue/plan-edit.ts:
  * `onLive` while dragging (redrawn, not yet in the undo history) and
  * `onCommit` when the pointer lifts (one undo step per gesture).
+ *
+ * Phase 2: a dragged edge lines up with other areas' edges (the guide lines
+ * show where; hold Alt to place freely). Ctrl or Cmd with the scroll wheel
+ * zooms about the pointer; the plain wheel scrolls the frame, and Space with a
+ * drag (or the middle button) pans it.
  */
-import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Rect, VenueLayout } from "@/lib/venue/layout";
 import { doorPoint, type VenuePlan } from "@/lib/venue/plan";
-import { moveTo, rectOf, resizeTo, walkwayRect, type Edges, type PlanTarget } from "@/lib/venue/plan-edit";
+import { moveSnapped, moveTo, rectOf, resizeSnapped, resizeTo, walkwayRect, type Edges, type PlanTarget, type SnapGuides } from "@/lib/venue/plan-edit";
 import { LayoutDrawing } from "@/components/venue/venue-floor-plan";
 import { cn } from "@/lib/utils";
 
@@ -28,7 +33,23 @@ type Drag = { pointer: number } & (
   | { mode: "move"; target: PlanTarget; from: [number, number]; base: VenuePlan | null; latest: VenuePlan | null }
   | { mode: "resize"; target: PlanTarget; edges: Edges; base: VenuePlan | null; latest: VenuePlan | null }
   | { mode: "draw"; from: [number, number]; rect: Rect | null }
+  | { mode: "pan"; from: [number, number]; scroll: [number, number] }
 );
+
+/** The zoom steps, as multiples of the frame's width. */
+export const PLAN_ZOOMS = [1, 1.5, 2, 3, 4] as const;
+/** The next zoom step in (+1) or out (-1). */
+export function stepZoom(zoom: number, dir: 1 | -1): number {
+  const i = PLAN_ZOOMS.findIndex((z) => z >= zoom - 0.001);
+  const at = i < 0 ? PLAN_ZOOMS.length - 1 : i;
+  return PLAN_ZOOMS[Math.max(0, Math.min(PLAN_ZOOMS.length - 1, at + dir))];
+}
+
+const NO_GUIDES: SnapGuides = { x: [], z: [] };
+/** A mouse wheel notch, in deltaY: the wheel zooms one step per notch, a pinch per notch's worth. */
+const WHEEL_STEP = 100;
+/** Space pans only when nothing focused would use it: a focused button or field keeps Space for itself. */
+const spaceIsFree = (el: EventTarget | null) => !(el instanceof HTMLElement) || el === document.body;
 
 const HANDLES: { edges: Edges; at: (r: Rect) => [number, number]; cursor: string }[] = [
   { edges: { w: true, n: true }, at: (r) => [r[0], r[1]], cursor: "cursor-nwse-resize" },
@@ -68,6 +89,8 @@ export function VenuePlanCanvas({
   onLive,
   onCommit,
   onDrawn,
+  zoom,
+  onZoom,
 }: {
   plan: VenuePlan;
   layout: VenueLayout;
@@ -81,9 +104,23 @@ export function VenuePlanCanvas({
   onLive: (plan: VenuePlan | null) => void;
   onCommit: (plan: VenuePlan) => void;
   onDrawn: (rect: Rect) => void;
+  /** How many times the frame's width the plan is drawn (PLAN_ZOOMS). */
+  zoom: number;
+  onZoom: (zoom: number) => void;
 }) {
   const gridId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [guides, setGuides] = useState<SnapGuides>(NO_GUIDES);
+  // Space held: a drag pans instead of editing.
+  const [space, setSpace] = useState(false);
+  // Where the pointer was, as a share of the plan, when the wheel zoomed: kept under the pointer after the redraw.
+  const anchor = useRef<{ fx: number; fy: number; cx: number; cy: number } | null>(null);
+  // Where the middle of the frame is, as a share of the plan: the zoom buttons keep it in the middle.
+  const centre = useRef<{ fx: number; fy: number }>({ fx: 0.5, fy: 0 });
+  const overFrame = useRef(false);
+  // A trackpad pinch sends dozens of small wheel events: they add up to one step per notch's worth.
+  const wheelSum = useRef(0);
   const drag = useRef<Drag | null>(null);
   // The plan as last drawn, for a gesture to start from (see Drag).
   const latestPlan = useRef(plan);
@@ -94,7 +131,73 @@ export function VenuePlanCanvas({
   const [frozen, setFrozen] = useState<[number, number, number, number] | null>(null);
   const [drawing, setDrawing] = useState<Rect | null>(null);
   const view = frozen ?? viewOf(plan);
-  const handle = Math.max(0.6, view[2] / 110);
+  // Handles and door dots keep their size on screen at any zoom.
+  const handle = Math.max(0.6, view[2] / 110) / zoom;
+
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      // Only over the plan: elsewhere Space keeps scrolling the page.
+      if (e.code !== "Space" || !spaceIsFree(e.target) || !overFrame.current) return;
+      e.preventDefault();
+      setSpace(true);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === "Space") setSpace(false);
+    };
+    const blur = () => setSpace(false);
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", blur);
+    };
+  }, []);
+
+  // Ctrl or Cmd + wheel zooms. A native listener, because React's wheel listener is passive and cannot stop the page zooming.
+  const zoomRef = useRef(zoom);
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      wheelSum.current += e.deltaY;
+      if (Math.abs(wheelSum.current) < WHEEL_STEP) return;
+      const next = stepZoom(zoomRef.current, wheelSum.current < 0 ? 1 : -1);
+      wheelSum.current = 0;
+      if (next === zoomRef.current) return;
+      // Set now, not after the redraw: a wheel event before the effect runs must step from here.
+      zoomRef.current = next;
+      const box = frame.getBoundingClientRect();
+      const cx = e.clientX - box.left;
+      const cy = e.clientY - box.top;
+      anchor.current = { fx: (frame.scrollLeft + cx) / frame.scrollWidth, fy: (frame.scrollTop + cy) / frame.scrollHeight, cx, cy };
+      onZoom(next);
+    };
+    frame.addEventListener("wheel", onWheel, { passive: false });
+    return () => frame.removeEventListener("wheel", onWheel);
+  }, [onZoom]);
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    // The wheel's point stays under the pointer; a button keeps the middle in the middle.
+    const half = { cx: frame.clientWidth / 2, cy: frame.clientHeight / 2 };
+    const a = anchor.current ?? { ...centre.current, ...half };
+    anchor.current = null;
+    frame.scrollLeft = a.fx * frame.scrollWidth - a.cx;
+    frame.scrollTop = a.fy * frame.scrollHeight - a.cy;
+  }, [zoom]);
+
+  const onScroll = () => {
+    const f = frameRef.current;
+    if (!f) return;
+    centre.current = { fx: (f.scrollLeft + f.clientWidth / 2) / f.scrollWidth, fy: (f.scrollTop + f.clientHeight / 2) / f.scrollHeight };
+  };
 
   const toPlan = (e: ReactPointerEvent): [number, number] | null => {
     const m = svgRef.current?.getScreenCTM();
@@ -127,6 +230,16 @@ export function VenuePlanCanvas({
     begin(e, { pointer: e.pointerId, mode: "resize", target, edges, base: null, latest: null });
   };
 
+  /** Space with a drag, or the middle button: pan the frame, before any area sees the pointer. */
+  const onPanStart = (e: ReactPointerEvent) => {
+    if (!(space && e.button === 0) && e.button !== 1) return;
+    if (drag.current !== null || !frameRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    drag.current = { pointer: e.pointerId, mode: "pan", from: [e.clientX, e.clientY], scroll: [frameRef.current.scrollLeft, frameRef.current.scrollTop] };
+    svgRef.current?.setPointerCapture(e.pointerId);
+  };
+
   const onBackground = (e: ReactPointerEvent) => {
     if (!usable(e)) return;
     if (tool === "select") {
@@ -140,6 +253,13 @@ export function VenuePlanCanvas({
   const onMove = (e: ReactPointerEvent) => {
     const d = drag.current;
     if (!d || e.pointerId !== d.pointer) return;
+    if (d.mode === "pan") {
+      const frame = frameRef.current;
+      if (!frame) return;
+      frame.scrollLeft = d.scroll[0] - (e.clientX - d.from[0]);
+      frame.scrollTop = d.scroll[1] - (e.clientY - d.from[1]);
+      return;
+    }
     const at = toPlan(e);
     if (!at) return;
     if (d.mode === "draw") {
@@ -148,14 +268,22 @@ export function VenuePlanCanvas({
       return;
     }
     d.base ??= latestPlan.current;
-    const next = d.mode === "move" ? moveBy(d.base, d.target, at[0] - d.from[0], at[1] - d.from[1]) : resizeTo(d.base, d.target, d.edges, at[0], at[1], foyerId);
-    d.latest = next;
-    onLive(next);
+    const r = rectOf(d.base, d.target);
+    if (!r) return;
+    const placed = place(d, d.base, r, at, e.altKey);
+    d.latest = placed.plan;
+    setGuides(placed.guides);
+    onLive(placed.plan);
   };
 
-  const moveBy = (base: VenuePlan, target: PlanTarget, dx: number, dz: number) => {
-    const r = rectOf(base, target);
-    return r ? moveTo(base, target, r[0] + dx, r[1] + dz, foyerId) : base;
+  /** Where a move or resize lands: lined up with other areas' edges, or (Alt held) on the grid alone. */
+  const place = (d: Extract<Drag, { mode: "move" | "resize" }>, base: VenuePlan, r: Rect, at: [number, number], free: boolean) => {
+    if (d.mode === "move") {
+      const x0 = r[0] + at[0] - d.from[0];
+      const z0 = r[1] + at[1] - d.from[1];
+      return free ? { plan: moveTo(base, d.target, x0, z0, foyerId), guides: NO_GUIDES } : moveSnapped(base, d.target, x0, z0, foyerId);
+    }
+    return free ? { plan: resizeTo(base, d.target, d.edges, at[0], at[1], foyerId), guides: NO_GUIDES } : resizeSnapped(base, d.target, d.edges, at[0], at[1], foyerId);
   };
 
   /** The gesture lands: on lifting the pointer, on a cancel, or when the browser takes the pointer away (the window lost focus). */
@@ -164,6 +292,8 @@ export function VenuePlanCanvas({
     if (!d || e.pointerId !== d.pointer) return;
     drag.current = null;
     setFrozen(null);
+    setGuides(NO_GUIDES);
+    if (d.mode === "pan") return;
     if (d.mode === "draw") {
       setDrawing(null);
       if (d.rect) onDrawn(d.rect);
@@ -186,14 +316,26 @@ export function VenuePlanCanvas({
   return (
     // Drawn to the full width (never under 760 px, owner Oct 24: a tall building fitted to the height came out
     // about 260 px wide), its height following the plan's shape; a tall plan scrolls inside the frame.
-    <div className="max-h-[80vh] overflow-auto rounded-md border">
+    // Zoomed, it is that many times as wide and the frame scrolls both ways.
+    <div
+      ref={frameRef}
+      className="max-h-[80vh] overflow-auto rounded-md border"
+      onScroll={onScroll}
+      onPointerEnter={() => {
+        overFrame.current = true;
+      }}
+      onPointerLeave={() => {
+        overFrame.current = false;
+      }}
+    >
       <svg
         ref={svgRef}
         viewBox={view.join(" ")}
-        style={{ aspectRatio: `${view[2]} / ${view[3]}` }}
-        className={cn("block w-full min-w-[760px] touch-none select-none bg-background", tool === "walkway" && "cursor-crosshair")}
+        style={{ aspectRatio: `${view[2]} / ${view[3]}`, width: `${zoom * 100}%`, minWidth: `${760 * zoom}px` }}
+        className={cn("block touch-none select-none bg-background", tool === "walkway" && "cursor-crosshair", space && "cursor-grab")}
         role="group"
         aria-label="Floor plan editor. Drag a room or walkway to move it; drag the handles of the selected one to resize it. Everything here can also be done from the panel beside the plan and the Add a walkway button."
+        onPointerDownCapture={onPanStart}
         onPointerDown={onBackground}
         onPointerMove={onMove}
         onPointerUp={end}
@@ -253,6 +395,12 @@ export function VenuePlanCanvas({
               />
             );
           })}
+        {guides.x.map((x) => (
+          <line key={`gx${x}`} x1={x} y1={view[1]} x2={x} y2={view[1] + view[3]} className="pointer-events-none stroke-fuchsia-500" strokeWidth={handle / 4} strokeDasharray={`${handle} ${handle / 2}`} />
+        ))}
+        {guides.z.map((z) => (
+          <line key={`gz${z}`} x1={view[0]} y1={z} x2={view[0] + view[2]} y2={z} className="pointer-events-none stroke-fuchsia-500" strokeWidth={handle / 4} strokeDasharray={`${handle} ${handle / 2}`} />
+        ))}
         {drawing && (
           <rect
             x={drawing[0]}

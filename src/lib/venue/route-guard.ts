@@ -9,8 +9,9 @@
  *      rooms are saved on the Venue tab and the event team opened it
  *      (event-venue.ts; 404 otherwise: a venue that is not switched on does
  *      not announce itself);
- *   4. for the event team's views (everyone's activity, reports, settings):
- *      `events.update` on the event, else 403.
+ *   4. for the event team's views (everyone's activity, reports, settings,
+ *      the preview of an unsaved floor plan): `events.update` on the event,
+ *      else 403.
  *
  * Registered with both route gates (it calls auth() and requirePermission()).
  */
@@ -20,6 +21,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { isVenueServed } from "@/lib/venue/event-venue";
+import { isVenueModuleEnabled } from "@/lib/module-flags";
+import { readVenueRooms } from "@/lib/venue/rooms";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { can } from "@/lib/permissions/can";
@@ -64,7 +67,12 @@ const EVENT_SELECT = {
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
 
 /** `by` is the event id (API routes) or its slug (the page). */
-export async function venueGuard(by: { id: string } | { slug: string }, route: string, opts: { team?: boolean } = {}): Promise<VenueGate> {
+/**
+ * `preview` (the floor plan editor's Preview in 3D, phase 2): the event team may
+ * walk an unsaved plan before the venue is opened, so step 3 asks only that the
+ * venue module is on and the rooms are saved. It implies `team`.
+ */
+export async function venueGuard(by: { id: string } | { slug: string }, route: string, opts: { team?: boolean; preview?: boolean } = {}): Promise<VenueGate> {
   const session = await auth();
   if (!session?.user) {
     apiLogger.warn({ msg: `${route}:unauthorized` });
@@ -91,14 +99,15 @@ export async function venueGuard(by: { id: string } | { slug: string }, route: s
       return { ok: false as const, response: notFound() };
     }
     const { staffAssignments, ...event } = row;
-    if (!isVenueServed(event)) {
+    const servable = opts.preview ? isVenueModuleEnabled() && !!readVenueRooms(event.settings) : isVenueServed(event);
+    if (!servable) {
       apiLogger.warn({ msg: `${route}:venue-not-enabled`, userId: session.user.id, eventId, slug: event.slug });
       return { ok: false as const, response: notFound() };
     }
     const team = can(principalFromSession(session), "events.update", {
       event: { organizationId: event.organizationId, eventType: event.eventType ?? "", staffUserIds: staffAssignments.map((a) => a.userId) },
     });
-    if (opts.team && !team) {
+    if ((opts.team || opts.preview) && !team) {
       apiLogger.warn({ msg: `${route}:not-event-team`, userId: session.user.id, eventId });
       return { ok: false as const, response: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
     }
