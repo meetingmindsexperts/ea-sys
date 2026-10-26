@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations: find by registration number, hide the stats at the desk, Exhibitor type sets the badge (October 26)
+
+- Owner, three asks. **Search:** digits alone in the Registrations search box (`2`, `002`, `#002`) find that registration number exactly, never every number containing the digits; anything else searches name, email and organisation as before. One parser (`src/lib/registration-search.ts`) serves the list and the CSV export's `q`, so the file still matches the screen.
+- **Hide stats:** a toggle above the Registrations stat cards, remembered on that browser (`use-stats-hidden.ts`), so an onsite laptop facing attendees keeps the totals hidden all day. The event overview page is unchanged.
+- **Exhibitor badge:** a registration on the registration type named Exhibitor gets badge type Exhibitor on every create and type change (`exhibitorBadgeData` in `badge-layout.ts`, spread into the service create and update, the public register and complete-registration routes, bulk type change, the CSV, contacts and EventsAir imports, group registration and the agent's bulk create). It always replaces the badge type, even one sent in the same edit (owner ruling); moving off the type leaves it alone, so a hand-set Exhibitor on another type survives. Before this, an exhibitor with a blank badge type printed DELEGATE with the delegate field set. Existing registrations were not changed.
+
 ### Venue: two floors, Ground and Level 1 (October 26)
 
 - Owner decisions F9 to F12 (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md, section 9): a drawn plan can put rooms and walkways on **Level 1** as well as **Ground**. The editor has a tab per floor, shows the other floor faintly underneath, and gives each room and walkway a **Floor** choice; the foyer stays on Ground.
