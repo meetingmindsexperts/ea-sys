@@ -507,6 +507,16 @@ function CategoryRegistrationContent() {
   // first one (a picker or a type has no focusable field for react-hook-form to
   // jump to) and name what is missing by the button. Also react-hook-form's
   // onInvalid. The 50ms lets the messages set in onSubmit reach the page.
+  // Changing step keeps the page's scroll position, and step 1 (with the
+  // welcome text) is far longer than step 2, so on a phone step 2 opened at
+  // its terms and button. Start each step at the top of the form instead.
+  function goToStep(next: 1 | 2) {
+    setStep(next);
+    requestAnimationFrame(() =>
+      document.getElementById(next === 2 ? "register-card" : "create-account")?.scrollIntoView({ block: "start" }),
+    );
+  }
+
   function showBlockedSubmit(errors?: FieldErrors<RegistrationForm>) {
     setSubmitNotice(null);
     const keys = errors ? Object.keys(errors) : [];
@@ -516,7 +526,8 @@ function CategoryRegistrationContent() {
     const accountKeys = keys.filter((k) => k === "email" || k === "password" || k === "confirmPassword");
     if (step === 2 && accountKeys.length > 0) {
       setStep(1);
-      toast.error("Please check your email and password, then press Continue.");
+      // At the top: a bottom toast sits over the Continue button on a phone.
+      toast.error("Please check your email and password, then press Continue.", { position: "top-center" });
     }
     setTimeout(() => {
       const notice = scrollToFirstFormError();
@@ -873,7 +884,7 @@ function CategoryRegistrationContent() {
 
       {/* Main Content */}
       <div className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-6">
-        <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
+        <div id="register-card" className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden scroll-mt-4">
           {/* Header */}
           <div className="px-4 sm:px-10 py-6 border-b border-slate-100">
             <h2 className="text-2xl font-bold text-slate-900">{formLabel} Registration</h2>
@@ -1020,7 +1031,7 @@ function CategoryRegistrationContent() {
                             console.warn("[register] check-email failed, continuing", err);
                           }
                           setEmailCheck({ state: "idle" });
-                          setStep(2);
+                          goToStep(2);
                         }}>
                         {emailCheck.state === "checking" ? (
                           <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking…</>
@@ -1716,7 +1727,7 @@ function CategoryRegistrationContent() {
 
                   {/* Navigation: full width on a phone, Complete first */}
                   <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between pt-2">
-                    <Button type="button" variant="outline" className="rounded-lg w-full sm:w-auto" onClick={() => setStep(1)}>
+                    <Button type="button" variant="outline" className="rounded-lg w-full sm:w-auto" onClick={() => goToStep(1)}>
                       <ChevronLeft className="mr-1 h-4 w-4" /> Back
                     </Button>
                     <Button type="submit" disabled={submitting} className="rounded-lg font-semibold btn-gradient px-8 text-base w-full sm:w-auto h-12 sm:h-10">

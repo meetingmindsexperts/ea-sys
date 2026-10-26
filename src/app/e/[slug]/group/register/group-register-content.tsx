@@ -254,7 +254,9 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
   // A tap that did not go through: say why by the button (and in a toast, as
   // before) and scroll to the section or member card to fix.
   const blockSubmit = (message: string, targetId: string) => {
-    toast.error(message);
+    // At the top: the page scrolls up to the section, and a bottom toast sat
+    // over the Register group button and the notice beside it on a phone.
+    toast.error(message, { position: "top-center" });
     setGroupNotice(null);
     setTimeout(() => {
       setGroupNotice(message);
