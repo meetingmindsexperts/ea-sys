@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { PaymentStatus, Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
+import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { rateLimited } from "@/lib/api-errors";
@@ -813,6 +814,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           },
           data: {
             ticketTypeId: ratedPlan.type.id,
+            ...exhibitorBadgeData(ratedPlan.type.name),
             pricingTierId: ratedPlan.tierId,
             originalPrice: ratedPlan.price,
             ...(ratedPlan.paymentStatus && { paymentStatus: ratedPlan.paymentStatus }),
@@ -858,6 +860,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           where: { id: registrationId, ticketTypeId: null },
           data: {
             ticketTypeId: resolvedType.id,
+            ...exhibitorBadgeData(resolvedType.name),
             pricingTierId: resolvedTier?.id ?? null,
             // Stamp the price so every money surface reads the rate agreed at
             // completion, not whatever the tier happens to be later.

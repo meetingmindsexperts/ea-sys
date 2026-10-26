@@ -271,6 +271,21 @@ describe("registrations CSV export", () => {
     expect(where.attendee.tags).toEqual({ hasSome: ["vip"] });
     expect(where.attendee.OR).toHaveLength(4);
   });
+
+  it("digits alone are a registration number, matched exactly, as the list does", async () => {
+    await call("export=csv&q=002");
+    const where = mockDb.registration.findMany.mock.calls[0][0].where;
+    expect(where.serialId).toBe(2);
+    // No name/email text filter rides along with a number.
+    expect(where.attendee).toBeUndefined();
+  });
+
+  it("a number with tags keeps the tag filter", async () => {
+    await call("export=csv&tags=vip&q=%2312");
+    const where = mockDb.registration.findMany.mock.calls[0][0].where;
+    expect(where.serialId).toBe(12);
+    expect(where.attendee).toEqual({ tags: { hasSome: ["vip"] } });
+  });
 });
 
 /**

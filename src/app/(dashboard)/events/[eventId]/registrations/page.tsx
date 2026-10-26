@@ -1,6 +1,8 @@
 "use client";
 
 import { useCan } from "@/hooks/use-can";
+import { useStatsHidden } from "@/hooks/use-stats-hidden";
+import { matchesRegistrationSearch } from "@/lib/registration-search";
 
 import { Fragment, useState } from "react";
 import { PayerDetailDialog } from "@/components/billing/payer-detail-dialog";
@@ -55,6 +57,7 @@ import {
   Mail,
   ListChecks,
   Eye,
+  EyeOff,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -246,6 +249,9 @@ export default function RegistrationsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
+  // The onsite desk hides the totals from attendees facing the laptop.
+  const [statsHidden, setStatsHidden] = useStatsHidden();
+
   // Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -349,13 +355,7 @@ export default function RegistrationsPage() {
 
   // Filter registrations
   const filteredRegistrations = registrations.filter((r) => {
-    const matchesSearch =
-      searchQuery === "" ||
-      r.attendee.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.attendee.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.attendee.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (r.attendee.organization &&
-        r.attendee.organization.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesSearch = matchesRegistrationSearch(r, searchQuery);
 
     const matchesStatus = statusFilter === "all" || r.status === statusFilter;
     const matchesPayment = paymentFilter === "all" || r.paymentStatus === paymentFilter;
@@ -667,7 +667,20 @@ export default function RegistrationsPage() {
         </div>
       )}
 
-      {/* Stats */}
+      {/* Stats, hideable for the onsite desk */}
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground"
+          onClick={() => setStatsHidden(!statsHidden)}
+        >
+          {statsHidden ? <Eye className="mr-2 h-4 w-4" /> : <EyeOff className="mr-2 h-4 w-4" />}
+          {statsHidden ? "Show stats" : "Hide stats"}
+        </Button>
+      </div>
+      {!statsHidden && (
       <div className="grid gap-4 md:grid-cols-5">
         <Card className="py-5">
           <CardContent className="px-5">
@@ -695,6 +708,7 @@ export default function RegistrationsPage() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Filters */}
       <Card>
@@ -704,7 +718,7 @@ export default function RegistrationsPage() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by name, email, or organization..."
+                  placeholder="Search by name, email, organization or reg no. (e.g. 002)"
                   value={searchQuery}
                   onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
                   className="pl-9"

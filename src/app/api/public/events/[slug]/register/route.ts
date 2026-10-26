@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, tenantTransaction } from "@/lib/db";
+import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { apiLogger } from "@/lib/logger";
@@ -702,6 +703,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           organizationId: event.organizationId,
           eventId: event.id,
           ticketTypeId,
+          ...exhibitorBadgeData(ticketType.name),
           pricingTierId: isVirtual ? null : pricingTier?.id || null,
           attendeeId: attendee.id,
           serialId,

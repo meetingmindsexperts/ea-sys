@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordImport } from "@/lib/audit-data-transfer";
@@ -567,6 +568,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               organizationId: orgGuard.orgId,
               eventId,
               ticketTypeId: ticketType?.id ?? null,
+              ...exhibitorBadgeData(ticketType?.name),
               attendeeId: attendee.id,
               serialId,
               createdSource: "CSV_IMPORT",

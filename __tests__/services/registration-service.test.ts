@@ -238,6 +238,17 @@ describe("createRegistration — happy path", () => {
     expect(regCreate.data.paymentStatus).toBe("UNASSIGNED");
   });
 
+  it("a registration on the Exhibitor type gets the Exhibitor badge type (Oct 26, 2026)", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...PAID_TICKET, name: "Exhibitor" });
+    await createRegistration(BASE_INPUT);
+    expect(mockDb.registration.create.mock.calls[0][0].data.badgeType).toBe("Exhibitor");
+  });
+
+  it("any other type leaves the badge type unset", async () => {
+    await createRegistration(BASE_INPUT);
+    expect(mockDb.registration.create.mock.calls[0][0].data).not.toHaveProperty("badgeType");
+  });
+
   it("defaults paymentStatus to COMPLIMENTARY for free tickets (price=0)", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue(FREE_TICKET);
     mockDb.registration.create.mockResolvedValue({

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
@@ -160,13 +161,13 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       if (unpaidIds.length > 0) {
         await tx.registration.updateMany({
           where: { id: { in: unpaidIds }, eventId },
-          data: { ticketTypeId, pricingTierId: null, originalPrice: Number(targetType.price) },
+          data: { ticketTypeId, ...exhibitorBadgeData(targetType.name), pricingTierId: null, originalPrice: Number(targetType.price) },
         });
       }
       if (settledIds.length > 0) {
         await tx.registration.updateMany({
           where: { id: { in: settledIds }, eventId },
-          data: { ticketTypeId, pricingTierId: null },
+          data: { ticketTypeId, ...exhibitorBadgeData(targetType.name), pricingTierId: null },
         });
       }
 

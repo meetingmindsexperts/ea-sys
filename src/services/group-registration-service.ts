@@ -40,6 +40,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
+import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { claimSeats, claimEventSeats, claimPromoUsage } from "@/lib/registration-seat-db";
 import { checkPromoUsable } from "@/lib/promo-validation";
 import { seatCounter, type SeatCounter } from "@/lib/registration-seat";
@@ -396,6 +397,7 @@ async function claimSeatsAndCreateMembers(
         eventId,
         groupId,
         ticketTypeId: m.ticketTypeId,
+        ...exhibitorBadgeData(pricing.name),
         pricingTierId: pricing.tierId,
         attendeeId: attendeeRecord.id,
         // The coordinator's own member row links their account so it

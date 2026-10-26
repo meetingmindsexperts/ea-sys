@@ -4,6 +4,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { getNextSerialId } from "@/lib/registration-serial";
+import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { generateBarcode, normalizeTag } from "@/lib/utils";
 import { holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
 import {
@@ -1052,6 +1053,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
               organizationId: ctx.organizationId,
               eventId: ctx.eventId,
               ticketTypeId: ticketType.id,
+              ...exhibitorBadgeData(ticketType.name),
               attendeeId: attendee.id,
               serialId,
               createdSource: "MCP_AGENT",

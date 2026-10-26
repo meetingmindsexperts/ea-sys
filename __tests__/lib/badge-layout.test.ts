@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import PDFDocument from "pdfkit";
 import {
+  exhibitorBadgeData,
   A4_W,
   BASE_BADGE_H,
   BASE_BADGE_W,
@@ -533,5 +534,18 @@ describe("exhibitor badge fields (Oct 20, 2026)", () => {
     expect(isExhibitorBadge(" exhibitor ")).toBe(true);
     expect(isExhibitorBadge("Exhibitors")).toBe(false);
     expect(isExhibitorBadge(null)).toBe(false);
+  });
+});
+
+describe("the Exhibitor registration type sets the badge type (Oct 26, 2026)", () => {
+  it("a type named Exhibitor, any case or spacing, gives badgeType Exhibitor", () => {
+    expect(exhibitorBadgeData("Exhibitor")).toEqual({ badgeType: "Exhibitor" });
+    expect(exhibitorBadgeData("  EXHIBITOR ")).toEqual({ badgeType: "Exhibitor" });
+  });
+
+  it("any other type, or none, writes nothing, so the stored badge type stays", () => {
+    for (const name of ["Physician", "Exhibitors", "Exhibitor Staff", "", null, undefined]) {
+      expect(exhibitorBadgeData(name)).toEqual({});
+    }
   });
 });

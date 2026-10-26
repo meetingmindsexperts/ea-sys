@@ -219,6 +219,25 @@ describe("guards + sentinels come back as result values", () => {
     const r = await updateRegistration({ ...base, ticketTypeId: "tt1" });
     expect(r.ok).toBe(true);
   });
+
+  // Owner, Oct 26, 2026: the Exhibitor registration type always sets the
+  // Exhibitor badge type, even over the badge type the edit form sent.
+  it("moving onto the Exhibitor type sets the Exhibitor badge type, over the one sent", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt-exh", isFaculty: false, name: " exhibitor " });
+    const r = await updateRegistration({ ...base, ticketTypeId: "tt-exh", badgeType: "Delegate" });
+    expect(r.ok).toBe(true);
+    const data = mockDb._tx.registration.updateMany.mock.calls.at(-1)![0].data;
+    expect(data.badgeType).toBe("Exhibitor");
+  });
+
+  it("moving onto another type leaves the badge type as sent (a hand-set Exhibitor survives)", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt-exh" }));
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt1", isFaculty: false, name: "Allied Health" });
+    const r = await updateRegistration({ ...base, ticketTypeId: "tt1" });
+    expect(r.ok).toBe(true);
+    const data = mockDb._tx.registration.updateMany.mock.calls.at(-1)![0].data;
+    expect(data).not.toHaveProperty("badgeType");
+  });
 });
 
 describe("post-commit fan-out", () => {

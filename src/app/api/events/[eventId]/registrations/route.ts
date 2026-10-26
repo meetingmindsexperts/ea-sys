@@ -36,6 +36,7 @@ import {
 } from "@/lib/registration-export";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { getSponsorNameMap } from "@/lib/sponsors";
+import { parseSerialQuery } from "@/lib/registration-search";
 import {
   createRegistration,
   type CreateRegistrationErrorCode,
@@ -235,7 +236,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     const qPattern = q?.replace(/[\\%_]/g, (c) => `\\${c}`) ?? null;
     // Attendee-level fragment only — merged with the tag filter below, since
     // both constrain the same nested relation.
-    const searchAttendeeWhere = qPattern
+    // Digits alone are a registration number, matched exactly, as the list does
+    // (registration-search.ts): then no attendee text filter applies.
+    const qSerial = q ? parseSerialQuery(q) : null;
+    const searchAttendeeWhere = qPattern && qSerial === null
       ? {
           OR: [
             { firstName: { contains: qPattern, mode: "insensitive" as const } },
@@ -339,12 +343,13 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(paymentStatus && { paymentStatus }),
           ...(ticketTypeId && { ticketTypeId }),
           ...(groupId && { groupId }),
+          ...(qSerial !== null && { serialId: qSerial }),
           ...sponsorWhere,
           // Tags and free-text search BOTH constrain `attendee`, so they must
           // be merged into one nested filter — spreading them as two `attendee`
           // keys would let the later one silently drop the earlier (the
           // "bad filter widens the result set" class we've fixed elsewhere).
-          ...(tagsFilter.length > 0 || q
+          ...(tagsFilter.length > 0 || (q && qSerial === null)
             ? {
                 attendee: {
                   ...(tagsFilter.length > 0 ? { tags: { hasSome: tagsFilter } } : {}),

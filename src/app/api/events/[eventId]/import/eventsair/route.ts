@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
+import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -192,6 +193,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               organizationId,
               eventId,
               ticketTypeId: defaultTicketType?.id ?? null,
+              ...exhibitorBadgeData(defaultTicketType?.name),
               attendeeId: attendee.id,
               serialId,
               createdSource: "CSV_IMPORT",

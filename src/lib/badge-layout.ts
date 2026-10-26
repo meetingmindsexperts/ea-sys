@@ -183,6 +183,20 @@ export function isExhibitorBadge(badgeType: string | null | undefined): boolean 
 }
 
 /**
+ * A registration on the registration type named "Exhibitor" gets the
+ * Exhibitor badge type (owner, Oct 26, 2026), which ALWAYS replaces the badge
+ * type it had: before this, an exhibitor whose badge type was left blank
+ * printed DELEGATE and got the delegate field set. Spread into the write
+ * wherever a registration is created or changes type:
+ *   data: { ticketTypeId, ...exhibitorBadgeData(ticketType.name) }
+ * Moving OFF the type leaves the badge type alone, so a hand-set Exhibitor on
+ * another type (a sponsor's rep on Allied Health) is never wiped.
+ */
+export function exhibitorBadgeData(ticketTypeName: string | null | undefined): { badgeType?: string } {
+  return isExhibitorBadge(ticketTypeName) ? { badgeType: EXHIBITOR_BADGE_ROLE } : {};
+}
+
+/**
  * The fields that print on THIS person's badge: the exhibitor set for an
  * exhibitor when the event has one, otherwise the event's own set. The one
  * place the choice is made, for the renderer, the preview and the warning.

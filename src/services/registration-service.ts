@@ -27,6 +27,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
+import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { claimSpareDtcmCode, type ClaimDtcmOutcome } from "@/lib/dtcm-pool";
@@ -903,6 +904,7 @@ export async function createRegistration(
           organizationId,
           eventId,
           ticketTypeId: ticketTypeId || null,
+          ...exhibitorBadgeData(ticketType?.name),
           pricingTierId: validPricingTierId,
           attendeeId: attendeeRecord.id,
           serialId,
@@ -1349,10 +1351,12 @@ export async function updateRegistration(
 
     // ── Ticket type (event-scoped — never trust the id alone) ────────────────
     const { ticketTypeId } = input;
+    // The new type's name, when the type changes: the Exhibitor type sets the badge type.
+    let newTicketTypeName: string | null = null;
     if (ticketTypeId && ticketTypeId !== existing.ticketTypeId) {
       const tt = await db.ticketType.findFirst({
         where: { id: ticketTypeId, eventId },
-        select: { id: true, isFaculty: true },
+        select: { id: true, isFaculty: true, name: true },
       });
       if (!tt) {
         apiLogger.warn({ msg: "registration-update:ticket-type-not-found", registrationId, ticketTypeId, source });
@@ -1361,6 +1365,7 @@ export async function updateRegistration(
       // Same rule as create (Oct 22, 2026, review M): the speakers' type is
       // never a destination. A delegate moved onto it drops out of every
       // delegate count and loses their profession; moving OFF it stays allowed.
+      newTicketTypeName = tt.name;
       if (tt.isFaculty) {
         apiLogger.warn({ msg: "registration-update:ticket-type-is-faculty", registrationId, ticketTypeId, source });
         return {
@@ -1531,6 +1536,8 @@ export async function updateRegistration(
         ...(input.badgeType !== undefined && { badgeType: input.badgeType }),
         ...(input.dtcmBarcode !== undefined && { dtcmBarcode: input.dtcmBarcode || null }),
         ...(ticketTypeId && { ticketTypeId }),
+        // After the badge type the form sent, so moving onto Exhibitor wins.
+        ...exhibitorBadgeData(newTicketTypeName),
         // Persist the resolved tier (undefined = leave unchanged) + re-stamped
         // price. A bare type change nulls the tier (tiers belong to a type) so
         // the stored row stays consistent with where its seat now lives.
