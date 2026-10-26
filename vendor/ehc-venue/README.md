@@ -77,6 +77,11 @@ Identity always comes from the runtime or your server, never from what another p
 
 ## Tests
 
+**EA-SYS:** the layout walking checks also run in Node, with no Python, and in CI (job `venue`):
+`npm run venue:build && npm run venue:walk` from the repo root walks every file in
+`tests/fixtures/layouts/` with `tests/walk.spec.ts` (the same `tests/layout_verify.js` as
+`test_layout.py`). The Python suites below are the vendor's own and still run by hand.
+
 ```
 pip install -r requirements-test.txt
 python3 -m playwright install chromium

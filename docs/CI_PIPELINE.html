@@ -66,6 +66,7 @@ concurrency group serializes deploys and a same-SHA redeploy is idempotent.
    │                                                                                   │
    │   (beside them, nothing waits on this:)                                           │
    │   sourcemaps        Sentry map upload (gated on `checks` only)        [non-gating] │
+   │   venue             3D venue page not stale + walk every layout        [non-gating] │
    └───────────────────────────────────────────────────────────────────────────────────┘
    │  needs: [checks, tests, build, tenancy, migration-replay]
    ▼
@@ -75,6 +76,7 @@ build-push    web ∥ worker image matrix → ECR (GitHub OIDC, no stored AWS ke
 deploy        SSH → box checks out the EXACT commit → scripts/deploy.sh blue-green ~2–3 min
    ▼
 notify-failure  (on failure of any gating job OR migration-replay) → SES page</code></pre>
+<p><strong>venue</strong> (Oct 26, 2026, venue hardening step 1): rebuilds the online venue page with the Node builder and fails when the committed copy in <code>src/lib/venue/page-html.generated.json</code> is stale, then walks every layout fixture in Chromium with <code>npm run venue:walk</code> (doorways, every route on each floor, stairs and lifts, every hotspot, the camera; about 20&nbsp;s). Non-gating under the standing five-consecutive-green rule; promote it into <code>build-push</code>'s <code>needs</code> after five greens.</p>
 <p><strong>Old shape:</strong> one serial <code>ci</code> job (~5–6 min) ran all of checks/tests/build in a row. The split (owner decision, July 22) trades a few extra billed runner-minutes + duplicated setup blocks for ~2–2.5 min less wall clock per deploy. Every gate that blocked image builds before still blocks them — <code>build-push</code> needs all three.</p>
 </div>
 

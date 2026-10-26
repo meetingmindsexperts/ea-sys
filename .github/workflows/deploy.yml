@@ -422,6 +422,58 @@ jobs:
   # latency; a failure here shows red in the Actions tab but neither blocks the
   # deploy nor fires the deploy-failed page (that alert says "the box may be
   # half-deployed", which would be false for a map-upload hiccup).
+  venue:
+    name: Online venue (bundle + walking checks)
+    # Venue hardening step 1 (Oct 26, 2026). The 3D venue is plain JS under
+    # vendor/ehc-venue/src, joined into one page that the app serves from a
+    # committed file. Until now nothing in CI built or walked it: the vendor's
+    # checks were Python and were run by hand. This job (1) rebuilds the page
+    # with the Node builder and fails when the committed copy is stale, and
+    # (2) walks every layout fixture in a real browser: doorways, every route
+    # on each floor, stairs and lifts, every hotspot, the camera.
+    # NON-GATING for now, per the standing >=5-consecutive-green rule; it is not
+    # in needs: of build-push nor in notify-failure (whose wording assumes a
+    # deploy problem). Promote it to build-push's needs after five greens.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: The committed venue page matches its sources
+        run: |
+          node scripts/venue-build.mjs --node
+          git diff --exit-code -- vendor/ehc-venue/dist/index.html src/lib/venue/page-html.generated.json src/lib/venue/persona-vocab.generated.json \
+            || { echo "::error::The venue page is out of date with vendor/ehc-venue/src. Run npm run venue:build and commit the result."; exit 1; }
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Walk every layout
+        run: npm run venue:walk
+
   sourcemaps:
     name: Sentry source maps
     # Gated on the cheap checks job only (was: the whole serial ci) — starts

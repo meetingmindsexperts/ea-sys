@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: the 3D venue is built and walked in CI (October 26)
+
+- Venue hardening step 1. A new non-gating CI job, `venue`, rebuilds the online venue page from `vendor/ehc-venue/src` and fails when the committed copy is stale, then walks every layout fixture in Chromium (`npm run venue:walk`, `vendor/ehc-venue/tests/walk.spec.ts`): doorways, every route on each floor, stairs and lifts, every hotspot and the camera. Until now these checks were Python and ran only by hand. Proven by reintroducing the Level 1 door bug, which it fails on. Promote to gating after five green runs.
+
 ### Registration form: survives a reload, and a hidden step-1 error goes back to step 1 (October 26)
 
 - Owner, testing MMF2026: "Please check the highlighted fields" came up with every field filled. On the details step the only fields not on screen are step 1's email, password and confirm password, so a refusal there showed nothing. Now the form goes back to step 1 with the message showing and a toast ("Please check your email and password, then press Continue"). When nothing on the page explains a refusal, the field NAMES (never values) go to Sentry as `public-register:error-not-on-page`, so the case can be found.
