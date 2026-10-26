@@ -57,6 +57,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ALL_FORM_FIELDS_SHOWN, OPTIONAL_FORM_FIELDS, readFormFields, type FormFieldVisibility } from "@/lib/registration-form-fields";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Settings,
@@ -302,6 +304,9 @@ export default function EventSettingsPage() {
     showRemainingTickets: false,
   });
 
+  // Optional attendee fields the forms show (registration-form-fields.ts); all shown until unticked.
+  const [formFields, setFormFields] = useState<FormFieldVisibility>(ALL_FORM_FIELDS_SHOWN);
+
   const [agendaSettings, setAgendaSettings] = useState({
     agendaPublished: false,
   });
@@ -462,6 +467,7 @@ export default function EventSettingsPage() {
           maxAttendees: data.maxAttendees ?? 0,
           showRemainingTickets: settings.showRemainingTickets ?? false,
         });
+        setFormFields(readFormFields(settings));
 
         setAgendaSettings({
           agendaPublished: settings.agendaPublished ?? settings.programmePublished ?? false,
@@ -796,6 +802,7 @@ export default function EventSettingsPage() {
             ...abstractSettings,
             ...notificationSettings,
             groupRegistration: groupSettings,
+            formFields,
             abstractDeadline: wallTimeInTzToIso(abstractSettings.abstractDeadline, eventTimezone),
             // Sent raw; readAbstractLimits clamps and falls back, so a blank or
             // silly value can never brick submissions.
@@ -1581,6 +1588,25 @@ export default function EventSettingsPage() {
               />
             </div>
 
+          </SettingsCard>
+
+          <SettingsCard
+            title="Optional fields on the registration form"
+            description="Untick a field to leave it off the forms attendees fill in: registration, the complete-registration link and their own edit page. Staff forms keep every field, and answers already given are kept."
+            contentClassName="space-y-3"
+          >
+            {OPTIONAL_FORM_FIELDS.map((f) => (
+              <div key={f.key} className="flex items-center gap-3">
+                <Checkbox
+                  id={`form-field-${f.key}`}
+                  checked={formFields[f.key]}
+                  onCheckedChange={(checked) => setFormFields((prev) => ({ ...prev, [f.key]: checked === true }))}
+                />
+                <Label htmlFor={`form-field-${f.key}`} className="font-normal">
+                  Ask for {f.label.toLowerCase()}
+                </Label>
+              </div>
+            ))}
           </SettingsCard>
 
           <SettingsCard

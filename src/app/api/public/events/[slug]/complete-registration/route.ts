@@ -1,3 +1,4 @@
+import { readFormFields } from "@/lib/registration-form-fields";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { PaymentStatus, Prisma } from "@prisma/client";
@@ -344,8 +345,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
-    // The settings JSON is internal: never part of this public response.
-    const { settings: eventSettings, ...publicEvent } = registration.event;
+    // The settings JSON is internal: never part of this public response. Only
+    // which optional fields the form shows leaves it (registration-form-fields.ts).
+    const { settings: eventSettings, ...eventFields } = registration.event;
+    const publicEvent = { ...eventFields, formFields: readFormFields(eventSettings) };
 
     // Check if already completed (user account linked)
     if (registration.userId) {

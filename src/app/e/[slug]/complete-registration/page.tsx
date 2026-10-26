@@ -1,5 +1,6 @@
 "use client";
 
+import { showsField, type FormFieldVisibility } from "@/lib/registration-form-fields";
 import { Suspense, useState, useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { EventBannerBand } from "@/components/public/event-banner";
@@ -76,6 +77,8 @@ interface PrefilledData {
     registrationTermsHtml: string | null;
     supportEmail: string | null;
     organization: { name: string; logo: string | null };
+    /** Optional attendee fields the organiser left on the form; absent = all shown. */
+    formFields?: Partial<FormFieldVisibility>;
   };
   // Null when the registration has no registration type yet (e.g. imported
   // from a file with no registrationType column). Reading `.name` off this
@@ -599,6 +602,7 @@ function CompleteRegistrationContent() {
                     )}
                   </div>
 
+                  {showsField(event.formFields, "dietaryReqs") && (
                   <FormField control={form.control} name="dietaryReqs"
                     render={({ field }) => (
                       <FormItem>
@@ -607,6 +611,7 @@ function CompleteRegistrationContent() {
                         <FormMessage />
                       </FormItem>
                     )} />
+                  )}
                 </div>
 
                 {/* Section: Member Details (conditional) */}

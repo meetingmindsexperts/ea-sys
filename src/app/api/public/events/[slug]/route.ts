@@ -1,3 +1,4 @@
+import { readFormFields } from "@/lib/registration-form-fields";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -283,6 +284,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       // the organizer explicitly enabled it AND the tier/type has a real seat
       // limit (quantity < 999999 sentinel).
       showRemainingTickets: settings.showRemainingTickets === true,
+      // Which optional attendee fields the forms show (Settings → Registration;
+      // src/lib/registration-form-fields.ts). Shown unless switched off.
+      formFields: readFormFields(event.settings),
       // Which tier names the main /register link may land on, in order
       // (Settings → Registration; src/lib/main-register-tiers.ts).
       mainRegisterTiers: readMainRegisterTiers(event.settings),

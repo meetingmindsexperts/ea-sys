@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registration: organisers choose whether to ask for State, Zip and dietary requirements (October 26)
+
+- **Settings → Registration → Optional fields on the registration form** has
+  a checkbox each for State / Province, Zip / Postal code and Dietary
+  requirements. All are ticked on every existing event, so no form changes
+  until an organiser unticks one.
+- An unticked field leaves the forms attendees fill in: public registration,
+  the complete-registration link and the My Registration edit page. Staff
+  forms in the dashboard keep every field, answers already given are kept,
+  and the billing State and Zip in the payment step are unaffected.
+- Stored as `Event.settings.formFields` (`src/lib/registration-form-fields.ts`,
+  shown unless exactly `false`), returned by the two public event endpoints,
+  and copied when an event is cloned.
+
 ### My Registration on a phone, and titles printed as "Dr." (October 26)
 
 - Owner screenshot: on the registrant's My Registration page the barcode card ran off the right edge (its email button cut off) and the name read "DR Krishna ...". The card now stacks on a phone (ID, barcode, then full-width buttons), the barcode shrinks to fit a 320px screen, the details are one column with long emails wrapping, the edit form and its Save / Cancel row stack, and the page gets the public-form phone sizes.

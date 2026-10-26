@@ -1,5 +1,6 @@
 "use client";
 
+import { showsField, type FormFieldVisibility } from "@/lib/registration-form-fields";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -141,6 +142,8 @@ interface Event {
   agendaPublished?: boolean;
   /** "Show Remaining Tickets" toggle (opt-in, hidden by default). */
   showRemainingTickets?: boolean;
+  /** Optional attendee fields the organiser left on the form (registration-form-fields.ts); absent = all shown. */
+  formFields?: Partial<FormFieldVisibility>;
   /** Event-wide attendee cap reached (Settings → Maximum Attendees). */
   eventFull?: boolean;
 }
@@ -1142,7 +1145,9 @@ function CategoryRegistrationContent() {
                           </FormItem>
                         )} />
                     </div>
+                    {(showsField(event.formFields, "state") || showsField(event.formFields, "zipCode")) && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {showsField(event.formFields, "state") && (
                       <FormField control={form.control} name="state"
                         render={({ field }) => (
                           <FormItem>
@@ -1151,6 +1156,8 @@ function CategoryRegistrationContent() {
                             <FormMessage />
                           </FormItem>
                         )} />
+                      )}
+                      {showsField(event.formFields, "zipCode") && (
                       <FormField control={form.control} name="zipCode"
                         render={({ field }) => (
                           <FormItem>
@@ -1159,7 +1166,9 @@ function CategoryRegistrationContent() {
                             <FormMessage />
                           </FormItem>
                         )} />
+                      )}
                     </div>
+                    )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FormField control={form.control} name="specialty"
@@ -1195,6 +1204,7 @@ function CategoryRegistrationContent() {
                             </FormItem>
                           )} />
                       )}
+                      {showsField(event.formFields, "dietaryReqs") && (
                       <FormField control={form.control} name="dietaryReqs"
                         render={({ field }) => (
                           <FormItem>
@@ -1203,6 +1213,7 @@ function CategoryRegistrationContent() {
                             <FormMessage />
                           </FormItem>
                         )} />
+                      )}
                     </div>
                   </div>
 

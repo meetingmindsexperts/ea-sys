@@ -1,5 +1,6 @@
 "use client";
 
+import { showsField, type FormFieldVisibility } from "@/lib/registration-form-fields";
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
@@ -52,6 +53,8 @@ interface Event {
   bannerImageMobile?: string | null;
   footerHtml: string | null;
   organization: { name: string };
+  /** Optional attendee fields the organiser left on the form; absent = all shown. */
+  formFields?: Partial<FormFieldVisibility>;
 }
 
 interface Registration {
@@ -704,7 +707,9 @@ export default function EventMyRegistrationPage() {
                         <div className="space-y-1"><Label className="text-xs">Specialty</Label><SpecialtySelect value={editData.specialty || ""} onChange={(v) => setEditData({ ...editData, specialty: v })} /></div>
                         <div className="space-y-1"><Label className="text-xs">Role</Label><RoleSelect value={editData.role || ""} onChange={(v) => setEditData({ ...editData, role: v })} /></div>
                       </div>
-                      <div className="space-y-1"><Label className="text-xs">Dietary Requirements</Label><Input value={editData.dietaryReqs || ""} onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })} /></div>
+                      {showsField(event?.formFields, "dietaryReqs") && (
+                        <div className="space-y-1"><Label className="text-xs">Dietary Requirements</Label><Input value={editData.dietaryReqs || ""} onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })} /></div>
+                      )}
                       {(editData.associationName || editData.memberId) && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div className="space-y-1"><Label className="text-xs">Association Name</Label><Input value={editData.associationName || ""} onChange={(e) => setEditData({ ...editData, associationName: e.target.value })} placeholder="e.g. AMA" /></div>
