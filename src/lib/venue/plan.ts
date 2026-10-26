@@ -51,7 +51,7 @@ export interface PlanCorridor {
 }
 
 /** What can stand in a room or walkway besides its own furniture (floor plan editor, owner Oct 24). */
-export const FIXTURE_KINDS = ["stairs", "lift", "toilets", "exit", "pillar", "catering"] as const;
+export const FIXTURE_KINDS = ["stairs", "lift", "toilets", "exit", "pillar", "catering", "registration", "photo-wall", "banner"] as const;
 export type FixtureKind = (typeof FIXTURE_KINDS)[number];
 
 export const FIXTURE_INFO: Record<FixtureKind, { label: string; size: [number, number]; solid: boolean; help: string }> = {
@@ -61,6 +61,10 @@ export const FIXTURE_INFO: Record<FixtureKind, { label: string; size: [number, n
   exit: { label: "Emergency exit", size: [2, 0.4], solid: false, help: "An exit sign over a door; put it against a wall, facing the arrow." },
   pillar: { label: "Pillar", size: [0.8, 0.8], solid: true, help: "A column people walk around." },
   catering: { label: "Catering point", size: [5, 1.2], solid: true, help: "A coffee and lunch counter; staff stand behind it, guests come from the arrow's side." },
+  // Owner, Oct 26: more for the foyer and any room.
+  registration: { label: "Registration counter", size: [6, 1.2], solid: true, help: "An extra staffed counter where delegates collect badges; guests come from the arrow's side." },
+  "photo-wall": { label: "Photo wall", size: [4, 0.4], solid: true, help: "A backdrop with the event's name for photos; people pose on the arrow's side." },
+  banner: { label: "Standing banner", size: [1, 0.4], solid: true, help: "A roll-up banner showing its name; it faces the arrow." },
 };
 
 export interface PlanFixture {
@@ -132,7 +136,7 @@ export const planSchema = z.object({
   // Plans saved before fixtures existed have none.
   fixtures: z
     .array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), kind: z.enum(FIXTURE_KINDS), name: z.string().trim().max(60), rect: fixtureRect, dir: z.enum(PLAN_WALLS), floor: floorSchema }))
-    .max(PLAN_MAX_FIXTURES, `A plan has at most ${PLAN_MAX_FIXTURES} stairs, lifts, toilets, exits, pillars and catering points`)
+    .max(PLAN_MAX_FIXTURES, `A plan has at most ${PLAN_MAX_FIXTURES} stairs, lifts, counters and other fixtures, on both floors together`)
     .default([]),
 });
 
@@ -302,6 +306,16 @@ export function floorLinks(plan: VenuePlan): { lower: PlanFixture; upper: PlanFi
   return links;
 }
 
+/** The point `d` metres out from the middle of the side a fixture faces. */
+function frontOf(f: PlanFixture, d: number): [number, number] {
+  const [x0, z0, x1, z1] = f.rect;
+  const [cx, cz] = [(x0 + x1) / 2, (z0 + z1) / 2];
+  if (f.dir === "n") return [cx, z0 - d];
+  if (f.dir === "s") return [cx, z1 + d];
+  if (f.dir === "w") return [x0 - d, cz];
+  return [x1 + d, cz];
+}
+
 /** `inner` lies wholly inside `outer`. */
 const within = (inner: Rect, outer: Rect) => inner[0] >= outer[0] - EPS && inner[1] >= outer[1] - EPS && inner[2] <= outer[2] + EPS && inner[3] <= outer[3] + EPS;
 
@@ -362,6 +376,14 @@ export function planIssues(rooms: VenueRoom[], plan: VenuePlan): string[] {
     }
   }
 
+  // A counter or photo wall is used from the side it faces, so that side must open into the room (review MED).
+  for (const f of plan.fixtures) {
+    if (f.kind !== "registration" && f.kind !== "photo-wall") continue;
+    const host = areas.find((a) => a.floor === floorOf(f) && within(f.rect, a.rect));
+    const [x, z] = frontOf(f, 1.5);
+    if (host && !(x > host.rect[0] && x < host.rect[2] && z > host.rect[1] && z < host.rect[3])) issues.push(`${labelOf(f)} faces a wall. Turn it so its arrow points into the room.`);
+  }
+
   const foyer = rooms.find((r) => r.kind === "foyer");
   const foyerPlaced = foyer ? placed.get(foyer.id) : undefined;
   if (foyerPlaced && floorOf(foyerPlaced) !== "ground") issues.push(`${foyer!.name} is the way in, so it stays on the ground floor`);
@@ -379,7 +401,9 @@ export function planIssues(rooms: VenueRoom[], plan: VenuePlan): string[] {
     for (const f of plan.fixtures) {
       if (floorOf(f) !== "level-1" || !LINKING.has(f.kind) || joined.has(f.id)) continue;
       const kind = FIXTURE_INFO[f.kind].label.toLowerCase();
-      issues.push(`${labelOf(f)} on Level 1 has no ${kind} under it on the ground floor. Draw them in the same place on both floors.`);
+      const below = areas.some((a) => a.floor === "ground" && within(f.rect, a.rect));
+      const first = below ? "Select it and click" : "Draw a room or walkway on the ground floor under it, then select it and click";
+      issues.push(`${labelOf(f)} on Level 1 has no ${kind} under it on the ground floor. ${first} "Put the matching ${kind} on Ground".`);
     }
     if (!plan.fixtures.some((f) => floorOf(f) === "level-1" && LINKING.has(f.kind))) issues.push("Level 1 needs stairs or a lift, drawn in the same place on both floors");
   }

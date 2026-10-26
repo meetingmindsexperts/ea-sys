@@ -330,14 +330,26 @@ const FIXTURE_CLEARANCE = 0.3;
  * left are numbered again from 1, since stand n carries the nth sponsor.
  */
 function placeFixtures(plan: VenuePlan, zones: LayoutZone[], out: Out) {
+  const placed: { f: PlanFixture; zone: LayoutZone }[] = [];
   for (const f of plan.fixtures) {
     const zone = zones.find((z) => f.rect[0] >= z.rect[0] - EPS && f.rect[1] >= z.rect[1] - EPS && f.rect[2] <= z.rect[2] + EPS && f.rect[3] <= z.rect[3] + EPS);
     if (!zone) continue;
+    placed.push({ f, zone });
     const info = FIXTURE_INFO[f.kind];
     const [x0, z0, x1, z1] = f.rect.map(r2);
     if (info.solid) {
       const keep: Rect = [x0 - FIXTURE_CLEARANCE, z0 - FIXTURE_CLEARANCE, x1 + FIXTURE_CLEARANCE, z1 + FIXTURE_CLEARANCE];
-      out.items = out.items.filter((it) => it.zone !== zone.id || it.t === "fixture" || it.t === "sign" || it.t === "screen" || !hits(boxOf(it.foot), keep));
+      const covered = (it: LayoutItem) => it.zone === zone.id && it.t !== "fixture" && it.t !== "sign" && it.t !== "screen" && hits(boxOf(it.foot), keep);
+      // A registration counter put over one of the foyer's own desks takes that desk's place: its staff and its
+      // prompt go with it (Oct 26). Any other fixture only clears the floor it stands on, as before.
+      if (f.kind === "registration") {
+        for (const d of out.items.filter((it): it is Extract<LayoutItem, { t: "desk" }> => it.t === "desk" && it.zone === zone.id && hits(boxOf(it.foot), [x0, z0, x1, z1]))) {
+          const [dx0, dz0, dx1, dz1] = boxOf(d.foot);
+          out.people = out.people.filter((p) => p.role !== "staff" || !inside([dx0 - 1.5, dz0 - 1.5, dx1 + 1.5, dz1 + 1.5], p.x, p.z));
+          out.hotspots = out.hotspots.filter((h) => h.id !== d.title);
+        }
+      }
+      out.items = out.items.filter((it) => !covered(it));
       out.people = out.people.filter((p) => !hits([p.x - 0.3, p.z - 0.3, p.x + 0.3, p.z + 0.3], keep));
       const blocked = out.hotspots.filter((h) => hits([h.x - 0.5, h.z - 0.5, h.x + 0.5, h.z + 0.5], keep));
       out.hotspots = out.hotspots.filter((h) => !blocked.includes(h));
@@ -348,7 +360,39 @@ function placeFixtures(plan: VenuePlan, zones: LayoutZone[], out: Out) {
     const down = f.kind === "stairs" && floorOf(f) !== "ground";
     out.items.push({ t: "fixture", zone: zone.id, solid: info.solid, foot: { x0, z0, x1, z1 }, kind: f.kind, name: f.name || info.label, yaw: FACING[f.dir], ...(down && { down }) });
   }
+  // Staff and prompts only once every fixture stands, so none lands on a fixture listed after it (review LOW).
+  const solids = placed.filter(({ f }) => FIXTURE_INFO[f.kind].solid).map(({ f }) => f.rect);
+  for (const { f, zone } of placed) serveFixture(f, f.name || FIXTURE_INFO[f.kind].label, zone.rect, solids, out);
   renumberStands(out);
+}
+
+/**
+ * Who works at a fixture and what a visitor can do there: a registration counter is staffed and hands out
+ * badges, a photo wall takes a photo. Both from the side it faces (the guests' side); staff stand behind.
+ */
+function serveFixture(f: PlanFixture, name: string, room: Rect, solids: Rect[], out: Out) {
+  if (f.kind !== "registration" && f.kind !== "photo-wall") return;
+  const [x0, z0, x1, z1] = f.rect;
+  const into = INWARD[OPPOSITE[f.dir]];
+  const [cx, cz] = [(x0 + x1) / 2, (z0 + z1) / 2];
+  const half = into.dx ? (x1 - x0) / 2 : (z1 - z0) / 2;
+  const front: [number, number] = [r2(cx + into.dx * (half + 1.5)), r2(cz + into.dz * (half + 1.5))];
+  if (f.kind === "photo-wall") {
+    // `face`: the photo is taken facing away from the wall, so the camera stands in front and the wall is behind you.
+    out.hotspots.push({ id: `photo-${f.id}`, x: front[0], z: front[1], r: 2.2, kind: "info", prompt: "Take a photo here", title: name, body: "", action: "photo", face: FACING[f.dir] });
+    return;
+  }
+  // Staff along the back, about one per three metres of counter, facing the guests.
+  const along = into.dx ? z1 - z0 : x1 - x0;
+  const staff = Math.max(1, Math.round(along / 3));
+  for (let i = 0; i < staff; i++) {
+    const t = (i + 0.5) / staff;
+    const [px, pz] = into.dx ? [cx - into.dx * (half + 0.7), z0 + t * along] : [x0 + t * along, cz - into.dz * (half + 0.7)];
+    // A counter against a wall has no room behind it: no one stands in the wall, or in another fixture.
+    const clear = !solids.some((r) => hits([px - 0.3, pz - 0.3, px + 0.3, pz + 0.3], r));
+    if (inside(room, px, pz) && clear) out.people.push({ x: r2(px), z: r2(pz), yaw: r2(Math.atan2(into.dx, into.dz)), pose: "stand", role: "staff" });
+  }
+  out.hotspots.push({ id: `desk-${f.id}`, x: front[0], z: front[1], r: 3, kind: "info", prompt: "Collect your badge", title: name, body: "Delegates collect their badges here." });
 }
 
 /** Stands numbered 1, 2, 3 in order again, with their visit points, after some were dropped. */

@@ -354,3 +354,9 @@ floor it is drawn on, stairs join neighbouring floors). F11 a short fade. F12 tw
 - **Directions:** the AI attendees hear which rooms are upstairs and how to get there; the scripted
   directions say "on Level 1, off the ...".
 
+**Follow-up, Oct 26 (owner):** stacking stairs by hand was the hard part ("Stairs on Level 1 has no stairs
+under it"), so a selected unmatched stair or lift offers **Put the matching stairs on Ground / Level 1**
+(`missingPartner`, `addPartner` in plan-edit.ts), and adding one lands it over an unmatched one on the other
+floor. Three fixtures for customising rooms came with it: registration counter (staffed, badge prompt),
+photo wall (E takes a photo, hotspot `action: "photo"`) and standing banner.
+

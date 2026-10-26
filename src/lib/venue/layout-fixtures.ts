@@ -91,6 +91,10 @@ export const PLAN_FIXTURES: Record<string, { rooms: VenueRoom[]; plan: VenuePlan
         { id: "lift-1", kind: "lift", name: "Lift", floor: "level-1", rect: [9.4, -13.5, 12, -10.9], dir: "w" },
         { id: "stairs-g", kind: "stairs", name: "", rect: [1.5, -9, 4.5, -3], dir: "n" },
         { id: "stairs-1", kind: "stairs", name: "", floor: "level-1", rect: [1.5, -9, 4.5, -3], dir: "n" },
+        // Owner, Oct 26: a second registration counter, a photo wall and a banner in the foyer.
+        { id: "registration-1", kind: "registration", name: "Faculty registration", rect: [-6, 8, 0, 9.2], dir: "s" },
+        { id: "photo-wall-1", kind: "photo-wall", name: "", rect: [-11.8, 10, -11.4, 14], dir: "e" },
+        { id: "banner-1", kind: "banner", name: "Welcome", rect: [9, 15, 10, 15.4], dir: "s" },
       ],
     },
   },

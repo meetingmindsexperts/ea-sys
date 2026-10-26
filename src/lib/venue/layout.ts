@@ -120,6 +120,10 @@ export interface LayoutHotspot {
   kind: "info" | "screen" | "stand" | "floor";
   /** A "floor" hotspot (stairs or a lift): where taking it puts you, as x, z and the yaw you face. */
   to?: [number, number, number];
+  /** What E does instead of opening the info sheet: "photo" takes a photo (a photo wall). */
+  action?: "photo";
+  /** With `action: "photo"`: the yaw to face for the photo, away from the wall, so the wall is behind you. */
+  face?: number;
 }
 
 export interface VenueLayout {

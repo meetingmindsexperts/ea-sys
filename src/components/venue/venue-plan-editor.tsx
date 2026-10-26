@@ -56,7 +56,9 @@ import {
 import { floorLayout, layoutFromPlan } from "@/lib/venue/plan-layout";
 import {
   addFixture,
+  addPartner,
   canAddFixture,
+  missingPartner,
   removeFixture,
   setFixture,
   addWalkway,
@@ -267,6 +269,17 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
     setFloor(to);
     setSelected({ kind: "room", id });
   };
+  // The selected stair or lift's missing partner on the other floor, and whether that floor has room for it there.
+  const partnerFloor = selected?.kind === "fixture" ? missingPartner(hist.plan, selected.id) : null;
+  const partnerFits = !!(partnerFloor && selected && addPartner(hist.committed, selected.id));
+  const addMatching = () => {
+    const added = selected && addPartner(hist.committed, selected.id);
+    if (!added || !partnerFloor) return;
+    push(added.plan);
+    setServerIssues([]);
+    setFloor(partnerFloor);
+    setSelected({ kind: "fixture", id: added.id });
+  };
   /** Move the selected room or walkway to the other floor, and follow it there. */
   const moveToFloor = (t: PlanTarget, to: PlanFloor) => {
     push(toFloor(hist.committed, t, to, foyerId));
@@ -293,6 +306,20 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
   }, [selected, plan, change]);
 
   const addFixtureOf = (kind: FixtureKind) => {
+    // A stair or lift goes over one on the other floor that has no partner yet, so the two join at once.
+    // The whole plan's count, both floors: the limit is on the plan, not on one floor (review MED).
+    if (!canAddFixture(hist.committed)) return;
+    const matched = hist.committed.fixtures
+      .filter((g) => g.kind === kind && missingPartner(hist.committed, g.id) === floor)
+      .map((g) => addPartner(hist.committed, g.id))
+      .find((m) => m !== null);
+    if (matched) {
+      push(matched.plan);
+      setServerIssues([]);
+      setTool("select");
+      setSelected({ kind: "fixture", id: matched.id });
+      return;
+    }
     // In the selected room or walkway, else the foyer: somewhere the organiser is looking.
     const host = selected && selected.kind !== "fixture" ? rectOf(plan, selected) : (plan.rooms.find((p) => p.id === foyerId)?.rect ?? null);
     const added = addFixture(plan, kind, host);
@@ -472,7 +499,7 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" disabled={!canAddFixture(plan)}>
+                <Button size="sm" variant="outline" disabled={!canAddFixture(hist.plan)}>
                   <Plus className="h-4 w-4" aria-hidden />
                   Add stairs, lift, toilets…
                 </Button>
@@ -540,6 +567,7 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
               floor={floor}
               onMoveToFloor={moveToFloor}
               onPlace={placeOnPlan}
+              partner={partnerFloor && { floor: partnerFloor, fits: partnerFits, add: addMatching }}
             />
           </div>
           <Status ok={ok} checking={checking} problems={problems} warnings={verdict.warnings} />
@@ -677,6 +705,7 @@ function PlanPanel({
   floor,
   onMoveToFloor,
   onPlace,
+  partner,
 }: {
   plan: VenuePlan;
   rooms: VenueRoom[];
@@ -693,6 +722,8 @@ function PlanPanel({
   onMoveToFloor: (t: PlanTarget, floor: PlanFloor) => void;
   /** Put a room on the list onto the plan. */
   onPlace: (id: string) => void;
+  /** A selected stair or lift with nothing in the same place on the other floor: that floor, and adding one there. */
+  partner: { floor: PlanFloor; fits: boolean; add: () => void } | null;
 }) {
   const rect = selected ? rectOf(plan, selected) : null;
   if (!selected || !rect) {
@@ -788,6 +819,7 @@ function PlanPanel({
         </div>
       )}
       {fixture && <FixtureFields key={`${key}-${fixture.name}-${fixture.dir}`} id={key} plan={plan} fixture={fixture} onChange={onChange} />}
+      {fixture && partner && <PartnerField kind={fixture.kind} partner={partner} />}
       <fieldset className="grid grid-cols-2 gap-2">
         <legend className="mb-1 text-xs font-medium">Size and place (metres)</legend>
         <MetreField key={`${key}-w-${w}`} id={`${key}-w`} label="Width (west to east)" value={w} min={minSide} onCommit={(n) => onChange(setSize(plan, selected, n, d, foyerId))} />
@@ -856,6 +888,23 @@ function SelectedKind({ room, fixture }: { room: VenueRoom | undefined; fixture:
   if (room) return <>{`${ROOM_KIND_INFO[room.kind].label}, ${room.capacity.toLocaleString("en-GB")} people`}</>;
   if (fixture) return <>{FIXTURE_INFO[fixture.kind].help}</>;
   return <>Walkway</>;
+}
+
+/** Stairs or a lift with nothing in the same place on the other floor: put the matching one there in one click. */
+function PartnerField({ kind, partner }: { kind: FixtureKind; partner: { floor: PlanFloor; fits: boolean; add: () => void } }) {
+  const what = FIXTURE_INFO[kind].label.toLowerCase();
+  return (
+    <div className="space-y-1 rounded-md border border-sky-300 bg-sky-50 p-3 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200">
+      <p>Stairs and lifts join the floors when they stand in the same place on both. Nothing is there on {FLOOR_NAME[partner.floor]} yet.</p>
+      {partner.fits ? (
+        <Button size="sm" variant="outline" className="w-full bg-background" onClick={partner.add}>
+          Put the matching {what} on {FLOOR_NAME[partner.floor]}
+        </Button>
+      ) : (
+        <p className="font-medium">First draw a room or walkway on {FLOOR_NAME[partner.floor]} over this spot.</p>
+      )}
+    </div>
+  );
 }
 
 /** A fixture's name (on its sign) and the way it faces. */

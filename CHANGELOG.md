@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: registration counter, photo wall, standing banner; matching stairs in one click (October 26)
+
+- Owner: customise rooms such as the Grand Foyer. Three new fixtures in "Add stairs, lift, toilets…", in any room: a **registration counter** (staffed from behind, "Collect your badge" in front, its name on the plan and its sign), a **photo wall** (a backdrop with the event's name; E there takes a photo) and a **standing banner** showing its own text. Drawn on the 2D plan, in the PDF and its legend, and built in 3D. A counter put over the foyer's own Registration or Information desk replaces it, with its staff and its prompt.
+- Owner: "Stairs on Level 1 has no stairs under it" was hard to fix, since stairs had to be lined up by hand. A selected stair or lift with nothing in the same place on the other floor now offers **Put the matching stairs on Ground** (or Level 1), and adding stairs or a lift goes straight over an unmatched one on the other floor. The message says which button to use.
+- Fixed: the venue's photo caption named the Emirates Hematology Conference on every event; it names the event's own.
+
 ### Registrations: Onsite Staff never see the stat cards (October 26)
 
 - Owner: temp desk accounts should not see the totals. On the Registrations page the five stat cards and the Hide/Show stats button are not shown to Onsite Staff (the role every temp account holds; `isOnsiteDeskAccount`), and are held back until the session has loaded so they never flash past. The Check-In page's live checked-in count is unchanged (owner's choice), and everyone else keeps the cards and the toggle.

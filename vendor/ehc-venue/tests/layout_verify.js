@@ -80,6 +80,8 @@
         if (found && got === h.id && at && from && at.level !== from.level && !CW.inside(P().x, 1, P().z, 0.3)) opened++; else failed.push(h.id);
         continue;
       }
+      // EA-SYS (Oct 26): a photo wall's E takes a photo rather than opening a sheet; reaching it is the check.
+      if (h.action === 'photo') { if (found && E.nearId() === h.id) opened++; else failed.push(h.id); continue; }
       const got = found && E.openNear(); const vis = !document.getElementById('info').hidden; E.closeSheets();
       if (found && got === h.id && vis) opened++; else failed.push(h.id);
     }

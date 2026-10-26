@@ -18,6 +18,7 @@ import {
   floorView,
   heldFixtures,
   onFloor,
+  planFloors,
   withFloor,
   PLAN_DOOR_MAX,
   PLAN_DOOR_MIN,
@@ -470,6 +471,38 @@ export function toFloor(plan: VenuePlan, t: PlanTarget, floor: PlanFloor, foyerI
   const spot = spotBeside({ ...there, rooms: there.rooms.filter((p) => p.id !== t.id), corridors: there.corridors.filter((c) => c.id !== t.id) }, rect[2] - rect[0], rect[3] - rect[1]);
   // On that floor's own view, so only what stands in this area moves with it.
   return withFloor(moved, floor, placeAt(there, t, spot[0], spot[1], foyerId));
+}
+
+// ── Stairs and lifts across floors ──────────────────────────────────────────
+
+/** Stairs and lifts join the floors when they stand in the same place on both. */
+const JOINS: ReadonlySet<FixtureKind> = new Set(["stairs", "lift"]);
+
+/** For a stair or lift with nothing of its kind in the same place on the other floor: that floor; else null. */
+export function missingPartner(plan: VenuePlan, id: string): PlanFloor | null {
+  const f = plan.fixtures.find((x) => x.id === id);
+  if (!f || !JOINS.has(f.kind) || !planFloors(plan).includes("level-1")) return null;
+  const other: PlanFloor = floorOf(f) === "ground" ? "level-1" : "ground";
+  const stacked = plan.fixtures.some((g) => floorOf(g) === other && g.kind === f.kind && Math.min(g.rect[2], f.rect[2]) - Math.max(g.rect[0], f.rect[0]) > 0.01 && Math.min(g.rect[3], f.rect[3]) - Math.max(g.rect[1], f.rect[1]) > 0.01);
+  return stacked ? null : other;
+}
+
+/**
+ * Put the matching stair or lift on the other floor, in exactly the same place, which is what joins them
+ * (owner, Oct 26: placing them by hand to line up was the hard part). Null when there is nothing to match,
+ * or no room or walkway on that floor holds that place.
+ */
+export function addPartner(plan: VenuePlan, id: string): { plan: VenuePlan; id: string } | null {
+  const other = missingPartner(plan, id);
+  const f = plan.fixtures.find((x) => x.id === id);
+  if (!other || !f || !canAddFixture(plan)) return null;
+  const there = floorView(plan, other);
+  if (![...there.rooms, ...there.corridors].some((a) => contains(a.rect, f.rect))) return null;
+  const ids = new Set([...plan.fixtures, ...plan.rooms, ...plan.corridors].map((a) => a.id));
+  let n = plan.fixtures.filter((x) => x.kind === f.kind).length + 1;
+  while (ids.has(`${f.kind}-${n}`)) n++;
+  const added = onFloor({ ...f, id: `${f.kind}-${n}` }, other);
+  return { plan: { ...plan, fixtures: [...plan.fixtures, added] }, id: added.id };
 }
 
 /** The floor an area or fixture is on, or null when the plan does not hold it. */

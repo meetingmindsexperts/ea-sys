@@ -639,6 +639,20 @@ function buildWorld(R, Q) {
         front(2.75, 1.6, 0.5, { title: 'EXIT', sub: it.name });
         return;
       }
+      // EA-SYS (Oct 26): a registration counter like the foyer's own desks, a photo wall with the event's
+      // name, and a roll-up banner showing its own name. Each faces `yaw`, towards the guests.
+      if (it.kind === 'registration') { desk(x0, z0, x1, z1, it.yaw, it.name, 'Badge collection · Delegate services'); return; }
+      if (it.kind === 'photo-wall') {
+        box('plain', x0, 0, z0, x1, 2.7, z1, [0.14, 0.12, 0.13, 0], { col: true });
+        front(1.45, across, 2.3, { kicker: EVENT.short, title: EVENT.name, sub: it.name === 'Photo wall' ? '' : it.name });
+        blob(cx, cz, x1 - x0 + 0.8, z1 - z0 + 0.8);
+        return;
+      }
+      if (it.kind === 'banner') {
+        box('metal', x0, 0, z0, x1, 0.08, z1, [0.6, 0.6, 0.62, 0], { col: true });
+        front(1.15, across, 2.1, { title: it.name, sub: EVENT.short });
+        return;
+      }
       if (it.kind === 'catering') {
         box('wood', x0, 0, z0, x1, 1.05, z1, [0.32, 0.2, 0.16, 0], { col: true }); box('marble', x0 - 0.1, 1.05, z0 - 0.1, x1 + 0.1, 1.12, z1 + 0.1, [0.95, 0.93, 0.9, 0]);
         sign(cx, 3.1, cz, Math.min(5, Math.max(x1 - x0, z1 - z0)), 0.9, it.yaw, { title: it.name, sub: 'Coffee · Lunch' });
@@ -711,7 +725,7 @@ function buildWorld(R, Q) {
     for (const p of L.people) people.push({ ...p });
     for (const h of L.hotspots) {
       const sp = h.kind === 'stand' ? sponsorOn(+h.id.replace('stand-', '')) : null;
-      if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); if (Array.isArray(h.to)) interact[interact.length - 1].to = h.to; continue; }
+      if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); if (Array.isArray(h.to)) interact[interact.length - 1].to = h.to; if (h.action === 'photo') Object.assign(interact[interact.length - 1], { action: 'photo', face: h.face }); continue; }
       hit(h.id, h.x, h.z, h.r, 'Visit ' + sp.name, sp.name, sp.about || tierWord(sp.tier) + ' of ' + EVENT.short + '.', h.kind);
       interact[interact.length - 1].sponsor = sp;
     }

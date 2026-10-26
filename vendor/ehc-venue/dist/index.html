@@ -1421,6 +1421,20 @@ function buildWorld(R, Q) {
         front(2.75, 1.6, 0.5, { title: 'EXIT', sub: it.name });
         return;
       }
+      // EA-SYS (Oct 26): a registration counter like the foyer's own desks, a photo wall with the event's
+      // name, and a roll-up banner showing its own name. Each faces `yaw`, towards the guests.
+      if (it.kind === 'registration') { desk(x0, z0, x1, z1, it.yaw, it.name, 'Badge collection · Delegate services'); return; }
+      if (it.kind === 'photo-wall') {
+        box('plain', x0, 0, z0, x1, 2.7, z1, [0.14, 0.12, 0.13, 0], { col: true });
+        front(1.45, across, 2.3, { kicker: EVENT.short, title: EVENT.name, sub: it.name === 'Photo wall' ? '' : it.name });
+        blob(cx, cz, x1 - x0 + 0.8, z1 - z0 + 0.8);
+        return;
+      }
+      if (it.kind === 'banner') {
+        box('metal', x0, 0, z0, x1, 0.08, z1, [0.6, 0.6, 0.62, 0], { col: true });
+        front(1.15, across, 2.1, { title: it.name, sub: EVENT.short });
+        return;
+      }
       if (it.kind === 'catering') {
         box('wood', x0, 0, z0, x1, 1.05, z1, [0.32, 0.2, 0.16, 0], { col: true }); box('marble', x0 - 0.1, 1.05, z0 - 0.1, x1 + 0.1, 1.12, z1 + 0.1, [0.95, 0.93, 0.9, 0]);
         sign(cx, 3.1, cz, Math.min(5, Math.max(x1 - x0, z1 - z0)), 0.9, it.yaw, { title: it.name, sub: 'Coffee · Lunch' });
@@ -1493,7 +1507,7 @@ function buildWorld(R, Q) {
     for (const p of L.people) people.push({ ...p });
     for (const h of L.hotspots) {
       const sp = h.kind === 'stand' ? sponsorOn(+h.id.replace('stand-', '')) : null;
-      if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); if (Array.isArray(h.to)) interact[interact.length - 1].to = h.to; continue; }
+      if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); if (Array.isArray(h.to)) interact[interact.length - 1].to = h.to; if (h.action === 'photo') Object.assign(interact[interact.length - 1], { action: 'photo', face: h.face }); continue; }
       hit(h.id, h.x, h.z, h.r, 'Visit ' + sp.name, sp.name, sp.about || tierWord(sp.tier) + ' of ' + EVENT.short + '.', h.kind);
       interact[interact.length - 1].sponsor = sp;
     }
@@ -2824,7 +2838,7 @@ class Abilities {
     const c = document.createElement('canvas'); c.width = W; c.height = H + band; const x = c.getContext('2d');
     x.fillStyle = '#16100f'; x.fillRect(0, 0, W, H + band); x.drawImage(img, 0, 0, W, H);
     x.fillStyle = '#6d1624'; x.fillRect(0, H, W, 6);
-    x.fillStyle = '#c8a46a'; x.font = `600 22px ${FONT_BODY}`; x.fillText('EMIRATES HEMATOLOGY CONFERENCE 2026', 48, H + 52);
+    x.fillStyle = '#c8a46a'; x.font = `600 22px ${FONT_BODY}`; x.fillText(EVENT.name.toUpperCase(), 48, H + 52); // EA-SYS: the event's own name, never EHC's
     x.fillStyle = '#f3ece4'; x.font = `400 46px ${FONT_DISPLAY}`; const Z = this.ctx.zone(); x.fillText((Z ? Z.name : 'The venue') + ' · ' + EVENT.venue, 48, H + 106);
     x.textAlign = 'right'; x.fillStyle = 'rgba(243,236,228,.7)'; x.font = `500 22px ${FONT_BODY}`; x.fillText(new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }), W - 48, H + 52); x.fillText('Online venue preview', W - 48, H + 106);
     if (this.ctx.onEvent) this.ctx.onEvent('photo');
@@ -3442,7 +3456,10 @@ class EventTeam {
     return ul;
   }
   /** What E (or a tap on the prompt) does: talk to a person, take stairs or a lift, or open what is here. */
-  function use(h) { if (h.ref) social.open(h); else if (h.to) travel(h); else openInfo(h); }
+  function use(h) { if (h.ref) social.open(h); else if (h.to) travel(h); else if (h.action === 'photo') photoAt(h); else openInfo(h); }
+  // EA-SYS (Oct 26): a photo wall's photo is taken facing away from the wall, so the camera stands in front of
+  // you and the wall is behind you, whichever way you walked up.
+  function photoAt(h) { if (!abil) return; if (typeof h.face === 'number') { player.yaw = h.face; cam.yaw = h.face - Math.PI; } abil.photo(); }
   // EA-SYS (floors, Oct 26): stairs and lifts take you to the other floor, with the same short fade as the
   // venue guide's Go (decision F11), and say which floor you are on.
   function travel(h, instant) {

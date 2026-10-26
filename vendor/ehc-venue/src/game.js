@@ -207,7 +207,10 @@
     return ul;
   }
   /** What E (or a tap on the prompt) does: talk to a person, take stairs or a lift, or open what is here. */
-  function use(h) { if (h.ref) social.open(h); else if (h.to) travel(h); else openInfo(h); }
+  function use(h) { if (h.ref) social.open(h); else if (h.to) travel(h); else if (h.action === 'photo') photoAt(h); else openInfo(h); }
+  // EA-SYS (Oct 26): a photo wall's photo is taken facing away from the wall, so the camera stands in front of
+  // you and the wall is behind you, whichever way you walked up.
+  function photoAt(h) { if (!abil) return; if (typeof h.face === 'number') { player.yaw = h.face; cam.yaw = h.face - Math.PI; } abil.photo(); }
   // EA-SYS (floors, Oct 26): stairs and lifts take you to the other floor, with the same short fade as the
   // venue guide's Go (decision F11), and say which floor you are on.
   function travel(h, instant) {

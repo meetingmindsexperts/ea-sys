@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import { describeVenue } from "@/lib/venue/ai-prompt";
 import { checkLayout } from "@/lib/venue/layout-check";
 import { floorLinks, floorView, planFloors, planIssues, planSchema, withFloor, type VenuePlan } from "@/lib/venue/plan";
-import { addFixture, addWalkway, moveTo, toFloor } from "@/lib/venue/plan-edit";
+import { addFixture, addPartner, addWalkway, missingPartner, moveTo, toFloor } from "@/lib/venue/plan-edit";
 import { PLAN_FIXTURES } from "@/lib/venue/layout-fixtures";
 import { buildVenueLayout, layoutFromPlan } from "@/lib/venue/plan-layout";
 import type { VenueRoom } from "@/lib/venue/rooms";
@@ -70,7 +70,7 @@ describe("the plan model", () => {
     expect(floorLinks(twoFloors()).map((l) => [l.lower.id, l.upper.id])).toEqual([["lift-1", "lift-2"]]);
     const off = twoFloors();
     off.fixtures[1] = { ...off.fixtures[1], rect: [9.4, -6, 12, -3.4] };
-    expect(planIssues(rooms, off)).toContain("Lift on Level 1 has no lift under it on the ground floor. Draw them in the same place on both floors.");
+    expect(planIssues(rooms, off)).toContain('Lift on Level 1 has no lift under it on the ground floor. Select it and click "Put the matching lift on Ground".');
     const none = { ...twoFloors(), fixtures: twoFloors().fixtures.slice(0, 1) };
     expect(planIssues(rooms, none)).toContain("Level 1 needs stairs or a lift, drawn in the same place on both floors");
   });
@@ -199,3 +199,108 @@ describe("the editor's floors", () => {
     expect(withFloor(p, "level-1", walk.plan).corridors.find((c) => c.id === walk.id)?.floor).toBe("level-1");
   });
 });
+
+describe("matching stairs and lifts (owner, Oct 26: lining them up by hand was the hard part)", () => {
+  it("knows which stair or lift has nothing in the same place on the other floor, and puts the match there", () => {
+    const p = twoFloors();
+    p.fixtures.push({ id: "stairs-1", kind: "stairs", name: "Main stairs", dir: "n", floor: "level-1", rect: [1.5, -9, 4.5, -3] });
+    expect(missingPartner(p, "stairs-1")).toBe("ground");
+    expect(missingPartner(p, "lift-1")).toBeNull();
+    const added = addPartner(p, "stairs-1")!;
+    const match = added.plan.fixtures.find((f) => f.id === added.id)!;
+    expect(match).toMatchObject({ kind: "stairs", name: "Main stairs", dir: "n", rect: [1.5, -9, 4.5, -3] });
+    expect(match.floor).toBeUndefined();
+    expect(missingPartner(added.plan, "stairs-1")).toBeNull();
+    expect(planIssues(rooms, added.plan)).toEqual([]);
+  });
+
+  it("does not add a match where no room or walkway on that floor holds the spot", () => {
+    const p = twoFloors();
+    p.fixtures.push({ id: "stairs-g", kind: "stairs", name: "", dir: "n", rect: [-10, -40, -7, -34] });
+    expect(missingPartner(p, "stairs-g")).toBe("level-1");
+    expect(addPartner(p, "stairs-g")).toBeNull();
+  });
+
+  it("says how to fix a stair or lift with nothing under it", () => {
+    const p = twoFloors();
+    p.fixtures.push({ id: "stairs-1", kind: "stairs", name: "", dir: "n", floor: "level-1", rect: [1.5, -9, 4.5, -3] });
+    expect(planIssues(rooms, p)).toContain('Stairs on Level 1 has no stairs under it on the ground floor. Select it and click "Put the matching stairs on Ground".');
+  });
+});
+
+describe("registration counter, photo wall and standing banner (owner, Oct 26)", () => {
+  const { rooms: r, plan } = PLAN_FIXTURES["drawn-two-floors"];
+  const { layout } = layoutFromPlan(r, plan, { eventName: "" });
+
+  it("staffs a registration counter from behind and hands out badges in front", () => {
+    const desk = layout.hotspots.find((h) => h.id === "desk-registration-1")!;
+    expect(desk).toMatchObject({ prompt: "Collect your badge", title: "Faculty registration", x: -3, z: 10.7 });
+    const staff = layout.people.filter((p) => p.role === "staff" && p.z === 7.3);
+    expect(staff.map((p) => p.x)).toEqual([-4.5, -1.5]);
+  });
+
+  it("takes the foyer's own desk away with its staff and its prompt when a counter stands on it", () => {
+    expect(layout.items.some((it) => it.t === "desk" && it.title === "Registration")).toBe(false);
+    expect(layout.hotspots.some((h) => h.id === "Registration")).toBe(false);
+    expect(layout.people.filter((p) => p.role === "staff" && p.x < -6 && p.z > 7 && p.z < 10)).toEqual([]);
+    expect(layout.hotspots.some((h) => h.id === "Information")).toBe(true);
+  });
+
+  it("lets a photo wall take a photo, and a banner carry its name", () => {
+    expect(layout.hotspots.find((h) => h.id === "photo-photo-wall-1")).toMatchObject({ prompt: "Take a photo here", action: "photo" });
+    const banner = layout.items.find((it) => it.t === "fixture" && it.kind === "banner");
+    expect(banner).toMatchObject({ name: "Welcome", solid: true });
+  });
+
+  it("keeps the venue walkable with them in it", () => {
+    expect(checkLayout(layout).issues).toEqual([]);
+  });
+});
+
+describe("review fixes, Oct 26", () => {
+  const { rooms: r, plan } = PLAN_FIXTURES["drawn-two-floors"];
+  const without = (ids: string[]) => ({ ...plan, fixtures: plan.fixtures.filter((f) => !ids.includes(f.id)) });
+  const deskOf = (title: string) => {
+    const d = layoutFromPlan(r, without(["registration-1"]), { eventName: "" }).layout.items.find((it) => it.t === "desk" && it.title === title)!;
+    return "r" in d.foot ? null : d.foot;
+  };
+
+  it("faces the photo away from the wall, whichever way the visitor walked up", () => {
+    const h = layoutFromPlan(r, plan, { eventName: "" }).layout.hotspots.find((x) => x.action === "photo")!;
+    expect(h.face).toBe(1.57);
+  });
+
+  it("keeps the foyer desk's staff and prompt when a pillar only stands beside it", () => {
+    const d = deskOf("Registration")!;
+    const pillar = { id: "pillar-9", kind: "pillar" as const, name: "", dir: "n" as const, rect: [d.x1 + 0.1, d.z0, d.x1 + 0.9, d.z0 + 0.8] as [number, number, number, number] };
+    const l = layoutFromPlan(r, { ...without(["registration-1"]), fixtures: [...without(["registration-1"]).fixtures, pillar] }, { eventName: "" }).layout;
+    expect(l.hotspots.some((h) => h.id === "Registration")).toBe(true);
+  });
+
+  it("never stands counter staff inside a fixture listed before the counter", () => {
+    const pillar = { id: "pillar-9", kind: "pillar" as const, name: "", dir: "n" as const, rect: [-4.9, 6.9, -4.1, 7.7] as [number, number, number, number] };
+    const l = layoutFromPlan(r, { ...plan, fixtures: [pillar, ...plan.fixtures] }, { eventName: "" }).layout;
+    expect(l.people.some((p) => p.x > -5.2 && p.x < -3.8 && p.z > 6.6 && p.z < 8)).toBe(false);
+  });
+
+  it("says when a counter or photo wall faces a wall", () => {
+    const turned = { ...plan, fixtures: plan.fixtures.map((f) => (f.id === "photo-wall-1" ? { ...f, dir: "w" as const } : f)) };
+    expect(planIssues(r, turned)).toContain("Photo wall faces a wall. Turn it so its arrow points into the room.");
+    expect(planIssues(r, plan)).toEqual([]);
+  });
+
+  it("does not match stairs past the fixture limit, counted over both floors", () => {
+    const p = twoFloors();
+    p.fixtures.push({ id: "stairs-1", kind: "stairs", name: "", dir: "n", floor: "level-1", rect: [1.5, -9, 4.5, -3] });
+    for (let i = 0; p.fixtures.length < 60; i++) p.fixtures.push({ id: `pillar-${i}`, kind: "pillar", name: "", dir: "n", rect: [-11.5 + (i % 10), -47.5 + Math.floor(i / 10), -11.2 + (i % 10), -47.2 + Math.floor(i / 10)] });
+    expect(addPartner(p, "stairs-1")).toBeNull();
+  });
+
+  it("tells the organiser to draw the floor first when nothing on Ground holds the spot", () => {
+    const p = twoFloors();
+    p.corridors[1] = { ...p.corridors[1], rect: [1, -20.5, 30, 0] };
+    p.fixtures.push({ id: "stairs-1", kind: "stairs", name: "", dir: "n", floor: "level-1", rect: [20, -9, 23, -3] });
+    expect(planIssues(rooms, p)).toContain('Stairs on Level 1 has no stairs under it on the ground floor. Draw a room or walkway on the ground floor under it, then select it and click "Put the matching stairs on Ground".');
+  });
+});
+

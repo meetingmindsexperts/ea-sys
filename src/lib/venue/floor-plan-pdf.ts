@@ -306,9 +306,15 @@ function drawDoorSwings(doc: Doc, layout: VenueLayout, P: Project, ptPerM: numbe
 }
 
 const ARROW = "#0369a1";
-const FIXTURE_FILL: Record<FixtureKind, string> = { stairs: "#ffffff", lift: "#e5e7eb", toilets: "#e0f2fe", exit: "#16a34a", pillar: "#374151", catering: "#fde68a" };
+const FIXTURE_FILL: Record<FixtureKind, string> = {
+  stairs: "#ffffff", lift: "#e5e7eb", toilets: "#e0f2fe", exit: "#16a34a", pillar: "#374151", catering: "#fde68a",
+  registration: "#fecdd3", "photo-wall": "#1f2937", banner: "#c7d2fe",
+};
 const FIXTURE_TEXT: Partial<Record<FixtureKind, string>> = { toilets: "WC", exit: "EXIT" };
-const FIXTURE_LEGEND: Record<FixtureKind, string> = { stairs: "Stairs (arrow up)", lift: "Lift", toilets: "Toilets (WC)", exit: "Emergency exit", pillar: "Pillar", catering: "Catering point" };
+const FIXTURE_LEGEND: Record<FixtureKind, string> = {
+  stairs: "Stairs (arrow up)", lift: "Lift", toilets: "Toilets (WC)", exit: "Emergency exit", pillar: "Pillar", catering: "Catering point",
+  registration: "Registration counter", "photo-wall": "Photo wall", banner: "Standing banner",
+};
 
 /** A venue of several floors is printed side by side, each floor's name above it. */
 function drawFloorNames(doc: Doc, layout: VenueLayout, P: Project) {
@@ -349,7 +355,8 @@ function drawFixture(doc: Doc, it: Extract<LayoutItem, { t: "fixture" }>, [x, y,
     doc.moveTo(...wing(-1)).lineTo(tip[0], tip[1]).lineTo(...wing(1)).lineWidth(0.9).strokeColor(ARROW).stroke();
     return;
   }
-  const text = FIXTURE_TEXT[it.kind] ?? (it.kind === "catering" ? it.name : "");
+  // A counter is labelled with its own name; a photo wall and a banner are too thin to carry text at plan scale.
+  const text = FIXTURE_TEXT[it.kind] ?? (it.kind === "catering" || it.kind === "registration" ? it.name : "");
   if (!text) return;
   // Along the longer side, turned for a tall box, so a narrow counter still reads.
   const tall = h > w * 1.4;

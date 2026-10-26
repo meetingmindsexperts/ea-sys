@@ -239,7 +239,7 @@ class Abilities {
     const c = document.createElement('canvas'); c.width = W; c.height = H + band; const x = c.getContext('2d');
     x.fillStyle = '#16100f'; x.fillRect(0, 0, W, H + band); x.drawImage(img, 0, 0, W, H);
     x.fillStyle = '#6d1624'; x.fillRect(0, H, W, 6);
-    x.fillStyle = '#c8a46a'; x.font = `600 22px ${FONT_BODY}`; x.fillText('EMIRATES HEMATOLOGY CONFERENCE 2026', 48, H + 52);
+    x.fillStyle = '#c8a46a'; x.font = `600 22px ${FONT_BODY}`; x.fillText(EVENT.name.toUpperCase(), 48, H + 52); // EA-SYS: the event's own name, never EHC's
     x.fillStyle = '#f3ece4'; x.font = `400 46px ${FONT_DISPLAY}`; const Z = this.ctx.zone(); x.fillText((Z ? Z.name : 'The venue') + ' · ' + EVENT.venue, 48, H + 106);
     x.textAlign = 'right'; x.fillStyle = 'rgba(243,236,228,.7)'; x.font = `500 22px ${FONT_BODY}`; x.fillText(new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }), W - 48, H + 52); x.fillText('Online venue preview', W - 48, H + 106);
     if (this.ctx.onEvent) this.ctx.onEvent('photo');

@@ -3,8 +3,8 @@
  * stairs and the like needed a better 2D look): solid walls, thicker outside;
  * door leaves with their swing; the glass entrance as a double line; room
  * names with their size; furniture drawn lightly; and the drawn plan's
- * fixtures (stairs, lift, toilets, exit, pillar, catering) as their usual
- * symbols. Coordinates are metres, +x east and +z south (down the page).
+ * fixtures (stairs, lift, toilets, exit, pillar, catering, registration counter,
+ * photo wall, standing banner) as their usual symbols. Coordinates are metres, +x east and +z south (down the page).
  * Shared by the Venue tab's plan and the floor plan editor.
  */
 import type { LayoutDoor, LayoutItem, LayoutWall, LayoutZone, VenueLayout, ZoneKind } from "@/lib/venue/layout";
@@ -104,6 +104,23 @@ function Fixture({ it }: { it: FixtureItem }) {
       <g>
         <rect {...rect} className="fill-amber-200 stroke-amber-700 dark:fill-amber-900" strokeWidth={thin} />
         <BoxText {...box} text={it.name} className="fill-amber-950 dark:fill-amber-100" />
+      </g>
+    );
+  }
+  if (it.kind === "registration") {
+    return (
+      <g>
+        <rect {...rect} className="fill-rose-200 stroke-rose-700 dark:fill-rose-900" strokeWidth={thin} />
+        <BoxText {...box} text={it.name} className="fill-rose-950 dark:fill-rose-100" />
+        <FrontLine {...box} dx={dx} dz={dz} className="stroke-rose-700" />
+      </g>
+    );
+  }
+  if (it.kind === "photo-wall" || it.kind === "banner") {
+    return (
+      <g>
+        <rect {...rect} className={it.kind === "banner" ? "fill-indigo-300 dark:fill-indigo-700" : INK} />
+        <FrontLine {...box} dx={dx} dz={dz} className="stroke-amber-500" />
       </g>
     );
   }
