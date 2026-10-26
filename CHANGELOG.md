@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations: Onsite Staff never see the stat cards (October 26)
+
+- Owner: temp desk accounts should not see the totals. On the Registrations page the five stat cards and the Hide/Show stats button are not shown to Onsite Staff (the role every temp account holds; `isOnsiteDeskAccount`), and are held back until the session has loaded so they never flash past. The Check-In page's live checked-in count is unchanged (owner's choice), and everyone else keeps the cards and the toggle.
+
 ### Registrations: review fixes for number search, Hide stats and the Exhibitor badge (October 26)
 
 - All seven findings from the review of `b483f157`. **MED:** an exhibitor registered before that commit, with no badge type, now PRINTS as Exhibitor with the exhibitor field set (`printedBadgeType` in the badge route; their row is not changed, so no data write on prod). The rule for when the type sets the badge is written down on `exhibitorBadgeData` (owner-confirmed): on arriving at the type, so a role an organiser later sets by hand on an existing exhibitor stays; completing a registration link counts as arriving. The registration sheet's Edit now switches Badge Type to Exhibitor when you pick the Exhibitor type and locks it with a note, instead of saving something other than what was on screen.

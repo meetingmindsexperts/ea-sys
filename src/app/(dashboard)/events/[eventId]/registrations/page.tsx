@@ -2,6 +2,7 @@
 
 import { useCan } from "@/hooks/use-can";
 import { useStatsHidden } from "@/hooks/use-stats-hidden";
+import { isOnsiteDeskAccount } from "@/lib/team-roles";
 import { matchesRegistrationSearch } from "@/lib/registration-search";
 
 import { Fragment, useState } from "react";
@@ -251,6 +252,10 @@ export default function RegistrationsPage() {
 
   // The onsite desk hides the totals from attendees facing the laptop.
   const [statsHidden, setStatsHidden] = useStatsHidden();
+  // Onsite Staff (temps and contractors) never see the totals, and get no
+  // button to show them (owner, Oct 26, 2026). The Check-In counter stays.
+  // Held back until the session says who it is, so they never flash past.
+  const statsAllowed = !!userSession?.user && !isOnsiteDeskAccount(userSession.user.role);
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -667,7 +672,8 @@ export default function RegistrationsPage() {
         </div>
       )}
 
-      {/* Stats, hideable for the onsite desk */}
+      {/* Stats, hideable for the onsite desk; never shown to Onsite Staff */}
+      {statsAllowed && (
       <div className="flex justify-end">
         <Button
           type="button"
@@ -680,7 +686,8 @@ export default function RegistrationsPage() {
           {statsHidden ? "Show stats" : "Hide stats"}
         </Button>
       </div>
-      {!statsHidden && (
+      )}
+      {statsAllowed && !statsHidden && (
       <div className="grid gap-4 md:grid-cols-5">
         <Card className="py-5">
           <CardContent className="px-5">
