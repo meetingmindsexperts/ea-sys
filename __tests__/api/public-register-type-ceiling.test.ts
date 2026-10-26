@@ -91,10 +91,10 @@ function request(extra: Record<string, unknown> = {}) {
   });
 }
 
-async function run(typeSoldCount: number, tierSoldCount = typeSoldCount) {
+async function run(typeSoldCount: number, tierSoldCount = typeSoldCount, typeName = "Delegate") {
   mockDb.ticketType.findFirst.mockResolvedValue({
     id: "tt-delegate",
-    name: "Delegate",
+    name: typeName,
     price: 0,
     currency: "USD",
     quantity: 35, // the organiser's limit on the TYPE
@@ -198,5 +198,38 @@ describe("public register — the authoritative claim inside the transaction", (
     expect(mockApiLogger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "public/register:business-rejection", code: "SOLD_OUT" }),
     );
+  });
+});
+
+describe("public register — the Exhibitor type sets the badge type (Oct 26, 2026)", () => {
+  // The create's data is captured, then the create throws to end the request:
+  // the test is about what is written, not the rest of the flow.
+  function txCapturingCreate() {
+    const created: { data?: Record<string, unknown> } = {};
+    const tx = {
+      registration: {
+        findFirst: vi.fn(async () => null),
+        create: vi.fn(async (args: { data: Record<string, unknown> }) => {
+          created.data = args.data;
+          throw new Error("__STOP_AFTER_CREATE__");
+        }),
+      },
+      attendee: { findFirst: vi.fn(async () => null), create: vi.fn(async () => ({ id: "att-1" })) },
+    };
+    mockTenantTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+    return created;
+  }
+
+  it("a registration on the type named Exhibitor is written with badgeType Exhibitor", async () => {
+    const created = txCapturingCreate();
+    await run(0, 0, "Exhibitor");
+    expect(created.data).toMatchObject({ ticketTypeId: "tt-delegate", badgeType: "Exhibitor" });
+  });
+
+  it("any other type writes no badge type", async () => {
+    const created = txCapturingCreate();
+    await run(0, 0, "Delegate");
+    expect(created.data).toBeDefined();
+    expect(created.data).not.toHaveProperty("badgeType");
   });
 });

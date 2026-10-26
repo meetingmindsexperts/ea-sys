@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 
 const STORAGE_KEY = "ea-sys:registrations-stats-hidden";
 
@@ -9,32 +9,47 @@ const STORAGE_KEY = "ea-sys:registrations-stats-hidden";
  * registration the laptop faces attendees, and the totals are not for them.
  *
  * Remembered on THIS browser, not per user, because the point is the desk
- * laptop staying hidden all day whoever signs in. Read once at render time
- * (the use-media-view pattern, no effect); storage can be blocked or throw
- * (private windows), in which case the cards simply show.
+ * laptop staying hidden all day whoever signs in. Where storage is blocked
+ * or throws, the toggle still works but is forgotten on reload.
+ *
+ * useSyncExternalStore with a server snapshot of "shown" (review L4): the
+ * server render and the hydration render agree whatever the browser holds,
+ * so a server-rendered stats block can never mismatch.
  */
-export function useStatsHidden(): [boolean, (hidden: boolean) => void] {
-  const [hidden, setHidden] = useState(false);
-  const [read, setRead] = useState(false);
+const listeners = new Set<() => void>();
+// Used only where storage throws: the toggle still works until the page reloads.
+let inMemory = false;
 
-  if (typeof window !== "undefined" && !read) {
-    setRead(true);
-    try {
-      if (window.localStorage.getItem(STORAGE_KEY) === "1") setHidden(true);
-    } catch {
-      // Storage unavailable: show the cards.
-    }
+function read(): boolean {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) === "1";
+  } catch {
+    return inMemory;
   }
+}
 
-  const change = (next: boolean) => {
-    setHidden(next);
-    try {
-      if (next) window.localStorage.setItem(STORAGE_KEY, "1");
-      else window.localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // Storage unavailable: the choice lasts until the page reloads.
-    }
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  // Another tab on the same laptop changing it.
+  window.addEventListener("storage", listener);
+  return () => {
+    listeners.delete(listener);
+    window.removeEventListener("storage", listener);
   };
+}
 
-  return [hidden, change];
+function write(hidden: boolean): void {
+  inMemory = hidden;
+  try {
+    if (hidden) window.localStorage.setItem(STORAGE_KEY, "1");
+    else window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Storage unavailable: read() falls back to inMemory.
+  }
+  listeners.forEach((l) => l());
+}
+
+export function useStatsHidden(): [boolean, (hidden: boolean) => void] {
+  const hidden = useSyncExternalStore(subscribe, read, () => false);
+  return [hidden, write];
 }

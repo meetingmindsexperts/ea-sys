@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations: review fixes for number search, Hide stats and the Exhibitor badge (October 26)
+
+- All seven findings from the review of `b483f157`. **MED:** an exhibitor registered before that commit, with no badge type, now PRINTS as Exhibitor with the exhibitor field set (`printedBadgeType` in the badge route; their row is not changed, so no data write on prod). The rule for when the type sets the badge is written down on `exhibitorBadgeData` (owner-confirmed): on arriving at the type, so a role an organiser later sets by hand on an existing exhibitor stays; completing a registration link counts as arriving. The registration sheet's Edit now switches Badge Type to Exhibitor when you pick the Exhibitor type and locks it with a note, instead of saving something other than what was on screen.
+- **LOW:** Hide stats reads storage through `useSyncExternalStore` with a "shown" server snapshot, so a server render can never mismatch, follows another tab on the same laptop, and still works (until reload) where storage is blocked; route tests for bulk type change and the public form, both checked by removing the line they guard; the user guide says how to find an all-digit email now that digits mean a registration number; the helper's comment says it trims the ends rather than ignoring all spaces.
+
 ### Registrations: find by registration number, hide the stats at the desk, Exhibitor type sets the badge (October 26)
 
 - Owner, three asks. **Search:** digits alone in the Registrations search box (`2`, `002`, `#002`) find that registration number exactly, never every number containing the digits; anything else searches name, email and organisation as before. One parser (`src/lib/registration-search.ts`) serves the list and the CSV export's `q`, so the file still matches the screen.

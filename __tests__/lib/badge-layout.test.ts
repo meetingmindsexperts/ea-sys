@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 import PDFDocument from "pdfkit";
 import {
   exhibitorBadgeData,
+  printedBadgeType,
   A4_W,
   BASE_BADGE_H,
   BASE_BADGE_W,
@@ -547,5 +548,22 @@ describe("the Exhibitor registration type sets the badge type (Oct 26, 2026)", (
     for (const name of ["Physician", "Exhibitors", "Exhibitor Staff", "", null, undefined]) {
       expect(exhibitorBadgeData(name)).toEqual({});
     }
+  });
+});
+
+describe("what a badge prints when the badge type is blank (review M1, Oct 26, 2026)", () => {
+  it("blank on the Exhibitor type prints Exhibitor (rows from before the type set it)", () => {
+    expect(printedBadgeType(null, "Exhibitor")).toBe("Exhibitor");
+    expect(printedBadgeType("  ", " exhibitor")).toBe("Exhibitor");
+  });
+
+  it("a badge type that is set always wins, even a hand-set one on the Exhibitor type", () => {
+    expect(printedBadgeType("Committee", "Exhibitor")).toBe("Committee");
+    expect(printedBadgeType("Exhibitor", "Allied Health")).toBe("Exhibitor");
+  });
+
+  it("blank on any other type stays blank (prints DELEGATE)", () => {
+    expect(printedBadgeType(null, "Physician")).toBeNull();
+    expect(printedBadgeType("", null)).toBeNull();
   });
 });

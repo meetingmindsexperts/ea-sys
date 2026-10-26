@@ -158,6 +158,24 @@ describe("bulk-type — soldCount oversell guard", () => {
     });
   });
 
+  // Owner, Oct 26, 2026: moving onto the Exhibitor type sets the badge type,
+  // on both the unpaid and the settled update.
+  it("moving onto the type named Exhibitor writes badgeType Exhibitor on every moved row", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "X", name: "Exhibitor", quantity: 100, price: 0 });
+    mockDb.registration.findMany.mockResolvedValue([
+      { id: "r1", ticketTypeId: "old", attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNPAID" },
+      { id: "r3", ticketTypeId: "old", attendeeId: "a3", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "PAID" },
+    ]);
+    mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await bulkType(req({ registrationIds: ["r1", "r3"], ticketTypeId: "X" }), { params });
+    expect(res.status).toBeLessThan(400);
+    const datas = mockDb._tx.registration.updateMany.mock.calls.map((c) => c[0].data as Record<string, unknown>);
+    expect(datas).toHaveLength(2);
+    for (const d of datas) expect(d.badgeType).toBe("Exhibitor");
+  });
+
   it("all-settled batch never writes originalPrice", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", name: "Physician", quantity: 100, price: 400 });
     mockDb.registration.findMany.mockResolvedValue([

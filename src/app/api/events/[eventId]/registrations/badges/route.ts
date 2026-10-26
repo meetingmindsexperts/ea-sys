@@ -8,7 +8,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { isPaymentAdmissible } from "@/lib/check-in";
-import { readBadgeLayout } from "@/lib/badge-layout";
+import { printedBadgeType, readBadgeLayout } from "@/lib/badge-layout";
 import { generateBadgePDF } from "@/lib/badge-pdf";
 
 interface RouteParams {
@@ -196,7 +196,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     // value on an unflagged event must not change its badge output.
     const includeDtcm = !!event.requiresDtcmBarcode;
     const dtcmCount = includeDtcm ? registrations.filter((r) => !!r.dtcmBarcode).length : 0;
-    const pdfBuffer = await generateBadgePDF(registrations, layout, includeDtcm);
+    // A blank badge type on the Exhibitor registration type prints EXHIBITOR
+    // with the exhibitor field set (rows from before the type set it).
+    const printable = registrations.map((r) => ({ ...r, badgeType: printedBadgeType(r.badgeType, r.ticketType?.name) }));
+    const pdfBuffer = await generateBadgePDF(printable, layout, includeDtcm);
     if (includeDtcm) {
       apiLogger.info({
         msg: "badges:dtcm-rendered",

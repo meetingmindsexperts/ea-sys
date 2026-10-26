@@ -1,5 +1,6 @@
 "use client";
 
+import { EXHIBITOR_BADGE_ROLE, isExhibitorBadge } from "@/lib/badge-layout";
 import { useCan } from "@/hooks/use-can";
 
 import Image from "next/image";
@@ -907,6 +908,13 @@ export function RegistrationDetailSheet({
   // staged type (looked up in the type list); otherwise the registration's own
   // flag, which also holds for staff who cannot read the type list.
   const stagedTypeIsFaculty = !!(regTypes as TicketType[]).find((t) => t.id === editData.ticketTypeId)?.isFaculty;
+  // Moving onto the Exhibitor registration type sets the badge type to
+  // Exhibitor on save (exhibitorBadgeData), so the form shows that up front
+  // instead of saving something other than what is on screen (review M3).
+  const stagedTypeSetsExhibitorBadge =
+    isEditing &&
+    editData.ticketTypeId !== (selectedRegistration?.ticketType?.id ?? "") &&
+    isExhibitorBadge((regTypes as TicketType[]).find((t) => t.id === editData.ticketTypeId)?.name);
   const activeTypeIsFaculty = isEditing ? stagedTypeIsFaculty : !!selectedRegistration?.ticketType?.isFaculty;
 
   const tierSelectionRequired = (() => {
@@ -1656,13 +1664,22 @@ export function RegistrationDetailSheet({
                         setEditData((p) => {
                           // Paid: the tier can't change, leave it. Unpaid, complimentary or
                           // sponsor-paid: the staged tier must follow the type (review M).
-                          if (!tierChangeAllowed(selectedRegistration.paymentStatus)) return { ...p, ticketTypeId: value };
                           const loadedTypeId = selectedRegistration.ticketType?.id ?? "";
+                          // Onto Exhibitor: the badge type becomes Exhibitor, as the save will make it.
+                          // Away again before saving: the badge type it had comes back.
+                          const isExhibitorChange = (id: string) =>
+                            id !== loadedTypeId && isExhibitorBadge((regTypes as TicketType[]).find((t) => t.id === id)?.name);
+                          const toExhibitor = isExhibitorChange(value);
+                          let badge: { badgeType?: string } = {};
+                          if (toExhibitor) badge = { badgeType: EXHIBITOR_BADGE_ROLE };
+                          else if (isExhibitorChange(p.ticketTypeId)) badge = { badgeType: selectedRegistration.badgeType ?? "" };
+                          if (toExhibitor) setBadgeCustomOpen(false);
+                          if (!tierChangeAllowed(selectedRegistration.paymentStatus)) return { ...p, ...badge, ticketTypeId: value };
                           const loadedTierId = selectedRegistration.pricingTier?.id ?? "";
                           // M1: reverting to the ORIGINAL type restores its original tier
                           // (so flipping A→B→A doesn't silently drop the tier + reprice to
                           // base). Any OTHER type clears the tier so the organizer re-picks.
-                          return { ...p, ticketTypeId: value, pricingTierId: value === loadedTypeId ? loadedTierId : "" };
+                          return { ...p, ...badge, ticketTypeId: value, pricingTierId: value === loadedTypeId ? loadedTierId : "" };
                         })
                       }
                       disabled={!isEditing || updateRegistration.isPending}
@@ -1717,7 +1734,7 @@ export function RegistrationDetailSheet({
                                 setEditData((p) => ({ ...p, badgeType: value }));
                               }
                             }}
-                            disabled={!isEditing || updateRegistration.isPending}
+                            disabled={!isEditing || updateRegistration.isPending || stagedTypeSetsExhibitorBadge}
                           >
                             <SelectTrigger>
                               <SelectValue />
@@ -1733,6 +1750,12 @@ export function RegistrationDetailSheet({
                               (the Select above already behaves that way). Hiding
                               it in view mode is what made a saved custom value
                               look like it had not saved. */}
+                          {stagedTypeSetsExhibitorBadge && (
+                            <p className="text-xs text-muted-foreground">
+                              The Exhibitor registration type sets the badge type to Exhibitor.
+                              Save first to choose a different one.
+                            </p>
+                          )}
                           {badge.isCustom && (
                             <Input
                               placeholder="Enter custom badge type"

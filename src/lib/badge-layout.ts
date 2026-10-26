@@ -183,17 +183,37 @@ export function isExhibitorBadge(badgeType: string | null | undefined): boolean 
 }
 
 /**
- * A registration on the registration type named "Exhibitor" gets the
- * Exhibitor badge type (owner, Oct 26, 2026), which ALWAYS replaces the badge
- * type it had: before this, an exhibitor whose badge type was left blank
- * printed DELEGATE and got the delegate field set. Spread into the write
- * wherever a registration is created or changes type:
+ * A registration on the registration type named "Exhibitor" (ignoring case and
+ * the spaces around it, so "Exhibitors" is not it) gets the Exhibitor badge
+ * type (owner, Oct 26, 2026), which replaces the badge type it had: before
+ * this, an exhibitor whose badge type was left blank printed DELEGATE and got
+ * the delegate field set. Spread into the write wherever a registration is
+ * created or changes type:
  *   data: { ticketTypeId, ...exhibitorBadgeData(ticketType.name) }
+ *
+ * WHEN it applies (review M2, owner-confirmed): on arriving at the type, not on
+ * every save. Someone already on Exhibitor whose badge an organiser then sets
+ * to something else by hand keeps that choice: the edit does not change type,
+ * so nothing here runs. Completing a registration link is an arrival (the
+ * person confirms their type), so it applies there even when the type stays.
  * Moving OFF the type leaves the badge type alone, so a hand-set Exhibitor on
- * another type (a sponsor's rep on Allied Health) is never wiped.
+ * another type (a sponsor's rep on Allied Health) is never wiped. Rows that
+ * reached the type earlier print as Exhibitor anyway (printedBadgeType).
  */
 export function exhibitorBadgeData(ticketTypeName: string | null | undefined): { badgeType?: string } {
   return isExhibitorBadge(ticketTypeName) ? { badgeType: EXHIBITOR_BADGE_ROLE } : {};
+}
+
+/**
+ * The badge type a badge PRINTS with: the stored one, or Exhibitor when it is
+ * blank and the person is on the Exhibitor registration type. Covers the
+ * registrations that reached that type before exhibitorBadgeData existed
+ * (review M1, Oct 26, 2026), without touching their rows. A badge type that
+ * is set, even by hand to something else, always wins.
+ */
+export function printedBadgeType(badgeType: string | null | undefined, ticketTypeName: string | null | undefined): string | null {
+  if (badgeType?.trim()) return badgeType;
+  return isExhibitorBadge(ticketTypeName) ? EXHIBITOR_BADGE_ROLE : null;
 }
 
 /**
