@@ -54,7 +54,7 @@ import {
 import { usePreviewEmailBySlug, useEvent, useEmailTemplates } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { templateUsesRsvpToken } from "@/lib/rsvp/button";
-import { RSVP_ANSWER_LABELS, rsvpAnswer } from "@/lib/rsvp/answer";
+import { RSVP_ANSWER_LABELS, rsvpAnswer, rsvpItemAnswer } from "@/lib/rsvp/answer";
 import {
   resolveTimezone,
   localDateTimeInTz,
@@ -86,6 +86,8 @@ interface RsvpItem {
   capacity: number | null;
   sortOrder: number;
   isActive: boolean;
+  /** When it was added; decides "No" vs blank for someone who answered earlier. */
+  createdAt?: string;
 }
 interface RosterInvite {
   id: string;
@@ -302,8 +304,11 @@ export default function RsvpCampaignConsole() {
         toast.success("Option deleted");
         await loadRoster();
       } else {
-        console.error("rsvp-console:delete-item-failed", res.status);
-        toast.error("Failed to delete item");
+        // The server's reason: an option people are attending cannot be
+        // deleted, and the message says to switch it off instead.
+        const body = await res.json().catch(() => null);
+        console.error("rsvp-console:delete-item-failed", res.status, body?.code);
+        toast.error(body?.error || "Failed to delete item");
       }
     } catch (err) {
       console.error("rsvp-console:delete-item-error", err);
@@ -659,7 +664,7 @@ export default function RsvpCampaignConsole() {
                       </td>
                       {items.map((d) => (
                         <td key={d.id} className="p-2 text-center">
-                          <RsvpItemCell invite={inv} response={byItem.get(d.id)} />
+                          <RsvpItemCell invite={inv} item={d} response={byItem.get(d.id)} />
                         </td>
                       ))}
                       <td className="p-2 max-w-[160px] truncate text-muted-foreground">{inv.dietary || "—"}</td>
@@ -946,16 +951,17 @@ function RsvpAnswerBadge({ invite }: { invite: RosterInvite }) {
   return <span className="text-xs text-amber-600 font-medium">{RSVP_ANSWER_LABELS.PENDING}</span>;
 }
 
-/** Yes (+guests) / No once they answered; a dash only while pending (a "No"
- *  used to look exactly like no answer). */
-function RsvpItemCell({ invite, response }: { invite: RosterInvite; response?: RosterInvite["responses"][number] }) {
-  if (response?.attending) {
+/** Yes (+guests) / No once they answered; a dash while pending or for an
+ *  option they never saw (added later, switched off, already closed). */
+function RsvpItemCell({ invite, item, response }: { invite: RosterInvite; item: RsvpItem; response?: RosterInvite["responses"][number] }) {
+  const answer = rsvpItemAnswer(invite, item);
+  if (answer === "Yes") {
     return (
       <span className="text-emerald-600 font-medium">
-        Yes{response.guestCount > 0 ? ` +${response.guestCount}` : ""}
+        Yes{response && response.guestCount > 0 ? ` +${response.guestCount}` : ""}
       </span>
     );
   }
-  if (invite.status === "RESPONDED") return <span className="text-red-600 font-medium">No</span>;
+  if (answer === "No") return <span className="text-red-600 font-medium">No</span>;
   return <span className="text-muted-foreground">—</span>;
 }

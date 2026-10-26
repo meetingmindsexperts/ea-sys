@@ -103,6 +103,9 @@ export async function GET(req: Request, { params }: RouteParams) {
             capacity: true,
             sortOrder: true,
             isActive: true,
+            // When it was added: an option added after someone answered reads
+            // blank for them, not "No" (answer.ts).
+            createdAt: true,
           },
         }),
         db.rsvpInvite.findMany({
@@ -174,7 +177,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             RSVP_ANSWER_LABELS[rsvpAnswer(inv)],
             inv.respondedAt ? inv.respondedAt.toISOString() : "",
             ...(campaign.collectDietary ? [inv.dietary ?? ""] : []),
-            ...items.map((i) => rsvpItemAnswer(inv, i.id)),
+            ...items.map((i) => rsvpItemAnswer(inv, i)),
             // Blank while pending, like the answer itself.
             ...(campaign.allowGuests
               ? items.map((i) => (inv.status === "RESPONDED" ? String(byItem.get(i.id)?.guestCount ?? 0) : ""))
@@ -315,37 +318,44 @@ export async function POST(req: Request, { params }: RouteParams) {
 
 /**
  * Invite id → formatted registration number ("008"). The invite's linked
- * registration first, else a registration on this event with the invitee's
- * email (not cancelled, the most recent). Two queries for the whole roster.
+ * registration first; when that link resolves to nothing usable (the soft link
+ * points at a deleted, cancelled or other-event registration), the invitee's
+ * registration on this event by email. Both sides skip cancelled
+ * registrations, and the newest wins on a duplicate email. Two queries.
  */
 async function registrationNumbers(
   eventId: string,
   invites: { id: string; inviteeEmail: string; registrationId: string | null }[],
 ): Promise<Map<string, string>> {
+  const live = { eventId, status: { not: "CANCELLED" as const } };
   const linkedIds = invites.map((i) => i.registrationId).filter((id): id is string => !!id);
-  const unlinkedEmails = invites.filter((i) => !i.registrationId).map((i) => i.inviteeEmail.toLowerCase());
-  const [linked, byEmail] = await Promise.all([
-    linkedIds.length
-      ? db.registration.findMany({ where: { eventId, id: { in: linkedIds } }, select: { id: true, serialId: true } })
-      : Promise.resolve([]),
-    unlinkedEmails.length
-      ? db.registration.findMany({
-          where: { eventId, status: { not: "CANCELLED" }, attendee: { email: { in: unlinkedEmails, mode: "insensitive" } } },
-          orderBy: { createdAt: "desc" },
-          select: { serialId: true, attendee: { select: { email: true } } },
-        })
-      : Promise.resolve([]),
-  ]);
+  const linked = linkedIds.length
+    ? await db.registration.findMany({ where: { ...live, id: { in: linkedIds } }, select: { id: true, serialId: true } })
+    : [];
   const serialById = new Map(linked.map((r) => [r.id, r.serialId]));
-  const serialByEmail = new Map<string, number | null>();
+
+  const out = new Map<string, string>();
+  const needEmail: { id: string; email: string }[] = [];
+  for (const inv of invites) {
+    const serial = inv.registrationId ? serialById.get(inv.registrationId) : undefined;
+    if (serial != null) out.set(inv.id, formatSerialId(serial));
+    else needEmail.push({ id: inv.id, email: inv.inviteeEmail.toLowerCase() });
+  }
+  if (needEmail.length === 0) return out;
+
+  const byEmail = await db.registration.findMany({
+    where: { ...live, serialId: { not: null }, attendee: { email: { in: needEmail.map((n) => n.email), mode: "insensitive" } } },
+    orderBy: { createdAt: "desc" },
+    select: { serialId: true, attendee: { select: { email: true } } },
+  });
+  const serialByEmail = new Map<string, number>();
   for (const r of byEmail) {
     const key = r.attendee.email.toLowerCase();
-    if (!serialByEmail.has(key)) serialByEmail.set(key, r.serialId);
+    if (r.serialId != null && !serialByEmail.has(key)) serialByEmail.set(key, r.serialId);
   }
-  const out = new Map<string, string>();
-  for (const inv of invites) {
-    const serial = inv.registrationId ? serialById.get(inv.registrationId) : serialByEmail.get(inv.inviteeEmail.toLowerCase());
-    if (serial != null) out.set(inv.id, formatSerialId(serial));
+  for (const n of needEmail) {
+    const serial = serialByEmail.get(n.email);
+    if (serial != null) out.set(n.id, formatSerialId(serial));
   }
   return out;
 }

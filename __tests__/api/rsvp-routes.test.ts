@@ -23,8 +23,8 @@ const { mockDb, mockRateLimit, mockSendEmail, mockGetEventTemplate, mockRenderAn
     event: { findFirst: vi.fn(), findUnique: vi.fn() },
     rsvpCampaign: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
     rsvpInvite: { findUnique: vi.fn(), findMany: vi.fn(), createMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
-    rsvpItem: { findMany: vi.fn(), count: vi.fn(), create: vi.fn() },
-    rsvpResponse: { deleteMany: vi.fn(), createMany: vi.fn(), upsert: vi.fn() },
+    rsvpItem: { findMany: vi.fn(), count: vi.fn(), create: vi.fn(), findFirst: vi.fn(), deleteMany: vi.fn() },
+    rsvpResponse: { deleteMany: vi.fn(), createMany: vi.fn(), upsert: vi.fn(), count: vi.fn() },
     registration: { findMany: vi.fn().mockResolvedValue([]) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     user: { findUnique: vi.fn() },
@@ -91,6 +91,7 @@ import {
 } from "@/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/invites/route";
 import { POST as publicSubmit } from "@/app/api/public/events/[slug]/rsvp/[token]/route";
 import { POST as itemsPost } from "@/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/items/route";
+import { DELETE as itemDelete } from "@/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/items/[itemId]/route";
 import { POST as campaignsPost } from "@/app/api/events/[eventId]/rsvp-campaigns/route";
 import { POST as sendPost } from "@/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/invites/send/route";
 
@@ -149,8 +150,8 @@ describe("GET roster — must return every item field the console edits (B2)", (
 // RESPONDED with blanks, and a PENDING invite exported "No" for every item).
 describe("roster: registration number and what each person answered", () => {
   const ITEMS = [
-    { id: "i1", name: "Workshop A", startsAt: new Date(), capacity: null },
-    { id: "i2", name: "Workshop B", startsAt: new Date(), capacity: null },
+    { id: "i1", name: "Workshop A", startsAt: new Date("2026-11-01T09:00:00Z"), rsvpDeadline: null, isActive: true, createdAt: new Date("2026-10-01T00:00:00Z"), capacity: null },
+    { id: "i2", name: "Workshop B", startsAt: new Date("2026-11-01T09:00:00Z"), rsvpDeadline: null, isActive: true, createdAt: new Date("2026-10-01T00:00:00Z"), capacity: null },
   ];
   const base = { token: "t", dietary: null, respondedAt: new Date("2026-10-24T05:00:00Z") };
   const INVITES = [
@@ -166,6 +167,18 @@ describe("roster: registration number and what each person answered", () => {
     mockDb.registration.findMany.mockImplementation(async ({ where }: { where: { id?: unknown } }) =>
       where.id ? [{ id: "reg-1", serialId: 8 }] : [{ serialId: 42, attendee: { email: "abdel@x.com" } }],
     );
+  });
+
+  it("a link that resolves to nothing usable falls back to the invitee's email", async () => {
+    mockDb.rsvpInvite.findMany.mockResolvedValue([{ ...INVITES[0], registrationId: "reg-gone" }]);
+    mockDb.registration.findMany.mockImplementation(async ({ where }: { where: { id?: unknown } }) =>
+      where.id ? [] : [{ serialId: 77, attendee: { email: "asha@x.com" } }],
+    );
+    const res = await rosterGet({ url: "http://x/api/events/ev1/rsvp-campaigns/c1/invites" } as unknown as Request, { params: campaignParams });
+    const body = await (res as unknown as { json: () => Promise<{ invites: Record<string, unknown>[] }> }).json();
+    expect(body.invites[0].regId).toBe("077");
+    // Both lookups skip cancelled registrations.
+    for (const [arg] of mockDb.registration.findMany.mock.calls) expect(arg.where.status).toEqual({ not: "CANCELLED" });
   });
 
   it("the roster gets a formatted reg ID per invitee, never the soft registration link", async () => {
@@ -190,6 +203,36 @@ describe("roster: registration number and what each person answered", () => {
     expect(cells[1].slice(6, 8)).toEqual(["No", "No"]);
     expect(cells[2].slice(3, 4)).toEqual(["Pending"]);
     expect(cells[2].slice(6, 10)).toEqual(["", "", "", ""]); // answers and guest counts blank while pending
+  });
+});
+
+// Review of 0ba8d492 (Oct 26): deleting an option cascades its responses, so
+// someone whose only yes was there would read Declined. Refused while anyone
+// is attending; the guard is inside the delete itself.
+describe("DELETE option — never while people are attending", () => {
+  const itemParams = Promise.resolve({ eventId: "ev1", campaignId: "c1", itemId: "i1" });
+  beforeEach(() => {
+    mockDb.rsvpItem.findFirst.mockResolvedValue({ id: "i1", name: "Workshop A" });
+  });
+
+  it("409 ITEM_HAS_ATTENDEES naming how many, and the delete is conditional on no attending rows", async () => {
+    mockDb.rsvpItem.deleteMany.mockResolvedValue({ count: 0 });
+    mockDb.rsvpResponse.count.mockResolvedValue(3);
+    const res = await itemDelete({} as Request, { params: itemParams });
+    expect(res.status).toBe(409);
+    const body = await (res as unknown as { json: () => Promise<{ code: string; error: string }> }).json();
+    expect(body.code).toBe("ITEM_HAS_ATTENDEES");
+    expect(body.error).toMatch(/^3 people are attending/);
+    expect(mockDb.rsvpItem.deleteMany.mock.calls[0][0].where).toEqual({
+      id: "i1", campaignId: "c1", responses: { none: { attending: true } },
+    });
+  });
+
+  it("deletes when nobody is attending", async () => {
+    mockDb.rsvpItem.deleteMany.mockResolvedValue({ count: 1 });
+    const res = await itemDelete({} as Request, { params: itemParams });
+    expect(res.status).toBe(200);
+    expect(mockDb.rsvpResponse.count).not.toHaveBeenCalled();
   });
 });
 

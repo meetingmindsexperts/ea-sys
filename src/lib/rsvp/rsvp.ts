@@ -202,7 +202,6 @@ export function computeItemHeadcounts(
   return items.map((i) => byItem.get(i.id)!);
 }
 
-/** RESPONDED + attending at least one item. */
-export function isAttendingAny(invite: RsvpInviteLite): boolean {
-  return invite.status === "RESPONDED" && invite.responses.some((r) => r.attending);
-}
+/** RESPONDED + attending at least one item. Lives in answer.ts (client-safe),
+ *  with the roster's Attending / Declined reading, so the rule exists once. */
+export { isAttendingAny } from "./answer";

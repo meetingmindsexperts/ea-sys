@@ -157,8 +157,23 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
         });
       }
 
-      const { count } = await db.rsvpItem.deleteMany({ where: { id: itemId, campaignId } });
+      // Never while anyone is attending (review of 0ba8d492, Oct 26, 2026):
+      // deleting cascades their yes away, and someone whose only yes was here
+      // then read as Declined on the roster. The guard is IN the delete, so a
+      // yes landing between a check and the delete cannot slip through.
+      const { count } = await db.rsvpItem.deleteMany({
+        where: { id: itemId, campaignId, responses: { none: { attending: true } } },
+      });
       if (count === 0) {
+        const attending = await db.rsvpResponse.count({ where: { itemId, attending: true } });
+        if (attending > 0) {
+          return apiErrorResponse(
+            409,
+            `${attending} ${attending === 1 ? "person is" : "people are"} attending this option, so it cannot be deleted. To stop new answers, click Edit and set its RSVP deadline to now: it closes and keeps their answers.`,
+            { route, eventId, campaignId, itemId, userId: session.user.id, attending },
+            { code: "ITEM_HAS_ATTENDEES", attending },
+          );
+        }
         return apiErrorResponse(404, "Item not found", {
           route, eventId, campaignId, itemId, userId: session.user.id,
         });
