@@ -355,7 +355,7 @@ async function resolveCoordinatorAccount(args: {
       return {
         ok: false,
         status: 401,
-        error: "An account with this email already exists — the password is incorrect. Sign in with your existing password.",
+        error: "An account with this email already exists, but the password is incorrect. Sign in with your existing password.",
         code: "BAD_CREDENTIALS",
       };
     }
@@ -420,7 +420,7 @@ async function resolveCoordinatorAccount(args: {
       return {
         ok: false,
         status: 401,
-        error: "An account with this email already exists — the password is incorrect. Sign in with your existing password.",
+        error: "An account with this email already exists, but the password is incorrect. Sign in with your existing password.",
         code: "BAD_CREDENTIALS",
       };
     }

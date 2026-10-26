@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Public pages: no em dashes in the text visitors see (October 26)
+
+- Owner: remove em dashes from public-facing pages, including meta text. Every visible one in the public pages (registration, complete-registration, confirmation, My Registration, My Group, group registration, agenda, RSVP, survey, speaker form, reimbursement, travel grant, session, waiting room, submitter forms, login), the public API messages that reach the screen, the Stripe checkout item names, the default speaker agreement text, and the page titles and descriptions (`Register | Event` instead of `Register — Event`; the site description) now use a full stop, comma, colon or brackets. Empty values that showed "—" read "Not set", "Not provided" or "None"; the agenda's empty-time marker is a hyphen.
+- Not changed: code comments, logs, the dashboard, and the content organisers wrote themselves (welcome text, terms, confirmation message, footers), which is event data, not code.
+
 ### RSVP roster and CSV: registration number, and a "No" that says No (October 26)
 
 - Owner (BHS2026 Workshop): an invitee who answered no showed as "Responded" with dashes, exactly like someone who never answered. The public form stores a row only for items someone attends, so a no is RESPONDED with no attending row. The roster now shows **Attending / Declined / Pending** and **Yes / No** per option (a dash only while pending), from one shared reading (`src/lib/rsvp/answer.ts`).

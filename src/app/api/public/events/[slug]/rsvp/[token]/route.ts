@@ -349,7 +349,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json(
           {
             error:
-              "This form is out of date — this RSVP's options have changed since you opened it. Please reload the page and submit again.",
+              "This form is out of date: this RSVP's options have changed since you opened it. Please reload the page and submit again.",
             code: "STALE_FORM",
           },
           { status: 409 },

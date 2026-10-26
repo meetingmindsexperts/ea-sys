@@ -178,7 +178,7 @@ export function AddGroupMembersDialog({
       onAdded(body as AddGroupMembersResultShape);
       onOpenChange(false);
     } catch {
-      setError("Network problem — nobody was added. Please try again.");
+      setError("Network problem: nobody was added. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -267,7 +267,7 @@ export function AddGroupMembersDialog({
                           return (
                             <SelectItem key={tt.id} value={tt.id}>
                               {tt.name}
-                              {lp.tierName ? ` (${lp.tierName})` : ""} —{" "}
+                              {lp.tierName ? ` (${lp.tierName})` : ""}:{" "}
                               {tt.currency ?? currency} {lp.price.toFixed(2)}
                             </SelectItem>
                           );

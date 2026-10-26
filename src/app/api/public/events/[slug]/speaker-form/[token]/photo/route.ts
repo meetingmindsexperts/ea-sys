@@ -70,7 +70,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (row.status === "SUBMITTED") {
         apiLogger.warn({ slug, formId: row.id }, "speaker-form-photo:locked");
         return NextResponse.json(
-          { error: "This form has been submitted — contact the organizers for changes.", code: "ALREADY_SUBMITTED" },
+          { error: "This form has been submitted. Contact the organizers for changes.", code: "ALREADY_SUBMITTED" },
           { status: 409 },
         );
       }

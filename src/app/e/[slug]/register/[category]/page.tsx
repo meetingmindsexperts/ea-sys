@@ -1361,7 +1361,7 @@ function CategoryRegistrationContent() {
                         enforces the cap atomically on in-person picks. */}
                     {fullInPersonOnly && (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                        In-person registration is fully booked — you can still register to attend virtually.
+                        In-person registration is fully booked, but you can still register to attend virtually.
                       </div>
                     )}
                     {event?.eventType === "HYBRID" && (
@@ -1550,7 +1550,7 @@ function CategoryRegistrationContent() {
                                     {promoResult.discountType === "PERCENTAGE"
                                       ? `${promoResult.discountValue}% off`
                                       : `${promoResult.originalPrice !== undefined ? `${(promoResult.originalPrice - (promoResult.finalPrice || 0)).toFixed(2)}` : promoResult.discountAmount?.toFixed(2)} off`}
-                                    {" — "}you save {promoResult.discountAmount?.toFixed(2)}
+                                    {": "}you save {promoResult.discountAmount?.toFixed(2)}
                                     {promoResult.finalPrice === 0 && " (Free!)"}
                                   </span>
                                   )}

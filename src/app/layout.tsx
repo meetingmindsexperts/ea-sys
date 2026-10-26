@@ -13,7 +13,7 @@ const appUrl =
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title: "Meeting Minds Events Management Platform",
-  description: "Event management platform by Meeting Minds Group — conferences, meetings, and events",
+  description: "Event management platform by Meeting Minds Group for conferences, meetings, and events",
   icons: {
     icon: "/mmg-logo.png",
     shortcut: "/mmg-logo.png",

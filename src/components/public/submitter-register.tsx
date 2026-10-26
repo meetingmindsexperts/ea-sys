@@ -107,7 +107,7 @@ const VARIANT_COPY: Record<
   }
 > = {
   abstract: {
-    pageHeading: "Abstract Submission — Presenter Registration",
+    pageHeading: "Abstract Submission: Presenter Registration",
     accountHeading: "Create your presenter account",
     accountSub: "You'll use these credentials to sign in and submit your abstract.",
     signinHeading: "Sign in to submit your abstract",
@@ -119,7 +119,7 @@ const VARIANT_COPY: Record<
     logPrefix: "abstract/register",
   },
   proposal: {
-    pageHeading: "Session Proposal — Proposer Registration",
+    pageHeading: "Session Proposal: Proposer Registration",
     accountHeading: "Create your proposer account",
     accountSub: "You'll use these credentials to sign in and propose a session.",
     signinHeading: "Sign in to propose a session",
@@ -538,7 +538,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
         toast.error(
           signInRes.code === "RateLimited"
             ? "Too many failed sign-in attempts. Please wait a few minutes and try again."
-            : "Couldn't sign you in automatically — please sign in and try again."
+            : "Couldn't sign you in automatically. Please sign in and try again."
         );
         return;
       }

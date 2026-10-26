@@ -124,11 +124,11 @@ function confirmedPaymentMessage(s: {
   group: { billingAccount: { name: string } } | null | undefined;
 }): string {
   if (s.isGroupCovered && !s.isPaid) {
-    return `Part of a group registration — the fee is billed to ${s.group?.billingAccount.name ?? "your company"}. No payment is due from you.`;
+    return `Part of a group registration: the fee is billed to ${s.group?.billingAccount.name ?? "your company"}. No payment is due from you.`;
   }
-  if (s.isSponsored) return "Sponsored registration — no payment required.";
+  if (s.isSponsored) return "Sponsored registration. No payment required.";
   if (s.isRefunded) return "This registration's payment was refunded. Contact the organizer if you have questions.";
-  if (s.isComplimentary) return "Complimentary registration — no payment required.";
+  if (s.isComplimentary) return "Complimentary registration. No payment required.";
   return "Payment received. You're all set!";
 }
 
@@ -249,7 +249,7 @@ export default function EventMyRegistrationPage() {
       }
       toast.success(
         data.discountAmount > 0
-          ? `Promo applied — you save ${formatCurrency(Number(data.discountAmount), data.currency)}`
+          ? `Promo applied: you save ${formatCurrency(Number(data.discountAmount), data.currency)}`
           : "Promo code applied",
       );
       setPromoInput((p) => ({ ...p, [registrationId]: "" }));
@@ -346,7 +346,7 @@ export default function EventMyRegistrationPage() {
             <h2 className="text-lg font-semibold text-slate-900 mb-2">Couldn&apos;t load your registration</h2>
             <p className="text-slate-500 text-sm">
               Something went wrong loading your registration details. Your registration is
-              safe — please try again in a moment.
+              safe. Please try again in a moment.
             </p>
           </div>
           <div className="flex items-center justify-center pt-2">
@@ -432,7 +432,7 @@ export default function EventMyRegistrationPage() {
               <div className="px-4 sm:px-6 py-4 border-b bg-slate-50/50">
                 <div className="flex flex-wrap gap-2">
                   <Badge className={statusColors[reg.status]} variant="outline">{reg.status}</Badge>
-                  <Badge variant="outline">{reg.ticketType?.name ?? "—"}</Badge>
+                  <Badge variant="outline">{reg.ticketType?.name ?? "Not set"}</Badge>
                   {reg.pricingTier && <Badge variant="secondary">{reg.pricingTier.name}</Badge>}
                 </div>
               </div>
@@ -741,14 +741,14 @@ export default function EventMyRegistrationPage() {
                       {reg.attendee.dietaryReqs && <div><span className="text-muted-foreground">Dietary Requirements</span><p className="font-medium">{reg.attendee.dietaryReqs}</p></div>}
                       {(reg.attendee.associationName || reg.attendee.memberId) && (
                         <>
-                          <div><span className="text-muted-foreground">Association</span><p className="font-medium">{reg.attendee.associationName || "—"}</p></div>
-                          <div><span className="text-muted-foreground">Member ID</span><p className="font-medium">{reg.attendee.memberId || "—"}</p></div>
+                          <div><span className="text-muted-foreground">Association</span><p className="font-medium">{reg.attendee.associationName || "Not provided"}</p></div>
+                          <div><span className="text-muted-foreground">Member ID</span><p className="font-medium">{reg.attendee.memberId || "Not provided"}</p></div>
                         </>
                       )}
                       {(reg.attendee.studentId || reg.attendee.studentIdExpiry) && (
                         <>
-                          <div><span className="text-muted-foreground">Student ID</span><p className="font-medium">{reg.attendee.studentId || "—"}</p></div>
-                          <div><span className="text-muted-foreground">Student ID Expiry</span><p className="font-medium">{reg.attendee.studentIdExpiry ? new Date(reg.attendee.studentIdExpiry).toLocaleDateString() : "—"}</p></div>
+                          <div><span className="text-muted-foreground">Student ID</span><p className="font-medium">{reg.attendee.studentId || "Not provided"}</p></div>
+                          <div><span className="text-muted-foreground">Student ID Expiry</span><p className="font-medium">{reg.attendee.studentIdExpiry ? new Date(reg.attendee.studentIdExpiry).toLocaleDateString() : "Not provided"}</p></div>
                         </>
                       )}
                     </div>

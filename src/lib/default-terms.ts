@@ -57,9 +57,9 @@ export const DEFAULT_SPEAKER_AGREEMENT_HTML = `
 <h1 style="text-align:center; margin-bottom:4px;">INVITED FACULTY PARTICIPATION AGREEMENT</h1>
 <p style="text-align:center; color:#555; margin-top:0;"><em>In-Person Medical Events &amp; Congresses</em></p>
 <p style="text-align:center;"><strong>{{eventName}}</strong><br/>{{eventDateRange}} · {{eventVenue}}, {{eventCity}}</p>
-<p style="text-align:center; color:#6b7280; font-size:13px;">Template Version 2026 | Confidential — Not for Distribution</p>
+<p style="text-align:center; color:#6b7280; font-size:13px;">Template Version 2026 | Confidential, Not for Distribution</p>
 
-<blockquote><strong>IMPORTANT</strong> — No speaker fee or honorarium is provided under this Agreement. Faculty receive pre-approved travel and accommodation support only, in accordance with applicable GCC healthcare and Mecomed compliance standards.</blockquote>
+<blockquote><strong>IMPORTANT:</strong> No speaker fee or honorarium is provided under this Agreement. Faculty receive pre-approved travel and accommodation support only, in accordance with applicable GCC healthcare and Mecomed compliance standards.</blockquote>
 
 <h2>Parties &amp; Key Terms</h2>
 <table>
@@ -127,7 +127,7 @@ export const DEFAULT_SPEAKER_AGREEMENT_HTML = `
 <p>8.2 This confidentiality obligation applies during and after the Conference and survives termination of this Agreement.</p>
 
 <h2>9. Data &amp; Privacy</h2>
-<p>9.1 {{organizationName}} will collect and retain the Faculty Member's personal and professional details — including name, title, affiliation, biography, contact details, photograph, Conflict of Interest disclosures, and presentation materials — for event administration, CME/CPD records, and archival purposes for up to three (3) years, in accordance with the UAE Federal Decree Law No. 45 of 2021 on the Protection of Personal Data (UAE PDPL) and applicable GCC data protection laws.</p>
+<p>9.1 {{organizationName}} will collect and retain the Faculty Member's personal and professional details (including name, title, affiliation, biography, contact details, photograph, Conflict of Interest disclosures, and presentation materials) for event administration, CME/CPD records, and archival purposes for up to three (3) years, in accordance with the UAE Federal Decree Law No. 45 of 2021 on the Protection of Personal Data (UAE PDPL) and applicable GCC data protection laws.</p>
 <p>9.2 Personal data will not be shared with third parties without the Faculty Member's consent, except as required by applicable law or for direct programme administration (e.g. hotel, transfer provider, accreditation body).</p>
 
 <h2>10. Cancellation, Substitution &amp; Flexible Delivery</h2>

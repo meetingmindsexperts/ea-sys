@@ -243,7 +243,7 @@ export default function SpeakerProfileFormPage() {
               <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm">
                 <UserRound className="h-5 w-5" />
               </span>
-              Photo &amp; documents — {data.event.name}
+              Photo &amp; documents: {data.event.name}
             </h1>
             <p className="text-sm text-slate-600 mt-2">
               {data.speaker.name} ({data.speaker.email})
@@ -257,7 +257,7 @@ export default function SpeakerProfileFormPage() {
                   <Check className="h-8 w-8 text-emerald-600" />
                 </div>
                 <h2 className="text-xl font-semibold text-slate-900 mb-2">
-                  {done ? "Thank you — your profile was submitted!" : "This form has already been submitted."}
+                  {done ? "Thank you, your profile was submitted!" : "This form has already been submitted."}
                 </h2>
                 <p className="text-sm text-slate-600 max-w-md mx-auto">
                   The organizing team has received your photo and documents. If anything needs
@@ -272,7 +272,7 @@ export default function SpeakerProfileFormPage() {
                     Your photo <span className="text-red-500">*</span>
                   </Label>
                   <p className="text-xs text-slate-500 mb-3">
-                    A recent headshot — JPG, PNG or WebP, under 500KB. It appears next to your
+                    A recent headshot: JPG, PNG or WebP, under 500KB. It appears next to your
                     name in the event programme.
                   </p>
                   <div className="flex items-center gap-4">
@@ -327,7 +327,7 @@ export default function SpeakerProfileFormPage() {
                       </Label>
                       <p className="text-xs text-slate-500 mb-3">
                         {slot === "passport"
-                          ? "A scan or clear phone photo of your passport photo page — PDF, JPG or PNG, under 10MB."
+                          ? "A scan or clear phone photo of your passport photo page: PDF, JPG or PNG, under 10MB."
                           : "PDF, JPG or PNG, under 10MB."}
                       </p>
                       {doc && (
@@ -405,7 +405,7 @@ export default function SpeakerProfileFormPage() {
                     Submit my profile
                   </Button>
                   <p className="text-xs text-slate-500 mt-2">
-                    After you submit, the form locks — contact the organizing team if anything
+                    After you submit, the form locks. Contact the organizing team if anything
                     needs changing.
                   </p>
                 </div>

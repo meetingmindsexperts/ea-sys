@@ -107,7 +107,7 @@ interface MyGroup {
 }
 
 function renderBadgeCell(cancelled: boolean, badgeIssued: boolean) {
-  if (cancelled) return "—";
+  if (cancelled) return "Cancelled";
   if (badgeIssued) {
     return (
       <span className="inline-flex items-center gap-1 text-emerald-700">
@@ -116,7 +116,7 @@ function renderBadgeCell(cancelled: boolean, badgeIssued: boolean) {
     );
   }
   return (
-    <Hint text="This attendee's barcode hasn't been generated yet. It's sent automatically — no action needed from you.">
+    <Hint text="This attendee's barcode hasn't been generated yet. It's sent automatically, so no action is needed from you.">
       <span className="text-slate-400">Pending</span>
     </Hint>
   );
@@ -187,7 +187,7 @@ export default function MyGroupPage() {
       window.location.href = body.checkoutUrl;
     } catch (err) {
       console.error("my-group: checkout error", err);
-      toast.error("We couldn't reach the payment page. Your invoice is still valid — please try again.");
+      toast.error("We couldn't reach the payment page. Your invoice is still valid, so please try again.");
     } finally {
       setPaying(false);
     }
@@ -226,7 +226,7 @@ export default function MyGroupPage() {
           <AlertCircle className="mx-auto h-10 w-10 text-red-500 mb-3" />
           <h1 className="text-xl font-semibold mb-2">Couldn&apos;t load your group</h1>
           <p className="text-slate-600 mb-5">
-            Your group registration is safe — this is a loading problem. Please try again.
+            Your group registration is safe. This is a loading problem. Please try again.
           </p>
           <Button onClick={() => refetch()}>Try again</Button>
         </div>
@@ -340,7 +340,7 @@ export default function MyGroupPage() {
                   )}
                 </Button>
                 <p className="mt-2 text-sm text-slate-500">
-                  Or pay by bank transfer using the invoice below — the bank details are on it.
+                  Or pay by bank transfer using the invoice below. The bank details are on it.
                 </p>
               </div>
             ) : null}
@@ -375,7 +375,7 @@ export default function MyGroupPage() {
                   <th className="px-6 py-3 font-medium">Name</th>
                   <th className="px-6 py-3 font-medium">Type</th>
                   <th className="px-6 py-3 font-medium">
-                    <Hint text="Each attendee's entry barcode goes straight to them by email — it isn't shown here. “Issued” means theirs has been generated and sent.">
+                    <Hint text="Each attendee's entry barcode goes straight to them by email, so it isn't shown here. “Issued” means theirs has been generated and sent.">
                       Badge
                     </Hint>
                   </th>
@@ -392,7 +392,7 @@ export default function MyGroupPage() {
                   const cancelled = m.status === "CANCELLED";
                   return (
                     <tr key={m.registrationId} className={`border-b last:border-0 ${cancelled ? "text-slate-400" : ""}`}>
-                      <td className="px-6 py-3 tabular-nums">{formatSerialId(m.serialId)}</td>
+                      <td className="px-6 py-3 tabular-nums">{m.serialId != null ? formatSerialId(m.serialId) : "Not set"}</td>
                       <td className="px-6 py-3">
                         <div className={cancelled ? "line-through" : "font-medium"}>
                           {formatPersonName(m.title, m.firstName, m.lastName)}
@@ -400,7 +400,7 @@ export default function MyGroupPage() {
                         <div className="text-xs text-slate-500">{m.email}</div>
                       </td>
                       <td className="px-6 py-3">
-                        {m.ticketTypeName ?? "—"}
+                        {m.ticketTypeName ?? "Not set"}
                         {m.tierName ? <span className="text-slate-500"> · {m.tierName}</span> : null}
                       </td>
                       <td className="px-6 py-3">
@@ -440,7 +440,7 @@ export default function MyGroupPage() {
             {group.cancelledCount > 0 ? (
               <p className="mt-3 text-xs text-slate-500">
                 Cancelled attendees are excluded from this total. Your issued invoice may still
-                include them — contact the organizer for a credit note.
+                include them. Contact the organizer for a credit note.
               </p>
             ) : null}
           </div>

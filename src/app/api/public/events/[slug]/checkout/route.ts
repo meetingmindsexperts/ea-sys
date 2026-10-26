@@ -17,7 +17,7 @@ import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/regi
 const NO_PAYMENT_DUE_MESSAGES: Partial<Record<string, string>> = {
   PAID: "Payment already completed",
   COMPLIMENTARY: "Payment already completed",
-  INCLUSIVE: "This registration is sponsor-paid — no payment is due.",
+  INCLUSIVE: "This registration is sponsor-paid, so no payment is due.",
   REFUNDED: "This registration was refunded. Please contact the organizer to arrange re-payment.",
 };
 
@@ -132,7 +132,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "Checkout attempted for a group-covered registration", registrationId });
       return NextResponse.json(
         {
-          error: "This registration is part of a group registration — the fee is billed to the company on the consolidated invoice. No individual payment is due.",
+          error: "This registration is part of a group registration: the fee is billed to the company on the consolidated invoice. No individual payment is due.",
           code: "COVERED_BY_GROUP",
         },
         { status: 400 },
@@ -173,7 +173,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         price_data: {
           currency: currencyCode,
           product_data: {
-            name: `${registration.event.name} — ${registration.ticketType.name}`,
+            name: `${registration.event.name}: ${registration.ticketType.name}`,
           },
           unit_amount: ticketUnitAmount,
         },

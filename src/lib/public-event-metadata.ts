@@ -129,7 +129,7 @@ export async function buildEventMetadata({
       sectionLabel = (await getSessionName(host, slug, sessionId)) ?? "Session";
     }
 
-    const title = sectionLabel ? `${sectionLabel} — ${event.name}` : event.name;
+    const title = sectionLabel ? `${sectionLabel} | ${event.name}` : event.name;
 
     const dateStr = event.startDate
       ? new Date(event.startDate).toLocaleDateString("en-GB", {

@@ -214,7 +214,7 @@ export default function TravelGrantPage() {
 
           {already === "DECLINED" && (
             <div className="rounded-md border bg-muted/50 p-4 text-sm">
-              <p className="font-medium">Thank you — we have recorded that you do not need a travel grant.</p>
+              <p className="font-medium">Thank you. We have recorded that you do not need a travel grant.</p>
               <p className="mt-1 text-muted-foreground">
                 If that changes, reply to the email you received and the organising team can help.
               </p>

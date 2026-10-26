@@ -489,12 +489,12 @@ export default function ReimbursementFormPage() {
                 <Check className="h-8 w-8 text-emerald-600" />
               </div>
               <h2 className="text-xl font-semibold text-slate-900 mb-2">
-                {done ? "Form submitted — thank you!" : "This form has already been submitted."}
+                {done ? "Form submitted. Thank you!" : "This form has already been submitted."}
               </h2>
               <p className="text-slate-600 max-w-md mx-auto">
                 {done
                   ? "We've emailed you a confirmation. Payment will be processed by bank wire transfer within 45 days of receipt of the completed form and all supporting documents."
-                  : "If you need to correct your details, please contact the organizing team — they can reopen the form for you."}
+                  : "If you need to correct your details, please contact the organizing team, who can reopen the form for you."}
               </p>
 
               {/* Append-only documents after submission (owner decision,
@@ -506,8 +506,8 @@ export default function ReimbursementFormPage() {
                   Add more documents
                 </h3>
                 <p className="text-sm text-slate-600 mb-4">
-                  Forgot a receipt, or asked for a clearer copy? You can still add documents here
-                  — your submitted details stay unchanged. Added files can&apos;t be removed;
+                  Forgot a receipt, or asked for a clearer copy? You can still add documents here;
+                  your submitted details stay unchanged. Added files can&apos;t be removed;
                   contact the organizing team if something needs to come off.
                 </p>
                 <div className="space-y-2">
@@ -598,7 +598,7 @@ export default function ReimbursementFormPage() {
                         {EVENT_TYPE_LABELS[data.event.eventType] ?? data.event.eventType}
                       </div>
                       <div className="text-slate-600">
-                        {[data.event.venue, data.event.city].filter(Boolean).join(", ") || "—"}
+                        {[data.event.venue, data.event.city].filter(Boolean).join(", ") || "Not set"}
                       </div>
                     </div>
                   </div>
@@ -781,7 +781,7 @@ export default function ReimbursementFormPage() {
                               })}`,
                           )
                           .join(" · ")
-                      : "—"}
+                      : "None"}
                   </span>
                 </div>
                 {fieldErrors.claimLines && (
@@ -850,7 +850,7 @@ export default function ReimbursementFormPage() {
                 <SectionHeading letter="E" title="Required Documents" />
                 <p className="text-sm text-slate-600 mb-3">
                   PDF, JPG or PNG, up to 10MB each. A passport copy is always required, plus a
-                  receipt for every expense you claim —{" "}
+                  receipt for every expense you claim:{" "}
                   <strong>expenses without receipts cannot be processed.</strong>
                 </p>
                 <div className="space-y-2">

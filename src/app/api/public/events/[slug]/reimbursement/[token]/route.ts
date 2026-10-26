@@ -354,7 +354,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       .catch((err) => apiLogger.error({ err, reimbursementId: row.id }, "reimbursement-public:audit-failed"));
 
     const speakerDisplayName = d.fullName.trim();
-    const totals = formatClaimTotals(claimLines) || "—";
+    const totals = formatClaimTotals(claimLines) || "None";
 
     // In-app notification for the org's admins/organizers (failure-isolated
     // inside the helper).

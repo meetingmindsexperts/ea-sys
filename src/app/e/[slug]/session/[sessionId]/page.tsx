@@ -857,7 +857,7 @@ export default function PublicSessionPage() {
                   <p className="font-medium text-lg">Getting the stream ready…</p>
                   <p className="text-sm text-muted-foreground max-w-md">
                     The live stream for this session isn&apos;t available yet. Please keep this
-                    page open — it&apos;ll appear here automatically once it starts.
+                    page open. It&apos;ll appear here automatically once it starts.
                   </p>
                 </CardContent>
               </Card>

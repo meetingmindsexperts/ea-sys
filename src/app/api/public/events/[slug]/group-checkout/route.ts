@@ -180,12 +180,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       const lineItems = (
         linesAgree
           ? derived.map((li) => ({
-              name: `${group.event.name} — ${li.description}`,
+              name: `${group.event.name}: ${li.description}`,
               unit_amount: toStripe(round2(li.amount)),
             }))
           : [
               {
-                name: `${group.event.name} — group registration (${liveMembers.length} attendees)`,
+                name: `${group.event.name}: group registration (${liveMembers.length} attendees)`,
                 unit_amount: toStripe(subtotal),
               },
             ]

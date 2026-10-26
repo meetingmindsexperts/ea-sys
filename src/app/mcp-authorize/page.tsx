@@ -100,7 +100,7 @@ export default async function McpAuthorizePage({ searchParams }: PageProps) {
     });
     return errorPage(
       "Redirect URI mismatch",
-      "The redirect_uri does not match any URI registered for this client. This is a security error — never click through.",
+      "The redirect_uri does not match any URI registered for this client. This is a security error. Never click through.",
     );
   }
 

@@ -73,7 +73,7 @@ function formatRemaining(ms: number): string {
 const OVERDUE_AFTER_MS = 10 * 60_000;
 
 function countdownLabel(overdue: boolean, started: boolean): string {
-  if (overdue) return "Running a little late — you'll be admitted as soon as the host starts";
+  if (overdue) return "Running a little late. You'll be admitted as soon as the host starts";
   if (started) return "Starting any moment";
   return "Starts in";
 }
@@ -161,7 +161,7 @@ export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage, posterUrl, 
         )}
         <p className="mt-2 text-sm text-slate-600">
           {lobbyMessage ||
-            "You're in the waiting room — please keep this page open. You'll be admitted automatically when the host opens the session."}
+            "You're in the waiting room. Please keep this page open. You'll be admitted automatically when the host opens the session."}
         </p>
       </div>
     </div>

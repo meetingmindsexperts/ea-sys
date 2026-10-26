@@ -309,7 +309,7 @@ function ConfirmationContent() {
               <div>
                 <p className="text-sm font-semibold text-emerald-800">Payment Complete</p>
                 <p className="text-xs text-emerald-600 mt-0.5">
-                  {ticketCurrency} {(hasTax ? totalDue : ticketPrice).toFixed(2)} — A receipt has been sent to your email.
+                  {ticketCurrency} {(hasTax ? totalDue : ticketPrice).toFixed(2)}. A receipt has been sent to your email.
                 </p>
               </div>
             </div>
@@ -559,7 +559,7 @@ function ConfirmationContent() {
               paymentInfo.paymentStatus !== "INCLUSIVE" && paymentInfo.paymentStatus !== "REFUNDED" && (
               <div className="mx-6 mb-5 bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between text-sm">
                 <span className="font-medium text-emerald-700">
-                  Promo code {promoCodeUsed} applied — nothing to pay
+                  Promo code {promoCodeUsed} applied: nothing to pay
                 </span>
                 <button
                   type="button"

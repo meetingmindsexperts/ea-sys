@@ -312,7 +312,7 @@ function PublicSurveyClient() {
               />
             ) : (
               <p className="mt-2 max-w-prose text-muted-foreground">
-                Your feedback shapes our next event. It takes about 2–3 minutes — thank you for
+                Your feedback shapes our next event. It takes about 2 to 3 minutes. Thank you for
                 sharing.
               </p>
             )}
@@ -339,7 +339,7 @@ function PublicSurveyClient() {
               <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
               <div>
                 <p>
-                  <span className="font-semibold">Preview</span> — this is exactly how the survey
+                  <span className="font-semibold">Preview</span>: this is exactly how the survey
                   looks to recipients. Responses are <span className="font-semibold">not saved</span>.
                 </p>
                 <button
@@ -397,7 +397,7 @@ function PublicSurveyClient() {
             {!isPreviewMode ? (
               <p className="text-xs text-muted-foreground">
                 {answeredCount === total
-                  ? "All set — submit when you're ready."
+                  ? "All set. Submit when you're ready."
                   : `${total - answeredCount} more to go (optional ones can be skipped).`}
               </p>
             ) : null}

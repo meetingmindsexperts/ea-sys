@@ -229,7 +229,7 @@ export default function PublicAgendaPage() {
           </h2>
           <p className="text-slate-500 text-sm leading-relaxed mb-6 max-w-sm mx-auto">
             The agenda for this event hasn&apos;t been published yet.
-            Please check back later — it will be available here once the organizer publishes it.
+            Please check back later. It will be available here once the organizer publishes it.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link href={`/e/${slug}`}>
@@ -529,7 +529,7 @@ export default function PublicAgendaPage() {
             <ChevronRight className="h-3.5 w-3.5" />
           </Link>
           <p className="text-xs text-slate-400 hidden print:block">
-            Printed from {eventData.name} — Subject to change
+            Printed from {eventData.name}. Subject to change
           </p>
         </div>
       </div>
@@ -892,7 +892,7 @@ function SessionCard({
                                 ) : null}
                               </>
                             ) : (
-                              <p className={cn("text-sm text-slate-300", inColumn ? "hidden" : "hidden sm:block")}>—</p>
+                              <p className={cn("text-sm text-slate-300", inColumn ? "hidden" : "hidden sm:block")}>-</p>
                             )}
                           </div>
                           <div className="min-w-0 flex-1">

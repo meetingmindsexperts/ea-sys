@@ -20,7 +20,7 @@ import { ApiReference } from "./api-reference";
 export const metadata: Metadata = {
   title: "EA-SYS API Reference",
   description:
-    "REST API for Meeting Minds Group / EA-SYS events — list events, faculty, the program, registrations, and contacts. API-key authenticated.",
+    "REST API for Meeting Minds Group / EA-SYS events: list events, faculty, the program, registrations, and contacts. API-key authenticated.",
 };
 
 export default async function ApiDocsPage() {

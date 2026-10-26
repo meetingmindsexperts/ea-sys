@@ -167,7 +167,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
       window.location.href = data.checkoutUrl;
     } catch (err) {
       console.error("group-checkout: error", err);
-      toast.error("We couldn't reach the payment page. Your invoice is still valid — please try again or pay by transfer.");
+      toast.error("We couldn't reach the payment page. Your invoice is still valid, so please try again or pay by transfer.");
     } finally {
       setPayingByCard(false);
     }
@@ -369,7 +369,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
       console.error("group-register: submit error", err);
       // L2: after a timeout the POST may have committed server-side — never
       // assert "NOT registered"; steer to email-first before retrying.
-      toast.error("We couldn't confirm your group registration. Check your email before retrying — it may have gone through.");
+      toast.error("We couldn't confirm your group registration. Check your email before retrying: it may have gone through.");
     } finally {
       setSubmitting(false);
     }
@@ -403,7 +403,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
           <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500 mb-4" />
           <h2 className="text-2xl font-semibold mb-2">Payment received</h2>
           <p className="text-slate-600">
-            Thank you — your group registration is paid in full. A paid invoice is on its way to
+            Thank you. Your group registration is paid in full. A paid invoice is on its way to
             the company and to you.
           </p>
           <p className="text-sm text-slate-500 mt-3">
@@ -417,7 +417,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
         <div className="rounded-xl border bg-white p-8 text-center">
           <h2 className="text-2xl font-semibold mb-2">Payment cancelled</h2>
           <p className="text-slate-600">
-            No payment was taken and <strong>your group registration is safe</strong> — everyone
+            No payment was taken and <strong>your group registration is safe</strong>, and everyone
             is still registered. You can pay by card now, or by bank transfer using the
             consolidated invoice that was emailed to you.
           </p>
@@ -443,7 +443,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
           <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500 mb-4" />
           <h2 className="text-2xl font-semibold mb-2">Group registered!</h2>
           <p className="text-slate-600 mb-1">
-            {done.memberCount} member{done.memberCount === 1 ? "" : "s"} registered — total <strong>{done.total}</strong>.
+            {done.memberCount} member{done.memberCount === 1 ? "" : "s"} registered, total <strong>{done.total}</strong>.
           </p>
           <p className="text-slate-600">
             {done.invoiceNumber
@@ -457,12 +457,12 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
             <a href={`/e/${slug}/my-group`} className="text-cyan-700 underline underline-offset-2">
               View your group
             </a>{" "}
-            <span className="text-slate-500">— everyone&apos;s status, the invoice, and payment.</span>
+            <span className="text-slate-500">(everyone&apos;s status, the invoice, and payment).</span>
           </p>
           {done.payable ? (
             <div className="mt-6 border-t pt-6">
               <p className="text-sm text-slate-600 mb-3">
-                Paying by card? Settle the whole group now — or ignore this and pay the invoice by
+                Paying by card? Settle the whole group now, or ignore this and pay the invoice by
                 bank transfer.
               </p>
               <Button onClick={() => payByCard(done.groupId)} disabled={payingByCard}>
@@ -549,7 +549,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
                 <div key={idx} id={`grp-member-${idx}`} className="rounded-lg border border-slate-200 p-4 scroll-mt-4">
                   <div className="flex items-center justify-between mb-3">
                     <span className="font-medium text-sm">
-                      Member {idx + 1}{isCoordinatorRow ? " — you" : ""}
+                      Member {idx + 1}{isCoordinatorRow ? " (you)" : ""}
                     </span>
                     {!isCoordinatorRow && members.length > 1 && (
                       <Button variant="ghost" size="sm" onClick={() => removeMember(idx)}>
@@ -567,7 +567,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
                             const p = livePrice(t);
                             return (
                               <SelectItem key={t.id} value={t.id}>
-                                {t.name}{p.tierName ? ` (${p.tierName})` : ""} — {t.currency ?? "USD"} {p.price.toFixed(2)}
+                                {t.name}{p.tierName ? ` (${p.tierName})` : ""}: {t.currency ?? "USD"} {p.price.toFixed(2)}
                               </SelectItem>
                             );
                           })}
