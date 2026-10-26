@@ -25,6 +25,7 @@ const { mockDb, mockRateLimit, mockSendEmail, mockGetEventTemplate, mockRenderAn
     rsvpInvite: { findUnique: vi.fn(), findMany: vi.fn(), createMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     rsvpItem: { findMany: vi.fn(), count: vi.fn(), create: vi.fn() },
     rsvpResponse: { deleteMany: vi.fn(), createMany: vi.fn(), upsert: vi.fn() },
+    registration: { findMany: vi.fn().mockResolvedValue([]) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     user: { findUnique: vi.fn() },
     emailLog: { findMany: vi.fn() },
@@ -36,14 +37,21 @@ const { mockDb, mockRateLimit, mockSendEmail, mockGetEventTemplate, mockRenderAn
   mockRenderAndWrap: vi.fn(),
 }));
 
-vi.mock("next/server", () => ({
-  NextResponse: {
-    json: (body: unknown, init?: { status?: number; headers?: Record<string, string> }) => ({
-      status: init?.status ?? 200,
-      json: async () => body,
-    }),
-  },
-}));
+vi.mock("next/server", () => {
+  // A constructor too: the roster's CSV export builds `new NextResponse(csv)`.
+  class NextResponse {
+    status: number;
+    body: string;
+    constructor(body: string, init?: { status?: number }) {
+      this.body = body;
+      this.status = init?.status ?? 200;
+    }
+    static json(body: unknown, init?: { status?: number; headers?: Record<string, string> }) {
+      return { status: init?.status ?? 200, json: async () => body };
+    }
+  }
+  return { NextResponse };
+});
 vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -133,6 +141,55 @@ describe("GET roster — must return every item field the console edits (B2)", (
     expect(select.location).toBe(true);
     expect(select.description).toBe(true);
     expect(select.rsvpDeadline).toBe(true);
+  });
+});
+
+// Owner, Oct 26, 2026: the roster and the CSV carry each invitee's
+// registration number, and a "No" reads as Declined (it used to read as
+// RESPONDED with blanks, and a PENDING invite exported "No" for every item).
+describe("roster: registration number and what each person answered", () => {
+  const ITEMS = [
+    { id: "i1", name: "Workshop A", startsAt: new Date(), capacity: null },
+    { id: "i2", name: "Workshop B", startsAt: new Date(), capacity: null },
+  ];
+  const base = { token: "t", dietary: null, respondedAt: new Date("2026-10-24T05:00:00Z") };
+  const INVITES = [
+    { ...base, id: "inv-yes", inviteeName: "Asha", inviteeEmail: "asha@x.com", status: "RESPONDED", registrationId: "reg-1",
+      responses: [{ itemId: "i1", attending: true, guestCount: 0 }] },
+    { ...base, id: "inv-no", inviteeName: "Abdel", inviteeEmail: "Abdel@X.com", status: "RESPONDED", registrationId: null, responses: [] },
+    { ...base, id: "inv-pending", inviteeName: "Pat", inviteeEmail: "pat@x.com", status: "PENDING", registrationId: null, respondedAt: null, responses: [] },
+  ];
+  beforeEach(() => {
+    mockDb.rsvpItem.findMany.mockResolvedValue(ITEMS);
+    mockDb.rsvpInvite.findMany.mockResolvedValue(INVITES);
+    // Linked invite by id; the unlinked "Abdel" found by email (case-insensitive).
+    mockDb.registration.findMany.mockImplementation(async ({ where }: { where: { id?: unknown } }) =>
+      where.id ? [{ id: "reg-1", serialId: 8 }] : [{ serialId: 42, attendee: { email: "abdel@x.com" } }],
+    );
+  });
+
+  it("the roster gets a formatted reg ID per invitee, never the soft registration link", async () => {
+    const res = await rosterGet({ url: "http://x/api/events/ev1/rsvp-campaigns/c1/invites" } as unknown as Request, { params: campaignParams });
+    const body = (await (res as unknown as { json: () => Promise<{ invites: Record<string, unknown>[] }> }).json());
+    expect(body.invites.map((i) => i.regId)).toEqual(["008", "042", null]);
+    expect(body.invites[0]).not.toHaveProperty("registrationId");
+    // The email lookup is bound to this event and skips cancelled registrations.
+    const emailCall = mockDb.registration.findMany.mock.calls.find((c) => !c[0].where.id)![0];
+    expect(emailCall.where).toMatchObject({ eventId: "ev1", status: { not: "CANCELLED" } });
+  });
+
+  it("the CSV leads with Reg ID and says Attending / Declined / Pending, Yes / No / blank", async () => {
+    const res = await rosterGet({ url: "http://x/api/events/ev1/rsvp-campaigns/c1/invites?export=csv" } as unknown as Request, { params: campaignParams });
+    const lines = (res as unknown as { body: string }).body.split("\n");
+    expect(lines[0].startsWith("Reg ID,Name,Email,Status")).toBe(true);
+    const cells = lines.slice(1).map((l) => l.split(","));
+    // Reg ID, Name, Email, Status, Responded At, Dietary, Workshop A, Workshop B, guests x2
+    expect(cells[0].slice(0, 4)).toEqual(["008", "Asha", "asha@x.com", "Attending"]);
+    expect(cells[0].slice(6, 8)).toEqual(["Yes", "No"]);
+    expect(cells[1].slice(0, 4)).toEqual(["042", "Abdel", "Abdel@X.com", "Declined"]);
+    expect(cells[1].slice(6, 8)).toEqual(["No", "No"]);
+    expect(cells[2].slice(3, 4)).toEqual(["Pending"]);
+    expect(cells[2].slice(6, 10)).toEqual(["", "", "", ""]); // answers and guest counts blank while pending
   });
 });
 

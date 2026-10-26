@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### RSVP roster and CSV: registration number, and a "No" that says No (October 26)
+
+- Owner (BHS2026 Workshop): an invitee who answered no showed as "Responded" with dashes, exactly like someone who never answered. The public form stores a row only for items someone attends, so a no is RESPONDED with no attending row. The roster now shows **Attending / Declined / Pending** and **Yes / No** per option (a dash only while pending), from one shared reading (`src/lib/rsvp/answer.ts`).
+- The CSV had it wrong both ways: a decline read "RESPONDED", and a PENDING invite exported "No" for every option. It now leads with **Reg ID** and uses the same status and Yes / No, blank (answers and guest counts) while pending.
+- **Reg ID** on the roster and the CSV: from the invite's linked registration (all 264 live invites have one), else the invitee's non-cancelled registration on the event by email. The soft link itself stays server-side.
+
 ### Registration: organisers choose whether to ask for State, Zip and dietary requirements (October 26)
 
 - **Settings → Registration → Optional fields on the registration form** has

@@ -36,6 +36,8 @@ type RouteParams = { params: Promise<{ eventId: string; campaignId: string }> };
 // Quote/escape + formula-injection neutralization (invitee names/dietary are
 // respondent-controlled).
 import { escapeCsvCell as csvCell } from "@/lib/csv-escape";
+import { formatSerialId } from "@/lib/registration-serial";
+import { RSVP_ANSWER_LABELS, rsvpAnswer, rsvpItemAnswer } from "@/lib/rsvp/answer";
 
 /** Filesystem-safe slug for the CSV filename. */
 function fileSlug(s: string): string {
@@ -114,10 +116,30 @@ export async function GET(req: Request, { params }: RouteParams) {
             dietary: true,
             status: true,
             respondedAt: true,
+            registrationId: true,
             responses: { select: { itemId: true, attending: true, guestCount: true } },
           },
         }),
       ]);
+
+      // Each invitee's registration number (owner, Oct 26, 2026). The invite's
+      // own soft link when it has one (every invite imported from
+      // Registrations); otherwise the person's registration on this event by
+      // email, the same person the desk would find.
+      const regIdByInvite = await registrationNumbers(eventId, invites);
+      // The soft registration link itself stays server-side; the roster gets
+      // the number it resolves to.
+      const rosterInvites = invites.map((inv) => ({
+        id: inv.id,
+        inviteeName: inv.inviteeName,
+        inviteeEmail: inv.inviteeEmail,
+        token: inv.token,
+        dietary: inv.dietary,
+        status: inv.status,
+        respondedAt: inv.respondedAt,
+        responses: inv.responses,
+        regId: regIdByInvite.get(inv.id) ?? null,
+      }));
 
       const headcounts = computeItemHeadcounts(items, invites);
 
@@ -132,6 +154,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           "rsvp-invites:csv-exported",
         );
         const header = [
+          "Reg ID",
           "Name",
           "Email",
           "Status",
@@ -140,17 +163,21 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...items.map((i) => i.name),
           ...(campaign.allowGuests ? items.map((i) => `${i.name} guests`) : []),
         ];
-        const rows = invites.map((inv) => {
+        const rows = rosterInvites.map((inv) => {
           const byItem = new Map(inv.responses.map((r) => [r.itemId, r]));
           return [
+            inv.regId ?? "",
             inv.inviteeName,
             inv.inviteeEmail,
-            inv.status,
+            // Attending / Declined / Pending, not the raw RESPONDED (a "No"
+            // read as RESPONDED, and a pending invite wrote "No" per item).
+            RSVP_ANSWER_LABELS[rsvpAnswer(inv)],
             inv.respondedAt ? inv.respondedAt.toISOString() : "",
             ...(campaign.collectDietary ? [inv.dietary ?? ""] : []),
-            ...items.map((i) => (byItem.get(i.id)?.attending ? "Yes" : "No")),
+            ...items.map((i) => rsvpItemAnswer(inv, i.id)),
+            // Blank while pending, like the answer itself.
             ...(campaign.allowGuests
-              ? items.map((i) => String(byItem.get(i.id)?.guestCount ?? 0))
+              ? items.map((i) => (inv.status === "RESPONDED" ? String(byItem.get(i.id)?.guestCount ?? 0) : ""))
               : []),
           ];
         });
@@ -174,7 +201,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         });
       }
 
-      return NextResponse.json({ campaign, items, invites, headcounts });
+      return NextResponse.json({ campaign, items, invites: rosterInvites, headcounts });
     });
   } catch (err) {
     apiLogger.error({ err }, "rsvp-invites:list-failed");
@@ -284,4 +311,41 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.error({ err }, "rsvp-invites:add-failed");
     return NextResponse.json({ error: "Failed to add invitees" }, { status: 500 });
   }
+}
+
+/**
+ * Invite id → formatted registration number ("008"). The invite's linked
+ * registration first, else a registration on this event with the invitee's
+ * email (not cancelled, the most recent). Two queries for the whole roster.
+ */
+async function registrationNumbers(
+  eventId: string,
+  invites: { id: string; inviteeEmail: string; registrationId: string | null }[],
+): Promise<Map<string, string>> {
+  const linkedIds = invites.map((i) => i.registrationId).filter((id): id is string => !!id);
+  const unlinkedEmails = invites.filter((i) => !i.registrationId).map((i) => i.inviteeEmail.toLowerCase());
+  const [linked, byEmail] = await Promise.all([
+    linkedIds.length
+      ? db.registration.findMany({ where: { eventId, id: { in: linkedIds } }, select: { id: true, serialId: true } })
+      : Promise.resolve([]),
+    unlinkedEmails.length
+      ? db.registration.findMany({
+          where: { eventId, status: { not: "CANCELLED" }, attendee: { email: { in: unlinkedEmails, mode: "insensitive" } } },
+          orderBy: { createdAt: "desc" },
+          select: { serialId: true, attendee: { select: { email: true } } },
+        })
+      : Promise.resolve([]),
+  ]);
+  const serialById = new Map(linked.map((r) => [r.id, r.serialId]));
+  const serialByEmail = new Map<string, number | null>();
+  for (const r of byEmail) {
+    const key = r.attendee.email.toLowerCase();
+    if (!serialByEmail.has(key)) serialByEmail.set(key, r.serialId);
+  }
+  const out = new Map<string, string>();
+  for (const inv of invites) {
+    const serial = inv.registrationId ? serialById.get(inv.registrationId) : serialByEmail.get(inv.inviteeEmail.toLowerCase());
+    if (serial != null) out.set(inv.id, formatSerialId(serial));
+  }
+  return out;
 }

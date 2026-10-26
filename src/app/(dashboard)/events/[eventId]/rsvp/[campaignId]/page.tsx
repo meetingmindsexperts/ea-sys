@@ -28,6 +28,7 @@ import {
   Send,
   BellRing,
   Users,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +54,7 @@ import {
 import { usePreviewEmailBySlug, useEvent, useEmailTemplates } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { templateUsesRsvpToken } from "@/lib/rsvp/button";
+import { RSVP_ANSWER_LABELS, rsvpAnswer } from "@/lib/rsvp/answer";
 import {
   resolveTimezone,
   localDateTimeInTz,
@@ -94,6 +96,8 @@ interface RosterInvite {
   status: string;
   respondedAt: string | null;
   responses: { itemId: string; attending: boolean; guestCount: number }[];
+  /** Their registration number ("008"), when they have one on this event. */
+  regId: string | null;
 }
 interface Headcount {
   itemId: string;
@@ -630,6 +634,7 @@ export default function RsvpCampaignConsole() {
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr className="text-left">
+                  <th className="p-2 font-medium">Reg ID</th>
                   <th className="p-2 font-medium">Name</th>
                   <th className="p-2 font-medium">Status</th>
                   {items.map((d) => (
@@ -644,33 +649,19 @@ export default function RsvpCampaignConsole() {
                   const byItem = new Map(inv.responses.map((r) => [r.itemId, r]));
                   return (
                     <tr key={inv.id} className="border-t">
+                      <td className="p-2 font-mono text-xs text-muted-foreground">{inv.regId ?? "—"}</td>
                       <td className="p-2">
                         <div className="font-medium">{inv.inviteeName}</div>
                         <div className="text-xs text-muted-foreground">{inv.inviteeEmail}</div>
                       </td>
                       <td className="p-2">
-                        {inv.status === "RESPONDED" ? (
-                          <span className="inline-flex items-center gap-1 text-emerald-600 text-xs font-medium">
-                            <Check className="h-3.5 w-3.5" /> Responded
-                          </span>
-                        ) : (
-                          <span className="text-xs text-amber-600 font-medium">Pending</span>
-                        )}
+                        <RsvpAnswerBadge invite={inv} />
                       </td>
-                      {items.map((d) => {
-                        const r = byItem.get(d.id);
-                        return (
-                          <td key={d.id} className="p-2 text-center">
-                            {r?.attending ? (
-                              <span className="text-emerald-600 font-medium">
-                                Yes{r.guestCount > 0 ? ` +${r.guestCount}` : ""}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </td>
-                        );
-                      })}
+                      {items.map((d) => (
+                        <td key={d.id} className="p-2 text-center">
+                          <RsvpItemCell invite={inv} response={byItem.get(d.id)} />
+                        </td>
+                      ))}
                       <td className="p-2 max-w-[160px] truncate text-muted-foreground">{inv.dietary || "—"}</td>
                       <td className="p-2 text-right whitespace-nowrap">
                         <Button
@@ -933,4 +924,38 @@ export default function RsvpCampaignConsole() {
       )}
     </div>
   );
+}
+
+/** Attending / Declined / Pending, from what they actually answered. */
+function RsvpAnswerBadge({ invite }: { invite: RosterInvite }) {
+  const answer = rsvpAnswer(invite);
+  if (answer === "ATTENDING") {
+    return (
+      <span className="inline-flex items-center gap-1 text-emerald-600 text-xs font-medium">
+        <Check className="h-3.5 w-3.5" /> {RSVP_ANSWER_LABELS.ATTENDING}
+      </span>
+    );
+  }
+  if (answer === "DECLINED") {
+    return (
+      <span className="inline-flex items-center gap-1 text-red-600 text-xs font-medium">
+        <X className="h-3.5 w-3.5" /> {RSVP_ANSWER_LABELS.DECLINED}
+      </span>
+    );
+  }
+  return <span className="text-xs text-amber-600 font-medium">{RSVP_ANSWER_LABELS.PENDING}</span>;
+}
+
+/** Yes (+guests) / No once they answered; a dash only while pending (a "No"
+ *  used to look exactly like no answer). */
+function RsvpItemCell({ invite, response }: { invite: RosterInvite; response?: RosterInvite["responses"][number] }) {
+  if (response?.attending) {
+    return (
+      <span className="text-emerald-600 font-medium">
+        Yes{response.guestCount > 0 ? ` +${response.guestCount}` : ""}
+      </span>
+    );
+  }
+  if (invite.status === "RESPONDED") return <span className="text-red-600 font-medium">No</span>;
+  return <span className="text-muted-foreground">—</span>;
 }
