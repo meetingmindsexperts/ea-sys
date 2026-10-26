@@ -8,7 +8,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { format } from "date-fns";
 import Link from "next/link";
-import { missingFieldsNotice, scrollToFirstFormError } from "@/lib/form-error-scroll";
+import { scrollToFirstFormError } from "@/lib/form-error-scroll";
 import { sanitizeHtml } from "@/lib/sanitize";
 import {
   Calendar,
@@ -289,6 +289,12 @@ function CategoryRegistrationContent() {
       agreeTerms: undefined as unknown as true,
     },
   });
+  // The notice describes the LAST tap; once the person changes anything it is
+  // out of date (review of e7cd2b2d: picking the missing category left it up).
+  useEffect(() => {
+    const sub = form.watch(() => setSubmitNotice(null));
+    return () => sub.unsubscribe();
+  }, [form]);
 
   useEffect(() => {
     async function fetchEvent() {
@@ -450,7 +456,7 @@ function CategoryRegistrationContent() {
   // jump to) and name what is missing by the button. Also react-hook-form's
   // onInvalid. The 50ms lets the messages set in onSubmit reach the page.
   function showBlockedSubmit() {
-    setTimeout(() => setSubmitNotice(missingFieldsNotice(scrollToFirstFormError())), 50);
+    setTimeout(() => setSubmitNotice(scrollToFirstFormError()), 50);
   }
 
   async function onSubmit(data: RegistrationForm) {
@@ -1359,7 +1365,7 @@ function CategoryRegistrationContent() {
                               );
                             })}
                           </div>
-                          <FormMessage className="mt-2" />
+                          <FormMessage className="mt-2" data-form-error="Registration category" />
                         </FormItem>
                       )}
                     />

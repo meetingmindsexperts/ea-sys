@@ -51,10 +51,10 @@ describe("scrollToFirstFormError", () => {
   it("scrolls the FIRST visible error's field into the middle and names every missing field", () => {
     const title = message("Title is required", { label: "Title *" });
     const country = message("Country is required", { label: "Country *" });
-    const names = scrollToFirstFormError(page([title, country]));
+    const notice = scrollToFirstFormError(page([title, country]));
     expect(title.item!.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
     expect(country.item!.scrollIntoView).not.toHaveBeenCalled();
-    expect(names).toEqual(["Title", "Country"]);
+    expect(notice).toBe("Please fill in: Title, Country");
   });
 
   it("a field taller than the screen scrolls its MESSAGE into view, not the whole field", () => {
@@ -64,16 +64,25 @@ describe("scrollToFirstFormError", () => {
     expect(tall.item!.scrollIntoView).not.toHaveBeenCalled();
   });
 
+  // Review of e7cd2b2d (Oct 26): the category cards had no label, so a missed
+  // category read "Please check the highlighted fields". Never generic again.
+  it("a message with no label is quoted itself, with a count of the rest", () => {
+    const category = message("Please select a category");
+    const terms = message("You must agree to the terms and conditions", { label: "I agree" });
+    expect(scrollToFirstFormError(page([category]))).toBe("Please select a category");
+    expect(scrollToFirstFormError(page([category, terms]))).toBe("Please select a category (and 1 more to fix above)");
+  });
+
   it("an error set outside a form field (the registration type) names itself", () => {
     const type = message("Please choose a registration type", { own: "Registration type" });
-    expect(scrollToFirstFormError(page([type]))).toEqual(["Registration type"]);
+    expect(scrollToFirstFormError(page([type]))).toBe("Please fill in: Registration type");
     expect(type.scrollIntoView).toHaveBeenCalled();
   });
 
   it("skips empty and hidden messages, and does nothing when there are none", () => {
     const empty = message("", { label: "City" });
     const hidden = message("Hidden", { label: "Hidden", visible: false });
-    expect(scrollToFirstFormError(page([empty, hidden]))).toEqual([]);
+    expect(scrollToFirstFormError(page([empty, hidden]))).toBe("Please check the highlighted fields.");
     expect(empty.item!.scrollIntoView).not.toHaveBeenCalled();
   });
 });
@@ -85,7 +94,8 @@ describe("missingFieldsNotice", () => {
     expect(missingFieldsNotice(["Title", "Country", "Role", "City", "Phone"])).toBe("Please fill in: Title, Country, Role and 2 more");
   });
 
-  it("falls back to a general line when no field could be named", () => {
+  it("without names, quotes the first message; the general line only when there is nothing", () => {
+    expect(missingFieldsNotice([], "Please select a category.", 2)).toBe("Please select a category (and 2 more to fix above)");
     expect(missingFieldsNotice([])).toBe("Please check the highlighted fields.");
   });
 });

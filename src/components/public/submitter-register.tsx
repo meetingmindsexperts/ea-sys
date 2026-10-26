@@ -20,7 +20,7 @@
  */
 
 import { useState, useEffect, type ReactNode } from "react";
-import { missingFieldsNotice, scrollToFirstFormError } from "@/lib/form-error-scroll";
+import { scrollToFirstFormError } from "@/lib/form-error-scroll";
 import { useParams, useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import {
@@ -291,6 +291,12 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       ticketTypeId: "",
     },
   });
+  // The notice describes the LAST tap; once the person changes anything it is
+  // out of date (review of e7cd2b2d: picking the missing category left it up).
+  useEffect(() => {
+    const sub = form.watch(() => setSubmitNotice(null));
+    return () => sub.unsubscribe();
+  }, [form]);
 
   useEffect(() => {
     async function fetchEvent() {
@@ -340,7 +346,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
   // rendered (the dropdowns have no focusable field for react-hook-form to
   // jump to) and name what is missing by the button.
   function showBlockedSubmit() {
-    setTimeout(() => setSubmitNotice(missingFieldsNotice(scrollToFirstFormError())), 50);
+    setTimeout(() => setSubmitNotice(scrollToFirstFormError()), 50);
   }
 
   async function onSubmit(data: RegisterForm) {
