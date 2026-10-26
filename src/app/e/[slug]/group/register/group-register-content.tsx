@@ -466,16 +466,16 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
     return (
       <div className="space-y-6">
         {/* Coordinator */}
-        <section className="rounded-xl border bg-white p-6">
+        <section className="rounded-xl border bg-white p-4 sm:p-6">
           <h2 className="text-lg font-semibold mb-1">1. Your details (group coordinator)</h2>
           <p className="text-sm text-slate-500 mb-4">
             You manage this group. An account is created (or your existing account is used) so you can view and update the group later.
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div><Label>First name *</Label><Input value={coFirst} onChange={(e) => setCoFirst(e.target.value)} /></div>
-            <div><Label>Last name *</Label><Input value={coLast} onChange={(e) => setCoLast(e.target.value)} /></div>
-            <div><Label>Email *</Label><Input type="email" value={coEmail} onChange={(e) => setCoEmail(e.target.value)} /></div>
-            <div><Label>Password *</Label><Input type="password" value={coPassword} onChange={(e) => setCoPassword(e.target.value)} placeholder="Min 8 characters" /></div>
+            <div><Label htmlFor="grp-co-first-name">First name *</Label><Input id="grp-co-first-name" autoComplete="given-name" value={coFirst} onChange={(e) => setCoFirst(e.target.value)} /></div>
+            <div><Label htmlFor="grp-co-last-name">Last name *</Label><Input id="grp-co-last-name" autoComplete="family-name" value={coLast} onChange={(e) => setCoLast(e.target.value)} /></div>
+            <div><Label htmlFor="grp-co-email">Email *</Label><Input id="grp-co-email" autoComplete="email" type="email" value={coEmail} onChange={(e) => setCoEmail(e.target.value)} /></div>
+            <div><Label htmlFor="grp-co-password">Password *</Label><Input id="grp-co-password" autoComplete="new-password" type="password" value={coPassword} onChange={(e) => setCoPassword(e.target.value)} placeholder="Min 8 characters" /></div>
           </div>
           <label className="mt-4 flex items-center gap-2 text-sm">
             <Checkbox checked={attending} onCheckedChange={(v) => setAttending(v === true)} />
@@ -484,7 +484,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
         </section>
 
         {/* Payer */}
-        <section className="rounded-xl border bg-white p-6">
+        <section className="rounded-xl border bg-white p-4 sm:p-6">
           <h2 className="text-lg font-semibold mb-1 inline-flex items-center gap-2">
             <Building2 className="h-5 w-5 text-slate-400" /> 2. Who pays (company / institution)
           </h2>
@@ -492,23 +492,23 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
             The consolidated invoice is issued to this payer. Members are never asked to pay individually.
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2"><Label>Company / institution name *</Label><Input value={payer.name} onChange={(e) => setPayer({ ...payer, name: e.target.value })} /></div>
-            <div><Label>Contact person</Label><Input value={payer.contactName} onChange={(e) => setPayer({ ...payer, contactName: e.target.value })} /></div>
-            <div><Label>Billing email</Label><Input type="email" value={payer.email} onChange={(e) => setPayer({ ...payer, email: e.target.value })} /></div>
-            <div><Label>Phone</Label><Input value={payer.phone} onChange={(e) => setPayer({ ...payer, phone: e.target.value })} /></div>
-            <div><Label>Tax / VAT number</Label><Input value={payer.taxNumber} onChange={(e) => setPayer({ ...payer, taxNumber: e.target.value })} /></div>
-            <div className="sm:col-span-2"><Label>Address</Label><Input value={payer.address} onChange={(e) => setPayer({ ...payer, address: e.target.value })} /></div>
-            <div><Label>City</Label><Input value={payer.city} onChange={(e) => setPayer({ ...payer, city: e.target.value })} /></div>
-            <div><Label>Country</Label><CountrySelect value={payer.country} onChange={(v) => setPayer({ ...payer, country: v })} /></div>
-            <div><Label>PO / reference (optional)</Label><Input value={payerReference} onChange={(e) => setPayerReference(e.target.value)} placeholder="Printed on the invoice" /></div>
-            <div><Label>Promo code (optional)</Label><Input value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="If you were given one" autoCapitalize="characters" />
+            <div className="sm:col-span-2"><Label htmlFor="grp-payer-company-institution-name">Company / institution name *</Label><Input id="grp-payer-company-institution-name" autoComplete="organization" value={payer.name} onChange={(e) => setPayer({ ...payer, name: e.target.value })} /></div>
+            <div><Label htmlFor="grp-payer-contact-person">Contact person</Label><Input id="grp-payer-contact-person" autoComplete="name" value={payer.contactName} onChange={(e) => setPayer({ ...payer, contactName: e.target.value })} /></div>
+            <div><Label htmlFor="grp-payer-billing-email">Billing email</Label><Input id="grp-payer-billing-email" autoComplete="email" type="email" value={payer.email} onChange={(e) => setPayer({ ...payer, email: e.target.value })} /></div>
+            <div><Label htmlFor="grp-payer-phone">Phone</Label><Input id="grp-payer-phone" type="tel" autoComplete="tel" value={payer.phone} onChange={(e) => setPayer({ ...payer, phone: e.target.value })} /></div>
+            <div><Label htmlFor="grp-payer-tax-vat-number">Tax / VAT number</Label><Input id="grp-payer-tax-vat-number" autoComplete="off" value={payer.taxNumber} onChange={(e) => setPayer({ ...payer, taxNumber: e.target.value })} /></div>
+            <div className="sm:col-span-2"><Label htmlFor="grp-payer-address">Address</Label><Input id="grp-payer-address" autoComplete="street-address" value={payer.address} onChange={(e) => setPayer({ ...payer, address: e.target.value })} /></div>
+            <div><Label htmlFor="grp-payer-city">City</Label><Input id="grp-payer-city" autoComplete="address-level2" value={payer.city} onChange={(e) => setPayer({ ...payer, city: e.target.value })} /></div>
+            <div><Label htmlFor="grp-payer-country">Country</Label><CountrySelect id="grp-payer-country" value={payer.country} onChange={(v) => setPayer({ ...payer, country: v })} /></div>
+            <div><Label htmlFor="grp-payer-po-reference-optional">PO / reference (optional)</Label><Input id="grp-payer-po-reference-optional" autoComplete="off" value={payerReference} onChange={(e) => setPayerReference(e.target.value)} placeholder="Printed on the invoice" /></div>
+            <div><Label htmlFor="grp-payer-promo-code-optional">Promo code (optional)</Label><Input id="grp-payer-promo-code-optional" autoComplete="off" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="If you were given one" autoCapitalize="characters" />
               <p className="mt-1 text-xs text-slate-500">Applied as one discount on your invoice.</p>
             </div>
           </div>
         </section>
 
         {/* Members */}
-        <section className="rounded-xl border bg-white p-6">
+        <section className="rounded-xl border bg-white p-4 sm:p-6">
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-lg font-semibold">3. Group members</h2>
             <span className="text-sm text-slate-500">{members.length} of max {maxMembers} (min {minMembers})</span>
@@ -555,20 +555,20 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
                         <p className="text-xs text-slate-500 mt-1">{currency} {priceInfo.price.toFixed(2)}{priceInfo.tierName ? ` · ${priceInfo.tierName}` : ""}</p>
                       )}
                     </div>
-                    <div><Label>Title</Label><TitleSelect value={m.title} onChange={(v) => updateMember(idx, { title: v })} /></div>
+                    <div><Label htmlFor={`grp-m${idx}-title`}>Title</Label><TitleSelect id={`grp-m${idx}-title`} value={m.title} onChange={(v) => updateMember(idx, { title: v })} /></div>
                     <div className="hidden lg:block" />
-                    <div><Label>First name *</Label><Input value={m.firstName} onChange={(e) => updateMember(idx, { firstName: e.target.value })} disabled={isCoordinatorRow} /></div>
-                    <div><Label>Last name *</Label><Input value={m.lastName} onChange={(e) => updateMember(idx, { lastName: e.target.value })} disabled={isCoordinatorRow} /></div>
-                    <div><Label>Email *</Label><Input type="email" value={m.email} onChange={(e) => updateMember(idx, { email: e.target.value })} disabled={isCoordinatorRow} /></div>
-                    <div><Label>Organization *</Label><Input value={m.organization} onChange={(e) => updateMember(idx, { organization: e.target.value })} /></div>
-                    <div><Label>Job title *</Label><Input value={m.jobTitle} onChange={(e) => updateMember(idx, { jobTitle: e.target.value })} /></div>
-                    <div><Label>Phone *</Label><Input value={m.phone} onChange={(e) => updateMember(idx, { phone: e.target.value })} /></div>
-                    <div><Label>City *</Label><Input value={m.city} onChange={(e) => updateMember(idx, { city: e.target.value })} /></div>
-                    <div><Label>Country *</Label><CountrySelect value={m.country} onChange={(v) => updateMember(idx, { country: v })} /></div>
-                    <div><Label>Role *</Label><RoleSelect value={m.role} onChange={(v) => updateMember(idx, { role: v })} /></div>
-                    <div><Label>Specialty *</Label><SpecialtySelect value={m.specialty} onChange={(v) => updateMember(idx, { specialty: v })} /></div>
+                    <div><Label htmlFor={`grp-m${idx}-first-name`}>First name *</Label><Input id={`grp-m${idx}-first-name`} autoComplete="off" value={m.firstName} onChange={(e) => updateMember(idx, { firstName: e.target.value })} disabled={isCoordinatorRow} /></div>
+                    <div><Label htmlFor={`grp-m${idx}-last-name`}>Last name *</Label><Input id={`grp-m${idx}-last-name`} autoComplete="off" value={m.lastName} onChange={(e) => updateMember(idx, { lastName: e.target.value })} disabled={isCoordinatorRow} /></div>
+                    <div><Label htmlFor={`grp-m${idx}-email`}>Email *</Label><Input id={`grp-m${idx}-email`} autoComplete="off" type="email" value={m.email} onChange={(e) => updateMember(idx, { email: e.target.value })} disabled={isCoordinatorRow} /></div>
+                    <div><Label htmlFor={`grp-m${idx}-organization`}>Organization *</Label><Input id={`grp-m${idx}-organization`} autoComplete="off" value={m.organization} onChange={(e) => updateMember(idx, { organization: e.target.value })} /></div>
+                    <div><Label htmlFor={`grp-m${idx}-job-title`}>Job title *</Label><Input id={`grp-m${idx}-job-title`} autoComplete="off" value={m.jobTitle} onChange={(e) => updateMember(idx, { jobTitle: e.target.value })} /></div>
+                    <div><Label htmlFor={`grp-m${idx}-phone`}>Phone *</Label><Input id={`grp-m${idx}-phone`} type="tel" autoComplete="off" value={m.phone} onChange={(e) => updateMember(idx, { phone: e.target.value })} /></div>
+                    <div><Label htmlFor={`grp-m${idx}-city`}>City *</Label><Input id={`grp-m${idx}-city`} autoComplete="off" value={m.city} onChange={(e) => updateMember(idx, { city: e.target.value })} /></div>
+                    <div><Label htmlFor={`grp-m${idx}-country`}>Country *</Label><CountrySelect id={`grp-m${idx}-country`} value={m.country} onChange={(v) => updateMember(idx, { country: v })} /></div>
+                    <div><Label htmlFor={`grp-m${idx}-role`}>Role *</Label><RoleSelect id={`grp-m${idx}-role`} value={m.role} onChange={(v) => updateMember(idx, { role: v })} /></div>
+                    <div><Label htmlFor={`grp-m${idx}-specialty`}>Specialty *</Label><SpecialtySelect id={`grp-m${idx}-specialty`} value={m.specialty} onChange={(v) => updateMember(idx, { specialty: v })} /></div>
                     {m.specialty === "Others" && (
-                      <div><Label>Custom specialty *</Label><Input value={m.customSpecialty} onChange={(e) => updateMember(idx, { customSpecialty: e.target.value })} /></div>
+                      <div><Label htmlFor={`grp-m${idx}-custom-specialty`}>Custom specialty *</Label><Input id={`grp-m${idx}-custom-specialty`} autoComplete="off" value={m.customSpecialty} onChange={(e) => updateMember(idx, { customSpecialty: e.target.value })} /></div>
                     )}
                   </div>
                 </div>
@@ -577,14 +577,14 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
           </div>
 
           {members.length < maxMembers && (
-            <Button variant="outline" className="mt-4" onClick={addMember}>
+            <Button variant="outline" className="mt-4 w-full sm:w-auto" onClick={addMember}>
               <Plus className="h-4 w-4 mr-1" /> Add member
             </Button>
           )}
         </section>
 
         {/* Total + submit */}
-        <section className="rounded-xl border bg-white p-6">
+        <section className="rounded-xl border bg-white p-4 sm:p-6">
           <h2 className="text-lg font-semibold mb-4">4. Review &amp; submit</h2>
           <div className="space-y-1 text-sm max-w-sm">
             <div className="flex justify-between"><span className="text-slate-500">Subtotal ({members.length} member{members.length === 1 ? "" : "s"})</span><span>{currency} {totals.subtotal.toFixed(2)}</span></div>
@@ -605,7 +605,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
           <p className="text-sm text-slate-500 mt-4">
             Submitting registers all members and emails the consolidated invoice to the payer. Payment is by bank transfer (details on the invoice); registration is confirmed on receipt of payment.
           </p>
-          <Button className="mt-4" size="lg" onClick={handleSubmit} disabled={submitting}>
+          <Button className="mt-4 w-full sm:w-auto h-12 sm:h-10" size="lg" onClick={handleSubmit} disabled={submitting}>
             {submitting ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Registering group…</>) : `Register group (${members.length})`}
           </Button>
         </section>
@@ -614,7 +614,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="public-form min-h-screen bg-slate-50">
       <EventBannerBand banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} />
       <div className="mx-auto max-w-5xl px-4 py-8">
         <div className="mb-8">

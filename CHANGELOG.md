@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Public forms: built for phones (October 26)
+
+- A measured audit of every public form at 320, 360 and 390px found: a failed submit that showed nothing (the BHS2026 sponsor-link registrants on Oct 24), no autofill hints anywhere, 14px pickers that make iPhone zoom in, 36px buttons and a 16px "I agree" box, a cut-off name row and submit button at 320px, and group-form labels not tied to their fields. All fixed on the registration, complete-registration, abstract and proposal sign-up, group registration and login pages.
+- **A failed tap explains itself:** the page scrolls to the first thing to fix, whatever the field (dropdowns and the registration type included), and a line by the button says "Please fill in: Country" (`src/lib/form-error-scroll.ts`, used as react-hook-form's onInvalid and after the checks in onSubmit).
+- **Sizes on phones** (`.public-form` rules in globals.css, below 640px only, so the dashboard is unchanged): fields, pickers and buttons at least 44px tall with 16px text; checkboxes draw at 22px and answer taps 11px around them, and tapping "I agree to the terms" ticks the box. On every touch screen, picker list rows are 44px and the search box in Country and Specialty is 16px. The name row stacks, cards use the width, and the submit button is full width at the end of the form.
+- **Faster to fill:** every field says what it is (given-name, family-name, email, tel, organization, organization-title, address-level2, postal-code, new-password, billing ones on the billing fields), so the phone can autofill; phone fields open the number pad; the pickers take an `id`, so the group form's labels now point at their fields.
+- **Start registration:** on a phone, a button above the organiser's welcome text jumps to the account form, which could start 2,700px down.
+- Not done (owner: not now): smaller banner images. BHS2026's phone banner is 621 KB, half the page; docs/ROADMAP.md keeps the option.
+
 ### Venue: registration counter, photo wall, standing banner; matching stairs in one click (October 26)
 
 - Owner: customise rooms such as the Grand Foyer. Three new fixtures in "Add stairs, lift, toilets…", in any room: a **registration counter** (staffed from behind, "Collect your badge" in front, its name on the plan and its sign), a **photo wall** (a backdrop with the event's name; E there takes a photo) and a **standing banner** showing its own text. Drawn on the 2D plan, in the PDF and its legend, and built in 3D. A counter put over the foyer's own Registration or Information desk replaces it, with its staff and its prompt.

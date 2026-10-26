@@ -8,6 +8,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { format } from "date-fns";
 import Link from "next/link";
+import { missingFieldsNotice, scrollToFirstFormError } from "@/lib/form-error-scroll";
 import { sanitizeHtml } from "@/lib/sanitize";
 import {
   Calendar,
@@ -247,6 +248,8 @@ function CategoryRegistrationContent() {
   const [supportingDoc, setSupportingDoc] = useState<{ url: string; filename: string } | null>(null);
   const [docUploading, setDocUploading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
+  // What stopped the last Complete Registration tap, shown by the button.
+  const [submitNotice, setSubmitNotice] = useState<string | null>(null);
   const [billingSame, setBillingSame] = useState(true);
   const [promoCode, setPromoCode] = useState("");
   const [promoValidating, setPromoValidating] = useState(false);
@@ -442,7 +445,16 @@ function CategoryRegistrationContent() {
     }
   }
 
+  // A tap that did not go through: once the errors have rendered, scroll to the
+  // first one (a picker or a type has no focusable field for react-hook-form to
+  // jump to) and name what is missing by the button. Also react-hook-form's
+  // onInvalid. The 50ms lets the messages set in onSubmit reach the page.
+  function showBlockedSubmit() {
+    setTimeout(() => setSubmitNotice(missingFieldsNotice(scrollToFirstFormError())), 50);
+  }
+
   async function onSubmit(data: RegistrationForm) {
+    setSubmitNotice(null);
     // Identity evidence: the SELECTED TYPE's own switches, checked with the
     // same helper the server enforces with, so the form cannot ask for
     // something the route ignores or the reverse.
@@ -462,6 +474,7 @@ function CategoryRegistrationContent() {
       if (missingEvidence.includes("Student ID expiry date")) {
         form.setError("studentIdExpiry", { message: "Student ID expiry date is required" });
       }
+      showBlockedSubmit();
       return;
     }
 
@@ -479,10 +492,13 @@ function CategoryRegistrationContent() {
           ? "This registration link needs the code your sponsor sent you. A discount code does not apply here."
           : "This registration link needs the code your sponsor sent you. Enter it and press Apply.",
       );
+      setSubmitNotice("Enter the code your sponsor sent you and press Apply.");
+      setTimeout(() => document.getElementById("promo-code-field")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
       return;
     }
     if (supportingDocumentBlocks(picked) && !supportingDoc) {
       setDocError(`Please attach the ${supportingDocumentLabel(picked).toLowerCase()} to continue.`);
+      showBlockedSubmit();
       return;
     }
 
@@ -506,7 +522,10 @@ function CategoryRegistrationContent() {
           hasError = true;
         }
       }
-      if (hasError) return;
+      if (hasError) {
+        showBlockedSubmit();
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -728,7 +747,7 @@ function CategoryRegistrationContent() {
     purchasableOptions.every((o) => o.price === 0);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8f9fb] text-base">
+    <div className="public-form min-h-screen flex flex-col bg-[#f8f9fb] text-base">
       {/* Banner */}
       {event.bannerImage ? (
         <EventBannerBand banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} />
@@ -761,7 +780,7 @@ function CategoryRegistrationContent() {
       <div className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-6">
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
           {/* Header */}
-          <div className="px-6 sm:px-10 py-6 border-b border-slate-100">
+          <div className="px-4 sm:px-10 py-6 border-b border-slate-100">
             <h2 className="text-2xl font-bold text-slate-900">{formLabel} Registration</h2>
             <p className="text-sm text-slate-500 mt-1">
               {step === 1 ? "Create your account to get started." : "Fill in the details below to complete your registration."}
@@ -780,7 +799,7 @@ function CategoryRegistrationContent() {
             </div>
           </div>
 
-          <div className="p-6 sm:px-10">
+          <div className="p-4 sm:p-6 sm:px-10">
             {isClosed || fullBlocksAll ? (
               <div className="text-center py-12">
                 <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-50 flex items-center justify-center">
@@ -805,11 +824,24 @@ function CategoryRegistrationContent() {
               </div>
             ) : (
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+                <form onSubmit={form.handleSubmit(onSubmit, showBlockedSubmit)} className="space-y-8">
 
                   {/* ── STEP 1: Create Account ── */}
                   {step === 1 && (
                     <div className="space-y-5">
+                      {/* On a phone the welcome text and price table can run
+                          2,700px before the form: a way straight to it (owner,
+                          Oct 26, 2026). Desktop shows both side by side anyway. */}
+                      {selectedTierContent.welcomeHtml && (
+                        <Button
+                          type="button"
+                          className="w-full sm:hidden rounded-lg font-semibold btn-gradient text-base"
+                          onClick={() => document.getElementById("create-account")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                        >
+                          Start registration <ChevronRight className="ml-1 h-5 w-5" />
+                        </Button>
+                      )}
+
                       {/* Welcome text from organizer — full width */}
                       {selectedTierContent.welcomeHtml && (
                         <div className="rich-content-tables prose prose-slate max-w-none [&>*]:mb-4 [&>*:last-child]:mb-0"
@@ -817,7 +849,7 @@ function CategoryRegistrationContent() {
                       )}
 
                       {/* Account form — narrower centered */}
-                      <div className="max-w-md mx-auto space-y-5 pt-4">
+                      <div id="create-account" className="max-w-md mx-auto space-y-5 pt-4 scroll-mt-4">
                       <div className="flex items-center gap-4 pb-4 mb-2">
                         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                           <Lock className="h-5 w-5 text-primary" />
@@ -832,7 +864,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Email Address <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input type="email" placeholder="john@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="email" type="email" placeholder="john@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -841,7 +873,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Password <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input type="password" placeholder="Min. 6 characters" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="new-password" type="password" placeholder="Min. 6 characters" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -850,7 +882,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Confirm Password <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="new-password" type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -917,7 +949,7 @@ function CategoryRegistrationContent() {
                   <div className="space-y-5">
                     <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Contact Details</h3>
 
-                    <div className="grid grid-cols-[100px_1fr_1fr] gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-4">
                       <FormField control={form.control} name="title"
                         render={({ field }) => (
                           <FormItem>
@@ -930,7 +962,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input placeholder="John" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="given-name" placeholder="John" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -938,7 +970,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input placeholder="Doe" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="family-name" placeholder="Doe" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -949,7 +981,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Position <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input placeholder="Physician" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="organization-title" placeholder="Physician" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -957,7 +989,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Organization <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input placeholder="Acme Inc." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="organization" placeholder="Acme Inc." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -968,7 +1000,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Mobile Number <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input type="tel" autoComplete="tel" placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -976,7 +1008,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Additional Email</FormLabel>
-                            <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="off" type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -995,7 +1027,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">City <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input placeholder="Dubai" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="address-level2" placeholder="Dubai" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -1005,7 +1037,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">State / Province</FormLabel>
-                            <FormControl><Input placeholder="State" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="address-level1" placeholder="State" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -1013,7 +1045,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Zip / Postal Code</FormLabel>
-                            <FormControl><Input placeholder="00000" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="postal-code" placeholder="00000" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -1053,7 +1085,7 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Dietary Requirements</FormLabel>
-                            <FormControl><Input placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="off" placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -1087,7 +1119,7 @@ function CategoryRegistrationContent() {
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">Tax Number / VAT ID</FormLabel>
-                              <FormControl><Input placeholder="e.g. AE1234567890" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormControl><Input autoComplete="off" placeholder="e.g. AE1234567890" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -1096,7 +1128,7 @@ function CategoryRegistrationContent() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel className="text-sm font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input placeholder="Billing first name" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormControl><Input autoComplete="billing given-name" placeholder="Billing first name" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
                             )} />
@@ -1104,7 +1136,7 @@ function CategoryRegistrationContent() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel className="text-sm font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input placeholder="Billing last name" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormControl><Input autoComplete="billing family-name" placeholder="Billing last name" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
                             )} />
@@ -1115,7 +1147,7 @@ function CategoryRegistrationContent() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel className="text-sm font-medium text-slate-600">Email <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input type="email" placeholder="billing@company.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormControl><Input autoComplete="billing email" type="email" placeholder="billing@company.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
                             )} />
@@ -1123,7 +1155,7 @@ function CategoryRegistrationContent() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel className="text-sm font-medium text-slate-600">Phone <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input placeholder="+971..." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormControl><Input type="tel" autoComplete="billing tel" placeholder="+971..." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
                             )} />
@@ -1133,7 +1165,7 @@ function CategoryRegistrationContent() {
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">Address <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input placeholder="Street address" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormControl><Input autoComplete="billing street-address" placeholder="Street address" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -1151,7 +1183,7 @@ function CategoryRegistrationContent() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel className="text-sm font-medium text-slate-600">City <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input placeholder="City" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormControl><Input autoComplete="billing address-level2" placeholder="City" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
                             )} />
@@ -1162,7 +1194,7 @@ function CategoryRegistrationContent() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel className="text-sm font-medium text-slate-600">State / Province <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input placeholder="State" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormControl><Input autoComplete="billing address-level1" placeholder="State" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
                             )} />
@@ -1170,7 +1202,7 @@ function CategoryRegistrationContent() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel className="text-sm font-medium text-slate-600">Zip / Postal Code <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input placeholder="00000" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormControl><Input autoComplete="billing postal-code" placeholder="00000" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
                             )} />
@@ -1274,15 +1306,15 @@ function CategoryRegistrationContent() {
                                       ? "border-primary bg-primary/[0.03] shadow-sm"
                                       : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
                                   )}>
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                                       <div className={cn(
                                         "h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all shrink-0",
                                         isSelected ? "border-primary bg-primary" : "border-slate-300"
                                       )}>
                                         {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
                                       </div>
-                                      <div>
+                                      <div className="min-w-0 break-words">
                                         <p className="font-semibold text-slate-900">{opt.regTypeName}</p>
                                         {opt.description && (
                                           <div className="text-xs text-slate-500 mt-0.5" dangerouslySetInnerHTML={{ __html: sanitizeHtml(opt.description) }} />
@@ -1290,7 +1322,7 @@ function CategoryRegistrationContent() {
                                       </div>
                                     </div>
                                     {!allOptionsFree && (
-                                      <div className="text-right shrink-0 ml-4">
+                                      <div className="text-right shrink-0">
                                         <div className="text-[10px] uppercase text-slate-400 font-medium">Amount</div>
                                         <div className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
                                           {opt.price === 0 ? "Free" : `${opt.currency} ${opt.price.toFixed(2)}`}
@@ -1346,7 +1378,7 @@ function CategoryRegistrationContent() {
                             Have a promo code?
                           </button>
                         ) : (
-                          <div className="space-y-2">
+                          <div id="promo-code-field" className="space-y-2">
                             <label className="text-sm font-medium text-slate-600">
                               Promo Code{sponsorCodeRequired && <span className="text-red-500"> *</span>}
                             </label>
@@ -1535,7 +1567,7 @@ function CategoryRegistrationContent() {
                         </div>
                       )}
 
-                      {docError && <p className="text-sm text-red-500">{docError}</p>}
+                      {docError && <p className="text-sm text-red-500" data-form-error="Supporting document">{docError}</p>}
                     </div>
                   )}
 
@@ -1551,11 +1583,15 @@ function CategoryRegistrationContent() {
                       render={({ field }) => (
                         <FormItem>
                           <div className="flex items-start gap-4">
-                            <Checkbox
-                              checked={field.value === true}
-                              onCheckedChange={(checked) => field.onChange(checked === true ? true : undefined)}
-                              className="mt-0.5"
-                            />
+                            {/* In FormControl so the label's htmlFor reaches it:
+                                tapping the sentence ticks the box. */}
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value === true}
+                                onCheckedChange={(checked) => field.onChange(checked === true ? true : undefined)}
+                                className="mt-0.5"
+                              />
+                            </FormControl>
                             <FormLabel className="text-sm text-slate-700 font-normal cursor-pointer leading-snug">
                               I agree to the terms and conditions
                             </FormLabel>
@@ -1565,12 +1601,17 @@ function CategoryRegistrationContent() {
                       )} />
                   </div>
 
-                  {/* Navigation */}
-                  <div className="flex items-center justify-between pt-2">
-                    <Button type="button" variant="outline" className="rounded-lg" onClick={() => setStep(1)}>
+                  {/* What stopped the last tap, next to the button that was tapped. */}
+                  {submitNotice && (
+                    <p role="alert" className="text-sm font-medium text-red-600 text-center sm:text-right">{submitNotice}</p>
+                  )}
+
+                  {/* Navigation: full width on a phone, Complete first */}
+                  <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between pt-2">
+                    <Button type="button" variant="outline" className="rounded-lg w-full sm:w-auto" onClick={() => setStep(1)}>
                       <ChevronLeft className="mr-1 h-4 w-4" /> Back
                     </Button>
-                    <Button type="submit" disabled={submitting} className="rounded-lg font-semibold btn-gradient px-8 py-3 text-base">
+                    <Button type="submit" disabled={submitting} className="rounded-lg font-semibold btn-gradient px-8 text-base w-full sm:w-auto h-12 sm:h-10">
                       {submitting ? (
                         <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Registering…</>
                       ) : (

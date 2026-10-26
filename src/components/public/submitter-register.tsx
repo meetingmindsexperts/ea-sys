@@ -20,6 +20,7 @@
  */
 
 import { useState, useEffect, type ReactNode } from "react";
+import { missingFieldsNotice, scrollToFirstFormError } from "@/lib/form-error-scroll";
 import { useParams, useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import {
@@ -185,7 +186,7 @@ function BrandedShell({
 }) {
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8f9fb] text-base">
+    <div className="public-form min-h-screen flex flex-col bg-[#f8f9fb] text-base">
       {/* Banner */}
       {event.bannerImage || event.bannerImageMobile ? (
         <EventBannerBand banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} />
@@ -259,6 +260,8 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
   const offersRates = rateOptions.length > 0;
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  // What stopped the last Create Account tap, shown by the button.
+  const [submitNotice, setSubmitNotice] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
@@ -333,11 +336,20 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
   const welcomeHtml =
     variant === "proposal" ? event?.sessionProposalWelcomeHtml : event?.abstractWelcomeHtml;
 
+  // A tap that did not go through: scroll to the first error once it has
+  // rendered (the dropdowns have no focusable field for react-hook-form to
+  // jump to) and name what is missing by the button.
+  function showBlockedSubmit() {
+    setTimeout(() => setSubmitNotice(missingFieldsNotice(scrollToFirstFormError())), 50);
+  }
+
   async function onSubmit(data: RegisterForm) {
+    setSubmitNotice(null);
     // Required only when the event actually offers rates (D4). Enforced again
     // server-side, since a form can be bypassed.
     if (offersRates && !data.ticketTypeId) {
       form.setError("ticketTypeId", { message: "Please choose a registration type" });
+      showBlockedSubmit();
       return;
     }
     // An existing account fills in the SAME page, but its details go to the
@@ -670,7 +682,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       <div className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-6">
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
           {/* Header */}
-          <div className="px-6 sm:px-10 py-6 border-b border-slate-100">
+          <div className="px-4 sm:px-10 py-6 border-b border-slate-100">
             <h2 className="text-2xl font-bold text-slate-900">{copy.pageHeading}</h2>
             <p className="text-base text-slate-500 mt-1">
               {stepSubheading(step, Boolean(existingPerson))}
@@ -688,9 +700,9 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
             </div>
           </div>
 
-          <div className="p-6 sm:px-10">
+          <div className="p-4 sm:p-6 sm:px-10">
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <form onSubmit={form.handleSubmit(onSubmit, showBlockedSubmit)} className="space-y-6">
 
                 {/* ── STEP 1: Account ── */}
                 {step === 1 && (
@@ -721,7 +733,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Email Address <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="email" placeholder="john@university.edu" className="rounded-lg border-slate-200 text-base" disabled={emailCheck.state === "signin"} {...field} /></FormControl>
+                          <FormControl><Input autoComplete="email" type="email" placeholder="john@university.edu" className="rounded-lg border-slate-200 text-base" disabled={emailCheck.state === "signin"} {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -730,7 +742,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Password <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="password" placeholder={emailCheck.state === "signin" ? "Your password" : "Min. 6 characters"} className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                          <FormControl><Input autoComplete="new-password" type="password" placeholder={emailCheck.state === "signin" ? "Your password" : "Min. 6 characters"} className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -740,7 +752,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Confirm Password <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormControl><Input autoComplete="new-password" type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -826,7 +838,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                     <div className="space-y-5">
                       <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Contact Details</h3>
 
-                      <div className="grid grid-cols-[100px_1fr_1fr] gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-4">
                         <FormField control={form.control} name="title"
                           render={({ field }) => (
                             <FormItem>
@@ -839,7 +851,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input placeholder="John" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormControl><Input autoComplete="given-name" placeholder="John" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -847,7 +859,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input placeholder="Doe" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormControl><Input autoComplete="family-name" placeholder="Doe" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -858,7 +870,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">Position <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input placeholder="Professor, Researcher..." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormControl><Input autoComplete="organization-title" placeholder="Professor, Researcher..." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -866,7 +878,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">Organization <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input placeholder="University of..." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormControl><Input autoComplete="organization" placeholder="University of..." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -877,7 +889,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">Mobile Number <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormControl><Input type="tel" autoComplete="tel" placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -885,7 +897,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">Additional Email</FormLabel>
-                              <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormControl><Input autoComplete="off" type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -904,7 +916,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">City <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input placeholder="Dubai" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormControl><Input autoComplete="address-level2" placeholder="Dubai" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -947,12 +959,17 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                     */}
                     {ratePicker}
 
-                    {/* Navigation */}
-                    <div className="flex items-center justify-between pt-2">
-                      <Button type="button" variant="outline" className="rounded-lg text-base" onClick={() => { setExistingPerson(null); setStep(1); }}>
+                    {/* What stopped the last tap, next to the button. */}
+                    {submitNotice && (
+                      <p role="alert" className="text-sm font-medium text-red-600 text-center sm:text-right">{submitNotice}</p>
+                    )}
+
+                    {/* Navigation: full width on a phone, the main button first */}
+                    <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between pt-2">
+                      <Button type="button" variant="outline" className="rounded-lg text-base w-full sm:w-auto" onClick={() => { setExistingPerson(null); setStep(1); }}>
                         <ChevronLeft className="mr-1 h-4 w-4" /> Back
                       </Button>
-                      <Button type="submit" disabled={submitting} className="rounded-lg font-semibold btn-gradient px-8 py-3 text-base">
+                      <Button type="submit" disabled={submitting} className="rounded-lg font-semibold btn-gradient px-8 text-base w-full sm:w-auto h-12 sm:h-10">
                         {submitting ? (
                           <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> {existingPerson ? "Setting up…" : "Creating Account…"}</>
                         ) : (

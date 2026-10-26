@@ -17,6 +17,8 @@ export const ROLE_OPTIONS = ATTENDEE_ROLE_ORDER.map((value) => ({
 }));
 
 interface RoleSelectProps {
+  /** Put on the button you tap, so a <label htmlFor> can point at the picker. */
+  id?: string;
   value: string | null | undefined;
   onChange: (role: string) => void;
   disabled?: boolean;
@@ -24,6 +26,7 @@ interface RoleSelectProps {
 }
 
 export function RoleSelect({
+  id,
   value,
   onChange,
   disabled = false,
@@ -31,7 +34,7 @@ export function RoleSelect({
 }: RoleSelectProps) {
   return (
     <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger className="w-full">
+      <SelectTrigger id={id} className="w-full">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>

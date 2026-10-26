@@ -51,6 +51,8 @@ export const SPECIALTIES = [
 ];
 
 interface SpecialtySelectProps {
+  /** Put on the button you tap, so a <label htmlFor> can point at the picker. */
+  id?: string;
   value: string | null | undefined;
   onChange: (specialty: string) => void;
   disabled?: boolean;
@@ -58,6 +60,7 @@ interface SpecialtySelectProps {
 }
 
 export function SpecialtySelect({
+  id,
   value,
   onChange,
   disabled = false,
@@ -65,6 +68,7 @@ export function SpecialtySelect({
 }: SpecialtySelectProps) {
   return (
     <SearchableSelect
+      id={id}
       value={value}
       onChange={onChange}
       options={SPECIALTIES.map((s) => ({ value: s, label: s }))}

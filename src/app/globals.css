@@ -389,3 +389,52 @@
   left: auto !important;
   flex-shrink: 0;
 }
+
+/*
+ * Public forms on phones (Oct 26, 2026; docs/ROADMAP.md "Public forms on a
+ * phone"). Scoped to `.public-form`, the wrapper on the public registration,
+ * complete-registration, submitter, group and login pages, so the dashboard
+ * keeps its compact sizes. Below 640px:
+ *  - fields, pickers and buttons are at least 44px tall (the touch minimum;
+ *    they were 36px);
+ *  - text in fields and pickers is 16px: iPhone Safari zooms the page into
+ *    any field under 16px when it is tapped, and leaves it zoomed;
+ *  - a checkbox draws at 22px and answers taps 11px around it, so "I agree"
+ *    is not a 16px target.
+ * Unlayered on purpose (see .rich-content-tables above): these must beat the
+ * h-9 / text-sm utilities, and min-height wins over height either way.
+ */
+@media (max-width: 639.98px) {
+  .public-form [data-slot="input"],
+  .public-form [data-slot="textarea"],
+  .public-form [data-slot="select-trigger"],
+  .public-form [role="combobox"] {
+    min-height: 2.75rem;
+    font-size: 1rem;
+  }
+  .public-form [data-slot="button"]:not([data-size^="icon"]):not([data-variant="link"]):not([role="checkbox"]) {
+    min-height: 2.75rem;
+  }
+  .public-form button[role="checkbox"] {
+    position: relative;
+    width: 1.375rem;
+    height: 1.375rem;
+  }
+  .public-form button[role="checkbox"]::after {
+    content: "";
+    position: absolute;
+    inset: -0.6875rem;
+  }
+}
+/* The picker lists open in a portal, outside `.public-form`, so these two are
+   for every touch screen: the search box in Country/Specialty at 16px (the
+   iPhone zoom again) and list rows a thumb can hit. */
+@media (pointer: coarse) {
+  [data-slot="command-input"] {
+    font-size: 16px;
+  }
+  [data-slot="select-item"],
+  [data-slot="command-item"] {
+    min-height: 2.75rem;
+  }
+}

@@ -7,7 +7,25 @@
 
 ---
 
-## Public forms on a phone: a failed tap shows nothing (found Oct 24, 2026): not started, owner fixing Monday Oct 26
+## Public forms on a phone: a failed tap shows nothing (found Oct 24, 2026): BUILT Oct 26, 2026, except banners
+
+**Built Oct 26** (registration, complete-registration, abstract and proposal
+sign-up, group registration, login): a failed submit scrolls to the first
+error whatever the field and names what is missing by the button
+(`src/lib/form-error-scroll.ts`); fields, pickers and buttons are 44px and 16px
+on phones (`.public-form` rules in globals.css), checkboxes answer taps around
+them and their label ticks them; the name row stacks; the submit is full width;
+every field carries an autofill hint and the phone fields open the number pad;
+the group form's labels point at their fields; a "Start registration" button
+jumps past the welcome text on phones. Re-measured at 320/360/390px: no
+overflow, clipping, small text or small targets left.
+
+**Still open: banners.** Uploads are served at full size; BHS2026's phone banner
+is 621 KB, half the page, and the page waits on it (LCP 2.8 s on 4G with a
+mid phone). Owner: not now. The option on file is a phone-sized WebP made at
+upload, with a one-off script for existing banners.
+
+The original finding follows.
 
 Found during BHS2026 (live, Oct 24). The production web server log shows two
 phone visitors on the sponsor link (`/e/BHS2026/register/inclusive`) apply a

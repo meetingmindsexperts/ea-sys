@@ -35,6 +35,7 @@ export interface SearchableSelectOption {
 }
 
 export function SearchableSelect({
+  id,
   value,
   displayLabel,
   onChange,
@@ -44,6 +45,8 @@ export function SearchableSelect({
   searchPlaceholder,
   emptyText,
 }: {
+  /** Put on the button you tap, so a <label htmlFor> can point at the picker. */
+  id?: string;
   value: string | null | undefined;
   /** Resolved label for the current value (falls back to the raw value). */
   displayLabel?: string;
@@ -76,6 +79,7 @@ export function SearchableSelect({
     >
       <PopoverTrigger asChild>
         <Button
+          id={id}
           type="button"
           variant="outline"
           role="combobox"

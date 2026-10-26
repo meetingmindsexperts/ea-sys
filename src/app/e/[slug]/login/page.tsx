@@ -199,7 +199,7 @@ function EventLoginForm() {
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
+    <div className="public-form min-h-screen flex flex-col bg-[#f8f9fb]">
       {/* Banner */}
       {event.bannerImage || event.bannerImageMobile ? (
         <EventBannerBand banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} />
@@ -255,7 +255,7 @@ function EventLoginForm() {
                     <FormItem>
                       <FormLabel className="text-sm font-medium text-slate-600">Email</FormLabel>
                       <FormControl>
-                        <Input type="email" placeholder="you@example.com" className="text-base" {...field} />
+                        <Input autoComplete="email" type="email" placeholder="you@example.com" className="text-base" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -266,7 +266,7 @@ function EventLoginForm() {
                     <FormItem>
                       <FormLabel className="text-sm font-medium text-slate-600">Password</FormLabel>
                       <FormControl>
-                        <Input type="password" placeholder="••••••••" className="text-base" {...field} />
+                        <Input autoComplete="current-password" type="password" placeholder="••••••••" className="text-base" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

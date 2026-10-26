@@ -17,6 +17,8 @@ export const TITLE_OPTIONS = [
 ] as const;
 
 interface TitleSelectProps {
+  /** Put on the button you tap, so a <label htmlFor> can point at the picker. */
+  id?: string;
   value: string | null | undefined;
   onChange: (title: string) => void;
   disabled?: boolean;
@@ -24,6 +26,7 @@ interface TitleSelectProps {
 }
 
 export function TitleSelect({
+  id,
   value,
   onChange,
   disabled = false,
@@ -31,7 +34,7 @@ export function TitleSelect({
 }: TitleSelectProps) {
   return (
     <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger className="w-full">
+      <SelectTrigger id={id} className="w-full">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
