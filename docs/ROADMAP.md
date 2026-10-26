@@ -7,6 +7,41 @@
 
 ---
 
+## Bot spam on the public forms (recorded Oct 26, 2026): not started
+
+Owner: "we have so many forms, what if bots start spam submissions". Today every public form has per-IP
+and per-email rate limits (registration: 15 a minute and 100 per 15 minutes per IP, 10 per 15 minutes per
+email), logins are throttled on failures, public account sign-up is off, and nginx caps each IP at 100
+requests a second. What is missing:
+
+- **No bot test anywhere.** No CAPTCHA and no honeypot on any public form, so a bot spread over many IPs
+  stays under every per-IP limit.
+- **Junk content is accepted.** `screenContact` (src/lib/contact-import-blocklist.ts: links in names,
+  disposable domains, blocked addresses) was written after spam rows reached the contact store, but it
+  only runs on imports, not on the public registration form, the door that spam came through
+  (review C11 below).
+- **Limits forget.** `checkRateLimit` is in memory: it resets on every deploy and blue and green each keep
+  their own.
+- **The cost lands on email.** Each spam registration sends a confirmation to whatever address was typed,
+  so a bot can use the forms to email strangers, which hurts SES sender reputation for every event.
+
+Proposed, cheapest first (owner to choose; 1 and 2 recommended first):
+
+1. **Honeypot field and a minimum fill time** on every public form: invisible to people, stops most simple
+   bots. About half a day, one shared helper.
+2. **`screenContact` on public registration, group registration and abstract sign-up**, refusing with a
+   logged `warn`. Small: the code exists.
+3. **Cloudflare Turnstile** (usually invisible) on registration, group registration, abstract sign-up,
+   login and forgot password. Needs the owner to create a free Turnstile site key; costs one small script
+   per form and one server check per submission. Same item as point 1 of "Distributed L7 attack
+   protection" below.
+4. **Rate-limit buckets in Postgres** instead of memory, shared by blue and green and kept across deploys.
+5. **An alert** when an event's registrations in an hour run far above normal, so spam is seen the same day.
+
+Until then the remedy is clean-up after the fact, deleting rows by captured id.
+
+---
+
 ## Public forms on a phone: a failed tap shows nothing (found Oct 24, 2026): BUILT Oct 26, 2026, except banners
 
 **Built Oct 26** (registration, complete-registration, abstract and proposal
