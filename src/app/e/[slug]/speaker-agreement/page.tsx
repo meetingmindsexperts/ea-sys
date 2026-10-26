@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPersonName } from "@/lib/utils";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -163,7 +164,7 @@ function SpeakerAgreementContent() {
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
               <p className="text-xs uppercase tracking-wider text-slate-400 mb-1">Speaker</p>
               <p className="text-sm font-medium text-slate-900">
-                {[data.speaker.title, data.speaker.firstName, data.speaker.lastName].filter(Boolean).join(" ")}
+                {formatPersonName(data.speaker.title, data.speaker.firstName, data.speaker.lastName)}
               </p>
               <p className="text-sm text-slate-500">{data.speaker.email}</p>
             </div>

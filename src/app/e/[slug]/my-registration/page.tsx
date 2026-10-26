@@ -36,7 +36,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatPersonName } from "@/lib/utils";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatSerialId } from "@/lib/registration-serial";
 
@@ -426,15 +426,15 @@ export default function EventMyRegistrationPage() {
           return (
             <Card key={reg.id} className="overflow-hidden">
               {/* Status bar */}
-              <div className="px-6 py-4 border-b bg-slate-50/50">
-                <div className="flex gap-2">
+              <div className="px-4 sm:px-6 py-4 border-b bg-slate-50/50">
+                <div className="flex flex-wrap gap-2">
                   <Badge className={statusColors[reg.status]} variant="outline">{reg.status}</Badge>
                   <Badge variant="outline">{reg.ticketType?.name ?? "—"}</Badge>
                   {reg.pricingTier && <Badge variant="secondary">{reg.pricingTier.name}</Badge>}
                 </div>
               </div>
 
-              <CardContent className="p-6 space-y-6">
+              <CardContent className="p-4 sm:p-6 space-y-6">
                 {/* Confirmation / Payment */}
                 {(isConfirmed || isPaid || isSponsored || isRefunded || isGroupCovered) && !showPayment && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
@@ -576,8 +576,10 @@ export default function EventMyRegistrationPage() {
                 )}
 
                 {/* Registration ID + Barcode + Quote */}
-                <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3 gap-4">
-                  <div className="flex items-center gap-6">
+                {/* Stacks on a phone: in one row the buttons ran off the right
+                    edge (owner screenshot, Oct 26, 2026). */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-slate-50 rounded-lg p-3 gap-4">
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-3 min-w-0">
                     {reg.serialId != null && (
                       <div>
                         <p className="text-xs text-muted-foreground">Registration ID</p>
@@ -587,9 +589,9 @@ export default function EventMyRegistrationPage() {
                       </div>
                     )}
                     {reg.qrCode && (
-                      <div className="flex items-start gap-3">
-                        <Barcode className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" />
-                        <div>
+                      <div className="flex items-start gap-3 min-w-0">
+                        <Barcode className="hidden sm:block h-5 w-5 text-slate-500 shrink-0 mt-0.5" />
+                        <div className="min-w-0">
                           <p className="text-xs text-muted-foreground mb-1">Entry Barcode</p>
                           {/* Scannable Code 128 image (matches the printed
                               badge). The endpoint 404s when no barcode
@@ -604,7 +606,7 @@ export default function EventMyRegistrationPage() {
                             width={260}
                             height={64}
                             unoptimized
-                            className="h-16 w-auto max-w-[260px] rounded bg-white p-2 border border-slate-200"
+                            className="h-auto w-full max-w-[260px] rounded bg-white p-2 border border-slate-200"
                           />
                           <p className="mt-1 text-xs text-muted-foreground">
                             Show this at the registration desk for check-in.
@@ -613,7 +615,7 @@ export default function EventMyRegistrationPage() {
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 [&>*]:w-full sm:[&>*]:w-auto">
                     <Button
                       variant="outline"
                       size="sm"
@@ -653,7 +655,7 @@ export default function EventMyRegistrationPage() {
 
                 {/* Personal Details */}
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold text-slate-700">Personal Details</h3>
                     {!isEditing ? (
                       <Button variant="outline" size="sm" onClick={() => startEdit(reg)}>
@@ -673,7 +675,7 @@ export default function EventMyRegistrationPage() {
 
                   {isEditing ? (
                     <div className="grid gap-4">
-                      <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-3">
                         <div className="space-y-1"><Label className="text-xs">Title</Label><TitleSelect value={editData.title || ""} onChange={(v) => setEditData({ ...editData, title: v })} /></div>
                         <div className="space-y-1"><Label className="text-xs">First Name</Label><Input value={editData.firstName || ""} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} /></div>
                         <div className="space-y-1"><Label className="text-xs">Last Name</Label><Input value={editData.lastName || ""} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} /></div>
@@ -689,22 +691,22 @@ export default function EventMyRegistrationPage() {
                         />
                         <p className="text-[11px] text-muted-foreground">Optional. We&apos;ll also send registration emails here.</p>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1"><Label className="text-xs">Organization</Label><Input value={editData.organization || ""} onChange={(e) => setEditData({ ...editData, organization: e.target.value })} /></div>
                         <div className="space-y-1"><Label className="text-xs">Position</Label><Input value={editData.jobTitle || ""} onChange={(e) => setEditData({ ...editData, jobTitle: e.target.value })} /></div>
                       </div>
                       <div className="space-y-1"><Label className="text-xs">Phone</Label><Input value={editData.phone || ""} onChange={(e) => setEditData({ ...editData, phone: e.target.value })} /></div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1"><Label className="text-xs">Country</Label><CountrySelect value={editData.country || ""} onChange={(v) => setEditData({ ...editData, country: v })} /></div>
                         <div className="space-y-1"><Label className="text-xs">City</Label><Input value={editData.city || ""} onChange={(e) => setEditData({ ...editData, city: e.target.value })} /></div>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1"><Label className="text-xs">Specialty</Label><SpecialtySelect value={editData.specialty || ""} onChange={(v) => setEditData({ ...editData, specialty: v })} /></div>
                         <div className="space-y-1"><Label className="text-xs">Role</Label><RoleSelect value={editData.role || ""} onChange={(v) => setEditData({ ...editData, role: v })} /></div>
                       </div>
                       <div className="space-y-1"><Label className="text-xs">Dietary Requirements</Label><Input value={editData.dietaryReqs || ""} onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })} /></div>
                       {(editData.associationName || editData.memberId) && (
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div className="space-y-1"><Label className="text-xs">Association Name</Label><Input value={editData.associationName || ""} onChange={(e) => setEditData({ ...editData, associationName: e.target.value })} placeholder="e.g. AMA" /></div>
                           <div className="space-y-1"><Label className="text-xs">Member ID</Label><Input value={editData.memberId || ""} onChange={(e) => setEditData({ ...editData, memberId: e.target.value })} placeholder="e.g. MEM-12345" /></div>
                         </div>
@@ -716,15 +718,15 @@ export default function EventMyRegistrationPage() {
                           it on their own portal — the value existed and
                           the row simply never rendered. */}
                       {(editData.studentId || editData.studentIdExpiry) && (
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div className="space-y-1"><Label className="text-xs">Student ID</Label><Input value={editData.studentId || ""} onChange={(e) => setEditData({ ...editData, studentId: e.target.value })} placeholder="e.g. STU-2024-001" /></div>
                           <div className="space-y-1"><Label className="text-xs">Student ID Expiry</Label><Input type="date" value={editData.studentIdExpiry || ""} onChange={(e) => setEditData({ ...editData, studentIdExpiry: e.target.value })} /></div>
                         </div>
                       )}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div><span className="text-muted-foreground">Name</span><p className="font-medium">{[reg.attendee.title, reg.attendee.firstName, reg.attendee.lastName].filter(Boolean).join(" ")}</p></div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm [&_p]:break-words">
+                      <div><span className="text-muted-foreground">Name</span><p className="font-medium">{formatPersonName(reg.attendee.title, reg.attendee.firstName, reg.attendee.lastName)}</p></div>
                       <div><span className="text-muted-foreground">Email</span><p className="font-medium">{reg.attendee.email}</p></div>
                       {reg.attendee.organization && <div><span className="text-muted-foreground">Organization</span><p className="font-medium">{reg.attendee.organization}</p></div>}
                       {reg.attendee.jobTitle && <div><span className="text-muted-foreground">Position</span><p className="font-medium">{reg.attendee.jobTitle}</p></div>}
@@ -776,7 +778,7 @@ export default function EventMyRegistrationPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
+    <div className="public-form min-h-screen flex flex-col bg-[#f8f9fb]">
       {/* Top bar — account context + sign out. Kept slim so it doesn't
           compete with the event banner below. */}
       <div className="bg-white border-b border-slate-200">

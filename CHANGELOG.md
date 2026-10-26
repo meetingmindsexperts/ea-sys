@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### My Registration on a phone, and titles printed as "Dr." (October 26)
+
+- Owner screenshot: on the registrant's My Registration page the barcode card ran off the right edge (its email button cut off) and the name read "DR Krishna ...". The card now stacks on a phone (ID, barcode, then full-width buttons), the barcode shrinks to fit a 320px screen, the details are one column with long emails wrapping, the edit form and its Save / Cancel row stack, and the page gets the public-form phone sizes.
+- The name uses `formatPersonName` ("Dr.", "Prof."), not the stored code ("DR"), here and on the speaker and presenter agreement pages, which had the same bug.
+
 ### Venue: the 3D venue is built and walked in CI (October 26)
 
 - Venue hardening step 1. A new non-gating CI job, `venue`, rebuilds the online venue page from `vendor/ehc-venue/src` and fails when the committed copy is stale, then walks every layout fixture in Chromium (`npm run venue:walk`, `vendor/ehc-venue/tests/walk.spec.ts`): doorways, every route on each floor, stairs and lifts, every hotspot and the camera. Until now these checks were Python and ran only by hand. Proven by reintroducing the Level 1 door bug, which it fails on. Promote to gating after five green runs.
