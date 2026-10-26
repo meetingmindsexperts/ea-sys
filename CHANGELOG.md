@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: two floors, Ground and Level 1 (October 26)
+
+- Owner decisions F9 to F12 (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md, section 9): a drawn plan can put rooms and walkways on **Level 1** as well as **Ground**. The editor has a tab per floor, shows the other floor faintly underneath, and gives each room and walkway a **Floor** choice; the foyer stays on Ground.
+- Floors are joined by **stairs or a lift drawn in the same place on both floors**; one on Level 1 with nothing under it is refused with that reason. In the walkable venue, E at a stair or lift fades you to the other floor, the label and the minimap show the floor you are on, and Level 1's stairs are the stairwell going down. The walkability check walks through them, so a Level 1 nobody can reach cannot be saved.
+- The Venue tab and the PDF show both floors side by side on one page, each named. AI attendees know which rooms are upstairs and how to get there.
+- Saved plans read unchanged (no floor means Ground), and a one-floor plan builds exactly as before.
+
 ### Venue: phase 2b review fixes (October 24)
 
 - All eleven findings from the phase 2b review, which the owner had pushed as is. MED: removing a room from the list now also removes the fixtures that stood in it, so the drawn plan stays in use instead of falling back to automatic (`heldFixtures` in plan.ts, used by `prunedPlan` and the editor); moving, resizing or turning a room or walkway carries its fixtures (shifted, slid back inside, or turned about its centre and facing the next way round); in 3D only the first metre of a staircase can be climbed, the rest is walled off by an unseen block to the ceiling.

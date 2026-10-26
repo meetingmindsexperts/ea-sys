@@ -229,7 +229,7 @@ automatic mode untouched.
 | 3 | Stands: count, drag stands, choose the sponsor per stand (replacing "nth stand to nth sponsor by tier" when set) | 1 session | Sponsors land on the stands the team chose, in 2D and 3D |
 | 4 | Underlay image: upload, scale by a known wall, opacity, trace | 1 to 2 sessions | The team traces a real hotel plan and walks it |
 | 2b | The architectural 2D look (owner Oct 24: "walls and stairs and similar need better visual representations"): solid walls, heavier outside; door leaves and swings; glazing; room sizes; fixtures (stairs, lift, toilets, emergency exit, pillar, catering point) placed in the editor, drawn as plan symbols, in the PDF and its legend, and built in 3D | 1 session | **BUILT Oct 24**: `plan.fixtures` (schema default `[]`, so saved plans read unchanged), `venue-plan-drawing.tsx`, `drawFixture` / `drawDoorSwings` in the PDF, `fixture()` in world.js; a solid fixture drops the furniture it stands on and stands are numbered again |
-| 5 | Several floors (section 9) | 2 to 3 sessions | PLANNED, NOT BUILT: owner decisions F9 to F12 first |
+| 5 | Several floors (section 9) | 2 to 3 sessions | **BUILT Oct 26** (owner decisions F9 to F12, section 9): Ground and Level 1; see "What was built" in section 9 |
 | later | Angled walls and non-rectangular rooms (L-shapes) | separate plan | Only if a real venue needs it |
 
 ## 5. Decisions for the owner
@@ -278,7 +278,7 @@ separate plan, only when a real venue needs it.
 - MED: in 3D the stair treads are climbable up to the ceiling and beyond (cap the climbable height below the ceiling and make the rest solid, world.js `fixture()`).
 - LOW: on screen the glass entrance is drawn over a solid wall; wall ends run into door openings; the PDF "ENTRANCE" label can leave the page for a west, east or north entrance; turning a fixture against a wall pushes it out of its room; a pillar in an aisle can drop a stand's visit point but keep the stand; fixtures renumber stands, which shifts stand activity during a live event (accepted, to be noted for organisers); the PDF legend can cut the fixture entries in a busy plan; cleanups (a no-op ternary in world.js, "Remove" to name the fixture, a second fixture of a kind lands on the first, a small pillar's handles cover it).
 
-## 9. Several floors (planned, not built)
+## 9. Several floors (BUILT Oct 26)
 
 Owner, Oct 24: "what if we have multi floors?". Hotels often put the ballroom on
 one floor and the exhibition or meeting rooms on another, so this is a real
@@ -329,4 +329,28 @@ floor it is on; the attendees' directions say "on Level 1, take the lift".
 **Risks.** The world's size grows with each floor (draw calls, the 1 m
 navigation grid): measure on a 4-floor congress before shipping; an
 organiser drawing a floor nobody can reach is caught by the checks above.
+
+**Owner decisions, Oct 26:** F9 fixed names, Ground and Level 1. F10 as recommended (a lift serves every
+floor it is drawn on, stairs join neighbouring floors). F11 a short fade. F12 two floors for now.
+
+**What was built (Oct 26), and where it differs from the sketch above:**
+
+- **No `v: 2`.** Each room, walkway and fixture carries an optional `floor` (`"ground"` or `"level-1"`); none
+  means Ground, so every saved plan reads unchanged and the schema stays `v: 1`. Two floors at most, by the
+  schema's enum. The foyer must stay on Ground.
+- **No `link` field.** A Level 1 stair or lift joins the ground-floor one of the same kind drawn in the same
+  place (`floorLinks`), as a stairwell or lift shaft stands over itself, so there is nothing extra to set.
+  A Level 1 stair or lift with nothing under it is refused with that reason, and Level 1 needs at least one.
+- **Building:** each floor is built on its own (`floorLayout`), then `layoutFromPlan` stands Level 1 30 m east
+  of the ground floor and adds a `"floor"` hotspot at each end of every link (`to` = where you step out).
+  The layout gains `levels` (names and outlines) and each zone a `level`. A one-floor plan builds exactly as
+  before. `checkLayout` carries its walk through the floor hotspots, so an unreachable Level 1 is refused.
+- **3D:** E at a stair or lift fades to the other floor and says which floor you are on; the zone label and
+  the minimap show the current floor only. Level 1's stairs are drawn as the stairwell going down.
+- **Editor:** Ground and Level 1 tabs; every tool works on one floor's view (`floorView` / `withFloor`), the
+  other floor is drawn faintly underneath with its stairs and lifts labelled, and a room or walkway has a
+  Floor choice (`toFloor`: same place when free there, else beside that floor's building).
+- **2D and PDF:** both floors side by side on one page, each named, rather than a tab or page per floor.
+- **Directions:** the AI attendees hear which rooms are upstairs and how to get there; the scripted
+  directions say "on Level 1, off the ...".
 

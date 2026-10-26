@@ -41,6 +41,8 @@ export interface LayoutZone {
   floor: "marble" | "carpetG" | "carpet" | "wood";
   tint?: [number, number, number];
   capacity: number;
+  /** The floor it is on, in a venue of several floors (`VenueLayout.levels`); absent in a one-floor venue. */
+  level?: string;
 }
 
 export interface WallOpening {
@@ -95,7 +97,7 @@ export type LayoutItem = ItemBase &
     | { t: "plant"; cx: number; cz: number; s: number }
     | { t: "sign"; x: number; y: number; z: number; w: number; hgt: number; yaw: number; kicker: string; title: string; sub: string }
     /** A drawn plan's stairs, lift, toilets, exit, pillar or catering point; `yaw` is the way it faces (its door, front or "up"). */
-    | { t: "fixture"; kind: FixtureKind; name: string; yaw: number }
+    | { t: "fixture"; kind: FixtureKind; name: string; yaw: number; /** Stairs on an upper floor: the stairwell going down. */ down?: boolean }
   );
 
 export interface LayoutPerson {
@@ -115,7 +117,9 @@ export interface LayoutHotspot {
   prompt: string;
   title: string;
   body: string;
-  kind: "info" | "screen" | "stand";
+  kind: "info" | "screen" | "stand" | "floor";
+  /** A "floor" hotspot (stairs or a lift): where taking it puts you, as x, z and the yaw you face. */
+  to?: [number, number, number];
 }
 
 export interface VenueLayout {
@@ -129,6 +133,11 @@ export interface VenueLayout {
   hotspots: LayoutHotspot[];
   /** Closed walking loops for the moving crowd. */
   routes: [number, number][][];
+  /**
+   * A venue of several floors: each floor's name and outline. The floors stand side by side in one flat
+   * world, far enough apart to never meet, joined by "floor" hotspots; absent in a one-floor venue.
+   */
+  levels?: { id: string; name: string; bounds: Rect }[];
 }
 
 // ── Sizes ─────────────────────────────────────────────────────────────────────

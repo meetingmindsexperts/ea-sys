@@ -298,6 +298,20 @@ function Labels({ layout }: { layout: VenueLayout }) {
   );
 }
 
+/** A venue of several floors, drawn side by side: each floor's name above it. */
+function FloorNames({ layout }: { layout: VenueLayout }) {
+  if (!layout.levels) return null;
+  return (
+    <g className="pointer-events-none">
+      {layout.levels.map((l) => (
+        <text key={l.id} x={l.bounds[0]} y={l.bounds[1] - 1.2} fontSize={2.4} className="fill-foreground font-semibold">
+          {l.name}
+        </text>
+      ))}
+    </g>
+  );
+}
+
 /** The building drawn from above. Shared by the plan view and the editor. */
 export function LayoutDrawing({ layout }: { layout: VenueLayout }) {
   return (
@@ -312,6 +326,7 @@ export function LayoutDrawing({ layout }: { layout: VenueLayout }) {
       <Walls layout={layout} />
       <Glazing layout={layout} />
       <Labels layout={layout} />
+      <FloorNames layout={layout} />
     </g>
   );
 }

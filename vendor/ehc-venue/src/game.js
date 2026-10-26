@@ -97,7 +97,7 @@
     if (keyMap[e.code]) { input.keys.add(keyMap[e.code]); e.preventDefault(); }
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') input.run = true;
     if (e.code === 'Space') { input.jump = true; e.preventDefault(); }
-    if (e.code === 'KeyE' && near) near.ref ? social.open(near) : openInfo(near);
+    if (e.code === 'KeyE' && near) use(near);
     if ((e.code === 'Enter' || e.code === 'KeyT') && social) { e.preventDefault(); social.open(nearP); }
     if (e.code === 'KeyV') nextView();
     if (abil) { const gk = { Digit1: 'wave', Digit2: 'heart', Digit3: 'clap', Digit4: 'raise' }[e.code]; if (gk) abil.gesture(gk); if (e.code === 'Digit5') abil.photo(); if (e.code === 'KeyF') abil.mode === 'sit' ? abil.stand() : abil.sit(); if (e.code === 'KeyC' && abil.ctxAction) abil.ctxAction.fn(); }
@@ -148,7 +148,7 @@
   $('bQual').addEventListener('click', () => { Q.level = Q.level === 'high' ? 'balanced' : 'high'; try { localStorage.setItem('ehc-q', Q.level); } catch (e) { } applyQ(); stats.scale = 1; qLabel(); rebuildCrowd(); resize(); });
   $('bAgenda').addEventListener('click', openAgenda);
   $('bView').addEventListener('click', () => { nextView(); if (!isTouch) canvas.focus(); }); setCamView(camView, true);
-  $('prompt').addEventListener('click', () => near && (near.ref ? social.open(near) : openInfo(near)));
+  $('prompt').addEventListener('click', () => near && use(near));
   $('modeStop').addEventListener('click', () => abil && abil.stop());
   let t3; function toast3(m) { const el = $('toast3'); el.textContent = m; el.hidden = false; clearTimeout(t3); t3 = setTimeout(() => { el.hidden = true; }, 2800); }
   $('iclose').addEventListener('click', closeSheets); $('aclose').addEventListener('click', closeSheets);
@@ -206,27 +206,43 @@
     if (list.length > 6) { const li = document.createElement('li'); li.textContent = 'and ' + (list.length - 6) + ' more'; ul.appendChild(li); }
     return ul;
   }
+  /** What E (or a tap on the prompt) does: talk to a person, take stairs or a lift, or open what is here. */
+  function use(h) { if (h.ref) social.open(h); else if (h.to) travel(h); else openInfo(h); }
+  // EA-SYS (floors, Oct 26): stairs and lifts take you to the other floor, with the same short fade as the
+  // venue guide's Go (decision F11), and say which floor you are on.
+  function travel(h, instant) {
+    const [x, z, yaw] = h.to;
+    const go = () => { player.x = x; player.z = z; player.y = 0; ry = 0; player.vx = player.vz = player.vy = 0; player.yaw = yaw; cam.yaw = yaw - Math.PI; setZone(zoneAt(x, z)); const L = zone && levelOf(zone.level); if (L) toast3(L.name); };
+    audio.ui();
+    if (instant) return go();
+    $('fade').classList.add('on'); setTimeout(() => { go(); $('fade').classList.remove('on'); }, 360);
+  }
   function teleport(id, instant) {
     const Z = ZONES.find(z => z.id === id); if (!Z) return;
     const go = () => { player.x = Z.spawn[0]; player.z = Z.spawn[1]; player.y = 0; ry = 0; player.vx = player.vz = player.vy = 0; player.yaw = Z.spawn[2]; cam.yaw = Z.spawn[2] - Math.PI; cam.pitch = camView === 'eye' ? 0.04 : 0.28; setZone(Z); };
     if (instant) return go();
     $('fade').classList.add('on'); setTimeout(() => { go(); $('fade').classList.remove('on'); }, 360);
   }
+  // EA-SYS (floors): the map shows the floor you are on.
+  const mapLevel = () => (zone && levelOf(zone.level)) || null;
+  const mapBounds = () => { const L = mapLevel(); return L ? L.bounds : WORLD_BOUNDS; };
+  const onMap = (Z) => { const L = mapLevel(); return !L || Z.level === L.id; };
   $('map').addEventListener('click', (e) => {
-    const r = e.target.getBoundingClientRect(), [bx0, bz0, bx1, bz1] = WORLD_BOUNDS, pad = 6;
+    const r = e.target.getBoundingClientRect(), [bx0, bz0, bx1, bz1] = mapBounds(), pad = 6;
     const mx = (e.clientX - r.left) / r.width * 464, my = (e.clientY - r.top) / r.height * 272;
     const x = bx0 + (mx - pad) / ((464 - 2 * pad) / (bx1 - bx0)), z = bz0 + (my - pad) / ((272 - 2 * pad) / (bz1 - bz0));
     const Z = zoneAt(x, z); if (Z) teleport(Z.id);
   });
-  function setZone(Z) { if (!Z || Z === zone) return; zone = Z; $('zname').textContent = Z.name; $('zsub').textContent = Z.sub; }
+  function setZone(Z) { if (!Z || Z === zone) return; zone = Z; $('zname').textContent = Z.name; const L = levelOf(Z.level); $('zsub').textContent = (L ? L.name + ' · ' : '') + Z.sub; }
 
   // ----- minimap
   const mctx = $('map').getContext('2d');
   function drawMap() {
-    const c = mctx, w = 464, h = 272, pad = 6, [bx0, bz0, bx1, bz1] = WORLD_BOUNDS;
+    const c = mctx, w = 464, h = 272, pad = 6, [bx0, bz0, bx1, bz1] = mapBounds();
     const sx = (w - 2 * pad) / (bx1 - bx0), sz = (h - 2 * pad) / (bz1 - bz0), X = (x) => pad + (x - bx0) * sx, Y = (z) => pad + (z - bz0) * sz;
     c.clearRect(0, 0, w, h);
     for (const Z of ZONES) {
+      if (!onMap(Z)) continue;
       const [x0, z0, x1, z1] = Z.rect; c.fillStyle = zone === Z ? 'rgba(163,37,58,.55)' : 'rgba(243,236,228,.08)'; c.fillRect(X(x0) + 1, Y(z0) + 1, (x1 - x0) * sx - 2, (z1 - z0) * sz - 2);
       c.strokeStyle = 'rgba(243,236,228,.28)'; c.lineWidth = 1.5; c.strokeRect(X(x0) + 1, Y(z0) + 1, (x1 - x0) * sx - 2, (z1 - z0) * sz - 2);
       if ((x1 - x0) * sx > 60) { c.fillStyle = 'rgba(243,236,228,.75)'; c.font = '600 15px ' + FONT_BODY; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(Z.name.replace('Networking ', '').replace('Exhibition', 'Expo').replace('Grand ', ''), X((x0 + x1) / 2), Y((z0 + z1) / 2), (x1 - x0) * sx - 8); }
@@ -385,7 +401,8 @@
       ready: true, ZONES, W, CW, cam, input, stats, Q, get player() { return player; }, get zone() { return zone && zone.id; },
       teleport: (id) => teleport(id, true), enter, render, setView(yaw, pitch, dist) { cam.yaw = yaw; cam.pitch = pitch; cam.wantDist = cam.dist = cam.arm = dist; updateCamera(1); },
       get R() { return R; }, I, get abil() { return abil; }, get team() { return team; }, setCamView, get camView() { return camView; }, VIEWS, crowdCount: () => crowd.list.length, closeSheets: () => closeSheets(), get social() { return social; }, get nearP() { updateNear(); return nearP; },
-      openNear() { updateNear(); if (near) openInfo(near); return near && near.id; },
+      openNear() { updateNear(); if (near) use(near); return near && near.id; },
+      travel: (h) => travel(h, true),
       nearId() { updateNear(); return near && near.id; },
       measure(ms) { return new Promise(res => { const ts = []; let last = performance.now(); const t0 = last; const f = (t) => { ts.push(t - last); last = t; if (t - t0 < ms) requestAnimationFrame(f); else { ts.shift(); const s = ts.slice().sort((a, b) => a - b), mean = ts.reduce((a, b) => a + b, 0) / ts.length; res({ frames: ts.length, fps: 1000 / mean, p99: 1000 / s[Math.max(0, Math.ceil(s.length * 0.99) - 1)], simMs: stats.simMs, drawMs: stats.drawMs, draws: R.stats.draws, tris: R.stats.tris, px: canvas.width + 'x' + canvas.height }); } }; requestAnimationFrame(f); }); },
       setNow(ms) { CLOCK.offset = ms - Date.now(); progT = Infinity; },

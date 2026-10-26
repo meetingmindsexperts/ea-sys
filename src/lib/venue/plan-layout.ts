@@ -32,7 +32,21 @@ import {
   type VenueLayout,
   type WallOpening,
 } from "./layout";
-import { FIXTURE_INFO, doorPoint, planIssues, type PlanDoor, type PlanWall, type VenuePlan } from "./plan";
+import {
+  FIXTURE_INFO,
+  FLOOR_NAME,
+  doorPoint,
+  floorLinks,
+  floorOf,
+  floorView,
+  planFloors,
+  planIssues,
+  type PlanDoor,
+  type PlanFixture,
+  type PlanFloor,
+  type PlanWall,
+  type VenuePlan,
+} from "./plan";
 import type { VenueRoom } from "./rooms";
 
 const EPS = 0.01;
@@ -68,7 +82,138 @@ function uOf(door: FrameDoor, origin: [number, number], x: number, z: number): n
   return origin[1] - z;
 }
 
+/**
+ * The building a plan makes. A plan on one floor builds exactly as it always did. A plan with a Level 1
+ * builds each floor on its own, then stands Level 1 beside the ground floor in the walkable venue's one flat
+ * world (`FLOOR_GAP` apart, so the two never meet), joined by a "floor" hotspot at each linked stair and lift.
+ */
 export function layoutFromPlan(rooms: VenueRoom[], plan: VenuePlan, opts: { eventName: string }): PlanLayoutResult {
+  const floors = planFloors(plan);
+  if (floors.length === 1) return floorLayout(rooms, floorView(plan, "ground"), opts);
+  const built = floors.map((f) => ({ floor: f, ...floorLayout(rooms, floorView(plan, f), opts) }));
+  const [ground, upper] = built;
+  const dx = r2(ground.layout.bounds[2] + FLOOR_GAP - upper.layout.bounds[0]);
+  const shift: Record<PlanFloor, number> = { ground: 0, "level-1": dx };
+  // Stands are numbered on through the floors (Level 1's go on from the ground floor's), since stand n
+  // carries the nth sponsor and the venue counts visits by stand: two Stand 1s would share both (review MED).
+  const groundStands = ground.layout.items.filter((it) => it.t === "stand").length;
+  const parts = built.map((b) => ({ floor: b.floor, layout: shiftLayout(numberStandsFrom(b.layout, b.floor === "ground" ? 0 : groundStands), shift[b.floor], b.floor) }));
+
+  // A stair or lift is taken from in front of it, in the area that holds it: one facing a wall would put
+  // that spot in the next room, or outside (review MED).
+  const issues: string[] = [];
+  for (const { lower, upper: up } of floorLinks(plan)) {
+    for (const [f, floor] of [[lower, "ground"], [up, "level-1"]] as const) {
+      if (landsInside(plan, f, floor)) continue;
+      issues.push(`${f.name || FIXTURE_INFO[f.kind].label} on ${FLOOR_NAME[floor]}: there is no floor in front of it to step out onto. Turn it, or move it away from the wall.`);
+    }
+  }
+
+  // A hotspot at each end of every stair and lift, taking you to the other end.
+  const hotspots = floorLinks(plan).flatMap(({ lower, upper: up }) => {
+    const a = landing(lower, "ground", shift.ground);
+    const b = landing(up, "level-1", shift["level-1"]);
+    const what = lower.kind === "lift" ? "the lift" : "the stairs";
+    return [
+      { id: `floor-${lower.id}`, x: a[0], z: a[1], r: 2, kind: "floor" as const, prompt: `Take ${what} up to ${FLOOR_NAME["level-1"]}`, title: `${lower.name || FIXTURE_INFO[lower.kind].label} to ${FLOOR_NAME["level-1"]}`, body: "", to: b },
+      { id: `floor-${up.id}`, x: b[0], z: b[1], r: 2, kind: "floor" as const, prompt: `Take ${what} down to the ${FLOOR_NAME.ground} floor`, title: `${up.name || FIXTURE_INFO[up.kind].label} to the ${FLOOR_NAME.ground} floor`, body: "", to: a },
+    ];
+  });
+
+  const all = parts.map((p) => p.layout);
+  const bounds: Rect = [Math.min(...all.map((l) => l.bounds[0])), Math.min(...all.map((l) => l.bounds[1])), Math.max(...all.map((l) => l.bounds[2])), Math.max(...all.map((l) => l.bounds[3]))];
+  return {
+    layout: {
+      v: 1,
+      bounds,
+      zones: all.flatMap((l) => l.zones),
+      walls: all.flatMap((l) => l.walls),
+      doors: all.flatMap((l) => l.doors),
+      items: all.flatMap((l) => l.items),
+      people: all.flatMap((l) => l.people),
+      hotspots: [...all.flatMap((l) => l.hotspots), ...hotspots],
+      routes: all.flatMap((l) => l.routes),
+      levels: parts.map((p) => ({ id: p.floor, name: FLOOR_NAME[p.floor], bounds: p.layout.bounds })),
+    },
+    issues: [...built.flatMap((b) => b.issues), ...issues],
+  };
+}
+
+/** A floor's stands numbered on from `from`, with their visit points; unchanged when `from` is 0. */
+function numberStandsFrom(l: VenueLayout, from: number): VenueLayout {
+  if (!from) return l;
+  const n = (k: number) => k + from;
+  const items = l.items.map((it) => (it.t === "stand" ? { ...it, n: n(it.n), label: `Stand ${n(it.n)}`, tier: n(it.n) <= 2 ? 1 : 2 } : it));
+  const hotspots = l.hotspots.map((h) => {
+    if (h.kind !== "stand") return h;
+    const k = n(Number(h.id.replace("stand-", "")));
+    return { ...h, id: `stand-${k}`, prompt: `Visit Stand ${k}`, title: `Stand ${k}` };
+  });
+  return { ...l, items, hotspots };
+}
+
+/** Whether the spot in front of a stair or lift, where people take it, lies on the floor of the area that holds it. */
+function landsInside(plan: VenuePlan, f: PlanFixture, floor: PlanFloor): boolean {
+  const [x, z] = landing(f, floor, 0);
+  const view = floorView(plan, floor);
+  const host = [...view.rooms, ...view.corridors].find((a) => f.rect[0] >= a.rect[0] - EPS && f.rect[1] >= a.rect[1] - EPS && f.rect[2] <= a.rect[2] + EPS && f.rect[3] <= a.rect[3] + EPS);
+  return !!host && inside(host.rect, x, z);
+}
+
+/** How far apart, east to west, the floors stand in the walkable venue's world, in metres. */
+const FLOOR_GAP = 30;
+/** How far in front of a stair or lift a person stands to take it, and steps out when they arrive. */
+const LANDING = 1.4;
+
+/**
+ * Where a person takes a stair or lift, and where they step out on arriving: in front of a lift's doors;
+ * at the foot of the stairs on the ground floor and at their head on Level 1 (the arrow points up the
+ * flight). They face away from it, into the room.
+ */
+function landing(f: PlanFixture, floor: PlanFloor, dx: number): [number, number, number] {
+  const [x0, z0, x1, z1] = f.rect;
+  const out: PlanWall = f.kind === "stairs" && floor === "ground" ? OPPOSITE[f.dir] : f.dir;
+  const step = INWARD[OPPOSITE[out]];
+  const x = beyond(out === "e", out === "w", x0, x1);
+  const z = beyond(out === "s", out === "n", z0, z1);
+  return [r2(x + dx), r2(z), r2(Math.atan2(step.dx, step.dz))];
+}
+const OPPOSITE: Record<PlanWall, PlanWall> = { n: "s", s: "n", e: "w", w: "e" };
+/** Along one axis: `LANDING` past the far side, or the near side, or the middle when the way out runs along the other axis. */
+function beyond(far: boolean, near: boolean, lo: number, hi: number): number {
+  if (far) return hi + LANDING;
+  if (near) return lo - LANDING;
+  return (lo + hi) / 2;
+}
+
+const shiftFoot = (f: Footprint, dx: number): Footprint => ("r" in f ? { ...f, cx: r2(f.cx + dx) } : { ...f, x0: r2(f.x0 + dx), x1: r2(f.x1 + dx) });
+
+/** A floor's building moved `dx` metres east, its zones marked with the floor they are on. */
+function shiftLayout(l: VenueLayout, dx: number, floor: PlanFloor): VenueLayout {
+  const X = (x: number) => r2(x + dx);
+  const items = l.items.map((it) => {
+    const o: LayoutItem = { ...it, foot: shiftFoot(it.foot, dx) };
+    if ("x" in o) o.x = X(o.x);
+    if ("cx" in o) o.cx = X(o.cx);
+    if ("p0" in o) Object.assign(o, { p0: [X(o.p0[0]), o.p0[1]], p1: [X(o.p1[0]), o.p1[1]] });
+    return o;
+  });
+  return {
+    v: 1,
+    bounds: [X(l.bounds[0]), l.bounds[1], X(l.bounds[2]), l.bounds[3]],
+    zones: l.zones.map((z) => ({ ...z, rect: [X(z.rect[0]), z.rect[1], X(z.rect[2]), z.rect[3]], spawn: [X(z.spawn[0]), z.spawn[1], z.spawn[2]], level: floor })),
+    // A wall along x runs, and opens, along x; one along z stands at an x.
+    walls: l.walls.map((w) => (w.axis === "x" ? { ...w, a0: X(w.a0), a1: X(w.a1), opens: w.opens.map((o) => ({ ...o, a: X(o.a), b: X(o.b) })) } : { ...w, k: X(w.k) })),
+    doors: l.doors.map((d) => ({ ...d, x: X(d.x) })),
+    items,
+    people: l.people.map((p) => ({ ...p, x: X(p.x) })),
+    hotspots: l.hotspots.map((h) => ({ ...h, x: X(h.x) })),
+    routes: l.routes.map((r) => r.map(([x, z]) => [X(x), z] as [number, number])),
+  };
+}
+
+/** One floor's building: the rooms, walkways and fixtures of a plan that is all on one floor (`floorView`). */
+export function floorLayout(rooms: VenueRoom[], plan: VenuePlan, opts: { eventName: string }): PlanLayoutResult {
   const issues: string[] = [];
   const byId = new Map(rooms.map((r) => [r.id, r]));
   const placed = plan.rooms.filter((p) => byId.has(p.id));
@@ -200,7 +345,8 @@ function placeFixtures(plan: VenuePlan, zones: LayoutZone[], out: Out) {
       const lost = new Set(blocked.filter((h) => h.kind === "stand").map((h) => h.id));
       out.items = out.items.filter((it) => it.t !== "stand" || !lost.has(`stand-${it.n}`));
     }
-    out.items.push({ t: "fixture", zone: zone.id, solid: info.solid, foot: { x0, z0, x1, z1 }, kind: f.kind, name: f.name || info.label, yaw: FACING[f.dir] });
+    const down = f.kind === "stairs" && floorOf(f) !== "ground";
+    out.items.push({ t: "fixture", zone: zone.id, solid: info.solid, foot: { x0, z0, x1, z1 }, kind: f.kind, name: f.name || info.label, yaw: FACING[f.dir], ...(down && { down }) });
   }
   renumberStands(out);
 }

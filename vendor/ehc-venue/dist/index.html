@@ -825,7 +825,7 @@ const LAYOUT = (() => {
   return L && L.v === 1 && Array.isArray(L.zones) && L.zones.length && Array.isArray(L.bounds) ? L : null;
 })();
 if (LAYOUT) {
-  ZONES = LAYOUT.zones.map((z) => ({ id: z.id, kind: z.kind, name: z.name, sub: z.sub, rect: z.rect, ceil: z.ceil, spawn: z.spawn, floor: z.floor, ...(z.tint ? { tint: z.tint } : {}) }));
+  ZONES = LAYOUT.zones.map((z) => ({ id: z.id, kind: z.kind, name: z.name, sub: z.sub, rect: z.rect, ceil: z.ceil, spawn: z.spawn, floor: z.floor, ...(z.tint ? { tint: z.tint } : {}), ...(z.level ? { level: z.level } : {}) }));
   WORLD_BOUNDS = LAYOUT.bounds;
   // The start sheet's sentences describe EHC's rooms; a generated venue lists its own instead.
   if (typeof document !== 'undefined') {
@@ -876,6 +876,12 @@ function programmeDay(now = CLOCK.now()) {
 /** The sponsor on stand n (1-based), by tier order. */
 function sponsorOn(n) { return PROGRAMME.sponsors[n - 1] || null; }
 const tierWord = (t) => (t ? t[0].toUpperCase() + t.slice(1) + ' sponsor' : 'Sponsor');
+
+// EA-SYS (floors, Oct 26): a venue of several floors stands them side by side in this one flat world; each
+// has a name and an outline, and a zone knows its floor. Null for a one-floor venue.
+const LEVELS = LAYOUT && Array.isArray(LAYOUT.levels) && LAYOUT.levels.length > 1 ? LAYOUT.levels : null;
+/** A floor by id, or null (one floor, or none given). */
+function levelOf(id) { return (LEVELS && LEVELS.find((l) => l.id === id)) || null; }
 
 /** The first room of a kind (a generated venue's ids are the organisers'), or null. */
 function zoneOfKind(kind) { return ZONES.find((z) => z.kind === kind) || null; }
@@ -1421,6 +1427,15 @@ function buildWorld(R, Q) {
         blob(cx, cz, x1 - x0 + 1.4, z1 - z0 + 1.4);
         return;
       }
+      if (it.kind === 'stairs' && it.down) {
+        // EA-SYS (floors): stairs on an upper floor are the stairwell going down, an opening behind a rail.
+        box('plain', x0, 0, z0, x1, 0.02, z1, [0.07, 0.06, 0.06, 0]);
+        for (const [ax0, az0, ax1, az1] of [[x0, z0, x1, z0 + 0.06], [x0, z1 - 0.06, x1, z1], [x0, z0, x0 + 0.06, z1], [x1 - 0.06, z0, x1, z1]]) box('metal', ax0, 0.9, az0, ax1, 0.96, az1, [0.6, 0.6, 0.62, 0]);
+        for (const [px, pz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) cyl('metal', Math.min(Math.max(px, x0 + 0.04), x1 - 0.04), 0, Math.min(Math.max(pz, z0 + 0.04), z1 - 0.04), 0.03, 0.96, [0.6, 0.6, 0.62, 0], { lo: true });
+        colliders.push({ x0, y0: 0, z0, x1, y1: 1.0, z1 });
+        front(2.6, 2.4, 0.6, { title: it.name, sub: 'Down' });
+        return;
+      }
       if (it.kind === 'stairs') {
         // Treads 0.3 m deep, 0.17 m high, rising towards the way it faces; a rail along each side. Only the
         // first metre can be climbed: the rest of the flight is drawn but walled off by an unseen block from
@@ -1478,7 +1493,7 @@ function buildWorld(R, Q) {
     for (const p of L.people) people.push({ ...p });
     for (const h of L.hotspots) {
       const sp = h.kind === 'stand' ? sponsorOn(+h.id.replace('stand-', '')) : null;
-      if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); continue; }
+      if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); if (Array.isArray(h.to)) interact[interact.length - 1].to = h.to; continue; }
       hit(h.id, h.x, h.z, h.r, 'Visit ' + sp.name, sp.name, sp.about || tierWord(sp.tier) + ' of ' + EVENT.short + '.', h.kind);
       interact[interact.length - 1].sponsor = sp;
     }
@@ -2357,6 +2372,12 @@ class Social {
   // "through the Exhibition Hall". `end`: say "at the far end of" when the door closes the end of a long
   // corridor (the automatic plan's main stage). The automatic plan's corridor is "the main corridor".
   wayTo(Z, end = false) {
+    // EA-SYS (floors, Oct 26): a room upstairs is "on Level 1, off the ...".
+    const L = Z && LEVELS && Z.level !== LEVELS[0].id ? levelOf(Z.level) : null;
+    const way = this.wayOn(Z, end);
+    return L ? `on ${L.name}, ${way}` : way;
+  }
+  wayOn(Z, end) {
     const d = Z && (LAYOUT.doors || []).find((x) => x.between[1] === Z.id && x.between[0] !== Z.id);
     const from = d && ZONES.find((z) => z.id === d.between[0]);
     if (!from) return 'off the main corridor';
@@ -2704,8 +2725,13 @@ class Abilities {
     const [x, z, yaw] = this.sitFrom; pl.x = x; pl.z = z; pl.yaw = yaw; this.mode = null; this.seat = null; this.refresh();
   }
   // ----- walk me there / follow
+  // EA-SYS (floors): the floors stand apart in one world and no path joins them, so a walk or a follow to
+  // the other floor is not tried (it would search the whole grid, then give up).
+  otherFloor(ax, az, bx, bz) { const a = zoneAt(ax, az), b = zoneAt(bx, bz); return !!(a && b && a.level !== b.level); }
   walkTo_(x, z, label) {
-    const pl = this.ctx.player(), p = this.nav.path(pl.x, pl.z, x, z);
+    const pl = this.ctx.player();
+    if (this.otherFloor(pl.x, pl.z, x, z)) { this.toast(`The ${label} is on another floor, so you go straight there.`); return false; }
+    const p = this.nav.path(pl.x, pl.z, x, z);
     if (!p) { this.toast('Can’t find a way there. Jumping instead.'); return false; }
     this.stop(); this.mode = 'walk'; this.route = p; this.ri = 0; this.dest = label; this.destXZ = [x, z]; this.replans = 0; this.stuckT = 0; this.lastD = 1e9; this.walkStart = this.ctx.time();
     this.toast(`Walking you to the ${label}. Move to take over.`); this.refresh(); return true;
@@ -2739,6 +2765,7 @@ class Abilities {
     if (this.mode === 'follow') {
       const t = this.ft; if (!t || (t.isPeer && !this.ctx.social.peers.has(t.peer))) { this.toast('Lost them in the crowd.'); this.stop(); return false; }
       const bx = t.x - Math.sin(t.yaw) * 1.3, bz = t.z - Math.cos(t.yaw) * 1.3, d = Math.hypot(t.x - pl.x, t.z - pl.z);
+      if (this.otherFloor(pl.x, pl.z, t.x, t.z)) { this.toast('They went to another floor.'); this.stop(); return false; }
       this.replanT -= dt;
       if (this.replanT <= 0) { this.replanT = 0.8; this.route = d > 2.2 ? this.nav.path(pl.x, pl.z, bx, bz) : null; this.ri = 0; }
       if (d < 1.6 || !this.route || !this.route.length) { input.x = input.y = 0; input.touch = true; input.run = false; return false; }
@@ -3305,7 +3332,7 @@ class EventTeam {
     if (keyMap[e.code]) { input.keys.add(keyMap[e.code]); e.preventDefault(); }
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') input.run = true;
     if (e.code === 'Space') { input.jump = true; e.preventDefault(); }
-    if (e.code === 'KeyE' && near) near.ref ? social.open(near) : openInfo(near);
+    if (e.code === 'KeyE' && near) use(near);
     if ((e.code === 'Enter' || e.code === 'KeyT') && social) { e.preventDefault(); social.open(nearP); }
     if (e.code === 'KeyV') nextView();
     if (abil) { const gk = { Digit1: 'wave', Digit2: 'heart', Digit3: 'clap', Digit4: 'raise' }[e.code]; if (gk) abil.gesture(gk); if (e.code === 'Digit5') abil.photo(); if (e.code === 'KeyF') abil.mode === 'sit' ? abil.stand() : abil.sit(); if (e.code === 'KeyC' && abil.ctxAction) abil.ctxAction.fn(); }
@@ -3356,7 +3383,7 @@ class EventTeam {
   $('bQual').addEventListener('click', () => { Q.level = Q.level === 'high' ? 'balanced' : 'high'; try { localStorage.setItem('ehc-q', Q.level); } catch (e) { } applyQ(); stats.scale = 1; qLabel(); rebuildCrowd(); resize(); });
   $('bAgenda').addEventListener('click', openAgenda);
   $('bView').addEventListener('click', () => { nextView(); if (!isTouch) canvas.focus(); }); setCamView(camView, true);
-  $('prompt').addEventListener('click', () => near && (near.ref ? social.open(near) : openInfo(near)));
+  $('prompt').addEventListener('click', () => near && use(near));
   $('modeStop').addEventListener('click', () => abil && abil.stop());
   let t3; function toast3(m) { const el = $('toast3'); el.textContent = m; el.hidden = false; clearTimeout(t3); t3 = setTimeout(() => { el.hidden = true; }, 2800); }
   $('iclose').addEventListener('click', closeSheets); $('aclose').addEventListener('click', closeSheets);
@@ -3414,27 +3441,43 @@ class EventTeam {
     if (list.length > 6) { const li = document.createElement('li'); li.textContent = 'and ' + (list.length - 6) + ' more'; ul.appendChild(li); }
     return ul;
   }
+  /** What E (or a tap on the prompt) does: talk to a person, take stairs or a lift, or open what is here. */
+  function use(h) { if (h.ref) social.open(h); else if (h.to) travel(h); else openInfo(h); }
+  // EA-SYS (floors, Oct 26): stairs and lifts take you to the other floor, with the same short fade as the
+  // venue guide's Go (decision F11), and say which floor you are on.
+  function travel(h, instant) {
+    const [x, z, yaw] = h.to;
+    const go = () => { player.x = x; player.z = z; player.y = 0; ry = 0; player.vx = player.vz = player.vy = 0; player.yaw = yaw; cam.yaw = yaw - Math.PI; setZone(zoneAt(x, z)); const L = zone && levelOf(zone.level); if (L) toast3(L.name); };
+    audio.ui();
+    if (instant) return go();
+    $('fade').classList.add('on'); setTimeout(() => { go(); $('fade').classList.remove('on'); }, 360);
+  }
   function teleport(id, instant) {
     const Z = ZONES.find(z => z.id === id); if (!Z) return;
     const go = () => { player.x = Z.spawn[0]; player.z = Z.spawn[1]; player.y = 0; ry = 0; player.vx = player.vz = player.vy = 0; player.yaw = Z.spawn[2]; cam.yaw = Z.spawn[2] - Math.PI; cam.pitch = camView === 'eye' ? 0.04 : 0.28; setZone(Z); };
     if (instant) return go();
     $('fade').classList.add('on'); setTimeout(() => { go(); $('fade').classList.remove('on'); }, 360);
   }
+  // EA-SYS (floors): the map shows the floor you are on.
+  const mapLevel = () => (zone && levelOf(zone.level)) || null;
+  const mapBounds = () => { const L = mapLevel(); return L ? L.bounds : WORLD_BOUNDS; };
+  const onMap = (Z) => { const L = mapLevel(); return !L || Z.level === L.id; };
   $('map').addEventListener('click', (e) => {
-    const r = e.target.getBoundingClientRect(), [bx0, bz0, bx1, bz1] = WORLD_BOUNDS, pad = 6;
+    const r = e.target.getBoundingClientRect(), [bx0, bz0, bx1, bz1] = mapBounds(), pad = 6;
     const mx = (e.clientX - r.left) / r.width * 464, my = (e.clientY - r.top) / r.height * 272;
     const x = bx0 + (mx - pad) / ((464 - 2 * pad) / (bx1 - bx0)), z = bz0 + (my - pad) / ((272 - 2 * pad) / (bz1 - bz0));
     const Z = zoneAt(x, z); if (Z) teleport(Z.id);
   });
-  function setZone(Z) { if (!Z || Z === zone) return; zone = Z; $('zname').textContent = Z.name; $('zsub').textContent = Z.sub; }
+  function setZone(Z) { if (!Z || Z === zone) return; zone = Z; $('zname').textContent = Z.name; const L = levelOf(Z.level); $('zsub').textContent = (L ? L.name + ' · ' : '') + Z.sub; }
 
   // ----- minimap
   const mctx = $('map').getContext('2d');
   function drawMap() {
-    const c = mctx, w = 464, h = 272, pad = 6, [bx0, bz0, bx1, bz1] = WORLD_BOUNDS;
+    const c = mctx, w = 464, h = 272, pad = 6, [bx0, bz0, bx1, bz1] = mapBounds();
     const sx = (w - 2 * pad) / (bx1 - bx0), sz = (h - 2 * pad) / (bz1 - bz0), X = (x) => pad + (x - bx0) * sx, Y = (z) => pad + (z - bz0) * sz;
     c.clearRect(0, 0, w, h);
     for (const Z of ZONES) {
+      if (!onMap(Z)) continue;
       const [x0, z0, x1, z1] = Z.rect; c.fillStyle = zone === Z ? 'rgba(163,37,58,.55)' : 'rgba(243,236,228,.08)'; c.fillRect(X(x0) + 1, Y(z0) + 1, (x1 - x0) * sx - 2, (z1 - z0) * sz - 2);
       c.strokeStyle = 'rgba(243,236,228,.28)'; c.lineWidth = 1.5; c.strokeRect(X(x0) + 1, Y(z0) + 1, (x1 - x0) * sx - 2, (z1 - z0) * sz - 2);
       if ((x1 - x0) * sx > 60) { c.fillStyle = 'rgba(243,236,228,.75)'; c.font = '600 15px ' + FONT_BODY; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(Z.name.replace('Networking ', '').replace('Exhibition', 'Expo').replace('Grand ', ''), X((x0 + x1) / 2), Y((z0 + z1) / 2), (x1 - x0) * sx - 8); }
@@ -3593,7 +3636,8 @@ class EventTeam {
       ready: true, ZONES, W, CW, cam, input, stats, Q, get player() { return player; }, get zone() { return zone && zone.id; },
       teleport: (id) => teleport(id, true), enter, render, setView(yaw, pitch, dist) { cam.yaw = yaw; cam.pitch = pitch; cam.wantDist = cam.dist = cam.arm = dist; updateCamera(1); },
       get R() { return R; }, I, get abil() { return abil; }, get team() { return team; }, setCamView, get camView() { return camView; }, VIEWS, crowdCount: () => crowd.list.length, closeSheets: () => closeSheets(), get social() { return social; }, get nearP() { updateNear(); return nearP; },
-      openNear() { updateNear(); if (near) openInfo(near); return near && near.id; },
+      openNear() { updateNear(); if (near) use(near); return near && near.id; },
+      travel: (h) => travel(h, true),
       nearId() { updateNear(); return near && near.id; },
       measure(ms) { return new Promise(res => { const ts = []; let last = performance.now(); const t0 = last; const f = (t) => { ts.push(t - last); last = t; if (t - t0 < ms) requestAnimationFrame(f); else { ts.shift(); const s = ts.slice().sort((a, b) => a - b), mean = ts.reduce((a, b) => a + b, 0) / ts.length; res({ frames: ts.length, fps: 1000 / mean, p99: 1000 / s[Math.max(0, Math.ceil(s.length * 0.99) - 1)], simMs: stats.simMs, drawMs: stats.drawMs, draws: R.stats.draws, tris: R.stats.tris, px: canvas.width + 'x' + canvas.height }); } }; requestAnimationFrame(f); }); },
       setNow(ms) { CLOCK.offset = ms - Date.now(); progT = Infinity; },

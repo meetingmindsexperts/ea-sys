@@ -68,32 +68,27 @@ export function checkLayout(layout: VenueLayout): LayoutCheck {
   }
   for (const d of layout.doors) if (d.width < 1.6) issues.push(`The doorway into ${d.between[1]} is narrower than 1.6 m`);
 
-  // Walk from the entrance.
+  // Walk from the entrance; stairs and lifts ("floor" hotspots) carry the walk on to the floor they lead to.
   const foyer = layout.zones.find((z) => z.kind === "foyer");
   const reached = new Uint8Array(cols * rows);
-  if (!foyer) issues.push("There is no foyer to walk in from");
-  else {
-    const [si, sj] = cellOf(foyer.spawn[0], foyer.spawn[1]);
-    if (!open[sj * cols + si]) issues.push("The entrance is blocked");
-    else {
-      const queue = [sj * cols + si];
-      reached[queue[0]] = 1;
-      for (let q = 0; q < queue.length; q++) {
-        const c = queue[q];
-        const i = c % cols;
-        const j = (c - i) / cols;
-        for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const ni = i + di;
-          const nj = j + dj;
-          if (ni < 0 || nj < 0 || ni >= cols || nj >= rows) continue;
-          const n = nj * cols + ni;
-          if (!open[n] || reached[n]) continue;
-          reached[n] = 1;
-          queue.push(n);
-        }
+  const flood = (start: number) => {
+    reached[start] = 1;
+    const queue = [start];
+    for (let q = 0; q < queue.length; q++) {
+      const c = queue[q];
+      const i = c % cols;
+      const j = (c - i) / cols;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = i + di;
+        const nj = j + dj;
+        if (ni < 0 || nj < 0 || ni >= cols || nj >= rows) continue;
+        const n = nj * cols + ni;
+        if (!open[n] || reached[n]) continue;
+        reached[n] = 1;
+        queue.push(n);
       }
     }
-  }
+  };
   /** Is any reached cell within `r` of (x, z)? */
   const reachable = (x: number, z: number, r: number) => {
     const [ci, cj] = cellOf(x, z);
@@ -107,6 +102,41 @@ export function checkLayout(layout: VenueLayout): LayoutCheck {
     }
     return false;
   };
+  /** The open cell nearest (x, z) within `r`, where a person taking stairs or a lift steps out. */
+  const openNear = (x: number, z: number, r: number): number | null => {
+    const [ci, cj] = cellOf(x, z);
+    const k = Math.ceil(r / CELL);
+    let best: number | null = null;
+    let bd = Infinity;
+    for (let j = Math.max(0, cj - k); j <= Math.min(rows - 1, cj + k); j++) {
+      for (let i = Math.max(0, ci - k); i <= Math.min(cols - 1, ci + k); i++) {
+        if (!open[j * cols + i]) continue;
+        const [x2, z2] = centre(i, j);
+        const d = Math.hypot(x2 - x, z2 - z);
+        if (d <= r && d < bd) [best, bd] = [j * cols + i, d];
+      }
+    }
+    return best;
+  };
+  if (!foyer) issues.push("There is no foyer to walk in from");
+  else {
+    const [si, sj] = cellOf(foyer.spawn[0], foyer.spawn[1]);
+    if (!open[sj * cols + si]) issues.push("The entrance is blocked");
+    else {
+      flood(sj * cols + si);
+      const portals = layout.hotspots.filter((h) => h.kind === "floor" && h.to);
+      for (let more = true; more; ) {
+        more = false;
+        for (const h of portals) {
+          if (!reachable(h.x, h.z, h.r)) continue;
+          const at = openNear(h.to![0], h.to![1], h.r);
+          if (at === null || reached[at]) continue;
+          flood(at);
+          more = true;
+        }
+      }
+    }
+  }
 
   const openShare: Record<string, number> = {};
   for (const zn of layout.zones) {

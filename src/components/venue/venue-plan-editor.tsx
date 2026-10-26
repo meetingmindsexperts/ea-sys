@@ -41,15 +41,19 @@ import {
   FIXTURE_INFO,
   FIXTURE_KINDS,
   FIXTURE_MIN_SIDE,
+  FLOOR_NAME,
+  PLAN_FLOORS,
   PLAN_MAX_WALKWAYS,
   PLAN_WALLS,
+  floorView,
   planFromLayout,
   planIssues,
   planSchema,
   wallSpan,
+  withFloor,
   type FixtureKind,
-  type PlanFixture, type PlanDoor, type PlanWall, type VenuePlan } from "@/lib/venue/plan";
-import { layoutFromPlan } from "@/lib/venue/plan-layout";
+  type PlanFixture, type PlanDoor, type PlanFloor, type PlanWall, type VenuePlan } from "@/lib/venue/plan";
+import { floorLayout, layoutFromPlan } from "@/lib/venue/plan-layout";
 import {
   addFixture,
   canAddFixture,
@@ -68,13 +72,15 @@ import {
   setDoor,
   setSize,
   moveTo,
+  targetFloor,
+  toFloor,
   tooSmall,
   turn,
   unplacedRooms,
   type PlanTarget,
 } from "@/lib/venue/plan-edit";
 import { ROOM_KIND_INFO, type VenueRoom } from "@/lib/venue/rooms";
-import { PLAN_ZOOMS, VenuePlanCanvas, stepZoom, type PlanTool } from "@/components/venue/venue-plan-canvas";
+import { PLAN_ZOOMS, VenuePlanCanvas, stepZoom, type PlanGhost, type PlanTool } from "@/components/venue/venue-plan-canvas";
 
 const WALL_LABEL: Record<PlanWall, string> = { n: "North", e: "East", s: "South", w: "West" };
 const isNS = (w: PlanWall) => w === "n" || w === "s";
@@ -104,6 +110,8 @@ function useHistory(initial: VenuePlan) {
   const undo = useCallback(() => setH((cur) => ({ ...cur, i: Math.max(0, cur.i - 1) })), []);
   const redo = useCallback(() => setH((cur) => ({ ...cur, i: Math.min(cur.stack.length - 1, cur.i + 1) })), []);
   const committed = h.stack[h.i];
+  /** The plan an undo (-1) or redo (+1) would show, or null when there is none. */
+  const peek = (dir: -1 | 1): VenuePlan | null => h.stack[h.i + dir] ?? null;
   return {
     plan: live ?? committed,
     committed,
@@ -114,6 +122,7 @@ function useHistory(initial: VenuePlan) {
     push,
     undo,
     redo,
+    peek,
     setLive,
   };
 }
@@ -190,7 +199,11 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
   // The version as opened. The page re-reads the plan when the window regains focus, and saving with that
   // newer version would quietly overwrite a colleague's save; with this one, theirs makes ours a 409.
   const [version] = useState(stored?.version ?? 0);
-  const { plan, push } = hist;
+  const { push } = hist;
+  // The floor being edited (owner, Oct 26: Ground and Level 1). Every tool works on that floor's own view of
+  // the plan, and each change is written back into the whole plan, so the edit rules need not know about floors.
+  const [floor, setFloor] = useState<PlanFloor>("ground");
+  const plan = useMemo(() => floorView(hist.plan, floor), [hist.plan, floor]);
   const [selected, setSelected] = useState<PlanTarget | null>(null);
   const [tool, setTool] = useState<PlanTool>("select");
   const [serverIssues, setServerIssues] = useState<string[]>([]);
@@ -205,21 +218,62 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
 
   const names = useMemo(() => new Map(rooms.map((r) => [r.id, r.name])), [rooms]);
   const foyerId = rooms.find((r) => r.kind === "foyer")?.id ?? null;
-  const layout = useMemo(() => layoutFromPlan(rooms, plan, { eventName: "" }).layout, [rooms, plan]);
+  const layout = useMemo(() => floorLayout(rooms, plan, { eventName: "" }).layout, [rooms, plan]);
   const flagged = useMemo(() => overlapping(plan), [plan]);
+  const ghost = useMemo(() => ghostOf(hist.plan, floor), [hist.plan, floor]);
   // The walkability walk takes a few milliseconds on a large building; deferred so dragging stays smooth.
   const settled = useDeferredValue(hist.committed);
   const verdict = useMemo(() => judge(rooms, settled), [rooms, settled]);
   const checking = settled !== hist.committed;
-  const unplaced = unplacedRooms(plan, rooms);
+  const unplaced = unplacedRooms(hist.plan, rooms);
 
+  /** Save a changed view of the floor being edited into the whole plan, as one undo step. */
   const change = useCallback(
     (next: VenuePlan) => {
-      push(next);
+      push(withFloor(hist.committed, floor, next));
       setServerIssues([]);
     },
-    [push],
+    [push, hist.committed, floor],
   );
+  const live = useCallback((next: VenuePlan | null) => hist.setLive(next && withFloor(hist.committed, floor, next)), [hist, floor]);
+  const showFloor = (f: PlanFloor) => {
+    setFloor(f);
+    setSelected(null);
+    setTool("select");
+  };
+  /**
+   * Undo (-1) or redo (+1), showing the floor the step changes: the selected item's floor when it is
+   * still there, else whichever floor changed, so a step taken on the other floor is never invisible.
+   */
+  const travelHistory = useCallback(
+    (dir: -1 | 1) => {
+      const next = hist.peek(dir);
+      if (!next) return;
+      const mine = selected && targetFloor(next, selected);
+      if (selected && !mine) setSelected(null);
+      const changed = PLAN_FLOORS.filter((f) => JSON.stringify(floorView(hist.committed, f)) !== JSON.stringify(floorView(next, f)));
+      const show = mine || (changed.includes(floor) ? floor : changed[0]);
+      if (show) setFloor(show);
+      if (dir < 0) hist.undo();
+      else hist.redo();
+    },
+    [hist, selected, floor],
+  );
+  /** Put a room on the list onto the plan: on the floor being edited, except the foyer, which goes on the ground floor. */
+  const placeOnPlan = (id: string) => {
+    const to = id === foyerId ? "ground" : floor;
+    push(withFloor(hist.committed, to, placeRoom(floorView(hist.committed, to), rooms, id)));
+    setServerIssues([]);
+    setFloor(to);
+    setSelected({ kind: "room", id });
+  };
+  /** Move the selected room or walkway to the other floor, and follow it there. */
+  const moveToFloor = (t: PlanTarget, to: PlanFloor) => {
+    push(toFloor(hist.committed, t, to, foyerId));
+    setServerIssues([]);
+    setFloor(to);
+    setSelected(t);
+  };
 
   const addAndSelect = (rect: Rect) => {
     setTool("select");
@@ -258,13 +312,12 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
       if (mod && hist.dragging) return;
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        if (e.shiftKey) hist.redo();
-        else hist.undo();
+        travelHistory(e.shiftKey ? 1 : -1);
         return;
       }
       if (mod && e.key.toLowerCase() === "y") {
         e.preventDefault();
-        hist.redo();
+        travelHistory(1);
         return;
       }
       if (e.key === "Escape") {
@@ -282,11 +335,11 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
       if (!dir || !selected || mod || hist.dragging) return;
       e.preventDefault();
       const step = e.shiftKey ? 5 : 0.5;
-      change(nudge(hist.committed, selected, dir[0] * step, dir[1] * step, foyerId));
+      change(nudge(floorView(hist.committed, floor), selected, dir[0] * step, dir[1] * step, foyerId));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [hist, selected, removeSelected, change, foyerId]);
+  }, [hist, selected, removeSelected, change, foyerId, floor, travelHistory]);
 
   // Unsaved changes wait in this browser until saved or thrown away (not while last time's are still on offer).
   // Editing without answering the offer means starting afresh: the offer goes and the new changes become the draft (the banner says so).
@@ -375,7 +428,9 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
               <Button
                 size="sm"
                 onClick={() => {
-                  change(keepListedRooms(offer.plan, rooms));
+                  // The draft is the whole plan, every floor, so it replaces the plan rather than one floor's view.
+                  push(keepListedRooms(offer.plan, rooms));
+                  setServerIssues([]);
                   setDraft(null);
                 }}
               >
@@ -395,6 +450,14 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="Floor plan tools">
+            <div className="flex rounded-md border p-0.5" role="group" aria-label="Floor">
+              {PLAN_FLOORS.map((f) => (
+                <Button key={f} size="sm" variant={floor === f ? "default" : "ghost"} aria-pressed={floor === f} className="h-7" onClick={() => showFloor(f)}>
+                  {FLOOR_NAME[f]}
+                </Button>
+              ))}
+            </div>
+            <span className="mx-1 h-6 w-px bg-border" aria-hidden />
             <Button size="sm" variant={tool === "select" ? "default" : "outline"} aria-pressed={tool === "select"} onClick={() => setTool("select")}>
               <MousePointer2 className="h-4 w-4" aria-hidden />
               Select and move
@@ -403,7 +466,7 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
               <Route className="h-4 w-4" aria-hidden />
               Draw a walkway
             </Button>
-            <Button size="sm" variant="outline" onClick={() => addAndSelect(spotBeside(plan, 6, 20))} disabled={walkwaysFull}>
+            <Button size="sm" variant="outline" onClick={() => addAndSelect(spotBeside(plan.rooms.length || plan.corridors.length ? plan : floorView(hist.plan, "ground"), 6, 20))} disabled={walkwaysFull}>
               <Plus className="h-4 w-4" aria-hidden />
               Add a walkway
             </Button>
@@ -424,11 +487,11 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
               </DropdownMenuContent>
             </DropdownMenu>
             <span className="mx-1 h-6 w-px bg-border" aria-hidden />
-            <Button size="sm" variant="ghost" onClick={hist.undo} disabled={!hist.canUndo} aria-label="Undo">
+            <Button size="sm" variant="ghost" onClick={() => travelHistory(-1)} disabled={!hist.canUndo} aria-label="Undo">
               <Undo2 className="h-4 w-4" aria-hidden />
               Undo
             </Button>
-            <Button size="sm" variant="ghost" onClick={hist.redo} disabled={!hist.canRedo} aria-label="Redo">
+            <Button size="sm" variant="ghost" onClick={() => travelHistory(1)} disabled={!hist.canRedo} aria-label="Redo">
               <Redo2 className="h-4 w-4" aria-hidden />
               Redo
             </Button>
@@ -457,11 +520,12 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
               flagged={flagged}
               foyerId={foyerId}
               onSelect={setSelected}
-              onLive={hist.setLive}
+              onLive={live}
               onCommit={change}
               onDrawn={addAndSelect}
               zoom={zoom}
               onZoom={setZoom}
+              ghost={ghost}
             />
             <PlanPanel
               plan={plan}
@@ -473,6 +537,9 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
               onSelect={setSelected}
               onChange={change}
               onRemove={removeSelected}
+              floor={floor}
+              onMoveToFloor={moveToFloor}
+              onPlace={placeOnPlan}
             />
           </div>
           <Status ok={ok} checking={checking} problems={problems} warnings={verdict.warnings} />
@@ -496,6 +563,20 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
       </AlertDialog>
     </section>
   );
+}
+
+/**
+ * The other floor, to draw faintly under this one: its rooms and walkways, and its stairs and lifts, which
+ * join the floors only when drawn in the same place on both.
+ */
+function ghostOf(plan: VenuePlan, floor: PlanFloor): PlanGhost | undefined {
+  const other = floor === "ground" ? "level-1" : "ground";
+  const there = floorView(plan, other);
+  if (floor === "ground" && !there.rooms.length && !there.corridors.length) return undefined;
+  return {
+    areas: [...there.rooms.map((p) => p.rect), ...there.corridors.map((c) => c.rect)],
+    links: there.fixtures.filter((f) => f.kind === "stairs" || f.kind === "lift").map((f) => ({ rect: f.rect, label: `${f.name || FIXTURE_INFO[f.kind].label} (${FLOOR_NAME[other]})` })),
+  };
 }
 
 function ToolHint({ tool, walkwaysFull }: { tool: PlanTool; walkwaysFull: boolean }) {
@@ -593,6 +674,9 @@ function PlanPanel({
   onSelect,
   onChange,
   onRemove,
+  floor,
+  onMoveToFloor,
+  onPlace,
 }: {
   plan: VenuePlan;
   rooms: VenueRoom[];
@@ -604,6 +688,11 @@ function PlanPanel({
   onChange: (p: VenuePlan) => void;
   /** Remove the selected walkway or fixture. */
   onRemove: () => void;
+  /** The floor being edited, and moving a room or walkway to another. */
+  floor: PlanFloor;
+  onMoveToFloor: (t: PlanTarget, floor: PlanFloor) => void;
+  /** Put a room on the list onto the plan. */
+  onPlace: (id: string) => void;
 }) {
   const rect = selected ? rectOf(plan, selected) : null;
   if (!selected || !rect) {
@@ -620,8 +709,7 @@ function PlanPanel({
                 variant="outline"
                 className="w-full justify-start bg-background"
                 onClick={() => {
-                  onChange(placeRoom(plan, rooms, r.id));
-                  onSelect({ kind: "room", id: r.id });
+                  onPlace(r.id);
                 }}
               >
                 Put {r.name} on the plan
@@ -707,6 +795,29 @@ function PlanPanel({
         <MetreField key={`${key}-x-${rect[0]}`} id={`${key}-x`} label="West edge at" value={rect[0]} onCommit={(n) => onChange(moveTo(plan, selected, n, rect[1], foyerId))} />
         <MetreField key={`${key}-z-${rect[1]}`} id={`${key}-z`} label="North edge at" value={rect[1]} onCommit={(n) => onChange(moveTo(plan, selected, rect[0], n, foyerId))} />
       </fieldset>
+      {(placed || corridor) && (
+        <div className="space-y-1">
+          <Label htmlFor={`${key}-floor`} className="text-xs text-muted-foreground">
+            Floor
+          </Label>
+          {selected.id === foyerId ? (
+            <p className="text-xs text-muted-foreground">{FLOOR_NAME.ground}. The foyer is the way in, so it stays there.</p>
+          ) : (
+            <Select value={floor} onValueChange={(v) => onMoveToFloor(selected, v as PlanFloor)}>
+              <SelectTrigger id={`${key}-floor`} className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PLAN_FLOORS.map((f) => (
+                  <SelectItem key={f} value={f}>
+                    {FLOOR_NAME[f]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      )}
       <Button size="sm" variant="outline" onClick={() => onChange(turn(plan, selected, foyerId))}>
         <RotateCw className="h-4 w-4" aria-hidden />
         Turn a quarter

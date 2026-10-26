@@ -14,7 +14,11 @@ import { clamp, fits, generateLayout, r2, type Rect } from "./layout";
 import {
   FIXTURE_INFO,
   FIXTURE_MIN_SIDE,
+  floorOf,
+  floorView,
   heldFixtures,
+  onFloor,
+  withFloor,
   PLAN_DOOR_MAX,
   PLAN_DOOR_MIN,
   PLAN_EXTENT,
@@ -26,6 +30,7 @@ import {
   type PlacedRoom,
   type PlanDoor,
   type PlanFixture,
+  type PlanFloor,
   type PlanWall,
   type VenuePlan,
 } from "./plan";
@@ -340,7 +345,7 @@ export const canAddWalkway = (plan: VenuePlan) => plan.corridors.length < PLAN_M
 /** Add a walkway with the next free id and name ("Walkway 2"); null when the plan already holds the most it can. */
 export function addWalkway(plan: VenuePlan, rect: Rect): { plan: VenuePlan; id: string } | null {
   if (!canAddWalkway(plan)) return null;
-  const ids = new Set([...plan.corridors.map((c) => c.id), ...plan.rooms.map((p) => p.id)]);
+  const ids = new Set([...plan.corridors.map((c) => c.id), ...plan.rooms.map((p) => p.id), ...(plan.otherIds ?? [])]);
   let n = plan.corridors.length + 1;
   while (ids.has(`walkway-${n}`)) n++;
   const id = `walkway-${n}`;
@@ -367,7 +372,7 @@ export function addFixture(plan: VenuePlan, kind: FixtureKind, inside: Rect | nu
   // A quarter of the way in from the north-west corner, not the middle, where the room's name is written,
   // then the first free spot along and down from there, so a new fixture never lands on one already there.
   const [x0, z0] = freeSpot(plan, host, w, d);
-  const ids = new Set([...plan.fixtures.map((f) => f.id), ...plan.rooms.map((p) => p.id), ...plan.corridors.map((c) => c.id)]);
+  const ids = new Set([...plan.fixtures.map((f) => f.id), ...plan.rooms.map((p) => p.id), ...plan.corridors.map((c) => c.id), ...(plan.otherIds ?? [])]);
   let n = plan.fixtures.filter((f) => f.kind === kind).length + 1;
   while (ids.has(`${kind}-${n}`)) n++;
   const id = `${kind}-${n}`;
@@ -439,6 +444,39 @@ export function placeRoom(plan: VenuePlan, rooms: VenueRoom[], id: string): Venu
   const door = fitDoor(rect, { wall: "w", at: (rect[1] + rect[3]) / 2, width: 2.6 });
   const placed: PlacedRoom = { id, rect, door };
   return { ...plan, rooms: [...plan.rooms, placed] };
+}
+
+/**
+ * Move a room or walkway, with the fixtures standing in it, to the other floor: to the same place, so it
+ * stands over where it was, or beside that floor's building when something there already holds that place.
+ * The foyer stays on the ground floor (it is the way in).
+ */
+export function toFloor(plan: VenuePlan, t: PlanTarget, floor: PlanFloor, foyerId: string | null): VenuePlan {
+  if (t.kind === "fixture" || t.id === foyerId) return plan;
+  const area = t.kind === "room" ? plan.rooms.find((p) => p.id === t.id) : plan.corridors.find((c) => c.id === t.id);
+  if (!area || floorOf(area) === floor) return plan;
+  const from = floorOf(area);
+  const rect = area.rect;
+  const moved: VenuePlan = {
+    ...plan,
+    rooms: plan.rooms.map((p) => (t.kind === "room" && p.id === t.id ? onFloor(p, floor) : p)),
+    corridors: plan.corridors.map((c) => (t.kind === "corridor" && c.id === t.id ? onFloor(c, floor) : c)),
+    fixtures: plan.fixtures.map((f) => (floorOf(f) === from && contains(rect, f.rect) ? onFloor(f, floor) : f)),
+  };
+  const there = floorView(moved, floor);
+  const others = [...there.rooms.filter((p) => p.id !== t.id), ...there.corridors.filter((c) => c.id !== t.id)].map((a) => a.rect);
+  const clash = (r: Rect) => others.some((o) => Math.min(r[2], o[2]) - Math.max(r[0], o[0]) > 0.01 && Math.min(r[3], o[3]) - Math.max(r[1], o[1]) > 0.01);
+  if (!clash(rect)) return moved;
+  const spot = spotBeside({ ...there, rooms: there.rooms.filter((p) => p.id !== t.id), corridors: there.corridors.filter((c) => c.id !== t.id) }, rect[2] - rect[0], rect[3] - rect[1]);
+  // On that floor's own view, so only what stands in this area moves with it.
+  return withFloor(moved, floor, placeAt(there, t, spot[0], spot[1], foyerId));
+}
+
+/** The floor an area or fixture is on, or null when the plan does not hold it. */
+export function targetFloor(plan: VenuePlan, t: PlanTarget): PlanFloor | null {
+  const list = { room: plan.rooms, corridor: plan.corridors, fixture: plan.fixtures }[t.kind];
+  const found = list.find((a) => a.id === t.id);
+  return found ? floorOf(found) : null;
 }
 
 /** Rooms on the list that the plan does not place yet. */

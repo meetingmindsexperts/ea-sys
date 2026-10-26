@@ -49,7 +49,8 @@
 
   // 4. walk-me-there from every room to every other (test_abilities walkAllPairs)
   { let n = 0, ok = 0, maxPen = 0; const fails = [];
-    for (const S of Z) for (const T of Z) { if (S === T) continue; E.teleport(S.id); n++; if (!A.walkToZone(T)) { fails.push(S.id + '>' + T.id + ' nopath'); continue; }
+    // EA-SYS (floors): walk-me-there stays on one floor; the stairs and lifts are checked in section 6.
+    for (const S of Z) for (const T of Z) { if (S === T || S.level !== T.level) continue; E.teleport(S.id); n++; if (!A.walkToZone(T)) { fails.push(S.id + '>' + T.id + ' nopath'); continue; }
       let t = 0; while (A.mode === 'walk' && t < 60 * 120) { E.tick(15); t += 15; maxPen = Math.max(maxPen, E.penetration()); }
       if (A.mode === null && E.zone === T.id) ok++; else fails.push(S.id + '>' + T.id); }
     rep.walkAllPairs = { pairs: n, arrived: ok, failed: fails, maxPenetration_m: +maxPen.toFixed(4) }; }
@@ -72,6 +73,13 @@
       let found = false;
       for (let k = 0; k < 200 && !found; k++) { const a = k * 2.399, d = Math.min(h.r * 0.85, 0.3 + k * 0.02), x = h.x + Math.cos(a) * d, z = h.z + Math.sin(a) * d;
         if (!zoneOf(x, z) || CW.inside(x, 1, z, 0.38)) continue; E.place(x, z, 0); found = true; }
+      // EA-SYS (floors): a stair or lift is not opened but taken; it must put you on the other floor, clear of everything.
+      if (h.to) {
+        const got = found && E.nearId(); if (found) E.travel(h);
+        const at = Z.find((q) => q.id === zoneOf(P().x, P().z)), from = Z.find((q) => q.id === zoneOf(h.x, h.z));
+        if (found && got === h.id && at && from && at.level !== from.level && !CW.inside(P().x, 1, P().z, 0.3)) opened++; else failed.push(h.id);
+        continue;
+      }
       const got = found && E.openNear(); const vis = !document.getElementById('info').hidden; E.closeSheets();
       if (found && got === h.id && vis) opened++; else failed.push(h.id);
     }

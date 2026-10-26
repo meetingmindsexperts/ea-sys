@@ -43,7 +43,7 @@ const LAYOUT = (() => {
   return L && L.v === 1 && Array.isArray(L.zones) && L.zones.length && Array.isArray(L.bounds) ? L : null;
 })();
 if (LAYOUT) {
-  ZONES = LAYOUT.zones.map((z) => ({ id: z.id, kind: z.kind, name: z.name, sub: z.sub, rect: z.rect, ceil: z.ceil, spawn: z.spawn, floor: z.floor, ...(z.tint ? { tint: z.tint } : {}) }));
+  ZONES = LAYOUT.zones.map((z) => ({ id: z.id, kind: z.kind, name: z.name, sub: z.sub, rect: z.rect, ceil: z.ceil, spawn: z.spawn, floor: z.floor, ...(z.tint ? { tint: z.tint } : {}), ...(z.level ? { level: z.level } : {}) }));
   WORLD_BOUNDS = LAYOUT.bounds;
   // The start sheet's sentences describe EHC's rooms; a generated venue lists its own instead.
   if (typeof document !== 'undefined') {
@@ -94,6 +94,12 @@ function programmeDay(now = CLOCK.now()) {
 /** The sponsor on stand n (1-based), by tier order. */
 function sponsorOn(n) { return PROGRAMME.sponsors[n - 1] || null; }
 const tierWord = (t) => (t ? t[0].toUpperCase() + t.slice(1) + ' sponsor' : 'Sponsor');
+
+// EA-SYS (floors, Oct 26): a venue of several floors stands them side by side in this one flat world; each
+// has a name and an outline, and a zone knows its floor. Null for a one-floor venue.
+const LEVELS = LAYOUT && Array.isArray(LAYOUT.levels) && LAYOUT.levels.length > 1 ? LAYOUT.levels : null;
+/** A floor by id, or null (one floor, or none given). */
+function levelOf(id) { return (LEVELS && LEVELS.find((l) => l.id === id)) || null; }
 
 /** The first room of a kind (a generated venue's ids are the organisers'), or null. */
 function zoneOfKind(kind) { return ZONES.find((z) => z.kind === kind) || null; }
@@ -639,6 +645,15 @@ function buildWorld(R, Q) {
         blob(cx, cz, x1 - x0 + 1.4, z1 - z0 + 1.4);
         return;
       }
+      if (it.kind === 'stairs' && it.down) {
+        // EA-SYS (floors): stairs on an upper floor are the stairwell going down, an opening behind a rail.
+        box('plain', x0, 0, z0, x1, 0.02, z1, [0.07, 0.06, 0.06, 0]);
+        for (const [ax0, az0, ax1, az1] of [[x0, z0, x1, z0 + 0.06], [x0, z1 - 0.06, x1, z1], [x0, z0, x0 + 0.06, z1], [x1 - 0.06, z0, x1, z1]]) box('metal', ax0, 0.9, az0, ax1, 0.96, az1, [0.6, 0.6, 0.62, 0]);
+        for (const [px, pz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) cyl('metal', Math.min(Math.max(px, x0 + 0.04), x1 - 0.04), 0, Math.min(Math.max(pz, z0 + 0.04), z1 - 0.04), 0.03, 0.96, [0.6, 0.6, 0.62, 0], { lo: true });
+        colliders.push({ x0, y0: 0, z0, x1, y1: 1.0, z1 });
+        front(2.6, 2.4, 0.6, { title: it.name, sub: 'Down' });
+        return;
+      }
       if (it.kind === 'stairs') {
         // Treads 0.3 m deep, 0.17 m high, rising towards the way it faces; a rail along each side. Only the
         // first metre can be climbed: the rest of the flight is drawn but walled off by an unseen block from
@@ -696,7 +711,7 @@ function buildWorld(R, Q) {
     for (const p of L.people) people.push({ ...p });
     for (const h of L.hotspots) {
       const sp = h.kind === 'stand' ? sponsorOn(+h.id.replace('stand-', '')) : null;
-      if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); continue; }
+      if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); if (Array.isArray(h.to)) interact[interact.length - 1].to = h.to; continue; }
       hit(h.id, h.x, h.z, h.r, 'Visit ' + sp.name, sp.name, sp.about || tierWord(sp.tier) + ' of ' + EVENT.short + '.', h.kind);
       interact[interact.length - 1].sponsor = sp;
     }

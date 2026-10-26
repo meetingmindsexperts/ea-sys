@@ -355,6 +355,12 @@ class Social {
   // "through the Exhibition Hall". `end`: say "at the far end of" when the door closes the end of a long
   // corridor (the automatic plan's main stage). The automatic plan's corridor is "the main corridor".
   wayTo(Z, end = false) {
+    // EA-SYS (floors, Oct 26): a room upstairs is "on Level 1, off the ...".
+    const L = Z && LEVELS && Z.level !== LEVELS[0].id ? levelOf(Z.level) : null;
+    const way = this.wayOn(Z, end);
+    return L ? `on ${L.name}, ${way}` : way;
+  }
+  wayOn(Z, end) {
     const d = Z && (LAYOUT.doors || []).find((x) => x.between[1] === Z.id && x.between[0] !== Z.id);
     const from = d && ZONES.find((z) => z.id === d.between[0]);
     if (!from) return 'off the main corridor';

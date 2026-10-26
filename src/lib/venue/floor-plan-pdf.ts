@@ -167,6 +167,7 @@ function drawPage(doc: Doc, input: FloorPlanPdfInput) {
   drawDoorSwings(doc, layout, P, ptPerM);
   drawWalls(doc, layout, P, ptPerM);
   drawRoomLabels(doc, layout, P, ptPerM);
+  drawFloorNames(doc, layout, P);
   // The label stays on the page and below the header, whichever wall the entrance is in.
   drawEntrance(doc, layout, P, { minX: MARGIN, maxX: pageW - MARGIN, minY: areaTop - 8 });
   drawNorthArrow(doc, MARGIN + areaW - 18, areaTop + 6);
@@ -308,6 +309,14 @@ const ARROW = "#0369a1";
 const FIXTURE_FILL: Record<FixtureKind, string> = { stairs: "#ffffff", lift: "#e5e7eb", toilets: "#e0f2fe", exit: "#16a34a", pillar: "#374151", catering: "#fde68a" };
 const FIXTURE_TEXT: Partial<Record<FixtureKind, string>> = { toilets: "WC", exit: "EXIT" };
 const FIXTURE_LEGEND: Record<FixtureKind, string> = { stairs: "Stairs (arrow up)", lift: "Lift", toilets: "Toilets (WC)", exit: "Emergency exit", pillar: "Pillar", catering: "Catering point" };
+
+/** A venue of several floors is printed side by side, each floor's name above it. */
+function drawFloorNames(doc: Doc, layout: VenueLayout, P: Project) {
+  for (const l of layout.levels ?? []) {
+    const [x, y] = P(l.bounds[0], l.bounds[1]);
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(WALL).text(sanitizePdfText(l.name), x, y - 16, { lineBreak: false });
+  }
+}
 
 /** A fixture's plan symbol: stairs with treads and an arrow up, a lift crossed, the rest filled and named. */
 function drawFixture(doc: Doc, it: Extract<LayoutItem, { t: "fixture" }>, [x, y, w, h]: Box) {

@@ -65,8 +65,14 @@ const HANDLES: { edges: Edges; at: (r: Rect) => [number, number]; cursor: string
 /** Room around the building on the canvas, in metres, so there is floor to drag onto and draw on. */
 const MARGIN = 8;
 
-function viewOf(plan: VenuePlan): [number, number, number, number] {
-  const rects = [...plan.rooms.map((p) => p.rect), ...plan.corridors.map((c) => c.rect)];
+/** The other floor, drawn faintly under this one so the two line up: its areas, and its stairs and lifts to stack on. */
+export interface PlanGhost {
+  areas: Rect[];
+  links: { rect: Rect; label: string }[];
+}
+
+function viewOf(plan: VenuePlan, ghost?: PlanGhost): [number, number, number, number] {
+  const rects = [...plan.rooms.map((p) => p.rect), ...plan.corridors.map((c) => c.rect), ...(ghost?.areas ?? [])];
   if (!rects.length) return [-50, -50, 100, 100];
   const x0 = Math.min(...rects.map((r) => r[0])) - MARGIN;
   const z0 = Math.min(...rects.map((r) => r[1])) - MARGIN;
@@ -91,6 +97,7 @@ export function VenuePlanCanvas({
   onDrawn,
   zoom,
   onZoom,
+  ghost,
 }: {
   plan: VenuePlan;
   layout: VenueLayout;
@@ -107,6 +114,7 @@ export function VenuePlanCanvas({
   /** How many times the frame's width the plan is drawn (PLAN_ZOOMS). */
   zoom: number;
   onZoom: (zoom: number) => void;
+  ghost?: PlanGhost;
 }) {
   const gridId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
@@ -130,7 +138,7 @@ export function VenuePlanCanvas({
   // The view stays put while a gesture runs, so the area under the pointer does not slide away as the building grows.
   const [frozen, setFrozen] = useState<[number, number, number, number] | null>(null);
   const [drawing, setDrawing] = useState<Rect | null>(null);
-  const view = frozen ?? viewOf(plan);
+  const view = frozen ?? viewOf(plan, ghost);
   // Handles and door dots keep their size on screen at any zoom.
   const handle = Math.max(0.6, view[2] / 110) / zoom;
 
@@ -350,6 +358,21 @@ export function VenuePlanCanvas({
           </pattern>
         </defs>
         <rect x={view[0]} y={view[1]} width={view[2]} height={view[3]} fill={`url(#${gridId})`} />
+        {ghost && (
+          <g className="pointer-events-none" aria-hidden>
+            {ghost.areas.map((r, i) => (
+              <rect key={`g${i}`} x={r[0]} y={r[1]} width={r[2] - r[0]} height={r[3] - r[1]} className="fill-muted-foreground/5 stroke-muted-foreground/40" strokeWidth={0.15} strokeDasharray="0.8 0.6" />
+            ))}
+            {ghost.links.map((l, i) => (
+              <g key={`l${i}`}>
+                <rect x={l.rect[0]} y={l.rect[1]} width={l.rect[2] - l.rect[0]} height={l.rect[3] - l.rect[1]} className="fill-sky-500/10 stroke-sky-600" strokeWidth={0.15} strokeDasharray="0.5 0.4" />
+                <text x={(l.rect[0] + l.rect[2]) / 2} y={l.rect[1] - 0.4} textAnchor="middle" fontSize={0.9} className="fill-sky-700 dark:fill-sky-400">
+                  {l.label}
+                </text>
+              </g>
+            ))}
+          </g>
+        )}
         <LayoutDrawing layout={layout} />
         {areas.map((a) => {
           const isSel = sel?.target === a.target;

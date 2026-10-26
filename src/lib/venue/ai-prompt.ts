@@ -185,7 +185,7 @@ export function describeVenue(layout: VenueLayout): string {
   // and that corridor runs north to south, so its two sides are its left and right.
   const automatic =
     corridors.length === 1 && corridor.rect[3] - corridor.rect[1] >= corridor.rect[2] - corridor.rect[0] && layout.doors.every((d) => d.between.includes(corridor.id));
-  if (!automatic) return describeByDoors(layout, foyer);
+  if (!automatic || layout.levels) return describeByDoors(layout, foyer);
   const side = (west: boolean) =>
     zones.filter((z) => !["foyer", "corridor", "plenary"].includes(z.kind) && (west ? z.rect[2] <= corridor.rect[0] + 0.01 : z.rect[0] >= corridor.rect[2] - 0.01));
   const left = side(true);
@@ -218,15 +218,23 @@ function describeByDoors(layout: VenueLayout, foyer: VenueLayout["zones"][number
     if (!room || room.kind === "corridor") continue;
     off.set(d.between[0], [...(off.get(d.between[0]) ?? []), room]);
   }
+  // A venue of several floors says which rooms are upstairs, and how to get there.
+  const ground = layout.levels?.[0];
+  const upstairs = (z: VenueLayout["zones"][number] | undefined) => (ground && z?.level && z.level !== ground.id ? layout.levels!.find((l) => l.id === z.level) : undefined);
   const places = [...off.entries()].map(([id, rooms]) => {
     const from = byId.get(id);
     const where = from?.kind === "corridor" || from?.kind === "foyer" ? `Off the ${from.name}` : `Through the ${from?.name ?? id}`;
-    return ` ${where}: ${roomList(rooms)}.`;
+    const up = upstairs(from);
+    return ` ${up ? `On ${up.name}, ${where.toLowerCase()}` : where}: ${roomList(rooms)}.`;
   });
+  const ups = layout.hotspots.filter((h) => h.kind === "floor" && h.to && upstairs(layout.zones.find((z) => h.to![0] >= z.rect[0] && h.to![0] <= z.rect[2] && h.to![1] >= z.rect[1] && h.to![1] <= z.rect[3])));
+  const by = [...new Set(ups.map((h) => (/lift/.test(h.prompt) ? "a lift" : "stairs")))].join(" and ");
+  const upper = layout.levels?.[1];
   return [
     `Venue you know: ${foyer?.name ?? "The foyer"} is the entrance, with registration and information desks`,
     onward ? `; from it you go on into the ${onward.name}.` : ".",
     ...places,
+    upper && by ? ` ${by[0].toUpperCase()}${by.slice(1)} ${by === "a lift" ? "leads" : "lead"} up to ${upper.name}.` : "",
   ].join("");
 }
 

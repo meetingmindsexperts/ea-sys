@@ -62,6 +62,38 @@ export const PLAN_FIXTURES: Record<string, { rooms: VenueRoom[]; plan: VenuePlan
       ],
     },
   },
+  // Two floors (owner, Oct 26): BHS2026's plan with a hall upstairs, reached by a lift and by stairs drawn
+  // in the same place on both floors.
+  "drawn-two-floors": {
+    rooms: [
+      { id: "foyer", kind: "foyer", name: "Grand Foyer", capacity: 600 },
+      { id: "plenary", kind: "plenary", name: "Plenary Hall", capacity: 500 },
+      { id: "hall-1", kind: "hall", name: "Hall 1", capacity: 120 },
+      { id: "hall-2", kind: "hall", name: "Hall 2", capacity: 80 },
+      { id: "workshop", kind: "workshop", name: "Workshop", capacity: 40 },
+    ],
+    plan: {
+      v: 1,
+      rooms: [
+        { id: "foyer", rect: [-12, 0, 12, 18.5], door: { wall: "n", at: 6.5, width: 10.4 } },
+        { id: "hall-1", rect: [-12, -20.5, 1, 0], door: { wall: "e", at: -10.25, width: 2.6 } },
+        { id: "plenary", rect: [-12, -48, 12, -20.5], door: { wall: "s", at: 6.5, width: 6 } },
+        { id: "hall-2", floor: "level-1", rect: [-12, -20.5, 1, 0], door: { wall: "e", at: -10, width: 2.6 } },
+        { id: "workshop", floor: "level-1", rect: [-1, -36, 12, -20.5], door: { wall: "s", at: 5.5, width: 2.6 } },
+      ],
+      corridors: [
+        { id: "corridor", name: "Main Corridor", rect: [1, -20.5, 12, 0] },
+        { id: "upper", floor: "level-1", name: "Upper Corridor", rect: [1, -20.5, 12, 0] },
+      ],
+      entrance: { wall: "s", at: 0, width: 18 },
+      fixtures: [
+        { id: "lift-g", kind: "lift", name: "Lift", rect: [9.4, -13.5, 12, -10.9], dir: "w" },
+        { id: "lift-1", kind: "lift", name: "Lift", floor: "level-1", rect: [9.4, -13.5, 12, -10.9], dir: "w" },
+        { id: "stairs-g", kind: "stairs", name: "", rect: [1.5, -9, 4.5, -3], dir: "n" },
+        { id: "stairs-1", kind: "stairs", name: "", floor: "level-1", rect: [1.5, -9, 4.5, -3], dir: "n" },
+      ],
+    },
+  },
   "drawn-congress-west-entrance": (() => {
     const rooms = TEMPLATES.congress.rooms;
     const plan = planFromLayout(generateLayout(rooms, { eventName: "" }));

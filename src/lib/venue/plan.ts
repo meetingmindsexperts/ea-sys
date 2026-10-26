@@ -27,9 +27,18 @@ export interface PlanDoor {
   width: number;
 }
 
+/**
+ * The floors a venue can have (owner, Oct 26: two for now, named Ground and Level 1). A room, walkway or
+ * fixture with no `floor` is on the ground floor, so every plan saved before floors existed reads unchanged.
+ */
+export const PLAN_FLOORS = ["ground", "level-1"] as const;
+export type PlanFloor = (typeof PLAN_FLOORS)[number];
+export const FLOOR_NAME: Record<PlanFloor, string> = { ground: "Ground", "level-1": "Level 1" };
+
 export interface PlacedRoom {
   id: string;
   rect: Rect;
+  floor?: PlanFloor;
   /** The foyer's door is its way on into the building; its entrance is `VenuePlan.entrance`. */
   door: PlanDoor;
 }
@@ -38,6 +47,7 @@ export interface PlanCorridor {
   id: string;
   name: string;
   rect: Rect;
+  floor?: PlanFloor;
 }
 
 /** What can stand in a room or walkway besides its own furniture (floor plan editor, owner Oct 24). */
@@ -61,6 +71,7 @@ export interface PlanFixture {
   rect: Rect;
   /** The way it faces: where its front, door or arrow points. */
   dir: PlanWall;
+  floor?: PlanFloor;
 }
 
 export interface VenuePlan {
@@ -72,6 +83,11 @@ export interface VenuePlan {
   entrance: PlanDoor;
   /** Stairs, lifts, toilets, exits, pillars and catering points, each inside a room or walkway. */
   fixtures: PlanFixture[];
+  /**
+   * Editor only, on one floor's view of a plan: the ids the other floor uses, so a walkway or fixture added
+   * there never repeats one. The schema drops it, so it is never saved.
+   */
+  otherIds?: string[];
 }
 
 /**
@@ -101,20 +117,21 @@ export const PLAN_MAX_WALKWAYS = 12;
 export const PLAN_MAX_FIXTURES = 60;
 /** A fixture's smallest side: a pillar can be thin, an exit sign thinner. */
 export const FIXTURE_MIN_SIDE = 0.3;
+const floorSchema = z.enum(PLAN_FLOORS).optional();
 const fixtureRect = z
   .tuple([coord, coord, coord, coord])
   .refine(([x0, z0, x1, z1]) => x1 - x0 >= FIXTURE_MIN_SIDE && z1 - z0 >= FIXTURE_MIN_SIDE && x1 - x0 <= 40 && z1 - z0 <= 40, "A fixture is between 0.3 m and 40 m each way");
 
 export const planSchema = z.object({
   v: z.literal(1),
-  rooms: z.array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), rect: rectSchema, door: doorSchema })).min(1).max(20),
+  rooms: z.array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), rect: rectSchema, door: doorSchema, floor: floorSchema })).min(1).max(20),
   corridors: z
-    .array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), name: z.string().trim().min(1, "Every walkway needs a name").max(60), rect: rectSchema }))
+    .array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), name: z.string().trim().min(1, "Every walkway needs a name").max(60), rect: rectSchema, floor: floorSchema }))
     .max(PLAN_MAX_WALKWAYS, `A plan has at most ${PLAN_MAX_WALKWAYS} walkways`),
   entrance: doorSchema,
   // Plans saved before fixtures existed have none.
   fixtures: z
-    .array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), kind: z.enum(FIXTURE_KINDS), name: z.string().trim().max(60), rect: fixtureRect, dir: z.enum(PLAN_WALLS) }))
+    .array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), kind: z.enum(FIXTURE_KINDS), name: z.string().trim().max(60), rect: fixtureRect, dir: z.enum(PLAN_WALLS), floor: floorSchema }))
     .max(PLAN_MAX_FIXTURES, `A plan has at most ${PLAN_MAX_FIXTURES} stairs, lifts, toilets, exits, pillars and catering points`)
     .default([]),
 });
@@ -209,8 +226,80 @@ function toPlanDoor(rect: Rect, x: number, z: number, width: number): PlanDoor {
  * the plan's checks and switch the venue back to automatic (review MED, Oct 24).
  */
 export function heldFixtures(plan: VenuePlan): PlanFixture[] {
-  const areas = [...plan.rooms.map((p) => p.rect), ...plan.corridors.map((c) => c.rect)];
-  return plan.fixtures.filter((f) => areas.some((a) => within(f.rect, a)));
+  const areas = [...plan.rooms, ...plan.corridors];
+  return plan.fixtures.filter((f) => areas.some((a) => floorOf(a) === floorOf(f) && within(f.rect, a.rect)));
+}
+
+// ── Floors ───────────────────────────────────────────────────────────────────
+
+export const floorOf = (a: { floor?: PlanFloor }): PlanFloor => a.floor ?? "ground";
+
+/** The floors a plan has rooms or walkways on, ground first; always at least the ground floor. */
+export function planFloors(plan: VenuePlan): PlanFloor[] {
+  const used = new Set([...plan.rooms, ...plan.corridors].map(floorOf));
+  return PLAN_FLOORS.filter((f) => f === "ground" || used.has(f));
+}
+
+/** One floor of a plan as a plan of its own: what the editor edits, and what each floor's building is made from. */
+export function floorView(plan: VenuePlan, floor: PlanFloor): VenuePlan {
+  const on = (a: { floor?: PlanFloor }) => floorOf(a) === floor;
+  const off = (a: { id: string; floor?: PlanFloor }) => !on(a);
+  return {
+    v: 1,
+    rooms: plan.rooms.filter(on),
+    corridors: plan.corridors.filter(on),
+    entrance: plan.entrance,
+    fixtures: plan.fixtures.filter(on),
+    otherIds: [...plan.rooms.filter(off), ...plan.corridors.filter(off), ...plan.fixtures.filter(off)].map((a) => a.id),
+  };
+}
+
+/** `a` on `floor`: the ground floor is written as no floor at all, as plans saved before floors were. */
+export function onFloor<T extends { floor?: PlanFloor }>(a: T, floor: PlanFloor): T {
+  const rest = { ...a };
+  delete rest.floor;
+  return floor === "ground" ? rest : { ...rest, floor };
+}
+
+/** Replace one floor's areas with an edited view's, keeping every list in its order (so an untouched plan stays equal). */
+function mergeFloor<T extends { id: string; floor?: PlanFloor }>(all: T[], floor: PlanFloor, edited: T[]): T[] {
+  const byId = new Map(edited.map((e) => [e.id, onFloor(e, floor)]));
+  const out = all.flatMap((a) => {
+    if (floorOf(a) !== floor) return [a];
+    const e = byId.get(a.id);
+    return e ? [e] : [];
+  });
+  const had = new Set(all.filter((a) => floorOf(a) === floor).map((a) => a.id));
+  for (const e of edited) if (!had.has(e.id)) out.push(onFloor(e, floor));
+  return out;
+}
+
+/** A plan with one floor replaced by an edited view of that floor. */
+export function withFloor(plan: VenuePlan, floor: PlanFloor, view: VenuePlan): VenuePlan {
+  return {
+    v: 1,
+    rooms: mergeFloor(plan.rooms, floor, view.rooms),
+    corridors: mergeFloor(plan.corridors, floor, view.corridors),
+    entrance: view.entrance,
+    fixtures: mergeFloor(plan.fixtures, floor, view.fixtures),
+  };
+}
+
+/** Kinds that join floors: a lift serves every floor it is drawn on, stairs the floors either side (decision F10). */
+const LINKING: ReadonlySet<FixtureKind> = new Set(["stairs", "lift"]);
+
+/**
+ * The stairs and lifts that join Level 1 to the ground floor: the same kind, drawn in the same place on both
+ * (a stairwell or a lift shaft stands over itself). Each upper one joins the first lower one under it.
+ */
+export function floorLinks(plan: VenuePlan): { lower: PlanFixture; upper: PlanFixture }[] {
+  const links: { lower: PlanFixture; upper: PlanFixture }[] = [];
+  for (const upper of plan.fixtures) {
+    if (floorOf(upper) !== "level-1" || !LINKING.has(upper.kind)) continue;
+    const lower = plan.fixtures.find((f) => floorOf(f) === "ground" && f.kind === upper.kind && overlapArea(f.rect, upper.rect) > EPS);
+    if (lower) links.push({ lower, upper });
+  }
+  return links;
 }
 
 /** `inner` lies wholly inside `outer`. */
@@ -238,13 +327,14 @@ export function planIssues(rooms: VenueRoom[], plan: VenuePlan): string[] {
     ids.add(c.id);
   }
 
+  // Areas overlap, and fixtures stand in them, only on their own floor.
   const areas = [
-    ...plan.rooms.map((p) => ({ name: names.get(p.id) ?? p.id, rect: p.rect })),
-    ...plan.corridors.map((c) => ({ name: c.name, rect: c.rect })),
+    ...plan.rooms.map((p) => ({ name: names.get(p.id) ?? p.id, rect: p.rect, floor: floorOf(p) })),
+    ...plan.corridors.map((c) => ({ name: c.name, rect: c.rect, floor: floorOf(c) })),
   ];
   for (let i = 0; i < areas.length; i++) {
     for (let j = i + 1; j < areas.length; j++) {
-      if (overlapArea(areas[i].rect, areas[j].rect) > EPS) issues.push(`${areas[i].name} and ${areas[j].name} overlap`);
+      if (areas[i].floor === areas[j].floor && overlapArea(areas[i].rect, areas[j].rect) > EPS) issues.push(`${areas[i].name} and ${areas[j].name} overlap`);
     }
   }
 
@@ -256,29 +346,42 @@ export function planIssues(rooms: VenueRoom[], plan: VenuePlan): string[] {
     }
   }
 
-  // Each fixture stands wholly inside one room or walkway, and fixtures do not overlap each other.
+  // Each fixture stands wholly inside one room or walkway on its floor, and fixtures do not overlap each other.
   const fixtureIds = new Set<string>();
+  const labelOf = (f: PlanFixture) => f.name || FIXTURE_INFO[f.kind].label;
   for (const f of plan.fixtures) {
-    const label = f.name || FIXTURE_INFO[f.kind].label;
-    if (fixtureIds.has(f.id) || names.has(f.id) || ids.has(f.id)) issues.push(`${label} shares its id with another part of the plan`);
+    if (fixtureIds.has(f.id) || names.has(f.id) || ids.has(f.id)) issues.push(`${labelOf(f)} shares its id with another part of the plan`);
     fixtureIds.add(f.id);
-    if (!areas.some((a) => within(f.rect, a.rect))) issues.push(`${label} is not inside a room or walkway`);
+    if (!areas.some((a) => a.floor === floorOf(f) && within(f.rect, a.rect))) issues.push(`${labelOf(f)} is not inside a room or walkway`);
   }
   for (let i = 0; i < plan.fixtures.length; i++) {
     for (let j = i + 1; j < plan.fixtures.length; j++) {
       const a = plan.fixtures[i];
       const b = plan.fixtures[j];
-      if (overlapArea(a.rect, b.rect) > EPS) issues.push(`${a.name || FIXTURE_INFO[a.kind].label} and ${b.name || FIXTURE_INFO[b.kind].label} overlap`);
+      if (floorOf(a) === floorOf(b) && overlapArea(a.rect, b.rect) > EPS) issues.push(`${labelOf(a)} and ${labelOf(b)} overlap`);
     }
   }
 
   const foyer = rooms.find((r) => r.kind === "foyer");
   const foyerPlaced = foyer ? placed.get(foyer.id) : undefined;
+  if (foyerPlaced && floorOf(foyerPlaced) !== "ground") issues.push(`${foyer!.name} is the way in, so it stays on the ground floor`);
   if (foyerPlaced) {
     const [a0, a1] = wallSpan(foyerPlaced.rect, plan.entrance.wall);
     if (plan.entrance.at - plan.entrance.width / 2 < a0 - EPS || plan.entrance.at + plan.entrance.width / 2 > a1 + EPS) {
       issues.push("The entrance does not fit on the foyer's wall");
     }
+  }
+
+  // Level 1 is reached by stairs or a lift drawn in the same place on both floors.
+  if (planFloors(plan).includes("level-1")) {
+    const links = floorLinks(plan);
+    const joined = new Set(links.map((l) => l.upper.id));
+    for (const f of plan.fixtures) {
+      if (floorOf(f) !== "level-1" || !LINKING.has(f.kind) || joined.has(f.id)) continue;
+      const kind = FIXTURE_INFO[f.kind].label.toLowerCase();
+      issues.push(`${labelOf(f)} on Level 1 has no ${kind} under it on the ground floor. Draw them in the same place on both floors.`);
+    }
+    if (!plan.fixtures.some((f) => floorOf(f) === "level-1" && LINKING.has(f.kind))) issues.push("Level 1 needs stairs or a lift, drawn in the same place on both floors");
   }
   return issues;
 }

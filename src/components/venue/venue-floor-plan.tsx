@@ -10,7 +10,7 @@ import { useMemo, type ReactNode } from "react";
 import { CheckCircle2, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionHeading } from "@/components/ui/typography";
-import type { LayoutItem } from "@/lib/venue/layout";
+import type { LayoutItem, VenueLayout } from "@/lib/venue/layout";
 import { LayoutDrawing } from "@/components/venue/venue-plan-drawing";
 import { buildVenueLayout } from "@/lib/venue/plan-layout";
 import type { VenuePlan } from "@/lib/venue/plan";
@@ -25,6 +25,12 @@ function seatsOf(it: LayoutItem): number {
   return 0;
 }
 
+function planSummary(layout: VenueLayout, mode: "automatic" | "drawn", width: number, depth: number): string {
+  const floors = layout.levels?.map((l) => l.name);
+  if (floors) return `The plan drawn for this event, on ${floors.length} floors: ${floors.join(" and ")}, side by side. North is up; the blue dashed line is the entrance.`;
+  return `${mode === "drawn" ? "The plan drawn for this event" : "The building made from these rooms"}: ${Math.round(width)} m across and ${Math.round(depth)} m deep. North is up; the blue dashed line is the entrance.`;
+}
+
 export function VenueFloorPlan({ rooms, eventName, actions, plan = null }: { rooms: VenueRoom[]; eventName: string; actions?: ReactNode; plan?: VenuePlan | null }) {
   // The saved drawn plan when it still fits these rooms, else the automatic one: what the venue and the PDF use.
   const { layout, check, mode, notUsed } = useMemo(() => {
@@ -32,7 +38,8 @@ export function VenueFloorPlan({ rooms, eventName, actions, plan = null }: { roo
     return { layout: built.layout, check: checkLayout(built.layout), mode: built.mode, notUsed: built.planIssues };
   }, [rooms, eventName, plan]);
   const [x0, z0, x1, z1] = layout.bounds;
-  const pad = 3;
+  // Room above for the floor names when there are several floors.
+  const pad = layout.levels ? 5 : 3;
   const width = x1 - x0;
   const depth = z1 - z0;
 
@@ -40,7 +47,7 @@ export function VenueFloorPlan({ rooms, eventName, actions, plan = null }: { roo
     <section className="space-y-3">
       <SectionHeading
         title="Floor plan"
-        description={`${mode === "drawn" ? "The plan drawn for this event" : "The building made from these rooms"}: ${Math.round(width)} m across and ${Math.round(depth)} m deep. North is up; the blue dashed line is the entrance.`}
+        description={planSummary(layout, mode, width, depth)}
         actions={actions}
       />
       <Card>

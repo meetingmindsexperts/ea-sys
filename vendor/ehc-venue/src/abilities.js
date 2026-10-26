@@ -140,8 +140,13 @@ class Abilities {
     const [x, z, yaw] = this.sitFrom; pl.x = x; pl.z = z; pl.yaw = yaw; this.mode = null; this.seat = null; this.refresh();
   }
   // ----- walk me there / follow
+  // EA-SYS (floors): the floors stand apart in one world and no path joins them, so a walk or a follow to
+  // the other floor is not tried (it would search the whole grid, then give up).
+  otherFloor(ax, az, bx, bz) { const a = zoneAt(ax, az), b = zoneAt(bx, bz); return !!(a && b && a.level !== b.level); }
   walkTo_(x, z, label) {
-    const pl = this.ctx.player(), p = this.nav.path(pl.x, pl.z, x, z);
+    const pl = this.ctx.player();
+    if (this.otherFloor(pl.x, pl.z, x, z)) { this.toast(`The ${label} is on another floor, so you go straight there.`); return false; }
+    const p = this.nav.path(pl.x, pl.z, x, z);
     if (!p) { this.toast('Can’t find a way there. Jumping instead.'); return false; }
     this.stop(); this.mode = 'walk'; this.route = p; this.ri = 0; this.dest = label; this.destXZ = [x, z]; this.replans = 0; this.stuckT = 0; this.lastD = 1e9; this.walkStart = this.ctx.time();
     this.toast(`Walking you to the ${label}. Move to take over.`); this.refresh(); return true;
@@ -175,6 +180,7 @@ class Abilities {
     if (this.mode === 'follow') {
       const t = this.ft; if (!t || (t.isPeer && !this.ctx.social.peers.has(t.peer))) { this.toast('Lost them in the crowd.'); this.stop(); return false; }
       const bx = t.x - Math.sin(t.yaw) * 1.3, bz = t.z - Math.cos(t.yaw) * 1.3, d = Math.hypot(t.x - pl.x, t.z - pl.z);
+      if (this.otherFloor(pl.x, pl.z, t.x, t.z)) { this.toast('They went to another floor.'); this.stop(); return false; }
       this.replanT -= dt;
       if (this.replanT <= 0) { this.replanT = 0.8; this.route = d > 2.2 ? this.nav.path(pl.x, pl.z, bx, bz) : null; this.ri = 0; }
       if (d < 1.6 || !this.route || !this.route.length) { input.x = input.y = 0; input.touch = true; input.run = false; return false; }
