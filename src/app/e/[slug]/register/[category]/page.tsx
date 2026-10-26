@@ -1,14 +1,16 @@
 "use client";
 
 import { EventBannerBand } from "@/components/public/event-banner";
-import { Suspense, useState, useEffect, useRef, useMemo } from "react";
+import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, type FieldErrors } from "react-hook-form";
+import * as Sentry from "@sentry/nextjs";
 import { z } from "zod";
 import { format } from "date-fns";
 import Link from "next/link";
 import { scrollToFirstFormError } from "@/lib/form-error-scroll";
+import { clearRegisterDraft, readRegisterDraft, registerDraftKey, writeRegisterDraft } from "@/lib/register-draft";
 import { sanitizeHtml } from "@/lib/sanitize";
 import {
   Calendar,
@@ -292,12 +294,26 @@ function CategoryRegistrationContent() {
       agreeTerms: undefined as unknown as true,
     },
   });
+  // The form survives a reload (register-draft.ts). Saving waits until the
+  // restore has been tried, or the page's own auto-selects on load would
+  // overwrite the saved answers with an empty form.
+  const draftKey = registerDraftKey(slug, categorySlug);
+  const draftRestored = useRef(false);
+  const draftState = useRef({ step: 1 as 1 | 2, billingSame: true, promoCode: "", supportingDoc: null as { url: string; filename: string } | null });
+  const saveDraft = useCallback(() => {
+    if (!draftRestored.current) return;
+    writeRegisterDraft(draftKey, { ...draftState.current, values: form.getValues() as Record<string, unknown> });
+  }, [draftKey, form]);
+
   // The notice describes the LAST tap; once the person changes anything it is
   // out of date (review of e7cd2b2d: picking the missing category left it up).
   useEffect(() => {
-    const sub = form.watch(() => setSubmitNotice(null));
+    const sub = form.watch(() => {
+      setSubmitNotice(null);
+      saveDraft();
+    });
     return () => sub.unsubscribe();
-  }, [form]);
+  }, [form, saveDraft]);
 
   useEffect(() => {
     async function fetchEvent() {
@@ -410,6 +426,38 @@ function CategoryRegistrationContent() {
     if (slug) fetchEvent();
   }, [slug, categorySlug, form]);
 
+  // The draft's non-form parts, kept current for the watch callback above, and
+  // saved when they change (they are not form fields, so watch never sees them).
+  draftState.current = { step, billingSame, promoCode, supportingDoc };
+  useEffect(() => {
+    saveDraft();
+  }, [step, billingSame, promoCode, supportingDoc, saveDraft]);
+
+  // Restore once the event's options are known, so a saved category that is
+  // no longer on sale is dropped instead of submitted.
+  useEffect(() => {
+    if (draftRestored.current || regTypeOptions.length === 0) return;
+    draftRestored.current = true;
+    const draft = readRegisterDraft(draftKey);
+    if (!draft) return;
+    const values = { ...draft.values } as Partial<RegistrationForm>;
+    const savedOption = regTypeOptions.find((o) => o.ticketTypeId === values.ticketTypeId && o.canPurchase);
+    if (!savedOption) {
+      delete values.ticketTypeId;
+      delete values.pricingTierId;
+    }
+    form.reset({ ...form.getValues(), ...values });
+    setBillingSame(draft.billingSame);
+    if (draft.promoCode) {
+      setPromoCode(draft.promoCode);
+      setShowPromoInput(true);
+      setRestoredPromo(draft.promoCode);
+    }
+    if (draft.supportingDoc) setSupportingDoc(draft.supportingDoc);
+    // Step 2 only when step 1 was completed (a valid email and matching password).
+    if (draft.step === 2 && values.email && values.password && values.password === values.confirmPassword) setStep(2);
+  }, [regTypeOptions, draftKey, form]);
+
   // Resolve tier-specific content with event-level fallback
   // Event-level content (shared across all tiers)
   const selectedTierContent = useMemo(() => {
@@ -459,9 +507,30 @@ function CategoryRegistrationContent() {
   // first one (a picker or a type has no focusable field for react-hook-form to
   // jump to) and name what is missing by the button. Also react-hook-form's
   // onInvalid. The 50ms lets the messages set in onSubmit reach the page.
-  function showBlockedSubmit() {
+  function showBlockedSubmit(errors?: FieldErrors<RegistrationForm>) {
     setSubmitNotice(null);
-    setTimeout(() => setSubmitNotice(scrollToFirstFormError()), 50);
+    const keys = errors ? Object.keys(errors) : [];
+    // The account fields live on step 1, so on step 2 their messages are not
+    // on the page: the tap said "Please check the highlighted fields" with
+    // nothing highlighted (MMF2026, Oct 26). Go back to step 1, where they show.
+    const accountKeys = keys.filter((k) => k === "email" || k === "password" || k === "confirmPassword");
+    if (step === 2 && accountKeys.length > 0) {
+      setStep(1);
+      toast.error("Please check your email and password, then press Continue.");
+    }
+    setTimeout(() => {
+      const notice = scrollToFirstFormError();
+      setSubmitNotice(notice);
+      // Nothing on the page explains the refusal: report WHICH fields (never
+      // their values) so the case can be found and fixed.
+      if (keys.length > 0 && notice === "Please check the highlighted fields.") {
+        Sentry.captureMessage("public-register:error-not-on-page", {
+          level: "warning",
+          tags: { form: "register" },
+          extra: { fields: keys, step, slug, category: categorySlug },
+        });
+      }
+    }, 100);
   }
 
   async function onSubmit(data: RegistrationForm) {
@@ -589,6 +658,8 @@ function CategoryRegistrationContent() {
         ...(reg.status ? { status: reg.status } : {}),
         ...(reg.ticketPrice > 0 ? { price: String(reg.ticketPrice), currency: reg.ticketCurrency } : {}),
       });
+      // Registered: nothing left to bring back on a reload.
+      clearRegisterDraft(draftKey);
       router.push(`/e/${slug}/confirmation?${confirmParams.toString()}`);
     } catch (err) {
       console.error("[register] Registration submission failed:", err);
@@ -646,6 +717,16 @@ function CategoryRegistrationContent() {
     // would re-validate on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkedPromo, linkTicketId]);
+
+  // A code brought back by a reload is checked again, as the link's code is:
+  // the result is not stored, and a sponsor link needs it applied.
+  const [restoredPromo, setRestoredPromo] = useState<string | null>(null);
+  useEffect(() => {
+    if (!restoredPromo || !linkTicketId) return;
+    setRestoredPromo(null);
+    void applyPromo(restoredPromo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoredPromo, linkTicketId]);
 
   if (loading) {
     return (

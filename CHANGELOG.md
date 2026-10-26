@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registration form: survives a reload, and a hidden step-1 error goes back to step 1 (October 26)
+
+- Owner, testing MMF2026: "Please check the highlighted fields" came up with every field filled. On the details step the only fields not on screen are step 1's email, password and confirm password, so a refusal there showed nothing. Now the form goes back to step 1 with the message showing and a toast ("Please check your email and password, then press Continue"). When nothing on the page explains a refusal, the field NAMES (never values) go to Sentry as `public-register:error-not-on-page`, so the case can be found.
+- **A reload keeps the form** (owner): answers, step, category, billing choice, promo code (checked again on restore) and uploaded document come back (`src/lib/register-draft.ts`). Kept in that tab's sessionStorage only, at most 12 hours, cleared on a successful registration; a saved category no longer on sale is dropped. Owner's choice: the password is kept too, so the form reopens on the details step; it is readable by scripts on the page while the tab is open. Registration form only; complete-registration and the submitter form are not changed.
+
 ### Public forms: review fixes for the phone work (October 26)
 
 - All findings from the review of `e7cd2b2d` and `46a0ec6e` (no HIGH). **MED:** the abstract and proposal sign-up asked the phone for a NEW password when an existing account signs in, so iPhone and Chrome could offer a generated one (wrong password, and a keychain entry overwritten); it asks for the current password in sign-in mode.
