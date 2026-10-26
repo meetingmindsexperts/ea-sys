@@ -27,13 +27,17 @@ export function scrollToFirstFormError(root: ParentNode = document): string {
   const field = first.closest<HTMLElement>('[data-slot="form-item"], [data-form-error-section]');
   const fits = field && typeof window !== "undefined" && field.getBoundingClientRect().height <= window.innerHeight * 0.8;
   (fits ? field : first).scrollIntoView({ behavior: "smooth", block: "center" });
+  const firstMessage = (first.textContent ?? "").trim();
+  // One problem: its own message says it best ("Country is required", "You
+  // must agree to the terms and conditions"), and covers a field that is
+  // filled in but wrong (review L3: a bad email read "Please fill in").
+  if (messages.length === 1) return missingFieldsNotice([], firstMessage);
+  // Several, all named: list them. Otherwise quote the first and count the
+  // rest; the generic line is only for a page with no message at all (a
+  // category with no label once produced "Please check the highlighted fields").
   const names = messages.map(fieldName);
-  // Every message named: list them. Otherwise quote the first message itself
-  // ("Please select a category"), which is always specific; the generic line
-  // is only for a page with no message at all (review of e7cd2b2d, Oct 26: a
-  // category picked by nobody produced "Please check the highlighted fields").
   if (names.every((n): n is string => !!n)) return missingFieldsNotice([...new Set(names)], null);
-  return missingFieldsNotice([], (first.textContent ?? "").trim(), messages.length - 1);
+  return missingFieldsNotice([], firstMessage, messages.length - 1);
 }
 
 /** The field's name: a `data-form-error` on the message, else its label without the star. */
@@ -46,13 +50,13 @@ function fieldName(message: HTMLElement): string | null {
 }
 
 /**
- * "Please fill in: Title, Country" (past three, "... and 2 more"); or, when a
- * field could not be named, its own message plus how many others there are.
+ * "Please check: Title, Country" (past three, "... and 2 more"); or one
+ * message quoted, plus how many others there are.
  */
 export function missingFieldsNotice(names: string[], firstMessage: string | null = null, others = 0): string {
   if (names.length > 0) {
     const shown = names.slice(0, 3).join(", ");
-    return names.length > 3 ? `Please fill in: ${shown} and ${names.length - 3} more` : `Please fill in: ${shown}`;
+    return names.length > 3 ? `Please check: ${shown} and ${names.length - 3} more` : `Please check: ${shown}`;
   }
   if (firstMessage) {
     const more = others > 0 ? ` (and ${others} more to fix above)` : "";

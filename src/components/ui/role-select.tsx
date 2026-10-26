@@ -33,7 +33,10 @@ export function RoleSelect({
   placeholder = "Select role",
 }: RoleSelectProps) {
   return (
-    <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
+    // "" rather than undefined when empty: Radix Select (2.x) shows the
+    // placeholder for "" and stays controlled, so picking a value no longer
+    // logs "changing from uncontrolled to controlled".
+    <Select value={value || ""} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger id={id} className="w-full">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>

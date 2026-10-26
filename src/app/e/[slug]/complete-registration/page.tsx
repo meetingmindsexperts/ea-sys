@@ -164,6 +164,9 @@ function CompleteRegistrationContent() {
 
   const form = useForm<CompletionForm>({
     resolver: zodResolver(completionSchema),
+    // The page scrolls to the first error itself (form-error-scroll.ts); the
+    // library's jump focused a lower text field first (review L4).
+    shouldFocusError: false,
     defaultValues: {
       ticketTypeId: "",
       title: "", role: "", jobTitle: "", organization: "", phone: "",
@@ -243,6 +246,7 @@ function CompleteRegistrationContent() {
   // rendered (the type picker and the dropdowns have no focusable field for
   // react-hook-form to jump to) and name what is missing by the button.
   function showBlockedSubmit() {
+    setSubmitNotice(null);
     setTimeout(() => setSubmitNotice(scrollToFirstFormError()), 50);
   }
 
@@ -506,7 +510,9 @@ function CompleteRegistrationContent() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
-                          <TitleSelect value={field.value || ""} onChange={field.onChange} />
+                          <FormControl>
+                            <TitleSelect value={field.value || ""} onChange={field.onChange} />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -541,7 +547,9 @@ function CompleteRegistrationContent() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Country <span className="text-red-400">*</span></FormLabel>
-                          <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
+                          <FormControl>
+                            <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -560,7 +568,9 @@ function CompleteRegistrationContent() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Role <span className="text-red-400">*</span></FormLabel>
-                          <RoleSelect value={field.value} onChange={field.onChange} />
+                          <FormControl>
+                            <RoleSelect value={field.value} onChange={field.onChange} />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -571,7 +581,9 @@ function CompleteRegistrationContent() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Specialty <span className="text-red-400">*</span></FormLabel>
-                          <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                          <FormControl>
+                            <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />

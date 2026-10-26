@@ -123,6 +123,10 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
   // Members
   const [members, setMembers] = useState<MemberForm[]>([{ ...EMPTY_MEMBER }]);
   const [submitting, setSubmitting] = useState(false);
+  // What stopped the last Register group tap, shown by the button (review of
+  // e7cd2b2d L7: the group form only had a toast, which a phone user scrolled
+  // at the bottom of the form can miss, and no way back to the field).
+  const [groupNotice, setGroupNotice] = useState<string | null>(null);
   const [done, setDone] = useState<{
     groupId: string;
     memberCount: number;
@@ -242,19 +246,35 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
     setMembers((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  // The notice describes the last tap; any change makes it out of date.
+  useEffect(() => {
+    setGroupNotice(null);
+  }, [coFirst, coLast, coEmail, coPassword, payer, members]);
+
+  // A tap that did not go through: say why by the button (and in a toast, as
+  // before) and scroll to the section or member card to fix.
+  const blockSubmit = (message: string, targetId: string) => {
+    toast.error(message);
+    setGroupNotice(null);
+    setTimeout(() => {
+      setGroupNotice(message);
+      document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  };
+
   const handleSubmit = async () => {
     if (!event) return;
     // Client-side sanity (server re-validates everything).
     if (!coFirst.trim() || !coLast.trim() || !coEmail.trim() || coPassword.length < 8) {
-      toast.error("Fill in your coordinator details (password at least 8 characters).");
+      blockSubmit("Fill in your coordinator details (password at least 8 characters).", "grp-coordinator");
       return;
     }
     if (!payer.name.trim()) {
-      toast.error("Enter the paying company / institution name.");
+      blockSubmit("Enter the paying company / institution name.", "grp-payer");
       return;
     }
     if (members.length < minMembers) {
-      toast.error(`A group needs at least ${minMembers} members.`);
+      blockSubmit(`A group needs at least ${minMembers} members.`, "grp-members");
       return;
     }
     for (const [i, m] of members.entries()) {
@@ -273,7 +293,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
         m.specialty === "Others" && !m.customSpecialty.trim() && "custom specialty",
       ].filter(Boolean);
       if (missing.length > 0) {
-        toast.error(`Member ${i + 1}: missing ${missing.join(", ")}.`);
+        blockSubmit(`Member ${i + 1}: missing ${missing.join(", ")}.`, `grp-member-${i}`);
         return;
       }
     }
@@ -466,7 +486,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
     return (
       <div className="space-y-6">
         {/* Coordinator */}
-        <section className="rounded-xl border bg-white p-4 sm:p-6">
+        <section id="grp-coordinator" className="rounded-xl border bg-white p-4 sm:p-6 scroll-mt-4">
           <h2 className="text-lg font-semibold mb-1">1. Your details (group coordinator)</h2>
           <p className="text-sm text-slate-500 mb-4">
             You manage this group. An account is created (or your existing account is used) so you can view and update the group later.
@@ -484,7 +504,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
         </section>
 
         {/* Payer */}
-        <section className="rounded-xl border bg-white p-4 sm:p-6">
+        <section id="grp-payer" className="rounded-xl border bg-white p-4 sm:p-6 scroll-mt-4">
           <h2 className="text-lg font-semibold mb-1 inline-flex items-center gap-2">
             <Building2 className="h-5 w-5 text-slate-400" /> 2. Who pays (company / institution)
           </h2>
@@ -508,7 +528,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
         </section>
 
         {/* Members */}
-        <section className="rounded-xl border bg-white p-4 sm:p-6">
+        <section id="grp-members" className="rounded-xl border bg-white p-4 sm:p-6 scroll-mt-4">
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-lg font-semibold">3. Group members</h2>
             <span className="text-sm text-slate-500">{members.length} of max {maxMembers} (min {minMembers})</span>
@@ -524,7 +544,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
               const type = buyableTypes.find((t) => t.id === m.ticketTypeId);
               const priceInfo = type ? livePrice(type) : null;
               return (
-                <div key={idx} className="rounded-lg border border-slate-200 p-4">
+                <div key={idx} id={`grp-member-${idx}`} className="rounded-lg border border-slate-200 p-4 scroll-mt-4">
                   <div className="flex items-center justify-between mb-3">
                     <span className="font-medium text-sm">
                       Member {idx + 1}{isCoordinatorRow ? " — you" : ""}
@@ -605,6 +625,9 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
           <p className="text-sm text-slate-500 mt-4">
             Submitting registers all members and emails the consolidated invoice to the payer. Payment is by bank transfer (details on the invoice); registration is confirmed on receipt of payment.
           </p>
+          {groupNotice && (
+            <p role="alert" className="mt-4 text-sm font-medium text-red-600">{groupNotice}</p>
+          )}
           <Button className="mt-4 w-full sm:w-auto h-12 sm:h-10" size="lg" onClick={handleSubmit} disabled={submitting}>
             {submitting ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Registering group…</>) : `Register group (${members.length})`}
           </Button>

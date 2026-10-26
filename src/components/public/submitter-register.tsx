@@ -282,6 +282,9 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
 
   const form = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
+    // The page scrolls to the first error itself (form-error-scroll.ts); the
+    // library's jump focused a lower text field first (review L4).
+    shouldFocusError: false,
     defaultValues: {
       email: "", password: "", confirmPassword: "",
       title: "", role: "", firstName: "", lastName: "",
@@ -346,6 +349,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
   // rendered (the dropdowns have no focusable field for react-hook-form to
   // jump to) and name what is missing by the button.
   function showBlockedSubmit() {
+    setSubmitNotice(null);
     setTimeout(() => setSubmitNotice(scrollToFirstFormError()), 50);
   }
 
@@ -748,7 +752,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Password <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input autoComplete="new-password" type="password" placeholder={emailCheck.state === "signin" ? "Your password" : "Min. 6 characters"} className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                          <FormControl><Input autoComplete={emailCheck.state === "signin" ? "current-password" : "new-password"} type="password" placeholder={emailCheck.state === "signin" ? "Your password" : "Min. 6 characters"} className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -849,7 +853,9 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
-                              <TitleSelect value={field.value} onChange={field.onChange} />
+                              <FormControl>
+                                <TitleSelect value={field.value} onChange={field.onChange} />
+                              </FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -914,7 +920,9 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">Country <span className="text-red-400">*</span></FormLabel>
-                              <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
+                              <FormControl>
+                                <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
+                              </FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -933,7 +941,9 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">Specialty <span className="text-red-400">*</span></FormLabel>
-                              <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                              <FormControl>
+                                <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                              </FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -941,7 +951,9 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm font-medium text-slate-600">Role <span className="text-red-400">*</span></FormLabel>
-                              <RoleSelect value={field.value} onChange={field.onChange} />
+                              <FormControl>
+                                <RoleSelect value={field.value} onChange={field.onChange} />
+                              </FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />

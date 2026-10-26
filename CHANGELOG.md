@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Public forms: review fixes for the phone work (October 26)
+
+- All findings from the review of `e7cd2b2d` and `46a0ec6e` (no HIGH). **MED:** the abstract and proposal sign-up asked the phone for a NEW password when an existing account signs in, so iPhone and Chrome could offer a generated one (wrong password, and a keychain entry overwritten); it asks for the current password in sign-in mode.
+- **LOW:** the notice also clears when a sponsor code is applied, a document uploaded or the billing box changed (none of them form fields); one problem now quotes its own message ("Country is required", "Valid email is required") and several read "Please check: Country, City", so a filled-in but wrong field is no longer told to "fill in"; react-hook-form no longer jumps focus to a lower text field before the page scrolls to a dropdown above it (`shouldFocusError: false`); the same failure twice is announced again; the Title, Country, Specialty and Role labels open their picker on the registration, complete-registration and submitter forms too (the pickers sit in `FormControl`, which hands them the label's id); the group form shows its reason by the Register group button and scrolls to the coordinator, payer or member to fix, clearing once anything changes.
+- Title and Role stay controlled when empty (`""`, which Radix Select shows as the placeholder), removing the "uncontrolled to controlled" console warning on every public form.
+- Correction to the phone-work entry below: its touch-screen rules (44px picker rows, 16px picker search box) apply to the dashboard on tablets too, not only to the public forms. Desktop is unchanged.
+
 ### Public forms: built for phones (October 26)
 
 - A measured audit of every public form at 320, 360 and 390px found: a failed submit that showed nothing (the BHS2026 sponsor-link registrants on Oct 24), no autofill hints anywhere, 14px pickers that make iPhone zoom in, 36px buttons and a 16px "I agree" box, a cut-off name row and submit button at 320px, and group-form labels not tied to their fields. All fixed on the registration, complete-registration, abstract and proposal sign-up, group registration and login pages.

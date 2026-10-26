@@ -277,6 +277,9 @@ function CategoryRegistrationContent() {
 
   const form = useForm<RegistrationForm>({
     resolver: zodResolver(registrationSchema),
+    // The page scrolls to the first error itself (form-error-scroll.ts); the
+    // library's jump focused a lower text field first (review L4).
+    shouldFocusError: false,
     defaultValues: {
       ticketTypeId: "", pricingTierId: "", attendanceMode: "IN_PERSON", title: "", role: "",
       firstName: "", lastName: "", email: "", additionalEmail: "",
@@ -425,6 +428,7 @@ function CategoryRegistrationContent() {
     if (!file) return;
 
     setDocError(null);
+    setSubmitNotice(null);
     // Checked here purely to fail fast with a clear message — the server
     // re-checks size, type and magic bytes, and is the authority.
     if (file.size > SUPPORTING_DOCUMENT_MAX_SIZE) {
@@ -456,6 +460,7 @@ function CategoryRegistrationContent() {
   // jump to) and name what is missing by the button. Also react-hook-form's
   // onInvalid. The 50ms lets the messages set in onSubmit reach the page.
   function showBlockedSubmit() {
+    setSubmitNotice(null);
     setTimeout(() => setSubmitNotice(scrollToFirstFormError()), 50);
   }
 
@@ -615,6 +620,9 @@ function CategoryRegistrationContent() {
       const data = await res.json();
       if (requestId !== promoRequestRef.current) return;
       setPromoResult(data);
+      // A code that now works fixes what the notice asked for (not a form
+      // field, so the watch below never sees it; review L2).
+      if (data?.valid) setSubmitNotice(null);
     } catch (err) {
       console.warn("[register] promo validation failed", err);
       if (requestId !== promoRequestRef.current) return;
@@ -960,7 +968,9 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
-                            <TitleSelect value={field.value} onChange={field.onChange} />
+                            <FormControl>
+                              <TitleSelect value={field.value} onChange={field.onChange} />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -1025,7 +1035,9 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Country <span className="text-red-400">*</span></FormLabel>
-                            <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
+                            <FormControl>
+                              <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -1062,7 +1074,9 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Specialty <span className="text-red-400">*</span></FormLabel>
-                            <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                            <FormControl>
+                              <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -1070,7 +1084,9 @@ function CategoryRegistrationContent() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">Role <span className="text-red-400">*</span></FormLabel>
-                            <RoleSelect value={field.value} onChange={field.onChange} />
+                            <FormControl>
+                              <RoleSelect value={field.value} onChange={field.onChange} />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -1114,7 +1130,10 @@ function CategoryRegistrationContent() {
                     <label className="flex items-center gap-3 cursor-pointer">
                       <Checkbox
                         checked={billingSame}
-                        onCheckedChange={(checked) => setBillingSame(!!checked)}
+                        onCheckedChange={(checked) => {
+                          setBillingSame(!!checked);
+                          setSubmitNotice(null);
+                        }}
                       />
                       <span className="text-sm text-slate-600">Billing address same as personal details</span>
                     </label>
@@ -1181,7 +1200,9 @@ function CategoryRegistrationContent() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel className="text-sm font-medium text-slate-600">Country <span className="text-red-400">*</span></FormLabel>
-                                <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
+                                <FormControl>
+                                  <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
+                                </FormControl>
                                 <FormMessage />
                               </FormItem>
                             )} />

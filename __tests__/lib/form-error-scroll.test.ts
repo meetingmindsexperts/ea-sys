@@ -54,7 +54,7 @@ describe("scrollToFirstFormError", () => {
     const notice = scrollToFirstFormError(page([title, country]));
     expect(title.item!.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
     expect(country.item!.scrollIntoView).not.toHaveBeenCalled();
-    expect(notice).toBe("Please fill in: Title, Country");
+    expect(notice).toBe("Please check: Title, Country");
   });
 
   it("a field taller than the screen scrolls its MESSAGE into view, not the whole field", () => {
@@ -73,9 +73,16 @@ describe("scrollToFirstFormError", () => {
     expect(scrollToFirstFormError(page([category, terms]))).toBe("Please select a category (and 1 more to fix above)");
   });
 
-  it("an error set outside a form field (the registration type) names itself", () => {
+  // Review L3 (Oct 26): one problem quotes its own message, so a field that is
+  // filled in but wrong is not told to "fill in".
+  it("a single problem quotes its message, filled-in-but-wrong included", () => {
+    const bad = message("Valid email is required", { label: "Additional Email" });
+    expect(scrollToFirstFormError(page([bad]))).toBe("Valid email is required");
+  });
+
+  it("an error set outside a form field (the registration type) is found and scrolled to", () => {
     const type = message("Please choose a registration type", { own: "Registration type" });
-    expect(scrollToFirstFormError(page([type]))).toBe("Please fill in: Registration type");
+    expect(scrollToFirstFormError(page([type]))).toBe("Please choose a registration type");
     expect(type.scrollIntoView).toHaveBeenCalled();
   });
 
@@ -89,9 +96,9 @@ describe("scrollToFirstFormError", () => {
 
 describe("missingFieldsNotice", () => {
   it("names up to three fields, then counts the rest", () => {
-    expect(missingFieldsNotice(["Country"])).toBe("Please fill in: Country");
-    expect(missingFieldsNotice(["Title", "Country", "Role"])).toBe("Please fill in: Title, Country, Role");
-    expect(missingFieldsNotice(["Title", "Country", "Role", "City", "Phone"])).toBe("Please fill in: Title, Country, Role and 2 more");
+    expect(missingFieldsNotice(["Country"])).toBe("Please check: Country");
+    expect(missingFieldsNotice(["Title", "Country", "Role"])).toBe("Please check: Title, Country, Role");
+    expect(missingFieldsNotice(["Title", "Country", "Role", "City", "Phone"])).toBe("Please check: Title, Country, Role and 2 more");
   });
 
   it("without names, quotes the first message; the general line only when there is nothing", () => {
