@@ -434,7 +434,9 @@ jobs:
     # NON-GATING for now, per the standing >=5-consecutive-green rule; it is not
     # in needs: of build-push nor in notify-failure (whose wording assumes a
     # deploy problem). Promote it to build-push's needs after five greens.
-    runs-on: ubuntu-latest
+    # Pinned to 24.04 (Oct 27, 2026): ubuntu-latest moved to 26.04, which
+    # Playwright's Chromium install refuses. Unpin once Playwright supports it.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout code
