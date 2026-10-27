@@ -13,7 +13,7 @@
  * A note may only be edited by its author, so the delete affordance shows only where
  * it will be honoured.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useCan } from "@/hooks/use-can";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -30,7 +30,6 @@ import {
   Package,
   Paperclip,
   Pencil,
-  Search,
   Trash2,
   UserPlus,
   Users,
@@ -38,7 +37,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CRM_CTA,
   CRM_DEAL_PIPELINE_LABELS,
@@ -47,15 +45,12 @@ import {
   formatDealValue,
   personName,
   type CrmBoardDeal,
-  type CrmDealContactRole,
 } from "@/crm/lib/crm-types";
 import { cn } from "@/lib/utils";
 import {
-  useAddDealContact,
   useCloseDeal,
   useCreateCompany,
   useCreateTask,
-  useCrmContacts,
   useRemoveDealContact,
   useSetDealArchived,
   useUpdateDeal,
@@ -74,7 +69,7 @@ import {
 } from "@/crm/components/crm-deal-form-fields";
 import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
 import { CrmDealDocumentsCard } from "@/crm/components/crm-deal-documents-card";
-import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
+import { AddDealPeopleDialog } from "@/crm/components/add-deal-people-dialog";
 import { DealProducts } from "@/crm/components/crm-deal-products";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/components/record-layout";
 
@@ -445,10 +440,7 @@ export function DealDetailBody({
  * event HCP store: putting a doctor here would be a category error.
  */
 function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolean }) {
-  const [role, setRole] = useState<CrmDealContactRole>("PRIMARY");
-  const [createOpen, setCreateOpen] = useState(false);
-
-  const add = useAddDealContact(deal.id);
+  const [addOpen, setAddOpen] = useState(false);
   const remove = useRemoveDealContact(deal.id);
 
   const onDeal = deal.contacts ?? [];
@@ -497,192 +489,20 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
       )}
 
       {canWrite && (
-        <div className="space-y-2 border-t pt-3">
-          {/* Role applies to whichever add path is used (pick-existing or create-new). */}
-          <Select value={role} onValueChange={(v) => setRole(v as CrmDealContactRole)}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(DEAL_CONTACT_ROLE_LABELS) as CrmDealContactRole[]).map((r) => (
-                <SelectItem key={r} value={r}>
-                  {DEAL_CONTACT_ROLE_LABELS[r]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <DealContactPicker
+        <>
+          <Button size="sm" variant="outline" className="w-full" onClick={() => setAddOpen(true)}>
+            <UserPlus className="mr-2 h-3.5 w-3.5" />
+            Add people
+          </Button>
+          <AddDealPeopleDialog
             key={deal.company?.id ?? "none"}
+            open={addOpen}
+            onOpenChange={setAddOpen}
+            dealId={deal.id}
             account={deal.company ?? null}
             excludeIds={onDealIds}
-            pending={add.isPending}
-            onPick={(crmContactId) =>
-              add.mutate({ crmContactId, role }, { onSuccess: () => toast.success("Added to the deal") })
-            }
           />
-
-          {/* Create a NEW contact — pre-linked to the deal's company (companyId
-              default) AND attached to the deal (onCreated → addDealContact). An
-              existing email find-or-creates, then still links to the deal. */}
-          <Button size="sm" variant="outline" className="w-full" onClick={() => setCreateOpen(true)}>
-            <UserPlus className="mr-2 h-3.5 w-3.5" />
-            New contact
-          </Button>
-          <CreateCrmContactDialog
-            open={createOpen}
-            onOpenChange={setCreateOpen}
-            defaultCompanyId={deal.company?.id}
-            onCreated={(contact) => add.mutate({ crmContactId: contact.id, role })}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-const MIN_SEARCH = 2;
-const MAX_RESULTS = 20;
-const SEARCH_DEBOUNCE_MS = 250;
-
-/** The typed search, settled for SEARCH_DEBOUNCE_MS so each keystroke is not a request. */
-function useSettled(value: string): string {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setSettled(value), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(t);
-  }, [value]);
-  return settled;
-}
-
-/** What to say under the search box when no result is listed. */
-function searchMessage(q: string, matched: number, listed: number, loading: boolean): string | null {
-  if (q.length < MIN_SEARCH) return `Type at least ${MIN_SEARCH} characters.`;
-  if (loading) return "Searching…";
-  if (matched === 0) return `No contact matches \u201C${q}\u201D.`;
-  if (listed === 0) return "Everyone who matches is already on this deal.";
-  return null;
-}
-
-/**
- * Pick an existing contact for a deal. With an account, it lists THAT account's
- * people (owner, Oct 27, 2026), which is who you are actually selling to; a
- * switch searches every contact for the odd outside person. Without an account
- * it starts on the search. It never loads the whole contact list: that list is
- * capped, so with thousands of contacts most people could not be picked.
- *
- * The caller keys it by the account id, so a deal moved to another account
- * starts fresh (no person from the old account left selected).
- */
-function DealContactPicker({
-  account,
-  excludeIds,
-  pending,
-  onPick,
-}: {
-  account: { id: string; name: string } | null;
-  excludeIds: Set<string>;
-  pending: boolean;
-  onPick: (crmContactId: string) => void;
-}) {
-  const [picked, setPicked] = useState("");
-  const [searchAll, setSearchAll] = useState(!account);
-  const [search, setSearch] = useState("");
-  const q = useSettled(search.trim());
-
-  const showAccount = !!account && !searchAll;
-  const searching = !showAccount && q.length >= MIN_SEARCH;
-  const accountPeople = useCrmContacts({ companyId: account?.id }, { enabled: showAccount });
-  const results = useCrmContacts({ q }, { enabled: searching, keepPrevious: true });
-
-  if (showAccount) {
-    const available = (accountPeople.data ?? []).filter((c) => !excludeIds.has(c.id));
-    return (
-      <div className="space-y-1.5">
-        {accountPeople.isLoading && <p className="text-xs text-muted-foreground">Loading {account.name} people…</p>}
-        {!accountPeople.isLoading && available.length === 0 && (
-          <p className="text-xs text-muted-foreground">Nobody else at {account.name} yet.</p>
-        )}
-        {available.length > 0 && (
-          <div className="flex gap-2">
-            <Select value={picked} onValueChange={setPicked}>
-              <SelectTrigger className="flex-1" aria-label={`Add someone from ${account.name}`}>
-                <SelectValue placeholder={`Add someone from ${account.name}…`} />
-              </SelectTrigger>
-              <SelectContent>
-                {available.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.firstName} {c.lastName}
-                    {c.jobTitle ? ` · ${c.jobTitle}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              size="sm"
-              disabled={!picked || pending}
-              onClick={() => {
-                onPick(picked);
-                setPicked("");
-              }}
-            >
-              Add
-            </Button>
-          </div>
-        )}
-        <button type="button" className="text-xs text-primary hover:underline" onClick={() => setSearchAll(true)}>
-          Someone from another account
-        </button>
-      </div>
-    );
-  }
-
-  const matches = searching ? (results.data ?? []) : [];
-  const available = matches.filter((c) => !excludeIds.has(c.id));
-  const listed = available.slice(0, MAX_RESULTS);
-  const message = searchMessage(q, matches.length, listed.length, searching && results.isLoading);
-  return (
-    <div className="space-y-1.5">
-      <div className="relative">
-        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search all contacts by name or email…"
-          aria-label="Search all contacts"
-          className="pl-8"
-        />
-      </div>
-      {message && <p className="text-xs text-muted-foreground">{message}</p>}
-      {listed.length > 0 && (
-        <ul className="max-h-56 space-y-1 overflow-y-auto">
-          {listed.map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                disabled={pending}
-                className="w-full rounded-md border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onPick(c.id)}
-              >
-                <span className="font-medium">{c.firstName} {c.lastName}</span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {c.company ? `${c.company.name} · ` : ""}
-                  {c.email}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {available.length > MAX_RESULTS && (
-        <p className="text-xs text-muted-foreground">
-          Showing {MAX_RESULTS} of {available.length}. Type more of the name to narrow it down.
-        </p>
-      )}
-      {account && (
-        <button type="button" className="text-xs text-primary hover:underline" onClick={() => setSearchAll(false)}>
-          Back to {account.name} people
-        </button>
+        </>
       )}
     </div>
   );
