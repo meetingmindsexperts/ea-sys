@@ -142,8 +142,9 @@ export default function SpeakersPage() {
   });
   // A tab or abstract filter narrows the list in ways the bulk-email audience cannot express, so "Email" then
   // sends to exactly the speakers listed rather than to every speaker of the status (owner, Oct 27).
-  // (The abstract filter lives on the submitters tab, so any tab but "all" is a narrowing.)
-  const narrowed = kind !== "all";
+  // (The abstract filter lives on the submitters tab, so any tab but "all" is a narrowing.) A search narrows too:
+  // "Email" then sends to exactly who is listed on every tab, not only on some (review LOW, Oct 27).
+  const narrowed = kind !== "all" || searchQuery.trim() !== "";
   const emailIds = emailRecipientIds(selectedIds, narrowed, filteredSpeakers);
   const kindCount = (k: SpeakerKind) => speakers.filter((s) => matchesKind(s, k)).length;
 
@@ -307,7 +308,7 @@ export default function SpeakersPage() {
 
       {/* Invited speakers and abstract submitters, apart (owner, Oct 27) */}
       <Tabs value={kind} onValueChange={(v) => { setKind(v as SpeakerKind); setAbstractStatuses([]); setPage(1); setSelectedIds(new Set()); }}>
-        <TabsList>
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           {(["all", "invited", "submitters"] as const).map((k) => (
             <TabsTrigger key={k} value={k}>
               {KIND_LABEL[k]} <span className="ml-1.5 tabular-nums text-muted-foreground">{kindCount(k)}</span>
@@ -322,7 +323,7 @@ export default function SpeakersPage() {
           <StatsRow label={KIND_LABEL[kind]} hint={filteredSpeakers.length !== kindCount(kind) ? "Matching the filters" : undefined}>
             <StatTile compact label="Total" value={stats.total} />
             <StatTile compact label="Confirmed" value={stats.confirmed} valueClassName="text-green-600" />
-            <StatTile compact label="Invited" value={stats.invited} valueClassName="text-yellow-600" />
+            <StatTile compact label="Awaiting reply" value={stats.invited} valueClassName="text-yellow-600" />
             <StatTile compact label="Declined" value={stats.declined} valueClassName="text-red-600" />
             {kind !== "invited" && <StatTile compact label="Abstract accepted" value={stats.accepted} valueClassName="text-blue-600" />}
           </StatsRow>

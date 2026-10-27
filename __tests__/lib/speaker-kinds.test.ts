@@ -4,8 +4,8 @@
 import { describe, it, expect } from "vitest";
 import { canEmailListed, emailRecipientIds, isSubmitter, matchesKind } from "@/lib/speaker-kinds";
 
-const invited = { id: "a", _count: { abstracts: 0 } };
-const submitter = { id: "b", _count: { abstracts: 2 } };
+const invited = { id: "a", abstracts: [] as { status: string }[] };
+const submitter = { id: "b", abstracts: [{ status: "SUBMITTED" }, { status: "DRAFT" }] };
 
 describe("speaker kinds", () => {
   it("a speaker with an abstract is a submitter; the tabs split on that", () => {
@@ -14,6 +14,12 @@ describe("speaker kinds", () => {
     expect([invited, submitter].filter((s) => matchesKind(s, "invited")).map((s) => s.id)).toEqual(["a"]);
     expect([invited, submitter].filter((s) => matchesKind(s, "submitters")).map((s) => s.id)).toEqual(["b"]);
     expect([invited, submitter].filter((s) => matchesKind(s, "all"))).toHaveLength(2);
+  });
+
+  it("only a draft or a withdrawn abstract does not make an invited speaker a submitter (review MED)", () => {
+    expect(isSubmitter({ abstracts: [{ status: "DRAFT" }] })).toBe(false);
+    expect(isSubmitter({ abstracts: [{ status: "WITHDRAWN" }, { status: "DRAFT" }] })).toBe(false);
+    for (const status of ["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED", "ACCEPTED", "REJECTED"]) expect(isSubmitter({ abstracts: [{ status }] })).toBe(true);
   });
 });
 

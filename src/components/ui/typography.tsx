@@ -173,7 +173,8 @@ export function StatTile({
         {icon}
       </div>
       <div className={cn("font-semibold tracking-tight tabular-nums", compact ? "text-2xl" : "text-3xl", valueClassName)}>{value}</div>
-      {note && <p className="truncate text-xs text-muted-foreground">{note}</p>}
+      {/* Wraps rather than cutting off: the Paid note is what stops "Paid" being misread (review MED, Oct 27). */}
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
     </div>
   );
 }
