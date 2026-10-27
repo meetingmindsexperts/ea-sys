@@ -269,6 +269,21 @@ describe("runTick", () => {
   // Review M1 (July 24 regression): a CC'd colleague who replies must NOT get
   // their own reply forwarded back. The exclusion keys on the ACTUAL sender
   // (fromEmail), not the thread counterparty — the two differ for a CC reply.
+  it("sends the forward from the CRM's own sender, not the event system default (Oct 27, 2026)", async () => {
+    const prev = { ...process.env };
+    process.env.CRM_EMAIL_FROM_ADDRESS = "partnerships@meetingmindsdubai.com";
+    process.env.CRM_EMAIL_FROM_NAME = "Partnerships";
+    try {
+      mockS3({ "inbound/from": rawEmail() });
+      await runTick();
+      expect(sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ from: { email: "partnerships@meetingmindsdubai.com", name: "Partnerships" } }),
+      );
+    } finally {
+      process.env = prev;
+    }
+  });
+
   it("does NOT forward a reply back to the CC'd colleague who actually sent it", async () => {
     delete process.env.CRM_EMAIL_FROM_ADDRESS; // deterministic audience
     // The thread CC'd a colleague at send time (stored in notifyEmails); the

@@ -38,6 +38,7 @@ import { sendEmail } from "@/lib/email";
 import { escapeHtml } from "@/lib/html";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
+import { crmSenderFromEnv } from "@/crm/lib/crm-sender";
 
 const MAX_OBJECTS_PER_TICK = 25;
 const MAX_ATTACHMENTS = 10;
@@ -304,7 +305,7 @@ async function notifyOwner(args: {
   const audience = buildForwardAudience({
     ownerEmail: owner?.email,
     ownerName,
-    partnerships: process.env.CRM_EMAIL_FROM_ADDRESS?.trim() || null,
+    partnerships: crmSenderFromEnv()?.email ?? null,
     notifyEmails: args.thread.notifyEmails,
     // Exclude whoever ACTUALLY sent this inbound (args.fromEmail) — NOT the
     // thread counterparty. They differ when a CC'd colleague replies: that
@@ -327,7 +328,9 @@ async function notifyOwner(args: {
     args.htmlBody ??
     `<pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(args.textBody ?? "")}</pre>`;
 
+  const from = crmSenderFromEnv();
   const res = await sendEmail({
+    ...(from ? { from } : {}),
     to: [{ email: primary.email, name: primary.name }],
     ...(rest.length ? { bcc: rest.map((r) => ({ email: r.email, name: r.name })) } : {}),
     subject: `Fwd: ${args.thread.subject}`,
