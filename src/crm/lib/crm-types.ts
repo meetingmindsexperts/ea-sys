@@ -634,7 +634,7 @@ export const CRM_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   QUOTE_GENERATED: "Generated a quote",
   QUOTE_UPDATED: "Edited a quote",
   QUOTE_ARCHIVED: "Deleted a quote",
-  EMAIL_RECEIVED: "Email reply received",
+  EMAIL_RECEIVED: "Email received",
 };
 
 /**

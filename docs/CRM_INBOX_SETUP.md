@@ -228,6 +228,67 @@ re-read `.env`; it must be `deploy.sh`.
   are revoked when a deal is archived — inbound to a dead thread goes `unmatched/`.
 - Emails sent BEFORE the env landed carry no tokenized Reply-To — replies to
   those go to the From address, not the inbox.
-- Known v1 limitation: replies from the CRM don't set RFC threading headers
-  (`In-Reply-To`/`References`) — clients group by subject+participants. The
-  Message-ID chain is stored for a future upgrade.
+- Replies sent from the CRM inbox carry `In-Reply-To` / `References` (since
+  Oct 27, 2026), so they join the sponsor's own conversation; every outbound
+  message stores its Message-ID.
+
+## Partnerships mailbox capture (Oct 27, 2026)
+
+**What it does.** Mail a sponsor sends straight to `partnerships@meetingmindsdubai.com`
+(no CRM reply code), and mail a rep sends from that mailbox in Outlook, lands in
+**CRM → Inbox** too. A Microsoft 365 mail-flow rule copies every such message to
+the CRM's receiving domain; the inbound worker files it
+(`processCapture` in `src/crm/inbound-email-worker.ts`, rules in
+`src/crm/lib/inbox-capture.ts`, records in `src/crm/services/inbox-capture-service.ts`).
+
+**Owner rulings.** `partnerships@` only, never reps' mailboxes. Nothing a person
+sends is ignored: an unknown sender becomes a CRM contact (tagged `from-inbox`),
+mapped to an account when exactly one account's website names their email domain,
+or colleagues on that domain all belong to one account (else tagged
+`needs-account`; a gmail-type address is never mapped). A missing name is tagged
+`needs-name`. History is written on the contact, its account and the deal, and the
+deal owner gets the in-app bell. Machine mail (auto-replies, newsletters, bounces)
+still lands in the inbox but never becomes a contact. Mail between colleagues, and
+the CRM's own forward copies, are skipped. An email that arrives twice (the
+capture copy and the reply-code copy) is filed once, by Message-ID.
+
+**Trust.** Capturing mail sent *to* partnerships@ is no wider than the mailbox
+itself (anyone can email it). Mail *from* partnerships@ is filed only with
+`dmarc=pass`, so nobody can forge what the team said.
+
+### 1. Microsoft 365 (Exchange admin center, owner-run)
+
+1. **Recipients → Contacts → Add a mail contact**: display name `CRM Capture`,
+   external email `capture@reply.meetingmindsexperts.com`. (Any local part works:
+   SES accepts the whole domain.)
+2. **Mail flow → Rules → Add a rule → Create a new rule**, name
+   `CRM capture: mail to partnerships`:
+   - *Apply this rule if*: **The recipient** → **is this person** → `partnerships@meetingmindsdubai.com`
+   - *Do the following*: **Add recipients** → **to the Bcc box** → `CRM Capture`
+   - Save, then switch the rule **on** (rules are created disabled).
+3. A second rule, `CRM capture: mail from partnerships`:
+   - *Apply this rule if*: **The sender** → **is this person** → `partnerships@meetingmindsdubai.com`
+   - *Do the following*: **Add recipients** → **to the Bcc box** → `CRM Capture`
+   - Save and switch on.
+
+A mail-flow Bcc is not "automatic forwarding", so M365's outbound forwarding
+block does not apply, and the original headers (From, To, Message-ID) travel with
+the copy.
+
+### 2. Env + deploy (on the box), BEFORE switching the rules on
+
+```
+CRM_CAPTURE_ORG_ID="cmknqh87j0000mj0wk4j1tzk0"   # the organisation the mailbox belongs to
+```
+
+Without it, capture is dormant and no-code mail keeps going to `unmatched/`.
+`CRM_EMAIL_FROM_ADDRESS` (already set) names the mailbox. Then `scripts/deploy.sh`.
+
+### 3. Verify
+
+1. From an outside address, email `partnerships@` with a new subject. Within
+   about 2 minutes it shows in **CRM → Inbox**; the sender is a contact tagged
+   `from-inbox`; `/logs` shows `crm-capture:stored`.
+2. Reply to that email from Outlook (as partnerships@): the reply joins the same
+   conversation as an outgoing message.
+3. Mail that was skipped shows `crm-inbound:unmatched` with a `capture-skip:` reason.

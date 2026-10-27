@@ -99,6 +99,7 @@ Original plan:
   verified and permitted in SES (policy updated Oct 27, 2026).
 - **No new background work**: the inbound job stays as it is. Search is an
   indexed query over a small table.
-- **Not covered**: email sent to `partnerships@` or a rep's own mailbox
-  directly, outside the CRM. The cheap route there is a forwarding rule on the
-  mailbox into the CRM's receiving address, decided separately.
+- **Partnerships mailbox capture (BUILT Oct 27, 2026)**: email sent straight to
+  `partnerships@`, or from it in Outlook, lands in the inbox through a Microsoft
+  365 mail-flow Bcc; unknown senders become contacts. Reps' own mailboxes are
+  out of scope (owner). Setup: docs/CRM_INBOX_SETUP.md, last section.

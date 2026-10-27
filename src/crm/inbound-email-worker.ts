@@ -39,6 +39,16 @@ import { escapeHtml } from "@/lib/html";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
 import { crmSenderFromEnv } from "@/crm/lib/crm-sender";
+import { isInternalEmail } from "@/lib/internal-domains";
+import { mintReplyToken } from "@/crm/services/crm-email-thread-service";
+import { captureDirection, isAutomatedMail } from "@/crm/lib/inbox-capture";
+import {
+  alreadyCaptured,
+  findCaptureThread,
+  recordCaptureActivity,
+  resolveCaptureContact,
+  soleDealForContact,
+} from "@/crm/services/inbox-capture-service";
 
 const MAX_OBJECTS_PER_TICK = 25;
 const MAX_ATTACHMENTS = 10;
@@ -402,9 +412,9 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
       })
     : null;
   if (!thread) {
-    await moveObject(bucket, key, `unmatched/${basename}`);
-    apiLogger.warn({ msg: "crm-inbound:unmatched", key, hasToken: !!token });
-    return "unmatched";
+    // No reply token: a copy of partnerships@ mail from the Microsoft 365 rule
+    // (or stray mail). The capture path decides which.
+    return await processCapture({ bucket, key, basename, processedKey, parsed, replyDomain });
   }
 
   // Token lifecycle (review M1): a revoked (deal archived) or expired (dormant)
@@ -425,6 +435,13 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
   // unique reply token → exactly one thread → one org). Wrap the message-storage
   // tail in the row's tenant store; no-op passthrough while RLS_SET_LOCAL is off.
   return await runWithTenant(thread.organizationId, async () => {
+  // The same reply can also arrive through the partnerships capture (a sponsor
+  // who copied partnerships@): file it once.
+  if (await alreadyCaptured(thread.organizationId, parsed.messageId ?? null)) {
+    await moveObject(bucket, key, processedKey);
+    apiLogger.info({ msg: "crm-inbound:already-captured", key, threadId: thread.id });
+    return "duplicate";
+  }
   const fromEmail = parsed.from?.value?.[0]?.address ?? "unknown";
   const fromName = parsed.from?.value?.[0]?.name || null;
   const textBody = parsed.text ?? null;
@@ -518,6 +535,196 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
     unverified: !sender.verified,
   });
   return "stored";
+  });
+}
+
+// ── Partnerships mailbox capture (Oct 27, 2026) ─────────────────────────────────
+
+type ObjectOutcome = "stored" | "duplicate" | "quarantined" | "unmatched";
+
+/** The message ids an email replies to, newest last (In-Reply-To + References). */
+function referencedIds(parsed: ParsedMail): string[] {
+  const refs = ([] as string[]).concat(parsed.references ?? []);
+  return [...refs, ...(parsed.inReplyTo ? [parsed.inReplyTo] : [])];
+}
+
+/** A display name for an address among the To/Cc, when the sender gave one. */
+function recipientName(parsed: ParsedMail, email: string): string | null {
+  const all = [...addressObjects(parsed.to), ...addressObjects(parsed.cc)].flatMap((a) => a.value);
+  return all.find((x) => x.address?.toLowerCase() === email)?.name || null;
+}
+
+/**
+ * File a copy of partnerships@ mail (no reply token) into the CRM inbox.
+ * Dormant until CRM_CAPTURE_ORG_ID is set: the organisation the partnerships
+ * mailbox belongs to (master silo: one). Rules in src/crm/lib/inbox-capture.ts.
+ *
+ * Trust: capturing an email "To: partnerships@" is no wider than the mailbox
+ * itself (anyone can email it). Outbound ("From: partnerships@", a rep in
+ * Outlook) must carry DMARC=pass, so nobody can forge what "we" said.
+ */
+async function processCapture(args: {
+  bucket: string;
+  key: string;
+  basename: string;
+  processedKey: string;
+  parsed: ParsedMail;
+  replyDomain: string | null;
+}): Promise<ObjectOutcome> {
+  const { bucket, key, basename, processedKey, parsed } = args;
+  const organizationId = process.env.CRM_CAPTURE_ORG_ID?.trim();
+  const mailbox = crmSenderFromEnv()?.email;
+  const unmatched = async (reason: string): Promise<ObjectOutcome> => {
+    await moveObject(bucket, key, `unmatched/${basename}`);
+    apiLogger.warn({ msg: "crm-inbound:unmatched", key, reason });
+    return "unmatched";
+  };
+  if (!organizationId || !mailbox) return unmatched("no-token-capture-off");
+
+  const fromEmail = (parsed.from?.value?.[0]?.address ?? "").toLowerCase();
+  const fromName = parsed.from?.value?.[0]?.name || null;
+  const direction = captureDirection({
+    mailbox,
+    fromEmail,
+    recipients: recipientAddresses(parsed),
+    isInternal: (e) => isInternalEmail(e),
+    replyDomain: args.replyDomain,
+  });
+  if (direction.kind === "skip") return unmatched(`capture-skip:${direction.reason}`);
+
+  const auth = headerText(parsed.headers.get("authentication-results"));
+  if (direction.kind === "outbound" && !/dmarc\s*=\s*pass/i.test(auth)) {
+    return unmatched("capture-outbound-unauthenticated");
+  }
+
+  return await runWithTenant(organizationId, async () => {
+    if (await alreadyCaptured(organizationId, parsed.messageId ?? null)) {
+      await moveObject(bucket, key, processedKey);
+      apiLogger.info({ msg: "crm-capture:duplicate", key });
+      return "duplicate";
+    }
+
+    const inbound = direction.kind === "inbound";
+    const counterparty = direction.counterparty;
+    const counterpartyName = inbound ? fromName : recipientName(parsed, counterparty);
+    const sender = inbound ? verifySender(parsed, counterparty) : { verified: true, reason: "own-mailbox" };
+    const automated = inbound && isAutomatedMail((h) => parsed.headers.get(h), counterparty);
+
+    const contact = await resolveCaptureContact({
+      organizationId,
+      email: counterparty,
+      displayName: counterpartyName,
+      automated,
+    });
+    const existingThreadId = await findCaptureThread({
+      organizationId,
+      references: referencedIds(parsed),
+      counterpartyEmail: counterparty,
+      subject: parsed.subject ?? null,
+    });
+    const dealId = existingThreadId || !contact ? null : await soleDealForContact(organizationId, contact.id);
+
+    const attachments = await storeAttachments(parsed, existingThreadId ?? `capture-${globalThis.crypto.randomUUID()}`);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
+    let threadId = existingThreadId;
+    try {
+      threadId = await tenantTransaction(async (tx) => {
+        const id =
+          existingThreadId ??
+          (
+            await tx.crmEmailThread.create({
+              data: {
+                organizationId,
+                dealId,
+                crmContactId: contact?.id ?? null,
+                subject: parsed.subject?.trim() || "(no subject)",
+                replyToken: mintReplyToken(),
+                counterpartyEmail: counterparty,
+                counterpartyName,
+                expiresAt,
+              },
+              select: { id: true },
+            })
+          ).id;
+        await tx.crmEmailMessage.create({
+          data: {
+            organizationId,
+            threadId: id,
+            direction: inbound ? "INBOUND" : "OUTBOUND",
+            fromEmail: fromEmail || "unknown",
+            fromName,
+            subject: parsed.subject ?? null,
+            textBody: parsed.text ?? null,
+            htmlBody: typeof parsed.html === "string" ? parsed.html : null,
+            messageId: parsed.messageId ?? null,
+            inReplyTo: parsed.inReplyTo ?? null,
+            s3Key: processedKey,
+            attachments: attachments.length ? (attachments as unknown as Prisma.InputJsonValue) : undefined,
+            spamVerdict: "PASS",
+            unverifiedSender: !sender.verified,
+          },
+        });
+        await tx.crmEmailThread.update({
+          where: { id, organizationId },
+          data: inbound
+            ? { hasUnread: true, lastMessageAt: now, lastInboundAt: now, expiresAt, archivedAt: null }
+            : { lastMessageAt: now, expiresAt },
+        });
+        return id;
+      });
+    } catch (err) {
+      await cleanupAttachmentFiles(attachments.map((a) => a.path));
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        await moveObject(bucket, key, processedKey);
+        apiLogger.warn({ msg: "crm-capture:duplicate-race", key });
+        return "duplicate";
+      }
+      throw err;
+    }
+
+    const thread = await db.crmEmailThread.findFirst({
+      where: { id: threadId!, organizationId },
+      select: { id: true, subject: true, dealId: true, deal: { select: { name: true, ownerId: true } } },
+    });
+    recordCaptureActivity({
+      organizationId,
+      direction: inbound ? "INBOUND" : "OUTBOUND",
+      subject: parsed.subject ?? null,
+      counterpartyEmail: counterparty,
+      contact,
+      dealId: thread?.dealId ?? null,
+      threadId: threadId!,
+      unverified: !sender.verified,
+    });
+    // The mailbox already holds the email, so no email copy: the deal owner
+    // gets the in-app bell for a sponsor's message.
+    if (inbound && thread?.deal?.ownerId) {
+      await notifyCrmUser({
+        organizationId,
+        recipientId: thread.deal.ownerId,
+        actorId: null,
+        type: "EMAIL_RECEIVED",
+        title: sender.verified ? "New email in the CRM inbox" : "⚠ Unverified email in the CRM inbox",
+        message: `${counterpartyName ?? counterparty} wrote to partnerships on ${thread.deal.name}: ${thread.subject}`,
+        link: `/crm/inbox?thread=${threadId}`,
+      }).catch((err) =>
+        apiLogger.warn({ msg: "crm-capture:notify-failed", threadId, err: err instanceof Error ? err.message : String(err) }),
+      );
+    }
+
+    await moveObject(bucket, key, processedKey);
+    apiLogger.info({
+      msg: "crm-capture:stored",
+      threadId,
+      direction: inbound ? "inbound" : "outbound",
+      newThread: !existingThreadId,
+      contactCreated: contact?.created ?? false,
+      automated,
+      dealId: thread?.dealId ?? null,
+      attachments: attachments.length,
+    });
+    return "stored";
   });
 }
 

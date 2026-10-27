@@ -55,7 +55,8 @@ interface ContactFields {
 export interface CreateCrmContactInput extends ContactFields {
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "agent" | "api";
+  /** "inbox": created from an email to the partnerships mailbox (inbox-capture-service). */
+  source: "rest" | "mcp" | "agent" | "api" | "inbox";
   requestIp?: string;
 }
 
