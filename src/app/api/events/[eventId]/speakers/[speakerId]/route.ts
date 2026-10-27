@@ -10,8 +10,7 @@ import { normalizeTag } from "@/lib/utils";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { stripHonorariumFields } from "@/lib/reimbursement/constants";
-import { eventFactsOf } from "@/lib/permissions/event-facts";
-import { withVisibleSubmissions } from "@/lib/speaker-submission-visibility";
+import { submissionVisibilityFor, withVisibleSubmissions } from "@/lib/speaker-submission-visibility";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -179,9 +178,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         : null,
     };
     // Abstracts need their own read key on this event, not speakers.read alone (owner, Oct 27).
-    const facts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
-    const canReadAbstracts = facts !== null && can(gate.principal, "abstracts.read", { event: facts });
-    const visible = withVisibleSubmissions(withoutCode, { abstracts: canReadAbstracts, proposals: true });
+    const visible = withVisibleSubmissions(withoutCode, submissionVisibilityFor(gate.principal, event));
     return NextResponse.json(
       can(gate.principal, "honorarium.view") ? visible : stripHonorariumFields(visible),
     );

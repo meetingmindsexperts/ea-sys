@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { buildSpeakerActivity } from "@/lib/activity-feed";
+import { submissionVisibilityFor } from "@/lib/speaker-submission-visibility";
 import { requirePermission } from "@/lib/permissions/require-permission";
 
 interface RouteParams {
@@ -38,7 +39,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // Role-scoped event access (404 to avoid existence leak).
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true },
+      select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
     if (!event) {
       apiLogger.warn({
@@ -64,6 +65,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       session.user.organizationId,
       can(gate.principal, "finance.view"),
       can(gate.principal, "honorarium.view"),
+      submissionVisibilityFor(gate.principal, event),
     );
     return NextResponse.json({ items, linked });
     });

@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { submissionVisibilityFor, withVisibleSubmissions } from "@/lib/speaker-submission-visibility";
 
 const createTrackSchema = z.object({
   name: z.string().min(1).max(255),
@@ -37,7 +38,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // around the swept track read.
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
 
     if (!event) {
@@ -59,7 +60,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       orderBy: { sortOrder: "asc" },
     });
 
-    const response = NextResponse.json(tracks);
+    // The abstract count per track needs abstracts.read on the event (owner, Oct 27).
+    const visibility = { abstracts: submissionVisibilityFor(gate.principal, event).abstracts, proposals: true };
+    const response = NextResponse.json(tracks.map((t) => withVisibleSubmissions(t, visibility)));
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
     });

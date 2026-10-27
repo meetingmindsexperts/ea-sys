@@ -7,6 +7,10 @@ import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { submissionVisibilityFor, withVisibleSubmissions } from "@/lib/speaker-submission-visibility";
+
+/** How a speaker is named on a track: who they are, never how to reach them or what they are paid. */
+const SPEAKER_NAME_SELECT = { id: true, title: true, firstName: true, lastName: true, organization: true, jobTitle: true, photo: true, status: true } as const;
 
 const updateTrackSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -73,12 +77,16 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
     if (!event) {
       apiLogger.warn({ msg: "track:event-not-found", eventId });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+
+    // sessions.read reaches this, so a speaker is named, never handed over whole (contact details, the
+    // honorarium), and the track's abstracts need abstracts.read on the event (owner, Oct 27).
+    const { abstracts: canReadAbstracts } = submissionVisibilityFor(gate.principal, event);
 
     return await runWithTenant(event.organizationId, async () => {
     const track = await db.track.findFirst({
@@ -91,17 +99,15 @@ export async function GET(req: Request, { params }: RouteParams) {
           include: {
             speakers: {
               include: {
-                speaker: true,
+                speaker: { select: SPEAKER_NAME_SELECT },
               },
             },
           },
           orderBy: { startTime: "asc" },
         },
-        abstracts: {
-          include: {
-            speaker: true,
-          },
-        },
+        abstracts: canReadAbstracts
+          ? { select: { id: true, serialId: true, title: true, status: true, speaker: { select: SPEAKER_NAME_SELECT } } }
+          : false,
         _count: {
           select: {
             eventSessions: true,
@@ -116,7 +122,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Track not found" }, { status: 404 });
     }
 
-    return NextResponse.json(track);
+    return NextResponse.json(withVisibleSubmissions(track, { abstracts: canReadAbstracts, proposals: true }));
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching track" });

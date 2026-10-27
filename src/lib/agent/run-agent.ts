@@ -14,6 +14,7 @@ import { buildSystemPrompt } from "./system-prompt";
 import { gateToolCall } from "./tool-gate";
 import { wrapToolResultAsData } from "./tool-result";
 import { redactToolText, type ToolRedactions } from "./tool-result-redaction";
+import { redactSubmissionsInToolText, submissionVisibilityOnFacts, toolCarriesSubmissions } from "./submission-redaction";
 import { collectToolsForActor, toAnthropicTool, type AgentActor, type RegisteredTool } from "./tool-registry";
 import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE, approvalLabel, requiresApproval } from "./approvals";
 import { mintApprovalToken } from "./approval-token";
@@ -214,6 +215,12 @@ export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): 
       if (decision.write) writesSoFar++;
       const ran = await tool.run(opts.approved ? { ...toolInput, [APPROVAL_CONFIRM_PARAM]: true } : toolInput);
       text = redactToolText(ran.text, req.redactions);
+      if (toolCarriesSubmissions(toolName)) {
+        // The event this call answered about: its own, else the page's (owner, Oct 27).
+        const callEvent = typeof toolInput.eventId === "string" && toolInput.eventId ? toolInput.eventId : req.eventId;
+        const facts = callEvent ? await factsFor(callEvent) : null;
+        text = redactSubmissionsInToolText(toolName, text, submissionVisibilityOnFacts(req.principal, facts));
+      }
       isError = ran.isError;
       stepOutcome = isError ? "ERROR" : "RAN";
       stepCode = isError ? stepCodeFromResult(ran.text) : null;

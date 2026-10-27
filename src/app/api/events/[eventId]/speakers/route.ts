@@ -13,8 +13,7 @@ import { getOrgContext } from "@/lib/api-auth";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { getClientIp } from "@/lib/security";
 import { stripHonorariumFields } from "@/lib/reimbursement/constants";
-import { eventFactsOf } from "@/lib/permissions/event-facts";
-import { withVisibleSubmissions } from "@/lib/speaker-submission-visibility";
+import { submissionVisibilityFor, withVisibleSubmissions } from "@/lib/speaker-submission-visibility";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import {
   createSpeaker,
@@ -207,10 +206,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Abstracts and session proposals need their own read keys on this event, not speakers.read alone
     // (owner, Oct 27): a Sales or Onsite custom role lists speakers without seeing what they submitted. A
     // submitter's own row keeps its own submissions. An API key is judged on its keys like anyone else.
-    const facts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
-    const visibleTo = (key: "abstracts.read" | "proposals.read") =>
-      ownSpeakerOnly || (facts !== null && can(gate.principal, key, { event: facts }));
-    const visibility = { abstracts: visibleTo("abstracts.read"), proposals: visibleTo("proposals.read") };
+    const visibility = ownSpeakerOnly ? { abstracts: true, proposals: true } : submissionVisibilityFor(gate.principal, event);
     const visible = speakers.map((s) => withVisibleSubmissions(s, visibility));
     const response = NextResponse.json(canSeeHonorarium ? visible : visible.map(stripHonorariumFields));
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");

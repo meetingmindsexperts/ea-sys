@@ -6,9 +6,42 @@
  * without its abstracts (or their count), and without `proposals.read`
  * without its proposals. Pure, so the list and the detail route share it.
  */
+import { can, type Principal } from "@/lib/permissions/can";
+import { eventFactsOf } from "@/lib/permissions/event-facts";
+
 export interface SubmissionVisibility {
   abstracts: boolean;
   proposals: boolean;
+}
+
+/** Neither list: the default wherever a caller has not said. */
+export const NO_SUBMISSIONS: SubmissionVisibility = { abstracts: false, proposals: false };
+
+/**
+ * What this caller may see of the submissions on this event: each key judged on
+ * the event's own scope, so an assigned-only grant does not reach another event.
+ */
+export function submissionVisibilityFor(
+  principal: Principal,
+  event: { organizationId: string; eventType?: string | null; staffAssignments?: { userId: string }[] | null },
+): SubmissionVisibility {
+  const facts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
+  if (!facts) return NO_SUBMISSIONS;
+  return {
+    abstracts: can(principal, "abstracts.read", { event: facts }),
+    proposals: can(principal, "proposals.read", { event: facts }),
+  };
+}
+
+/**
+ * The email templates that tell what a speaker submitted and how it was
+ * decided: the subject alone ("Abstract Accepted!") is the decision.
+ */
+export function submissionEmailVisible(templateSlug: string | null | undefined, visible: SubmissionVisibility): boolean {
+  if (!templateSlug) return true;
+  if (templateSlug.startsWith("abstract-") || templateSlug === "presenter-agreement") return visible.abstracts;
+  if (templateSlug.startsWith("session-proposal")) return visible.proposals;
+  return true;
 }
 
 type WithSubmissions = {

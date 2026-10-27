@@ -37,7 +37,7 @@ import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { useSpeakers, useEvent, useBulkTagSpeakers } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
-import { useCan } from "@/hooks/use-can";
+import { useCan, type CanStatus } from "@/hooks/use-can";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -82,6 +82,11 @@ const KIND_LABEL: Record<SpeakerKind, string> = { all: "All speakers", invited: 
  * The tabs a caller can be shown. Telling an invited speaker from a submitter needs the abstracts, and from a
  * proposer the proposals, so a tab whose grouping the caller cannot see is left out rather than shown wrong.
  */
+function sentOrAllowed(speakers: Speaker[], field: "abstracts" | "sessionProposals", answer: CanStatus): boolean {
+  if (speakers.length > 0) return speakers.some((s) => s[field] !== undefined);
+  return answer === "allowed";
+}
+
 function visibleKinds(readAbstracts: boolean, readProposals: boolean, proposerCount: number): SpeakerKind[] {
   const both = readAbstracts && readProposals;
   return (["all", "invited", "submitters", "proposers"] as const).filter((k) => {
@@ -122,8 +127,8 @@ export default function SpeakersPage() {
   const canTagSpeakers = useCan("speakers.update", eventId) === "allowed";
   const canSendEmail = useCan("communications.send", eventId) === "allowed";
   const canSelect = canTagSpeakers || canSendEmail;
-  const canReadAbstracts = useCan("abstracts.read", eventId) === "allowed";
-  const canReadProposals = useCan("proposals.read", eventId) === "allowed";
+  const abstractsAnswer = useCan("abstracts.read", eventId);
+  const proposalsAnswer = useCan("proposals.read", eventId);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -141,6 +146,10 @@ export default function SpeakersPage() {
   const { data: event } = useEvent(eventId);
   const { data: speakersData = [], isLoading: loading, isFetching, refetch } = useSpeakers(eventId);
   const speakers = speakersData as Speaker[];
+  // The list itself says what the server let through (it is the authority), so the column and tabs show at once
+  // instead of waiting on the permission answer; that answer is only needed for an empty list.
+  const canReadAbstracts = sentOrAllowed(speakers, "abstracts", abstractsAnswer);
+  const canReadProposals = sentOrAllowed(speakers, "sessionProposals", proposalsAnswer);
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 

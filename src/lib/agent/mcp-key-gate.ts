@@ -6,6 +6,14 @@ import { loadEventFacts } from "./event-facts-loader";
 import { gateToolCall } from "./tool-gate";
 import { toolPermission } from "./tool-permissions";
 import { needsRedaction, redactionsFor, redactToolText } from "./tool-result-redaction";
+import {
+  redactSubmissionsInResource,
+  redactSubmissionsInToolText,
+  resourceCarriesSubmissions,
+  submissionVisibilityOnFacts,
+  toolCarriesSubmissions,
+} from "./submission-redaction";
+import type { SubmissionVisibility } from "@/lib/speaker-submission-visibility";
 
 /** The key each MCP resource reads with (the matching list routes' keys). */
 const RESOURCE_PERMISSIONS: Readonly<Record<string, PermissionKey>> = {
@@ -53,6 +61,19 @@ export function gateMcpServerForKey(server: McpServer, principal: Principal, org
     };
   };
 
+  // Abstracts inside an events.read answer (the search, the stats, the event info) need abstracts.read on
+  // that event (owner, Oct 27). No event named, or none found: nothing of them.
+  const submissionsOn = async (eventId: unknown) =>
+    submissionVisibilityOnFacts(principal, typeof eventId === "string" && eventId ? await loadEventFacts(eventId, organizationId) : null);
+  const redactSubmissionsInOutput = (name: string, out: unknown, visible: SubmissionVisibility): unknown => {
+    const result = out as ToolOutput | null;
+    if (!result || !Array.isArray(result.content)) return out;
+    return {
+      ...result,
+      content: result.content.map((c) => (c.type === "text" && typeof c.text === "string" ? { ...c, text: redactSubmissionsInToolText(name, c.text, visible) } : c)),
+    };
+  };
+
   const tool = (...args: unknown[]) => {
     const name = String(args[0]);
     const key = toolPermission(name);
@@ -62,7 +83,8 @@ export function gateMcpServerForKey(server: McpServer, principal: Principal, org
       const input = (callArgs.length > 1 ? callArgs[0] : {}) as Record<string, unknown>;
       const decision = gateToolCall(name, { principal, event: await factsFor(key, input?.eventId), writesSoFar: 0, maxWrites: Number.MAX_SAFE_INTEGER, input });
       if (decision.kind === "refuse") return refusal(name, decision.result.code, decision.result.error);
-      return redactOutput(await run(...callArgs));
+      const out = redactOutput(await run(...callArgs));
+      return toolCarriesSubmissions(name) ? redactSubmissionsInOutput(name, out, await submissionsOn(input?.eventId)) : out;
     };
     return (server.tool as (...a: unknown[]) => unknown)(...args);
   };
@@ -81,7 +103,8 @@ export function gateMcpServerForKey(server: McpServer, principal: Principal, org
         apiLogger.warn({ msg: "mcp:key-role-refused", resource: name, organizationId });
         throw new Error(`This API key's role does not include "${name}" for that event.`);
       }
-      return read(...callArgs);
+      const result = await read(...callArgs);
+      return resourceCarriesSubmissions(name) ? redactSubmissionsInResource(name, result, await submissionsOn(params.eventId)) : result;
     };
     return (server.resource as (...a: unknown[]) => unknown)(...args);
   };

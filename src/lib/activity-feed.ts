@@ -22,6 +22,7 @@
  */
 import { db } from "@/lib/db";
 import { getEmailLogsFor } from "@/lib/email-log";
+import { NO_SUBMISSIONS, submissionEmailVisible, type SubmissionVisibility } from "@/lib/speaker-submission-visibility";
 import { computeAuditDiffs } from "@/lib/activity-diff";
 
 // Activity types live in a client-safe module (no `db` import) so the client
@@ -84,6 +85,7 @@ async function collect(
   organizationId: string | null | undefined,
   canViewFinance: boolean,
   canViewReimbursements: boolean,
+  submissions: SubmissionVisibility,
 ): Promise<ActivityItem[]> {
   const items: ActivityItem[] = [];
 
@@ -176,6 +178,8 @@ async function collect(
   };
   const pushEmail = (rows: EmailRow[], source: ActivitySource) => {
     for (const r of rows) {
+      // An abstract or proposal email's subject is the decision itself (owner, Oct 27): it needs the read key.
+      if (!submissionEmailVisible(r.templateSlug, submissions)) continue;
       items.push({
         id: `email:${r.id}`,
         source,
@@ -293,6 +297,8 @@ export async function buildSpeakerActivity(
   // is reimbursement data (staff only, stricter than finance — MEMBER and
   // ONSITE can view finance but not this). Defaults closed.
   canViewReimbursements = false,
+  // Abstract and proposal emails need abstracts.read / proposals.read. Defaults closed.
+  submissions: SubmissionVisibility = NO_SUBMISSIONS,
 ): Promise<ActivityFeed> {
   const linked = await resolveLinkedRegistration(eventId, speaker);
   const items = await collect(
@@ -302,6 +308,7 @@ export async function buildSpeakerActivity(
     organizationId,
     canViewFinance,
     canViewReimbursements,
+    submissions,
   );
   return {
     items,
@@ -319,6 +326,8 @@ export async function buildRegistrationActivity(
   // is reimbursement data (staff only, stricter than finance — MEMBER and
   // ONSITE can view finance but not this). Defaults closed.
   canViewReimbursements = false,
+  // The linked speaker's abstract and proposal emails need their read keys. Defaults closed.
+  submissions: SubmissionVisibility = NO_SUBMISSIONS,
 ): Promise<ActivityFeed> {
   const linked = await resolveLinkedSpeaker(eventId, registration);
   const items = await collect(
@@ -328,6 +337,7 @@ export async function buildRegistrationActivity(
     organizationId,
     canViewFinance,
     canViewReimbursements,
+    submissions,
   );
   return {
     items,

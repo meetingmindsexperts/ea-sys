@@ -308,6 +308,30 @@ describe("GET /api/events/[eventId]/speakers shows abstracts and proposals only 
     expect(body[0].sessionProposals).toHaveLength(1);
   });
 
+  it("a full API key keeps the abstracts (the Webflow sync) and loses the proposals it holds no key for", async () => {
+    mockAuth.mockResolvedValue(null);
+    mockGetOrgContext.mockResolvedValue({ organizationId: "org1", role: null, fromApiKey: true });
+    const { GET } = await import("@/app/api/events/[eventId]/speakers/route");
+    const body = (await (await GET(new Request("http://x/api/events/e1/speakers"), { params: Promise.resolve({ eventId: "e1" }) })).json()) as Record<string, unknown>[];
+    expect(body[0].abstracts).toHaveLength(1);
+    expect(body[0]).not.toHaveProperty("sessionProposals");
+  });
+
+  it("a submitter keeps their own row's submissions", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", role: "SUBMITTER", organizationId: null } });
+    const { GET } = await import("@/app/api/events/[eventId]/speakers/route");
+    const body = (await (await GET(new Request("http://x/api/events/e1/speakers"), { params: Promise.resolve({ eventId: "e1" }) })).json()) as Record<string, unknown>[];
+    expect(body[0].abstracts).toHaveLength(1);
+    expect(body[0].sessionProposals).toHaveLength(1);
+  });
+
+  it("abstracts.read for assigned events only: listed, without abstracts, on an event they are not assigned to", async () => {
+    const body = await call(["speakers.read@ALL", "abstracts.read@ASSIGNED", "proposals.read@ALL"]);
+    expect(body[0].firstName).toBe("Jane");
+    expect(body[0]).not.toHaveProperty("abstracts");
+    expect(body[0].sessionProposals).toHaveLength(1);
+  });
+
   it("an organiser keeps both", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u2", role: "ORGANIZER", organizationId: "org1" } });
     const { GET } = await import("@/app/api/events/[eventId]/speakers/route");
