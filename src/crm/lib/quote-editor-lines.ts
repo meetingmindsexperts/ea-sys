@@ -120,7 +120,15 @@ export function keepPricesIn(lines: EditorLine[], currency: string): EditorLine[
   );
 }
 
-/** Empty lines whose catalogue price is in another currency, so the user must type one. */
+/**
+ * Empty product lines the user must price: the catalogue price is in another
+ * currency, or the deal line had no price yet (no catalogue price to offer).
+ * A hand-added blank line is left to the save check.
+ */
 export function linesNeedingPrice(lines: EditorLine[], currency: string): EditorLine[] {
-  return lines.filter((l) => !l.unitPrice.trim() && l.catalogue !== null && l.catalogue.currency !== currency);
+  return lines.filter((l) => {
+    if (l.unitPrice.trim()) return false;
+    if (l.catalogue === null) return l.crmProductId !== null;
+    return l.catalogue.currency !== currency;
+  });
 }

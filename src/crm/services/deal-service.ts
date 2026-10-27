@@ -233,7 +233,7 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
         eventId: input.eventId ?? null,
         ownerId: input.ownerId ?? null,
         dealValue: input.dealValue ?? null,
-        currency: input.currency?.trim() || "USD",
+        currency: input.currency?.trim().toUpperCase() || "USD",
         expectedClose: input.expectedClose ?? null,
         pipeline: input.pipeline ?? null,
         dealTypeId: input.dealTypeId ?? null,
@@ -296,7 +296,7 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
     data.name = name;
   }
   if (input.dealValue !== undefined) data.dealValue = input.dealValue;
-  if (input.currency !== undefined) data.currency = input.currency.trim() || "USD";
+  if (input.currency !== undefined) data.currency = input.currency.trim().toUpperCase() || "USD";
   if (input.expectedClose !== undefined) data.expectedClose = input.expectedClose;
   if (input.pipeline !== undefined) data.pipeline = input.pipeline;
   if (input.dealTypeId !== undefined) data.dealTypeId = input.dealTypeId;
@@ -344,25 +344,32 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
       return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived — restore it before editing it" };
     }
 
-    const res = await db.crmDeal.updateMany({
-      // archivedAt: null re-checked IN the write — the snapshot guard above has a
-      // race window against a concurrent archive.
-      where: { id: input.dealId, organizationId: input.organizationId, archivedAt: null },
-      data,
-    });
-    if (res.count === 0) {
+    // A deal's product lines are priced in the deal's currency (owner, Oct 27,
+    // 2026), so they follow a real currency change, in the SAME transaction as
+    // the deal (a failed second write must not leave the deal changed and its
+    // lines not). No conversion: the numbers stay, as the deal value's does.
+    // Keyed by the deal alone: it is already org-bound, and an old row with a
+    // null organizationId must still follow.
+    const currencyChanged = data.currency !== undefined && data.currency !== before.currency;
+    const [res] = await db.$transaction([
+      db.crmDeal.updateMany({
+        // archivedAt: null re-checked IN the write — the snapshot guard above has a
+        // race window against a concurrent archive.
+        where: { id: input.dealId, organizationId: input.organizationId, archivedAt: null },
+        data,
+      }),
+      ...(currencyChanged
+        ? [
+            db.crmDealProduct.updateMany({
+              where: { dealId: input.dealId, deal: { archivedAt: null } },
+              data: { currency: data.currency as string },
+            }),
+          ]
+        : []),
+    ]);
+    if (res!.count === 0) {
       apiLogger.warn({ msg: "crm-deal:update-archived-race", dealId: input.dealId });
       return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived — restore it before editing it" };
-    }
-
-    // A deal's product lines are priced in the deal's currency (owner, Oct 27,
-    // 2026), so they follow a currency change. No conversion: the numbers stay,
-    // exactly as the deal value's own number does. Only on a real change.
-    if (data.currency !== undefined && data.currency !== before.currency) {
-      await db.crmDealProduct.updateMany({
-        where: { dealId: input.dealId, organizationId: input.organizationId },
-        data: { currency: data.currency as string },
-      });
     }
 
     const deal = await db.crmDeal.findUniqueOrThrow({ where: { id: input.dealId } });

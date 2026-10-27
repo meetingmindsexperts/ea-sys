@@ -248,17 +248,24 @@ export function buildQuoteDraft(deal: DealContext, preparedByName: string, now: 
     terms: defaults.configured ? defaults.terms : DEFAULT_QUOTE_TERMS,
     notes: null,
     eventName: deal.event?.name ?? null,
-    lines: deal.products.map((p) => ({
-      productCode: p.sku ?? null,
-      name: p.productName,
-      description: null,
-      quantity: p.quantity,
-      // No conversion: a price in another currency is left for the rep to type.
-      unitPrice: p.currency === currency ? Number(p.unitPrice) : null,
-      productCurrency: p.currency,
-      cataloguePrice: Number(p.unitPrice),
-      crmProductId: p.crmProductId ?? null,
-    })),
+    lines: deal.products.map((p) => {
+      // A deal line at 0 has not been priced yet (a product whose catalogue
+      // price is in another currency starts at 0 on the deal). It arrives
+      // blank, flagged, and the quote cannot be saved until it has a price:
+      // as "0" it saved silently as a free line (review of abf62a0a).
+      const unpriced = Number(p.unitPrice) === 0;
+      return {
+        productCode: p.sku ?? null,
+        name: p.productName,
+        description: null,
+        quantity: p.quantity,
+        // No conversion: a price in another currency is left for the rep to type.
+        unitPrice: !unpriced && p.currency === currency ? Number(p.unitPrice) : null,
+        productCurrency: unpriced ? null : p.currency,
+        cataloguePrice: unpriced ? null : Number(p.unitPrice),
+        crmProductId: p.crmProductId ?? null,
+      };
+    }),
   };
 }
 

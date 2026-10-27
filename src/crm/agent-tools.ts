@@ -1240,7 +1240,7 @@ export function registerCrmMcpTools(
 
   writeServer.tool(
     "add_deal_product",
-    "Add a catalog product as a line item on a deal. Required: dealId, crmProductId (from list_crm_products). Optional: unitPrice (defaults to the catalog list price), quantity (default 1). Refused if the product is already on the deal (edit its quantity instead) or if the product/deal is archived.",
+    "Add a catalog product as a line item on a deal. Required: dealId, crmProductId (from list_crm_products). Optional: unitPrice in the DEAL's currency (the line always takes the deal's currency; without unitPrice it starts at the catalogue price only when that is in the deal's currency, otherwise at 0, so ask the user for the price), quantity (default 1). Refused if the product is already on the deal (edit its quantity instead) or if the product/deal is archived.",
     {
       dealId: z.string().min(1),
       crmProductId: z.string().min(1),

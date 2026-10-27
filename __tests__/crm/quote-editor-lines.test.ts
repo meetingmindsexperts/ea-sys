@@ -112,3 +112,25 @@ describe("switching the quote currency", () => {
     expect(linesNeedingPrice([line!], "AED")).toHaveLength(0);
   });
 });
+
+describe("an unpriced deal line (review of abf62a0a)", () => {
+  // A product whose catalogue price is in another currency joins a deal at 0;
+  // the draft sends it with no price and no catalogue, and it must be flagged
+  // rather than saved as a free line.
+  const unpricedOnDeal = {
+    productCode: "SPO10001", name: "Sponsorship - Diamond", description: null, quantity: 1,
+    unitPrice: null, productCurrency: null, cataloguePrice: null, crmProductId: "p-9",
+  };
+
+  it("arrives blank and is flagged as needing a price", () => {
+    const line = fromDraftLine(unpricedOnDeal, "USD");
+    expect(line.unitPrice).toBe("");
+    expect(linesNeedingPrice([line], "USD")).toHaveLength(1);
+  });
+
+  it("is no longer flagged once the rep types a price", () => {
+    const line = withTypedPrice(fromDraftLine(unpricedOnDeal, "USD"), "15000", "USD");
+    expect(linesNeedingPrice([line], "USD")).toHaveLength(0);
+  });
+});
+

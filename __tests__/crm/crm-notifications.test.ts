@@ -18,6 +18,8 @@ vi.mock("@/lib/logger", () => ({
 }));
 vi.mock("@/lib/db", () => ({
   db: {
+    $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+    crmDealProduct: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     crmNotification: {
       create: vi.fn().mockResolvedValue({}),
       findMany: vi.fn().mockResolvedValue([]),

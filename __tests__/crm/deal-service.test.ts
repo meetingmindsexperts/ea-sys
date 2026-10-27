@@ -21,6 +21,7 @@ vi.mock("@/lib/db", () => ({
     },
     crmPipelineStage: { findFirst: vi.fn() },
     crmDealProduct: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     crmCompany: { findFirst: vi.fn() },
     crmDealType: { findFirst: vi.fn() },
     contact: { findFirst: vi.fn() },
@@ -552,11 +553,11 @@ describe("updateDeal — product lines follow the deal's currency (owner, Oct 27
     vi.mocked(db.crmDealProduct.updateMany).mockClear();
   });
 
-  it("a currency change moves the deal's lines to it, org-bound", async () => {
+  it("a currency change moves the deal's lines to it, in the deal's transaction", async () => {
     const res = await updateDeal({ ...base, dealId: "d-1", currency: "USD" });
     expect(res.ok).toBe(true);
     expect(db.crmDealProduct.updateMany).toHaveBeenCalledWith({
-      where: { dealId: "d-1", organizationId: ORG },
+      where: { dealId: "d-1", deal: { archivedAt: null } },
       data: { currency: "USD" },
     });
   });
@@ -565,5 +566,10 @@ describe("updateDeal — product lines follow the deal's currency (owner, Oct 27
     await updateDeal({ ...base, dealId: "d-1", currency: "AED", name: "Amgen - Gold v2" });
     expect(db.crmDealProduct.updateMany).not.toHaveBeenCalled();
   });
-});
 
+  it("a lower-case currency is stored upper-case, deal and lines", async () => {
+    await updateDeal({ ...base, dealId: "d-1", currency: "usd" });
+    expect(vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0]!.data).toMatchObject({ currency: "USD" });
+    expect(db.crmDealProduct.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { currency: "USD" } }));
+  });
+});

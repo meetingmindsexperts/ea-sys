@@ -16,6 +16,7 @@ vi.mock("@/lib/logger", () => ({
 
 vi.mock("@/lib/db", () => ({
   db: {
+    $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     crmPipelineStage: { findMany: vi.fn(), findFirst: vi.fn(), createMany: vi.fn() },
     crmDeal: { findMany: vi.fn(), findFirst: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     crmDealType: { findMany: vi.fn(), createMany: vi.fn() },

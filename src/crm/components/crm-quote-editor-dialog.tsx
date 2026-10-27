@@ -163,6 +163,7 @@ function QuoteEditorForm({
   const onQuote = new Set(lines.map((l) => l.crmProductId).filter(Boolean));
   const productsToAdd = draft.lines.filter((l) => !l.crmProductId || !onQuote.has(l.crmProductId));
   const needsPrice = linesNeedingPrice(lines, currency);
+  const needsPriceKeys = new Set(needsPrice.map((l) => l.key));
   const pricedElsewhere = linesPricedInOtherCurrency(lines, currency);
   const pricedElsewhereKeys = new Set(pricedElsewhere.map((l) => l.key));
   const otherCurrencies = [...new Set(pricedElsewhere.map((l) => l.priceCurrency))].join(" / ");
@@ -329,7 +330,7 @@ function QuoteEditorForm({
               <p className="px-3 py-6 text-center text-sm text-muted-foreground">No lines yet. Add one below.</p>
             ) : (
               lines.map((l, i) => {
-                const missingPrice = !l.unitPrice.trim() && !!l.catalogue && l.catalogue.currency !== currency;
+                const missingPrice = needsPriceKeys.has(l.key);
                 const wrongCurrency = pricedElsewhereKeys.has(l.key);
                 return (
                   <div
