@@ -57,6 +57,9 @@ import {
 } from "@/crm/lib/crm-types";
 import { contactScoreColor } from "@/crm/lib/contact-score";
 
+/** The Name column is a fixed 350px and clips long names (owner, Oct 27, 2026). */
+const NAME_COLUMN = "w-[350px] min-w-[350px] max-w-[350px]";
+
 function ContactsInner() {
   const { data: session } = useSession();
   const canWrite = useCan("crm.write") === "allowed";
@@ -258,7 +261,14 @@ function ContactsInner() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={dir} onSort={onSort} />
+                <SortableTh
+                  label="Name"
+                  sortKey="name"
+                  activeKey={sortKey}
+                  dir={dir}
+                  onSort={onSort}
+                  className={NAME_COLUMN}
+                />
                 <TableHead>Account</TableHead>
                 <TableHead>Job title</TableHead>
                 <TableHead>Status</TableHead>
@@ -275,13 +285,15 @@ function ContactsInner() {
                   className={cn("cursor-pointer transition-colors hover:bg-muted/40", c.archivedAt && "opacity-60")}
                   onClick={() => router.push(`/crm/contacts/${c.id}`)}
                 >
-                  <TableCell>
+                  <TableCell className={NAME_COLUMN}>
                     <div className="flex items-center gap-2">
-                      <div>
-                        <p className="font-medium">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium" title={`${c.firstName} ${c.lastName}`}>
                           {c.firstName} {c.lastName}
                         </p>
-                        <p className="text-xs text-muted-foreground">{c.email}</p>
+                        <p className="truncate text-xs text-muted-foreground" title={c.email}>
+                          {c.email}
+                        </p>
                         {(c.tags?.length ?? 0) > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {c.tags!.map((t) => (

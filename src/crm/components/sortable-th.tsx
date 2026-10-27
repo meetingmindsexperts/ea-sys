@@ -35,6 +35,7 @@ export function SortableTh({
   dir,
   onSort,
   align = "left",
+  className,
 }: {
   label: string;
   sortKey: string;
@@ -42,12 +43,14 @@ export function SortableTh({
   dir: SortDir;
   onSort: (key: string) => void;
   align?: "left" | "right";
+  /** Extra classes for the header cell, e.g. a fixed column width. */
+  className?: string;
 }) {
   const active = activeKey === sortKey;
   return (
     <TableHead
       aria-sort={ariaSort(active, dir)}
-      className={align === "right" ? "text-right" : undefined}
+      className={cn(align === "right" && "text-right", className)}
     >
       <button
         type="button"
