@@ -81,5 +81,6 @@ describe("startsWithGreeting (Oct 27, 2026: no more \"Dear Saleh, Dear Saleh\")"
     expect(startsWithGreeting("<p>Thank you for your time</p>")).toBe(false);
     expect(startsWithGreeting("<p>Dearest partners</p>")).toBe(false);
     expect(startsWithGreeting("<p>Highlights of MEHFC 2027</p>")).toBe(false);
+    expect(startsWithGreeting("<p>Hi-tech partners welcome</p>")).toBe(false);
   });
 });

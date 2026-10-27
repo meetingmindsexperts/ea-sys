@@ -61,7 +61,9 @@ export type CrmEventVars = Record<
   string
 >;
 
-const GREETING_RE = /^(dear|hi|hello|hey|greetings|good\s+(morning|afternoon|evening))\b/i;
+// The greeting word must end at a space, punctuation or the end: "Hi-tech
+// partners" and "Highlights" are not greetings.
+const GREETING_RE = /^(dear|hi|hello|hey|greetings|good\s+(morning|afternoon|evening))(?=[\s,!.:;]|$)/i;
 
 /**
  * Does the message already open with a greeting? Then the CRM's own "Dear
