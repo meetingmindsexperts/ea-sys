@@ -297,7 +297,7 @@ function ContactsInner() {
                         {(c.tags?.length ?? 0) > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {c.tags!.map((t) => (
-                              <Badge key={t} variant="secondary" className="font-normal text-[10px]">
+                              <Badge key={t} variant="secondary" className="max-w-full truncate font-normal text-[10px]" title={t}>
                                 {t}
                               </Badge>
                             ))}
