@@ -224,6 +224,11 @@ export async function listDealProducts(dealId: string, organizationId: string): 
   return db.crmDealProduct.findMany({ where: { dealId }, orderBy: { createdAt: "asc" } });
 }
 
+/** A deal line's starting price: the catalogue price when it is already in the deal's currency, else 0. */
+function startingPrice(product: { price: Prisma.Decimal; currency: string }, dealCurrency: string): number {
+  return product.currency === dealCurrency ? Number(product.price) : 0;
+}
+
 export async function addDealProduct(input: {
   dealId: string;
   organizationId: string;
@@ -234,7 +239,10 @@ export async function addDealProduct(input: {
 }): Promise<{ ok: true; line: CrmDealProduct } | Fail> {
   // Bind BOTH the deal and the product to the caller's org before writing.
   const [deal, product] = await Promise.all([
-    db.crmDeal.findFirst({ where: { id: input.dealId, organizationId: input.organizationId }, select: { id: true, archivedAt: true } }),
+    db.crmDeal.findFirst({
+      where: { id: input.dealId, organizationId: input.organizationId },
+      select: { id: true, archivedAt: true, currency: true },
+    }),
     db.crmProduct.findFirst({ where: { id: input.crmProductId, organizationId: input.organizationId } }),
   ]);
   if (!deal) return reject("DEAL_NOT_FOUND", "Deal not found", { organizationId: input.organizationId, dealId: input.dealId });
@@ -258,9 +266,14 @@ export async function addDealProduct(input: {
         productName: product.name,
         category: product.category,
         sku: product.sku,
-        // Set on the deal — pre-filled from the catalog list price when omitted.
-        unitPrice: new Prisma.Decimal(input.unitPrice ?? Number(product.price)),
-        currency: product.currency,
+        // The line takes the DEAL's currency (owner, Oct 27, 2026): catalogue
+        // prices are not fixed, the rep sets price and quantity per deal, and a
+        // quote starts in the deal's currency, so its lines must be in it too.
+        // The list price is copied only when it is already in that currency;
+        // otherwise the line starts at 0 for the rep to price. Copying "55,087.50"
+        // from AED and calling it USD would be 3.67x too high and look plausible.
+        unitPrice: new Prisma.Decimal(input.unitPrice ?? startingPrice(product, deal.currency)),
+        currency: deal.currency,
         quantity: Math.max(1, Math.trunc(input.quantity ?? 1)),
       },
     });

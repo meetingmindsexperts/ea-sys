@@ -20,6 +20,7 @@ vi.mock("@/lib/db", () => ({
       findUniqueOrThrow: vi.fn(),
     },
     crmPipelineStage: { findFirst: vi.fn() },
+    crmDealProduct: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     crmCompany: { findFirst: vi.fn() },
     crmDealType: { findFirst: vi.fn() },
     contact: { findFirst: vi.fn() },
@@ -538,3 +539,31 @@ describe("createDeal/updateDeal — pipeline category + tags", () => {
     expect(call.data).toMatchObject({ pipeline: null });
   });
 });
+
+describe("updateDeal — product lines follow the deal's currency (owner, Oct 27 2026)", () => {
+  const before = {
+    name: "Amgen - Gold", dealValue: 15000, currency: "AED", expectedClose: null, companyId: null, eventId: null,
+    ownerId: null, pipeline: "CONFERENCE", dealTypeId: null, tags: [], archivedAt: null,
+  };
+  beforeEach(() => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue(before as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", name: "Amgen - Gold" } as never);
+    vi.mocked(db.crmDealProduct.updateMany).mockClear();
+  });
+
+  it("a currency change moves the deal's lines to it, org-bound", async () => {
+    const res = await updateDeal({ ...base, dealId: "d-1", currency: "USD" });
+    expect(res.ok).toBe(true);
+    expect(db.crmDealProduct.updateMany).toHaveBeenCalledWith({
+      where: { dealId: "d-1", organizationId: ORG },
+      data: { currency: "USD" },
+    });
+  });
+
+  it("an edit that re-sends the same currency leaves the lines alone", async () => {
+    await updateDeal({ ...base, dealId: "d-1", currency: "AED", name: "Amgen - Gold v2" });
+    expect(db.crmDealProduct.updateMany).not.toHaveBeenCalled();
+  });
+});
+

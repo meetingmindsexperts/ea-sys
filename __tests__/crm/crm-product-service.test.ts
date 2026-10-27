@@ -169,7 +169,8 @@ describe("addDealProduct — the guards", () => {
   });
 
   it("snapshots name/category and pre-fills price from the catalog, and records deal history", async () => {
-    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1" } as never);
+    // Same currency as the catalogue product, so its list price is the start.
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", currency: product.currency } as never);
     vi.mocked(db.crmProduct.findFirst).mockResolvedValue(product as never);
     vi.mocked(db.crmDealProduct.findFirst).mockResolvedValue(null as never);
     vi.mocked(db.crmDealProduct.create).mockResolvedValue({ id: "line-1" } as never);
@@ -184,6 +185,29 @@ describe("addDealProduct — the guards", () => {
     expect(recordCrmActivity).toHaveBeenCalledWith(
       expect.objectContaining({ entityType: "DEAL", entityId: "d-1", action: "PRODUCT_ADDED" }),
     );
+  });
+
+  it("the line takes the DEAL's currency; a catalogue price in another currency is not copied (owner, Oct 27 2026)", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", currency: "USD" } as never);
+    vi.mocked(db.crmProduct.findFirst).mockResolvedValue({ ...product, currency: "AED" } as never);
+    vi.mocked(db.crmDealProduct.findFirst).mockResolvedValue(null as never);
+    vi.mocked(db.crmDealProduct.create).mockResolvedValue({ id: "line-1" } as never);
+    await addDealProduct({ ...base, dealId: "d-1", crmProductId: "p-1" });
+    const data = vi.mocked(db.crmDealProduct.create).mock.calls[0][0].data as Record<string, unknown>;
+    expect(data.currency).toBe("USD");
+    // Never the AED number relabelled as USD (3.67x too high); the rep prices it.
+    expect(Number(data.unitPrice)).toBe(0);
+  });
+
+  it("a price the rep gives is kept, in the deal's currency", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", currency: "USD" } as never);
+    vi.mocked(db.crmProduct.findFirst).mockResolvedValue({ ...product, currency: "AED" } as never);
+    vi.mocked(db.crmDealProduct.findFirst).mockResolvedValue(null as never);
+    vi.mocked(db.crmDealProduct.create).mockResolvedValue({ id: "line-1" } as never);
+    await addDealProduct({ ...base, dealId: "d-1", crmProductId: "p-1", unitPrice: 15000 });
+    const data = vi.mocked(db.crmDealProduct.create).mock.calls[0][0].data as Record<string, unknown>;
+    expect(data).toMatchObject({ currency: "USD" });
+    expect(Number(data.unitPrice)).toBe(15000);
   });
 });
 

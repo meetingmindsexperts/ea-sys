@@ -355,6 +355,16 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
       return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived — restore it before editing it" };
     }
 
+    // A deal's product lines are priced in the deal's currency (owner, Oct 27,
+    // 2026), so they follow a currency change. No conversion: the numbers stay,
+    // exactly as the deal value's own number does. Only on a real change.
+    if (data.currency !== undefined && data.currency !== before.currency) {
+      await db.crmDealProduct.updateMany({
+        where: { dealId: input.dealId, organizationId: input.organizationId },
+        data: { currency: data.currency as string },
+      });
+    }
+
     const deal = await db.crmDeal.findUniqueOrThrow({ where: { id: input.dealId } });
 
     // Diff BEFORE + the submitted patch — NOT the post-write re-read (CRM review
