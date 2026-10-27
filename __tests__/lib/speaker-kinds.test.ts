@@ -34,6 +34,25 @@ describe("speaker kinds", () => {
   });
 });
 
+describe("sign-ups who have submitted nothing (MEHF 2027, Oct 27)", () => {
+  it("go to the tab of the door they came through, never Invited", () => {
+    expect(speakerKindOf({ abstracts: [], submitterSource: "abstract" })).toBe("submitters");
+    expect(speakerKindOf({ abstracts: [{ status: "DRAFT" }], submitterSource: "both" })).toBe("submitters");
+    expect(speakerKindOf({ abstracts: [], sessionProposals: [], submitterSource: "proposal" })).toBe("proposers");
+  });
+
+  it("speakers the organisers added stay invited, and so does a sign-up they put on the programme", () => {
+    expect(speakerKindOf({ abstracts: [], submitterSource: null })).toBe("invited");
+    expect(speakerKindOf({ abstracts: [{ status: "DRAFT" }] })).toBe("invited");
+    expect(speakerKindOf({ abstracts: [], submitterSource: "abstract", _count: { sessions: 2 } })).toBe("invited");
+  });
+
+  it("a submission still decides first, whatever the door", () => {
+    expect(speakerKindOf({ abstracts: [{ status: "SUBMITTED" }], submitterSource: "proposal" })).toBe("submitters");
+    expect(speakerKindOf({ abstracts: [], sessionProposals: [{ status: "SUBMITTED" }], submitterSource: "abstract" })).toBe("proposers");
+  });
+});
+
 describe("who Email reaches", () => {
   it("ticked speakers first, else everyone listed on a tab, else the status-wide audience (no ids)", () => {
     expect(emailRecipientIds(new Set(["x"]), true, [invited])).toEqual(["x"]);

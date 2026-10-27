@@ -4,8 +4,17 @@
  */
 export type SpeakerKind = "all" | "invited" | "submitters" | "proposers";
 
-/** Either list is absent when the caller may not read it (speaker-submission-visibility.ts). */
-type WithSubmissions = { abstracts?: { status: string }[]; sessionProposals?: { status: string }[] };
+/**
+ * Either list is absent when the caller may not read it (speaker-submission-visibility.ts). `submitterSource` is
+ * the public sign-up door the speaker came through ("abstract", "proposal" or "both"), null when organisers added
+ * them; `_count.sessions` is how many session roles they hold.
+ */
+type WithSubmissions = {
+  abstracts?: { status: string }[];
+  sessionProposals?: { status: string }[];
+  submitterSource?: string | null;
+  _count?: { sessions?: number };
+};
 
 /** Abstracts and proposals that do not make anyone a submitter: one only started, or taken back (review MED, Oct 27). */
 const NOT_SUBMITTED = new Set(["DRAFT", "WITHDRAWN"]);
@@ -23,10 +32,24 @@ export const isSubmitter = (s: WithSubmissions) => submitted(s.abstracts);
  */
 export const isProposer = (s: WithSubmissions) => !isSubmitter(s) && submitted(s.sessionProposals);
 
-/** Each speaker is in exactly one group: abstract submitter, else session proposer, else invited. */
+/**
+ * The group of someone who signed up through a public door and has submitted nothing yet (MEHF 2027, Oct 27): the
+ * door they came through, never Invited, which is the organisers' own faculty. A speaker the organisers put on
+ * the programme counts as invited whatever door they once used.
+ */
+function signupKind(s: WithSubmissions): Exclude<SpeakerKind, "all"> {
+  if (!s.submitterSource || (s._count?.sessions ?? 0) > 0) return "invited";
+  return s.submitterSource === "proposal" ? "proposers" : "submitters";
+}
+
+/**
+ * Each speaker is in exactly one group: abstract submitter, else session proposer, else (with nothing submitted)
+ * the sign-up door they came through, else invited.
+ */
 export function speakerKindOf(s: WithSubmissions): Exclude<SpeakerKind, "all"> {
   if (isSubmitter(s)) return "submitters";
-  return isProposer(s) ? "proposers" : "invited";
+  if (isProposer(s)) return "proposers";
+  return signupKind(s);
 }
 
 export const matchesKind = (s: WithSubmissions, kind: SpeakerKind) => kind === "all" || speakerKindOf(s) === kind;

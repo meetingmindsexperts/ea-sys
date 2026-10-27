@@ -74,19 +74,22 @@ interface Speaker {
   _count: { sessions: number; abstracts?: number };
   abstracts?: { id: string; title: string; status: string }[];
   sessionProposals?: { status: string }[];
+  /** The public sign-up door ("abstract" | "proposal" | "both"); null for speakers the organisers added. */
+  submitterSource?: string | null;
 }
 
 const KIND_LABEL: Record<SpeakerKind, string> = { all: "All speakers", invited: "Invited speakers", submitters: "Abstract submitters", proposers: "Session proposers" };
 
-/**
- * The tabs a caller can be shown. Telling an invited speaker from a submitter needs the abstracts, and from a
- * proposer the proposals, so a tab whose grouping the caller cannot see is left out rather than shown wrong.
- */
+/** Whether the list carries this field: the route sends it (an empty array included) only to who may read it. */
 function sentOrAllowed(speakers: Speaker[], field: "abstracts" | "sessionProposals", answer: CanStatus): boolean {
   if (speakers.length > 0) return speakers.some((s) => s[field] !== undefined);
   return answer === "allowed";
 }
 
+/**
+ * The tabs a caller can be shown. Telling an invited speaker from a submitter needs the abstracts, and from a
+ * proposer the proposals, so a tab whose grouping the caller cannot see is left out rather than shown wrong.
+ */
 function visibleKinds(readAbstracts: boolean, readProposals: boolean, proposerCount: number): SpeakerKind[] {
   const both = readAbstracts && readProposals;
   return (["all", "invited", "submitters", "proposers"] as const).filter((k) => {
@@ -369,6 +372,8 @@ export default function SpeakersPage() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
+                  id="speaker-search"
+                  aria-label="Search speakers"
                   placeholder="Search by name, email, or organization..."
                   value={searchQuery}
                   onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
@@ -564,6 +569,7 @@ export default function SpeakersPage() {
               <div className="flex items-center gap-1.5">
                 <span className="text-sm text-muted-foreground">Show</span>
                 <select
+                  id="speakers-page-size"
                   title="Speakers per page"
                   value={pageSize}
                   onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
