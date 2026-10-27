@@ -599,6 +599,10 @@ export function useCrmInboxThread(threadId: string | null) {
       return res;
     },
     enabled: !!threadId,
+    // Opening a thread is what marks it read, so it always asks the server
+    // rather than showing a cached copy (a "mark unread" would otherwise stick
+    // through the next open).
+    staleTime: 0,
   });
 }
 
@@ -640,6 +644,9 @@ export function useUpdateInboxThread() {
       apiPatchJson<{ ok: true }>(`/api/crm/inbox/${threadId}`, body),
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: crmKeys.inboxPrefix });
+      // Never refetch the open thread after "mark unread": reading a thread
+      // clears its unread flag, so the refetch would undo the click.
+      if (vars.unread === true) return;
       void qc.invalidateQueries({ queryKey: crmKeys.inboxThread(vars.threadId) });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the conversation"),
