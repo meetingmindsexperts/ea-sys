@@ -575,10 +575,15 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
         // Tags don't fit enrichPatch's blank-scalar rule (an array is never
         // null): enrich fills them only when the EA row has none; a
         // Freshsales-wins update takes the CSV's list when the column is there.
-        // Quality tags (needs-name / not-a-person) are then ADDED on top of
-        // whichever list survives, so they never replace a person's tags.
+        // Quality tags (needs-name / not-a-person) follow the NAME, so only the
+        // update path, which writes the name, touches them: an enrich never
+        // writes the name, and tagging an EA-born "John Smith" needs-name off a
+        // CSV's email-as-name would re-add the tag on every import.
         const csvTags = row.tags && (action === "update" || (existing!.tags?.length ?? 0) === 0) ? row.tags : undefined;
-        const tagPatch = withQualityTags(csvTags, row.qualityTags, existing!.tags ?? []);
+        const tagPatch =
+          action === "update"
+            ? withQualityTags(csvTags, row.qualityTags, existing!.tags ?? [])
+            : csvTagsOnly(csvTags);
         const data =
           action === "enrich"
             ? {
@@ -681,21 +686,33 @@ function nameQualityNotes(q: { cleaned: number; needsName: number; notAPerson: n
   return notes;
 }
 
+/** The enrich path's `tags` write: the CSV's list as-is, no quality tags. */
+function csvTagsOnly(csvTags: string[] | undefined): { tags?: string[] } {
+  if (!csvTags) return {};
+  return { tags: normalizeContactTags(csvTags) };
+}
+
+const QUALITY_TAG_KEYS = new Set([NEEDS_NAME_TAG, NOT_A_PERSON_TAG]);
+
 /**
- * The `tags` write for a contact row: the CSV's list when it has one (else the
- * row's current tags), plus the name-quality tags from cleanContactName().
- * Returns `{}` when nothing would change, so an untouched row is not rewritten.
+ * The `tags` write for a contact row whose name this import writes: the CSV's
+ * list when it has one (else the row's current tags), with the name-quality
+ * tags made to match the NEW name. A `needs-name` from an earlier import is
+ * dropped once Freshsales has the real name. Returns `{}` when nothing would
+ * change, so an untouched row is not rewritten.
  */
 function withQualityTags(
   csvTags: string[] | undefined,
   qualityTags: string[],
   currentTags: string[] = [],
 ): { tags?: string[] } {
-  if (!csvTags && qualityTags.length === 0) return {};
-  const base = csvTags ?? currentTags;
+  const base = (csvTags ?? currentTags).filter((t) => !QUALITY_TAG_KEYS.has(t.trim().toLowerCase()));
   const tags = normalizeContactTags([...base, ...qualityTags]);
-  if (!csvTags && tags.length === currentTags.length) return {};
-  return { tags };
+  if (csvTags) return { tags };
+  // Compare membership, not length: case duplicates in the current list would
+  // otherwise hide an added quality tag.
+  const same = tags.length === currentTags.length && tags.every((t, i) => t === currentTags[i]);
+  return same ? {} : { tags };
 }
 
 // ── Shared: CSV company-name → CrmCompany id (find-or-create) ────────────────

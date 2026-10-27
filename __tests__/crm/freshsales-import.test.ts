@@ -1299,4 +1299,39 @@ describe("importFreshsalesContacts — name cleaning and quality tags", () => {
     const update = vi.mocked(db.crmContact.update).mock.calls[0]![0] as { data: Record<string, unknown> };
     expect(update.data).not.toHaveProperty("tags");
   });
+
+  it("review: an enrich never adds a quality tag (it does not write the name)", async () => {
+    vi.mocked(db.crmContact.findMany).mockResolvedValue([{
+      id: "ct-1", firstName: "John", lastName: "Smith", email: "john@x.com", emailKey: "john@x.com",
+      jobTitle: null, phone: null, mobile: null, country: null, companyId: null,
+      ownerId: null, lifecycleStage: null, status: null, tags: ["vip"],
+      externalSource: null, externalId: null, updatedAt: new Date(), lastImportedAt: null,
+    }] as never);
+
+    const csv = `Id,First name,Last name,Email\nc-1,john@x.com,john@x.com,john@x.com`;
+    const res = await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    if (!res.ok) throw new Error(res.message);
+    expect(res.enriched).toBe(1);
+    const update = vi.mocked(db.crmContact.update).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(update.data).not.toHaveProperty("tags");
+    expect(update.data).not.toHaveProperty("firstName");
+  });
+
+  it("review: an update drops a stale needs-name once the name is real", async () => {
+    const imported = new Date("2026-08-24T10:00:00Z");
+    vi.mocked(db.crmContact.findMany).mockResolvedValue([{
+      id: "ct-1", firstName: "a@b.ae", lastName: "a@b.ae", email: "a@b.ae", emailKey: "a@b.ae",
+      jobTitle: null, phone: null, mobile: null, country: null, companyId: null,
+      ownerId: null, lifecycleStage: null, status: null, tags: ["vip", "needs-name"],
+      externalSource: "freshsales", externalId: "c-1", updatedAt: imported, lastImportedAt: imported,
+    }] as never);
+
+    const csv = `Id,First name,Last name,Email\nc-1,Amal,Badr,a@b.ae`;
+    await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    const update = vi.mocked(db.crmContact.update).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(update.data.tags).toEqual(["vip"]);
+    expect(update.data).toMatchObject({ firstName: "Amal", lastName: "Badr" });
+  });
 });

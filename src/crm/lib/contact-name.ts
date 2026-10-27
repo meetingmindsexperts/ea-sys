@@ -31,22 +31,32 @@ export interface CleanedContactName {
 
 // Straight and curly double quotes. Apostrophes stay (O'Brien, D'Souza).
 const QUOTES_RE = /["“”„]/g;
-// `[JNJAE NON-J&J]`, `(AKI)`, `(C)` anywhere, and an Outlook `/IN/EXT` or `/IN`.
-const CORP_TAG_RE = /\s*(\[[^\]]*\]|\([^)]*\)|\/[A-Z]{2,}(?:\/[A-Z]+)*)/g;
+// `[JNJAE NON-J&J]`, `(AKI)`, `(C)` anywhere. A bracket holding non-Latin script
+// is the person's own name (`Zhang (张伟)`) and stays.
+const BRACKET_TAG_RE = /\s*(\[[^\]]*\]|\([^)]*\))/g;
+const NON_LATIN_RE = /[^\u0000-\u024F]/;
+// Outlook's `/IN/EXT`, `/AE`, `/EXT` only as a separate token after a space, so
+// an all-caps slashed name (`AL/SALEH`) is not cut.
+const OUTLOOK_TAG_RE = /(^|\s)\/(?:[A-Z]{2}|EXT)(?:\/EXT)?(?=\s|$)/g;
 // Everything after a SPACED dash: `Mejri, Yazid - SSRH`, `Mohammed Faisal - SLS`.
 // A hyphenated surname (`El-sayed`) has no spaces, so it never matches.
 const DASH_TAIL_RE = /\s+[-–](\s.*)?$/;
-// A trailing credential: `Abu Rasheed, MD` is not "Last, First". Case-sensitive
-// so `Rahman, Md` (a common given-name abbreviation) is not eaten.
-const CREDENTIAL_RE = /,\s*(MD|PhD|MBBS|MBChB|FRCP|FRCS|FACC|FACP|MPH|MSc|MBA|PharmD|DDS|DMD)\.?$/;
+// Trailing credentials, stacked or dotted: `Ali, MD, PhD`, `Ali, M.D.`. They
+// are not "Last, First". Case-sensitive so `Rahman, Md` (a common given-name
+// abbreviation) is not eaten.
+const CREDENTIAL_RE = /,\s*(MD|M\.D|PhD|Ph\.D|MBBS|MBChB|FRCP|FRCS|FACC|FACP|MPH|MSc|MBA|PharmD|DDS|DMD)\.?$/;
+// A generational suffix after a comma is not a first name: `Smith, Jr.`.
+const SUFFIX_RE = /^(jr|sr|ii|iii|iv|v)\.?$/i;
 // "Acme, Inc" is a company with a comma, not "Last, First".
 const COMPANY_SUFFIX_RE = /^(inc|llc|ltd|limited|fze|fzc|fzco|fz-llc|plc|gmbh|co|corp|sa|ag|bv)\.?$/i;
 
 const NOT_A_PERSON_WORDS = new Set([
   "team", "department", "dept", "accountancy", "accounting", "awards", "week", "expo",
   "consulting", "travel", "tourism", "group", "services", "solutions", "support",
-  "marketing", "newsletter", "noreply", "no-reply", "mailer", "batch",
-  "hospital", "clinic", "pharma", "llc", "ltd", "fze", "inc", "office", "sales",
+  // NOT "sales", "batch", "mailer": real surnames (Norman Mailer). A wrong tag
+  // marks a real person, so a word that is also a surname stays off the list.
+  "marketing", "newsletter", "noreply", "no-reply",
+  "hospital", "clinic", "pharma", "llc", "ltd", "fze", "inc", "office",
   "events", "event", "finance", "society", "news", "center", "centre", "approval",
   "hours", "verification", "labs", "network", "association", "organization",
   "organisation", "systems", "sector", "congress", "summit", "conference", "media",
@@ -56,8 +66,23 @@ const NOT_A_PERSON_WORDS = new Set([
 
 // Backslashes too: some exports escape the brackets (`RBS \\(IIS\\)`).
 const tidy = (s: string) => s.replace(QUOTES_RE, "").replace(/\\/g, "").replace(/\s+/g, " ").trim();
+function stripCredentials(s: string): string {
+  let out = s;
+  for (let prev = ""; prev !== out; ) {
+    prev = out;
+    out = out.replace(CREDENTIAL_RE, "").trim();
+  }
+  return out;
+}
 const stripTags = (s: string) =>
-  tidy(tidy(s).replace(CORP_TAG_RE, "").replace(DASH_TAIL_RE, "")).replace(CREDENTIAL_RE, "");
+  stripCredentials(
+    tidy(
+      tidy(s)
+        .replace(BRACKET_TAG_RE, (m) => (NON_LATIN_RE.test(m) ? m : ""))
+        .replace(OUTLOOK_TAG_RE, "$1")
+        .replace(DASH_TAIL_RE, ""),
+    ),
+  );
 
 /**
  * `original` is the de-quoted name, `stripped` the same with tags and dash tails
@@ -91,7 +116,7 @@ function flipLastCommaFirst(full: string): [string, string] | null {
   const last = m[1]!.trim();
   const first = m[2]!.trim();
   // A one-letter "surname" (`W, Muscat Oman WD`) is not this shape either.
-  if (last.length < 2 || !first || COMPANY_SUFFIX_RE.test(first)) return null;
+  if (last.length < 2 || !first || COMPANY_SUFFIX_RE.test(first) || SUFFIX_RE.test(first)) return null;
   return [first, last];
 }
 

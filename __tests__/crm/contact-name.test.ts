@@ -68,6 +68,21 @@ describe("cleanContactName", () => {
     expect(name("RBS \\(IIS\\) Jerjis", "Khan")).toEqual(["RBS Jerjis", "Khan"]);
   });
 
+  it("review: suffixes and stacked or dotted credentials are never a first name", () => {
+    expect(name("Smith,", "Jr.")).toEqual(["Smith,", "Jr."]);
+    expect(name("Ahmed", "Ali, MD, PhD")).toEqual(["Ahmed", "Ali"]);
+    expect(name("Ahmed", "Ali, M.D.")).toEqual(["Ahmed", "Ali"]);
+  });
+
+  it("review: an all-caps slashed name and a non-Latin bracket survive", () => {
+    expect(name("Sara", "AL/SALEH")).toEqual(["Sara", "AL/SALEH"]);
+    expect(name("Wei", "Zhang (张伟)")).toEqual(["Wei", "Zhang (张伟)"]);
+  });
+
+  it("review: surnames that are also ordinary words do not mark a person", () => {
+    for (const l of ["Sales", "Batch", "Mailer"]) expect(cleanContactName("Anna", l).qualityTags).toEqual([]);
+  });
+
   it("tags an email-as-name needs-name and does not guess a name from it", () => {
     expect(cleanContactName('"sandeep@alnawras.ae"', "sandeep@alnawras.ae")).toEqual({
       firstName: "sandeep@alnawras.ae", lastName: "sandeep@alnawras.ae", qualityTags: [NEEDS_NAME_TAG],
@@ -77,7 +92,7 @@ describe("cleanContactName", () => {
 
   it("tags likely non-people without changing them", () => {
     for (const [f, l] of [
-      ["VITASHOW", "2026"], ["MSG_1266956107", "x"], ["BATCH", "JOB"], ["The Box", "Team"],
+      ["VITASHOW", "2026"], ["MSG_1266956107", "x"], ["The Box", "Team"],
       ["M&M", "Accountancy"], ["Global Health Week", "Vietnam"], ['"Teamwork.com"', "Teamwork.com"],
     ]) {
       const r = cleanContactName(f!, l!);
