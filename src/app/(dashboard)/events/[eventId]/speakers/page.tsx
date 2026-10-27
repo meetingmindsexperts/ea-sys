@@ -90,12 +90,13 @@ function sentOrAllowed(speakers: Speaker[], field: "abstracts" | "sessionProposa
  * The tabs a caller can be shown. Telling an invited speaker from a submitter needs the abstracts, and from a
  * proposer the proposals, so a tab whose grouping the caller cannot see is left out rather than shown wrong.
  */
-function visibleKinds(readAbstracts: boolean, readProposals: boolean, proposerCount: number): SpeakerKind[] {
+function visibleKinds(readAbstracts: boolean, readProposals: boolean, count: (k: SpeakerKind) => number): SpeakerKind[] {
   const both = readAbstracts && readProposals;
+  // The Abstract submitters and Session proposers tabs only on an event that has some (owner, Oct 27).
   return (["all", "invited", "submitters", "proposers"] as const).filter((k) => {
     if (k === "invited") return both;
-    if (k === "submitters") return readAbstracts;
-    if (k === "proposers") return both && proposerCount > 0;
+    if (k === "submitters") return readAbstracts && count(k) > 0;
+    if (k === "proposers") return both && count(k) > 0;
     return true;
   });
 }
@@ -177,7 +178,7 @@ export default function SpeakersPage() {
   const narrowed = kind !== "all" || searchQuery.trim() !== "";
   const emailIds = emailRecipientIds(selectedIds, narrowed, filteredSpeakers);
   const kindCount = (k: SpeakerKind) => speakers.filter((s) => matchesKind(s, k)).length;
-  const tabKinds = visibleKinds(canReadAbstracts, canReadProposals, kindCount("proposers"));
+  const tabKinds = visibleKinds(canReadAbstracts, canReadProposals, kindCount);
 
   // Live recipient count for the bulk-email dialog's "all" mode. Mirrors the
   // SEND semantics and excludes the search box (not sent to the backend). This
@@ -337,8 +338,8 @@ export default function SpeakersPage() {
         </div>
       )}
 
-      {/* Invited speakers and abstract submitters, apart (owner, Oct 27). The Session proposers tab only on an
-          event that has proposers; no tab bar at all for a caller who can tell no group apart. */}
+      {/* Invited speakers and abstract submitters, apart (owner, Oct 27). The Abstract submitters and Session
+          proposers tabs only on an event that has some; no tab bar at all when there is nothing to tell apart. */}
       {tabKinds.length > 1 && (
         <Tabs value={kind} onValueChange={(v) => { setKind(v as SpeakerKind); setAbstractStatuses([]); setPage(1); setSelectedIds(new Set()); }}>
           <TabsList className="max-w-full justify-start overflow-x-auto">
