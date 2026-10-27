@@ -57,8 +57,21 @@ import {
 } from "@/crm/lib/crm-types";
 import { contactScoreColor } from "@/crm/lib/contact-score";
 
-/** The Name column is a fixed 350px and clips long names (owner, Oct 27, 2026). */
-const NAME_COLUMN = "w-[350px] min-w-[350px] max-w-[350px]";
+/**
+ * Column widths (owner, Oct 27, 2026). The table is `table-fixed`, so these
+ * header widths decide every column and no single long value can stretch one:
+ * a 70-character job title used to push the table to 2,000px. Account and Job
+ * title share what is left and truncate; below ~1,280px the table scrolls.
+ */
+const COL = {
+  name: "w-[350px]",
+  tags: "w-[180px]",
+  status: "w-[104px]",
+  lifecycle: "w-[100px]",
+  owner: "w-[132px]",
+  number: "w-[76px]",
+} as const;
+const CLIP = "truncate text-muted-foreground";
 
 function ContactsInner() {
   const { data: session } = useSession();
@@ -258,7 +271,7 @@ function ContactsInner() {
       )}
       {view === "list" && (
         <div className="overflow-hidden rounded-xl border">
-          <Table>
+          <Table className="min-w-[1280px] table-fixed">
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <SortableTh
@@ -267,15 +280,32 @@ function ContactsInner() {
                   activeKey={sortKey}
                   dir={dir}
                   onSort={onSort}
-                  className={NAME_COLUMN}
+                  className={COL.name}
                 />
                 <TableHead>Account</TableHead>
                 <TableHead>Job title</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Lifecycle</TableHead>
-                <TableHead>Owner</TableHead>
-                <SortableTh label="Score" sortKey="score" activeKey={sortKey} dir={dir} onSort={onSort} align="right" />
-                <SortableTh label="Deals" sortKey="deals" activeKey={sortKey} dir={dir} onSort={onSort} align="right" />
+                <TableHead className={COL.tags}>Tags</TableHead>
+                <TableHead className={COL.status}>Status</TableHead>
+                <TableHead className={COL.lifecycle}>Lifecycle</TableHead>
+                <TableHead className={COL.owner}>Owner</TableHead>
+                <SortableTh
+                  label="Score"
+                  sortKey="score"
+                  activeKey={sortKey}
+                  dir={dir}
+                  onSort={onSort}
+                  align="right"
+                  className={COL.number}
+                />
+                <SortableTh
+                  label="Deals"
+                  sortKey="deals"
+                  activeKey={sortKey}
+                  dir={dir}
+                  onSort={onSort}
+                  align="right"
+                  className={COL.number}
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -285,7 +315,7 @@ function ContactsInner() {
                   className={cn("cursor-pointer transition-colors hover:bg-muted/40", c.archivedAt && "opacity-60")}
                   onClick={() => router.push(`/crm/contacts/${c.id}`)}
                 >
-                  <TableCell className={NAME_COLUMN}>
+                  <TableCell>
                     <div className="flex items-center gap-2">
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-medium" title={`${c.firstName} ${c.lastName}`}>
@@ -294,15 +324,6 @@ function ContactsInner() {
                         <p className="truncate text-xs text-muted-foreground" title={c.email}>
                           {c.email}
                         </p>
-                        {(c.tags?.length ?? 0) > 0 && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {c.tags!.map((t) => (
-                              <Badge key={t} variant="secondary" className="max-w-full truncate font-normal text-[10px]" title={t}>
-                                {t}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
                       </div>
                       {/* This rep is ALSO in the event contact store — i.e. they attend. */}
                       {c.contactId && (
@@ -322,10 +343,25 @@ function ContactsInner() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className={CLIP} title={c.company?.name}>
                     {c.company?.name ?? "—"}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{c.jobTitle ?? "—"}</TableCell>
+                  <TableCell className={CLIP} title={c.jobTitle ?? undefined}>
+                    {c.jobTitle ?? "—"}
+                  </TableCell>
+                  <TableCell>
+                    {(c.tags?.length ?? 0) === 0 ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {c.tags!.map((t) => (
+                          <Badge key={t} variant="secondary" className="max-w-full truncate font-normal text-[10px]" title={t}>
+                            {t}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {c.status ? (
                       <Badge variant="outline" className={CONTACT_STATUS_COLORS[c.status]}>
@@ -344,7 +380,7 @@ function ContactsInner() {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className={CLIP}>
                     {c.owner ? `${c.owner.firstName} ${c.owner.lastName}` : "—"}
                   </TableCell>
                   <TableCell className="text-right">
