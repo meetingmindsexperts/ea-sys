@@ -19,6 +19,7 @@ const { mockAuth, mockDb, ai, programme } = vi.hoisted(() => ({
     usageToday: vi.fn(async () => ({ day: "2026-10-08", replies: 12, cap: 2000, perPersonHour: 40 })),
     claimReply: vi.fn(),
     streamVenueReply: vi.fn(),
+    venueAiAccess: vi.fn(),
   },
 }));
 
@@ -50,6 +51,7 @@ beforeEach(() => {
   mockDb.event.findFirst.mockResolvedValue(EVENT);
   ai.readVenueAi.mockReturnValue({ on: true });
   ai.claimReply.mockResolvedValue(true);
+  ai.venueAiAccess.mockResolvedValue({ ok: true });
   programme.loadVenueProgramme.mockResolvedValue({ v: 1, tz: "Asia/Dubai", sessions: [], sponsors: [] });
   ai.streamVenueReply.mockResolvedValue({ ok: true, stream: new ReadableStream({ start: (c) => { c.enqueue(new TextEncoder().encode("Hello there.")); c.close(); } }) });
   as();
@@ -156,5 +158,22 @@ describe("/config: AI attendees", () => {
   it("400 for a save with nothing in it", async () => {
     as("ORGANIZER");
     expect((await configPUT(new Request("http://localhost/x", { method: "PUT", body: "{}" }), params)).status).toBe(400);
+  });
+});
+
+describe("POST /api/venue/:eventId/ai on the platform (tenancy review, Oct 27)", () => {
+  it("refuses as AI_OFF, claiming nothing, when the organisation may not run AI on its own key", async () => {
+    ai.venueAiAccess.mockResolvedValue({ ok: false });
+    const res = await ask();
+    expect(res.status).toBe(403);
+    expect((await res.json!()).code).toBe("AI_OFF");
+    expect(ai.venueAiAccess).toHaveBeenCalledWith("org-1");
+    expect(ai.claimReply).not.toHaveBeenCalled();
+  });
+
+  it("hands the key it checked to the reply, so the reply cannot fall back to the platform's", async () => {
+    ai.venueAiAccess.mockResolvedValue({ ok: true, apiKey: "org-own-key" });
+    expect((await ask()).status).toBe(200);
+    expect(ai.streamVenueReply.mock.calls[0][5]).toEqual({ ok: true, apiKey: "org-own-key" });
   });
 });

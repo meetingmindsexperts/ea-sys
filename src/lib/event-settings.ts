@@ -27,18 +27,25 @@ import { Prisma } from "@prisma/client";
 export type SettingsObject = Record<string, unknown>;
 export type SettingsPatch = SettingsObject | ((current: SettingsObject) => SettingsObject);
 
+/** Lock the event's row, only within `organizationId` when given. */
+function lockEvent(tx: Prisma.TransactionClient, id: string, organizationId?: string) {
+  if (!organizationId) return tx.$queryRaw<{ settings: SettingsObject | null }[]>`SELECT "settings" FROM "Event" WHERE "id" = ${id} FOR UPDATE`;
+  return tx.$queryRaw<{ settings: SettingsObject | null }[]>`SELECT "settings" FROM "Event" WHERE "id" = ${id} AND "organizationId" = ${organizationId} FOR UPDATE`;
+}
+
 async function mergeSettingsLocked(
   table: "Event" | "Organization",
   id: string,
   patch: SettingsPatch,
   notFoundError: string,
+  organizationId?: string,
 ): Promise<SettingsObject> {
   return db.$transaction(async (tx) => {
     // Row-lock the row so concurrent settings writers serialize. Table name is
     // a hardcoded union (no injection surface); id is parameterized.
     const rows =
       table === "Event"
-        ? await tx.$queryRaw<{ settings: SettingsObject | null }[]>`SELECT "settings" FROM "Event" WHERE "id" = ${id} FOR UPDATE`
+        ? await lockEvent(tx, id, organizationId)
         : await tx.$queryRaw<{ settings: SettingsObject | null }[]>`SELECT "settings" FROM "Organization" WHERE "id" = ${id} FOR UPDATE`;
     if (rows.length === 0) throw new Error(notFoundError);
 
@@ -54,9 +61,13 @@ async function mergeSettingsLocked(
   });
 }
 
-/** Atomically merge a patch into `Event.settings`. Throws `EVENT_NOT_FOUND` if the event is gone. */
-export function updateEventSettings(eventId: string, patch: SettingsPatch): Promise<SettingsObject> {
-  return mergeSettingsLocked("Event", eventId, patch, "EVENT_NOT_FOUND");
+/**
+ * Atomically merge a patch into `Event.settings`. Throws `EVENT_NOT_FOUND` if the event is gone, or, with
+ * `organizationId`, if it belongs to another organisation: a second wall behind the route's own check
+ * (Event has no row-level policy, so nothing else would stop a mis-scoped id; venue tenancy review, Oct 27).
+ */
+export function updateEventSettings(eventId: string, patch: SettingsPatch, opts: { organizationId?: string } = {}): Promise<SettingsObject> {
+  return mergeSettingsLocked("Event", eventId, patch, "EVENT_NOT_FOUND", opts.organizationId);
 }
 
 /** Atomically merge a patch into `Organization.settings`. Throws `ORGANIZATION_NOT_FOUND` if gone. */

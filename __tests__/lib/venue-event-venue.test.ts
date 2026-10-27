@@ -27,6 +27,13 @@ describe("isVenueServed", () => {
     expect(isVenueServed({ id: "cm-else", slug: "ehc26", settings: {} })).toBe(false);
   });
 
+  it("on the platform matches event ids only, never a slug another organisation could share (tenancy review, Oct 27)", () => {
+    vi.stubEnv("VENUE_EVENT_SLUGS", "ehc26, cm-ehc");
+    vi.stubEnv("TENANCY_ENFORCE_HOST", "1");
+    expect(isVenueServed({ id: "cm-other-org", slug: "ehc26", settings: {} })).toBe(false);
+    expect(isVenueServed({ id: "cm-ehc", slug: "anything", settings: {} })).toBe(true);
+  });
+
   it("serves saved, opened rooms only while the module is on", () => {
     vi.stubEnv("VENUE_MODULE_ENABLED", "true");
     expect(isVenueServed({ id: "evt-x", slug: "x", settings: withRooms({ open: true }) })).toBe(true);

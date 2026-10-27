@@ -114,3 +114,40 @@ describe("GET /presence (the live stream)", () => {
     await res.body!.cancel();
   });
 });
+
+describe("GET /presence, shared between organisations (tenancy review, Oct 27)", () => {
+  const counts = () => (globalThis as { __venueOrgStreams?: Map<string, number> }).__venueOrgStreams!;
+  afterEach(() => counts().clear());
+
+  it("503 VENUE_FULL when this organisation already holds 400 streams; another organisation still gets in", async () => {
+    as();
+    counts().set("org-1", 400);
+    const full = (await GET(new Request("http://localhost/x?peer=taborgfullaa"), params)) as { status: number; json: () => Promise<{ code?: string }> };
+    expect(full.status).toBe(503);
+    expect((await full.json()).code).toBe("VENUE_FULL");
+    counts().set("org-1", 399);
+    const ctl = new AbortController();
+    const res = (await GET(new Request("http://localhost/x?peer=taborgnextaa", { signal: ctl.signal }), params)) as unknown as Response;
+    expect(res.status).toBe(200);
+    expect(counts().get("org-1")).toBe(400);
+    ctl.abort();
+    await res.body!.cancel();
+    expect(counts().get("org-1")).toBe(399);
+  });
+
+  it("frees the slot at once when the request was already cancelled (review LOW)", async () => {
+    as();
+    const ctl = new AbortController();
+    ctl.abort();
+    const res = (await GET(new Request("http://localhost/x?peer=tabgonealready", { signal: ctl.signal }), params)) as unknown as Response;
+    expect(res.status).toBe(200);
+    expect(counts().get("org-1") ?? 0).toBe(0);
+    await res.body?.cancel().catch(() => undefined);
+  });
+
+  it("503 when the server holds 1,000 streams across every organisation", async () => {
+    as();
+    counts().set("org-other", 1000);
+    expect(((await GET(new Request("http://localhost/x?peer=tabserverfull"), params)) as { status: number }).status).toBe(503);
+  });
+});

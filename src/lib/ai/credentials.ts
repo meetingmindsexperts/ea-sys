@@ -153,3 +153,17 @@ export async function resolveAnthropicApiKey(
   }
   return envKey;
 }
+
+/**
+ * The organisation's OWN Anthropic key (set and decrypting), never the platform's env key: for a caller that must
+ * refuse rather than fall back (the venue's AI attendees on the platform). Null when there is none. Read from an
+ * ALREADY-LOADED settings blob.
+ */
+export function ownAnthropicKey(settings: unknown, organizationId?: string | null): string | null {
+  try {
+    return orgKeyFromSettings(settings, "anthropic");
+  } catch (err) {
+    apiLogger.error({ msg: "ai-credentials:org-key-decrypt-failed; refusing, no fallback", provider: "anthropic", organizationId: organizationId ?? null, err });
+    return null;
+  }
+}

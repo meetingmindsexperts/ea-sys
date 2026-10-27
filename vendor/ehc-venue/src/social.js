@@ -10,10 +10,22 @@ const TRAITS = ['warm and talkative', 'dry sense of humour', 'thoughtful and pre
 const INTERESTS = ['sickle cell disease', 'thalassaemia care', 'iron deficiency in pregnancy', 'haemophilia management', 'cellular therapy', 'myeloma', 'lymphoma', 'transfusion safety', 'bone marrow transplantation', 'venous thrombosis', 'paediatric leukaemia', 'laboratory automation', 'anticoagulation clinics', 'blood donor programmes'];
 const ZONE_NAMES = { foyer: 'Grand Foyer', plenary: 'Plenary Ballroom', posters: 'Poster Gallery', hallA: 'Hall A', hallB: 'Hall B', hallC: 'Hall C', workshop: 'Workshop Room', promenade: 'East Promenade', lounge: 'Networking Lounge', expo: 'Exhibition Hall' };
 const AMBIENT = ['The coffee here is really good.', 'Are you staying for the plenary?', 'How is the fellowship going?', 'I saw a great case series last month.', 'We should catch up after the sessions.', 'Is this your first time at this conference?', 'Our lab just went fully digital.', 'The foyer looks amazing this year.', 'Did you register for the workshop?', 'Let’s grab a seat before it fills up.'];
+// EA-SYS (tenancy review, Oct 27): a venue generated from an event's own rooms (any organisation's) gets
+// attendees from no particular field; the lists above are EHC's haematologists and stay with EHC's rooms.
+const GENERAL_TITLES = [['Head of department', 1], ['Senior researcher', 1], ['University lecturer', 1], ['Senior consultant', 1], ['Programme manager', 0], ['Specialist', 0], ['Postgraduate trainee', 0], ['Policy adviser', 0], ['Operations lead', 0], ['Training coordinator', 0]];
+const GENERAL_CITIES = ['Dubai', 'Abu Dhabi', 'Riyadh', 'Cairo', 'London', 'Berlin', 'Singapore', 'Mumbai', 'Toronto', 'Sydney', 'Johannesburg', 'New York'];
+const GENERAL_PLACES = ['a university', 'a research institute', 'a national association', 'a consultancy', 'a public agency', 'a training academy'];
+const GENERAL_INTERESTS = ['the latest research in the field', 'practical case studies', 'training the next generation', 'new technology and tools', 'standards and guidelines', 'working across borders', 'measuring outcomes', 'running better programmes'];
+const GENERAL_AMBIENT = ['The coffee here is really good.', 'Are you staying for the plenary?', 'How is the new role going?', 'I heard a great talk this morning.', 'We should catch up after the sessions.', 'Is this your first time at this conference?', 'Our team just finished a big project.', 'The foyer looks amazing this year.', 'Did you register for the workshop?', 'Let’s grab a seat before it fills up.'];
 const hashStr = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
 
+// EA-SYS (Oct 27): the persona lists for this venue: EHC's for its hand-built rooms, the general ones for a generated venue.
+const personaLists = () => (LAYOUT
+  ? { titles: GENERAL_TITLES, cities: GENERAL_CITIES, places: GENERAL_PLACES, interests: GENERAL_INTERESTS, ambient: GENERAL_AMBIENT }
+  : { titles: DELEGATE_TITLES, cities: CITIES, places: PLACES, interests: INTERESTS, ambient: AMBIENT });
+
 function makePersona(p, idx) {
-  const r = rng(1000 + idx * 7919), pick = (a) => a[Math.floor(r() * a.length)];
+  const r = rng(1000 + idx * 7919), pick = (a) => a[Math.floor(r() * a.length)], V = personaLists();
   const g = p.look.g || (p.look.outfit === 'abaya' ? 'f' : p.look.outfit === 'kandura' ? 'm' : (r() < 0.5 ? 'f' : 'm'));
   const ARAB = /^Al |Haddad|Khalil|Rahman|Yousef|Mansour|Barakat|Farouk|Saleh|Aziz|Qureshi|Falasi|Nuaimi|Ketbi|Zaabi|Suwaidi|Mansoori|Hashimi/;
   const pool = (p.look.outfit === 'kandura' || p.look.outfit === 'abaya') ? PEOPLE_NAMES[g].filter(n => ARAB.test(n[1])) : PEOPLE_NAMES[g];
@@ -26,10 +38,10 @@ function makePersona(p, idx) {
   else if (role === 'exhibitor') {
     if (!LAYOUT && p.x > 59 && p.z > 4 && p.z < 13) { title = 'Society volunteer'; org = 'the Emirates Society of Haematology booth'; kind = 'society'; }
     else { title = 'Partner stand representative'; org = 'a partner company (name not yet confirmed in this preview)'; kind = 'exhibitor'; }
-  } else if (role === 'speaker') { const t = pick(DELEGATE_TITLES.filter(d => d[1])); title = t[0] + ' and invited speaker'; dr = true; org = pick(PLACES) + ' in ' + pick(CITIES); kind = 'speaker'; }
-  else { const t = pick(DELEGATE_TITLES); title = t[0]; dr = !!t[1]; org = pick(PLACES) + ' in ' + pick(CITIES); }
+  } else if (role === 'speaker') { const t = pick(V.titles.filter(d => d[1])); title = t[0] + ' and invited speaker'; dr = true; org = pick(V.places) + ' in ' + pick(V.cities); kind = 'speaker'; }
+  else { const t = pick(V.titles); title = t[0]; dr = !!t[1]; org = pick(V.places) + ' in ' + pick(V.cities); }
   if (role === 'panel') kind = 'speaker';
-  return { first, last, name: (dr ? 'Dr ' : '') + first + ' ' + last, short: (dr ? 'Dr ' + last : first), g, title, org, kind, trait: pick(TRAITS), interest: pick(INTERESTS), arabic: /^Al |Haddad|Khalil|Rahman|Yousef|Mansour|Barakat|Farouk|Saleh|Aziz|Qureshi/.test(last) };
+  return { first, last, name: (dr ? 'Dr ' : '') + first + ' ' + last, short: (dr ? 'Dr ' + last : first), g, title, org, kind, trait: pick(TRAITS), interest: pick(V.interests), arabic: /^Al |Haddad|Khalil|Rahman|Yousef|Mansour|Barakat|Farouk|Saleh|Aziz|Qureshi/.test(last) };
 }
 
 class Social {
@@ -135,7 +147,7 @@ class Social {
     if (this.ambT <= 0) {
       this.ambT = 5 + Math.random() * 5;
       const talkers = this.ctx.crowd().list.filter(p => (p.pose === 'talk' || p.pose === 'stand' && p.role === 'guest') && Math.hypot(p.x - pl.x, p.z - pl.z) < 13 && (!T || T.ref !== p));
-      if (talkers.length) { const p = talkers[Math.floor(Math.random() * talkers.length)]; this.bubble(p, AMBIENT[Math.floor(Math.random() * AMBIENT.length)], { quiet: true, ms: 3200 }); }
+      if (talkers.length) { const p = talkers[Math.floor(Math.random() * talkers.length)]; const lines = personaLists().ambient; this.bubble(p, lines[Math.floor(Math.random() * lines.length)], { quiet: true, ms: 3200 }); }
     }
     // a passing hello
     this.greetT -= dt;

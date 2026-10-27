@@ -21,7 +21,7 @@ import { venueDisplayName } from "./display-name";
 import { venueDateRange } from "./date-range";
 import { resolveTimezone } from "@/lib/event-time";
 import { readVenueConfig, venueSafetyInbox } from "@/services/venue-service";
-import { readVenueAi } from "@/services/venue-ai-service";
+import { readVenueAi, venueAiAccess } from "@/services/venue-ai-service";
 import { loadVenueProgramme } from "@/services/venue-programme-service";
 import venuePage from "./page-html.generated.json";
 
@@ -62,7 +62,10 @@ export async function venuePageResponse(gate: OpenGate, built: EventLayout, opts
   const layout: VenueLayout | null = built.kind === "generated" ? built.layout : null;
   const tz = resolveTimezone(e.timezone);
   // The sessions and sponsors the screens, agenda and stands show (phase 6 step 4).
-  const programme = await loadVenueProgramme({ organizationId: gate.organizationId, eventId: e.id }, venueRooms(built), tz);
+  const [programme, aiAvailable] = await Promise.all([
+    loadVenueProgramme({ organizationId: gate.organizationId, eventId: e.id }, venueRooms(built), tz),
+    opts.preview ? false : venueAiAccess(gate.organizationId).then((a) => a.ok),
+  ]);
   const ehcEvent = {
     name: e.name,
     date: venueDateRange(e.startDate, e.endDate, tz),
@@ -73,7 +76,7 @@ export async function venuePageResponse(gate: OpenGate, built: EventLayout, opts
   // Recordings per screen from the event's settings; an empty map stops the
   // vendor page looking for a screens.json beside itself (it would 404).
   const screens = readVenueConfig(e.settings).screens ?? {};
-  const ehcVenue = { api: `/api/venue/${e.id}`, userId: gate.userId, name: venueDisplayName(gate.session), team: gate.team, ai: readVenueAi(e.settings).on };
+  const ehcVenue = { api: `/api/venue/${e.id}`, userId: gate.userId, name: venueDisplayName(gate.session), team: gate.team, ai: readVenueAi(e.settings).on && aiAvailable };
   const runtime = opts.preview ? "" : `window.EHC_VENUE=${scriptLiteral(ehcVenue)};`;
   const page =
     '<!doctype html><html lang="en"><head><meta charset="utf-8">' +

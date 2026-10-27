@@ -69,3 +69,22 @@ describe("updateOrganizationSettings — atomic merge", () => {
     await expect(updateOrganizationSettings("nope", {})).rejects.toThrow("ORGANIZATION_NOT_FOUND");
   });
 });
+
+describe("updateEventSettings bound to an organisation (venue tenancy review, Oct 27)", () => {
+  it("locks the row only within that organisation, and an event of another reads as not found", async () => {
+    mockDb._tx.$queryRaw.mockResolvedValue([]);
+    await expect(updateEventSettings("ev1", { a: 1 }, { organizationId: "org-1" })).rejects.toThrow("EVENT_NOT_FOUND");
+    const [sql, ...values] = mockDb._tx.$queryRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    expect(sql.join("?")).toContain('"organizationId" = ?');
+    expect(values).toEqual(["ev1", "org-1"]);
+    expect(mockDb._tx.event.update).not.toHaveBeenCalled();
+  });
+
+  it("without one, locks by id alone, as every other caller does", async () => {
+    mockDb._tx.$queryRaw.mockResolvedValue([{ settings: {} }]);
+    await updateEventSettings("ev1", { a: 1 });
+    const [sql, ...values] = mockDb._tx.$queryRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    expect(sql.join("?")).not.toContain("organizationId");
+    expect(values).toEqual(["ev1"]);
+  });
+});

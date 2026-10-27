@@ -174,7 +174,7 @@ export async function saveFilter(organizationId: string, eventId: string, raw: u
     updateEventSettings(eventId, (cur) => {
       const venue = cur.venue && typeof cur.venue === "object" ? (cur.venue as Record<string, unknown>) : {};
       return { ...cur, venue: { ...venue, filter } };
-    }),
+    }, { organizationId }),
   );
   return filter;
 }

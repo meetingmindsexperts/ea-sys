@@ -16,7 +16,7 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { updateEventSettings } from "@/lib/event-settings";
 import { anthropicProvider } from "@/lib/ai/anthropic";
-import { resolveAnthropicApiKey } from "@/lib/ai/credentials";
+import { ownAnthropicKey, resolveAnthropicApiKey } from "@/lib/ai/credentials";
 import { getModelConfig } from "@/lib/ai/config";
 import type { StreamEvent } from "@/lib/ai";
 import { buildInstructions, type Persona, type Scene, type Turn } from "@/lib/venue/ai-prompt";
@@ -44,9 +44,32 @@ export async function saveVenueAi(organizationId: string, eventId: string, on: b
     updateEventSettings(eventId, (cur) => {
       const venue = cur.venue && typeof cur.venue === "object" ? (cur.venue as Record<string, unknown>) : {};
       return { ...cur, venue: { ...venue, ai: { on } } };
-    }),
+    }, { organizationId }),
   );
   return { on };
+}
+
+/** Whether AI attendees may run, and on which key: `apiKey` absent means the usual org-then-env resolution. */
+export type VenueAiAccess = { ok: true; apiKey?: string } | { ok: false };
+
+/**
+ * Whether AI attendees may run for this organisation, and the key to run them on. On the multi-tenant platform
+ * (TENANCY_ENFORCE_HOST=1) only on the organisation's own Anthropic key, which is handed back so the reply uses
+ * exactly that key and never falls back to the platform's (review MED): they are on by default and capped per
+ * event, not per organisation, so on the platform's key one organisation's events would spend everyone's money
+ * (tenancy review, Oct 27). On master the env key is MM Group's own, as before. A failed read refuses: the page
+ * falls back to its pre-written answers. The caller logs a refusal.
+ */
+export async function venueAiAccess(organizationId: string): Promise<VenueAiAccess> {
+  if (process.env.TENANCY_ENFORCE_HOST !== "1") return { ok: true };
+  try {
+    const org = await db.organization.findUnique({ where: { id: organizationId }, select: { settings: true } });
+    const apiKey = ownAnthropicKey(org?.settings, organizationId);
+    return apiKey ? { ok: true, apiKey } : { ok: false };
+  } catch (err) {
+    apiLogger.error({ msg: "venue-ai:key-check-failed", organizationId, err });
+    return { ok: false };
+  }
 }
 
 /** Today's date in the event's own timezone: the daily cap's day. */
@@ -108,7 +131,7 @@ export type VenueReplyResult = { ok: true; stream: ReadableStream<Uint8Array> } 
  * instead of an empty stream; after that the text flows as it arrives, and the
  * token counts are recorded when it ends.
  */
-export async function streamVenueReply(c: Caller, day: string, per: Persona, scene: Scene, turns: Turn[]): Promise<VenueReplyResult> {
+export async function streamVenueReply(c: Caller, day: string, per: Persona, scene: Scene, turns: Turn[], access: VenueAiAccess = { ok: true }): Promise<VenueReplyResult> {
   const ctx = { organizationId: c.organizationId, eventId: c.eventId, userId: c.userId };
   const config = getModelConfig("venueAttendee");
   const started = Date.now();
@@ -117,7 +140,8 @@ export async function streamVenueReply(c: Caller, day: string, per: Persona, sce
   try {
     events = anthropicProvider
       .streamChat({
-        apiKey: await resolveAnthropicApiKey(c.organizationId),
+        // The key venueAiAccess checked, on the platform; else the usual org-then-env resolution.
+        apiKey: (access.ok && access.apiKey) || (await resolveAnthropicApiKey(c.organizationId)),
         model: config.model,
         maxTokens: config.maxTokens,
         temperature: config.temperature,

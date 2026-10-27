@@ -47,33 +47,52 @@ const ZONES = vocab.ZONE_NAMES as Record<string, string>;
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
+/** The lists delegates and speakers are drawn from (social.js `personaLists`). */
+interface PersonaLists {
+  titles: (string | number)[][];
+  cities: string[];
+  places: string[];
+  interests: string[];
+}
+
+/** EHC's haematologists, for its hand-built rooms; anyone's, for a venue generated from an event's own rooms (tenancy review, Oct 27). */
+const LISTS: Record<"preset" | "general", PersonaLists> = {
+  preset: { titles: vocab.DELEGATE_TITLES, cities: vocab.CITIES, places: vocab.PLACES, interests: vocab.INTERESTS },
+  general: { titles: vocab.GENERAL_TITLES, cities: vocab.GENERAL_CITIES, places: vocab.GENERAL_PLACES, interests: vocab.GENERAL_INTERESTS },
+};
+
 /** Delegates and speakers work at "<place> in <city>". */
-const isPlaceInCity = (org: string) => vocab.PLACES.some((p) => vocab.CITIES.some((c) => `${p} in ${c}` === org));
+const isPlaceInCity = (l: PersonaLists, org: string) => l.places.some((p) => l.cities.some((c) => `${p} in ${c}` === org));
 
 /** The title's "Dr" flag, or null when the title is not one this kind of persona can have. */
-function doctorFlag(kind: string, title: string): boolean | null {
-  const plain = vocab.DELEGATE_TITLES.find(([t]) => t === title);
+function doctorFlag(l: PersonaLists, kind: string, title: string): boolean | null {
+  const plain = l.titles.find(([t]) => t === title);
   if (plain) return !!plain[1];
   if (kind !== "speaker" || !title.endsWith(SPEAKER_SUFFIX)) return null;
-  const invited = vocab.DELEGATE_TITLES.find(([t, dr]) => dr && t + SPEAKER_SUFFIX === title);
+  const invited = l.titles.find(([t, dr]) => dr && t + SPEAKER_SUFFIX === title);
   return invited ? true : null;
 }
 
 /**
  * The persona the page sent, rebuilt from the venue's own lists, or null when
  * any field is one the venue cannot produce. The name and "Dr" come from the
- * title, never from what the page says.
+ * title, never from what the page says. `generated`: the venue is built from the
+ * event's own rooms, whose attendees come from the general lists, not EHC's.
  */
-export function checkPersona(raw: unknown): Persona | null {
+export function checkPersona(raw: unknown, generated = false): Persona | null {
   const p = obj(raw);
+  const l = LISTS[generated ? "general" : "preset"];
   const [first, last, kind, title, org, trait, interest] = ["first", "last", "kind", "title", "org", "trait", "interest"].map((k) => str(p[k]));
-  if (!NAMES.some(([f, l]) => f === first && l === last)) return null;
-  if (!vocab.TRAITS.includes(trait) || !vocab.INTERESTS.includes(interest)) return null;
+  if (!NAMES.some(([f, n]) => f === first && n === last)) return null;
+  if (!vocab.TRAITS.includes(trait) || !l.interests.includes(interest)) return null;
 
   let dr: boolean;
-  if (vocab.ROLES.some((r) => r.title === title && r.org === org && r.kind === kind)) dr = false;
-  else if ((kind === "delegate" || kind === "speaker") && isPlaceInCity(org)) {
-    const flag = doctorFlag(kind, title);
+  // EHC's society booth is only in EHC's hand-built rooms (social.js gives it out only without a layout): another
+  // organisation's attendee must never claim to be from EHC's society (review LOW, Oct 27).
+  const roles = generated ? vocab.ROLES.filter((r) => r.kind !== "society") : vocab.ROLES;
+  if (roles.some((r) => r.title === title && r.org === org && r.kind === kind)) dr = false;
+  else if ((kind === "delegate" || kind === "speaker") && isPlaceInCity(l, org)) {
+    const flag = doctorFlag(l, kind, title);
     if (flag === null) return null;
     dr = flag;
   } else return null;

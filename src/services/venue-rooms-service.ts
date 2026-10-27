@@ -54,7 +54,7 @@ export async function saveVenueRooms(c: Caller, raw: unknown, version: number): 
         if ((current?.updatedAt ?? 0) !== version) throw new StaleVersion();
         const venue = cur.venue && typeof cur.venue === "object" ? (cur.venue as Record<string, unknown>) : {};
         return { ...cur, venue: { ...venue, rooms: { list: saved.rooms, updatedAt: saved.updatedAt, updatedBy: saved.updatedBy }, ...prunedPlan(cur, saved.rooms) } };
-      }),
+      }, { organizationId: c.organizationId }),
     );
   } catch (err) {
     if (!(err instanceof StaleVersion)) throw err;
@@ -77,7 +77,7 @@ export async function setVenueOpen(c: Caller, open: boolean): Promise<OpenVenueR
         if (open && !readVenueRooms(cur)) throw new NoRooms();
         const venue = cur.venue && typeof cur.venue === "object" ? (cur.venue as Record<string, unknown>) : {};
         return { ...cur, venue: { ...venue, open } };
-      }),
+      }, { organizationId: c.organizationId }),
     );
   } catch (err) {
     if (!(err instanceof NoRooms)) throw err;
@@ -156,7 +156,7 @@ export async function saveVenuePlan(c: Caller, raw: unknown, version: number): P
         if (saved) venue.plan = { plan: saved.plan, updatedAt: saved.updatedAt, updatedBy: saved.updatedBy };
         else delete venue.plan;
         return { ...cur, venue };
-      }),
+      }, { organizationId: c.organizationId }),
     );
   } catch (err) {
     if (err instanceof NoRooms) {

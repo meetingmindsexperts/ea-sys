@@ -43,6 +43,21 @@ const STATUS = { TAB_TAKEN: 409, TOO_MANY_TABS: 429, VENUE_FULL: 503 } as const;
 
 /** Open streams per person, so one person cannot hold the server's connections. */
 const openStreams: Map<string, number> = ((globalThis as { __venueStreams?: Map<string, number> }).__venueStreams ??= new Map());
+/**
+ * Open streams per organisation and on this server: every organisation's venue shares the box, so one
+ * organisation's large event must leave room for the others (tenancy review, Oct 27). Streams are counted per
+ * browser tab (up to MAX_TABS_PER_PERSON a person), so the organisation cap is a fairness bound on connections,
+ * not a count of events or people.
+ */
+const MAX_STREAMS_PER_ORG = 400;
+const MAX_STREAMS_TOTAL = 1000;
+const orgStreams: Map<string, number> = ((globalThis as { __venueOrgStreams?: Map<string, number> }).__venueOrgStreams ??= new Map());
+const total = () => [...orgStreams.values()].reduce((a, b) => a + b, 0);
+const bump = (m: Map<string, number>, key: string, by: number) => {
+  const n = (m.get(key) ?? 0) + by;
+  if (n > 0) m.set(key, n);
+  else m.delete(key);
+};
 
 export async function POST(req: Request, { params }: Params) {
   try {
@@ -99,7 +114,14 @@ function openStream(req: Request, gate: Gate, eventId: string) {
     apiLogger.warn({ msg: `${GET_ROUTE}:too-many-streams`, userId, eventId });
     return NextResponse.json({ error: "Too many open venue tabs", code: "TOO_MANY_TABS" }, { status: 429 });
   }
-  openStreams.set(userId, (openStreams.get(userId) ?? 0) + 1);
+  const org = gate.organizationId;
+  if ((orgStreams.get(org) ?? 0) >= MAX_STREAMS_PER_ORG || total() >= MAX_STREAMS_TOTAL) {
+    // The page's stream closes and it walks on alone, as for any refused stream (venue-runtime.js onClose).
+    apiLogger.warn({ msg: `${GET_ROUTE}:server-full`, userId, eventId, organizationId: org, orgStreams: orgStreams.get(org) ?? 0, total: total() });
+    return NextResponse.json({ error: "The venue is busy right now; live colleagues are off for this visit", code: "VENUE_FULL" }, { status: 503 });
+  }
+  bump(openStreams, userId, 1);
+  bump(orgStreams, org, 1);
   const started = Date.now();
   const encoder = new TextEncoder();
   let stop = () => {};
@@ -130,9 +152,8 @@ function openStream(req: Request, gate: Gate, eventId: string) {
         clearInterval(timer);
         clearInterval(ping);
         clearTimeout(life);
-        const n = (openStreams.get(userId) ?? 1) - 1;
-        if (n > 0) openStreams.set(userId, n);
-        else openStreams.delete(userId);
+        bump(openStreams, userId, -1);
+        bump(orgStreams, org, -1);
         // The tab's stream ended: take its avatar out now rather than in 15 s.
         leavePresence(eventId, tab, userId);
         apiLogger.info({ msg: `${GET_ROUTE}:closed`, userId, eventId, seconds: Math.round((Date.now() - started) / 1000) });
@@ -143,6 +164,11 @@ function openStream(req: Request, gate: Gate, eventId: string) {
         }
       };
       req.signal.addEventListener("abort", () => stop());
+      // Gone before the listener was attached: free the slot now, not after MAX_STREAM_MS (review LOW, Oct 27).
+      if (req.signal.aborted) {
+        stop();
+        return;
+      }
       send("retry: 3000\n\n");
       tick();
     },

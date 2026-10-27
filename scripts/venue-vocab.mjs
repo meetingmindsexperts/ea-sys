@@ -10,10 +10,10 @@ import vm from "node:vm";
  */
 export function extractVocab(socialSrc, worldSrc) {
   const head = socialSrc.slice(0, socialSrc.indexOf("const hashStr"));
-  const lists = vm.runInNewContext(`${head};({ PEOPLE_NAMES, DELEGATE_TITLES, CITIES, PLACES, TRAITS, INTERESTS, ZONE_NAMES })`, {}, { timeout: 1000 });
+  const lists = vm.runInNewContext(`${head};({ PEOPLE_NAMES, DELEGATE_TITLES, CITIES, PLACES, TRAITS, INTERESTS, ZONE_NAMES, GENERAL_TITLES, GENERAL_CITIES, GENERAL_PLACES, GENERAL_INTERESTS })`, {}, { timeout: 1000 });
   const body = socialSrc.slice(socialSrc.indexOf("function makePersona"), socialSrc.indexOf("class Social"));
   const roles = [...body.matchAll(/title = '([^']+)'; org = '([^']+)'; kind = '([a-z]+)'/g)].map((m) => ({ title: m[1], org: m[2], kind: m[3] }));
   const organiser = /organiser: '([^']+)'/.exec(worldSrc)?.[1];
-  if (!roles.length || !organiser || !lists.PEOPLE_NAMES?.f?.length) throw new Error("venue vocab: the vendor source changed shape; update extractVocab");
+  if (!roles.length || !organiser || !lists.PEOPLE_NAMES?.f?.length || !lists.GENERAL_TITLES?.length) throw new Error("venue vocab: the vendor source changed shape; update extractVocab");
   return { generatedBy: "scripts/venue-build.mjs", source: "vendor/ehc-venue/src/social.js", ...JSON.parse(JSON.stringify(lists)), ROLES: roles, ORGANISER: organiser };
 }

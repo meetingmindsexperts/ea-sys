@@ -23,7 +23,7 @@ import { eventLayout, sponsorStands, venueRooms } from "@/lib/venue/event-venue"
 import { programmeForAi } from "@/lib/venue/programme";
 import { loadVenueProgramme } from "@/services/venue-programme-service";
 import { MAX_TURNS, checkGreeting, checkPersona, cleanTurns } from "@/lib/venue/ai-prompt";
-import { VENUE_AI_PER_EVENT_DAY, VENUE_AI_PER_PERSON_HOUR, claimReply, readVenueAi, streamVenueReply, venueDay } from "@/services/venue-ai-service";
+import { VENUE_AI_PER_EVENT_DAY, VENUE_AI_PER_PERSON_HOUR, claimReply, readVenueAi, streamVenueReply, venueAiAccess, venueDay } from "@/services/venue-ai-service";
 
 type Params = { params: Promise<{ eventId: string }> };
 
@@ -50,6 +50,12 @@ export async function POST(req: Request, { params }: Params) {
         apiLogger.warn({ msg: `${ROUTE}:ai-off`, ...ctx });
         return NextResponse.json({ error: "AI attendees are off for this event", code: "AI_OFF" }, { status: 403 });
       }
+      // The page treats this like AI switched off and uses its pre-written answers.
+      const access = await venueAiAccess(gate.organizationId);
+      if (!access.ok) {
+        apiLogger.warn({ msg: `${ROUTE}:no-own-key`, ...ctx });
+        return NextResponse.json({ error: "AI attendees need the organisation's own AI key", code: "AI_OFF" }, { status: 403 });
+      }
       const rl = checkRateLimit({ key: `venue-ai:${gate.userId}`, ...LIMIT });
       if (!rl.allowed) return rateLimited(rl, { route: ROUTE, ...ctx, limit: LIMIT.limit, windowSeconds: 3600 });
 
@@ -59,7 +65,10 @@ export async function POST(req: Request, { params }: Params) {
         return NextResponse.json({ error: "Invalid input", code: "INVALID_INPUT" }, { status: 400 });
       }
       const body = parsed.data;
-      const persona = checkPersona(body.persona);
+      // A generated venue: the instructions describe its own rooms, organiser and subject (phase 6), and its
+      // attendees come from the general lists, not EHC's (tenancy review, Oct 27).
+      const built = eventLayout(gate.event);
+      const persona = checkPersona(body.persona, built.kind === "generated");
       if (!persona) {
         apiLogger.warn({ msg: `${ROUTE}:unknown-persona`, ...ctx });
         return NextResponse.json({ error: "Unknown attendee", code: "INVALID_PERSONA" }, { status: 400 });
@@ -76,8 +85,6 @@ export async function POST(req: Request, { params }: Params) {
         apiLogger.warn({ msg: `${ROUTE}:event-daily-cap`, ...ctx, day, cap: VENUE_AI_PER_EVENT_DAY });
         return NextResponse.json({ error: "Today's AI replies for this event are used up", code: "AI_LIMIT_EVENT" }, { status: 429 });
       }
-      // A generated venue: the instructions describe its own rooms, organiser and subject (phase 6).
-      const built = eventLayout(e);
       const layout = built.kind === "generated" ? built.layout : undefined;
       const rooms = venueRooms(built);
       const programme = await loadVenueProgramme({ organizationId: gate.organizationId, eventId }, rooms, tz);
@@ -93,7 +100,7 @@ export async function POST(req: Request, { params }: Params) {
         greeting: checkGreeting(body.greeting, persona),
         programme: programmeForAi(programme, rooms, new Date(), sponsorStands(built)),
       };
-      const res = await streamVenueReply(caller, day, persona, scene, turns);
+      const res = await streamVenueReply(caller, day, persona, scene, turns, access);
       if (!res.ok) return NextResponse.json({ error: res.message, code: res.code }, { status: 502 });
       return new Response(res.stream, {
         headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no", "X-Content-Type-Options": "nosniff" },

@@ -100,6 +100,43 @@ describe("the vendor's own wording", () => {
   });
 });
 
+describe("attendees of a venue generated from an event's own rooms (tenancy review, Oct 27)", () => {
+  /** The vendor's own makePersona, run as the page runs it, with or without a generated layout. */
+  const personas = (layout: unknown) => {
+    const rng = /function rng[^\n]+/.exec(readFileSync(path.join(SRC, "textures.js"), "utf8"))![0];
+    const ctx = vm.createContext({ LAYOUT: layout });
+    vm.runInContext(`${rng}\n${social}\n;globalThis.__make = makePersona;`, ctx, { timeout: 2000 });
+    const make = (ctx as { __make: (p: unknown, i: number) => Record<string, unknown> }).__make;
+    return Array.from({ length: 60 }, (_, i) => make({ look: {}, role: i % 5 === 0 ? "speaker" : "guest", x: 0, z: 0 }, i));
+  };
+
+  it("are no one's haematologists: drawn from the general lists, and accepted only for a generated venue", () => {
+    const made = personas({ zones: [] });
+    const text = JSON.stringify(made);
+    expect(text).not.toMatch(/haemat|hemat|thalass|sickle|transfusion|myeloma/i);
+    for (const p of made) {
+      expect(checkPersona(p, true)).not.toBeNull();
+      expect(checkPersona(p, false)).toBeNull();
+    }
+  });
+
+  it("never lets another organisation's attendee claim EHC's society booth (review LOW)", () => {
+    const society = vocab.ROLES.find((r) => r.kind === "society")!;
+    expect(checkPersona({ ...delegate, ...society }, false)).not.toBeNull();
+    // A general interest, so the society role is the only thing that can refuse it.
+    expect(checkPersona({ ...delegate, ...society, interest: vocab.GENERAL_INTERESTS[0] }, true)).toBeNull();
+    const barista = vocab.ROLES.find((r) => r.title === "Barista")!;
+    expect(checkPersona({ ...delegate, ...barista, interest: vocab.GENERAL_INTERESTS[0] }, true)).not.toBeNull();
+  });
+
+  it("EHC's hand-built rooms keep EHC's attendees, and those are refused in a generated venue", () => {
+    const made = personas(null);
+    expect(JSON.stringify(made)).toMatch(/haematolog/i);
+    for (const p of made) expect(checkPersona(p, false)).not.toBeNull();
+    expect(checkPersona(delegate, true)).toBeNull();
+  });
+});
+
 function abilitiesHasFloorGreeting() {
   return readFileSync(path.join(SRC, "abilities.js"), "utf8").includes(`greet: '${FLOOR_GREETING}'`);
 }

@@ -120,14 +120,16 @@ export function isVenueModuleEnabled(): boolean {
  * comes from its own rooms (VENUE_MODULE_ENABLED and the Venue tab).
  *
  * Slugs are unique only within an organisation (review L4), so on the
- * multi-tenant platform instance list event ids: a slug there could match
- * another organisation's event. Nothing leaks if it does (the page still
- * checks the person may see that event), but it would show EHC's rooms.
+ * multi-tenant platform instance (TENANCY_ENFORCE_HOST=1) only event ids
+ * match: a slug there could name another organisation's event and give it
+ * EHC's rooms. Enforced here since the tenancy review (Oct 27, 2026); it was
+ * a note before.
  */
 export function isVenueEnabledFor(event: { id: string; slug: string }): boolean {
   const list = (process.env.VENUE_EVENT_SLUGS ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  return list.includes(event.id) || list.includes(event.slug);
+  if (list.includes(event.id)) return true;
+  return process.env.TENANCY_ENFORCE_HOST !== "1" && list.includes(event.slug);
 }

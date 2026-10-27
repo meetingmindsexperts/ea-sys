@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Online venue: tenancy review (October 27)
+
+- Owner: check the venue for multi-tenancy. Rows were already sound (route gate, tenant lane, organisationId on every row and query, RLS on all three tables). What leaked was configuration, now fixed:
+- **Safety reports** went to MM Group's inbox for every organisation, and every venue showed it as the contact. They now go to the event's own organisation's company email (MM Group's is that same inbox, so master is unchanged); with none, the report is stored and the gap logged.
+- **AI attendees** were EHC's haematologists in every venue. A venue generated from an event's own rooms now draws them from neutral lists; EHC's preset keeps its own. The server checks each persona against the matching list.
+- **On the platform** (`TENANCY_ENFORCE_HOST=1`): AI attendees run only on the organisation's own Anthropic key, never the platform's; `VENUE_EVENT_SLUGS` matches event ids only, not slugs another organisation could share.
+- **Shared server**: live colleague streams are capped at 400 per organisation and 1,000 per server, so one large event cannot take every connection.
+- **Second wall**: the venue's settings writes lock the event only within the caller's organisation.
+- **Proof**: an RLS isolation suite for the venue tables (`tests/tenancy/venue-rls.test.ts`), and the venue models in `check-tenant-als.sh`'s swept list.
+
 ### Venue floor plan: stairs between floors that stay joined (October 27)
 
 - Owner: "two floor editor is causing issues with stairs". Tested locally; three problems, all fixed.
