@@ -151,29 +151,31 @@ export async function POST(req: Request) {
   // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
   return await runWithTenant(ctx.organizationId, async () => {
 
-  const limit = checkRateLimit({
-    key: `crm-sponsor-email:org:${ctx.organizationId}`,
-    limit: 10,
-    windowMs: 60 * 60 * 1000,
-  });
+  const body = await req.json().catch(() => null);
+  const parsed = sendSchema.safeParse(body);
+  if (!parsed.success) {
+    return zodErrorResponse(parsed, { route: "crm/sponsor-email/send:POST", organizationId: ctx.organizationId });
+  }
+
+  // A blast is 10/hr for the whole organisation. A reply in a conversation
+  // goes to one person, so it has its own, wider bucket per person: a sales
+  // team answering sponsors must not be stopped by the blast limit.
+  const bucket = parsed.data.threadId
+    ? { key: `crm-thread-reply:user:${ctx.userId ?? ctx.organizationId}`, limit: 60 }
+    : { key: `crm-sponsor-email:org:${ctx.organizationId}`, limit: 10 };
+  const limit = checkRateLimit({ key: bucket.key, limit: bucket.limit, windowMs: 60 * 60 * 1000 });
   if (!limit.allowed) {
-    apiLogger.warn({ msg: "crm/sponsor-email/send:rate-limited", organizationId: ctx.organizationId });
+    apiLogger.warn({ msg: "crm/sponsor-email/send:rate-limited", organizationId: ctx.organizationId, bucket: bucket.key });
     return NextResponse.json(
       {
         error: "Too many emails sent — try again shortly",
         code: "RATE_LIMITED",
         retryAfterSeconds: limit.retryAfterSeconds,
-        limit: 10,
+        limit: bucket.limit,
         windowSeconds: 3600,
       },
       { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
     );
-  }
-
-  const body = await req.json().catch(() => null);
-  const parsed = sendSchema.safeParse(body);
-  if (!parsed.success) {
-    return zodErrorResponse(parsed, { route: "crm/sponsor-email/send:POST", organizationId: ctx.organizationId });
   }
 
   // Double-submit idempotency (CRM review M2): the send is synchronous and slow

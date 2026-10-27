@@ -38,6 +38,8 @@ export async function GET(
         hasUnread: true,
         lastMessageAt: true,
         archivedAt: true,
+        // Set when the deal was archived: the thread can no longer be replied to.
+        revokedAt: true,
         createdAt: true,
         deal: { select: { id: true, name: true } },
         crmContact: { select: { id: true, firstName: true, lastName: true } },

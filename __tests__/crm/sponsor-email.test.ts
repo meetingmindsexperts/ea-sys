@@ -42,6 +42,7 @@ vi.mock("@/crm/services/crm-email-thread-service", () => ({
   mintReplyToken: vi.fn(() => "tok-test"),
   crmReplyAddress: vi.fn(() => null),
   recordOutboundEmail: vi.fn(() => Promise.resolve()),
+  extendThreadToken: vi.fn(() => Promise.resolve(true)),
 }));
 
 import { db } from "@/lib/db";
@@ -58,7 +59,7 @@ import {
   resolveThreadRecipients,
   sendThreadReply,
 } from "@/crm/services/sponsor-email-service";
-import { recordOutboundEmail } from "@/crm/services/crm-email-thread-service";
+import { extendThreadToken, recordOutboundEmail } from "@/crm/services/crm-email-thread-service";
 import { renderAndWrap } from "@/lib/email";
 import { CRM_EMAIL_TEMPLATES } from "@/crm/lib/crm-email-templates";
 import { CRM_EMAIL_TOKEN_KEYS } from "@/crm/lib/crm-email-tokens";
@@ -625,8 +626,10 @@ describe("replying in an inbox thread", () => {
     },
     messages: [
       // Our first email, stored before Message-IDs were kept: only the SES id.
-      { direction: "OUTBOUND", messageId: null, providerMessageId: "ses-1" },
-      { direction: "INBOUND", messageId: "<reply-1@outlook.com>", providerMessageId: "inbound/key" },
+      { direction: "OUTBOUND", messageId: null, providerMessageId: "ses-1", unverifiedSender: false },
+      { direction: "INBOUND", messageId: "<reply-1@outlook.com>", providerMessageId: "inbound/key", unverifiedSender: false },
+      // A spoofed "reply": its id must never become what we thread onto.
+      { direction: "INBOUND", messageId: "<spoof@evil.example>", providerMessageId: "inbound/k2", unverifiedSender: true },
     ],
   };
   const REPLY = {
@@ -639,6 +642,7 @@ describe("replying in an inbox thread", () => {
   };
 
   beforeEach(() => {
+    vi.mocked(extendThreadToken).mockResolvedValue(true);
     vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue(THREAD as never);
     vi.mocked(db.user.findUnique).mockResolvedValue({ emailSignature: null, email: "rep@mmg.com" } as never);
   });
@@ -700,6 +704,17 @@ describe("replying in an inbox thread", () => {
     const res = await sendThreadReply(REPLY);
     expect(res.ok).toBe(true);
     expect(recordCrmActivity).not.toHaveBeenCalledWith(expect.objectContaining({ entityType: "DEAL" }));
+  });
+
+  it("keeps the thread's reply token alive before sending, and refuses when it cannot", async () => {
+    vi.mocked(sendEmail).mockResolvedValue({ success: true, messageId: "ses-4" } as never);
+    await sendThreadReply(REPLY);
+    expect(extendThreadToken).toHaveBeenCalledWith("org1", "t-1");
+
+    vi.mocked(sendEmail).mockClear();
+    vi.mocked(extendThreadToken).mockResolvedValue(false);
+    expect(await sendThreadReply(REPLY)).toMatchObject({ ok: false, code: "THREAD_CLOSED" });
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("previews a reply for the thread's person", async () => {

@@ -377,6 +377,8 @@ Clients (including AI agents) should parse `retryAfterSeconds` and back off. Do 
 | `/api/mcp/oauth/register` (per IP) | 10 | 1 hr |
 | `send_bulk_email` MCP tool (per event) | 10 | 1 hr |
 | `research_sponsor` MCP tool (per user+event) | 30 | 1 hr |
+| CRM email blast / deal email (per org) | 10 | 1 hr |
+| CRM inbox reply (per user) | 60 | 1 hr |
 | `speaker-agreement-template` upload (per user) | 10 | 1 hr |
 | Public register — burst (per IP) | 15 | 60 s |
 | Public register — sustained (per IP) | 100 | 15 min |

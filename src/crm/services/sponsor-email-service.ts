@@ -26,6 +26,7 @@ import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import {
   crmReplyAddress,
+  extendThreadToken,
   mintReplyToken,
   recordOutboundEmail,
 } from "@/crm/services/crm-email-thread-service";
@@ -583,7 +584,7 @@ async function sendOne(
 
   if (!res.success) return { ok: false, error: res.error ?? "send failed" };
 
-  void recordOutboundEmail({
+  const recorded = recordOutboundEmail({
     organizationId: ctx.organizationId,
     dealId: ctx.threadDealId,
     crmContactId: r.crmContactId,
@@ -605,6 +606,9 @@ async function sendOne(
     // so the conversation reaches Outlook, not just the CRM inbox.
     notifyEmails: [...ctx.cc, ...ctx.bcc].map((a) => a.email),
   });
+  // A reply is awaited so the inbox's refresh shows it; a blast is not held up.
+  if (ctx.reply) await recorded;
+  else void recorded;
 
   void recordCrmActivity({
     organizationId: ctx.organizationId,
@@ -753,11 +757,21 @@ export interface ThreadReply {
   threading: { inReplyTo: string; references: string[] } | null;
 }
 
-/** The RFC Message-IDs of a thread's messages, oldest first, for References. */
+/**
+ * The RFC Message-IDs of a thread's messages, oldest first, for References.
+ * A message from an unverified sender is left out: its id came from whoever
+ * sent it, and threading our reply onto it would vouch for it.
+ */
 function threadMessageIds(
-  messages: Array<{ direction: string; messageId: string | null; providerMessageId: string | null }>,
+  messages: Array<{
+    direction: string;
+    messageId: string | null;
+    providerMessageId: string | null;
+    unverifiedSender: boolean;
+  }>,
 ): string[] {
   return messages
+    .filter((m) => !m.unverifiedSender)
     .map((m) => {
       if (m.messageId) return m.messageId;
       // Outbound rows from before Oct 27, 2026 stored only the SES id.
@@ -799,7 +813,10 @@ export async function resolveThreadRecipients(args: { organizationId: string; th
         select: { id: true, firstName: true, lastName: true, archivedAt: true, company: { select: { name: true } } },
       },
       deal: { select: { id: true, event: { select: EVENT_EMAIL_SELECT } } },
-      messages: { select: { direction: true, messageId: true, providerMessageId: true }, orderBy: { createdAt: "asc" } },
+      messages: {
+        select: { direction: true, messageId: true, providerMessageId: true, unverifiedSender: true },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!thread) {
@@ -872,6 +889,10 @@ export async function sendThreadReply(args: {
 
   const resolved = await resolveThreadRecipients({ organizationId: args.organizationId, threadId: args.threadId });
   if (!resolved.ok) return resolved;
+  if (!(await extendThreadToken(args.organizationId, args.threadId))) {
+    apiLogger.warn({ msg: "crm-email:thread-token-extend-failed", threadId: args.threadId });
+    return { ok: false, code: "THREAD_CLOSED", message: "This conversation can no longer be replied to" };
+  }
 
   const result = await dispatchCrmEmail({
     organizationId: args.organizationId,

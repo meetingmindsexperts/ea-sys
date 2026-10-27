@@ -394,10 +394,16 @@ export function CrmInbox() {
             </div>
 
             <div className="flex items-center justify-end gap-2 border-t bg-muted/20 p-3">
-              <Button type="button" size="sm" onClick={() => setReplyOpen(true)}>
-                <Reply className="mr-2 h-3.5 w-3.5" />
-                Reply
-              </Button>
+              {thread.revokedAt ? (
+                <p className="text-xs text-muted-foreground">
+                  This conversation&apos;s deal is archived, so it can no longer be replied to.
+                </p>
+              ) : (
+                <Button type="button" size="sm" onClick={() => setReplyOpen(true)}>
+                  <Reply className="mr-2 h-3.5 w-3.5" />
+                  Reply
+                </Button>
+              )}
             </div>
             {/* Keyed by thread so a reply's draft never carries into another conversation. */}
             <CrmEmailDialog

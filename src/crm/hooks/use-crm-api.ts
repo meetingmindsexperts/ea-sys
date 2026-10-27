@@ -1346,10 +1346,12 @@ export function useSendCrmEmail() {
       if (vars.dealId) {
         qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", vars.dealId) });
       }
-      // A reply lands in its conversation and moves it up the inbox.
+      // A reply lands in its conversation and moves it up the inbox; on a
+      // deal's conversation it also adds to that deal's history.
       if (vars.threadId) {
         qc.invalidateQueries({ queryKey: crmKeys.inboxPrefix });
         qc.invalidateQueries({ queryKey: crmKeys.inboxThread(vars.threadId) });
+        qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL") });
       }
     },
   });

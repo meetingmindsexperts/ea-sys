@@ -30,11 +30,21 @@ describe("threadingHeaders", () => {
     expect(refs[1]).toEqual({ name: "References", value: `${B}` });
   });
 
-  it("keeps only the newest 20 references", () => {
-    const many = Array.from({ length: 30 }, (_, i) => `<m${i}@x.com>`);
-    const value = threadingHeaders({ inReplyTo: "<m29@x.com>", references: many })[1]!.value;
-    expect(value.split(" ")).toHaveLength(20);
-    expect(value.startsWith("<m10@x.com>")).toBe(true);
+  it("keeps the root and the newest ids under the length budget, however long the thread", () => {
+    // Real SES ids are ~87 characters; 15 of them would pass the 998 limit.
+    const ses = (i: number) => `<010901a17cfa86${String(i).padStart(2, "0")}-eb5c0541-2be4-4c5c-b331-188ced46a031-000000@ap-south-1.amazonses.com>`;
+    const many = Array.from({ length: 15 }, (_, i) => ses(i));
+    const value = threadingHeaders({ inReplyTo: ses(14), references: many })[1]!.value;
+    expect(value.length).toBeLessThanOrEqual(900);
+    const ids = value.split(" ");
+    expect(ids[0]).toBe(ses(0)); // the conversation's root stays
+    expect(ids[ids.length - 1]).toBe(ses(14)); // the newest stays
+  });
+
+  it("refuses ids with bytes a mail server rejects (non-ASCII, NUL, DEL)", () => {
+    for (const bad of ["<ü@x.com>", "<a\u0000@x.com>", "<a\u007f@x.com>"]) {
+      expect(threadingHeaders({ inReplyTo: bad, references: [] })).toEqual([]);
+    }
   });
 });
 

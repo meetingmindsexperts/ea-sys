@@ -280,6 +280,8 @@ export interface CrmInboxMessageRow {
 }
 
 export interface CrmInboxThreadDetail extends CrmInboxThreadRow {
+  /** The deal was archived: replies are refused (the reply token is revoked). */
+  revokedAt?: string | null;
   messages: CrmInboxMessageRow[];
 }
 

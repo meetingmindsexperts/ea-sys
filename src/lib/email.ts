@@ -115,17 +115,36 @@ export interface SendEmailParams {
   stream?: "transactional" | "bulk";
 }
 
-const MSG_ID_RE = /^<[^<>\s]{1,250}>$/;
+/** A msg-id of printable ASCII only: no control characters, spaces, CR/LF, non-ASCII or extra brackets. */
+const MSG_ID_RE = /^<[\x21-\x3B\x3D\x3F-\x7E]{1,250}>$/;
+
+/** References stays well under the 998-character header line limit, so it never needs folding. */
+const REFERENCES_BUDGET = 900;
+
+/** The first id (the conversation's root) plus as many of the newest as fit the budget. */
+function boundedReferences(refs: string[]): string[] {
+  if (refs.length === 0) return [];
+  const [root, ...rest] = refs;
+  const tail: string[] = [];
+  let used = root!.length;
+  for (const id of rest.reverse()) {
+    if (used + 1 + id.length > REFERENCES_BUDGET) break;
+    tail.unshift(id);
+    used += 1 + id.length;
+  }
+  return [root!, ...tail];
+}
 
 /**
- * The threading headers for a send, keeping only well-formed msg-ids (no CR,
- * LF, spaces or extra brackets), so a stored id can never inject a header.
- * References keeps the newest 20, as long chains are truncated by mail clients
- * anyway. Empty when nothing valid remains.
+ * The threading headers for a send, keeping only well-formed msg-ids, so a
+ * stored id (some come from outside senders) can never inject a header or
+ * carry bytes a mail server refuses. References keeps the root and the newest
+ * ids within REFERENCES_BUDGET, as RFC 5322 suggests for long threads. Empty
+ * when the parent id is not valid.
  */
 export function threadingHeaders(t: SendEmailParams["threading"]): { name: string; value: string }[] {
   if (!t || !MSG_ID_RE.test(t.inReplyTo)) return [];
-  const refs = t.references.filter((r) => MSG_ID_RE.test(r)).slice(-20);
+  const refs = boundedReferences(t.references.filter((r) => MSG_ID_RE.test(r)));
   return [
     { name: "In-Reply-To", value: t.inReplyTo },
     { name: "References", value: (refs.length ? refs : [t.inReplyTo]).join(" ") },
@@ -436,7 +455,11 @@ const sesProvider: EmailProvider = {
     // SES v2 has no first-class attachment field; we have to build a raw MIME
     // message when attachments are present. Without attachments, use the
     // simpler Simple content path (lets SES handle MIME assembly + signing).
+    // A threaded reply also goes raw: its In-Reply-To / References are written
+    // by our own MIME builder rather than relying on which headers the Simple
+    // path accepts.
     const hasAttachments = !!params.attachments?.length;
+    const useRaw = hasAttachments || threadingHeaders(params.threading).length > 0;
     const configurationSet = process.env.AWS_SES_CONFIGURATION_SET;
 
     const input: SendEmailCommandInput = {
@@ -458,13 +481,10 @@ const sesProvider: EmailProvider = {
         { Name: "EmailType", Value: sanitizeTagValue(params.emailType ?? "unknown") },
         { Name: "Stream", Value: sanitizeTagValue(params.stream ?? "transactional") },
       ],
-      Content: hasAttachments
+      Content: useRaw
         ? { Raw: { Data: buildRawMime(params, fromAddress) } }
         : {
             Simple: {
-              ...(threadingHeaders(params.threading).length && {
-                Headers: threadingHeaders(params.threading).map((h) => ({ Name: h.name, Value: h.value })),
-              }),
               Subject: { Data: params.subject, Charset: "UTF-8" },
               Body: {
                 Html: { Data: params.htmlContent, Charset: "UTF-8" },

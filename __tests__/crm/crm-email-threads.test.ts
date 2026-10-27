@@ -19,6 +19,7 @@ vi.mock("@/lib/db", () => ({
     user: { findUnique: vi.fn() },
     crmEmailThread: { create: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn() },
     crmEmailMessage: { create: vi.fn() },
+    $executeRaw: vi.fn(),
   },
 }));
 
@@ -110,32 +111,29 @@ describe("recordOutboundEmail", () => {
   });
 
   it("append mode is ORG-BOUND — a foreign threadId records nothing", async () => {
-    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue(null as never);
+    vi.mocked(db.$executeRaw).mockResolvedValue(0 as never);
 
     await recordOutboundEmail({ ...baseRecord, threadId: "other-orgs-thread" });
 
-    expect(db.crmEmailThread.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "other-orgs-thread", organizationId: ORG } }),
-    );
-    expect(db.crmEmailThread.updateMany).not.toHaveBeenCalled();
+    const values = vi.mocked(db.$executeRaw).mock.calls[0]!.slice(1);
+    expect(values).toContain("other-orgs-thread");
+    expect(values).toContain(ORG);
     expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
   });
 
-  it("append mode bumps lastMessageAt, appends the message with its Message-ID, and adds the reply's CC to the forward list", async () => {
-    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({ notifyEmails: ["rep@mmg.com"] } as never);
+  it("append mode appends the message with its Message-ID; only INTERNAL colleagues a reply copied join the forward list", async () => {
+    vi.mocked(db.$executeRaw).mockResolvedValue(1 as never);
     await recordOutboundEmail({
       ...baseRecord,
       threadId: "t-1",
       messageId: "<ses-1@ap-south-1.amazonses.com>",
-      notifyEmails: ["Boss@MMG.com", "rep@mmg.com"],
+      notifyEmails: ["Boss@MeetingMindsDubai.com", "agency@outside.example"],
     });
 
-    expect(db.crmEmailThread.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "t-1", organizationId: ORG },
-        data: expect.objectContaining({ notifyEmails: ["rep@mmg.com", "boss@mmg.com"] }),
-      }),
-    );
+    // One statement (no read-then-write race); the external address is dropped.
+    const values = vi.mocked(db.$executeRaw).mock.calls[0]!.slice(1);
+    expect(values).toContainEqual(["boss@meetingmindsdubai.com"]);
+    expect(JSON.stringify(values)).not.toContain("agency@outside.example");
     expect(db.crmEmailMessage.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

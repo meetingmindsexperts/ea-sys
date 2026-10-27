@@ -16,6 +16,7 @@
  */
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { isInternalEmail } from "@/lib/internal-domains";
 
 /** Rolling token window (review M1) — kept in sync with the inbound worker. A
  *  thread's token expires this long after its last message; every send/reply
@@ -83,6 +84,20 @@ export interface RecordOutboundEmailInput {
 }
 
 /**
+ * Keep a thread's reply token alive before a reply goes out (the window is
+ * rolled again when the reply is recorded). Without this, a reply on a thread
+ * idle past TOKEN_TTL_MS would carry a dead Reply-To and the answer would be
+ * unmatched. Org-bound; returns false when the thread is not the caller's.
+ */
+export async function extendThreadToken(organizationId: string, threadId: string): Promise<boolean> {
+  const res = await db.crmEmailThread.updateMany({
+    where: { id: threadId, organizationId, revokedAt: null },
+    data: { expiresAt: new Date(Date.now() + TOKEN_TTL_MS) },
+  });
+  return res.count === 1;
+}
+
+/**
  * Record an outbound send as thread + message. New send → new thread carrying
  * the minted token; reply-from-inbox → append to the (org-bound) thread.
  */
@@ -106,24 +121,18 @@ export async function recordOutboundEmail(input: RecordOutboundEmailInput): Prom
 
     if (input.threadId) {
       // Org-bound append — a foreign threadId records nothing. Sending also
-      // rolls the token window forward (review M1), and anyone this reply
-      // CC'd joins the thread's forward list, so their copy of the next
-      // sponsor answer reaches Outlook too.
-      const existing = await db.crmEmailThread.findFirst({
-        where: { id: input.threadId, organizationId: input.organizationId },
-        select: { notifyEmails: true },
-      });
-      const updated = existing
-        ? await db.crmEmailThread.updateMany({
-            where: { id: input.threadId, organizationId: input.organizationId },
-            data: {
-              lastMessageAt: now,
-              expiresAt,
-              notifyEmails: dedupeLower([...existing.notifyEmails, ...(input.notifyEmails ?? [])]),
-            },
-          })
-        : { count: 0 };
-      if (updated.count === 0) {
+      // rolls the token window forward (review M1). Colleagues a reply copied
+      // join the thread's forward list, in one statement so two replies at
+      // once keep both; an EXTERNAL address copied once never does, or it
+      // would quietly receive every later answer on the thread.
+      const add = dedupeLower(input.notifyEmails).filter((e) => isInternalEmail(e));
+      const updated = await db.$executeRaw`
+        UPDATE "CrmEmailThread"
+        SET "lastMessageAt" = ${now},
+            "expiresAt" = ${expiresAt},
+            "notifyEmails" = ARRAY(SELECT DISTINCT e FROM unnest("notifyEmails" || ${add}::text[]) AS e)
+        WHERE "id" = ${input.threadId} AND "organizationId" = ${input.organizationId}`;
+      if (updated === 0) {
         apiLogger.warn({
           msg: "crm-email-thread:append-thread-not-found",
           threadId: input.threadId,
