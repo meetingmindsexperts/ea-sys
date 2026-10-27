@@ -20,6 +20,7 @@
 import type { EmailBranding } from "@/lib/email";
 import { sendEmail, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { escapeHtml } from "@/lib/html";
+import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
@@ -51,8 +52,10 @@ const RAW_KEYS = new Set(["message", "signature"]);
 // Only the CRM tokens (crm-email-tokens.ts) are substituted inside the sender-
 // authored body. Values are HTML-escaped so a contact's name containing "<" can't
 // inject markup.
+// Tokens the editor split with markup ("{{<strong>eventVenue</strong>}}") are
+// collapsed first, as the event emails do, or they would go out as literal text.
 function substituteBodyTokens(html: string, vars: Record<string, string>): string {
-  return html.replace(CRM_EMAIL_TOKEN_RE, (_, k: string) => escapeHtml(vars[k] ?? ""));
+  return normalizeTemplateTokens(html).replace(CRM_EMAIL_TOKEN_RE, (_, k: string) => escapeHtml(vars[k] ?? ""));
 }
 
 export interface SponsorAttachment {
@@ -745,6 +748,8 @@ export async function previewCrmEmail(args: {
   organizationId: string;
   target: { kind: "deal" | "event"; id: string };
   contactId?: string;
+  /** Preview for the sample person, e.g. when the sender has unticked everyone. */
+  sample?: boolean;
   subject: string;
   message: string;
   actorUserId: string | null;
@@ -759,8 +764,9 @@ export async function previewCrmEmail(args: {
     "event" in resolved
       ? { branding: brandingFromEventRow(resolved.event), eventVars: crmEventVars(resolved.event) }
       : resolved;
-  const recipient =
-    resolved.recipients.find((r) => r.crmContactId === args.contactId) ?? resolved.recipients[0] ?? null;
+  const recipient = args.sample
+    ? null
+    : (resolved.recipients.find((r) => r.crmContactId === args.contactId) ?? resolved.recipients[0] ?? null);
   const { signatureHtml } = await loadSender(args.actorUserId);
 
   const rendered = renderForRecipient(recipient ?? SAMPLE_RECIPIENT, {

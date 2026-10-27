@@ -1298,7 +1298,14 @@ export interface CrmEmailPreviewResult {
 
 export function usePreviewCrmEmail() {
   return useMutation({
-    mutationFn: (body: { eventId?: string; dealId?: string; contactId?: string; subject: string; message: string }) =>
+    mutationFn: (body: {
+      eventId?: string;
+      dealId?: string;
+      contactId?: string;
+      sample?: boolean;
+      subject: string;
+      message: string;
+    }) =>
       apiPostJson<CrmEmailPreviewResult>("/api/crm/sponsor-email/preview", body),
   });
 }

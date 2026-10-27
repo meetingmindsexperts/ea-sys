@@ -489,6 +489,53 @@ describe("previewCrmEmail", () => {
     expect(vi.mocked(renderAndWrap).mock.calls[0]![1]).toMatchObject({ eventName: "BRIDGES 2026", eventCity: "Dubai" });
   });
 
+  it("previews the sample person when asked, never a contact who will not get the email", async () => {
+    mockDeal([contact({ id: "c1", firstName: "Ann", email: "a@a.com", emailKey: "a@a.com" })]);
+    vi.mocked(db.user.findUnique).mockResolvedValue({ emailSignature: null } as never);
+    const res = await previewCrmEmail({ ...PREVIEW, sample: true });
+    expect(res).toMatchObject({ ok: true, recipient: null });
+    expect(vi.mocked(renderAndWrap).mock.calls[0]![1]).toMatchObject({ firstName: "Alex" });
+  });
+
+  it("resolves a token the editor split with markup, as the event emails do", async () => {
+    mockDeal([contact({ id: "c1", email: "a@a.com", emailKey: "a@a.com" })]);
+    vi.mocked(db.user.findUnique).mockResolvedValue({ emailSignature: null } as never);
+    await previewCrmEmail({ ...PREVIEW, message: "<p>At {{<strong>eventVenue</strong>}}</p>" });
+    expect(String(vi.mocked(renderAndWrap).mock.calls[0]![1].message)).toBe("<p>At Grand Hyatt</p>");
+  });
+
+  it("renders the real email: subject tokens resolve and event values are escaped in the body", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/email")>("@/lib/email");
+    vi.mocked(renderAndWrap).mockImplementationOnce(actual.renderAndWrap);
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({
+      id: "deal1",
+      name: "Abbott",
+      company: { name: "Abbott" },
+      contacts: [contact({ id: "c1", firstName: "Ann", email: "a@a.com", emailKey: "a@a.com" })],
+      event: {
+        name: "BRIDGES 2026",
+        startDate: new Date("2026-11-20T05:00:00Z"),
+        endDate: new Date("2026-11-21T12:00:00Z"),
+        timezone: "Asia/Dubai",
+        venue: "Hyatt & <Co>",
+        city: "Dubai",
+        country: "UAE",
+        emailHeaderImage: null,
+        emailFooterImage: null,
+        emailFooterHtml: null,
+        emailFromAddress: null,
+        emailFromName: null,
+        emailCcAddresses: [],
+      },
+    } as never);
+    vi.mocked(db.user.findUnique).mockResolvedValue({ emailSignature: null } as never);
+    const res = await previewCrmEmail({ ...PREVIEW, subject: "Join {{eventName}} on {{eventDates}}" });
+    if (!res.ok) throw new Error(res.message);
+    expect(res.subject).toMatch(/^Join BRIDGES 2026 on November 20\s*[–-]\s*21, 2026$/);
+    expect(res.html).toContain("Hyatt &amp; &lt;Co&gt;");
+    expect(res.html).not.toContain("<Co>");
+  });
+
   it("404s a deal outside the org", async () => {
     vi.mocked(db.crmDeal.findFirst).mockResolvedValue(null as never);
     expect(await previewCrmEmail(PREVIEW)).toMatchObject({ ok: false, code: "DEAL_NOT_FOUND" });

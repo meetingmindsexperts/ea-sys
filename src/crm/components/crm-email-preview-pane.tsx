@@ -28,14 +28,17 @@ export function CrmEmailPreviewPane({
   subject: string;
   message: string;
 }) {
-  const [contactId, setContactId] = useState(recipients[0]?.crmContactId);
+  const [picked, setPicked] = useState<string | undefined>();
+  // Derived, not seeded once: Preview can open before the recipients load.
+  const contactId = recipients.some((r) => r.crmContactId === picked) ? picked : recipients[0]?.crmContactId;
   const preview = usePreviewCrmEmail();
   const { mutate } = preview;
 
   useEffect(() => {
     mutate({
       [target.kind === "deal" ? "dealId" : "eventId"]: target.id,
-      ...(contactId ? { contactId } : {}),
+      // Nobody ticked: the sample person, never someone who will not get the email.
+      ...(contactId ? { contactId } : { sample: true }),
       subject,
       message,
     });
@@ -46,7 +49,7 @@ export function CrmEmailPreviewPane({
       {recipients.length > 1 && (
         <div className="flex items-center gap-2">
           <Label className="shrink-0 text-sm text-muted-foreground">Preview for</Label>
-          <Select value={contactId} onValueChange={setContactId}>
+          <Select value={contactId} onValueChange={setPicked}>
             <SelectTrigger className="h-8 w-full sm:w-80" aria-label="Preview for">
               <SelectValue />
             </SelectTrigger>
@@ -77,6 +80,11 @@ export function CrmEmailPreviewPane({
       )}
       {preview.data && !preview.isPending && (
         <>
+          {recipients.length === 1 && preview.data.recipient && (
+            <p className="text-xs text-muted-foreground">
+              Preview for {preview.data.recipient.name} · {preview.data.recipient.email}
+            </p>
+          )}
           <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
             <span className="text-muted-foreground">Subject: </span>
             <span className="font-medium">{preview.data.subject}</span>

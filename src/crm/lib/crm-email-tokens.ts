@@ -6,6 +6,10 @@
  *
  * The event tokens (Oct 27, 2026) take their values from the deal's event (or
  * the blast's event) and come out empty when a deal has no event.
+ *
+ * NOTE {{eventVenue}} is the venue alone here, with {{eventCity}} beside it;
+ * in the event emails it is "venue, city". Kept separate on purpose so a
+ * sponsor email can write "at {{eventVenue}} in {{eventCity}}".
  */
 import { formatEventDateRange, resolveTimezone } from "@/lib/event-time";
 

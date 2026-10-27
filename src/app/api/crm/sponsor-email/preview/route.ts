@@ -20,6 +20,7 @@ const previewSchema = z
     eventId: z.string().min(1).optional(),
     dealId: z.string().min(1).optional(),
     contactId: z.string().min(1).optional(),
+    sample: z.boolean().optional(),
     // Empty is fine: a preview shows a half-written email as it stands.
     subject: z.string().max(300),
     message: z.string().max(50_000),
@@ -38,13 +39,14 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       return zodErrorResponse(parsed, { route: "crm/sponsor-email/preview:POST", organizationId: ctx.organizationId });
     }
-    const { dealId, eventId, contactId, subject, message } = parsed.data;
+    const { dealId, eventId, contactId, sample, subject, message } = parsed.data;
 
     try {
       const result = await previewCrmEmail({
         organizationId: ctx.organizationId,
         target: dealId ? { kind: "deal", id: dealId } : { kind: "event", id: eventId! },
         contactId,
+        sample,
         subject,
         message,
         actorUserId: ctx.userId,
