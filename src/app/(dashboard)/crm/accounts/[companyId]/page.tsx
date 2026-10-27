@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Dedicated account page — /crm/companies/[companyId].
+ * Dedicated account page — /crm/accounts/[companyId].
  *
  * A company (account) is its own record with its own URL. The detail lives in
  * CompanyDetailBody (which fetches by id + guards loading/not-found); this page adds
@@ -23,7 +23,7 @@ export default function CrmCompanyPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-5 p-6">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link href="/crm/companies">
+        <Link href="/crm/accounts">
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to accounts
         </Link>
@@ -32,7 +32,7 @@ export default function CrmCompanyPage() {
       <CompanyDetailBody
         companyId={companyId}
         canWrite={canWrite}
-        onArchived={() => router.push("/crm/companies")}
+        onArchived={() => router.push("/crm/accounts")}
       />
     </div>
   );

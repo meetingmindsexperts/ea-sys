@@ -57,7 +57,7 @@ interface ImportReport {
 }
 
 const TYPE_COPY: Record<FreshsalesImportType, { title: string; source: string }> = {
-  companies: { title: "Import companies", source: "Freshsales Accounts export" },
+  companies: { title: "Import accounts", source: "Freshsales Accounts export" },
   contacts: { title: "Import contacts", source: "Freshsales Contacts export" },
   deals: { title: "Import deals", source: "Freshsales Deals export" },
 };

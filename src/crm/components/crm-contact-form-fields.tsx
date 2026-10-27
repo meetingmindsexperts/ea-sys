@@ -216,13 +216,13 @@ export function CrmContactFormFields({
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-company`}>Company</Label>
+          <Label htmlFor={`${idPrefix}-company`}>Account</Label>
           <Select value={f.companyId} onValueChange={(v) => onChange({ companyId: v })}>
             <SelectTrigger id={`${idPrefix}-company`} className="w-full">
-              <SelectValue placeholder="No company" />
+              <SelectValue placeholder="No account" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NO_COMPANY}>No company</SelectItem>
+              <SelectItem value={NO_COMPANY}>No account</SelectItem>
               {companies.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}

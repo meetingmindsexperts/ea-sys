@@ -107,7 +107,7 @@ async function validateRelations(
     checks.push(
       db.crmCompany
         .findFirst({ where: { id: rel.companyId, organizationId }, select: { id: true } })
-        .then((r) => (r ? null : ({ ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" } as Fail))),
+        .then((r) => (r ? null : ({ ok: false, code: "COMPANY_NOT_FOUND", message: "Account not found" } as Fail))),
     );
   }
   if (rel.crmContactId) {

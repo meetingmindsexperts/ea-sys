@@ -70,7 +70,7 @@ const ACTION_ICON: Record<string, { icon: LucideIcon; className: string }> = {
 /** Deep link to the entity a row is about — null for TASK (no per-task page). */
 function entityHref(type: CrmActivityEntityType, id: string): string | null {
   if (type === "DEAL") return `/crm/deals/${id}`;
-  if (type === "COMPANY") return `/crm/companies/${id}`;
+  if (type === "COMPANY") return `/crm/accounts/${id}`;
   if (type === "CONTACT") return `/crm/contacts/${id}`;
   return null;
 }

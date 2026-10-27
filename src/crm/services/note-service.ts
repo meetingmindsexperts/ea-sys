@@ -101,8 +101,8 @@ async function validateAttachments(
         .then((r) =>
           attachmentFailure(
             r,
-            { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" },
-            { ok: false, code: "COMPANY_ARCHIVED", message: "That company was archived — restore it before adding notes" },
+            { ok: false, code: "COMPANY_NOT_FOUND", message: "Account not found" },
+            { ok: false, code: "COMPANY_ARCHIVED", message: "That account was archived — restore it before adding notes" },
           ),
         ),
     );
@@ -135,7 +135,7 @@ export async function createNote(input: CreateNoteInput): Promise<NoteResult> {
     return {
       ok: false,
       code: "NO_ATTACHMENT",
-      message: "Attach the note to a deal, a company or a contact",
+      message: "Attach the note to a deal, an account or a contact",
     };
   }
 

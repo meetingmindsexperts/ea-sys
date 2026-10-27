@@ -63,7 +63,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ companyI
       companyId,
       err: err instanceof Error ? err.message : String(err),
     });
-    return NextResponse.json({ error: "Could not load the company" }, { status: 500 });
+    return NextResponse.json({ error: "Could not load the account" }, { status: 500 });
   }
   });
 }

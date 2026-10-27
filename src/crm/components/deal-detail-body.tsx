@@ -190,7 +190,7 @@ export function DealDetailBody({
         subtitle={
           deal.company ? (
             <Link
-              href={`/crm/companies/${deal.company.id}`}
+              href={`/crm/accounts/${deal.company.id}`}
               className="inline-flex items-center gap-1.5 hover:text-foreground hover:underline"
             >
               <Building2 className="h-3.5 w-3.5" />
@@ -318,10 +318,10 @@ export function DealDetailBody({
           <>
             <RecordCard icon={Info} title="Details">
               <Facts>
-                <Fact label="Company">
+                <Fact label="Account">
                   {deal.company ? (
                     <Link
-                      href={`/crm/companies/${deal.company.id}`}
+                      href={`/crm/accounts/${deal.company.id}`}
                       className="inline-flex items-center gap-1 text-primary hover:underline"
                     >
                       <Building2 className="h-3.5 w-3.5" />

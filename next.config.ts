@@ -94,6 +94,16 @@ const nextConfig: NextConfig = {
     ];
   },
 
+  // CRM "Companies" became "Accounts" (Oct 27, 2026). Old links and bookmarks
+  // keep working. Not permanent, so browsers do not cache it and the rename
+  // stays reversible. The API stays at /api/crm/companies.
+  async redirects() {
+    return [
+      { source: "/crm/companies", destination: "/crm/accounts", permanent: false },
+      { source: "/crm/companies/:companyId", destination: "/crm/accounts/:companyId", permanent: false },
+    ];
+  },
+
   // Allow Next.js Image optimization for Supabase Storage CDN URLs
   images: {
     remotePatterns: [

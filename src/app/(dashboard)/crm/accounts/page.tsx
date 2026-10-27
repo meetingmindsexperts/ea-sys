@@ -108,7 +108,7 @@ function CompaniesInner() {
             </Button>
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              New company
+              New account
             </Button>
           </div>
         )}
@@ -119,7 +119,7 @@ function CompaniesInner() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search companies…"
+            placeholder="Search accounts…"
             value={q}
             onChange={(e) => set({ q: e.target.value })}
           />
@@ -181,7 +181,7 @@ function CompaniesInner() {
       {/* ABOVE the loading/empty/table branches on purpose: the empty state is
           exactly where truncation misleads most — "no results, clear a filter"
           while rows sit behind the cap (review H5). */}
-      <ListTruncationBanner meta={companiesMeta} shown={rows.length} noun="companies" />
+      <ListTruncationBanner meta={companiesMeta} shown={rows.length} noun="accounts" />
 
       {view === "loading" && (
         <CrmTableSkeleton rows={6} cols={7} />
@@ -198,7 +198,7 @@ function CompaniesInner() {
             canWrite && !showArchived && !q ? (
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
-                New company
+                New account
               </Button>
             ) : undefined
           }
@@ -223,7 +223,7 @@ function CompaniesInner() {
                 <TableRow
                   key={c.id}
                   className={cn("cursor-pointer transition-colors hover:bg-muted/40", c.archivedAt && "opacity-60")}
-                  onClick={() => router.push(`/crm/companies/${c.id}`)}
+                  onClick={() => router.push(`/crm/accounts/${c.id}`)}
                 >
                   <TableCell className="font-medium">
                     <span className="flex items-center gap-2">
@@ -309,9 +309,9 @@ function listView(isLoading: boolean, isError: boolean, empty: boolean): ListVie
 }
 
 function emptyCopy(archived: boolean, searching: boolean): { title: string; description: string } {
-  if (archived) return { title: "No archived companies", description: "Accounts you archive will show up here, ready to restore." };
-  if (searching) return { title: "No companies match that search", description: "Try a different search term." };
-  return { title: "No companies yet", description: "Sponsors, exhibitors, hospitals and societies — the accounts you sell to." };
+  if (archived) return { title: "No archived accounts", description: "Accounts you archive will show up here, ready to restore." };
+  if (searching) return { title: "No accounts match that search", description: "Try a different search term." };
+  return { title: "No accounts yet", description: "Sponsors, exhibitors, hospitals and societies — the accounts you sell to." };
 }
 
 export default function CrmCompaniesPage() {

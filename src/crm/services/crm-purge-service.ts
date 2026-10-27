@@ -131,7 +131,7 @@ export async function purgeCompany(input: PurgeCtx & { companyId: string }): Pro
   });
   if (!company) return reject("COMPANY_NOT_FOUND", "Company not found", { organizationId: input.organizationId, companyId: input.companyId });
   if (!company.archivedAt) {
-    return reject("NOT_ARCHIVED", "Only archived companies can be permanently deleted — archive it first", { companyId: input.companyId });
+    return reject("NOT_ARCHIVED", "Only archived accounts can be permanently deleted — archive it first", { companyId: input.companyId });
   }
   // The FK is Restrict — a friendly refusal instead of a raw P2003. Counts ALL
   // deals (active or archived): a deal is revenue history and pins its account.
@@ -155,10 +155,10 @@ export async function purgeCompany(input: PurgeCtx & { companyId: string }): Pro
   } catch (err) {
     // A deal re-pointed here between the count and the delete → Restrict P2003.
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
-      return reject("COMPANY_HAS_DEALS", "A deal was linked to this company — reload and try again", { companyId: company.id });
+      return reject("COMPANY_HAS_DEALS", "A deal was linked to this account — reload and try again", { companyId: company.id });
     }
     apiLogger.error({ msg: "crm-purge:company-failed", companyId: company.id, err: err instanceof Error ? err.message : String(err) });
-    return { ok: false, code: "UNKNOWN", message: "Could not delete the company" };
+    return { ok: false, code: "UNKNOWN", message: "Could not delete the account" };
   }
 
   void writeAudit({

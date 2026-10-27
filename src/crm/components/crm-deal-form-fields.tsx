@@ -190,7 +190,7 @@ export function CrmDealFormFields({
 
   const companyField = (
     <div className="space-y-2">
-      <Label>Company</Label>
+      <Label>Account</Label>
       <CompanyCombobox value={f.company} onChange={(company) => onChange({ company })} />
       {companyHint}
     </div>

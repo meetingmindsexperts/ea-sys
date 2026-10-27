@@ -105,7 +105,7 @@ export async function GET(req: Request) {
       [e?.city, e?.country].filter(Boolean).join(", ");
     const headers = [
       "Deal",
-      "Company",
+      "Account",
       "Pipeline",
       "Deal type",
       "Stage",

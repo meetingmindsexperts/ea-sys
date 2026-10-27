@@ -2,7 +2,7 @@
 
 > The file to read before you touch anything under `src/crm/`.
 
-This is EA-SYS's sponsorship/exhibitor **sales CRM**: companies (accounts), a deals
+This is EA-SYS's sponsorship/exhibitor **sales CRM**: accounts (called companies in the code, the API and the database; renamed in the UI and the page URL on Oct 27, 2026, `/crm/companies` redirects), a deals
 pipeline, the people we negotiate with, follow-up tasks, and notes. It is a
 **bounded module inside the main app** — its own namespace end to end, but not a
 separate deployable.
@@ -105,9 +105,9 @@ src/crm/
 src/app/api/crm/*                REST surface — deals/companies/contacts/tasks/notes/pipeline-stages
                                  + activity (per-record) + activity/{feed,export} (org-wide + CSV),
                                  reps, events-lite, reports, sponsor-email/{recipients,send}
-src/app/(dashboard)/crm/*        tabbed shell (Home · Deals · Companies · Contacts · Inbox · Tasks · Reports
+src/app/(dashboard)/crm/*        tabbed shell (Home · Deals · Accounts · Contacts · Inbox · Tasks · Reports
                                  · Activity · Products · Templates) + Home (page.tsx → crm-overview) + list pages
-                                 + RECORD PAGES /{deals,companies,contacts}/[id]
+                                 + RECORD PAGES /{deals,accounts,contacts}/[id]
 scripts/reconcile-crm-pipeline.ts  one-off: bring an org's pipeline to the current stage list
 worker/jobs/crm-reminders.ts     the cron shim that calls reminders-worker
 prisma/schema.prisma             the Crm* models
@@ -127,7 +127,7 @@ See the `// CRM MODULE` block in `prisma/schema.prisma` — every model is heavi
 commented with *why* its FK policies are what they are.
 
 **Detail surfaces are PAGES, not sheets.** Deal, account and contact each have a
-dedicated record page (`/crm/{deals,companies,contacts}/[id]`) built from a `*-detail-body`
+dedicated record page (`/crm/{deals,accounts,contacts}/[id]`) built from a `*-detail-body`
 component on the shared two-column `record-layout` shell; clicking a board card / list
 row navigates there. The old slide-out sheets are gone — no CRM detail sheet remains.
 
@@ -454,7 +454,7 @@ caught things during the build, should be treated as required, not a formality.
 
 **Shipped surfaces (July 15 session).**
 
-- **Dedicated record pages** for deal, account AND contact (`/crm/{deals,companies,contacts}/[id]`)
+- **Dedicated record pages** for deal, account AND contact (`/crm/{deals,accounts,contacts}/[id]`)
   on a shared **two-column record layout** (`record-layout.tsx`: header + main work area +
   sticky facts sidebar). Replaced the slide-out sheets — **no CRM detail sheet remains**;
   records cross-link (account→deals/people, contact→deals/company).

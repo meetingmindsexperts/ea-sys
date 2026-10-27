@@ -116,7 +116,7 @@ export async function GET(req: Request) {
       organizationId: ctx.organizationId,
       err: err instanceof Error ? err.message : String(err),
     });
-    return NextResponse.json({ error: "Could not load companies" }, { status: 500 });
+    return NextResponse.json({ error: "Could not load accounts" }, { status: 500 });
   }
   });
 }
@@ -136,7 +136,7 @@ export async function POST(req: Request) {
   if (!limit.allowed) {
     apiLogger.warn({ msg: "crm/companies:rate-limited", organizationId: ctx.organizationId });
     return NextResponse.json(
-      { error: "Too many companies created — try again shortly", retryAfterSeconds: limit.retryAfterSeconds },
+      { error: "Too many accounts created — try again shortly", retryAfterSeconds: limit.retryAfterSeconds },
       { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
     );
   }

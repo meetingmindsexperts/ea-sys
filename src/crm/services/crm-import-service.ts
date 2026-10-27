@@ -414,7 +414,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
       // any per-row surprise stays a per-row error — one bad row never kills a file.
       const msg =
         err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002"
-          ? "A company with this name already exists (a duplicate row in this file, or a concurrent import) — re-run to converge"
+          ? "An account with this name already exists (a duplicate row in this file, or a concurrent import) — re-run to converge"
           : "Row failed — see server logs";
       apiLogger.error({
         msg: "crm-import:company-row-failed", organizationId: ctx.organizationId, row: rowNo,

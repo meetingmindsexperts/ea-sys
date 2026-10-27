@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Account detail — the body of the dedicated account page (/crm/companies/[id]).
+ * Account detail — the body of the dedicated account page (/crm/accounts/[id]).
  *
  * Record-page layout: identity header with pipeline stats (open / won / people),
  * then a two-column body — the account's deals, activity and history on the left,

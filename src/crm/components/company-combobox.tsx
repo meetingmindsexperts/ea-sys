@@ -37,7 +37,7 @@ export interface CompanySelection {
 export function CompanyCombobox({
   value,
   onChange,
-  placeholder = "Select or create a company…",
+  placeholder = "Select or create an account…",
 }: {
   value: CompanySelection | null;
   onChange: (value: CompanySelection | null) => void;
@@ -92,7 +92,7 @@ export function CompanyCombobox({
               <CommandGroup>
                 <CommandItem value="__clear__" onSelect={() => pick(null)}>
                   <X className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">No company</span>
+                  <span className="text-muted-foreground">No account</span>
                 </CommandItem>
               </CommandGroup>
             )}

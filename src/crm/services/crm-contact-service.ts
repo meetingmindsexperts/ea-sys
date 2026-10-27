@@ -150,7 +150,7 @@ async function assertCompany(organizationId: string, companyId?: string | null):
     // relation; this was the one silent path (the boundary still logged, but
     // without the ids that make it diagnosable).
     apiLogger.warn({ msg: "crm-contact:bad-company-relation", organizationId, companyId });
-    return { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" };
+    return { ok: false, code: "COMPANY_NOT_FOUND", message: "Account not found" };
   }
   return null;
 }

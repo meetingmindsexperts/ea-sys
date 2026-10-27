@@ -456,7 +456,7 @@ export function useCreateCompany() {
       }
     },
     // A failed create must never be a button that does nothing (CRM review M6).
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not create the company"),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not create the account"),
   });
 }
 
@@ -469,7 +469,7 @@ export function useUpdateCompany(companyId: string) {
       qc.invalidateQueries({ queryKey: crmKeys.companiesPrefix });
       qc.invalidateQueries({ queryKey: crmKeys.company(companyId) });
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the company"),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the account"),
   });
 }
 
@@ -915,7 +915,7 @@ export function useSetCompanyArchived(companyId: string) {
       qc.invalidateQueries({ queryKey: crmKeys.company(companyId) });
       qc.invalidateQueries({ queryKey: crmKeys.activity("COMPANY", companyId) });
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the company"),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the account"),
   });
 }
 

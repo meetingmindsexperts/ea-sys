@@ -10,7 +10,7 @@
  * mental-context load.
  *
  * The tabs are LINKS, not local state: each tab is a real route, so a deep link to
- * /crm/companies still works, the back button behaves, and a bookmarked board
+ * /crm/accounts still works, the back button behaves, and a bookmarked board
  * survives. Tab state that lives only in React would break all three.
  */
 import Link from "next/link";
@@ -24,7 +24,7 @@ const TABS = [
   // Home is `/crm` itself — matched EXACTLY, or every tab lights up under startsWith.
   { href: "/crm", label: "Home", icon: Home, exact: true },
   { href: "/crm/deals", label: "Deals", icon: Handshake },
-  { href: "/crm/companies", label: "Companies", icon: Building2 },
+  { href: "/crm/accounts", label: "Accounts", icon: Building2 },
   // Business contacts — reps, exhibitor sales, procurement. NOT the event HCP store.
   { href: "/crm/contacts", label: "Contacts", icon: Users },
   // Staff-only (canViewCrmInbox) — hidden for MEMBER; the API is the real gate.

@@ -409,7 +409,7 @@ export function mapCompanyRow(
   cols: ColumnResolution<keyof typeof COMPANY_FIELDS & string>,
 ): { row: CompanyRow } | { error: string } {
   const name = cell(fields, cols.index.name);
-  if (!name) return { error: "Missing company name" };
+  if (!name) return { error: "Missing account name" };
   return {
     row: {
       externalId: cell(fields, cols.index.externalId),

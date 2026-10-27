@@ -180,10 +180,10 @@ function ContactsInner() {
 
         <Select value={companyId || "__all__"} onValueChange={(v) => set({ company: v === "__all__" ? null : v })}>
           <SelectTrigger className="w-[13rem]">
-            <SelectValue placeholder="Any company" />
+            <SelectValue placeholder="Any account" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__all__">Any company</SelectItem>
+            <SelectItem value="__all__">Any account</SelectItem>
             {companies.map((c) => (
               <SelectItem key={c.id} value={c.id}>
                 {c.name}
@@ -259,7 +259,7 @@ function ContactsInner() {
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={dir} onSort={onSort} />
-                <TableHead>Company</TableHead>
+                <TableHead>Account</TableHead>
                 <TableHead>Job title</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Lifecycle</TableHead>

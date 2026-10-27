@@ -521,7 +521,7 @@ const RESOLVERS: Resolver[] = [
       id: r.id,
       title: r.name,
       organizationId: r.organizationId,
-      href: `/crm/companies/${r.id}`,
+      href: `/crm/accounts/${r.id}`,
     })),
 
   async (ids) =>

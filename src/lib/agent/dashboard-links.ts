@@ -105,7 +105,7 @@ const TOOL_SURFACE_RULES: ReadonlyArray<{
   { test: /rsvp/, surface: "rsvp" },
   { test: /media/, surface: "media" },
   { test: /crm_deal|crm_note|crm_pipeline|crm_report/, surface: "crm", row: (r) => (idOf(r, "deal") ? `/crm/deals/${idOf(r, "deal")}` : null) },
-  { test: /crm_compan/, surface: "crm", row: (r) => (idOf(r, "company") ? `/crm/companies/${idOf(r, "company")}` : null) },
+  { test: /crm_compan/, surface: "crm", row: (r) => (idOf(r, "company") ? `/crm/accounts/${idOf(r, "company")}` : null) },
   { test: /crm_contact/, surface: "crm", row: (r) => (idOf(r, "contact") ? `/crm/contacts/${idOf(r, "contact")}` : null) },
   { test: /crm_/, surface: "crm" },
   // The deal-product tools carry no "crm_" (add_deal_product, update_deal_product).

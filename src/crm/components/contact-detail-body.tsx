@@ -116,7 +116,7 @@ export function ContactDetailBody({
               {contact.jobTitle && contact.company ? " · " : ""}
               {contact.company && (
                 <Link
-                  href={`/crm/companies/${contact.company.id}`}
+                  href={`/crm/accounts/${contact.company.id}`}
                   className="hover:text-foreground hover:underline"
                 >
                   {contact.company.name}
@@ -259,9 +259,9 @@ export function ContactDetailBody({
               <Fact label="Owner">
                 {contact.owner ? `${contact.owner.firstName} ${contact.owner.lastName}` : <Dash />}
               </Fact>
-              <Fact label="Company">
+              <Fact label="Account">
                 {contact.company ? (
-                  <Link href={`/crm/companies/${contact.company.id}`} className="text-primary hover:underline">
+                  <Link href={`/crm/accounts/${contact.company.id}`} className="text-primary hover:underline">
                     {contact.company.name}
                   </Link>
                 ) : (

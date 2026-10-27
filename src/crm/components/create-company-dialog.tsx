@@ -58,7 +58,7 @@ export function CreateCompanyDialog({
     <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>New company</DialogTitle>
+          <DialogTitle>New account</DialogTitle>
           <DialogDescription asChild>
             <span>A sponsor, exhibitor, hospital or society.</span>
           </DialogDescription>

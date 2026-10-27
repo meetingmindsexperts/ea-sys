@@ -46,7 +46,7 @@ export async function GET(req: Request) {
         organizationId: ctx.organizationId,
         err: err instanceof Error ? err.message : String(err),
       });
-      return NextResponse.json({ error: "Could not load company filters" }, { status: 500 });
+      return NextResponse.json({ error: "Could not load account filters" }, { status: 500 });
     }
   });
 }

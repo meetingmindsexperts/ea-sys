@@ -22,7 +22,7 @@ const LABEL: Record<"deals" | "companies" | "contacts", { noun: string; confirm:
     confirm: "Permanently delete EVERY archived deal — with all their people links, line items, notes and tasks. This cannot be undone.",
   },
   companies: {
-    noun: "archived companies",
+    noun: "archived accounts",
     confirm: "Permanently delete every archived account (those still referenced by a deal are skipped). This cannot be undone.",
   },
   contacts: {

@@ -469,7 +469,7 @@ export interface CrmActivityFeedRow extends CrmActivityRow {
 /** Human label for an activity entity type — used by the feed + its CSV export. */
 export const CRM_ACTIVITY_ENTITY_LABELS: Record<CrmActivityEntityType, string> = {
   DEAL: "Deal",
-  COMPANY: "Company",
+  COMPANY: "Account",
   CONTACT: "Contact",
   TASK: "Task",
 };
@@ -642,7 +642,7 @@ export const CRM_FIELD_LABELS: Record<string, string> = {
   dealValue: "Value",
   currency: "Currency",
   expectedClose: "Expected close",
-  companyId: "Company",
+  companyId: "Account",
   eventId: "Event",
   ownerId: "Owner",
   industry: "Industry",

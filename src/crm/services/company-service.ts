@@ -114,7 +114,7 @@ export async function findOrCreateCompany(
 ): Promise<FindOrCreateCompanyResult> {
   const name = input.name?.trim() ?? "";
   if (!name) {
-    return { ok: false, code: "NAME_REQUIRED", message: "Company name is required" };
+    return { ok: false, code: "NAME_REQUIRED", message: "Account name is required" };
   }
 
   const nameKey = companyNameKey(name);
@@ -219,7 +219,7 @@ export async function findOrCreateCompany(
       organizationId: input.organizationId,
       err: err instanceof Error ? err.message : String(err),
     });
-    return { ok: false, code: "UNKNOWN", message: "Could not create the company" };
+    return { ok: false, code: "UNKNOWN", message: "Could not create the account" };
   }
 }
 
@@ -229,7 +229,7 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
   if (input.name !== undefined) {
     const name = input.name.trim();
     if (!name) {
-      return { ok: false, code: "NAME_REQUIRED", message: "Company name cannot be empty" };
+      return { ok: false, code: "NAME_REQUIRED", message: "Account name cannot be empty" };
     }
     data.name = name;
     data.nameKey = companyNameKey(name); // keep the dedup key in lockstep with the display name
@@ -261,12 +261,12 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
         companyId: input.companyId,
         organizationId: input.organizationId,
       });
-      return { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" };
+      return { ok: false, code: "COMPANY_NOT_FOUND", message: "Account not found" };
     }
     // An archived account is FROZEN (R2-M1) — restore before editing.
     if (before.archivedAt) {
       apiLogger.warn({ msg: "crm-company:update-archived", companyId: input.companyId });
-      return { ok: false, code: "COMPANY_ARCHIVED", message: "This company was archived — restore it before editing it" };
+      return { ok: false, code: "COMPANY_ARCHIVED", message: "This account was archived — restore it before editing it" };
     }
 
     const res = await db.crmCompany.updateMany({
@@ -276,7 +276,7 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
     });
     if (res.count === 0) {
       apiLogger.warn({ msg: "crm-company:update-archived-race", companyId: input.companyId });
-      return { ok: false, code: "COMPANY_ARCHIVED", message: "This company was archived — restore it before editing it" };
+      return { ok: false, code: "COMPANY_ARCHIVED", message: "This account was archived — restore it before editing it" };
     }
 
     const company = await db.crmCompany.findUniqueOrThrow({ where: { id: input.companyId } });
@@ -305,7 +305,7 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
       return {
         ok: false,
         code: "NAME_TAKEN",
-        message: "Another company already uses that name",
+        message: "Another account already uses that name",
         meta: { conflict: "name" },
       };
     }
@@ -314,7 +314,7 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
       companyId: input.companyId,
       err: err instanceof Error ? err.message : String(err),
     });
-    return { ok: false, code: "UNKNOWN", message: "Could not update the company" };
+    return { ok: false, code: "UNKNOWN", message: "Could not update the account" };
   }
 }
 
@@ -341,7 +341,7 @@ export async function setCompanyArchived(input: {
     });
     if (!current) {
       apiLogger.warn({ msg: "crm-company:archive-not-found", companyId: input.companyId, organizationId: input.organizationId });
-      return { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" };
+      return { ok: false, code: "COMPANY_NOT_FOUND", message: "Account not found" };
     }
 
     // Conditional claim (R2-M2) — see setDealArchived: the loser of two
@@ -382,6 +382,6 @@ export async function setCompanyArchived(input: {
       companyId: input.companyId,
       err: err instanceof Error ? err.message : String(err),
     });
-    return { ok: false, code: "UNKNOWN", message: "Could not archive the company" };
+    return { ok: false, code: "UNKNOWN", message: "Could not archive the account" };
   }
 }
