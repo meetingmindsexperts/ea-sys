@@ -32,9 +32,13 @@ function pickerMessage(loading: boolean, total: number, shown: number, q: string
   return null;
 }
 
-export function ComposeCrmEmailDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+/**
+ * The searchable deal list. Its own component so the deals load only while
+ * the dialog is open (Radix unmounts closed dialog content), not every time
+ * the inbox renders.
+ */
+function DealPicker({ onChoose }: { onChoose: (deal: CrmBoardDeal) => void }) {
   const [search, setSearch] = useState("");
-  const [deal, setDeal] = useState<CrmBoardDeal | null>(null);
   const deals = useCrmDeals({});
 
   const q = search.trim();
@@ -47,54 +51,55 @@ export function ComposeCrmEmailDialog({ open, onOpenChange }: { open: boolean; o
   const shown = matched.slice(0, MAX_SHOWN);
   const message = pickerMessage(deals.isLoading, matched.length, shown.length, q);
 
-  function closePicker(next: boolean) {
-    if (!next) setSearch("");
-    onOpenChange(next);
-  }
+  return (
+    <>
+      <div className="relative">
+        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input
+          autoFocus
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search deals by name or account…"
+          aria-label="Search deals"
+          className="pl-8"
+        />
+      </div>
+      {message && <p className="text-sm text-muted-foreground">{message}</p>}
+      {shown.length > 0 && (
+        <ul className="min-h-0 flex-1 divide-y overflow-y-auto rounded-md border">
+          {shown.map((d) => (
+            <li key={d.id}>
+              <button type="button" onClick={() => onChoose(d)} className="w-full px-3 py-2 text-left hover:bg-muted/50">
+                <span className="block truncate text-sm font-medium">{d.name}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {[d.company?.name, d.stage?.name].filter(Boolean).join(" · ")}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+export function ComposeCrmEmailDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [deal, setDeal] = useState<CrmBoardDeal | null>(null);
 
   function choose(d: CrmBoardDeal) {
     setDeal(d);
-    closePicker(false);
+    onOpenChange(false);
   }
 
   return (
     <>
-      <Dialog open={open} onOpenChange={closePicker}>
+      <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="flex max-h-[80vh] flex-col gap-3 sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>New email</DialogTitle>
             <DialogDescription>Every email belongs to a deal. Choose the deal, then write to its people.</DialogDescription>
           </DialogHeader>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              autoFocus
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search deals by name or account…"
-              aria-label="Search deals"
-              className="pl-8"
-            />
-          </div>
-          {message && <p className="text-sm text-muted-foreground">{message}</p>}
-          {shown.length > 0 && (
-            <ul className="min-h-0 flex-1 divide-y overflow-y-auto rounded-md border">
-              {shown.map((d) => (
-                <li key={d.id}>
-                  <button
-                    type="button"
-                    onClick={() => choose(d)}
-                    className="w-full px-3 py-2 text-left hover:bg-muted/50"
-                  >
-                    <span className="block truncate text-sm font-medium">{d.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {[d.company?.name, d.stage?.name].filter(Boolean).join(" · ")}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <DealPicker onChoose={choose} />
         </DialogContent>
       </Dialog>
 
