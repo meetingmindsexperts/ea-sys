@@ -156,21 +156,40 @@ export function StatTile({
   note,
   icon,
   valueClassName,
+  compact = false,
 }: {
   label: React.ReactNode;
   value: React.ReactNode;
   note?: React.ReactNode;
   icon?: React.ReactNode;
   valueClassName?: string;
+  /** A smaller tile for a row of stats (StatsRow): label over a 2xl number, tighter spacing. */
+  compact?: boolean;
 }) {
   return (
-    <div className="space-y-2">
+    <div className={compact ? "min-w-0 space-y-0.5" : "space-y-2"}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-muted-foreground">{label}</span>
+        <span className={cn("text-muted-foreground", compact ? "text-xs" : "text-sm")}>{label}</span>
         {icon}
       </div>
-      <div className={cn("text-3xl font-semibold tracking-tight tabular-nums", valueClassName)}>{value}</div>
-      {note && <p className="text-xs text-muted-foreground">{note}</p>}
+      <div className={cn("font-semibold tracking-tight tabular-nums", compact ? "text-2xl" : "text-3xl", valueClassName)}>{value}</div>
+      {note && <p className="truncate text-xs text-muted-foreground">{note}</p>}
+    </div>
+  );
+}
+
+/**
+ * One labelled row of compact stats inside a card (owner, Oct 27: delegates and faculty, invited speakers and
+ * abstract submitters, each counted apart, in a shorter card). The tiles sit in up to five columns beside the label.
+ */
+export function StatsRow({ label, hint, children }: { label: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-x-6 gap-y-3 py-3 sm:grid-cols-[9rem_1fr] sm:items-center">
+      <div>
+        <p className="text-sm font-semibold">{label}</p>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      </div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-5">{children}</div>
     </div>
   );
 }

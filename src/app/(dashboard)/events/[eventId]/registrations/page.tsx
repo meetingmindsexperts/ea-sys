@@ -23,7 +23,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PageHeader, StatTile } from "@/components/ui/typography";
+import { PageHeader, StatTile, StatsRow } from "@/components/ui/typography";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -261,7 +262,8 @@ export default function RegistrationsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
-  const [ticketFilter, setTicketFilter] = useState<string>("all");
+  // Several registration types at once (owner, Oct 27); empty means every type.
+  const [ticketFilters, setTicketFilters] = useState<string[]>([]);
   // "Answered / Not answered <survey>" (several surveys, Phase 2): client-side
   // from each row's answeredSurveyIds, the same rule as the send.
   const [surveyFilter, setSurveyFilter] = useState<SurveyRespondedFilter | null>(null);
@@ -322,7 +324,7 @@ export default function RegistrationsPage() {
       if (!scopeGroupId) {
         if (statusFilter !== "all") p.set("status", statusFilter);
         if (paymentFilter !== "all") p.set("paymentStatus", paymentFilter);
-        if (ticketFilter !== "all") p.set("ticketTypeId", ticketFilter);
+        if (ticketFilters.length > 0) p.set("ticketTypeId", ticketFilters.join(","));
       }
       // The tag filter is applied SERVER-side on the table's own query
       // (useRegistrations below), so omitting it here doesn't just widen the
@@ -364,7 +366,7 @@ export default function RegistrationsPage() {
 
     const matchesStatus = statusFilter === "all" || r.status === statusFilter;
     const matchesPayment = paymentFilter === "all" || r.paymentStatus === paymentFilter;
-    const matchesTicket = ticketFilter === "all" || r.ticketType?.id === ticketFilter;
+    const matchesTicket = ticketFilters.length === 0 || (!!r.ticketType?.id && ticketFilters.includes(r.ticketType.id));
     const matchesSurvey = matchesSurveyResponded(r.answeredSurveyIds, surveyFilter);
 
     return matchesSearch && matchesStatus && matchesPayment && matchesTicket && matchesSurvey;
@@ -422,16 +424,27 @@ export default function RegistrationsPage() {
     safePage * pageSize
   );
 
+  // The stats follow the filters, as the table does, and keep delegates and
+  // faculty (speakers' companion registrations, on the hidden Faculty type)
+  // apart (owner, Oct 27): a speaker is not a delegate in anyone's count.
+  const isFacultyRow = (r: Registration) => !!r.ticketType?.isFaculty;
+  const delegates = filteredRegistrations.filter((r) => !isFacultyRow(r));
+  const faculty = filteredRegistrations.filter(isFacultyRow);
+  const countStatus = (rows: Registration[], status: string) => rows.filter((r) => r.status === status).length;
   const stats = {
-    total: registrations.length,
-    confirmed: registrations.filter((r) => r.status === "CONFIRMED").length,
-    pending: registrations.filter((r) => r.status === "PENDING").length,
-    checkedIn: registrations.filter((r) => r.status === "CHECKED_IN").length,
+    total: delegates.length,
+    confirmed: countStatus(delegates, "CONFIRMED"),
+    pending: countStatus(delegates, "PENDING"),
+    checkedIn: countStatus(delegates, "CHECKED_IN"),
     // Paid = money collected only. Complimentary and sponsor-paid rows are
     // named under the number, never counted in it (organiser report on
     // OOPVF2026: 123 complimentary delegates read as "Paid 123").
-    ...summarizePaymentStatuses(registrations),
+    ...summarizePaymentStatuses(delegates),
   };
+  const facultyStats = { total: faculty.length, confirmed: countStatus(faculty, "CONFIRMED"), checkedIn: countStatus(faculty, "CHECKED_IN") };
+  // The faculty row shows on events that have faculty at all, so it does not come and go as filters change.
+  const hasFaculty = registrations.some(isFacultyRow);
+  const filtered = filteredRegistrations.length !== registrations.length;
   const paidNote = paidCardNote(stats);
 
   // Selection helpers
@@ -688,33 +701,24 @@ export default function RegistrationsPage() {
       </div>
       )}
       {statsAllowed && !statsHidden && (
-      <div className="grid gap-4 md:grid-cols-5">
-        <Card className="py-5">
-          <CardContent className="px-5">
-            <StatTile label="Total" value={stats.total} />
-          </CardContent>
-        </Card>
-        <Card className="py-5">
-          <CardContent className="px-5">
-            <StatTile label="Confirmed" value={stats.confirmed} valueClassName="text-green-600" />
-          </CardContent>
-        </Card>
-        <Card className="py-5">
-          <CardContent className="px-5">
-            <StatTile label="Pending" value={stats.pending} valueClassName="text-yellow-600" />
-          </CardContent>
-        </Card>
-        <Card className="py-5">
-          <CardContent className="px-5">
-            <StatTile label="Checked In" value={stats.checkedIn} valueClassName="text-purple-600" />
-          </CardContent>
-        </Card>
-        <Card className="py-5">
-          <CardContent className="px-5">
-            <StatTile label="Paid" value={stats.paid} valueClassName="text-blue-600" note={paidNote || undefined} />
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="gap-0 py-0">
+        <CardContent className="divide-y px-5">
+          <StatsRow label="Delegates" hint={filtered ? "Matching the filters" : undefined}>
+            <StatTile compact label="Total" value={stats.total} />
+            <StatTile compact label="Confirmed" value={stats.confirmed} valueClassName="text-green-600" />
+            <StatTile compact label="Pending" value={stats.pending} valueClassName="text-yellow-600" />
+            <StatTile compact label="Checked In" value={stats.checkedIn} valueClassName="text-purple-600" />
+            <StatTile compact label="Paid" value={stats.paid} valueClassName="text-blue-600" note={paidNote || undefined} />
+          </StatsRow>
+          {hasFaculty && (
+            <StatsRow label="Faculty" hint="Speakers' registrations">
+              <StatTile compact label="Total" value={facultyStats.total} />
+              <StatTile compact label="Confirmed" value={facultyStats.confirmed} valueClassName="text-green-600" />
+              <StatTile compact label="Checked In" value={facultyStats.checkedIn} valueClassName="text-purple-600" />
+            </StatsRow>
+          )}
+        </CardContent>
+      </Card>
       )}
 
       {/* Filters */}
@@ -759,19 +763,15 @@ export default function RegistrationsPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={ticketFilter} onValueChange={(v) => { setTicketFilter(v); setPage(1); }}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Registration Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                {(ticketTypes as TicketType[]).map((regType) => (
-                  <SelectItem key={regType.id} value={regType.id}>
-                    {regType.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <MultiSelect
+              className="w-[220px]"
+              options={(ticketTypes as TicketType[]).map((t) => ({ value: t.id, label: t.name }))}
+              selected={ticketFilters}
+              onChange={(next) => { setTicketFilters(next); setPage(1); }}
+              placeholder="All registration types"
+              searchPlaceholder="Search types..."
+              emptyMessage="No registration types."
+            />
             {canFilterBySponsor && (
               <Select
                 value={sponsorFilter || SPONSOR_FILTER_ALL}
@@ -824,7 +824,7 @@ export default function RegistrationsPage() {
                 setSearchQuery("");
                 setStatusFilter("all");
                 setPaymentFilter("all");
-                setTicketFilter("all");
+                setTicketFilters([]);
                 setSurveyFilter(null);
               }}
             >
@@ -1147,7 +1147,7 @@ export default function RegistrationsPage() {
               />
               <p className="text-xs text-muted-foreground">
                 Matches a registration #, the full registration ID, or the attendee email.
-                {(statusFilter !== "all" || paymentFilter !== "all" || ticketFilter !== "all" || tagFilter.length > 0 || sponsorFilter !== "" || surveyFilter)
+                {(statusFilter !== "all" || paymentFilter !== "all" || ticketFilters.length > 0 || tagFilter.length > 0 || sponsorFilter !== "" || surveyFilter)
                   ? " Note: only currently-loaded rows are matched — clear filters to match across all registrations."
                   : ""}
               </p>
@@ -1268,7 +1268,7 @@ export default function RegistrationsPage() {
         selectionMode={selectedIds.size > 0 ? "selected" : "all"}
         statusFilter={statusFilter}
         paymentStatusFilter={paymentFilter}
-        ticketTypeFilter={ticketFilter}
+        ticketTypeFilters={ticketFilters}
         tagsFilter={tagFilter}
         surveyRespondedFilter={surveyFilter}
         badgeOptions={badgeOptionsForEmail}

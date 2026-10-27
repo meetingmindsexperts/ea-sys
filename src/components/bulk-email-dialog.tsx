@@ -143,6 +143,8 @@ interface BulkEmailDialogProps {
    */
   paymentStatusFilter?: string;
   ticketTypeFilter?: string;
+  /** Several registration types from the host page's multi-select; wins over `ticketTypeFilter` when given. */
+  ticketTypeFilters?: string[];
   /**
    * Registrations recipient only — pass-through filters (the Communications
    * page Advanced-filters block provides the controls; the dialog carries
@@ -250,6 +252,7 @@ export function BulkEmailDialog({
   statusFilter,
   paymentStatusFilter,
   ticketTypeFilter,
+  ticketTypeFilters,
   badgeTypesFilter,
   tagsFilter,
   surveyRespondedFilter,
@@ -275,7 +278,7 @@ export function BulkEmailDialog({
   // Registrations-only in-dialog multi-select filters. Seeded from the host
   // page's current selection on open (same re-seed-on-open pattern as payment).
   const [localTicketTypeIds, setLocalTicketTypeIds] = useState<string[]>(
-    ticketTypeFilter && ticketTypeFilter !== "all" ? [ticketTypeFilter] : [],
+    ticketTypeFilters ?? (ticketTypeFilter && ticketTypeFilter !== "all" ? [ticketTypeFilter] : []),
   );
   const [localBadgeTypes, setLocalBadgeTypes] = useState<string[]>(badgeTypesFilter ?? []);
   const [localTags, setLocalTags] = useState<string[]>(tagsFilter ?? []);
@@ -325,7 +328,7 @@ export function BulkEmailDialog({
     if (open) {
       setEmailType(defaultEmailType ?? getDefaultEmailType(recipientType));
       setLocalPaymentFilter(paymentStatusFilter ?? "all");
-      setLocalTicketTypeIds(ticketTypeFilter && ticketTypeFilter !== "all" ? [ticketTypeFilter] : []);
+      setLocalTicketTypeIds(ticketTypeFilters ?? (ticketTypeFilter && ticketTypeFilter !== "all" ? [ticketTypeFilter] : []));
       setLocalBadgeTypes(badgeTypesFilter ?? []);
       setLocalTags(tagsFilter ?? []);
       setLocalExcludeFaculty(false);

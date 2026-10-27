@@ -263,6 +263,16 @@ describe("registrations CSV export", () => {
     expect(res.body).not.toContain("DTCM-9");
   });
 
+  it("takes several registration types, comma-separated, as the page's multi-select sends them (Oct 27)", async () => {
+    await call("export=csv&ticketTypeId=tt_1,tt_2");
+    expect(mockDb.registration.findMany.mock.calls[0][0].where.ticketTypeId).toEqual({ in: ["tt_1", "tt_2"] });
+  });
+
+  it("one registration type still narrows to that type alone", async () => {
+    await call("export=csv&ticketTypeId=tt_1");
+    expect(mockDb.registration.findMany.mock.calls[0][0].where.ticketTypeId).toEqual({ in: ["tt_1"] });
+  });
+
   it("merges the tag filter and the free-text search into ONE attendee where", async () => {
     await call("export=csv&tags=vip&q=jane");
     const where = mockDb.registration.findMany.mock.calls[0][0].where;

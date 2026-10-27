@@ -4,6 +4,10 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { StatTile, StatsRow } from "@/components/ui/typography";
+import { abstractStatusColor, abstractStatusLabel } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -66,10 +70,28 @@ interface Speaker {
    * speaker's attendee facet. Null for speakers without one. */
   sourceRegistration: { serialId: number | null } | null;
   _count: { sessions: number; abstracts: number };
+  abstracts: { id: string; title: string; status: string }[];
 }
 
-function bulkEmailLabel(selectedCount: number, statusFilter: string): string {
+/**
+ * Who a speaker is to the event (owner, Oct 27): invited by the organisers, or someone who submitted an
+ * abstract (a submitter, and its presenter once accepted). A speaker with an abstract counts as a submitter.
+ */
+type SpeakerKind = "all" | "invited" | "submitters";
+const isSubmitter = (s: { _count: { abstracts: number } }) => s._count.abstracts > 0;
+const KIND_LABEL: Record<SpeakerKind, string> = { all: "All speakers", invited: "Invited speakers", submitters: "Abstract submitters" };
+const ABSTRACT_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED", "ACCEPTED", "REJECTED", "WITHDRAWN", "DRAFT"] as const;
+const matchesKind = (s: Speaker, kind: SpeakerKind) => kind === "all" || (kind === "submitters") === isSubmitter(s);
+
+/** Who "Email" sends to: the ticked speakers, else everyone listed when a tab narrows the list, else the status-wide audience (no ids). */
+function emailRecipientIds(selected: Set<string>, narrowed: boolean, listed: { id: string }[]): string[] {
+  if (selected.size > 0) return Array.from(selected);
+  return narrowed ? listed.map((s) => s.id) : [];
+}
+
+function bulkEmailLabel(selectedCount: number, statusFilter: string, listed: number | null): string {
   if (selectedCount > 0) return `Email (${selectedCount})`;
+  if (listed !== null) return `Email listed (${listed})`;
   if (statusFilter !== "all") return `Email ${statusFilter.charAt(0) + statusFilter.slice(1).toLowerCase()}`;
   return "Email All";
 }
@@ -105,6 +127,9 @@ export default function SpeakersPage() {
   const bulkTagSpeakers = useBulkTagSpeakers(eventId);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [kind, setKind] = useState<SpeakerKind>("all");
+  // Speakers with at least one abstract in these statuses; empty means any (submitters tab).
+  const [abstractStatuses, setAbstractStatuses] = useState<string[]>([]);
 
   const { data: event } = useEvent(eventId);
   const { data: speakersData = [], isLoading: loading, isFetching, refetch } = useSpeakers(eventId);
@@ -122,9 +147,16 @@ export default function SpeakersPage() {
       (s.organization && s.organization.toLowerCase().includes(searchQuery.toLowerCase()));
 
     const matchesStatus = statusFilter === "all" || s.status === statusFilter;
+    const matchesAbstract = kind !== "submitters" || abstractStatuses.length === 0 || s.abstracts.some((a) => abstractStatuses.includes(a.status));
 
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesStatus && matchesKind(s, kind) && matchesAbstract;
   });
+  // A tab or abstract filter narrows the list in ways the bulk-email audience cannot express, so "Email" then
+  // sends to exactly the speakers listed rather than to every speaker of the status (owner, Oct 27).
+  // (The abstract filter lives on the submitters tab, so any tab but "all" is a narrowing.)
+  const narrowed = kind !== "all";
+  const emailIds = emailRecipientIds(selectedIds, narrowed, filteredSpeakers);
+  const kindCount = (k: SpeakerKind) => speakers.filter((s) => matchesKind(s, k)).length;
 
   // Live recipient count for the bulk-email dialog's "all" mode. Mirrors the
   // SEND semantics and excludes the search box (not sent to the backend). This
@@ -150,11 +182,13 @@ export default function SpeakersPage() {
     safePage * pageSize
   );
 
+  // The stats follow the tab and the filters, as the table does.
   const stats = {
-    total: speakers.length,
-    confirmed: speakers.filter((s) => s.status === "CONFIRMED").length,
-    invited: speakers.filter((s) => s.status === "INVITED").length,
-    declined: speakers.filter((s) => s.status === "DECLINED").length,
+    total: filteredSpeakers.length,
+    confirmed: filteredSpeakers.filter((s) => s.status === "CONFIRMED").length,
+    invited: filteredSpeakers.filter((s) => s.status === "INVITED").length,
+    declined: filteredSpeakers.filter((s) => s.status === "DECLINED").length,
+    accepted: filteredSpeakers.filter((s) => s.abstracts.some((a) => a.status === "ACCEPTED")).length,
   };
 
   // Selection helpers
@@ -226,7 +260,7 @@ export default function SpeakersPage() {
                   onClick={() => setBulkEmailOpen(true)}
                 >
                   <Send className="mr-2 h-4 w-4" />
-                  {bulkEmailLabel(selectedIds.size, statusFilter)}
+                  {bulkEmailLabel(selectedIds.size, statusFilter, narrowed ? filteredSpeakers.length : null)}
                 </Button>
               )}
               {canImportSpeakers && <CSVImportButton eventId={eventId} entityType="speakers" />}
@@ -282,49 +316,29 @@ export default function SpeakersPage() {
         </div>
       )}
 
+      {/* Invited speakers and abstract submitters, apart (owner, Oct 27) */}
+      <Tabs value={kind} onValueChange={(v) => { setKind(v as SpeakerKind); setAbstractStatuses([]); setPage(1); setSelectedIds(new Set()); }}>
+        <TabsList>
+          {(["all", "invited", "submitters"] as const).map((k) => (
+            <TabsTrigger key={k} value={k}>
+              {KIND_LABEL[k]} <span className="ml-1.5 tabular-nums text-muted-foreground">{kindCount(k)}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Speakers
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Confirmed
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.confirmed}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Invited
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{stats.invited}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Declined
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.declined}</div>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="gap-0 py-0">
+        <CardContent className="px-5">
+          <StatsRow label={KIND_LABEL[kind]} hint={filteredSpeakers.length !== kindCount(kind) ? "Matching the filters" : undefined}>
+            <StatTile compact label="Total" value={stats.total} />
+            <StatTile compact label="Confirmed" value={stats.confirmed} valueClassName="text-green-600" />
+            <StatTile compact label="Invited" value={stats.invited} valueClassName="text-yellow-600" />
+            <StatTile compact label="Declined" value={stats.declined} valueClassName="text-red-600" />
+            {kind !== "invited" && <StatTile compact label="Abstract accepted" value={stats.accepted} valueClassName="text-blue-600" />}
+          </StatsRow>
+        </CardContent>
+      </Card>
 
       {/* Filters */}
       <Card>
@@ -354,12 +368,23 @@ export default function SpeakersPage() {
                 <SelectItem value="CANCELLED">Cancelled</SelectItem>
               </SelectContent>
             </Select>
+            {kind === "submitters" && (
+              <MultiSelect
+                className="w-[220px]"
+                options={ABSTRACT_STATUSES.map((st) => ({ value: st, label: abstractStatusLabel(st) }))}
+                selected={abstractStatuses}
+                onChange={(next) => { setAbstractStatuses(next); setPage(1); }}
+                placeholder="Any abstract status"
+                searchPlaceholder="Search statuses..."
+              />
+            )}
             <Button
               variant="ghost"
               size="icon"
               onClick={() => {
                 setSearchQuery("");
                 setStatusFilter("all");
+                setAbstractStatuses([]);
               }}
               title="Clear filters"
             >
@@ -373,9 +398,9 @@ export default function SpeakersPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {totalSpeakers === speakers.length
-              ? `All Speakers (${speakers.length})`
-              : `Showing ${totalSpeakers} of ${speakers.length}`}
+            {totalSpeakers === kindCount(kind)
+              ? `${KIND_LABEL[kind]} (${totalSpeakers})`
+              : `Showing ${totalSpeakers} of ${kindCount(kind)} ${KIND_LABEL[kind].toLowerCase()}`}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -472,7 +497,18 @@ export default function SpeakersPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-center">{speaker._count.sessions}</TableCell>
-                    <TableCell className="text-center">{speaker._count.abstracts}</TableCell>
+                    <TableCell className="text-center">
+                      <div>{speaker._count.abstracts}</div>
+                      {speaker.abstracts.length > 0 && (
+                        <div className="mt-1 flex flex-wrap justify-center gap-1">
+                          {[...new Set(speaker.abstracts.map((a) => a.status))].map((st) => (
+                            <Badge key={st} variant="outline" className={`text-[10px] ${abstractStatusColor(st)}`}>
+                              {abstractStatusLabel(st)}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {speaker.agreementAcceptedAt ? (
                         <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
@@ -575,9 +611,9 @@ export default function SpeakersPage() {
         onOpenChange={setBulkEmailOpen}
         eventId={eventId}
         recipientType="speakers"
-        recipientIds={Array.from(selectedIds)}
+        recipientIds={emailIds}
         recipientCount={selectedIds.size > 0 ? selectedIds.size : filteredSpeakers.length}
-        selectionMode={selectedIds.size > 0 ? "selected" : "all"}
+        selectionMode={selectedIds.size > 0 || narrowed ? "selected" : "all"}
         statusFilter={statusFilter}
         recipientCountFor={countSpeakersForEmail}
       />

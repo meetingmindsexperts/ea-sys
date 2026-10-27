@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations and Speakers: stats split, shorter, and following the filters (October 27)
+
+- **Registrations**: the stats are two compact rows in one card, Delegates (Total, Confirmed, Pending, Checked In, Paid) and Faculty (speakers' registrations: Total, Confirmed, Checked In), and they follow the filters as the table does. The Registration Type filter takes several types; the CSV export (`ticketTypeId` now accepts a comma-separated list) and the bulk email seed carry them all.
+- **Speakers**: tabs for All, Invited speakers and Abstract submitters (a speaker with an abstract), with counts. The stats follow the tab and filters; the submitters tab adds a multi-select abstract status filter, the Abstracts column shows each status, and "Email" on a tab sends to exactly the speakers listed.
+
 ### Online venue: tenancy review (October 27)
 
 - Owner: check the venue for multi-tenancy. Rows were already sound (route gate, tenant lane, organisationId on every row and query, RLS on all three tables). What leaked was configuration, now fixed:

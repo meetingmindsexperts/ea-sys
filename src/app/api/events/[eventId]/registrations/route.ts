@@ -216,7 +216,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const status = parsedStatus?.success ? parsedStatus.data : undefined;
     const paymentStatus = parsedPaymentStatus?.success ? parsedPaymentStatus.data : undefined;
-    const ticketTypeId = searchParams.get("ticketTypeId");
+    // One registration type, or several comma-separated (the list page's multi-select, Oct 27).
+    const ticketTypeIds = (searchParams.get("ticketTypeId") ?? "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 100);
+    const ticketTypeId = ticketTypeIds.length ? ticketTypeIds.join(",") : null;
     // Narrow to ONE registration group — powers the organizer-side group
     // roster + its export. Additive: absent, the where is untouched.
     const groupId = searchParams.get("groupId");
@@ -341,7 +343,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           eventId,
           ...(status && { status }),
           ...(paymentStatus && { paymentStatus }),
-          ...(ticketTypeId && { ticketTypeId }),
+          ...(ticketTypeIds.length && { ticketTypeId: { in: ticketTypeIds } }),
           ...(groupId && { groupId }),
           ...(qSerial !== null && { serialId: qSerial }),
           ...sponsorWhere,
