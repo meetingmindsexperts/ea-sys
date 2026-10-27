@@ -16,7 +16,7 @@
  *      the colleague moved it somewhere else entirely.
  * An optimistic update with no rollback path is a lie the UI tells the user.
  */
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BreakdownRow, CrmReportDimension } from "@/crm/lib/reports";
 import { toast } from "sonner";
 import { ApiError, apiFetch, apiPostJson, apiPatchJson, apiDelete } from "@/lib/api-fetch";
@@ -679,7 +679,10 @@ function contactsQueryOptions(key: string) {
   };
 }
 
-export function useCrmContacts(arg?: string | CrmContactFilters, opts: { enabled?: boolean } = {}) {
+export function useCrmContacts(
+  arg?: string | CrmContactFilters,
+  opts: { enabled?: boolean; keepPrevious?: boolean } = {},
+) {
   const filters: CrmContactFilters = typeof arg === "string" ? { q: arg } : arg ?? {};
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
@@ -690,6 +693,8 @@ export function useCrmContacts(arg?: string | CrmContactFilters, opts: { enabled
     // A picker passes false for the mode it is not showing, so it never loads
     // the whole (capped) contact list by accident.
     enabled: opts.enabled ?? true,
+    // A search box keeps the last results on screen while the next query loads.
+    ...(opts.keepPrevious ? { placeholderData: keepPreviousData } : {}),
   });
 }
 

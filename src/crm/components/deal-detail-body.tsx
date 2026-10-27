@@ -13,7 +13,7 @@
  * A note may only be edited by its author, so the delete affordance shows only where
  * it will be honoured.
  */
-import { useDeferredValue, useState } from "react";
+import { useEffect, useState } from "react";
 import { useCan } from "@/hooks/use-can";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -513,10 +513,13 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
           </Select>
 
           <DealContactPicker
+            key={deal.company?.id ?? "none"}
             account={deal.company ?? null}
             excludeIds={onDealIds}
             pending={add.isPending}
-            onPick={(crmContactId) => add.mutate({ crmContactId, role })}
+            onPick={(crmContactId) =>
+              add.mutate({ crmContactId, role }, { onSuccess: () => toast.success("Added to the deal") })
+            }
           />
 
           {/* Create a NEW contact — pre-linked to the deal's company (companyId
@@ -539,6 +542,27 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
 }
 
 const MIN_SEARCH = 2;
+const MAX_RESULTS = 20;
+const SEARCH_DEBOUNCE_MS = 250;
+
+/** The typed search, settled for SEARCH_DEBOUNCE_MS so each keystroke is not a request. */
+function useSettled(value: string): string {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [value]);
+  return settled;
+}
+
+/** What to say under the search box when no result is listed. */
+function searchMessage(q: string, matched: number, listed: number, loading: boolean): string | null {
+  if (q.length < MIN_SEARCH) return `Type at least ${MIN_SEARCH} characters.`;
+  if (loading) return "Searching…";
+  if (matched === 0) return `No contact matches \u201C${q}\u201D.`;
+  if (listed === 0) return "Everyone who matches is already on this deal.";
+  return null;
+}
 
 /**
  * Pick an existing contact for a deal. With an account, it lists THAT account's
@@ -546,6 +570,9 @@ const MIN_SEARCH = 2;
  * switch searches every contact for the odd outside person. Without an account
  * it starts on the search. It never loads the whole contact list: that list is
  * capped, so with thousands of contacts most people could not be picked.
+ *
+ * The caller keys it by the account id, so a deal moved to another account
+ * starts fresh (no person from the old account left selected).
  */
 function DealContactPicker({
   account,
@@ -561,12 +588,12 @@ function DealContactPicker({
   const [picked, setPicked] = useState("");
   const [searchAll, setSearchAll] = useState(!account);
   const [search, setSearch] = useState("");
-  const q = useDeferredValue(search.trim());
+  const q = useSettled(search.trim());
 
   const showAccount = !!account && !searchAll;
   const searching = !showAccount && q.length >= MIN_SEARCH;
   const accountPeople = useCrmContacts({ companyId: account?.id }, { enabled: showAccount });
-  const results = useCrmContacts({ q }, { enabled: searching });
+  const results = useCrmContacts({ q }, { enabled: searching, keepPrevious: true });
 
   if (showAccount) {
     const available = (accountPeople.data ?? []).filter((c) => !excludeIds.has(c.id));
@@ -579,7 +606,7 @@ function DealContactPicker({
         {available.length > 0 && (
           <div className="flex gap-2">
             <Select value={picked} onValueChange={setPicked}>
-              <SelectTrigger className="flex-1">
+              <SelectTrigger className="flex-1" aria-label={`Add someone from ${account.name}`}>
                 <SelectValue placeholder={`Add someone from ${account.name}…`} />
               </SelectTrigger>
               <SelectContent>
@@ -610,7 +637,10 @@ function DealContactPicker({
     );
   }
 
-  const found = (results.data ?? []).filter((c) => !excludeIds.has(c.id)).slice(0, 20);
+  const matches = searching ? (results.data ?? []) : [];
+  const available = matches.filter((c) => !excludeIds.has(c.id));
+  const listed = available.slice(0, MAX_RESULTS);
+  const message = searchMessage(q, matches.length, listed.length, searching && results.isLoading);
   return (
     <div className="space-y-1.5">
       <div className="relative">
@@ -623,18 +653,15 @@ function DealContactPicker({
           className="pl-8"
         />
       </div>
-      {searching && results.isLoading && <p className="text-xs text-muted-foreground">Searching…</p>}
-      {searching && !results.isLoading && found.length === 0 && (
-        <p className="text-xs text-muted-foreground">No contact matches &ldquo;{q}&rdquo;.</p>
-      )}
-      {found.length > 0 && (
+      {message && <p className="text-xs text-muted-foreground">{message}</p>}
+      {listed.length > 0 && (
         <ul className="max-h-56 space-y-1 overflow-y-auto">
-          {found.map((c) => (
+          {listed.map((c) => (
             <li key={c.id}>
               <button
                 type="button"
                 disabled={pending}
-                className="w-full rounded-md border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
+                className="w-full rounded-md border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => onPick(c.id)}
               >
                 <span className="font-medium">{c.firstName} {c.lastName}</span>
@@ -646,6 +673,11 @@ function DealContactPicker({
             </li>
           ))}
         </ul>
+      )}
+      {available.length > MAX_RESULTS && (
+        <p className="text-xs text-muted-foreground">
+          Showing {MAX_RESULTS} of {available.length}. Type more of the name to narrow it down.
+        </p>
       )}
       {account && (
         <button type="button" className="text-xs text-primary hover:underline" onClick={() => setSearchAll(false)}>

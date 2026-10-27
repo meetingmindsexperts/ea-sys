@@ -67,13 +67,17 @@ export async function GET(req: Request) {
         ...(lifecycle && LIFECYCLE.has(lifecycle) ? { lifecycleStage: lifecycle as "LEAD" | "ENGAGED" | "CUSTOMER" | "CHAMPION" } : {}),
         ...(status && STATUS.has(status) ? { status: status as (typeof CONTACT_STATUS_VALUES)[number] } : {}),
         ...(tags.length ? { tags: { hasSome: tags } } : {}),
+        // Every word must match a name or the email, so "Jane Doe" finds Jane
+        // Doe (one `contains` over each column alone never could).
         ...(q
           ? {
-              OR: [
-                { firstName: { contains: q, mode: "insensitive" as const } },
-                { lastName: { contains: q, mode: "insensitive" as const } },
-                { email: { contains: q, mode: "insensitive" as const } },
-              ],
+              AND: q.split(/\s+/).slice(0, 5).map((word) => ({
+                OR: [
+                  { firstName: { contains: word, mode: "insensitive" as const } },
+                  { lastName: { contains: word, mode: "insensitive" as const } },
+                  { email: { contains: word, mode: "insensitive" as const } },
+                ],
+              })),
             }
           : {}),
     };
