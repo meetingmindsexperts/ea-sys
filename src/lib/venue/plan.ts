@@ -294,17 +294,24 @@ const LINKING: ReadonlySet<FixtureKind> = new Set(["stairs", "lift"]);
 
 /**
  * The stairs and lifts that join Level 1 to the ground floor: the same kind, drawn in the same place on both
- * (a stairwell or a lift shaft stands over itself). Each upper one joins the first lower one under it.
+ * (a stairwell or a lift shaft stands over itself). Each upper one joins the first lower one under it that
+ * no other upper one has joined, so a pair is always two ends and never three (review MED, Oct 27).
  */
 export function floorLinks(plan: VenuePlan): { lower: PlanFixture; upper: PlanFixture }[] {
   const links: { lower: PlanFixture; upper: PlanFixture }[] = [];
+  const taken = new Set<string>();
   for (const upper of plan.fixtures) {
     if (floorOf(upper) !== "level-1" || !LINKING.has(upper.kind)) continue;
-    const lower = plan.fixtures.find((f) => floorOf(f) === "ground" && f.kind === upper.kind && overlapArea(f.rect, upper.rect) > EPS);
-    if (lower) links.push({ lower, upper });
+    const lower = plan.fixtures.find((f) => floorOf(f) === "ground" && f.kind === upper.kind && !taken.has(f.id) && overlapArea(f.rect, upper.rect) > EPS);
+    if (!lower) continue;
+    taken.add(lower.id);
+    links.push({ lower, upper });
   }
   return links;
 }
+
+/** The two ends of a joined stair or lift stand exactly over each other. */
+export const lineUp = (a: PlanFixture, b: PlanFixture) => a.rect.every((v, i) => Math.abs(v - b.rect[i]) <= EPS);
 
 /** The point `d` metres out from the middle of the side a fixture faces. */
 function frontOf(f: PlanFixture, d: number): [number, number] {
@@ -402,8 +409,16 @@ export function planIssues(rooms: VenueRoom[], plan: VenuePlan): string[] {
       if (floorOf(f) !== "level-1" || !LINKING.has(f.kind) || joined.has(f.id)) continue;
       const kind = FIXTURE_INFO[f.kind].label.toLowerCase();
       const below = areas.some((a) => a.floor === "ground" && within(f.rect, a.rect));
-      const first = below ? "Select it and click" : "Draw a room or walkway on the ground floor under it, then select it and click";
-      issues.push(`${labelOf(f)} on Level 1 has no ${kind} under it on the ground floor. ${first} "Put the matching ${kind} on Ground".`);
+      const fix = below
+        ? `Select it and click "Put the matching ${kind} on Ground".`
+        : `Nothing on the ground floor stands under that spot, so move it over a ground floor room or walkway, then select it and click "Put the matching ${kind} on Ground".`;
+      issues.push(`${labelOf(f)} on Level 1 has no ${kind} under it on the ground floor. ${fix}`);
+    }
+    // Joined, but only partly over each other: the end that could not follow a move (review MED, Oct 27).
+    for (const { lower, upper } of links) {
+      if (lineUp(lower, upper)) continue;
+      const kind = FIXTURE_INFO[upper.kind].label.toLowerCase();
+      issues.push(`${labelOf(upper)} on Level 1 is not exactly over the ${kind} under it. Move one back over the other; while both fit, moving one moves the other.`);
     }
     if (!plan.fixtures.some((f) => floorOf(f) === "level-1" && LINKING.has(f.kind))) issues.push("Level 1 needs stairs or a lift, drawn in the same place on both floors");
   }

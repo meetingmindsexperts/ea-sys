@@ -19,6 +19,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent 
 import type { Rect, VenueLayout } from "@/lib/venue/layout";
 import { FIXTURE_INFO, doorPoint, type VenuePlan } from "@/lib/venue/plan";
 import { moveSnapped, moveTo, rectOf, resizeSnapped, resizeTo, walkwayRect, type Edges, type PlanTarget, type SnapGuides } from "@/lib/venue/plan-edit";
+import { doorsLeftShut } from "@/lib/venue/plan-layout";
 import { LayoutDrawing } from "@/components/venue/venue-plan-drawing";
 import { cn } from "@/lib/utils";
 
@@ -141,6 +142,7 @@ export function VenuePlanCanvas({
   const view = frozen ?? viewOf(plan, ghost);
   // Handles and door dots keep their size on screen at any zoom.
   const handle = Math.max(0.6, view[2] / 110) / zoom;
+  const shut = doorsLeftShut(plan, layout);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -400,7 +402,8 @@ export function VenuePlanCanvas({
         })}
         {plan.rooms.map((p) => {
           const [x, z] = doorPoint(p.rect, p.door);
-          return <circle key={`d${p.id}`} cx={x} cy={z} r={handle * 0.55} className="pointer-events-none fill-amber-500" />;
+          // A door left shut (the room is reached by its stairs or lift) is drawn faint: it is not cut in the building.
+          return <circle key={`d${p.id}`} cx={x} cy={z} r={handle * 0.55} className={cn("pointer-events-none fill-amber-500", shut.has(p.id) && "opacity-30")} />;
         })}
         {foyer && <circle cx={doorPoint(foyer.rect, plan.entrance)[0]} cy={doorPoint(foyer.rect, plan.entrance)[1]} r={handle * 0.7} className="pointer-events-none fill-sky-500" />}
         {sel &&

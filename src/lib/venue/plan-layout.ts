@@ -254,6 +254,14 @@ export function floorLayout(rooms: VenueRoom[], plan: VenuePlan, opts: { eventNa
     const [x, z] = doorPoint(zn.rect, d);
     const into = INWARD[d.wall];
     const other = zoneAt(x - into.dx * PROBE * 10, z - into.dz * PROBE * 10);
+    // A Level 1 room on its own is reached by the stairs or lift in it, so its door onto nothing stays shut
+    // (owner, Oct 27: a lone upstairs hall could not be saved without a walkway that led nowhere). One that
+    // has a walkway or room beside it still needs its door on that side (review LOW).
+    if (!other && reachedByFloorLink(plan, zn) && alone(zones, zn)) {
+      // Arriving by the stairs or lift is the way in, so that is where the room is entered (review LOW).
+      zn.spawn = floorLanding(plan, zn) ?? zn.spawn;
+      continue;
+    }
     if (!other) {
       issues.push(`${zn.name}: its door opens onto the outside. Move it to a wall that faces a walkway or another room.`);
       continue;
@@ -313,6 +321,41 @@ export function floorLayout(rooms: VenueRoom[], plan: VenuePlan, opts: { eventNa
     layout: { v: 1, bounds: bounds.map(r2) as Rect, zones, walls, doors, items: out.items, people: out.people, hotspots: out.hotspots, routes },
     issues,
   };
+}
+
+/** No other area on the floor shares a stretch of wall with this one. */
+function alone(zones: LayoutZone[], zn: LayoutZone): boolean {
+  const [x0, z0, x1, z1] = zn.rect;
+  const meets = (r: Rect) => {
+    const ox = Math.min(x1, r[2]) - Math.max(x0, r[0]);
+    const oz = Math.min(z1, r[3]) - Math.max(z0, r[1]);
+    return (ox > EPS && Math.abs(oz) <= EPS) || (oz > EPS && Math.abs(ox) <= EPS);
+  };
+  return !zones.some((o) => o !== zn && meets(o.rect));
+}
+
+/** Where a person steps out of the first stair or lift in a room: in the room, facing into it. */
+function floorLanding(plan: VenuePlan, zn: LayoutZone): [number, number, number] | null {
+  const f = plan.fixtures.find((x) => (x.kind === "stairs" || x.kind === "lift") && x.rect[0] >= zn.rect[0] - EPS && x.rect[1] >= zn.rect[1] - EPS && x.rect[2] <= zn.rect[2] + EPS && x.rect[3] <= zn.rect[3] + EPS);
+  if (!f) return null;
+  const [x, z, yaw] = landing(f, floorOf(f), 0);
+  return inside(zn.rect, x, z) ? [x, z, yaw] : null;
+}
+
+/** The rooms of one floor's building whose door is left shut, reached by their stairs or lift instead. */
+export function doorsLeftShut(plan: VenuePlan, layout: VenueLayout): Set<string> {
+  return new Set(layout.zones.filter((z) => z.kind !== "corridor" && z.kind !== "foyer" && !layout.doors.some((d) => d.between[1] === z.id) && reachedByFloorLink(plan, z) && alone(layout.zones, z)).map((z) => z.id));
+}
+
+/**
+ * An upper-floor room that holds stairs or a lift: its way in is that, not its door. Whether the stairs really
+ * join the floor below is checked by planIssues, and whether everything can be reached by checkLayout.
+ */
+function reachedByFloorLink(plan: VenuePlan, zn: LayoutZone): boolean {
+  const room = plan.rooms.find((p) => p.id === zn.id);
+  if (!room || floorOf(room) === "ground") return false;
+  const holds = (r: Rect) => r[0] >= zn.rect[0] - EPS && r[1] >= zn.rect[1] - EPS && r[2] <= zn.rect[2] + EPS && r[3] <= zn.rect[3] + EPS;
+  return plan.fixtures.some((f) => (f.kind === "stairs" || f.kind === "lift") && holds(f.rect));
 }
 
 /** The yaw that faces each way, as the furnishers use it: (sin, cos) of yaw is the direction, +z south. */

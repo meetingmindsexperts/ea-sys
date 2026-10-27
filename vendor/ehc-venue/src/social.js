@@ -363,12 +363,20 @@ class Social {
   wayOn(Z, end) {
     const d = Z && (LAYOUT.doors || []).find((x) => x.between[1] === Z.id && x.between[0] !== Z.id);
     const from = d && ZONES.find((z) => z.id === d.between[0]);
-    if (!from) return 'off the main corridor';
+    if (!from) return this.wayUp(Z) || 'off the main corridor';
     const name = from.kind === 'corridor' && from.name === 'Main Corridor' ? 'main corridor' : from.name;
     if (from.kind !== 'corridor' && from.kind !== 'foyer') return `through the ${name}`;
     const [x0, z0, x1, z1] = from.rect, long = z1 - z0 >= x1 - x0;
     if (end && from.kind === 'corridor' && long && d.axis === 'x' && (Math.abs(d.z - z0) < 0.01 || Math.abs(d.z - z1) < 0.01)) return `at the far end of the ${name}`;
     return `off the ${name}`;
+  }
+  // EA-SYS (Oct 27): a room upstairs with no door into it is reached by the stairs or lift that land in it:
+  // "up the stairs from the Grand Foyer". Null when none does.
+  wayUp(Z) {
+    const at = (x, z) => ZONES.find((q) => x >= q.rect[0] && x <= q.rect[2] && z >= q.rect[1] && z <= q.rect[3]);
+    const h = Z && (LAYOUT.hotspots || []).find((s) => s.kind === 'floor' && s.to && at(s.to[0], s.to[1]) === Z);
+    const from = h && at(h.x, h.z);
+    return from ? `up the ${/lift/.test(h.prompt) ? 'lift' : 'stairs'} from the ${from.name}` : null;
   }
   // EA-SYS (phase 6): the pre-written answers for a generated venue, naming its own rooms. Null for
   // anything that is not about where things are, so the persona's own lines below still answer.

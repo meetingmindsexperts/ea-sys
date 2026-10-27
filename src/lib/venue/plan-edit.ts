@@ -14,6 +14,7 @@ import { clamp, fits, generateLayout, r2, type Rect } from "./layout";
 import {
   FIXTURE_INFO,
   FIXTURE_MIN_SIDE,
+  floorLinks,
   floorOf,
   floorView,
   heldFixtures,
@@ -469,8 +470,11 @@ export function toFloor(plan: VenuePlan, t: PlanTarget, floor: PlanFloor, foyerI
   const clash = (r: Rect) => others.some((o) => Math.min(r[2], o[2]) - Math.max(r[0], o[0]) > 0.01 && Math.min(r[3], o[3]) - Math.max(r[1], o[1]) > 0.01);
   if (!clash(rect)) return moved;
   const spot = spotBeside({ ...there, rooms: there.rooms.filter((p) => p.id !== t.id), corridors: there.corridors.filter((c) => c.id !== t.id) }, rect[2] - rect[0], rect[3] - rect[1]);
-  // On that floor's own view, so only what stands in this area moves with it.
-  return withFloor(moved, floor, placeAt(there, t, spot[0], spot[1], foyerId));
+  // Only the fixtures that came up with this area go beside the building with it: the ones already
+  // standing on that floor in the same place (the room it clashed with, its stairs) stay where they are.
+  const carried = new Set(plan.fixtures.filter((f) => floorOf(f) === from && contains(rect, f.rect)).map((f) => f.id));
+  const placed = placeAt({ ...there, fixtures: there.fixtures.filter((f) => carried.has(f.id)) }, t, spot[0], spot[1], foyerId);
+  return withFloor(moved, floor, { ...placed, fixtures: [...there.fixtures.filter((f) => !carried.has(f.id)), ...placed.fixtures] });
 }
 
 // ── Stairs and lifts across floors ──────────────────────────────────────────
@@ -503,6 +507,42 @@ export function addPartner(plan: VenuePlan, id: string): { plan: VenuePlan; id: 
   while (ids.has(`${f.kind}-${n}`)) n++;
   const added = onFloor({ ...f, id: `${f.kind}-${n}` }, other);
   return { plan: { ...plan, fixtures: [...plan.fixtures, added] }, id: added.id };
+}
+
+const samePlace = (a: PlanFixture, b: PlanFixture) => a.rect.every((v, i) => v === b.rect[i]);
+
+/**
+ * Joined stairs and lifts stay joined (owner, Oct 27): when an edit moves, resizes or turns one end, the
+ * other end on the other floor takes the same place, so long as a room or walkway there still holds it.
+ * Where none does, it stays put and the plan says the two no longer line up. Each end is compared with
+ * `before`, the plan the edit started from, never with an end this has just moved. A turn passes on;
+ * otherwise each end keeps its own way of facing, since a lift can open a different way on each floor.
+ */
+export function keepPairs(before: VenuePlan, after: VenuePlan): VenuePlan {
+  const links = floorLinks(before);
+  if (!links.length) return after;
+  const follow = new Map<string, PlanFixture>();
+  for (const { lower, upper } of links) {
+    const lo = after.fixtures.find((f) => f.id === lower.id);
+    const up = after.fixtures.find((f) => f.id === upper.id);
+    if (!lo || !up) continue;
+    const loChanged = !samePlace(lo, lower) || lo.dir !== lower.dir;
+    // Both ends changed in the one edit, or neither did: nothing to follow.
+    if (loChanged === (!samePlace(up, upper) || up.dir !== upper.dir)) continue;
+    const [lead, was, follower] = loChanged ? [lo, lower, up] : [up, upper, lo];
+    const there = floorView(after, floorOf(follower));
+    if (![...there.rooms, ...there.corridors].some((a) => contains(a.rect, lead.rect))) continue;
+    follow.set(follower.id, { ...follower, rect: lead.rect, dir: lead.dir === was.dir ? follower.dir : lead.dir });
+  }
+  if (!follow.size) return after;
+  return { ...after, fixtures: after.fixtures.map((f) => follow.get(f.id) ?? f) };
+}
+
+/** Remove a fixture, and the other end of a joined stair or lift with it: half a staircase is no use (review LOW, Oct 27). */
+export function removeJoined(plan: VenuePlan, id: string): VenuePlan {
+  const link = floorLinks(plan).find((l) => l.lower.id === id || l.upper.id === id);
+  const gone = new Set([id, ...(link ? [link.lower.id, link.upper.id] : [])]);
+  return { ...plan, fixtures: plan.fixtures.filter((f) => !gone.has(f.id)) };
 }
 
 /** The floor an area or fixture is on, or null when the plan does not hold it. */

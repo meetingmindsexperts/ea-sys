@@ -45,6 +45,7 @@ import {
   PLAN_FLOORS,
   PLAN_MAX_WALKWAYS,
   PLAN_WALLS,
+  floorLinks,
   floorView,
   planFromLayout,
   planIssues,
@@ -53,18 +54,19 @@ import {
   withFloor,
   type FixtureKind,
   type PlanFixture, type PlanDoor, type PlanFloor, type PlanWall, type VenuePlan } from "@/lib/venue/plan";
-import { floorLayout, layoutFromPlan } from "@/lib/venue/plan-layout";
+import { doorsLeftShut, floorLayout, layoutFromPlan } from "@/lib/venue/plan-layout";
 import {
   addFixture,
   addPartner,
   canAddFixture,
   missingPartner,
-  removeFixture,
+  removeJoined,
   setFixture,
   addWalkway,
   canAddWalkway,
   spotBeside,
   keepListedRooms,
+  keepPairs,
   nudge,
   overlapping,
   placeRoom,
@@ -222,6 +224,7 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
   const foyerId = rooms.find((r) => r.kind === "foyer")?.id ?? null;
   const layout = useMemo(() => floorLayout(rooms, plan, { eventName: "" }).layout, [rooms, plan]);
   const flagged = useMemo(() => overlapping(plan), [plan]);
+  const shut = useMemo(() => doorsLeftShut(plan, layout), [plan, layout]);
   const ghost = useMemo(() => ghostOf(hist.plan, floor), [hist.plan, floor]);
   // The walkability walk takes a few milliseconds on a large building; deferred so dragging stays smooth.
   const settled = useDeferredValue(hist.committed);
@@ -229,15 +232,15 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
   const checking = settled !== hist.committed;
   const unplaced = unplacedRooms(hist.plan, rooms);
 
-  /** Save a changed view of the floor being edited into the whole plan, as one undo step. */
+  /** Save a changed view of the floor being edited into the whole plan, as one undo step; joined stairs and lifts follow on the other floor. */
   const change = useCallback(
     (next: VenuePlan) => {
-      push(withFloor(hist.committed, floor, next));
+      push(keepPairs(hist.committed, withFloor(hist.committed, floor, next)));
       setServerIssues([]);
     },
     [push, hist.committed, floor],
   );
-  const live = useCallback((next: VenuePlan | null) => hist.setLive(next && withFloor(hist.committed, floor, next)), [hist, floor]);
+  const live = useCallback((next: VenuePlan | null) => hist.setLive(next && keepPairs(hist.committed, withFloor(hist.committed, floor, next))), [hist, floor]);
   const showFloor = (f: PlanFloor) => {
     setFloor(f);
     setSelected(null);
@@ -300,10 +303,13 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
   /** Remove the selected walkway or fixture (rooms come and go on the room list, not here). */
   const removeSelected = useCallback(() => {
     if (selected?.kind === "corridor") change(removeWalkway(plan, selected.id));
-    else if (selected?.kind === "fixture") change(removeFixture(plan, selected.id));
-    else return;
+    else if (selected?.kind === "fixture") {
+      // A joined stair or lift goes from both floors at once (review LOW, Oct 27).
+      push(removeJoined(hist.committed, selected.id));
+      setServerIssues([]);
+    } else return;
     setSelected(null);
-  }, [selected, plan, change]);
+  }, [selected, plan, change, push, hist.committed]);
 
   const addFixtureOf = (kind: FixtureKind) => {
     // A stair or lift goes over one on the other floor that has no partner yet, so the two join at once.
@@ -568,6 +574,8 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
               onMoveToFloor={moveToFloor}
               onPlace={placeOnPlan}
               partner={partnerFloor && { floor: partnerFloor, fits: partnerFits, add: addMatching }}
+              joined={selected?.kind === "fixture" && floorLinks(hist.plan).some((l) => l.lower.id === selected.id || l.upper.id === selected.id)}
+              doorShut={selected?.kind === "room" && shut.has(selected.id)}
             />
           </div>
           <Status ok={ok} checking={checking} problems={problems} warnings={verdict.warnings} />
@@ -706,6 +714,8 @@ function PlanPanel({
   onMoveToFloor,
   onPlace,
   partner,
+  joined,
+  doorShut,
 }: {
   plan: VenuePlan;
   rooms: VenueRoom[];
@@ -724,6 +734,10 @@ function PlanPanel({
   onPlace: (id: string) => void;
   /** A selected stair or lift with nothing in the same place on the other floor: that floor, and adding one there. */
   partner: { floor: PlanFloor; fits: boolean; add: () => void } | null;
+  /** The selected stair or lift is joined to one on the other floor, so removing it removes both. */
+  joined: boolean;
+  /** The selected room's door is left shut: it opens onto nothing, and the stairs or lift in the room are its way in. */
+  doorShut: boolean;
 }) {
   const rect = selected ? rectOf(plan, selected) : null;
   if (!selected || !rect) {
@@ -858,7 +872,7 @@ function PlanPanel({
         <DoorFields
           id={`${key}-door`}
           title={selected.id === foyerId ? "Way on into the building" : "Door"}
-          help={selected.id === foyerId ? "The foyer's opening onto a walkway or room." : "The amber dot on the plan. It must open onto a walkway, the foyer or another room."}
+          help={doorHelp(selected.id === foyerId, doorShut)}
           rect={rect}
           door={placed.door}
           onChange={(patch) => onChange(setDoor(plan, placed.id, patch))}
@@ -877,11 +891,23 @@ function PlanPanel({
       {(corridor || fixture) && (
         <Button size="sm" variant="outline" className="text-destructive" onClick={onRemove}>
           <Trash2 className="h-4 w-4" aria-hidden />
-          {corridor ? "Remove walkway" : `Remove ${(fixture && FIXTURE_INFO[fixture.kind].label.toLowerCase()) ?? ""}`}
+          {removeLabel(corridor !== undefined, fixture, joined)}
         </Button>
       )}
     </div>
   );
+}
+
+function doorHelp(foyer: boolean, shut: boolean): string {
+  if (foyer) return "The foyer's opening onto a walkway or room.";
+  if (shut) return "Left shut: nothing on this floor is on the other side, and the room is reached by its stairs or lift. Put it on a wall facing a walkway or room to open it.";
+  return "The amber dot on the plan. It must open onto a walkway, the foyer or another room.";
+}
+
+function removeLabel(corridor: boolean, fixture: PlanFixture | undefined, joined: boolean): string {
+  if (corridor) return "Remove walkway";
+  const what = fixture ? FIXTURE_INFO[fixture.kind].label.toLowerCase() : "";
+  return joined ? `Remove ${what} on both floors` : `Remove ${what}`;
 }
 
 function SelectedKind({ room, fixture }: { room: VenueRoom | undefined; fixture: PlanFixture | undefined }) {
@@ -901,7 +927,9 @@ function PartnerField({ kind, partner }: { kind: FixtureKind; partner: { floor: 
           Put the matching {what} on {FLOOR_NAME[partner.floor]}
         </Button>
       ) : (
-        <p className="font-medium">First draw a room or walkway on {FLOOR_NAME[partner.floor]} over this spot.</p>
+        <p className="font-medium">
+          Nothing on {FLOOR_NAME[partner.floor]} stands {partner.floor === "ground" ? "under" : "over"} this spot. Move the {what} over a room or walkway that is there (the faint outline), or draw one there first.
+        </p>
       )}
     </div>
   );

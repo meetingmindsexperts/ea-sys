@@ -227,13 +227,24 @@ function describeByDoors(layout: VenueLayout, foyer: VenueLayout["zones"][number
     const up = upstairs(from);
     return ` ${up ? `On ${up.name}, ${where.toLowerCase()}` : where}: ${roomList(rooms)}.`;
   });
-  const ups = layout.hotspots.filter((h) => h.kind === "floor" && h.to && upstairs(layout.zones.find((z) => h.to![0] >= z.rect[0] && h.to![0] <= z.rect[2] && h.to![1] >= z.rect[1] && h.to![1] <= z.rect[3])));
+  const zoneAt = (x: number, z: number) => layout.zones.find((zn) => x >= zn.rect[0] && x <= zn.rect[2] && z >= zn.rect[1] && z <= zn.rect[3]);
+  const ups = layout.hotspots.filter((h) => h.kind === "floor" && h.to && upstairs(zoneAt(h.to[0], h.to[1])));
   const by = [...new Set(ups.map((h) => (/lift/.test(h.prompt) ? "a lift" : "stairs")))].join(" and ");
   const upper = layout.levels?.[1];
+  // A room upstairs with no door into it is reached by the stairs or lift that land in it (review MED, Oct 27).
+  const entered = new Set([...layout.doors.map((d) => d.between[1]), ...(foyer ? [foyer.id] : [])]);
+  const byStairs = ups.flatMap((h) => {
+    const room = zoneAt(h.to![0], h.to![1]);
+    const from = zoneAt(h.x, h.z);
+    if (!room || !from || room.kind === "corridor" || entered.has(room.id)) return [];
+    entered.add(room.id);
+    return [` On ${upstairs(room)!.name}, up the ${/lift/.test(h.prompt) ? "lift" : "stairs"} from the ${from.name}: ${roomList([room])}.`];
+  });
   return [
     `Venue you know: ${foyer?.name ?? "The foyer"} is the entrance, with registration and information desks`,
     onward ? `; from it you go on into the ${onward.name}.` : ".",
     ...places,
+    ...byStairs,
     upper && by ? ` ${by[0].toUpperCase()}${by.slice(1)} ${by === "a lift" ? "leads" : "lead"} up to ${upper.name}.` : "",
   ].join("");
 }

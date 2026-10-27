@@ -7,9 +7,9 @@ import { describe, it, expect } from "vitest";
 import { describeVenue } from "@/lib/venue/ai-prompt";
 import { checkLayout } from "@/lib/venue/layout-check";
 import { floorLinks, floorView, planFloors, planIssues, planSchema, withFloor, type VenuePlan } from "@/lib/venue/plan";
-import { addFixture, addPartner, addWalkway, missingPartner, moveTo, toFloor } from "@/lib/venue/plan-edit";
+import { addFixture, addPartner, addWalkway, keepPairs, missingPartner, moveTo, nudge, removeJoined, setSize, turn, toFloor } from "@/lib/venue/plan-edit";
 import { PLAN_FIXTURES } from "@/lib/venue/layout-fixtures";
-import { buildVenueLayout, layoutFromPlan } from "@/lib/venue/plan-layout";
+import { buildVenueLayout, doorsLeftShut, floorLayout, layoutFromPlan } from "@/lib/venue/plan-layout";
 import type { VenueRoom } from "@/lib/venue/rooms";
 
 const rooms: VenueRoom[] = [
@@ -296,11 +296,130 @@ describe("review fixes, Oct 26", () => {
     expect(addPartner(p, "stairs-1")).toBeNull();
   });
 
-  it("tells the organiser to draw the floor first when nothing on Ground holds the spot", () => {
+  it("tells the organiser to move the stairs over the ground floor when nothing on Ground holds the spot", () => {
     const p = twoFloors();
     p.corridors[1] = { ...p.corridors[1], rect: [1, -20.5, 30, 0] };
     p.fixtures.push({ id: "stairs-1", kind: "stairs", name: "", dir: "n", floor: "level-1", rect: [20, -9, 23, -3] });
-    expect(planIssues(rooms, p)).toContain('Stairs on Level 1 has no stairs under it on the ground floor. Draw a room or walkway on the ground floor under it, then select it and click "Put the matching stairs on Ground".');
+    expect(planIssues(rooms, p)).toContain('Stairs on Level 1 has no stairs under it on the ground floor. Nothing on the ground floor stands under that spot, so move it over a ground floor room or walkway, then select it and click "Put the matching stairs on Ground".');
   });
 });
 
+
+describe("stairs on two floors, local test fixes (owner, Oct 27)", () => {
+  /** Hall 2 alone on Level 1 over Hall 1, no upper walkway, reached by stairs from Hall 1. */
+  const lone = (): VenuePlan => {
+    const p = twoFloors();
+    return {
+      ...p,
+      corridors: p.corridors.slice(0, 1),
+      fixtures: [
+        { id: "stairs-1", kind: "stairs", name: "", dir: "s", rect: [-8, -15, -5, -9] },
+        { id: "stairs-2", kind: "stairs", name: "", dir: "s", floor: "level-1", rect: [-8, -15, -5, -9] },
+      ],
+    };
+  };
+  const edit = (p: VenuePlan, floor: "ground" | "level-1", f: (v: VenuePlan) => VenuePlan) => keepPairs(p, withFloor(p, floor, f(floorView(p, floor))));
+  const rect = (p: VenuePlan, id: string) => p.fixtures.find((f) => f.id === id)!.rect;
+
+  it("builds and walks a Level 1 room whose only way in is the stairs, with its door onto nothing left shut", () => {
+    const built = buildVenueLayout(rooms, lone(), { eventName: "" });
+    expect(built.planIssues).toEqual([]);
+    expect(built.mode).toBe("drawn");
+    expect(checkLayout(built.layout).ok).toBe(true);
+  });
+
+  it("still refuses a door onto nothing on the ground floor, and on Level 1 without stairs or a lift in the room", () => {
+    const p = lone();
+    expect(layoutFromPlan(rooms, { ...p, rooms: p.rooms.map((r) => (r.id === "hall-1" ? { ...r, door: { ...r.door, wall: "w" as const } } : r)) }, { eventName: "" }).issues).toContain("Hall 1: its door opens onto the outside. Move it to a wall that faces a walkway or another room.");
+    const elsewhere = { ...twoFloors(), rooms: twoFloors().rooms.map((r) => (r.id === "hall-2" ? { ...r, door: { ...r.door, wall: "w" as const } } : r)) };
+    expect(layoutFromPlan(rooms, elsewhere, { eventName: "" }).issues).toContain("Hall 2: its door opens onto the outside. Move it to a wall that faces a walkway or another room.");
+  });
+
+  it("moves, resizes and turns the other end of a joined stair with it", () => {
+    const moved = edit(lone(), "level-1", (v) => moveTo(v, { kind: "fixture", id: "stairs-2" }, -10, -16, null));
+    expect(rect(moved, "stairs-1")).toEqual(rect(moved, "stairs-2"));
+    expect(rect(moved, "stairs-1")).toEqual([-10, -16, -7, -10]);
+    const sized = edit(moved, "ground", (v) => setSize(v, { kind: "fixture", id: "stairs-1" }, 2.5, 5, null));
+    expect(rect(sized, "stairs-2")).toEqual(rect(sized, "stairs-1"));
+    const turned = edit(sized, "level-1", (v) => turn(v, { kind: "fixture", id: "stairs-2" }, null));
+    expect(turned.fixtures.map((f) => f.dir)).toEqual(["w", "w"]);
+    expect(rect(turned, "stairs-1")).toEqual(rect(turned, "stairs-2"));
+    expect(planIssues(rooms, turned)).toEqual([]);
+  });
+
+  it("keeps the stairs joined when the room they stand in moves", () => {
+    const moved = edit(lone(), "level-1", (v) => nudge(v, { kind: "room", id: "hall-2" }, 0, -2, null));
+    expect(rect(moved, "stairs-1")).toEqual(rect(moved, "stairs-2"));
+    expect(floorLinks(moved)).toHaveLength(1);
+  });
+
+  it("leaves the other end where it is when nothing on its floor would hold it there", () => {
+    const p = lone();
+    // Hall 1 ends at x = 1; the Main Corridor beyond it is on the ground floor too, so go past the building instead.
+    const off = edit(p, "level-1", (v) => ({ ...v, rooms: v.rooms.map((r) => ({ ...r, rect: [-12, -20.5, 40, 0] as [number, number, number, number] })), fixtures: v.fixtures.map((f) => ({ ...f, rect: [30, -15, 33, -9] as [number, number, number, number] })) }));
+    expect(rect(off, "stairs-1")).toEqual([-8, -15, -5, -9]);
+  });
+
+  // ── Review fixes, Oct 27 ──
+
+  it("names the room upstairs and how to reach it in the AI attendees' venue description", () => {
+    const l = layoutFromPlan(rooms, lone(), { eventName: "" }).layout;
+    expect(describeVenue(l)).toContain("On Level 1, up the stairs from the Hall 1: Hall 2");
+  });
+
+  it("keeps each lift's own way of facing when the other end is only moved, and passes a turn on", () => {
+    const p = twoFloors();
+    p.fixtures[1] = { ...p.fixtures[1], dir: "n", rect: [9.4, -13.5, 12, -10.9] };
+    const moved = edit(p, "ground", (v) => nudge(v, { kind: "fixture", id: "lift-1" }, -1, 0, null));
+    expect(moved.fixtures.map((f) => f.dir)).toEqual(["w", "n"]);
+    expect(rect(moved, "lift-2")).toEqual(rect(moved, "lift-1"));
+  });
+
+  it("says when the two ends no longer line up because one could not follow", () => {
+    const p = lone();
+    // Hall 1 below ends at x = 1; on Level 1 Hall 2 is widened so its stairs can go 2 m past that.
+    const wide = { ...p, rooms: p.rooms.map((r) => (r.id === "hall-2" ? { ...r, rect: [-12, -20.5, 12, 0] as [number, number, number, number] } : r)), fixtures: p.fixtures.map((f) => ({ ...f, rect: [-3, -15, 0, -9] as [number, number, number, number] })) };
+    const off = edit(wide, "level-1", (v) => nudge(v, { kind: "fixture", id: "stairs-2" }, 2, 0, null));
+    expect(rect(off, "stairs-1")).toEqual([-3, -15, 0, -9]);
+    expect(floorLinks(off)).toHaveLength(1);
+    expect(planIssues(rooms, off)).toContain("Stairs on Level 1 is not exactly over the stairs under it. Move one back over the other; while both fit, moving one moves the other.");
+  });
+
+  it("joins each ground stair to one upper stair only, so moving one never drags another onto it", () => {
+    const p = lone();
+    p.fixtures.push({ id: "stairs-3", kind: "stairs", name: "", dir: "s", floor: "level-1", rect: [-6, -15, -3, -9] });
+    expect(floorLinks(p).map((l) => l.upper.id)).toEqual(["stairs-2"]);
+    const moved = edit(p, "ground", (v) => nudge(v, { kind: "fixture", id: "stairs-1" }, 0, 1, null));
+    expect(rect(moved, "stairs-3")).toEqual([-6, -15, -3, -9]);
+  });
+
+  it("moves a room to the other floor beside the building without taking the stairs already there", () => {
+    const p = lone();
+    // Hall 1 goes up, where Hall 2 already stands in its place: it lands beside the building with its own stairs only.
+    const up = toFloor(p, { kind: "room", id: "hall-1" }, "level-1", "foyer");
+    expect(up.fixtures.find((f) => f.id === "stairs-2")!.rect).toEqual([-8, -15, -5, -9]);
+    const hall1 = up.rooms.find((r) => r.id === "hall-1")!.rect;
+    const s1 = up.fixtures.find((f) => f.id === "stairs-1")!;
+    expect(s1.floor).toBe("level-1");
+    expect(s1.rect[0]).toBeGreaterThanOrEqual(hall1[0]);
+  });
+
+  it("removes both ends of a joined stair, and only the one of an unjoined fixture", () => {
+    expect(removeJoined(lone(), "stairs-2").fixtures).toEqual([]);
+    expect(removeJoined(twoFloors(), "lift-1").fixtures).toEqual([]);
+    const p = { ...lone(), fixtures: [...lone().fixtures, { id: "pillar-1", kind: "pillar" as const, name: "", dir: "n" as const, rect: [-11, -19, -10.2, -18.2] as [number, number, number, number] }] };
+    expect(removeJoined(p, "pillar-1").fixtures.map((f) => f.id)).toEqual(["stairs-1", "stairs-2"]);
+  });
+
+  it("keeps a door shut only on a room with nothing beside it, and enters it at its stairs", () => {
+    const view = floorView(lone(), "level-1");
+    const { layout } = floorLayout(rooms, view, { eventName: "" });
+    expect([...doorsLeftShut(view, layout)]).toEqual(["hall-2"]);
+    const hall2 = layout.zones.find((z) => z.id === "hall-2")!;
+    // Stairs at x -8..-5, z -15..-9, up the flight to the south: step out at the head, 1.4 m south of them.
+    expect(hall2.spawn.slice(0, 2)).toEqual([-6.5, -7.6]);
+    // With the upper walkway beside it again, its door onto the outside is wrong once more.
+    const beside = { ...view, corridors: [{ id: "upper", floor: "level-1" as const, name: "Upper Corridor", rect: [1, -20.5, 12, 0] as [number, number, number, number] }], rooms: view.rooms.map((r) => ({ ...r, door: { ...r.door, wall: "w" as const } })) };
+    expect(floorLayout(rooms, beside, { eventName: "" }).issues).toContain("Hall 2: its door opens onto the outside. Move it to a wall that faces a walkway or another room.");
+  });
+});

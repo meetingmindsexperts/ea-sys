@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue floor plan: stairs between floors that stay joined (October 27)
+
+- Owner: "two floor editor is causing issues with stairs". Tested locally; three problems, all fixed.
+- **A Level 1 room reached only by its stairs or lift can be saved.** It was refused with "its door opens onto the outside" unless a walkway was drawn that led nowhere. Its door now stays shut (drawn faint on the plan, explained in the panel) and the room is entered where the stairs arrive. A room with a walkway or room beside it still needs its door on that side.
+- **Joined stairs and lifts move together.** Moving, resizing or turning one end moves the other floor's end, room moves included, as long as a room or walkway there still holds it; otherwise the plan says the two no longer line up. A lift keeps its own way of facing on each floor unless it is turned. Removing one removes both ("Remove stairs on both floors").
+- **Clearer help** when nothing on the other floor stands under or over the spot.
+- Review fixes (same day): a ground stair joins one upper stair only (two could be dragged onto each other); moving a room to the other floor no longer takes the stairs already standing there; the AI attendees direct people to an upstairs room by its stairs ("on Level 1, up the stairs from the Foyer") and the venue description names it.
+
 ### Public pages: no em dashes in the text visitors see (October 26)
 
 - Owner: remove em dashes from public-facing pages, including meta text. Every visible one in the public pages (registration, complete-registration, confirmation, My Registration, My Group, group registration, agenda, RSVP, survey, speaker form, reimbursement, travel grant, session, waiting room, submitter forms, login), the public API messages that reach the screen, the Stripe checkout item names, the default speaker agreement text, and the page titles and descriptions (`Register | Event` instead of `Register — Event`; the site description) now use a full stop, comma, colon or brackets. Empty values that showed "—" read "Not set", "Not provided" or "None"; the agenda's empty-time marker is a hyphen.
