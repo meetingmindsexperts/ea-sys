@@ -66,7 +66,7 @@ import { contactScoreColor } from "@/crm/lib/contact-score";
 const COL = {
   name: "w-[350px]",
   tags: "w-[180px]",
-  status: "w-[104px]",
+  status: "w-[112px]",
   lifecycle: "w-[100px]",
   owner: "w-[132px]",
   number: "w-[76px]",
@@ -249,7 +249,7 @@ function ContactsInner() {
       <ListTruncationBanner meta={contactsMeta} shown={rows.length} noun="contacts" />
 
       {view === "loading" && (
-        <CrmTableSkeleton rows={6} cols={8} />
+        <CrmTableSkeleton rows={6} cols={9} />
       )}
       {view === "error" && (
         <CrmLoadError what="contacts" onRetry={() => refetch()} />
@@ -355,8 +355,9 @@ function ContactsInner() {
                     ) : (
                       <div className="flex flex-wrap gap-1">
                         {c.tags!.map((t) => (
-                          <Badge key={t} variant="secondary" className="max-w-full truncate font-normal text-[10px]" title={t}>
-                            {t}
+                          <Badge key={t} variant="secondary" className="max-w-full font-normal text-[10px]" title={t}>
+                            {/* The badge is inline-flex, where text-overflow does nothing. */}
+                            <span className="truncate">{t}</span>
                           </Badge>
                         ))}
                       </div>
@@ -380,7 +381,7 @@ function ContactsInner() {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell className={CLIP}>
+                  <TableCell className={CLIP} title={c.owner ? `${c.owner.firstName} ${c.owner.lastName}` : undefined}>
                     {c.owner ? `${c.owner.firstName} ${c.owner.lastName}` : "—"}
                   </TableCell>
                   <TableCell className="text-right">
