@@ -59,7 +59,7 @@ export const DASHBOARD_SURFACES: readonly DashboardSurface[] = [
   { key: "analytics", label: "Analytics", path: (e) => ev(e, "/analytics") },
   { key: "contacts", label: "Contacts (the organisation's contact store)", path: () => "/contacts" },
   { key: "budgets", label: "Budgets (budget and procurement)", path: () => "/procurement" },
-  { key: "crm", label: "CRM (deals, companies, contacts, tasks)", path: () => "/crm" },
+  { key: "crm", label: "CRM (deals, accounts, contacts, tasks)", path: () => "/crm" },
 ];
 
 const SURFACE_BY_KEY: Readonly<Record<string, DashboardSurface>> = Object.fromEntries(

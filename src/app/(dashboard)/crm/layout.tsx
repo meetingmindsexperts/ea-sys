@@ -3,7 +3,7 @@
 /**
  * CRM shell — one section, three tabs.
  *
- * The sidebar carries a single "CRM" entry; Deals / Companies / Tasks are tabs in
+ * The sidebar carries a single "CRM" entry; Deals / Accounts / Tasks are tabs in
  * the right pane rather than three top-level sidebar links. The module is one place
  * to look, not three — which is the whole point of the bounded-namespace design
  * (§7.0), and matters more than usual here because the owner's stated constraint is

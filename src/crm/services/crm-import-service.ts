@@ -182,9 +182,6 @@ function renderTally(counts: Map<string, number>): string {
  */
 const ARCHIVED_NOTE = (n: number, noun: string) =>
   `${n.toLocaleString()} archived ${noun}${n === 1 ? "" : "s"} matched and ${n === 1 ? "was" : "were"} updated — they stay archived, so you won't see them in the list. Restore them there if that's wrong.`;
-/** "company/companies" doesn't pluralise by adding an s. */
-const ARCHIVED_COMPANIES_NOTE = (n: number) =>
-  ARCHIVED_NOTE(n, "compan").replace("compans", "companies").replace("compan ", "company ");
 
 /**
  * The account column is optional, so a file without one imports "fine": every
@@ -424,7 +421,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
     }
   }
 
-  if (archivedMatched > 0) report.notes.push(ARCHIVED_COMPANIES_NOTE(archivedMatched));
+  if (archivedMatched > 0) report.notes.push(ARCHIVED_NOTE(archivedMatched, "account"));
   if (!ctx.dryRun) void recordCrmActivityBulk(activity);
   apiLogger.info({
     msg: "crm-import:companies-done", organizationId: ctx.organizationId, dryRun: ctx.dryRun,

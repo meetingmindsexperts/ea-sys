@@ -1214,7 +1214,7 @@ describe("report honesty (M3, M4)", () => {
 
     if (!res.ok) throw new Error(res.message);
     // Without the note the operator reads "1 updated" and cannot find it anywhere.
-    expect(res.notes.join(" ")).toMatch(/1 archived company matched/);
+    expect(res.notes.join(" ")).toMatch(/1 archived account matched/);
     // Deliberately NOT auto-restored — that decision stays theirs.
     const data = (vi.mocked(db.crmCompany.update).mock.calls[0]![0] as { data: Record<string, unknown> }).data;
     expect(data).not.toHaveProperty("archivedAt");

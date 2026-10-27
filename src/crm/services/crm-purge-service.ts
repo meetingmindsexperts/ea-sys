@@ -129,7 +129,7 @@ export async function purgeCompany(input: PurgeCtx & { companyId: string }): Pro
     where: { id: input.companyId, organizationId: input.organizationId },
     include: { _count: { select: { deals: true, contacts: true, notes_: true, tasks: true } } },
   });
-  if (!company) return reject("COMPANY_NOT_FOUND", "Company not found", { organizationId: input.organizationId, companyId: input.companyId });
+  if (!company) return reject("COMPANY_NOT_FOUND", "Account not found", { organizationId: input.organizationId, companyId: input.companyId });
   if (!company.archivedAt) {
     return reject("NOT_ARCHIVED", "Only archived accounts can be permanently deleted — archive it first", { companyId: input.companyId });
   }
@@ -139,7 +139,7 @@ export async function purgeCompany(input: PurgeCtx & { companyId: string }): Pro
     return {
       ...reject(
         "COMPANY_HAS_DEALS",
-        `${company._count.deals} deal(s) still reference this company — purge (or re-point) them first`,
+        `${company._count.deals} deal(s) still reference this account — purge (or re-point) them first`,
         { companyId: input.companyId, dealCount: company._count.deals },
       ),
       meta: { dealCount: company._count.deals },

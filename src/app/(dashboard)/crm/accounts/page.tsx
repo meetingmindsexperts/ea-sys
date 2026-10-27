@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Companies — first-class Accounts.
+ * Accounts (CrmCompany in the code) — first-class accounts.
  *
  * `Contact.organization` is a free-text string today, which is why "Cleveland
  * Clinic" and "Cleveland Clinic Foundation" are two different things in the CRM's
