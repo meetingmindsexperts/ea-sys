@@ -41,7 +41,7 @@ export interface VenueEvent {
   organizationId: string;
   code: string | null;
   specialty: string | null;
-  organization: { name: string } | null;
+  organization: { name: string; companyEmail: string | null } | null;
 }
 
 export type VenueGate =
@@ -61,7 +61,7 @@ const EVENT_SELECT = {
   organizationId: true,
   code: true,
   specialty: true,
-  organization: { select: { name: true } },
+  organization: { select: { name: true, companyEmail: true } },
 } as const;
 
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });

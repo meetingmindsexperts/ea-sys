@@ -17,10 +17,10 @@ vi.mock("@/lib/logger", () => ({ apiLogger: log }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/lib/event-settings", () => ({ updateEventSettings: vi.fn() }));
 
-import { createReport, VENUE_SAFETY_INBOX } from "@/services/venue-service";
+import { createReport, venueSafetyInbox } from "@/services/venue-service";
 
 const caller = { organizationId: "org-1", eventId: "evt-1", userId: "u-1" };
-const info = { eventName: "EHC 2026", reporterName: "Wren" };
+const info = { eventName: "EHC 2026", reporterName: "Wren", inbox: "safety@org-one.test" };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -34,7 +34,7 @@ describe("createReport", () => {
     expect(res).toEqual({ ok: true });
     expect(mockDb.venueReport.create.mock.calls[0][0].data).toMatchObject({ eventId: "evt-1", organizationId: "org-1", reporterId: "u-1", data: { by: "u-1" } });
     const mail = mockSend.mock.calls[0][0];
-    expect(mail.to).toEqual([{ email: VENUE_SAFETY_INBOX }]);
+    expect(mail.to).toEqual([{ email: "safety@org-one.test" }]);
     expect(mail.htmlContent).not.toMatch(/<(img|b|script)\b/);
     expect(mail.htmlContent).toContain("&lt;img src=x");
     expect(mail.textContent).toContain('"<script>x</script>"'); // the peer's line reaches the email (review M2)
@@ -45,6 +45,19 @@ describe("createReport", () => {
     expect(await createReport(caller, { reason: "Something else" }, info)).toEqual({ ok: true });
     expect(mockDb.venueReport.create).toHaveBeenCalledTimes(1);
     expect(log.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "venue-service:report-email-failed", reportId: "rep-1" }));
+  });
+
+  it("sends each organisation's reports to its own company email, never another's (tenancy review)", () => {
+    expect(venueSafetyInbox({ companyEmail: " info@org-two.test " })).toBe("info@org-two.test");
+    expect(venueSafetyInbox({ companyEmail: null })).toBeNull();
+    expect(venueSafetyInbox(null)).toBeNull();
+  });
+
+  it("keeps the report and logs it when the organisation has no company email, sending nothing", async () => {
+    expect(await createReport(caller, { reason: "Something else" }, { ...info, inbox: null })).toEqual({ ok: true });
+    expect(mockDb.venueReport.create).toHaveBeenCalledTimes(1);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "venue-service:report-email-no-inbox", reportId: "rep-1" }));
   });
 
   it("refuses a reason the page does not offer, storing and sending nothing", async () => {

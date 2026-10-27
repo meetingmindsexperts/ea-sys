@@ -10,7 +10,7 @@ import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { venueGuard } from "@/lib/venue/route-guard";
 import { venueDisplayName } from "@/lib/venue/display-name";
-import { createReport, listReports } from "@/services/venue-service";
+import { createReport, listReports, venueSafetyInbox } from "@/services/venue-service";
 
 type Params = { params: Promise<{ eventId: string }> };
 const bodySchema = z.record(z.string(), z.unknown());
@@ -33,6 +33,7 @@ export async function POST(req: Request, { params }: Params) {
       const res = await createReport({ organizationId: gate.organizationId, eventId, userId: gate.userId }, parsed.data, {
         eventName: gate.event.name,
         reporterName: venueDisplayName(gate.session),
+        inbox: venueSafetyInbox(gate.event.organization),
       });
       if (!res.ok) return NextResponse.json({ error: res.message, code: res.code }, { status: res.code === "TOO_LARGE" ? 413 : 400 });
       return NextResponse.json({ ok: true }, { status: 201 });

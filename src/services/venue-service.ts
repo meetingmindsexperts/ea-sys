@@ -14,8 +14,16 @@ import { escapeHtml } from "@/lib/html";
 import { updateEventSettings } from "@/lib/event-settings";
 import { shapeActivity, shapeFilter, shapeReport } from "@/lib/venue/venue-data";
 
-/** Where venue safety reports are emailed (plan D7). */
-export const VENUE_SAFETY_INBOX = "info@meetingmindsgroup.com";
+/**
+ * Where an event's venue safety reports are emailed, and the contact its venue shows (plan D7): the
+ * organisation's own company email. It was MM Group's inbox for every organisation, which on the platform
+ * would have sent one tenant's reports (names, chat lines) to another (tenancy review, Oct 27, 2026).
+ * MM Group's company email is that same inbox, so master is unchanged. Null when the organisation has none.
+ */
+export function venueSafetyInbox(org: { companyEmail: string | null } | null): string | null {
+  const email = org?.companyEmail?.trim();
+  return email ? email : null;
+}
 
 const MAX_DOC_BYTES = 64 * 1024;
 
@@ -77,7 +85,7 @@ export function listActivity(organizationId: string, eventId: string) {
 // ── Reports ──────────────────────────────────────────────────────────────────
 
 /** Store a safety report, then email it to the safety inbox (never undoes the store). */
-export async function createReport(c: Caller, raw: unknown, ctxInfo: { eventName: string; reporterName: string }): Promise<{ ok: true } | Fail> {
+export async function createReport(c: Caller, raw: unknown, ctxInfo: { eventName: string; reporterName: string; inbox: string | null }): Promise<{ ok: true } | Fail> {
   const ctx = { organizationId: c.organizationId, eventId: c.eventId, userId: c.userId };
   if (tooLarge(raw)) return fail("TOO_LARGE", "The report is too large", ctx);
   const item = shapeReport(raw, c.userId);
@@ -94,7 +102,12 @@ export async function createReport(c: Caller, raw: unknown, ctxInfo: { eventName
   return { ok: true };
 }
 
-async function emailReport(item: Record<string, unknown>, info: { eventName: string; reporterName: string; reportId: string }, ctx: Record<string, unknown>) {
+async function emailReport(item: Record<string, unknown>, info: { eventName: string; reporterName: string; inbox: string | null; reportId: string }, ctx: Record<string, unknown>) {
+  // No inbox: the report stays stored and on the event team's Reports view; the gap is logged so it is fixed.
+  if (!info.inbox) {
+    apiLogger.error({ msg: "venue-service:report-email-no-inbox", ...ctx, reportId: info.reportId });
+    return;
+  }
   const who = item.who as { name: string; guest: boolean };
   const said = (item.said as { text: string }[]).map((s) => s.text);
   const lines = [
@@ -109,7 +122,7 @@ async function emailReport(item: Record<string, unknown>, info: { eventName: str
   ].filter(Boolean);
   try {
     const res = await sendEmail({
-      to: [{ email: VENUE_SAFETY_INBOX }],
+      to: [{ email: info.inbox }],
       subject: `Venue safety report: ${info.eventName}`,
       htmlContent: lines.map((l) => `<p>${escapeHtml(l).replace(/\n/g, "<br/>")}</p>`).join("\n"),
       textContent: lines.join("\n"),

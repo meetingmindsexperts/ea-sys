@@ -20,7 +20,7 @@ import type { VenueGate } from "./route-guard";
 import { venueDisplayName } from "./display-name";
 import { venueDateRange } from "./date-range";
 import { resolveTimezone } from "@/lib/event-time";
-import { VENUE_SAFETY_INBOX, readVenueConfig } from "@/services/venue-service";
+import { readVenueConfig, venueSafetyInbox } from "@/services/venue-service";
 import { readVenueAi } from "@/services/venue-ai-service";
 import { loadVenueProgramme } from "@/services/venue-programme-service";
 import venuePage from "./page-html.generated.json";
@@ -80,7 +80,7 @@ export async function venuePageResponse(gate: OpenGate, built: EventLayout, opts
     '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
     `<title>${opts.preview ? "Preview: " : ""}Online venue</title>` +
     "<style>body{margin:0}[hidden]{display:none!important}</style></head><body>" +
-    `<script>window.EHC_LAYOUT=${layout ? scriptLiteral(layout) : "null"};window.EHC_EVENT=${scriptLiteral(ehcEvent)};${runtime}window.EHC_CONTACT=${scriptLiteral(VENUE_SAFETY_INBOX)};window.EHC_SCREENS=${scriptLiteral(screens)};window.EHC_PROGRAMME=${scriptLiteral(programme)};</script>` +
+    `<script>window.EHC_LAYOUT=${layout ? scriptLiteral(layout) : "null"};window.EHC_EVENT=${scriptLiteral(ehcEvent)};${runtime}window.EHC_CONTACT=${scriptLiteral(venueSafetyInbox(e.organization) ?? "")};window.EHC_SCREENS=${scriptLiteral(screens)};window.EHC_PROGRAMME=${scriptLiteral(programme)};</script>` +
     (opts.preview ? "" : '<script src="/venue-runtime.js"></script>') +
     venuePage.html +
     (opts.preview ? PREVIEW_STRIP : "") +

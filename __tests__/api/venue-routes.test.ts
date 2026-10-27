@@ -16,7 +16,7 @@ const { mockAuth, mockDb, svc } = vi.hoisted(() => ({
     listReports: vi.fn().mockResolvedValue([]),
     readVenueConfig: vi.fn().mockReturnValue({ filter: null, screens: null }),
     saveFilter: vi.fn().mockResolvedValue({}),
-    VENUE_SAFETY_INBOX: "info@x.test",
+    venueSafetyInbox: (o: { companyEmail: string | null } | null) => o?.companyEmail ?? null,
   },
 }));
 
@@ -34,7 +34,7 @@ import { GET as allGET } from "@/app/api/venue/[eventId]/activity/route";
 import { PUT as configPUT } from "@/app/api/venue/[eventId]/config/route";
 import { GET as reportsGET, POST as reportsPOST } from "@/app/api/venue/[eventId]/reports/route";
 
-const EVENT = { id: "evt-1", slug: "ehc26", name: "EHC", startDate: new Date(), endDate: new Date(), venue: null, timezone: "Asia/Dubai", eventType: "CONFERENCE", settings: {}, organizationId: "org-1", staffAssignments: [] as { userId: string }[] };
+const EVENT = { id: "evt-1", slug: "ehc26", name: "EHC", startDate: new Date(), endDate: new Date(), venue: null, timezone: "Asia/Dubai", eventType: "CONFERENCE", settings: {}, organizationId: "org-1", organization: { name: "Org One", companyEmail: "safety@org-one.test" }, staffAssignments: [] as { userId: string }[] };
 const as = (role: string, organizationId: string | null = "org-1", grants: string[] = []) =>
   mockAuth.mockResolvedValue({ user: { id: `u-${role}`, role, organizationId, procurementPermissions: grants } });
 const params = { params: Promise.resolve({ eventId: "evt-1" }) };
@@ -114,5 +114,7 @@ describe("/api/venue gate", () => {
     expect((await post()).status).toBe(429);
     expect(svc.createReport).toHaveBeenCalledTimes(20);
     expect(svc.createReport.mock.calls[0][0]).toEqual({ organizationId: "org-1", eventId: "evt-1", userId: "u-rate-limit-test" });
+    // The report goes to the event's own organisation's inbox (tenancy review, Oct 27).
+    expect(svc.createReport.mock.calls[0][2]).toMatchObject({ inbox: "safety@org-one.test" });
   });
 });
