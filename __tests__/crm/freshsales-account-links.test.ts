@@ -57,4 +57,13 @@ describe("planAccountLinks", () => {
     expect(plan.writes).toEqual([{ contactId: "ct1", companyId: "co1", previousCompanyId: null }]);
     expect(plan.noPrimary).toEqual(["c4"]);
   });
+
+  it("review: two different primary accounts are reported, not guessed", () => {
+    const parsed = rows(["a1", "c1", "true"], ["a2", "c1", "true"], ["a1", "c3", "true"], ["a1", "c3", "true"]);
+    if ("error" in parsed) throw new Error(parsed.error);
+    const plan = planAccountLinks(parsed, contacts, accounts);
+    expect(plan.conflictingPrimary).toEqual(["c1"]);
+    expect(plan.writes).toEqual([]);
+    expect(plan.alreadyLinked).toBe(1); // a repeated identical row is not a conflict
+  });
 });

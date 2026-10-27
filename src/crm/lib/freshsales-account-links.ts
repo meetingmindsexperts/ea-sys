@@ -25,6 +25,8 @@ export interface LinkPlan {
   alreadyLinked: number;
   /** Freshsales contact ids with rows but no primary one. */
   noPrimary: string[];
+  /** Freshsales contact ids with two DIFFERENT primary accounts: reported, not guessed. */
+  conflictingPrimary: string[];
   missingContact: string[];
   missingAccount: string[];
 }
@@ -53,15 +55,25 @@ export function planAccountLinks(
   contacts: Map<string, { id: string; companyId: string | null }>,
   accounts: Map<string, { id: string }>,
 ): LinkPlan {
-  const plan: LinkPlan = { writes: [], alreadyLinked: 0, noPrimary: [], missingContact: [], missingAccount: [] };
+  const plan: LinkPlan = {
+    writes: [], alreadyLinked: 0, noPrimary: [], conflictingPrimary: [], missingContact: [], missingAccount: [],
+  };
 
   const primaryByContact = new Map<string, string>();
+  const conflicting = new Set<string>();
   const seen = new Set<string>();
   for (const r of rows) {
     seen.add(r.contactExternalId);
-    if (r.isPrimary) primaryByContact.set(r.contactExternalId, r.accountExternalId);
+    if (!r.isPrimary) continue;
+    const prior = primaryByContact.get(r.contactExternalId);
+    if (prior && prior !== r.accountExternalId) conflicting.add(r.contactExternalId);
+    primaryByContact.set(r.contactExternalId, r.accountExternalId);
   }
   for (const c of seen) if (!primaryByContact.has(c)) plan.noPrimary.push(c);
+  for (const c of conflicting) {
+    primaryByContact.delete(c);
+    plan.conflictingPrimary.push(c);
+  }
 
   for (const [contactExt, accountExt] of primaryByContact) {
     const contact = contacts.get(contactExt);
