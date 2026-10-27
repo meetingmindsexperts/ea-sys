@@ -27,6 +27,13 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), war
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: unknown) => fn }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
+vi.mock("@/services/speaker-service", () => ({
+  updateSpeaker: vi.fn(async () => ({
+    ok: true,
+    speaker: { id: "s1", firstName: "Jane", submitterSource: "abstract", _count: { sessions: 0, abstracts: 2 } },
+    companionCascade: null,
+  })),
+}));
 
 const EVENT = { id: "e1", organizationId: "org1", eventType: "CONFERENCE", staffAssignments: [] };
 const as = (keys: string[]) => ({ user: { id: "u2", role: "BASE", organizationId: "org1", procurementPermissions: keys } });
@@ -95,5 +102,29 @@ describe("GET /api/events/[eventId]/tracks/[trackId]", () => {
     expect(sessionSpeaker).not.toHaveProperty("email");
     expect(sessionSpeaker).not.toHaveProperty("honorariumAmount");
     expect(query.include.abstracts.select.speaker.select).toEqual(sessionSpeaker);
+  });
+});
+
+describe("PUT /api/events/[eventId]/speakers/[speakerId] (review LOW, Oct 27)", () => {
+  const call = async () => {
+    const { PUT } = await import("@/app/api/events/[eventId]/speakers/[speakerId]/route");
+    const req = new Request("http://x", { method: "PUT", body: JSON.stringify({ firstName: "Jane" }) });
+    const res = await PUT(req, { params: Promise.resolve({ eventId: "e1", speakerId: "s1" }) });
+    return (await res.json()) as Record<string, unknown>;
+  };
+
+  it("returns the row without the abstract count or sign-up door to a caller without abstracts.read", async () => {
+    mockAuth.mockResolvedValue(as(["speakers.update@ALL"]));
+    const body = await call();
+    expect(body.firstName).toBe("Jane");
+    expect(body._count).toEqual({ sessions: 0 });
+    expect(body).not.toHaveProperty("submitterSource");
+  });
+
+  it("keeps them for a caller who reads both", async () => {
+    mockAuth.mockResolvedValue(as(["speakers.update@ALL", "abstracts.read@ALL", "proposals.read@ALL"]));
+    const body = await call();
+    expect(body._count).toEqual({ sessions: 0, abstracts: 2 });
+    expect(body.submitterSource).toBe("abstract");
   });
 });

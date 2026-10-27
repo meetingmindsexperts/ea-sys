@@ -45,6 +45,7 @@ describe("sign-ups who have submitted nothing (MEHF 2027, Oct 27)", () => {
     expect(speakerKindOf({ abstracts: [], submitterSource: null })).toBe("invited");
     expect(speakerKindOf({ abstracts: [{ status: "DRAFT" }] })).toBe("invited");
     expect(speakerKindOf({ abstracts: [], submitterSource: "abstract", _count: { sessions: 2 } })).toBe("invited");
+    expect(speakerKindOf({ abstracts: [], submitterSource: "proposal", _count: { sessions: 0, topicSpeakers: 1 } })).toBe("invited");
   });
 
   it("a submission still decides first, whatever the door", () => {

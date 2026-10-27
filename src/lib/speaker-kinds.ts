@@ -7,13 +7,13 @@ export type SpeakerKind = "all" | "invited" | "submitters" | "proposers";
 /**
  * Either list is absent when the caller may not read it (speaker-submission-visibility.ts). `submitterSource` is
  * the public sign-up door the speaker came through ("abstract", "proposal" or "both"), null when organisers added
- * them; `_count.sessions` is how many session roles they hold.
+ * them; `_count` holds how many session roles and topics they speak on.
  */
 type WithSubmissions = {
   abstracts?: { status: string }[];
   sessionProposals?: { status: string }[];
   submitterSource?: string | null;
-  _count?: { sessions?: number };
+  _count?: { sessions?: number; topicSpeakers?: number };
 };
 
 /** Abstracts and proposals that do not make anyone a submitter: one only started, or taken back (review MED, Oct 27). */
@@ -21,8 +21,9 @@ const NOT_SUBMITTED = new Set(["DRAFT", "WITHDRAWN"]);
 const submitted = (items: { status: string }[] | undefined) => (items ?? []).some((a) => !NOT_SUBMITTED.has(a.status));
 
 /**
- * A speaker who has submitted at least one abstract. A draft or a withdrawn one does not count, so an invited
- * speaker who only started an abstract stays on the Invited tab.
+ * A speaker who has submitted at least one abstract. A draft or a withdrawn one does not count. An invited
+ * speaker who only started one stays on Invited, unless the abstract sign-in stamped their submitterSource and
+ * they are not on the programme yet: then signupKind puts them on Submitters (accepted by the owner, Oct 27).
  */
 export const isSubmitter = (s: WithSubmissions) => submitted(s.abstracts);
 
@@ -38,7 +39,8 @@ export const isProposer = (s: WithSubmissions) => !isSubmitter(s) && submitted(s
  * the programme counts as invited whatever door they once used.
  */
 function signupKind(s: WithSubmissions): Exclude<SpeakerKind, "all"> {
-  if (!s.submitterSource || (s._count?.sessions ?? 0) > 0) return "invited";
+  const onProgramme = (s._count?.sessions ?? 0) + (s._count?.topicSpeakers ?? 0) > 0;
+  if (!s.submitterSource || onProgramme) return "invited";
   return s.submitterSource === "proposal" ? "proposers" : "submitters";
 }
 

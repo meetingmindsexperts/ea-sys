@@ -71,7 +71,7 @@ interface Speaker {
    * speaker's attendee facet. Null for speakers without one. */
   sourceRegistration: { serialId: number | null } | null;
   /** Abstracts and proposals are absent without abstracts.read / proposals.read (owner, Oct 27). */
-  _count: { sessions: number; abstracts?: number };
+  _count: { sessions: number; topicSpeakers?: number; abstracts?: number };
   abstracts?: { id: string; title: string; status: string }[];
   sessionProposals?: { status: string }[];
   /** The public sign-up door ("abstract" | "proposal" | "both"); null for speakers the organisers added. */

@@ -213,7 +213,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // belongs to the caller's org). 404, not 403, to avoid existence leaks.
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true },
+      select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
 
     if (!event) {
@@ -308,7 +308,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // registration on a decline (cancelled / kept / real-registration / …).
     // Same boundary as the GET: the PUT admits WEBINARS on webinars, and the
     // returned row must not hand them the honorarium.
-    const visible = can(gate.principal, "honorarium.view") ? speaker : stripHonorariumFields(speaker);
+    // And, like the GET, without the abstract count for a caller who may not read abstracts (review LOW, Oct 27).
+    const withHonorarium = can(gate.principal, "honorarium.view") ? speaker : stripHonorariumFields(speaker);
+    const visible = withVisibleSubmissions(withHonorarium, submissionVisibilityFor(gate.principal, event));
     return NextResponse.json(companionCascade ? { ...visible, companionCascade } : visible);
     });
   } catch (error) {

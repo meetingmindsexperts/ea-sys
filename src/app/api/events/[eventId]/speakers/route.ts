@@ -159,6 +159,8 @@ export async function GET(req: Request, { params }: RouteParams) {
           _count: {
             select: {
               sessions: true,
+              // A speaker on a session topic is on the programme too (speaker-kinds.ts).
+              topicSpeakers: true,
               abstracts: true,
             },
           },

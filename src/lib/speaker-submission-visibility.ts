@@ -54,12 +54,16 @@ export function submissionEmailVisible(templateSlug: string | null | undefined, 
 type WithSubmissions = {
   abstracts?: unknown;
   sessionProposals?: unknown;
+  submitterSource?: unknown;
   _count?: Record<string, number>;
 };
 
 export function withVisibleSubmissions<T extends WithSubmissions>(speaker: T, visible: SubmissionVisibility): T {
   if (visible.abstracts && visible.proposals) return speaker;
   const out: WithSubmissions = { ...speaker };
+  // The sign-up door ("abstract", "proposal", "both") says what the person came to submit, so it goes with
+  // either list hidden (review LOW, Oct 27). The Speakers page then groups them as it would with nothing known.
+  delete out.submitterSource;
   if (!visible.abstracts) {
     delete out.abstracts;
     if (out._count) {
