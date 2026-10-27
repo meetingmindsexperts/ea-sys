@@ -153,7 +153,8 @@ interface Speaker {
       };
     };
   }>;
-  abstracts: Array<{
+  /** Absent without abstracts.read (speaker-submission-visibility.ts). */
+  abstracts?: Array<{
     id: string;
     title: string;
     status: string;
@@ -1138,7 +1139,8 @@ export default function SpeakerDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Abstracts */}
+          {/* Abstracts: absent without abstracts.read (owner, Oct 27) */}
+          {speaker.abstracts && (
           <Card>
             <CardHeader>
               <CardTitle>Abstracts ({speaker.abstracts.length})</CardTitle>
@@ -1189,6 +1191,7 @@ export default function SpeakerDetailPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* Certificates (with Resend) + the unified activity timeline.
               These are the two LONGEST blocks on the page, so they live in

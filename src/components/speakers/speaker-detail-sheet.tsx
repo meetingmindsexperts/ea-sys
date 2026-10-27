@@ -130,7 +130,8 @@ interface Speaker {
       track?: { name: string };
     };
   }>;
-  abstracts: Array<{
+  /** Absent without abstracts.read (speaker-submission-visibility.ts). */
+  abstracts?: Array<{
     id: string;
     title: string;
     status: string;
@@ -1002,7 +1003,9 @@ export function SpeakerDetailSheet({
 
                 <div className="border-t" />
 
-                {/* Abstracts */}
+                {/* Abstracts: absent without abstracts.read (owner, Oct 27) */}
+                {speaker.abstracts && (
+                <>
                 <div className="space-y-3">
                   <h3 className="font-semibold">Abstracts ({speaker.abstracts.length})</h3>
                   {speaker.abstracts.length === 0 ? (
@@ -1050,6 +1053,8 @@ export function SpeakerDetailSheet({
                 </div>
 
                 <div className="border-t" />
+                </>
+                )}
 
                 {/* Social Links */}
                 {(speaker.socialLinks?.twitter || speaker.socialLinks?.linkedin || speaker.socialLinks?.github) && (

@@ -4,7 +4,8 @@
  */
 export type SpeakerKind = "all" | "invited" | "submitters" | "proposers";
 
-type WithSubmissions = { abstracts: { status: string }[]; sessionProposals?: { status: string }[] };
+/** Either list is absent when the caller may not read it (speaker-submission-visibility.ts). */
+type WithSubmissions = { abstracts?: { status: string }[]; sessionProposals?: { status: string }[] };
 
 /** Abstracts and proposals that do not make anyone a submitter: one only started, or taken back (review MED, Oct 27). */
 const NOT_SUBMITTED = new Set(["DRAFT", "WITHDRAWN"]);

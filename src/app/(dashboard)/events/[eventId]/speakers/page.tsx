@@ -70,12 +70,27 @@ interface Speaker {
   /** Companion/linked registration (Speaker.sourceRegistrationId) — the
    * speaker's attendee facet. Null for speakers without one. */
   sourceRegistration: { serialId: number | null } | null;
-  _count: { sessions: number; abstracts: number };
-  abstracts: { id: string; title: string; status: string }[];
+  /** Abstracts and proposals are absent without abstracts.read / proposals.read (owner, Oct 27). */
+  _count: { sessions: number; abstracts?: number };
+  abstracts?: { id: string; title: string; status: string }[];
   sessionProposals?: { status: string }[];
 }
 
 const KIND_LABEL: Record<SpeakerKind, string> = { all: "All speakers", invited: "Invited speakers", submitters: "Abstract submitters", proposers: "Session proposers" };
+
+/**
+ * The tabs a caller can be shown. Telling an invited speaker from a submitter needs the abstracts, and from a
+ * proposer the proposals, so a tab whose grouping the caller cannot see is left out rather than shown wrong.
+ */
+function visibleKinds(readAbstracts: boolean, readProposals: boolean, proposerCount: number): SpeakerKind[] {
+  const both = readAbstracts && readProposals;
+  return (["all", "invited", "submitters", "proposers"] as const).filter((k) => {
+    if (k === "invited") return both;
+    if (k === "submitters") return readAbstracts;
+    if (k === "proposers") return both && proposerCount > 0;
+    return true;
+  });
+}
 const ABSTRACT_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED", "ACCEPTED", "REJECTED", "WITHDRAWN", "DRAFT"] as const;
 
 
@@ -107,6 +122,8 @@ export default function SpeakersPage() {
   const canTagSpeakers = useCan("speakers.update", eventId) === "allowed";
   const canSendEmail = useCan("communications.send", eventId) === "allowed";
   const canSelect = canTagSpeakers || canSendEmail;
+  const canReadAbstracts = useCan("abstracts.read", eventId) === "allowed";
+  const canReadProposals = useCan("proposals.read", eventId) === "allowed";
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -137,7 +154,7 @@ export default function SpeakersPage() {
       (s.organization && s.organization.toLowerCase().includes(searchQuery.toLowerCase()));
 
     const matchesStatus = statusFilter === "all" || s.status === statusFilter;
-    const matchesAbstract = kind !== "submitters" || abstractStatuses.length === 0 || s.abstracts.some((a) => abstractStatuses.includes(a.status));
+    const matchesAbstract = kind !== "submitters" || abstractStatuses.length === 0 || (s.abstracts ?? []).some((a) => abstractStatuses.includes(a.status));
 
     return matchesSearch && matchesStatus && matchesKind(s, kind) && matchesAbstract;
   });
@@ -148,6 +165,7 @@ export default function SpeakersPage() {
   const narrowed = kind !== "all" || searchQuery.trim() !== "";
   const emailIds = emailRecipientIds(selectedIds, narrowed, filteredSpeakers);
   const kindCount = (k: SpeakerKind) => speakers.filter((s) => matchesKind(s, k)).length;
+  const tabKinds = visibleKinds(canReadAbstracts, canReadProposals, kindCount("proposers"));
 
   // Live recipient count for the bulk-email dialog's "all" mode. Mirrors the
   // SEND semantics and excludes the search box (not sent to the backend). This
@@ -179,7 +197,7 @@ export default function SpeakersPage() {
     confirmed: filteredSpeakers.filter((s) => s.status === "CONFIRMED").length,
     invited: filteredSpeakers.filter((s) => s.status === "INVITED").length,
     declined: filteredSpeakers.filter((s) => s.status === "DECLINED").length,
-    accepted: filteredSpeakers.filter((s) => s.abstracts.some((a) => a.status === "ACCEPTED")).length,
+    accepted: filteredSpeakers.filter((s) => (s.abstracts ?? []).some((a) => a.status === "ACCEPTED")).length,
   };
 
   // Selection helpers
@@ -307,17 +325,19 @@ export default function SpeakersPage() {
         </div>
       )}
 
-      {/* Invited speakers and abstract submitters, apart (owner, Oct 27) */}
-      <Tabs value={kind} onValueChange={(v) => { setKind(v as SpeakerKind); setAbstractStatuses([]); setPage(1); setSelectedIds(new Set()); }}>
-        <TabsList className="max-w-full justify-start overflow-x-auto">
-          {/* The Session proposers tab only on an event that has proposers (owner, Oct 27). */}
-          {(["all", "invited", "submitters", "proposers"] as const).filter((k) => k !== "proposers" || kindCount(k) > 0).map((k) => (
-            <TabsTrigger key={k} value={k}>
-              {KIND_LABEL[k]} <span className="ml-1.5 tabular-nums text-muted-foreground">{kindCount(k)}</span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      {/* Invited speakers and abstract submitters, apart (owner, Oct 27). The Session proposers tab only on an
+          event that has proposers; no tab bar at all for a caller who can tell no group apart. */}
+      {tabKinds.length > 1 && (
+        <Tabs value={kind} onValueChange={(v) => { setKind(v as SpeakerKind); setAbstractStatuses([]); setPage(1); setSelectedIds(new Set()); }}>
+          <TabsList className="max-w-full justify-start overflow-x-auto">
+            {tabKinds.map((k) => (
+              <TabsTrigger key={k} value={k}>
+                {KIND_LABEL[k]} <span className="ml-1.5 tabular-nums text-muted-foreground">{kindCount(k)}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
 
       {/* Stats */}
       <Card className="gap-0 py-0">
@@ -327,7 +347,7 @@ export default function SpeakersPage() {
             <StatTile compact label="Confirmed" value={stats.confirmed} valueClassName="text-green-600" />
             <StatTile compact label="Awaiting reply" value={stats.invited} valueClassName="text-yellow-600" />
             <StatTile compact label="Declined" value={stats.declined} valueClassName="text-red-600" />
-            {(kind === "all" || kind === "submitters") && <StatTile compact label="Abstract accepted" value={stats.accepted} valueClassName="text-blue-600" />}
+            {canReadAbstracts && (kind === "all" || kind === "submitters") && <StatTile compact label="Abstract accepted" value={stats.accepted} valueClassName="text-blue-600" />}
           </StatsRow>
         </CardContent>
       </Card>
@@ -421,7 +441,7 @@ export default function SpeakersPage() {
                   <TableHead>Role</TableHead>
                   <TableHead>Tags</TableHead>
                   <TableHead>Sessions</TableHead>
-                  <TableHead>Abstracts</TableHead>
+                  {canReadAbstracts && <TableHead>Abstracts</TableHead>}
                   <TableHead>Agreement</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
@@ -489,9 +509,10 @@ export default function SpeakersPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-center">{speaker._count.sessions}</TableCell>
+                    {canReadAbstracts && (
                     <TableCell className="text-center">
-                      <div>{speaker._count.abstracts}</div>
-                      {speaker.abstracts.length > 0 && (
+                      <div>{speaker._count.abstracts ?? 0}</div>
+                      {speaker.abstracts && speaker.abstracts.length > 0 && (
                         <div className="mt-1 flex flex-wrap justify-center gap-1">
                           {[...new Set(speaker.abstracts.map((a) => a.status))].map((st) => (
                             <Badge key={st} variant="outline" className={`text-[10px] ${abstractStatusColor(st)}`}>
@@ -501,6 +522,7 @@ export default function SpeakersPage() {
                         </div>
                       )}
                     </TableCell>
+                    )}
                     <TableCell>
                       {speaker.agreementAcceptedAt ? (
                         <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">

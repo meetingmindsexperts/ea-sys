@@ -270,3 +270,49 @@ describe("GET /api/events/[eventId]/speakers strips the honorarium outside the r
     expect(body[0].honorariumAmount).toBe("1500.00");
   });
 });
+
+describe("GET /api/events/[eventId]/speakers shows abstracts and proposals only with their own keys (owner, Oct 27)", () => {
+  const ROW = {
+    id: "s1",
+    firstName: "Jane",
+    abstracts: [{ id: "a1", title: "Secret title", status: "SUBMITTED" }],
+    sessionProposals: [{ status: "SUBMITTED" }],
+    _count: { sessions: 0, abstracts: 1 },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetOrgContext.mockResolvedValue(null);
+    mockDb.event.findFirst.mockResolvedValue({ id: "e1", organizationId: "org1", eventType: "CONFERENCE", staffAssignments: [] });
+    mockDb.speaker.findMany.mockResolvedValue([ROW]);
+  });
+
+  const call = async (keys: string[]) => {
+    mockAuth.mockResolvedValue({ user: { id: "u2", role: "BASE", organizationId: "org1", procurementPermissions: keys } });
+    const { GET } = await import("@/app/api/events/[eventId]/speakers/route");
+    const res = await GET(new Request("http://x/api/events/e1/speakers"), { params: Promise.resolve({ eventId: "e1" }) });
+    return (await res.json()) as Record<string, unknown>[];
+  };
+
+  it("a role with speakers.read alone gets the roster without either", async () => {
+    const body = await call(["speakers.read@ALL"]);
+    expect(body[0].firstName).toBe("Jane");
+    expect(body[0]).not.toHaveProperty("abstracts");
+    expect(body[0]).not.toHaveProperty("sessionProposals");
+    expect(body[0]._count).toEqual({ sessions: 0 });
+  });
+
+  it("each key given shows its own list", async () => {
+    const body = await call(["speakers.read@ALL", "abstracts.read@ALL", "proposals.read@ALL"]);
+    expect(body[0].abstracts).toHaveLength(1);
+    expect(body[0].sessionProposals).toHaveLength(1);
+  });
+
+  it("an organiser keeps both", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u2", role: "ORGANIZER", organizationId: "org1" } });
+    const { GET } = await import("@/app/api/events/[eventId]/speakers/route");
+    const body = (await (await GET(new Request("http://x/api/events/e1/speakers"), { params: Promise.resolve({ eventId: "e1" }) })).json()) as Record<string, unknown>[];
+    expect(body[0].abstracts).toHaveLength(1);
+    expect(body[0].sessionProposals).toHaveLength(1);
+  });
+});
