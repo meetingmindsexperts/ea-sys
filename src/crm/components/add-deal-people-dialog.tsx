@@ -66,6 +66,11 @@ function listMessage(args: {
   return null;
 }
 
+function addLabel(count: number, saving: boolean): string {
+  if (saving) return "Adding…";
+  return count <= 1 ? "Add person" : `Add ${count} people`;
+}
+
 export function AddDealPeopleDialog({
   open,
   onOpenChange,
@@ -132,12 +137,21 @@ export function AddDealPeopleDialog({
   async function addPicked() {
     setSaving(true);
     let added = 0;
+    // Someone else may have put a ticked person on the deal meanwhile: adding
+    // them again would overwrite their role (the add is an upsert).
+    const toAdd = [...picked].filter((id) => !excludeIds.has(id));
     try {
       // One at a time: the add endpoint takes one person, and a failure (shown by
-      // the hook's toast) stops the run instead of half-reporting success.
-      for (const crmContactId of picked) {
+      // the hook's toast) stops the run instead of half-reporting success. Each
+      // person leaves the selection once added, so a retry never re-adds them.
+      for (const crmContactId of toAdd) {
         await add.mutateAsync({ crmContactId, role });
         added++;
+        setPicked((prev) => {
+          const next = new Set(prev);
+          next.delete(crmContactId);
+          return next;
+        });
       }
       toast.success(added === 1 ? "Added 1 person to the deal" : `Added ${added} people to the deal`);
       close(false);
@@ -202,14 +216,23 @@ export function AddDealPeopleDialog({
             </ul>
           )}
 
+          {picked.size > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {picked.size} selected ·{" "}
+              <button type="button" className="text-primary hover:underline" onClick={() => setPicked(new Set())}>
+                Clear
+              </button>
+            </p>
+          )}
+
           <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <Button type="button" variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
               <UserPlus className="mr-2 h-3.5 w-3.5" />
               New contact
             </Button>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <Select value={role} onValueChange={(v) => setRole(v as CrmDealContactRole)}>
-                <SelectTrigger className="w-[11rem]" aria-label="Role on the deal">
+                <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Role on the deal">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -221,7 +244,7 @@ export function AddDealPeopleDialog({
                 </SelectContent>
               </Select>
               <Button type="button" disabled={picked.size === 0 || saving} onClick={addPicked}>
-                {picked.size <= 1 ? "Add person" : `Add ${picked.size} people`}
+                {addLabel(picked.size, saving)}
               </Button>
             </div>
           </DialogFooter>
@@ -229,21 +252,14 @@ export function AddDealPeopleDialog({
       </Dialog>
 
       {/* A NEW contact: pre-linked to the deal's account and put on the deal with
-          the chosen role. An existing email find-or-creates, then still links. */}
+          the chosen role. An existing email find-or-creates, then still links.
+          The dialog stays open with its ticks, so nobody already ticked is lost. */}
       <CreateCrmContactDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
         defaultCompanyId={account?.id}
         onCreated={(contact) =>
-          add.mutate(
-            { crmContactId: contact.id, role },
-            {
-              onSuccess: () => {
-                toast.success("Added to the deal");
-                close(false);
-              },
-            },
-          )
+          add.mutate({ crmContactId: contact.id, role }, { onSuccess: () => toast.success("Added to the deal") })
         }
       />
     </>
