@@ -602,8 +602,49 @@ export function useCrmInboxThread(threadId: string | null) {
   });
 }
 
-// (Inbox is read-only — sending is centralized on the deal's Email action, so
-// there is no reply-from-inbox hook. See src/crm/components/crm-inbox.tsx.)
+export interface CrmInboxFilters {
+  folder: "inbox" | "sent" | "archived";
+  unread?: boolean;
+  mine?: boolean;
+  dealId?: string;
+  q?: string;
+}
+
+/** The inbox page's list: one folder, filtered and searched, 50 at a time. */
+export function useCrmInbox(filters: CrmInboxFilters) {
+  return useInfiniteQuery({
+    queryKey: [...crmKeys.inboxPrefix, "list", filters] as const,
+    queryFn: ({ pageParam }) => {
+      const qs = new URLSearchParams({ folder: filters.folder });
+      if (filters.unread) qs.set("unread", "1");
+      if (filters.mine) qs.set("mine", "1");
+      if (filters.dealId) qs.set("dealId", filters.dealId);
+      if (filters.q?.trim()) qs.set("q", filters.q.trim());
+      if (pageParam) qs.set("cursor", pageParam);
+      return apiFetch<{ threads: CrmInboxThreadRow[]; unreadCount: number; nextCursor: string | null }>(
+        `/api/crm/inbox?${qs}`,
+      );
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    placeholderData: keepPreviousData,
+    refetchInterval: 30_000,
+  });
+}
+
+/** Archive / unarchive, mark unread / read. Shared for the whole team. */
+export function useUpdateInboxThread() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ threadId, ...body }: { threadId: string; archived?: boolean; unread?: boolean }) =>
+      apiPatchJson<{ ok: true }>(`/api/crm/inbox/${threadId}`, body),
+    onSuccess: (_d, vars) => {
+      void qc.invalidateQueries({ queryKey: crmKeys.inboxPrefix });
+      void qc.invalidateQueries({ queryKey: crmKeys.inboxThread(vars.threadId) });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the conversation"),
+  });
+}
 
 // ── Notes ────────────────────────────────────────────────────────────────────
 

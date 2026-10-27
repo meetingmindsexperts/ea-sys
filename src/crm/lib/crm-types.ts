@@ -256,6 +256,7 @@ export interface CrmInboxThreadRow {
   hasUnread: boolean;
   lastMessageAt: string;
   lastInboundAt?: string | null;
+  archivedAt?: string | null;
   createdAt: string;
   deal?: { id: string; name: string } | null;
   crmContact?: { id: string; firstName: string; lastName: string } | null;

@@ -470,7 +470,8 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
       });
       await tx.crmEmailThread.update({
         where: { id: thread.id, organizationId: thread.organizationId },
-        data: { hasUnread: true, lastMessageAt: now, lastInboundAt: now, expiresAt: rolledExpiry },
+        // A new reply brings an archived conversation back to the Inbox.
+        data: { hasUnread: true, lastMessageAt: now, lastInboundAt: now, expiresAt: rolledExpiry, archivedAt: null },
       });
     });
   } catch (err) {

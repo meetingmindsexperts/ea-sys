@@ -62,7 +62,7 @@ import { GET as h48 } from "@/app/api/crm/events-lite/route";
 import { POST as h49 } from "@/app/api/crm/import/companies/route";
 import { POST as h50 } from "@/app/api/crm/import/contacts/route";
 import { POST as h51 } from "@/app/api/crm/import/deals/route";
-import { GET as h52 } from "@/app/api/crm/inbox/[threadId]/route";
+import { GET as h52, PATCH as h52p } from "@/app/api/crm/inbox/[threadId]/route";
 import { GET as h53 } from "@/app/api/crm/inbox/messages/[messageId]/attachments/[index]/route";
 import { GET as h54 } from "@/app/api/crm/inbox/route";
 import { PATCH as h55, DELETE as h56 } from "@/app/api/crm/notes/[noteId]/route";
@@ -136,6 +136,7 @@ const CASES: HandlerCase[] = [
   { name: "POST crm/import/contacts", handler: h50, method: "POST", body: {}, ...org },
   { name: "POST crm/import/deals", handler: h51, method: "POST", body: {}, ...org },
   { name: "GET crm/inbox/[threadId]", handler: h52, method: "GET", params: {"threadId": "thread1"}, ...org },
+  { name: "PATCH crm/inbox/[threadId]", handler: h52p, method: "PATCH", params: {"threadId": "thread1"}, body: {}, ...org },
   { name: "GET crm/inbox/messages/[messageId]/attachments/[index]", handler: h53, method: "GET", params: {"messageId": "message1", "index": "index1"}, ...org },
   { name: "GET crm/inbox", handler: h54, method: "GET", ...org },
   { name: "PATCH crm/notes/[noteId]", handler: h55, method: "PATCH", params: {"noteId": "note1"}, body: {}, ...org },

@@ -454,6 +454,11 @@ model CrmEmailThread {
   lastInboundAt DateTime?
   createdAt     DateTime  @default(now())
 
+  /// Archived from the inbox (Oct 27, 2026): hidden from the Inbox folder, kept
+  /// under Sent and Archived. A new reply clears it, so the conversation comes
+  /// back to the Inbox, as in Gmail. Shared, like hasUnread.
+  archivedAt DateTime?
+
   /// Token lifecycle (review M1): the reply token is a durable credential in
   /// every outbound Reply-To, so it must not be an eternal injection channel.
   /// `expiresAt` rolls forward on every message (mint/send/inbound) — a leaked

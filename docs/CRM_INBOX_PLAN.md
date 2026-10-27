@@ -25,9 +25,12 @@ Workspace or Microsoft 365 (Option B) is out of scope.
 
 ### Phase 1: mailbox layout (about 1 day)
 
-- **Folders** on the left: Inbox (threads with a reply), Sent (everything we
-  sent), All. Counts beside Inbox (unread) and Sent.
-- **Filters**: Unread only, Mine (deals I own), a deal picker.
+- **Folders**: Inbox (a sponsor replied, not archived), Sent (every
+  conversation we started), Archived. The unread count sits on Inbox. (BUILT
+  Oct 27, 2026. "All" became Archived: every thread starts with our email, so
+  All would have repeated Sent.)
+- **Filters**: Unread only, Mine (deals I own), and a deal filter set by
+  clicking a conversation's deal chip (search already matches deal names).
 - **Search** over subject, counterparty name and email, and deal name.
 - **Load more** instead of the hard cap of 100.
 - **Mark as unread** and **Archive** (hide from Inbox, still in All). Archive

@@ -4,8 +4,8 @@
  * Pins: the staff-only boundary (MEMBER passes the generic CRM read gate but
  * must NEVER read sponsor negotiation threads — 403 on every inbox surface,
  * using the REAL canViewCrmInbox predicate), org-bound lookups, and the
- * shared-inbox unread-clear on open. The inbox is READ-ONLY — sending is
- * centralized on the deal's Email action, so there is no reply-from-inbox route.
+ * shared-inbox unread-clear on open. Since Oct 27, 2026: folders, filters and
+ * paging on the list, and archive / mark unread (PATCH) on a thread.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -42,7 +42,7 @@ vi.mock("@/crm/lib/crm-route", async () => ({
 
 import { db } from "@/lib/db";
 import { GET as listThreads } from "@/app/api/crm/inbox/route";
-import { GET as getThread } from "@/app/api/crm/inbox/[threadId]/route";
+import { GET as getThread, PATCH as patchThread } from "@/app/api/crm/inbox/[threadId]/route";
 import { GET as getAttachment } from "@/app/api/crm/inbox/messages/[messageId]/attachments/[index]/route";
 
 const threadDetail = {
@@ -112,6 +112,73 @@ describe("thread detail", () => {
   it("an already-read thread costs no write", async () => {
     vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({ ...threadDetail, hasUnread: false } as never);
     await getThread(new Request("http://test"), { params: threadParams });
+    expect(db.crmEmailThread.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+// ── folders, filters, paging (Oct 27, 2026) ───────────────────────────────────
+
+function patch(body: unknown) {
+  return patchThread(
+    new Request("http://test", { method: "PATCH", body: JSON.stringify(body) }),
+    { params: threadParams },
+  );
+}
+
+describe("thread list: folders and paging", () => {
+  it("defaults to the Inbox folder: replied and not archived", async () => {
+    await listThreads(new Request("http://test/api/crm/inbox"));
+    const where = vi.mocked(db.crmEmailThread.findMany).mock.calls[0]![0]!.where as { AND: unknown[] };
+    expect(where.AND).toContainEqual({ lastInboundAt: { not: null }, archivedAt: null });
+  });
+
+  it("refuses an unknown folder with a 400, not the whole mailbox", async () => {
+    const res = await listThreads(new Request("http://test/api/crm/inbox?folder=everything"));
+    expect(res.status).toBe(400);
+    expect(db.crmEmailThread.findMany).not.toHaveBeenCalled();
+  });
+
+  it("returns a cursor when there is another page, and pages from it", async () => {
+    const rows = Array.from({ length: 51 }, (_, i) => ({ id: `t-${i}` }));
+    vi.mocked(db.crmEmailThread.findMany).mockResolvedValue(rows as never);
+    const body = await (await listThreads(new Request("http://test/api/crm/inbox?folder=sent"))).json();
+    expect(body.threads).toHaveLength(50);
+    expect(body.nextCursor).toBe("t-49");
+
+    await listThreads(new Request("http://test/api/crm/inbox?folder=sent&cursor=t-49"));
+    expect(vi.mocked(db.crmEmailThread.findMany).mock.calls[1]![0]).toMatchObject({ cursor: { id: "t-49" }, skip: 1 });
+  });
+});
+
+describe("PATCH thread: archive and mark unread", () => {
+  it("archives, org-bound", async () => {
+    expect((await patch({ archived: true })).status).toBe(200);
+    expect(db.crmEmailThread.updateMany).toHaveBeenCalledWith({
+      where: { id: "t-1", organizationId: "org-1" },
+      data: { archivedAt: expect.any(Date) },
+    });
+  });
+
+  it("moves back to the Inbox and marks unread", async () => {
+    await patch({ archived: false, unread: true });
+    expect(db.crmEmailThread.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { archivedAt: null, hasUnread: true } }),
+    );
+  });
+
+  it("404s a thread outside the organisation", async () => {
+    vi.mocked(db.crmEmailThread.updateMany).mockResolvedValue({ count: 0 } as never);
+    expect((await patch({ archived: true })).status).toBe(404);
+  });
+
+  it("400s an empty change", async () => {
+    expect((await patch({})).status).toBe(400);
+    expect(db.crmEmailThread.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("MEMBER is refused", async () => {
+    gate.role = "MEMBER";
+    expect((await patch({ archived: true })).status).toBe(403);
     expect(db.crmEmailThread.updateMany).not.toHaveBeenCalled();
   });
 });

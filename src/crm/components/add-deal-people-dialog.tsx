@@ -11,7 +11,7 @@
  * is capped, so with thousands of contacts most people could not be picked
  * from a list of everyone.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Search, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
 import { useAddDealContact, useCrmContacts } from "@/crm/hooks/use-crm-api";
+import { useSettled } from "@/hooks/use-settled";
 import { DEAL_CONTACT_ROLE_LABELS, type CrmContactRow, type CrmDealContactRole } from "@/crm/lib/crm-types";
 
 const MIN_SEARCH = 2;
@@ -29,16 +30,6 @@ const MAX_SEARCH_RESULTS = 50;
 const SEARCH_DEBOUNCE_MS = 250;
 
 type Tab = "account" | "all";
-
-/** The typed search, settled for SEARCH_DEBOUNCE_MS so each keystroke is not a request. */
-function useSettled(value: string): string {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setSettled(value), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(t);
-  }, [value]);
-  return settled;
-}
 
 /** Every typed word must appear in the name, job title or email (the server search's rule). */
 function matchesWords(c: CrmContactRow, q: string): boolean {
@@ -91,7 +82,7 @@ export function AddDealPeopleDialog({
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const add = useAddDealContact(dealId);
-  const q = useSettled(search.trim());
+  const q = useSettled(search.trim(), SEARCH_DEBOUNCE_MS);
 
   const onAccountTab = tab === "account" && !!account;
   const accountPeople = useCrmContacts({ companyId: account?.id }, { enabled: open && onAccountTab });
