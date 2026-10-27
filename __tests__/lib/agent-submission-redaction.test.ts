@@ -12,18 +12,7 @@ const HIDDEN = { abstracts: false, proposals: false };
 const SHOWN = { abstracts: true, proposals: true };
 
 describe("agent tools: abstracts inside an events.read answer (owner, Oct 27)", () => {
-  const search = JSON.stringify({
-    query: "jane",
-    results: { registrations: [{ id: "r1" }], speakers: [], abstracts: [{ id: "a1", label: "Secret title", status: "ACCEPTED" }], contacts: [] },
-    totalFound: 2,
-  });
-
-  it("search_event loses its abstracts and their share of the total", () => {
-    const out = JSON.parse(redactSubmissionsInToolText("search_event", search, HIDDEN));
-    expect(out.results).not.toHaveProperty("abstracts");
-    expect(out.results.registrations).toHaveLength(1);
-    expect(out.totalFound).toBe(1);
-  });
+  const stats = JSON.stringify({ speakers: { CONFIRMED: 2 }, abstracts: { ACCEPTED: 4 } });
 
   it("get_event_stats loses its abstract counts", () => {
     const out = JSON.parse(redactSubmissionsInToolText("get_event_stats", JSON.stringify({ speakers: { CONFIRMED: 2 }, abstracts: { ACCEPTED: 4 } }), HIDDEN));
@@ -31,7 +20,9 @@ describe("agent tools: abstracts inside an events.read answer (owner, Oct 27)", 
   });
 
   it("keeps everything for a caller with abstracts.read, and leaves other tools alone", () => {
-    expect(redactSubmissionsInToolText("search_event", search, SHOWN)).toBe(search);
+    expect(redactSubmissionsInToolText("get_event_stats", stats, SHOWN)).toBe(stats);
+    // search_event is refused by the gate without abstracts.read, so it has no redaction of its own.
+    expect(toolCarriesSubmissions("search_event")).toBe(false);
     expect(toolCarriesSubmissions("list_registrations")).toBe(false);
     expect(redactSubmissionsInToolText("list_registrations", '{"abstracts":1}', HIDDEN)).toBe('{"abstracts":1}');
   });
@@ -57,6 +48,11 @@ describe("submissionEmailVisible", () => {
     expect(submissionEmailVisible("abstract-status-update", { abstracts: false, proposals: true })).toBe(false);
     expect(submissionEmailVisible("presenter-agreement", { abstracts: false, proposals: true })).toBe(false);
     expect(submissionEmailVisible("session-proposal-confirmation", { abstracts: true, proposals: false })).toBe(false);
+    expect(submissionEmailVisible("bulk-abstract-decision", { abstracts: false, proposals: true })).toBe(false);
+    expect(submissionEmailVisible("bulk-abstracts-custom", { abstracts: false, proposals: true })).toBe(false);
+    expect(submissionEmailVisible("travel-grant-invitation", { abstracts: false, proposals: true })).toBe(false);
+    expect(submissionEmailVisible("submitter-welcome", { abstracts: true, proposals: false })).toBe(true);
+    expect(submissionEmailVisible("bulk-custom", HIDDEN)).toBe(true);
     expect(submissionEmailVisible("speaker-invitation", HIDDEN)).toBe(true);
     expect(submissionEmailVisible(null, HIDDEN)).toBe(true);
   });

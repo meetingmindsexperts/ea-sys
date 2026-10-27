@@ -2,20 +2,14 @@ import { can, type EventFacts, type Principal } from "@/lib/permissions/can";
 import { NO_SUBMISSIONS, type SubmissionVisibility } from "@/lib/speaker-submission-visibility";
 
 /**
- * The tools that answer on `events.read` but carry abstracts inside: an
- * event search returns titles, statuses and authors, the stats a count per
- * status. Like the speakers list (owner, Oct 27, 2026), those need
- * `abstracts.read` on the event, so the abstracts part is removed for a caller
- * without it. Both doors apply it: the in-app agent and a role-bound MCP key.
+ * The tools that answer on `events.read` but carry abstracts inside: the stats
+ * hold a count per abstract status. Like the speakers list (owner, Oct 27,
+ * 2026), that needs `abstracts.read` on the event, so the abstracts part is
+ * removed for a caller without it. Both doors apply it: the in-app agent and a
+ * role-bound MCP key. (`search_event` needs no entry: the gate already asks
+ * abstracts.read for it, RESULT_DOMAIN_KEYS in field-permissions.ts.)
  */
 const ABSTRACT_PARTS: Readonly<Record<string, (value: Record<string, unknown>) => Record<string, unknown>>> = {
-  search_event: (v) => {
-    const results = v.results as Record<string, unknown[]> | undefined;
-    if (!results?.abstracts) return v;
-    const { abstracts, ...rest } = results;
-    const totalFound = typeof v.totalFound === "number" ? v.totalFound - abstracts.length : v.totalFound;
-    return { ...v, results: rest, totalFound };
-  },
   get_event_stats: (v) => {
     const { abstracts: _hidden, ...rest } = v;
     void _hidden;

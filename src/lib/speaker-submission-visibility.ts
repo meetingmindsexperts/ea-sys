@@ -33,13 +33,20 @@ export function submissionVisibilityFor(
   };
 }
 
+/** Emails that tell an abstract's outcome, or that the person is an abstract author at all. */
+const ABSTRACT_EMAIL_SLUGS = new Set(["presenter-agreement", "submitter-welcome", "travel-grant-invitation"]);
+
 /**
  * The email templates that tell what a speaker submitted and how it was
- * decided: the subject alone ("Abstract Accepted!") is the decision.
+ * decided: the subject alone ("Abstract Accepted!") is the decision. Bulk
+ * sends count too: `bulk-abstract-*` (an abstract email type) and
+ * `bulk-abstracts-*` (any type sent to the abstract authors).
  */
 export function submissionEmailVisible(templateSlug: string | null | undefined, visible: SubmissionVisibility): boolean {
   if (!templateSlug) return true;
-  if (templateSlug.startsWith("abstract-") || templateSlug === "presenter-agreement") return visible.abstracts;
+  if (templateSlug.startsWith("abstract-") || templateSlug.startsWith("bulk-abstract") || ABSTRACT_EMAIL_SLUGS.has(templateSlug)) {
+    return visible.abstracts;
+  }
   if (templateSlug.startsWith("session-proposal")) return visible.proposals;
   return true;
 }

@@ -2610,7 +2610,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
               eventId,
               entityType: bulkEntityType,
               entityId: recipient.logEntityId ?? recipient.id,
-              templateSlug: `bulk-${emailType}`,
+              // A send to abstract authors says so in its slug, whatever its type, so the speaker timeline
+              // can keep it from callers without abstracts.read (owner, Oct 27).
+              templateSlug: recipientType === "abstracts" ? `bulk-abstracts-${emailType}` : `bulk-${emailType}`,
               triggeredByUserId: triggeredByUserId ?? null,
             },
           });
