@@ -47,8 +47,16 @@ import { sendEmail } from "@/lib/email";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import { collectSponsorRecipients, narrowToSelected } from "@/crm/lib/sponsor-recipients";
 import type { RawDealForRecipients } from "@/crm/lib/sponsor-recipients";
-import { resolveSponsorRecipients, sendSponsorProspectus, sendDealEmail, crmSenderFrom } from "@/crm/services/sponsor-email-service";
+import {
+  resolveSponsorRecipients,
+  sendSponsorProspectus,
+  sendDealEmail,
+  crmSenderFrom,
+  previewCrmEmail,
+} from "@/crm/services/sponsor-email-service";
+import { renderAndWrap } from "@/lib/email";
 import { CRM_EMAIL_TEMPLATES } from "@/crm/lib/crm-email-templates";
+import { CRM_EMAIL_TOKEN_KEYS } from "@/crm/lib/crm-email-tokens";
 
 // ── fixtures ────────────────────────────────────────────────────────────────────
 
@@ -143,6 +151,12 @@ describe("narrowToSelected", () => {
 const EVENT_ROW = {
   id: "ev1",
   name: "BRIDGES 2026",
+  startDate: new Date("2026-11-20T05:00:00Z"),
+  endDate: new Date("2026-11-21T12:00:00Z"),
+  timezone: "Asia/Dubai",
+  venue: "Grand Hyatt",
+  city: "Dubai",
+  country: "UAE",
   emailHeaderImage: null,
   emailFooterImage: null,
   emailFooterHtml: null,
@@ -289,6 +303,12 @@ function mockDeal(
     event: event
       ? {
           name: event.name,
+          startDate: new Date("2026-11-20T05:00:00Z"),
+          endDate: new Date("2026-11-21T12:00:00Z"),
+          timezone: "Asia/Dubai",
+          venue: "Grand Hyatt",
+          city: "Dubai",
+          country: "UAE",
           emailHeaderImage: null,
           emailFooterImage: null,
           emailFooterHtml: null,
@@ -421,13 +441,67 @@ describe("CC / BCC + copy-to-sender", () => {
   });
 });
 
+// ── preview ─────────────────────────────────────────────────────────────────────
+
+describe("previewCrmEmail", () => {
+  const PREVIEW = {
+    organizationId: "org1",
+    target: { kind: "deal" as const, id: "deal1" },
+    subject: "Join {{eventName}}",
+    message: "<p>{{firstName}}, see you at {{eventVenue}} on {{eventDates}}</p>",
+    actorUserId: "u1",
+  };
+
+  it("renders for the chosen recipient with the event's tokens, and sends nothing", async () => {
+    mockDeal([
+      contact({ id: "c1", firstName: "Ann", email: "a@a.com", emailKey: "a@a.com" }),
+      contact({ id: "c2", firstName: "Bob", email: "b@b.com", emailKey: "b@b.com" }),
+    ]);
+    vi.mocked(db.user.findUnique).mockResolvedValue({ emailSignature: "<p>Sohail</p>", email: "s@x.com" } as never);
+    const res = await previewCrmEmail({ ...PREVIEW, contactId: "c2" });
+    expect(res).toMatchObject({ ok: true, recipient: { crmContactId: "c2", email: "b@b.com" } });
+    const [, vars] = vi.mocked(renderAndWrap).mock.calls[0]!;
+    expect(vars).toMatchObject({ firstName: "Bob", eventVenue: "Grand Hyatt", signature: "<p>Sohail</p>" });
+    expect(String(vars.message)).toContain("Bob, see you at Grand Hyatt on November 20");
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(recordCrmActivity).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the first recipient for an id it did not resolve (no peeking at other contacts)", async () => {
+    mockDeal([contact({ id: "c1", firstName: "Ann", email: "a@a.com", emailKey: "a@a.com" })]);
+    vi.mocked(db.user.findUnique).mockResolvedValue({ emailSignature: null } as never);
+    const res = await previewCrmEmail({ ...PREVIEW, contactId: "stranger" });
+    expect(res).toMatchObject({ ok: true, recipient: { crmContactId: "c1" } });
+  });
+
+  it("uses a sample person when the deal has nobody to email yet", async () => {
+    mockDeal([]);
+    vi.mocked(db.user.findUnique).mockResolvedValue({ emailSignature: null } as never);
+    const res = await previewCrmEmail(PREVIEW);
+    expect(res).toMatchObject({ ok: true, recipient: null });
+    expect(vi.mocked(renderAndWrap).mock.calls[0]![1]).toMatchObject({ firstName: "Alex" });
+  });
+
+  it("previews an event-wide send with that event's tokens", async () => {
+    mockDeals([deal([contact({ id: "c1", email: "a@a.com", emailKey: "a@a.com" })])]);
+    const res = await previewCrmEmail({ ...PREVIEW, target: { kind: "event", id: "ev1" } });
+    expect(res.ok).toBe(true);
+    expect(vi.mocked(renderAndWrap).mock.calls[0]![1]).toMatchObject({ eventName: "BRIDGES 2026", eventCity: "Dubai" });
+  });
+
+  it("404s a deal outside the org", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue(null as never);
+    expect(await previewCrmEmail(PREVIEW)).toMatchObject({ ok: false, code: "DEAL_NOT_FOUND" });
+  });
+});
+
 // ── built-in templates ─────────────────────────────────────────────────────────────
 
 describe("CRM_EMAIL_TEMPLATES", () => {
   it("is a small set with subject + body and only the supported tokens", () => {
     expect(CRM_EMAIL_TEMPLATES.length).toBeGreaterThanOrEqual(2);
     expect(CRM_EMAIL_TEMPLATES.length).toBeLessThanOrEqual(3);
-    const allowed = new Set(["firstName", "lastName", "companyName", "eventName"]);
+    const allowed = new Set<string>(CRM_EMAIL_TOKEN_KEYS);
     for (const t of CRM_EMAIL_TEMPLATES) {
       expect(t.subject.trim()).not.toBe("");
       expect(t.body.trim()).not.toBe("");

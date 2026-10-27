@@ -13,7 +13,7 @@
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
-import { FileText, Loader2, Paperclip, Send, Users, X } from "lucide-react";
+import { Eye, FileText, Loader2, Paperclip, Pencil, Send, Users, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,8 @@ import {
   type CrmEmailTarget,
 } from "@/crm/hooks/use-crm-api";
 import { CRM_EMAIL_INLINE_ATTACHMENT_BUDGET } from "@/lib/body-limits";
+import { CRM_EMAIL_TOKENS } from "@/crm/lib/crm-email-tokens";
+import { CrmEmailPreviewPane } from "@/crm/components/crm-email-preview-pane";
 
 const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => m.TiptapEditor),
@@ -51,7 +53,6 @@ const MAX_FILES = 5;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB total
 /** Files sent inside the request travel as base64, a third bigger than on disk. */
 const INLINE_MB = Math.floor((CRM_EMAIL_INLINE_ATTACHMENT_BUDGET * 3) / 4 / 1_048_576);
-const TOKENS = ["{{firstName}}", "{{lastName}}", "{{companyName}}", "{{eventName}}"];
 const BLANK = "__blank__";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -135,6 +136,9 @@ export function CrmEmailDialog({
   const [copyToSender, setCopyToSender] = useState(true);
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Preview swaps the form for the rendered email; the form stays mounted
+  // (hidden) so the editor and every field keep what was typed.
+  const [previewing, setPreviewing] = useState(false);
 
   const recipients = useMemo(() => data?.recipients ?? [], [data]);
   const selectedIds = useMemo(
@@ -159,6 +163,7 @@ export function CrmEmailDialog({
     setCc("");
     setBcc("");
     setCopyToSender(true);
+    setPreviewing(false);
     onOpenChange(false);
   }
 
@@ -326,7 +331,15 @@ export function CrmEmailDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+        {previewing && target && (
+          <CrmEmailPreviewPane
+            target={target}
+            recipients={recipients.filter((r) => !deselected.has(r.crmContactId))}
+            subject={subject}
+            message={message}
+          />
+        )}
+        <div className={previewing ? "hidden" : "flex-1 space-y-4 overflow-y-auto pr-1"}>
           {/* ── Recipients ─────────────────────────────────────────────────── */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -485,10 +498,10 @@ export function CrmEmailDialog({
             />
             <p className="text-xs text-muted-foreground">
               Personalize with{" "}
-              {TOKENS.map((t, i) => (
+              {CRM_EMAIL_TOKENS.map((t, i) => (
                 <span key={t}>
                   <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{t}</code>
-                  {i < TOKENS.length - 1 ? " " : ""}
+                  {i < CRM_EMAIL_TOKENS.length - 1 ? " " : ""}
                 </span>
               ))}
               . A greeting is added automatically.
@@ -590,6 +603,10 @@ export function CrmEmailDialog({
         <DialogFooter className="border-t pt-4">
           <Button variant="outline" onClick={resetAndClose} disabled={sending}>
             Cancel
+          </Button>
+          <Button variant="outline" onClick={() => setPreviewing((p) => !p)} disabled={sending || !target}>
+            {previewing ? <Pencil className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+            {previewing ? "Edit" : "Preview"}
           </Button>
           <Button onClick={handleSend} disabled={sending || uploading || recipients.length === 0}>
             {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}

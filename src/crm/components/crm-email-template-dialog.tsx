@@ -22,13 +22,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useCreateCrmEmailTemplate, useUpdateCrmEmailTemplate } from "@/crm/hooks/use-crm-api";
 import type { CrmEmailTemplateRow } from "@/crm/lib/crm-types";
+import { CRM_EMAIL_TOKENS } from "@/crm/lib/crm-email-tokens";
 
 const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => m.TiptapEditor),
   { ssr: false, loading: () => <div className="h-40 animate-pulse rounded-md border bg-muted/30" /> },
 );
 
-const TOKENS = ["{{firstName}}", "{{lastName}}", "{{companyName}}", "{{eventName}}"];
 
 export function CrmEmailTemplateDialog({
   open,
@@ -126,10 +126,10 @@ export function CrmEmailTemplateDialog({
             />
             <p className="text-xs text-muted-foreground">
               Personalize with{" "}
-              {TOKENS.map((t, i) => (
+              {CRM_EMAIL_TOKENS.map((t, i) => (
                 <span key={t}>
                   <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{t}</code>
-                  {i < TOKENS.length - 1 ? " " : ""}
+                  {i < CRM_EMAIL_TOKENS.length - 1 ? " " : ""}
                 </span>
               ))}
               . A greeting (&ldquo;Dear {"{{firstName}}"},&rdquo;) is added automatically on send — don&apos;t repeat it here.

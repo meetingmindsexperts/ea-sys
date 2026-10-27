@@ -77,6 +77,7 @@ import { GET as h71 } from "@/app/api/crm/reports/route";
 import { GET as h72 } from "@/app/api/crm/reps/route";
 import { GET as h73 } from "@/app/api/crm/sponsor-email/recipients/route";
 import { POST as h74 } from "@/app/api/crm/sponsor-email/send/route";
+import { POST as hPreview } from "@/app/api/crm/sponsor-email/preview/route";
 import { PATCH as h75, DELETE as h76 } from "@/app/api/crm/tasks/[taskId]/route";
 import { GET as h77, POST as h78 } from "@/app/api/crm/tasks/route";
 
@@ -157,6 +158,7 @@ const CASES: HandlerCase[] = [
   { name: "GET crm/reps", handler: h72, method: "GET", ...org },
   { name: "GET crm/sponsor-email/recipients", handler: h73, method: "GET", ...org },
   { name: "POST crm/sponsor-email/send", handler: h74, method: "POST", body: {}, ...org },
+  { name: "POST crm/sponsor-email/preview", handler: hPreview, method: "POST", body: {}, ...org },
   { name: "PATCH crm/tasks/[taskId]", handler: h75, method: "PATCH", params: {"taskId": "task1"}, body: {}, ...org },
   { name: "DELETE crm/tasks/[taskId]", handler: h76, method: "DELETE", params: {"taskId": "task1"}, ...org },
   { name: "GET crm/tasks", handler: h77, method: "GET", ...org },

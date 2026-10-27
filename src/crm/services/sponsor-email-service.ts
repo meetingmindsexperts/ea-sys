@@ -34,6 +34,8 @@ import {
   type RawDealForRecipients,
 } from "@/crm/lib/sponsor-recipients";
 import type { SponsorRecipient } from "@/crm/lib/crm-types";
+import { crmSenderFromEnv } from "@/crm/lib/crm-sender";
+import { CRM_EMAIL_TOKEN_RE, crmEventVars, type CrmEventVars } from "@/crm/lib/crm-email-tokens";
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB total, mirrors the dashboard dialog
 const MAX_ATTACHMENTS = 5;
@@ -46,12 +48,11 @@ const TEXT_TEMPLATE =
   "Dear {{firstName}},\n\nPlease find our message below / attached.\n";
 const RAW_KEYS = new Set(["message", "signature"]);
 
-// Only these tokens are substituted inside the sender-authored body/subject. Values
-// are HTML-escaped so a contact's name containing "<" can't inject markup.
-const BODY_TOKEN_RE = /\{\{\s*(firstName|lastName|companyName|eventName)\s*\}\}/g;
-
+// Only the CRM tokens (crm-email-tokens.ts) are substituted inside the sender-
+// authored body. Values are HTML-escaped so a contact's name containing "<" can't
+// inject markup.
 function substituteBodyTokens(html: string, vars: Record<string, string>): string {
-  return html.replace(BODY_TOKEN_RE, (_, k: string) => escapeHtml(vars[k] ?? ""));
+  return html.replace(CRM_EMAIL_TOKEN_RE, (_, k: string) => escapeHtml(vars[k] ?? ""));
 }
 
 export interface SponsorAttachment {
@@ -65,6 +66,12 @@ type ServiceFail = { ok: false; code: string; message: string };
 
 interface EventBrandingRow {
   name: string;
+  startDate: Date;
+  endDate: Date;
+  timezone: string | null;
+  venue: string | null;
+  city: string | null;
+  country: string | null;
   emailHeaderImage: string | null;
   emailFooterImage: string | null;
   emailFooterHtml: string | null;
@@ -99,9 +106,7 @@ function brandingFromEventRow(e: EventBrandingRow): EmailBranding {
  * address so replies still thread.
  */
 export function crmSenderFrom(branding?: EmailBranding): ReturnType<typeof brandingFrom> {
-  const addr = process.env.CRM_EMAIL_FROM_ADDRESS?.trim();
-  if (addr) return { email: addr, name: process.env.CRM_EMAIL_FROM_NAME?.trim() || undefined };
-  return brandingFrom(branding ?? { emailCcAddresses: [] });
+  return crmSenderFromEnv() ?? brandingFrom(branding ?? { emailCcAddresses: [] });
 }
 
 const CONTACT_ON_DEAL_SELECT = {
@@ -116,6 +121,16 @@ const CONTACT_ON_DEAL_SELECT = {
       company: { select: { name: true } },
     },
   },
+} as const;
+
+/** The event columns the {{event…}} tokens read. */
+const EVENT_TOKEN_SELECT = {
+  startDate: true,
+  endDate: true,
+  timezone: true,
+  venue: true,
+  city: true,
+  country: true,
 } as const;
 
 // ── Resolve: event ──────────────────────────────────────────────────────────────
@@ -151,6 +166,7 @@ export async function resolveSponsorRecipients(args: {
       emailFromAddress: true,
       emailFromName: true,
       emailCcAddresses: true,
+      ...EVENT_TOKEN_SELECT,
     },
   });
   if (!event) {
@@ -194,7 +210,7 @@ export async function resolveDealRecipients(args: {
       ok: true;
       target: { id: string; name: string };
       branding: EmailBranding;
-      eventName: string;
+      eventVars: CrmEventVars;
       recipients: SponsorRecipient[];
       skipped: { noEmail: number; archivedContacts: number };
     }
@@ -216,6 +232,7 @@ export async function resolveDealRecipients(args: {
           emailFromAddress: true,
           emailFromName: true,
           emailCcAddresses: true,
+          ...EVENT_TOKEN_SELECT,
         },
       },
     },
@@ -239,7 +256,7 @@ export async function resolveDealRecipients(args: {
     ok: true,
     target: { id: deal.id, name: deal.name },
     branding,
-    eventName: deal.event?.name ?? "",
+    eventVars: crmEventVars(deal.event),
     recipients,
     skipped,
   };
@@ -327,12 +344,26 @@ function toAddressList(...groups: (string[] | undefined)[]): { email: string }[]
   return out;
 }
 
+/**
+ * The sender's own signature (same feature as the event bulk-email organizer
+ * signature), appended raw beneath the body, and their address for the "copy to
+ * me" BCC. One query.
+ */
+async function loadSender(actorUserId: string | null): Promise<{ signatureHtml: string; senderEmail: string | null }> {
+  if (!actorUserId) return { signatureHtml: "", senderEmail: null };
+  const sender = await db.user.findUnique({
+    where: { id: actorUserId },
+    select: { emailSignature: true, email: true },
+  });
+  return { signatureHtml: sender?.emailSignature ?? "", senderEmail: sender?.email ?? null };
+}
+
 interface DispatchArgs {
   organizationId: string;
   recipients: SponsorRecipient[];
   contactIds?: string[];
   branding: EmailBranding;
-  eventName: string;
+  eventVars: CrmEventVars;
   subject: string;
   message: string;
   attachments: SponsorAttachment[];
@@ -380,19 +411,7 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
     return { ok: false, code: "NO_RECIPIENTS", message: "No contacts to email" };
   }
 
-  // The sender's own signature (same feature as the event bulk-email organizer
-  // signature). Appended raw beneath the body. We fetch the sender's email in
-  // the same query for the "copy to me" BCC below.
-  let signatureHtml = "";
-  let senderEmail: string | null = null;
-  if (args.actorUserId) {
-    const sender = await db.user.findUnique({
-      where: { id: args.actorUserId },
-      select: { emailSignature: true, email: true },
-    });
-    signatureHtml = sender?.emailSignature ?? "";
-    senderEmail = sender?.email ?? null;
-  }
+  const { signatureHtml, senderEmail } = await loadSender(args.actorUserId);
 
   const from = crmSenderFrom(args.branding);
   // CC = event-branding CC + any manual CC. BCC = manual BCC + (when copyToSender
@@ -423,7 +442,7 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
           subject: args.subject,
           message: args.message,
           signatureHtml,
-          eventName: args.eventName,
+          eventVars: args.eventVars,
           branding: args.branding,
           from,
           cc,
@@ -474,15 +493,43 @@ function sendFailureMessage(outcome: PromiseSettledResult<{ ok: true } | { ok: f
   return outcome.value.ok ? "send failed" : outcome.value.error;
 }
 
+interface RenderInput {
+  subject: string;
+  message: string;
+  signatureHtml: string;
+  eventVars: CrmEventVars;
+  branding: EmailBranding;
+}
+
+/**
+ * The email one recipient receives. The send AND the compose preview call this,
+ * so the preview cannot drift from what goes out.
+ */
+function renderForRecipient(
+  r: Pick<SponsorRecipient, "firstName" | "lastName" | "companyName">,
+  ctx: RenderInput,
+): ReturnType<typeof renderAndWrap> {
+  const tokenVars = {
+    firstName: r.firstName,
+    lastName: r.lastName,
+    companyName: r.companyName ?? "",
+    ...ctx.eventVars,
+  };
+  // Personalize the sender's body first (tokens escaped), THEN insert it raw — so a
+  // {{firstName}} typed into the body resolves, but the body's own markup survives.
+  const personalizedMessage = substituteBodyTokens(ctx.message, tokenVars);
+  return renderAndWrap(
+    { subject: ctx.subject, htmlContent: BODY_TEMPLATE, textContent: TEXT_TEMPLATE },
+    { ...tokenVars, message: personalizedMessage, signature: ctx.signatureHtml },
+    ctx.branding,
+    RAW_KEYS,
+  );
+}
+
 /** Render + send to one recipient; records CRM history on the contact on success. */
 async function sendOne(
   r: SponsorRecipient,
-  ctx: {
-    subject: string;
-    message: string;
-    signatureHtml: string;
-    eventName: string;
-    branding: EmailBranding;
+  ctx: RenderInput & {
     from: ReturnType<typeof brandingFrom>;
     cc: { email: string }[];
     bcc: { email: string }[];
@@ -493,22 +540,7 @@ async function sendOne(
     threadDealId: string | null;
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const tokenVars = {
-    firstName: r.firstName,
-    lastName: r.lastName,
-    companyName: r.companyName ?? "",
-    eventName: ctx.eventName,
-  };
-  // Personalize the sender's body first (tokens escaped), THEN insert it raw — so a
-  // {{firstName}} typed into the body resolves, but the body's own markup survives.
-  const personalizedMessage = substituteBodyTokens(ctx.message, tokenVars);
-
-  const rendered = renderAndWrap(
-    { subject: ctx.subject, htmlContent: BODY_TEMPLATE, textContent: TEXT_TEMPLATE },
-    { ...tokenVars, message: personalizedMessage, signature: ctx.signatureHtml },
-    ctx.branding,
-    RAW_KEYS,
-  );
+  const rendered = renderForRecipient(r, ctx);
 
   // Inbox threading: every recipient gets their own thread + reply token. While
   // CRM_REPLY_DOMAIN is unset the address is null (no Reply-To — behavior
@@ -570,7 +602,7 @@ async function sendOne(
     actorId: ctx.actorUserId,
     changes: {
       subject: ctx.subject,
-      ...(ctx.eventName ? { event: ctx.eventName } : {}),
+      ...(ctx.eventVars.eventName ? { event: ctx.eventVars.eventName } : {}),
       attachments: ctx.sendAttachments.map((a) => a.name),
     },
   });
@@ -609,7 +641,7 @@ export async function sendSponsorProspectus(args: {
     recipients: resolved.recipients,
     contactIds: args.contactIds,
     branding: brandingFromEventRow(resolved.event),
-    eventName: resolved.event.name,
+    eventVars: crmEventVars(resolved.event),
     subject: valid.subject,
     message: valid.message,
     attachments,
@@ -655,7 +687,7 @@ export async function sendDealEmail(args: {
     recipients: resolved.recipients,
     contactIds: args.contactIds,
     branding: resolved.branding,
-    eventName: resolved.eventName,
+    eventVars: resolved.eventVars,
     subject: valid.subject,
     message: valid.message,
     attachments,
@@ -681,10 +713,73 @@ export async function sendDealEmail(args: {
       changes: {
         subject: valid.subject,
         recipients: result.successCount,
-        ...(resolved.eventName ? { event: resolved.eventName } : {}),
+        ...(resolved.eventVars.eventName ? { event: resolved.eventVars.eventName } : {}),
       },
     });
   }
 
   return result;
+}
+
+// ── Preview ───────────────────────────────────────────────────────────────────────
+
+/** Stands in when the target has nobody to email yet, so the layout still previews. */
+const SAMPLE_RECIPIENT = { firstName: "Alex", lastName: "Sample", companyName: "Sample Company" };
+
+export interface CrmEmailPreview {
+  ok: true;
+  subject: string;
+  html: string;
+  /** Who the preview is personalized for; null when it used the sample person. */
+  recipient: { crmContactId: string; name: string; email: string } | null;
+}
+
+/**
+ * The email exactly as one recipient would receive it: the same resolve, the same
+ * sender signature and the same render as the send, with nothing sent or
+ * recorded. `contactId` picks the person; unknown or absent → the first
+ * recipient (narrow-never-widen applies here too: only a resolved recipient can
+ * be previewed, so the preview cannot be used to read another contact's name).
+ */
+export async function previewCrmEmail(args: {
+  organizationId: string;
+  target: { kind: "deal" | "event"; id: string };
+  contactId?: string;
+  subject: string;
+  message: string;
+  actorUserId: string | null;
+}): Promise<CrmEmailPreview | ServiceFail> {
+  const resolved =
+    args.target.kind === "deal"
+      ? await resolveDealRecipients({ organizationId: args.organizationId, dealId: args.target.id })
+      : await resolveSponsorRecipients({ organizationId: args.organizationId, eventId: args.target.id });
+  if (!resolved.ok) return resolved;
+
+  const { branding, eventVars } =
+    "event" in resolved
+      ? { branding: brandingFromEventRow(resolved.event), eventVars: crmEventVars(resolved.event) }
+      : resolved;
+  const recipient =
+    resolved.recipients.find((r) => r.crmContactId === args.contactId) ?? resolved.recipients[0] ?? null;
+  const { signatureHtml } = await loadSender(args.actorUserId);
+
+  const rendered = renderForRecipient(recipient ?? SAMPLE_RECIPIENT, {
+    subject: args.subject.trim() || "(no subject)",
+    message: args.message,
+    signatureHtml,
+    eventVars,
+    branding,
+  });
+  return {
+    ok: true,
+    subject: rendered.subject,
+    html: rendered.htmlContent,
+    recipient: recipient
+      ? {
+          crmContactId: recipient.crmContactId,
+          name: `${recipient.firstName} ${recipient.lastName}`.trim(),
+          email: recipient.email,
+        }
+      : null,
+  };
 }

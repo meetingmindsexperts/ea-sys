@@ -1289,6 +1289,20 @@ export function useSendCrmEmail() {
   });
 }
 
+/** The email one recipient would receive, rendered by the send's own code. Sends nothing. */
+export interface CrmEmailPreviewResult {
+  subject: string;
+  html: string;
+  recipient: { crmContactId: string; name: string; email: string } | null;
+}
+
+export function usePreviewCrmEmail() {
+  return useMutation({
+    mutationFn: (body: { eventId?: string; dealId?: string; contactId?: string; subject: string; message: string }) =>
+      apiPostJson<CrmEmailPreviewResult>("/api/crm/sponsor-email/preview", body),
+  });
+}
+
 // ── Purge (SUPER_ADMIN permanent delete of archived records) ─────────────────
 
 /** Bulk-purge report shape returned by POST /api/crm/purge { scope: "all" }. */

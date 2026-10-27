@@ -313,6 +313,7 @@ SWEPT=(
   "src/app/api/crm/purge/route.ts"
   "src/app/api/crm/reports/route.ts"
   "src/app/api/crm/reps/route.ts"
+  "src/app/api/crm/sponsor-email/preview/route.ts"
   "src/app/api/crm/sponsor-email/recipients/route.ts"
   "src/app/api/crm/sponsor-email/send/route.ts"
   "src/app/api/crm/tasks/[taskId]/route.ts"
