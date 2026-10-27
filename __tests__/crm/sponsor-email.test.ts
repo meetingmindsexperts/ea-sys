@@ -19,6 +19,7 @@ vi.mock("@/lib/db", () => ({
   db: {
     event: { findFirst: vi.fn() },
     crmDeal: { findMany: vi.fn(), findFirst: vi.fn() },
+    crmEmailThread: { findFirst: vi.fn() },
     user: { findUnique: vi.fn() },
   },
 }));
@@ -28,6 +29,7 @@ vi.mock("@/lib/email", () => ({
   renderAndWrap: vi.fn(() => ({ subject: "s", htmlContent: "<p>h</p>", textContent: "t" })),
   brandingFrom: vi.fn(() => undefined),
   brandingCc: vi.fn(() => undefined),
+  sesRfcMessageId: vi.fn((id: string) => `<${id}@ap-south-1.amazonses.com>`),
 }));
 
 vi.mock("@/crm/lib/crm-activity", () => ({
@@ -53,7 +55,10 @@ import {
   sendDealEmail,
   crmSenderFrom,
   previewCrmEmail,
+  resolveThreadRecipients,
+  sendThreadReply,
 } from "@/crm/services/sponsor-email-service";
+import { recordOutboundEmail } from "@/crm/services/crm-email-thread-service";
 import { renderAndWrap } from "@/lib/email";
 import { CRM_EMAIL_TEMPLATES } from "@/crm/lib/crm-email-templates";
 import { CRM_EMAIL_TOKEN_KEYS } from "@/crm/lib/crm-email-tokens";
@@ -587,5 +592,124 @@ describe("crmSenderFrom — CRM emails come from the partnerships identity, not 
     delete process.env.CRM_EMAIL_FROM_ADDRESS;
     delete process.env.CRM_EMAIL_FROM_NAME;
     expect(crmSenderFrom()).toBeUndefined();
+  });
+});
+
+// ── reply in a thread (the inbox, Oct 27, 2026) ─────────────────────────────────
+
+describe("replying in an inbox thread", () => {
+  const THREAD = {
+    id: "t-1",
+    subject: "Sponsorship",
+    replyToken: "tok-thread",
+    revokedAt: null,
+    counterpartyEmail: "jane@abbott.com",
+    crmContact: { id: "c1", firstName: "Jane", lastName: "Doe", archivedAt: null, company: { name: "Abbott" } },
+    deal: {
+      id: "deal1",
+      event: {
+        name: "BRIDGES 2026",
+        startDate: new Date("2026-11-20T05:00:00Z"),
+        endDate: new Date("2026-11-21T12:00:00Z"),
+        timezone: "Asia/Dubai",
+        venue: "Grand Hyatt",
+        city: "Dubai",
+        country: "UAE",
+        emailHeaderImage: null,
+        emailFooterImage: null,
+        emailFooterHtml: null,
+        emailFromAddress: null,
+        emailFromName: null,
+        emailCcAddresses: [],
+      },
+    },
+    messages: [
+      // Our first email, stored before Message-IDs were kept: only the SES id.
+      { direction: "OUTBOUND", messageId: null, providerMessageId: "ses-1" },
+      { direction: "INBOUND", messageId: "<reply-1@outlook.com>", providerMessageId: "inbound/key" },
+    ],
+  };
+  const REPLY = {
+    organizationId: "org1",
+    threadId: "t-1",
+    subject: "Re: Sponsorship",
+    message: "<p>Thanks {{firstName}}</p>",
+    actorUserId: "u1",
+    source: "rest" as const,
+  };
+
+  beforeEach(() => {
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue(THREAD as never);
+    vi.mocked(db.user.findUnique).mockResolvedValue({ emailSignature: null, email: "rep@mmg.com" } as never);
+  });
+
+  it("threads onto every message, rebuilding our old Message-IDs from the SES id", async () => {
+    const r = await resolveThreadRecipients({ organizationId: "org1", threadId: "t-1" });
+    if (!r.ok) throw new Error(r.message);
+    expect(r.reply).toEqual({
+      threadId: "t-1",
+      replyToken: "tok-thread",
+      threading: {
+        inReplyTo: "<reply-1@outlook.com>",
+        references: ["<ses-1@ap-south-1.amazonses.com>", "<reply-1@outlook.com>"],
+      },
+    });
+    expect(r.recipients).toEqual([
+      expect.objectContaining({ crmContactId: "c1", email: "jane@abbott.com", companyName: "Abbott" }),
+    ]);
+    expect(r.eventVars.eventVenue).toBe("Grand Hyatt");
+    expect(db.crmEmailThread.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "t-1", organizationId: "org1" } }),
+    );
+  });
+
+  it("sends one email into the same thread with its headers, and records it on that thread", async () => {
+    vi.mocked(sendEmail).mockResolvedValue({ success: true, messageId: "ses-2" } as never);
+    const res = await sendThreadReply(REPLY);
+    expect(res).toMatchObject({ ok: true, total: 1, successCount: 1 });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendEmail).mock.calls[0]![0]).toMatchObject({
+      to: [{ email: "jane@abbott.com" }],
+      threading: { inReplyTo: "<reply-1@outlook.com>" },
+    });
+    expect(recordOutboundEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "t-1",
+        replyToken: "tok-thread",
+        messageId: "<ses-2@ap-south-1.amazonses.com>",
+        dealId: "deal1",
+      }),
+    );
+    // The deal's history gets the summary, as a deal email does.
+    expect(recordCrmActivity).toHaveBeenCalledWith(expect.objectContaining({ entityType: "DEAL", entityId: "deal1" }));
+  });
+
+  it("refuses a thread from another organisation, a closed one, and one whose contact is gone", async () => {
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValueOnce(null as never);
+    expect(await sendThreadReply(REPLY)).toMatchObject({ ok: false, code: "THREAD_NOT_FOUND" });
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValueOnce({ ...THREAD, revokedAt: new Date() } as never);
+    expect(await sendThreadReply(REPLY)).toMatchObject({ ok: false, code: "THREAD_CLOSED" });
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValueOnce({ ...THREAD, crmContact: null } as never);
+    expect(await sendThreadReply(REPLY)).toMatchObject({ ok: false, code: "CONTACT_GONE" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("a thread with no deal replies without event branding or a deal summary", async () => {
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({ ...THREAD, deal: null } as never);
+    vi.mocked(sendEmail).mockResolvedValue({ success: true, messageId: "ses-3" } as never);
+    const res = await sendThreadReply(REPLY);
+    expect(res.ok).toBe(true);
+    expect(recordCrmActivity).not.toHaveBeenCalledWith(expect.objectContaining({ entityType: "DEAL" }));
+  });
+
+  it("previews a reply for the thread's person", async () => {
+    const res = await previewCrmEmail({
+      organizationId: "org1",
+      target: { kind: "thread", id: "t-1" },
+      subject: "Re: Sponsorship",
+      message: "<p>Hi</p>",
+      actorUserId: "u1",
+    });
+    expect(res).toMatchObject({ ok: true, recipient: { crmContactId: "c1", email: "jane@abbott.com" } });
   });
 });

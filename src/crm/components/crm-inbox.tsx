@@ -8,8 +8,9 @@
  * Two panes: threads left, conversation right. Since Oct 27, 2026 (phase 1 of
  * docs/CRM_INBOX_PLAN.md) the list has folders (Inbox, Sent, Archived), search,
  * Unread / Mine filters, a deal filter (click a thread's deal chip) and "load
- * more"; a conversation can be archived or marked unread. Replying still
- * happens on the deal until phase 2. Inbound HTML is UNTRUSTED and renders only
+ * more"; a conversation can be archived or marked unread, and replied to
+ * (phase 2) through the shared email dialog, which keeps the reply in the same
+ * thread on both sides. Inbound HTML is UNTRUSTED and renders only
  * inside a sandboxed iframe (no scripts, no same-origin) — the same containment
  * the admin docs viewer uses.
  */
@@ -24,9 +25,9 @@ import {
   ArrowUpRight,
   Inbox,
   Loader2,
-  Mail,
   MailWarning,
   Paperclip,
+  Reply,
   Search,
   X,
 } from "lucide-react";
@@ -35,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSettled } from "@/hooks/use-settled";
+import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
 import {
   useCrmInbox,
   useCrmInboxThread,
@@ -206,6 +208,7 @@ export function CrmInbox() {
   const list = useCrmInbox(filters);
   const { data: detail, isLoading: detailLoading } = useCrmInboxThread(selectedId);
   const update = useUpdateInboxThread();
+  const [replyOpen, setReplyOpen] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   // Deduped by id: a thread that moved between page fetches must not render twice.
@@ -390,19 +393,19 @@ export function CrmInbox() {
               <div ref={bottomRef} />
             </div>
 
-            {/* Replying from the inbox is phase 2 of docs/CRM_INBOX_PLAN.md;
-                until then a reply is sent from the deal's Email action. */}
-            <div className="flex items-center justify-between gap-2 border-t bg-muted/20 p-3 text-xs text-muted-foreground">
-              <span>Replies are sent from the deal, not here.</span>
-              {thread.deal && (
-                <Button asChild size="sm" variant="outline">
-                  <a href={`/crm/deals/${thread.deal.id}`}>
-                    <Mail className="mr-2 h-3.5 w-3.5" />
-                    Email from the deal
-                  </a>
-                </Button>
-              )}
+            <div className="flex items-center justify-end gap-2 border-t bg-muted/20 p-3">
+              <Button type="button" size="sm" onClick={() => setReplyOpen(true)}>
+                <Reply className="mr-2 h-3.5 w-3.5" />
+                Reply
+              </Button>
             </div>
+            {/* Keyed by thread so a reply's draft never carries into another conversation. */}
+            <CrmEmailDialog
+              key={thread.id}
+              open={replyOpen}
+              onOpenChange={setReplyOpen}
+              target={{ kind: "thread", id: thread.id, dealId: thread.deal?.id ?? null, subject: thread.subject }}
+            />
           </>
         )}
       </div>

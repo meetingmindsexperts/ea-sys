@@ -238,6 +238,7 @@ export function denyCrmProseRead(ctx: OrgContext) {
 const STATUS_BY_CODE: Record<string, number> = {
   // not found
   DEAL_NOT_FOUND: 404,
+  THREAD_NOT_FOUND: 404,
   TASK_NOT_FOUND: 404,
   COMPANY_NOT_FOUND: 404,
   CONTACT_NOT_FOUND: 404,
@@ -260,6 +261,9 @@ const STATUS_BY_CODE: Record<string, number> = {
   // conflict — someone else got there first, or the state moved under us
   STAGE_CHANGED: 409,
   ALREADY_CLOSED: 409,
+  // an inbox reply on a conversation whose deal was archived or contact removed
+  THREAD_CLOSED: 409,
+  CONTACT_GONE: 409,
   ALREADY_DONE: 409,
   STAGE_HAS_DEALS: 409,
   CONTACT_ALREADY_ON_DEAL: 409,

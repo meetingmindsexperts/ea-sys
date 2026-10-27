@@ -1140,12 +1140,23 @@ export function useDeleteCrmDealDocument(dealId: string) {
 // ── CRM email (sponsor blast + per-deal send) ─────────────────────────────────
 
 /** What a send targets: everyone on an event's deals, or one deal's contacts. */
-export type CrmEmailTarget = { kind: "event"; id: string } | { kind: "deal"; id: string };
+export type CrmEmailTarget =
+  | { kind: "event"; id: string }
+  | { kind: "deal"; id: string }
+  /** A reply in an inbox conversation (Oct 27, 2026); dealId feeds its documents. */
+  | { kind: "thread"; id: string; dealId: string | null; subject: string };
+
+/** The request field that names a target: eventId, dealId or threadId. */
+export function crmEmailTargetField(target: CrmEmailTarget): "eventId" | "dealId" | "threadId" {
+  if (target.kind === "deal") return "dealId";
+  if (target.kind === "thread") return "threadId";
+  return "eventId";
+}
 
 export interface CrmEmailRecipientsResponse {
   recipients: SponsorRecipient[];
   skipped: { noEmail: number; archivedContacts: number };
-  target: { kind: "event" | "deal"; id: string; name: string };
+  target: { kind: "event" | "deal" | "thread"; id: string; name: string };
 }
 
 export interface CrmEmailSendResult {
@@ -1160,9 +1171,7 @@ export interface CrmEmailSendResult {
  * deal's contacts. Disabled until a target is chosen.
  */
 export function useCrmEmailRecipients(target: CrmEmailTarget | null | undefined) {
-  const param = target
-    ? `${target.kind === "deal" ? "dealId" : "eventId"}=${encodeURIComponent(target.id)}`
-    : "";
+  const param = target ? `${crmEmailTargetField(target)}=${encodeURIComponent(target.id)}` : "";
   return useQuery({
     queryKey: ["crm", "email-recipients", target?.kind ?? "", target?.id ?? ""],
     queryFn: () =>
@@ -1319,6 +1328,7 @@ export function useSendCrmEmail() {
     mutationFn: (body: {
       eventId?: string;
       dealId?: string;
+      threadId?: string;
       subject: string;
       message: string;
       contactIds?: string[];
@@ -1336,6 +1346,11 @@ export function useSendCrmEmail() {
       if (vars.dealId) {
         qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", vars.dealId) });
       }
+      // A reply lands in its conversation and moves it up the inbox.
+      if (vars.threadId) {
+        qc.invalidateQueries({ queryKey: crmKeys.inboxPrefix });
+        qc.invalidateQueries({ queryKey: crmKeys.inboxThread(vars.threadId) });
+      }
     },
   });
 }
@@ -1352,6 +1367,7 @@ export function usePreviewCrmEmail() {
     mutationFn: (body: {
       eventId?: string;
       dealId?: string;
+      threadId?: string;
       contactId?: string;
       sample?: boolean;
       subject: string;

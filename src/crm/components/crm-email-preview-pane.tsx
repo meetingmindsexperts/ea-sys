@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { usePreviewCrmEmail, type CrmEmailTarget } from "@/crm/hooks/use-crm-api";
+import { crmEmailTargetField, usePreviewCrmEmail, type CrmEmailTarget } from "@/crm/hooks/use-crm-api";
 import type { SponsorRecipient } from "@/crm/lib/crm-types";
 
 export function CrmEmailPreviewPane({
@@ -34,15 +34,18 @@ export function CrmEmailPreviewPane({
   const preview = usePreviewCrmEmail();
   const { mutate } = preview;
 
+  // The field and id, not the target object: callers build that object inline,
+  // and a new object each render would re-run the preview forever.
+  const field = crmEmailTargetField(target);
   useEffect(() => {
     mutate({
-      [target.kind === "deal" ? "dealId" : "eventId"]: target.id,
+      [field]: target.id,
       // Nobody ticked: the sample person, never someone who will not get the email.
       ...(contactId ? { contactId } : { sample: true }),
       subject,
       message,
     });
-  }, [mutate, target.kind, target.id, contactId, subject, message]);
+  }, [mutate, field, target.id, contactId, subject, message]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">

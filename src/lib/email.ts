@@ -63,6 +63,13 @@ export interface SendEmailParams {
   textContent?: string;
   replyTo?: { email: string; name?: string };
   from?: { email: string; name?: string };
+  /**
+   * Reply threading (Oct 27, 2026, the CRM inbox reply): In-Reply-To and
+   * References, so the reply joins the recipient's own conversation in Gmail
+   * or Outlook. Each id is an RFC 5322 msg-id ("<local@domain>"); anything else
+   * is dropped by threadingHeaders(), so a value can never inject a header.
+   */
+  threading?: { inReplyTo: string; references: string[] };
   attachments?: Array<{
     name: string;
     content: string; // Base64 encoded
@@ -106,6 +113,23 @@ export interface SendEmailParams {
    * don't pollute transactional reputation alerts. Defaults to "transactional".
    */
   stream?: "transactional" | "bulk";
+}
+
+const MSG_ID_RE = /^<[^<>\s]{1,250}>$/;
+
+/**
+ * The threading headers for a send, keeping only well-formed msg-ids (no CR,
+ * LF, spaces or extra brackets), so a stored id can never inject a header.
+ * References keeps the newest 20, as long chains are truncated by mail clients
+ * anyway. Empty when nothing valid remains.
+ */
+export function threadingHeaders(t: SendEmailParams["threading"]): { name: string; value: string }[] {
+  if (!t || !MSG_ID_RE.test(t.inReplyTo)) return [];
+  const refs = t.references.filter((r) => MSG_ID_RE.test(r)).slice(-20);
+  return [
+    { name: "In-Reply-To", value: t.inReplyTo },
+    { name: "References", value: (refs.length ? refs : [t.inReplyTo]).join(" ") },
+  ];
 }
 
 /**
@@ -286,10 +310,23 @@ const postmarkProvider: EmailProvider = {
 
 let sesClient: SESv2Client | null = null;
 
+function sesRegion(): string {
+  return process.env.AWS_SES_REGION || process.env.AWS_REGION || "ap-south-1";
+}
+
+/**
+ * The Message-ID header SES gives an email it sent, from the id SendEmail
+ * returned: "<{id}@{region}.amazonses.com>" (seen in a real reply's
+ * In-Reply-To on prod, Oct 27, 2026). A reply threads onto it.
+ */
+export function sesRfcMessageId(providerMessageId: string): string {
+  return `<${providerMessageId}@${sesRegion()}.amazonses.com>`;
+}
+
 function getSesClient(): SESv2Client {
   if (!sesClient) {
     sesClient = new SESv2Client({
-      region: process.env.AWS_SES_REGION || process.env.AWS_REGION || "ap-south-1",
+      region: sesRegion(),
       // Credentials are picked up automatically from the standard AWS chain:
       // env vars (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY) → shared credentials
       // file (~/.aws/credentials) → EC2 instance profile (preferred in prod —
@@ -425,6 +462,9 @@ const sesProvider: EmailProvider = {
         ? { Raw: { Data: buildRawMime(params, fromAddress) } }
         : {
             Simple: {
+              ...(threadingHeaders(params.threading).length && {
+                Headers: threadingHeaders(params.threading).map((h) => ({ Name: h.name, Value: h.value })),
+              }),
               Subject: { Data: params.subject, Charset: "UTF-8" },
               Body: {
                 Html: { Data: params.htmlContent, Charset: "UTF-8" },
@@ -492,6 +532,7 @@ export function buildRawMime(params: SendEmailParams, fromAddress: string): Uint
     ...(params.cc?.length ? [`Cc: ${params.cc.map(formatAddress).join(", ")}`] : []),
     ...(params.replyTo ? [`Reply-To: ${formatAddress(params.replyTo)}`] : []),
     `Subject: ${encodeRfc2047(params.subject)}`,
+    ...threadingHeaders(params.threading).map((h) => `${h.name}: ${h.value}`),
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${mixed}"`,
   ];

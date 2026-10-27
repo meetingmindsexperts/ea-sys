@@ -37,7 +37,20 @@ Workspace or Microsoft 365 (Option B) is out of scope.
   is a nullable `archivedAt` on the thread, an additive migration.
 - The conversation view keeps the sandboxed iframe for inbound HTML.
 
-### Phase 2: reply from the inbox (about 1.5 days)
+### Phase 2: reply from the inbox (BUILT Oct 27, 2026)
+
+As built: a conversation is a third email target ("thread") beside a deal and
+an event, so Reply opens the existing deal email dialog (editor, tokens,
+signature, CC/BCC, deal documents, Preview) instead of a second composer. The
+reply goes to the thread's counterparty only; "Reply all" became the dialog's
+CC field, because a thread stores its CC and BCC together and cannot tell
+which was which. A reply's CC joins the thread's forward list. A thread whose
+deal is archived (token revoked) or whose contact is gone refuses a reply with
+the reason. Every outbound message now stores its Message-ID; older ones are
+rebuilt from the SES id ("<id>@<region>.amazonses.com", confirmed on a real
+reply).
+
+Original plan:
 
 - A **Reply** composer under the conversation: the same editor, tokens,
   signature, attachments (deal documents and PDFs) and Preview as the deal

@@ -35,6 +35,7 @@ import {
   useSendCrmEmail,
   useCrmEmailTemplates,
   useUploadCrmDealDocument,
+  crmEmailTargetField,
   type CrmEmailTarget,
 } from "@/crm/hooks/use-crm-api";
 import { CRM_EMAIL_INLINE_ATTACHMENT_BUDGET } from "@/lib/body-limits";
@@ -93,6 +94,33 @@ function readBase64(file: File): Promise<string | null> {
   });
 }
 
+/** The deal whose documents a send can attach: the deal itself, or a reply's conversation's deal. */
+function documentDealId(target: CrmEmailTarget | null): string | null {
+  if (target?.kind === "deal") return target.id;
+  if (target?.kind === "thread") return target.dealId;
+  return null;
+}
+
+/** A reply starts as "Re: <subject>", once. */
+function defaultSubject(target: CrmEmailTarget | null): string {
+  if (target?.kind !== "thread") return "";
+  return /^re:/i.test(target.subject) ? target.subject : `Re: ${target.subject}`;
+}
+
+const TITLES = { deal: "Email deal contacts", event: "Email sponsors", thread: "Reply" } as const;
+
+const DESCRIPTIONS = {
+  deal: "Send a personalized email to the people on this deal.",
+  event: "Send a personalized cover email + attachment to the contacts on this event's active deals.",
+  thread: "Reply in this conversation. It joins the same thread in their mail client, and their answer comes back here.",
+} as const;
+
+const EMPTY_RECIPIENTS = {
+  deal: "No contacts on this deal yet. Add the people you're talking to first.",
+  event: "No sponsor contacts for this event yet. Add contacts to its deals first.",
+  thread: "This conversation has nobody to reply to.",
+} as const;
+
 interface LocalAttachment {
   name: string;
   content: string; // base64
@@ -109,18 +137,16 @@ export function CrmEmailDialog({
   onOpenChange: (o: boolean) => void;
   target: CrmEmailTarget | null;
 }) {
-  const { data, isLoading, isError } = useCrmEmailRecipients(open ? target : null);
+  const { data, isLoading, isError, error: recipientsError } = useCrmEmailRecipients(open ? target : null);
   const { data: templates = [] } = useCrmEmailTemplates();
   // Files stored ON the deal (the prospectus etc.) — offered as opt-in
   // attachments on deal sends, resolved server-side (no re-upload per send).
-  const { data: dealDocuments = [] } = useCrmDealDocuments(
-    open && target?.kind === "deal" ? target.id : null,
-  );
+  const dealId = documentDealId(target);
+  const { data: dealDocuments = [] } = useCrmDealDocuments(open ? dealId : null);
   const send = useSendCrmEmail();
-  const dealId = target?.kind === "deal" ? target.id : null;
   const uploadDoc = useUploadCrmDealDocument(dealId ?? "");
 
-  const [subject, setSubject] = useState("");
+  const [subject, setSubject] = useState(() => defaultSubject(target));
   const [message, setMessage] = useState("");
   // Tiptap reads `content` only on mount — bump this to remount it when a template
   // is applied so the editor shows the new body.
@@ -150,11 +176,11 @@ export function CrmEmailDialog({
     attachments.reduce((s, a) => s + a.size, 0) + selectedDocs.reduce((s, d) => s + d.size, 0);
   const totalFileCount = attachments.length + selectedDocs.length;
   const inlineEncoded = attachments.reduce((s, a) => s + a.content.length, 0);
-  const isDeal = data?.target.kind === "deal";
+  const kind = target?.kind ?? "event";
   const listState = recipientListState(isLoading, isError, recipients.length);
 
   function resetAndClose() {
-    setSubject("");
+    setSubject(defaultSubject(target));
     setMessage("");
     setEditorNonce((n) => n + 1);
     setAttachments([]);
@@ -286,12 +312,12 @@ export function CrmEmailDialog({
     setSending(true);
     try {
       const result = await send.mutateAsync({
-        [target.kind === "deal" ? "dealId" : "eventId"]: target.id,
+        [crmEmailTargetField(target)]: target.id,
         subject: subject.trim(),
         message,
         contactIds: selectedIds,
         attachments: attachments.map((a) => ({ name: a.name, content: a.content, contentType: a.contentType })),
-        ...(target.kind === "deal" && selectedDocIds.size > 0 ? { documentIds: [...selectedDocIds] } : {}),
+        ...(dealId && selectedDocIds.size > 0 ? { documentIds: [...selectedDocIds] } : {}),
         ...(ccParsed.emails.length ? { cc: ccParsed.emails } : {}),
         ...(bccParsed.emails.length ? { bcc: bccParsed.emails } : {}),
         copyToSender,
@@ -313,9 +339,7 @@ export function CrmEmailDialog({
 
   const skipped = data?.skipped;
   const skippedTotal = (skipped?.noEmail ?? 0) + (skipped?.archivedContacts ?? 0);
-  const title = data?.target
-    ? `${isDeal ? "Email deal contacts" : "Email sponsors"} — ${data.target.name}`
-    : "Email";
+  const title = data?.target ? `${TITLES[kind]} — ${data.target.name}` : "Email";
 
   return (
     <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(o) : resetAndClose())}>
@@ -323,11 +347,7 @@ export function CrmEmailDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription asChild>
-            <span>
-              {isDeal
-                ? "Send a personalized email to the people on this deal."
-                : "Send a personalized cover email + attachment to the contacts on this event's active deals."}
-            </span>
+            <span>{DESCRIPTIONS[kind]}</span>
           </DialogDescription>
         </DialogHeader>
 
@@ -367,14 +387,15 @@ export function CrmEmailDialog({
             {listState === "loading" && <div className="h-40 animate-pulse rounded-md border bg-muted/30" />}
             {listState === "error" && (
               <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                Couldn&apos;t load the contact list. Close and try again.
+                {/* The server's reason when it gave one (a reply on an archived deal's conversation). */}
+                {recipientsError instanceof Error && recipientsError.message !== "Request failed"
+                  ? recipientsError.message
+                  : "Couldn't load the contact list. Close and try again."}
               </p>
             )}
             {listState === "empty" && (
               <p className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
-                {isDeal
-                  ? "No contacts on this deal yet. Add the people you're talking to first."
-                  : "No sponsor contacts for this event yet. Add contacts to its deals first."}
+                {EMPTY_RECIPIENTS[kind]}
               </p>
             )}
             {listState === "list" && (
@@ -509,7 +530,7 @@ export function CrmEmailDialog({
           </div>
 
           {/* ── Stored deal documents (opt-in) ─────────────────────────────── */}
-          {isDeal && dealDocuments.length > 0 && (
+          {!!dealId && dealDocuments.length > 0 && (
             <div className="space-y-2">
               <Label className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-muted-foreground" />

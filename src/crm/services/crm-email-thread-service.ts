@@ -66,6 +66,8 @@ export interface RecordOutboundEmailInput {
   replyToken: string;
   /** SES/provider message id, when the send returned one. */
   providerMessageId: string | null;
+  /** The RFC Message-ID the recipient sees, for threading a later reply onto it. */
+  messageId?: string | null;
   sentByUserId: string | null;
   /** The org sender address the email went out under. */
   fromEmail: string;
@@ -95,6 +97,7 @@ export async function recordOutboundEmail(input: RecordOutboundEmailInput): Prom
       htmlBody: input.htmlBody,
       textBody: input.textBody,
       providerMessageId: input.providerMessageId,
+      messageId: input.messageId ?? null,
       sentByUserId: input.sentByUserId,
     };
 
@@ -103,11 +106,23 @@ export async function recordOutboundEmail(input: RecordOutboundEmailInput): Prom
 
     if (input.threadId) {
       // Org-bound append — a foreign threadId records nothing. Sending also
-      // rolls the token window forward (review M1) and un-nothing else.
-      const updated = await db.crmEmailThread.updateMany({
+      // rolls the token window forward (review M1), and anyone this reply
+      // CC'd joins the thread's forward list, so their copy of the next
+      // sponsor answer reaches Outlook too.
+      const existing = await db.crmEmailThread.findFirst({
         where: { id: input.threadId, organizationId: input.organizationId },
-        data: { lastMessageAt: now, expiresAt },
+        select: { notifyEmails: true },
       });
+      const updated = existing
+        ? await db.crmEmailThread.updateMany({
+            where: { id: input.threadId, organizationId: input.organizationId },
+            data: {
+              lastMessageAt: now,
+              expiresAt,
+              notifyEmails: dedupeLower([...existing.notifyEmails, ...(input.notifyEmails ?? [])]),
+            },
+          })
+        : { count: 0 };
       if (updated.count === 0) {
         apiLogger.warn({
           msg: "crm-email-thread:append-thread-not-found",

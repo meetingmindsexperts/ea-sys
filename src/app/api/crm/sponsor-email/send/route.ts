@@ -1,6 +1,7 @@
 /**
- * POST /api/crm/sponsor-email/send — email an event's sponsors (eventId) OR one
- * deal's contacts (dealId), with a personalized cover email + attachments.
+ * POST /api/crm/sponsor-email/send — email an event's sponsors (eventId), one
+ * deal's contacts (dealId), or reply in an inbox conversation (threadId), with
+ * a personalized cover email + attachments.
  *
  * Write-gated + a tighter named bucket on top of the generic CRM write limit: an
  * outward-facing blast is 10/hr/org (a leaked key or a fat-fingered loop can't spray
@@ -18,13 +19,14 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
-import { sendSponsorProspectus, sendDealEmail } from "@/crm/services/sponsor-email-service";
+import { sendSponsorProspectus, sendDealEmail, sendThreadReply } from "@/crm/services/sponsor-email-service";
 import { claimCrmEmailSend, CRM_EMAIL_DEDUP_WINDOW_MS } from "@/crm/lib/crm-email-dedup";
 
 const sendSchema = z
   .object({
     eventId: z.string().min(1).optional(),
     dealId: z.string().min(1).optional(),
+    threadId: z.string().min(1).optional(),
     subject: z.string().min(1).max(300),
     message: z.string().min(1).max(50_000),
     contactIds: z.array(z.string().min(1)).max(5_000).optional(),
@@ -56,12 +58,12 @@ const sendSchema = z
   })
   // Exactly one target — an ambiguous or targetless send is a client bug, not a
   // "send to everything" (the narrow-never-widen posture).
-  .refine((d) => (d.eventId ? 1 : 0) + (d.dealId ? 1 : 0) === 1, {
-    message: "Provide exactly one of eventId or dealId",
+  .refine((d) => [d.eventId, d.dealId, d.threadId].filter(Boolean).length === 1, {
+    message: "Provide exactly one of eventId, dealId or threadId",
     path: ["eventId"],
   })
-  .refine((d) => !d.documentIds?.length || !!d.dealId, {
-    message: "documentIds are only valid on a deal send",
+  .refine((d) => !d.documentIds?.length || !!d.dealId || !!d.threadId, {
+    message: "documentIds are only valid on a deal send or a reply on a deal's conversation",
     path: ["documentIds"],
   });
 
@@ -121,6 +123,28 @@ async function loadStoredAttachments(
   return { ok: true, attachments };
 }
 
+type SendInput = z.infer<typeof sendSchema>;
+
+function sendTargetKey(d: SendInput): string {
+  if (d.dealId) return `deal:${d.dealId}`;
+  if (d.threadId) return `thread:${d.threadId}`;
+  return `event:${d.eventId}`;
+}
+
+async function threadDealId(organizationId: string, threadId: string): Promise<string | null> {
+  const thread = await db.crmEmailThread.findFirst({
+    where: { id: threadId, organizationId },
+    select: { dealId: true },
+  });
+  return thread?.dealId ?? null;
+}
+
+function sendTo(d: SendInput, common: Omit<Parameters<typeof sendDealEmail>[0], "dealId">) {
+  if (d.dealId) return sendDealEmail({ ...common, dealId: d.dealId });
+  if (d.threadId) return sendThreadReply({ ...common, threadId: d.threadId });
+  return sendSponsorProspectus({ ...common, eventId: d.eventId! });
+}
+
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
@@ -162,7 +186,7 @@ export async function POST(req: Request) {
   const dedupHash = createHash("sha256")
     .update(
       JSON.stringify({
-        target: parsed.data.dealId ? `deal:${parsed.data.dealId}` : `event:${parsed.data.eventId}`,
+        target: sendTargetKey(parsed.data),
         subject: parsed.data.subject,
         message: parsed.data.message,
         contactIds: [...(parsed.data.contactIds ?? [])].sort(),
@@ -191,8 +215,17 @@ export async function POST(req: Request) {
   // Stored deal documents ride ahead of the ad-hoc uploads; the service's
   // combined 5-file/10MB caps apply to the merged list.
   let attachments = parsed.data.attachments ?? [];
-  if (parsed.data.dealId && parsed.data.documentIds?.length) {
-    const stored = await loadStoredAttachments(ctx.organizationId, parsed.data.dealId, parsed.data.documentIds);
+  if (parsed.data.documentIds?.length) {
+    // A reply attaches its conversation's deal's documents.
+    const docDealId = parsed.data.dealId ?? (await threadDealId(ctx.organizationId, parsed.data.threadId!));
+    if (!docDealId) {
+      apiLogger.warn({ msg: "crm/sponsor-email/send:documents-without-deal", threadId: parsed.data.threadId });
+      return NextResponse.json(
+        { error: "This conversation has no deal, so it has no documents to attach", code: "NO_DEAL_DOCUMENTS" },
+        { status: 400 },
+      );
+    }
+    const stored = await loadStoredAttachments(ctx.organizationId, docDealId, parsed.data.documentIds);
     if (!stored.ok) return crmErrorResponse(stored);
     attachments = [...stored.attachments, ...attachments];
   }
@@ -211,9 +244,7 @@ export async function POST(req: Request) {
     source: (ctx.fromApiKey ? "api" : "rest") as "api" | "rest",
   };
 
-  const result = parsed.data.dealId
-    ? await sendDealEmail({ ...common, dealId: parsed.data.dealId })
-    : await sendSponsorProspectus({ ...common, eventId: parsed.data.eventId! });
+  const result = await sendTo(parsed.data, common);
 
   if (!result.ok) return crmErrorResponse(result);
 

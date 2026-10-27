@@ -17,7 +17,7 @@ vi.mock("@/lib/db", () => ({
     event: { findFirst: vi.fn() },
     crmDeal: { findMany: vi.fn(), findFirst: vi.fn() },
     user: { findUnique: vi.fn() },
-    crmEmailThread: { create: vi.fn(), updateMany: vi.fn() },
+    crmEmailThread: { create: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn() },
     crmEmailMessage: { create: vi.fn() },
   },
 }));
@@ -27,6 +27,7 @@ vi.mock("@/lib/email", () => ({
   renderAndWrap: vi.fn(() => ({ subject: "Rendered subject", htmlContent: "<p>h</p>", textContent: "t" })),
   brandingFrom: vi.fn(() => ({ email: "events@mmg.com", name: "MMG Events" })),
   brandingCc: vi.fn(() => undefined),
+  sesRfcMessageId: vi.fn((id: string) => `<${id}@ap-south-1.amazonses.com>`),
 }));
 
 vi.mock("@/crm/lib/crm-activity", () => ({
@@ -109,21 +110,40 @@ describe("recordOutboundEmail", () => {
   });
 
   it("append mode is ORG-BOUND — a foreign threadId records nothing", async () => {
-    vi.mocked(db.crmEmailThread.updateMany).mockResolvedValue({ count: 0 } as never);
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue(null as never);
 
     await recordOutboundEmail({ ...baseRecord, threadId: "other-orgs-thread" });
 
-    expect(db.crmEmailThread.updateMany).toHaveBeenCalledWith(
+    expect(db.crmEmailThread.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "other-orgs-thread", organizationId: ORG } }),
     );
+    expect(db.crmEmailThread.updateMany).not.toHaveBeenCalled();
     expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
   });
 
-  it("append mode bumps lastMessageAt and appends the message", async () => {
-    await recordOutboundEmail({ ...baseRecord, threadId: "t-1" });
+  it("append mode bumps lastMessageAt, appends the message with its Message-ID, and adds the reply's CC to the forward list", async () => {
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({ notifyEmails: ["rep@mmg.com"] } as never);
+    await recordOutboundEmail({
+      ...baseRecord,
+      threadId: "t-1",
+      messageId: "<ses-1@ap-south-1.amazonses.com>",
+      notifyEmails: ["Boss@MMG.com", "rep@mmg.com"],
+    });
 
+    expect(db.crmEmailThread.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "t-1", organizationId: ORG },
+        data: expect.objectContaining({ notifyEmails: ["rep@mmg.com", "boss@mmg.com"] }),
+      }),
+    );
     expect(db.crmEmailMessage.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ threadId: "t-1", direction: "OUTBOUND" }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({
+          threadId: "t-1",
+          direction: "OUTBOUND",
+          messageId: "<ses-1@ap-south-1.amazonses.com>",
+        }),
+      }),
     );
     expect(db.crmEmailThread.create).not.toHaveBeenCalled();
   });

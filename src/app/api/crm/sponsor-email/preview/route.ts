@@ -1,6 +1,6 @@
 /**
- * POST /api/crm/sponsor-email/preview — the email one recipient of a deal or
- * sponsor send would receive, rendered by the same code as the send. Nothing is
+ * POST /api/crm/sponsor-email/preview — the email one recipient of a deal,
+ * sponsor or inbox-reply send would receive, rendered by the same code as the send. Nothing is
  * sent or recorded (Oct 27, 2026).
  *
  * Write-gated like the recipients preview: it is a compose step of a write
@@ -19,16 +19,23 @@ const previewSchema = z
   .object({
     eventId: z.string().min(1).optional(),
     dealId: z.string().min(1).optional(),
+    threadId: z.string().min(1).optional(),
     contactId: z.string().min(1).optional(),
     sample: z.boolean().optional(),
     // Empty is fine: a preview shows a half-written email as it stands.
     subject: z.string().max(300),
     message: z.string().max(50_000),
   })
-  .refine((d) => (d.eventId ? 1 : 0) + (d.dealId ? 1 : 0) === 1, {
-    message: "Provide exactly one of eventId or dealId",
+  .refine((d) => [d.eventId, d.dealId, d.threadId].filter(Boolean).length === 1, {
+    message: "Provide exactly one of eventId, dealId or threadId",
     path: ["eventId"],
   });
+
+function previewTarget(dealId?: string, threadId?: string, eventId?: string) {
+  if (dealId) return { kind: "deal" as const, id: dealId };
+  if (threadId) return { kind: "thread" as const, id: threadId };
+  return { kind: "event" as const, id: eventId! };
+}
 
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
@@ -39,12 +46,12 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       return zodErrorResponse(parsed, { route: "crm/sponsor-email/preview:POST", organizationId: ctx.organizationId });
     }
-    const { dealId, eventId, contactId, sample, subject, message } = parsed.data;
+    const { dealId, eventId, threadId, contactId, sample, subject, message } = parsed.data;
 
     try {
       const result = await previewCrmEmail({
         organizationId: ctx.organizationId,
-        target: dealId ? { kind: "deal", id: dealId } : { kind: "event", id: eventId! },
+        target: previewTarget(dealId, threadId, eventId),
         contactId,
         sample,
         subject,

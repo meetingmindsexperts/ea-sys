@@ -1,7 +1,7 @@
 /**
- * GET /api/crm/sponsor-email/recipients?eventId=… | ?dealId=… — preview who a send
- * would reach: the deduped contacts of an event's non-lost deals, OR one deal's
- * contacts.
+ * GET /api/crm/sponsor-email/recipients?eventId=… | ?dealId=… | ?threadId=… —
+ * preview who a send would reach: the deduped contacts of an event's non-lost
+ * deals, one deal's contacts, or the one person an inbox reply goes to.
  *
  * Write-gated (requireCrmWrite blocks MEMBER + rate-limits): a read-only MEMBER may
  * see the board but must not enumerate the contact list, and this preview is a
@@ -11,7 +11,11 @@ import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
-import { resolveSponsorRecipients, resolveDealRecipients } from "@/crm/services/sponsor-email-service";
+import {
+  resolveSponsorRecipients,
+  resolveDealRecipients,
+  resolveThreadRecipients,
+} from "@/crm/services/sponsor-email-service";
 
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
@@ -22,16 +26,26 @@ export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   const eventId = params.get("eventId");
   const dealId = params.get("dealId");
+  const threadId = params.get("threadId");
 
-  if (!eventId && !dealId) {
+  if (!eventId && !dealId && !threadId) {
     apiLogger.warn({ msg: "crm/sponsor-email/recipients:missing-target", organizationId: ctx.organizationId });
     return NextResponse.json(
-      { error: "eventId or dealId is required", code: "TARGET_REQUIRED" },
+      { error: "eventId, dealId or threadId is required", code: "TARGET_REQUIRED" },
       { status: 400 },
     );
   }
 
   try {
+    if (threadId) {
+      const result = await resolveThreadRecipients({ organizationId: ctx.organizationId, threadId });
+      if (!result.ok) return crmErrorResponse(result);
+      return NextResponse.json({
+        recipients: result.recipients,
+        skipped: result.skipped,
+        target: { kind: "thread", id: result.target.id, name: result.target.name },
+      });
+    }
     if (dealId) {
       const result = await resolveDealRecipients({ organizationId: ctx.organizationId, dealId });
       if (!result.ok) return crmErrorResponse(result);
@@ -55,6 +69,7 @@ export async function GET(req: Request) {
       organizationId: ctx.organizationId,
       eventId,
       dealId,
+      threadId,
       err: err instanceof Error ? err.message : String(err),
     });
     return NextResponse.json({ error: "Could not load recipients" }, { status: 500 });

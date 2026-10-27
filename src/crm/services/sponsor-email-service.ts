@@ -18,7 +18,7 @@
  * row on the deal).
  */
 import type { EmailBranding } from "@/lib/email";
-import { sendEmail, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
+import { sendEmail, renderAndWrap, brandingFrom, brandingCc, sesRfcMessageId } from "@/lib/email";
 import { escapeHtml } from "@/lib/html";
 import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { db } from "@/lib/db";
@@ -136,6 +136,18 @@ const EVENT_TOKEN_SELECT = {
   country: true,
 } as const;
 
+/** Everything a deal's event contributes to an email: branding and tokens. */
+const EVENT_EMAIL_SELECT = {
+  name: true,
+  emailHeaderImage: true,
+  emailFooterImage: true,
+  emailFooterHtml: true,
+  emailFromAddress: true,
+  emailFromName: true,
+  emailCcAddresses: true,
+  ...EVENT_TOKEN_SELECT,
+} as const;
+
 // ── Resolve: event ──────────────────────────────────────────────────────────────
 
 interface ResolvedEvent extends EventBrandingRow {
@@ -226,18 +238,7 @@ export async function resolveDealRecipients(args: {
       name: true,
       company: { select: { name: true } },
       contacts: { select: CONTACT_ON_DEAL_SELECT },
-      event: {
-        select: {
-          name: true,
-          emailHeaderImage: true,
-          emailFooterImage: true,
-          emailFooterHtml: true,
-          emailFromAddress: true,
-          emailFromName: true,
-          emailCcAddresses: true,
-          ...EVENT_TOKEN_SELECT,
-        },
-      },
+      event: { select: EVENT_EMAIL_SELECT },
     },
   });
   if (!deal) {
@@ -387,6 +388,8 @@ interface DispatchArgs {
    * (a contact there may span deals) — the thread still exists, just deal-less.
    */
   threadDealId: string | null;
+  /** A reply from the inbox: send into this thread instead of starting one. */
+  reply?: ThreadReply;
   /** For the "dropped a non-sponsor id" log line. */
   logScope: Record<string, unknown>;
 }
@@ -455,6 +458,7 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
           actorUserId: args.actorUserId,
           contactActivityAction: args.contactActivityAction,
           threadDealId: args.threadDealId,
+          reply: args.reply,
         }),
       ),
     );
@@ -541,14 +545,16 @@ async function sendOne(
     actorUserId: string | null;
     contactActivityAction: string;
     threadDealId: string | null;
+    reply?: ThreadReply;
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const rendered = renderForRecipient(r, ctx);
 
-  // Inbox threading: every recipient gets their own thread + reply token. While
-  // CRM_REPLY_DOMAIN is unset the address is null (no Reply-To — behavior
-  // unchanged) but the thread still records as sent-history.
-  const replyToken = mintReplyToken();
+  // Inbox threading: every recipient gets their own thread + reply token, and a
+  // reply from the inbox keeps its thread's token. While CRM_REPLY_DOMAIN is
+  // unset the address is null (no Reply-To — behavior unchanged) but the
+  // thread still records as sent-history.
+  const replyToken = ctx.reply?.replyToken ?? mintReplyToken();
   const replyAddress = crmReplyAddress(replyToken);
 
   const res = await sendEmail({
@@ -561,6 +567,7 @@ async function sendOne(
     htmlContent: rendered.htmlContent,
     textContent: rendered.textContent,
     attachments: ctx.sendAttachments.length ? ctx.sendAttachments : undefined,
+    ...(ctx.reply?.threading ? { threading: ctx.reply.threading } : {}),
     emailType: "crm_email",
     stream: "bulk",
     logContext: {
@@ -586,7 +593,9 @@ async function sendOne(
     htmlBody: rendered.htmlContent,
     textBody: rendered.textContent ?? null,
     replyToken,
+    ...(ctx.reply ? { threadId: ctx.reply.threadId } : {}),
     providerMessageId: res.messageId ?? null,
+    messageId: res.messageId ? sesRfcMessageId(res.messageId) : null,
     sentByUserId: ctx.actorUserId,
     // brandingFrom() returns undefined when the event has no sender override —
     // sendEmail then uses the env default, so mirror that here.
@@ -703,28 +712,198 @@ export async function sendDealEmail(args: {
     logScope: { organizationId: args.organizationId, dealId: args.dealId, source: args.source },
   });
 
-  // Summarize the outreach on the DEAL's own history timeline (in addition to the
-  // per-contact rows), so "who emailed this deal, and when?" is answerable from the
-  // deal sheet.
-  if (result.ok && result.successCount > 0) {
-    void recordCrmActivity({
-      organizationId: args.organizationId,
-      entityType: "DEAL",
-      entityId: args.dealId,
-      action: "EMAIL_SENT",
-      actorId: args.actorUserId,
-      changes: {
-        subject: valid.subject,
-        recipients: result.successCount,
-        ...(resolved.eventVars.eventName ? { event: resolved.eventVars.eventName } : {}),
+  recordDealSummary(args.organizationId, args.dealId, args.actorUserId, valid.subject, result, resolved.eventVars);
+  return result;
+}
+
+/**
+ * Summarize the outreach on the DEAL's own history timeline (in addition to the
+ * per-contact rows), so "who emailed this deal, and when?" is answerable from
+ * the deal sheet.
+ */
+function recordDealSummary(
+  organizationId: string,
+  dealId: string,
+  actorUserId: string | null,
+  subject: string,
+  result: CrmEmailSendResult | ServiceFail,
+  eventVars: CrmEventVars,
+): void {
+  if (!result.ok || result.successCount === 0) return;
+  void recordCrmActivity({
+    organizationId,
+    entityType: "DEAL",
+    entityId: dealId,
+    action: "EMAIL_SENT",
+    actorId: actorUserId,
+    changes: {
+      subject,
+      recipients: result.successCount,
+      ...(eventVars.eventName ? { event: eventVars.eventName } : {}),
+    },
+  });
+}
+
+// ── Reply in a thread (the inbox, Oct 27, 2026) ─────────────────────────────────
+
+export interface ThreadReply {
+  threadId: string;
+  replyToken: string;
+  /** In-Reply-To / References for the recipient's mail client; null on a thread with no known ids. */
+  threading: { inReplyTo: string; references: string[] } | null;
+}
+
+/** The RFC Message-IDs of a thread's messages, oldest first, for References. */
+function threadMessageIds(
+  messages: Array<{ direction: string; messageId: string | null; providerMessageId: string | null }>,
+): string[] {
+  return messages
+    .map((m) => {
+      if (m.messageId) return m.messageId;
+      // Outbound rows from before Oct 27, 2026 stored only the SES id.
+      if (m.direction === "OUTBOUND" && m.providerMessageId) return sesRfcMessageId(m.providerMessageId);
+      return null;
+    })
+    .filter((id): id is string => !!id);
+}
+
+/**
+ * Resolve a thread for a reply: its one counterparty (the address we have been
+ * writing to), the branding and tokens of its deal's event, and the threading
+ * headers. Org-bound. Refuses a thread whose deal was archived (its reply
+ * token is revoked, so the sponsor's answer could never come back) and one
+ * whose contact was deleted or archived.
+ */
+export async function resolveThreadRecipients(args: { organizationId: string; threadId: string }): Promise<
+  | {
+      ok: true;
+      target: { id: string; name: string };
+      reply: ThreadReply;
+      dealId: string | null;
+      branding: EmailBranding;
+      eventVars: CrmEventVars;
+      recipients: SponsorRecipient[];
+      skipped: { noEmail: number; archivedContacts: number };
+    }
+  | ServiceFail
+> {
+  const thread = await db.crmEmailThread.findFirst({
+    where: { id: args.threadId, organizationId: args.organizationId },
+    select: {
+      id: true,
+      subject: true,
+      replyToken: true,
+      revokedAt: true,
+      counterpartyEmail: true,
+      crmContact: {
+        select: { id: true, firstName: true, lastName: true, archivedAt: true, company: { select: { name: true } } },
       },
-    });
+      deal: { select: { id: true, event: { select: EVENT_EMAIL_SELECT } } },
+      messages: { select: { direction: true, messageId: true, providerMessageId: true }, orderBy: { createdAt: "asc" } },
+    },
+  });
+  if (!thread) {
+    apiLogger.warn({ msg: "crm-email:thread-not-found", organizationId: args.organizationId, threadId: args.threadId });
+    return { ok: false, code: "THREAD_NOT_FOUND", message: "Conversation not found" };
+  }
+  if (thread.revokedAt) {
+    apiLogger.warn({ msg: "crm-email:thread-closed", threadId: thread.id });
+    return {
+      ok: false,
+      code: "THREAD_CLOSED",
+      message: "This conversation's deal is archived, so it can no longer be replied to",
+    };
+  }
+  const c = thread.crmContact;
+  if (!c || c.archivedAt) {
+    apiLogger.warn({ msg: "crm-email:thread-contact-gone", threadId: thread.id });
+    return { ok: false, code: "CONTACT_GONE", message: "This conversation's contact was deleted or archived" };
   }
 
+  const ids = threadMessageIds(thread.messages);
+  const event = thread.deal?.event ?? null;
+  return {
+    ok: true,
+    target: { id: thread.id, name: thread.subject },
+    reply: {
+      threadId: thread.id,
+      replyToken: thread.replyToken,
+      threading: ids.length ? { inReplyTo: ids[ids.length - 1]!, references: ids } : null,
+    },
+    dealId: thread.deal?.id ?? null,
+    branding: event ? brandingFromEventRow(event) : { emailCcAddresses: [], eventName: undefined },
+    eventVars: crmEventVars(event),
+    recipients: [
+      {
+        crmContactId: c.id,
+        firstName: c.firstName,
+        lastName: c.lastName,
+        email: thread.counterpartyEmail,
+        companyName: c.company?.name ?? null,
+        dealCount: thread.deal ? 1 : 0,
+      },
+    ],
+    skipped: { noEmail: 0, archivedContacts: 0 },
+  };
+}
+
+/**
+ * Reply in a thread from the inbox: one email to the thread's counterparty,
+ * carrying the thread's own reply token and threading headers, appended to
+ * the same thread. Same validation, rendering, CC/BCC and history as a deal
+ * email.
+ */
+export async function sendThreadReply(args: {
+  organizationId: string;
+  threadId: string;
+  subject: string;
+  message: string;
+  attachments?: SponsorAttachment[];
+  contactIds?: string[];
+  cc?: string[];
+  bcc?: string[];
+  copyToSender?: boolean;
+  actorUserId: string | null;
+  source: "rest" | "api";
+}): Promise<CrmEmailSendResult | ServiceFail> {
+  const attachments = args.attachments ?? [];
+  const valid = validateSend(args.subject, args.message, attachments);
+  if (!valid.ok) return valid;
+
+  const resolved = await resolveThreadRecipients({ organizationId: args.organizationId, threadId: args.threadId });
+  if (!resolved.ok) return resolved;
+
+  const result = await dispatchCrmEmail({
+    organizationId: args.organizationId,
+    recipients: resolved.recipients,
+    contactIds: args.contactIds,
+    branding: resolved.branding,
+    eventVars: resolved.eventVars,
+    subject: valid.subject,
+    message: valid.message,
+    attachments,
+    cc: args.cc,
+    bcc: args.bcc,
+    copyToSender: args.copyToSender,
+    actorUserId: args.actorUserId,
+    contactActivityAction: "EMAIL_SENT",
+    threadDealId: resolved.dealId,
+    reply: resolved.reply,
+    logScope: { organizationId: args.organizationId, threadId: args.threadId, source: args.source },
+  });
+  if (resolved.dealId) {
+    recordDealSummary(args.organizationId, resolved.dealId, args.actorUserId, valid.subject, result, resolved.eventVars);
+  }
   return result;
 }
 
 // ── Preview ───────────────────────────────────────────────────────────────────────
+
+function resolveForPreview(organizationId: string, target: { kind: "deal" | "event" | "thread"; id: string }) {
+  if (target.kind === "deal") return resolveDealRecipients({ organizationId, dealId: target.id });
+  if (target.kind === "thread") return resolveThreadRecipients({ organizationId, threadId: target.id });
+  return resolveSponsorRecipients({ organizationId, eventId: target.id });
+}
 
 /** Stands in when the target has nobody to email yet, so the layout still previews. */
 const SAMPLE_RECIPIENT = { firstName: "Alex", lastName: "Sample", companyName: "Sample Company" };
@@ -746,7 +925,7 @@ export interface CrmEmailPreview {
  */
 export async function previewCrmEmail(args: {
   organizationId: string;
-  target: { kind: "deal" | "event"; id: string };
+  target: { kind: "deal" | "event" | "thread"; id: string };
   contactId?: string;
   /** Preview for the sample person, e.g. when the sender has unticked everyone. */
   sample?: boolean;
@@ -754,10 +933,7 @@ export async function previewCrmEmail(args: {
   message: string;
   actorUserId: string | null;
 }): Promise<CrmEmailPreview | ServiceFail> {
-  const resolved =
-    args.target.kind === "deal"
-      ? await resolveDealRecipients({ organizationId: args.organizationId, dealId: args.target.id })
-      : await resolveSponsorRecipients({ organizationId: args.organizationId, eventId: args.target.id });
+  const resolved = await resolveForPreview(args.organizationId, args.target);
   if (!resolved.ok) return resolved;
 
   const { branding, eventVars } =
