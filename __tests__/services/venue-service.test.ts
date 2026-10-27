@@ -38,6 +38,16 @@ describe("createReport", () => {
     expect(mail.htmlContent).not.toMatch(/<(img|b|script)\b/);
     expect(mail.htmlContent).toContain("&lt;img src=x");
     expect(mail.textContent).toContain('"<script>x</script>"'); // the peer's line reaches the email (review M2)
+    // Filed against its event in the organisation's Email History (Oct 27).
+    expect(mail.emailType).toBe("venue_safety_report");
+    expect(mail.logContext).toEqual({ organizationId: "org-1", eventId: "evt-1", entityType: "OTHER", templateSlug: "venue-safety-report", triggeredByUserId: "u-1" });
+  });
+
+  it("breaks up {{ }} in what people typed, so a chat line cannot stop the report about it being sent (Oct 27)", async () => {
+    await createReport(caller, { reason: "Offensive language", note: "see {{eventName}}", said: [{ t: 1, text: "{{x}} and }}" }] }, info);
+    const mail = mockSend.mock.calls[0][0];
+    expect(`${mail.subject}${mail.htmlContent}${mail.textContent}`).not.toContain("{{");
+    expect(mail.textContent).toContain("{ {x} } and } }");
   });
 
   it("keeps the report when the email fails, and logs the failure", async () => {

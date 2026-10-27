@@ -54,9 +54,17 @@ describe("/api/events/:eventId/venue", () => {
     expect((await put({ rooms, version: 0 })).status).toBe(404);
   });
 
+  it("says where the venue's safety reports go: the organisation's company email, or none (Oct 27)", async () => {
+    as("MEMBER");
+    mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1", settings: {}, organization: { companyEmail: "safety@org-one.test" } });
+    expect((await (await GET(new Request("http://localhost/x"), params)).json()).safetyInbox).toBe("safety@org-one.test");
+    mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1", settings: {}, organization: { companyEmail: null } });
+    expect((await (await GET(new Request("http://localhost/x"), params)).json()).safetyInbox).toBeNull();
+  });
+
   it("a member reads the rooms; only events.update saves them", async () => {
     as("MEMBER");
-    expect(await (await GET(new Request("http://localhost/x"), params)).json()).toEqual({ rooms: null, version: 0, open: false, slug: undefined, programme: SUMMARY, blueprint: null, plan: null });
+    expect(await (await GET(new Request("http://localhost/x"), params)).json()).toEqual({ rooms: null, version: 0, open: false, slug: undefined, programme: SUMMARY, blueprint: null, plan: null, safetyInbox: null });
     expect((await put({ rooms, version: 0 })).status).toBe(403);
     as("ORGANIZER");
     const res = await put({ rooms, version: 0 });

@@ -98,25 +98,32 @@ export async function createReport(c: Caller, raw: unknown, ctxInfo: { eventName
     }),
   );
   apiLogger.info({ msg: "venue-service:report-stored", ...ctx, reportId: row.id });
-  await emailReport(item, { ...ctxInfo, reportId: row.id }, ctx);
+  await emailReport(item, { ...ctxInfo, reportId: row.id }, c);
   return { ok: true };
 }
 
-async function emailReport(item: Record<string, unknown>, info: { eventName: string; reporterName: string; inbox: string | null; reportId: string }, ctx: Record<string, unknown>) {
+/**
+ * Text people typed (a note, the reported person's lines) with `{{` and `}}` broken apart. sendEmail refuses any
+ * email still holding a `{{token}}`, so a line like "{{x}}" would otherwise stop the report about it being sent.
+ */
+const untokened = (s: string) => s.replace(/\{\{/g, "{ {").replace(/\}\}/g, "} }");
+
+async function emailReport(item: Record<string, unknown>, info: { eventName: string; reporterName: string; inbox: string | null; reportId: string }, c: Caller) {
+  const ctx = { organizationId: c.organizationId, eventId: c.eventId, userId: c.userId };
   // No inbox: the report stays stored and on the event team's Reports view; the gap is logged so it is fixed.
   if (!info.inbox) {
     apiLogger.error({ msg: "venue-service:report-email-no-inbox", ...ctx, reportId: info.reportId });
     return;
   }
   const who = item.who as { name: string; guest: boolean };
-  const said = (item.said as { text: string }[]).map((s) => s.text);
+  const said = (item.said as { text: string }[]).map((s) => untokened(s.text));
   const lines = [
     `Event: ${info.eventName}`,
     `Reason: ${item.reason}`,
-    `About: ${who.name || "unknown"}${who.guest ? " (guest)" : ""}`,
+    `About: ${untokened(who.name || "unknown")}${who.guest ? " (guest)" : ""}`,
     `Room: ${item.zone || "unknown"}`,
-    `Reported by: ${info.reporterName}`,
-    item.note ? `Note: ${item.note}` : "",
+    `Reported by: ${untokened(info.reporterName)}`,
+    item.note ? `Note: ${untokened(String(item.note))}` : "",
     said.length ? `Their last lines:\n${said.map((s) => `  "${s}"`).join("\n")}` : "",
     `Report id: ${info.reportId}`,
   ].filter(Boolean);
@@ -126,6 +133,9 @@ async function emailReport(item: Record<string, unknown>, info: { eventName: str
       subject: `Venue safety report: ${info.eventName}`,
       htmlContent: lines.map((l) => `<p>${escapeHtml(l).replace(/\n/g, "<br/>")}</p>`).join("\n"),
       textContent: lines.join("\n"),
+      emailType: "venue_safety_report",
+      // Filed against the event in its organisation's Email History, not as an unattributed send (Oct 27).
+      logContext: { organizationId: c.organizationId, eventId: c.eventId, entityType: "OTHER", templateSlug: "venue-safety-report", triggeredByUserId: c.userId },
     });
     if (!res.success) apiLogger.error({ msg: "venue-service:report-email-failed", ...ctx, reportId: info.reportId, error: res.error, code: res.code });
   } catch (err) {

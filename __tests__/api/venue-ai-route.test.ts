@@ -143,7 +143,13 @@ describe("/config: AI attendees", () => {
     expect(await (await configGET(new Request("http://localhost/x"), params)).json()).toMatchObject({ ai: { on: true } });
     expect(ai.usageToday).not.toHaveBeenCalled();
     as("ORGANIZER");
-    expect(await (await configGET(new Request("http://localhost/x"), params)).json()).toMatchObject({ ai: { on: true, replies: 12, cap: 2000, perPersonHour: 40 } });
+    expect(await (await configGET(new Request("http://localhost/x"), params)).json()).toMatchObject({ ai: { on: true, available: true, replies: 12, cap: 2000, perPersonHour: 40 } });
+  });
+
+  it("says AI cannot run when the organisation has no AI key of its own, though the switch reads on (Oct 27)", async () => {
+    as("ORGANIZER");
+    ai.venueAiAccess.mockResolvedValue({ ok: false });
+    expect(await (await configGET(new Request("http://localhost/x"), params)).json()).toMatchObject({ ai: { on: true, available: false } });
   });
 
   it("only the event team switches AI attendees off", async () => {

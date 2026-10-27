@@ -152,7 +152,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           )}
           <Summary rooms={rooms} />
           {dirty && <p className="text-sm text-muted-foreground">Not saved yet.</p>}
-          {!dirty && saved && data?.slug && <OpenCard eventId={eventId} slug={data.slug} open={!!data.open} canEdit={canEdit} />}
+          {!dirty && saved && data?.slug && <OpenCard eventId={eventId} slug={data.slug} open={!!data.open} canEdit={canEdit} safetyInbox={data.safetyInbox ?? null} />}
           {issues.length === 0 && <VenueProgrammeCard rooms={rooms} programme={data?.programme} plan={data?.plan?.plan ?? null} />}
           {issues.length === 0 && (
             <VenueFloorPlan rooms={rooms} eventName="" plan={data?.plan?.plan ?? null} actions={<PlanActions eventId={eventId} saved={!!saved && !dirty} canEdit={canEdit} onEdit={() => setEditingPlan(true)} />} />
@@ -173,7 +173,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
   );
 }
 
-function OpenCard({ eventId, slug, open, canEdit }: { eventId: string; slug: string; open: boolean; canEdit: boolean }) {
+function OpenCard({ eventId, slug, open, canEdit, safetyInbox }: { eventId: string; slug: string; open: boolean; canEdit: boolean; safetyInbox: string | null }) {
   const setOpen = useSetVenueOpen(eventId);
   const toggle = async (next: boolean) => {
     try {
@@ -208,6 +208,19 @@ function OpenCard({ eventId, slug, open, canEdit }: { eventId: string; slug: str
             </label>
           )}
         </div>
+      </CardContent>
+      {/* Safety reports raised in the venue are emailed to the organisation's company email (tenancy review, Oct 27). */}
+      <CardContent className="border-t px-5 py-3 text-sm">
+        {safetyInbox ? (
+          <p className="text-muted-foreground">
+            Safety reports raised in the venue are emailed to <span className="font-medium text-foreground">{safetyInbox}</span>, the organisation&apos;s company email.
+          </p>
+        ) : (
+          <p role="status" className="text-amber-800 dark:text-amber-300">
+            Safety reports raised in the venue cannot be emailed: this organisation has no company email. They are still saved for the event team.
+            An administrator can add one under Settings, Billing.
+          </p>
+        )}
       </CardContent>
     </Card>
   );

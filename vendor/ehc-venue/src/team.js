@@ -186,6 +186,12 @@ class EventTeam {
     box.innerHTML = '';
     const el = (t, txt, cls) => { const e = document.createElement(t); if (txt != null) e.textContent = txt; if (cls) e.className = cls; return e; };
     if (!cfg) { box.appendChild(el('p', 'AI settings can’t be read in this view.', 'small')); return; }
+    // EA-SYS (Oct 27): on the platform, AI attendees run only on the organisation's own AI key.
+    if (cfg.available === false) {
+      box.append(el('p', 'AI attendees are using pre-written answers: this organisation has no AI key of its own yet.', 'pn'),
+        el('p', 'An administrator can add one under Settings, Integrations, AI Assistant. AI attendees then reply with live AI, paid for on the organisation’s own AI account.', 'small'));
+      return;
+    }
     const on = cfg.on !== false, n = (v) => (typeof v === 'number' && isFinite(v) ? v : 0), used = n(cfg.replies), cap = n(cfg.cap), hour = n(cfg.perPersonHour);
     box.appendChild(el('p', on ? 'AI attendees are on: they reply with live AI.' : 'AI attendees are off: they use pre-written answers.', 'pn'));
     if (cap) box.appendChild(el('p', `${used.toLocaleString('en-GB')} of ${cap.toLocaleString('en-GB')} AI replies used today.` + (used >= cap ? ' The daily limit is reached, so attendees get pre-written answers until tomorrow.' : ''), 'small'));

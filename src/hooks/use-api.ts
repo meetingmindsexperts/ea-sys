@@ -3270,6 +3270,8 @@ export interface VenueRoomsData {
    * saved plan no longer fits the rooms (the venue is then automatic).
    */
   plan?: { plan: VenuePlan; version: number; mode: "automatic" | "drawn"; issues: string[] } | null;
+  /** Where the venue's safety reports are emailed (the organisation's company email); null when it has none. */
+  safetyInbox?: string | null;
 }
 
 export function useVenueRooms(eventId: string) {

@@ -37,6 +37,7 @@ import { saveVenuePlan, saveVenueRooms, setVenueOpen } from "@/services/venue-ro
 import { readVenuePlan } from "@/lib/venue/plan";
 import { buildVenueLayout } from "@/lib/venue/plan-layout";
 import { loadProgrammeSummary } from "@/services/venue-programme-service";
+import { venueSafetyInbox } from "@/services/venue-service";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -62,7 +63,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const gate = requirePermission(session, "events.read", { route: ROUTE, eventId });
     if (!gate.ok) return gate.response;
-    const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true, slug: true, organizationId: true, settings: true } });
+    const event = await db.event.findFirst({
+      where: gate.eventWhere,
+      select: { id: true, slug: true, organizationId: true, settings: true, organization: { select: { companyEmail: true } } },
+    });
     if (!event?.organizationId) {
       apiLogger.warn({ msg: `${ROUTE}:event-not-found`, eventId, userId: session.user.id });
       return notFound();
@@ -85,7 +89,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
         ? { plan: storedPlan.plan, version: storedPlan.updatedAt, mode: built?.mode ?? "automatic", issues: built?.planIssues ?? [] }
         : null;
       return NextResponse.json(
-        { rooms: saved?.rooms ?? null, version: saved?.updatedAt ?? 0, open: readVenueOpen(event.settings), slug: event.slug, programme, blueprint, plan },
+        {
+          rooms: saved?.rooms ?? null, version: saved?.updatedAt ?? 0, open: readVenueOpen(event.settings), slug: event.slug, programme, blueprint, plan,
+          // Where the venue's safety reports are emailed; null when the organisation has no company email (Oct 27).
+          safetyInbox: venueSafetyInbox(event.organization),
+        },
         { headers: { "Cache-Control": "private, no-store" } },
       );
     });

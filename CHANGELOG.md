@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Shared server**: live colleague streams are capped at 400 per organisation and 1,000 per server, so one large event cannot take every connection.
 - **Second wall**: the venue's settings writes lock the event only within the caller's organisation.
 - **Proof**: an RLS isolation suite for the venue tables (`tests/tenancy/venue-rls.test.ts`), and the venue models in `check-tenant-als.sh`'s swept list.
+- Follow-up (same day): safety report emails are logged as "venue safety report" against their event in the organisation's Email History, and `{{` / `}}` in what people typed is broken apart, so a chat line like `{{x}}` can no longer stop the report about it being emailed. The event team's AI panel says when the organisation has no AI key of its own (platform), and the Venue tab shows where safety reports go, or warns when the organisation has no company email.
 
 ### Venue floor plan: stairs between floors that stay joined (October 27)
 

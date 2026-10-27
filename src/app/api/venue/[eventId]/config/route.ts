@@ -11,7 +11,7 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { venueGuard } from "@/lib/venue/route-guard";
 import { readVenueConfig, saveFilter } from "@/services/venue-service";
-import { readVenueAi, saveVenueAi, usageToday, venueDay } from "@/services/venue-ai-service";
+import { readVenueAi, saveVenueAi, usageToday, venueAiAccess, venueDay } from "@/services/venue-ai-service";
 import { resolveTimezone } from "@/lib/event-time";
 
 type Params = { params: Promise<{ eventId: string }> };
@@ -26,8 +26,13 @@ export async function GET(_req: Request, { params }: Params) {
     const gate = await venueGuard({ id: eventId }, ROUTE);
     if (!gate.ok) return gate.response;
     return await runWithTenant(gate.organizationId, async () => {
-      const ai = readVenueAi(gate.event.settings);
-      const usage = gate.team ? await usageToday(gate.organizationId, eventId, venueDay(resolveTimezone(gate.event.timezone))) : null;
+      // `available`: false on the platform when the organisation has no AI key of its own, so the team's switch
+      // can say why AI attendees use pre-written answers even while it reads "on" (tenancy review, Oct 27).
+      const [usage, access] = await Promise.all([
+        gate.team ? usageToday(gate.organizationId, eventId, venueDay(resolveTimezone(gate.event.timezone))) : null,
+        venueAiAccess(gate.organizationId),
+      ]);
+      const ai = { ...readVenueAi(gate.event.settings), available: access.ok };
       return NextResponse.json({ ...readVenueConfig(gate.event.settings), ai: usage ? { ...ai, ...usage } : ai });
     });
   } catch (err) {
