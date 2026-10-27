@@ -526,22 +526,26 @@ export function registerCrmMcpTools(
 
   server.tool(
     "list_crm_companies",
-    "List CRM accounts (companies) with per-account deal counts AND per-currency deal value: Open (pipeline) / Won / Lost / Total. LOST is shown separately and NEVER folded into Total (money that never came); value is never summed across currencies. Filters: search (name contains), includeArchived, limit (default 50, max 200).",
+    "List CRM accounts (companies) with their owner, per-account deal counts AND per-currency deal value: Open (pipeline) / Won / Lost / Total. LOST is shown separately and NEVER folded into Total (money that never came); value is never summed across currencies. Filters: search (name contains), ownerEmail (one rep's accounts), includeArchived, limit (default 50, max 200).",
     {
       search: z.string().optional(),
+      ownerEmail: z.string().email().optional(),
       includeArchived: z.boolean().optional(),
       limit: z.number().optional(),
     },
-    async ({ search, includeArchived, limit }) =>
+    async ({ search, ownerEmail, includeArchived, limit }) =>
       safeTool("list_crm_companies", async () => {
+        const ownerId = ownerEmail ? await resolveOwnerId(organizationId, ownerEmail) : undefined;
         const companies = await db.crmCompany.findMany({
           where: {
             organizationId,
             ...(includeArchived ? {} : { archivedAt: null }),
             ...(search ? { name: { contains: search, mode: "insensitive" } } : {}),
+            ...(ownerId ? { ownerId } : {}),
           },
           select: {
             id: true, name: true, industry: true, country: true, needsReview: true,
+            owner: { select: { firstName: true, lastName: true } },
             _count: { select: { deals: true, contacts: true } },
             // Non-archived deals only for the value rollup (matches the account page).
             deals: {
@@ -557,7 +561,7 @@ export function registerCrmMcpTools(
           .map(
             (c) =>
               `${c.name}${c.industry ? ` (${c.industry})` : ""}${c.needsReview ? " ⚠ needs duplicate review" : ""}` +
-              `\n  ID: ${c.id} | Deals: ${c._count.deals} | Contacts: ${c._count.contacts}` +
+              `\n  ID: ${c.id} | Owner: ${c.owner ? `${c.owner.firstName} ${c.owner.lastName}` : "unassigned"} | Deals: ${c._count.deals} | Contacts: ${c._count.contacts}` +
               `\n  Value: ${valueBreakdownLine(c.deals)}`,
           )
           .join("\n\n");
@@ -931,6 +935,7 @@ export function registerCrmMcpTools(
           select: {
             id: true, name: true, industry: true, website: true, phone: true,
             country: true, city: true, notes: true, needsReview: true, archivedAt: true,
+            owner: { select: { firstName: true, lastName: true, email: true } },
             deals: {
               where: { archivedAt: null },
               select: {
@@ -961,6 +966,7 @@ export function registerCrmMcpTools(
         return (
           `${company.name}${company.archivedAt ? " [archived]" : ""}${company.needsReview ? " ⚠ needs duplicate review" : ""}` +
           `\n  ID: ${company.id}` +
+          `\n  Owner: ${company.owner ? `${company.owner.firstName} ${company.owner.lastName} (${company.owner.email})` : "unassigned"}` +
           (company.industry ? `\n  Industry: ${company.industry}` : "") +
           (loc ? `\n  Location: ${loc}` : "") +
           (company.website ? `\n  Website: ${company.website}` : "") +
@@ -975,7 +981,7 @@ export function registerCrmMcpTools(
 
   writeServer.tool(
     "update_crm_company",
-    "Update a CRM account's fields: name, industry, website, phone, country, city, notes, tags (REPLACES the whole list), needsReview (set false once you've confirmed a flagged near-duplicate is distinct). Only the fields you pass change.",
+    "Update a CRM account's fields: name, industry, website, phone, country, city, notes, tags (REPLACES the whole list), needsReview (set false once you've confirmed a flagged near-duplicate is distinct), ownerEmail (reassign to a CRM-capable team member; null unowns). Only the fields you pass change.",
     {
       companyId: z.string().min(1),
       name: z.string().optional(),
@@ -987,9 +993,13 @@ export function registerCrmMcpTools(
       notes: z.string().nullable().optional(),
       tags: z.array(z.string().min(1).max(50)).max(25).optional(),
       needsReview: z.boolean().optional(),
+      ownerEmail: z.string().email().nullable().optional(),
     },
     async (input) =>
       safeTool("update_crm_company", async () => {
+        let ownerId: string | null | undefined = undefined;
+        if (input.ownerEmail === null) ownerId = null;
+        else if (input.ownerEmail) ownerId = await resolveOwnerId(organizationId, input.ownerEmail);
         const res = await updateCompany({
           organizationId,
           userId: systemUserId,
@@ -1004,6 +1014,7 @@ export function registerCrmMcpTools(
           notes: input.notes,
           tags: input.tags,
           needsReview: input.needsReview,
+          ownerId,
         });
         if (!res.ok) fail(res.message);
         return `Account updated: ${res.company.name} (${res.company.id})`;

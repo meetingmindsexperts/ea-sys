@@ -165,6 +165,9 @@ export async function findOrCreateCompany(
         notes: input.notes?.trim() || null,
         tags: normalizeContactTags(input.tags ?? []),
         needsReview: Boolean(nearMatch),
+        // The creator owns a new account (owner, Oct 27, 2026; contacts do the
+        // same). They passed the CRM write gate, so no owner-role check is needed.
+        ownerId: input.userId ?? null,
       },
     });
 

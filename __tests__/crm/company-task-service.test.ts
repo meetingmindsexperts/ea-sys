@@ -104,6 +104,17 @@ describe("findOrCreateCompany", () => {
     );
   });
 
+  it("the creator owns a new account (owner, Oct 27 2026; contacts do the same)", async () => {
+    vi.mocked(db.crmCompany.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.crmCompany.create).mockResolvedValue({ id: "c-2", name: "Abbott", needsReview: false } as never);
+
+    await findOrCreateCompany({ ...base, name: "Abbott" });
+
+    expect(db.crmCompany.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ ownerId: base.userId }) }),
+    );
+  });
+
   it("FLAGS a near-duplicate for human review but still creates it", async () => {
     // "Cleveland Clinic Foundation" may or may not be the same entity as
     // "Cleveland Clinic". We must not guess — create it, flag it, let a human merge.

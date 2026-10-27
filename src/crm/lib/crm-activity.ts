@@ -167,7 +167,7 @@ export async function listCrmActivity(args: {
   entityId: string;
   limit?: number;
 }): Promise<CrmActivityRecord[]> {
-  return db.crmActivity.findMany({
+  const rows = await db.crmActivity.findMany({
     where: {
       organizationId: args.organizationId,
       entityType: args.entityType,
@@ -176,6 +176,74 @@ export async function listCrmActivity(args: {
     orderBy: { createdAt: "desc" },
     take: Math.min(args.limit ?? 200, 500),
     select: ACTIVITY_SELECT,
+  });
+  return nameReferences(args.organizationId, rows);
+}
+
+/** Diff fields whose values are ids of people or accounts, and what they point at. */
+const REFERENCE_FIELDS = { ownerId: "user", companyId: "company" } as const;
+
+type FieldChangeValue = { from?: unknown; to?: unknown };
+
+/**
+ * Show names, not ids, for owner and account changes in History (owner,
+ * Oct 27, 2026). An edit records `ownerId: { from: "cm…", to: "cm…" }`, which
+ * the timeline rendered as raw ids. Resolved at READ time, so every existing
+ * entry reads too. Org-scoped (an id from another org stays an id); a value
+ * that is already a name (the Freshsales backfill scripts store names) or a
+ * purged record is left as it is.
+ */
+export async function nameReferences<T extends { changes: Prisma.JsonValue }>(
+  organizationId: string,
+  rows: T[],
+): Promise<T[]> {
+  const ids = { user: new Set<string>(), company: new Set<string>() };
+  const diffsOf = (r: T): Record<string, FieldChangeValue> | null => {
+    const c = r.changes as { changes?: unknown } | null;
+    const d = c && typeof c === "object" ? c.changes : null;
+    return d && typeof d === "object" ? (d as Record<string, FieldChangeValue>) : null;
+  };
+  for (const r of rows) {
+    const diffs = diffsOf(r);
+    if (!diffs) continue;
+    for (const [field, kind] of Object.entries(REFERENCE_FIELDS)) {
+      const change = diffs[field];
+      if (!change) continue;
+      for (const v of [change.from, change.to]) if (typeof v === "string") ids[kind].add(v);
+    }
+  }
+  if (ids.user.size === 0 && ids.company.size === 0) return rows;
+
+  const [users, companies] = await Promise.all([
+    ids.user.size
+      ? db.user.findMany({
+          where: { organizationId, id: { in: [...ids.user] } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : [],
+    ids.company.size
+      ? db.crmCompany.findMany({ where: { organizationId, id: { in: [...ids.company] } }, select: { id: true, name: true } })
+      : [],
+  ]);
+  const names = {
+    user: new Map(users.map((u) => [u.id, `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim()])),
+    company: new Map(companies.map((c) => [c.id, c.name])),
+  };
+  const nameOf = (kind: keyof typeof names, v: unknown) =>
+    typeof v === "string" ? names[kind].get(v) ?? v : v;
+
+  return rows.map((r) => {
+    const diffs = diffsOf(r);
+    if (!diffs) return r;
+    const touched = Object.keys(REFERENCE_FIELDS).some((f) => diffs[f]);
+    if (!touched) return r;
+    const named = { ...diffs };
+    for (const [field, kind] of Object.entries(REFERENCE_FIELDS)) {
+      const change = diffs[field];
+      if (!change) continue;
+      named[field] = { ...change, from: nameOf(kind, change.from), to: nameOf(kind, change.to) };
+    }
+    return { ...r, changes: { ...(r.changes as object), changes: named } as Prisma.JsonValue };
   });
 }
 
@@ -259,10 +327,12 @@ async function resolveEntityNames(
   return map;
 }
 
-function attachNames(organizationId: string, rows: CrmActivityRecord[]): Promise<OrgActivityRecord[]> {
-  return resolveEntityNames(organizationId, rows).then((names) =>
-    rows.map((r) => ({ ...r, entityName: names.get(`${r.entityType}:${r.entityId}`) ?? null })),
-  );
+async function attachNames(organizationId: string, rows: CrmActivityRecord[]): Promise<OrgActivityRecord[]> {
+  const [names, named] = await Promise.all([
+    resolveEntityNames(organizationId, rows),
+    nameReferences(organizationId, rows),
+  ]);
+  return named.map((r) => ({ ...r, entityName: names.get(`${r.entityType}:${r.entityId}`) ?? null }));
 }
 
 /**
