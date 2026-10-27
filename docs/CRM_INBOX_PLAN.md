@@ -65,7 +65,13 @@ Original plan:
   `sendEmail` (a `headers` option on the raw MIME path), core-side.
 - Subject defaults to `Re: <subject>`.
 
-### Phase 3: compose from the inbox (about half a day)
+### Phase 3: compose from the inbox (BUILT Oct 27, 2026)
+
+As built: "New email" at the top of the inbox lists open and won deals (a
+lost deal is not a sponsor), filtered in the browser, and opens the deal
+email dialog on the chosen one.
+
+Original plan:
 
 - A **Compose** button: pick the deal first (search), then its people. The
   email is a deal email in every respect (event tokens, event branding, deal

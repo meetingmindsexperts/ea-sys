@@ -9,7 +9,8 @@
  * docs/CRM_INBOX_PLAN.md) the list has folders (Inbox, Sent, Archived), search,
  * Unread / Mine filters, a deal filter (click a thread's deal chip) and "load
  * more"; a conversation can be archived or marked unread, and replied to
- * (phase 2) through the shared email dialog, which keeps the reply in the same
+ * (phase 2), and "New email" starts one on a chosen deal (phase 3), both
+ * through the shared email dialog, which keeps the reply in the same
  * thread on both sides. Inbound HTML is UNTRUSTED and renders only
  * inside a sandboxed iframe (no scripts, no same-origin) — the same containment
  * the admin docs viewer uses.
@@ -26,6 +27,7 @@ import {
   Inbox,
   Loader2,
   MailWarning,
+  PenSquare,
   Paperclip,
   Reply,
   Search,
@@ -37,6 +39,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSettled } from "@/hooks/use-settled";
 import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
+import { ComposeCrmEmailDialog } from "@/crm/components/compose-crm-email-dialog";
 import {
   useCrmInbox,
   useCrmInboxThread,
@@ -209,6 +212,7 @@ export function CrmInbox() {
   const { data: detail, isLoading: detailLoading } = useCrmInboxThread(selectedId);
   const update = useUpdateInboxThread();
   const [replyOpen, setReplyOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   // Deduped by id: a thread that moved between page fetches must not render twice.
@@ -254,6 +258,11 @@ export function CrmInbox() {
       {/* ── Folders, filters and the thread list ─────────────────────────── */}
       <div className="flex flex-col overflow-hidden rounded-lg border bg-card">
         <div className="space-y-2 border-b p-2">
+          <Button type="button" size="sm" className="w-full" onClick={() => setComposeOpen(true)}>
+            <PenSquare className="mr-2 h-4 w-4" />
+            New email
+          </Button>
+          <ComposeCrmEmailDialog open={composeOpen} onOpenChange={setComposeOpen} />
           <Tabs value={folder} onValueChange={(v) => go({ folder: asFolder(v), thread: null })}>
             <TabsList className="w-full">
               <TabsTrigger value="inbox" className="flex-1">
