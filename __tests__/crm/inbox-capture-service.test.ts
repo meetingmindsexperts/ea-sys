@@ -43,12 +43,20 @@ beforeEach(() => {
 
 describe("findAccountForDomain", () => {
   it("maps by the one account whose website names the domain", async () => {
-    vi.mocked(db.crmCompany.findMany).mockResolvedValue([{ id: "co-abbott" }] as never);
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([{ id: "co-abbott", website: "https://www.abbott.com" }] as never);
     expect(await findAccountForDomain("org-1", "abbott.com")).toEqual({ id: "co-abbott", matchedBy: "website" });
   });
 
+  it("ignores a lookalike website the database search returned (abbott.co vs abbott.com)", async () => {
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([{ id: "co-abbott", website: "abbott.com" }] as never);
+    expect(await findAccountForDomain("org-1", "abbott.co")).toBeNull();
+  });
+
   it("does not guess when two accounts share the domain", async () => {
-    vi.mocked(db.crmCompany.findMany).mockResolvedValue([{ id: "a" }, { id: "b" }] as never);
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([
+      { id: "a", website: "abbott.com" },
+      { id: "b", website: "www.abbott.com" },
+    ] as never);
     expect(await findAccountForDomain("org-1", "abbott.com")).toBeNull();
     expect(db.crmContact.findMany).not.toHaveBeenCalled();
   });
@@ -74,7 +82,7 @@ describe("resolveCaptureContact", () => {
   });
 
   it("creates a fresh person as a tagged contact on the matched account, with History on the account", async () => {
-    vi.mocked(db.crmCompany.findMany).mockResolvedValue([{ id: "co-abbott" }] as never);
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([{ id: "co-abbott", website: "abbott.com" }] as never);
     vi.mocked(findOrCreateCrmContact).mockResolvedValue({
       ok: true,
       created: true,
@@ -114,8 +122,26 @@ describe("resolveCaptureContact", () => {
 });
 
 describe("findCaptureThread", () => {
+  it("never joins another sponsor's thread through a leaked Message-ID (review HIGH)", async () => {
+    vi.mocked(db.crmEmailMessage.findFirst).mockResolvedValue({
+      threadId: "t-gsk",
+      thread: { counterpartyEmail: "buyer@gsk.com" },
+    } as never);
+    vi.mocked(db.crmEmailThread.findMany).mockResolvedValue([] as never);
+    const id = await findCaptureThread({
+      organizationId: "org-1",
+      references: ["<leaked@x>"],
+      counterpartyEmail: "attacker@evil.example",
+      subject: "Bank details",
+    });
+    expect(id).toBeNull();
+  });
+
   it("joins the thread holding the message it replies to, org-bound", async () => {
-    vi.mocked(db.crmEmailMessage.findFirst).mockResolvedValue({ threadId: "t-1" } as never);
+    vi.mocked(db.crmEmailMessage.findFirst).mockResolvedValue({
+      threadId: "t-1",
+      thread: { counterpartyEmail: "jane@abbott.com" },
+    } as never);
     const id = await findCaptureThread({
       organizationId: "org-1",
       references: ["<a@x>"],
@@ -140,6 +166,11 @@ describe("findCaptureThread", () => {
       subject: "RE: sponsorship",
     });
     expect(id).toBe("t-match");
+    // Only live, recent threads are matched by subject.
+    expect(vi.mocked(db.crmEmailThread.findMany).mock.calls[0]![0]!.where).toMatchObject({
+      revokedAt: null,
+      lastMessageAt: { gte: expect.any(Date) },
+    });
   });
 
   it("else null: a new conversation", async () => {

@@ -9,8 +9,10 @@ import {
   captureDirection,
   contactNameFromSender,
   isAutomatedMail,
+  domainMatchesWebsite,
   isFreemailDomain,
   normalizeSubject,
+  websiteDomain,
 } from "@/crm/lib/inbox-capture";
 
 const MAILBOX = "partnerships@meetingmindsdubai.com";
@@ -35,11 +37,12 @@ describe("captureDirection", () => {
     expect(dir(MAILBOX, [MAILBOX])).toEqual({ kind: "skip", reason: "internal-only" });
   });
 
-  it("skips mail that does not name the mailbox (stray mail to the receiving domain)", () => {
-    expect(dir("jane@abbott.com", ["someone@reply.meetingmindsexperts.com"])).toEqual({
-      kind: "skip",
-      reason: "mailbox-not-addressed",
-    });
+  it("captures a sender who only Bcc'd the mailbox (delivery to the capture address is the proof)", () => {
+    expect(dir("jane@abbott.com", ["colleague@abbott.com"])).toEqual({ kind: "inbound", counterparty: "jane@abbott.com" });
+  });
+
+  it("skips mail from the CRM's own receiving domain", () => {
+    expect(dir("abc@reply.meetingmindsexperts.com", [MAILBOX]).kind).toBe("skip");
   });
 
   it("is case-insensitive", () => {
@@ -96,6 +99,21 @@ describe("contactNameFromSender", () => {
       lastName: "Unknown",
       tags: ["needs-name"],
     });
+  });
+});
+
+describe("website domains (review MED: no lookalike matches)", () => {
+  it("reads the domain from a website however it is written", () => {
+    expect(websiteDomain("https://www.Abbott.com/en")).toBe("abbott.com");
+    expect(websiteDomain("abbott.com")).toBe("abbott.com");
+    expect(websiteDomain("")).toBeNull();
+  });
+
+  it("matches the same domain or a subdomain, never a lookalike", () => {
+    expect(domainMatchesWebsite("abbott.com", "https://www.abbott.com")).toBe(true);
+    expect(domainMatchesWebsite("uk.abbott.com", "abbott.com")).toBe(true);
+    expect(domainMatchesWebsite("abbott.co", "https://www.abbott.com")).toBe(false);
+    expect(domainMatchesWebsite("lab.com", "collab.com")).toBe(false);
   });
 });
 

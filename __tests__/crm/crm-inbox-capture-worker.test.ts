@@ -1,9 +1,12 @@
 /**
  * The inbound worker's partnerships capture path (Oct 27, 2026): an email with
  * no reply token that names the partnerships mailbox is filed into the inbox.
- * Pins: dormancy without CRM_CAPTURE_ORG_ID, a fresh sender becoming a thread,
- * the outbound DMARC requirement, internal mail skipped, one filing per
- * message, and History. MIME goes through the REAL mailparser; the capture
+ * Pins: dormancy without CRM_CAPTURE_ORG_ID / CRM_CAPTURE_ADDRESS, only mail
+ * SES received for the secret capture address via Microsoft 365, only SES's
+ * own headers believed (a sender cannot forge DMARC or the spam verdict), a
+ * fresh sender becoming a thread, outbound needing SES's dmarc=pass, internal
+ * mail skipped, a wrong org id never stalling the queue, the contact budget,
+ * one filing per message, and History. MIME goes through the REAL mailparser; the capture
  * service is mocked (its own suite covers it).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -34,7 +37,12 @@ vi.mock("@aws-sdk/client-s3", () => ({
 vi.mock("@/lib/db", () => {
   const crmEmailMessage = { findFirst: vi.fn(), create: vi.fn() };
   const crmEmailThread = { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() };
-  const client = { crmEmailMessage, crmEmailThread, user: { findUnique: vi.fn() } };
+  const client = {
+    crmEmailMessage,
+    crmEmailThread,
+    user: { findUnique: vi.fn() },
+    organization: { findUnique: vi.fn() },
+  };
   return {
     db: client,
     dbOperator: client,
@@ -66,16 +74,24 @@ import {
 import { runTick } from "@/crm/inbound-email-worker";
 
 const MAILBOX = "partnerships@meetingmindsdubai.com";
+const CAPTURE = "capture-s3cr3t@reply.meetingmindsexperts.com";
 
-function rawEmail(over: { from?: string; to?: string; dmarc?: string; extra?: string[] } = {}): string {
+/** SES's own first Received line, as on a real stored email. */
+const sesReceived = (rcpt: string, from = "AU1P273CU002.outbound.protection.outlook.com") =>
+  `Received: from ${from} (mail.outbound.protection.outlook.com [52.101.159.127]) by inbound-smtp.ap-south-1.amazonaws.com with SMTP id q1 for ${rcpt}; Tue, 27 Oct 2026 10:55:23 +0000 (UTC)`;
+
+function rawEmail(
+  over: { from?: string; to?: string; dmarc?: string; extra?: string[]; received?: string; spam?: string[] } = {},
+): string {
   return [
+    over.received ?? sesReceived(CAPTURE),
+    ...(over.spam ?? ["X-SES-Spam-Verdict: PASS"]),
+    "X-SES-Virus-Verdict: PASS",
+    `Authentication-Results: amazonses.com; spf=pass; dmarc=${over.dmarc ?? "pass"} header.from=x`,
     `From: ${over.from ?? "Jane Doe <jane@abbott.com>"}`,
     `To: ${over.to ?? MAILBOX}`,
     "Subject: Sponsorship enquiry",
     "Message-ID: <fresh-1@abbott.com>",
-    "X-SES-Spam-Verdict: PASS",
-    "X-SES-Virus-Verdict: PASS",
-    ...(over.dmarc ? [`Authentication-Results: amazonses.com; dmarc=${over.dmarc} header.from=x`] : []),
     ...(over.extra ?? []),
     "Content-Type: text/plain; charset=utf-8",
     "",
@@ -105,6 +121,8 @@ beforeEach(() => {
   process.env.CRM_REPLY_DOMAIN = "reply.meetingmindsexperts.com";
   process.env.CRM_EMAIL_FROM_ADDRESS = MAILBOX;
   process.env.CRM_CAPTURE_ORG_ID = "org-1";
+  process.env.CRM_CAPTURE_ADDRESS = CAPTURE;
+  vi.mocked(db.organization.findUnique).mockResolvedValue({ id: "org-1" } as never);
   vi.mocked(db.crmEmailMessage.findFirst).mockResolvedValue(null as never);
   vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue(null as never);
   vi.mocked(db.crmEmailThread.create).mockResolvedValue({ id: "t-new" } as never);
@@ -122,7 +140,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const k of ["CRM_INBOUND_S3_BUCKET", "CRM_REPLY_DOMAIN", "CRM_EMAIL_FROM_ADDRESS", "CRM_CAPTURE_ORG_ID"]) {
+  for (const k of ["CRM_INBOUND_S3_BUCKET", "CRM_REPLY_DOMAIN", "CRM_EMAIL_FROM_ADDRESS", "CRM_CAPTURE_ORG_ID", "CRM_CAPTURE_ADDRESS"]) {
     delete process.env[k];
   }
 });
@@ -181,15 +199,71 @@ describe("partnerships capture", () => {
     expect(resolveCaptureContact).toHaveBeenCalledWith(expect.objectContaining({ automated: true }));
   });
 
-  it("captures a rep's Outlook email to a sponsor only with DMARC=pass", async () => {
+  it("captures a rep's Outlook email to a sponsor only with SES's dmarc=pass", async () => {
     mockS3({ "inbound/d": rawEmail({ from: `Partnerships <${MAILBOX}>`, to: "jane@abbott.com", dmarc: "pass" }) });
     expect(await runTick()).toMatchObject({ stored: 1 });
     expect(db.crmEmailMessage.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ direction: "OUTBOUND" }) }));
 
-    vi.clearAllMocks();
-    mockS3({ "inbound/e": rawEmail({ from: `Partnerships <${MAILBOX}>`, to: "jane@abbott.com" }) });
+    vi.mocked(db.crmEmailMessage.create).mockClear();
+    mockS3({ "inbound/e": rawEmail({ from: `Partnerships <${MAILBOX}>`, to: "jane@abbott.com", dmarc: "fail" }) });
     expect(await runTick()).toMatchObject({ stored: 0, unmatched: 1 });
     expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
+  });
+
+  it("a forged second Authentication-Results cannot pass SES's dmarc=fail (review BLOCKER)", async () => {
+    mockS3({
+      "inbound/forged": rawEmail({
+        from: `Partnerships <${MAILBOX}>`,
+        to: "ceo@sponsor.com",
+        dmarc: "fail",
+        extra: ["Authentication-Results: evil.example; dmarc=pass"],
+      }),
+    });
+    expect(await runTick()).toMatchObject({ stored: 0, unmatched: 1 });
+    expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
+  });
+
+  it("a forged second spam verdict cannot hide SES's FAIL", async () => {
+    mockS3({ "inbound/spam": rawEmail({ spam: ["X-SES-Spam-Verdict: FAIL", "X-SES-Spam-Verdict: PASS"] }) });
+    expect(await runTick()).toMatchObject({ quarantined: 1 });
+    expect(resolveCaptureContact).not.toHaveBeenCalled();
+  });
+
+  it("an inbound message is verified only with SES's dmarc=pass", async () => {
+    mockS3({ "inbound/none": rawEmail({ dmarc: "none" }) });
+    await runTick();
+    expect(db.crmEmailMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ unverifiedSender: true }) }),
+    );
+  });
+
+  it("refuses mail that did not come through the mailbox rule (wrong address, or not via Microsoft 365)", async () => {
+    mockS3({
+      "inbound/direct": rawEmail({ received: sesReceived("anything@reply.meetingmindsexperts.com") }),
+      "inbound/notms": rawEmail({ received: sesReceived(CAPTURE, "mx.attacker.example") }),
+    });
+    expect(await runTick()).toMatchObject({ stored: 0, unmatched: 2 });
+    expect(resolveCaptureContact).not.toHaveBeenCalled();
+  });
+
+  it("a wrong CRM_CAPTURE_ORG_ID leaves mail unmatched, checked once per tick, never stalling the queue", async () => {
+    vi.mocked(db.organization.findUnique).mockResolvedValue(null as never);
+    mockS3({ "inbound/x1": rawEmail(), "inbound/x2": rawEmail() });
+    expect(await runTick()).toMatchObject({ unmatched: 2, failures: 0 });
+    expect(db.organization.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it("defers once the per-tick contact budget is spent", async () => {
+    const objects = Object.fromEntries(Array.from({ length: 22 }, (_, i) => [`inbound/n${i}`, rawEmail()]));
+    mockS3(objects);
+    const res = await runTick();
+    expect(res.stored).toBe(20);
+    expect(res.deferred).toBe(2);
+  });
+
+  it("captures a sponsor who only Bcc'd partnerships (the mailbox is not in To/Cc)", async () => {
+    mockS3({ "inbound/bcc": rawEmail({ to: "someone-else@abbott.com" }) });
+    expect(await runTick()).toMatchObject({ stored: 1 });
   });
 
   it("skips internal mail and the CRM's own forward copies", async () => {
@@ -206,6 +280,16 @@ describe("partnerships capture", () => {
     mockS3({ "inbound/h": rawEmail() });
     expect(await runTick()).toMatchObject({ duplicates: 1 });
     expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
+  });
+
+  it("sets an email aside after it fails three ticks running", async () => {
+    vi.mocked(resolveCaptureContact).mockRejectedValue(new Error("db down"));
+    mockS3({ "inbound/poison": rawEmail() });
+    await runTick();
+    await runTick();
+    expect(movedTo()).not.toContain("failed/poison");
+    await runTick();
+    expect(movedTo()).toContain("failed/poison");
   });
 
   it("is dormant without CRM_CAPTURE_ORG_ID: no-token mail stays unmatched", async () => {

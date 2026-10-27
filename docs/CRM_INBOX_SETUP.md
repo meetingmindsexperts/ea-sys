@@ -252,15 +252,31 @@ still lands in the inbox but never becomes a contact. Mail between colleagues, a
 the CRM's own forward copies, are skipped. An email that arrives twice (the
 capture copy and the reply-code copy) is filed once, by Message-ID.
 
-**Trust.** Capturing mail sent *to* partnerships@ is no wider than the mailbox
-itself (anyone can email it). Mail *from* partnerships@ is filed only with
-`dmarc=pass`, so nobody can forge what the team said.
+**Trust (adversarial review, Oct 27, 2026).**
+- Only mail SES received for the **secret capture address**, relayed by
+  Microsoft 365 (`*.outbound.protection.outlook.com`), is captured. Both facts
+  are read from SES's own first `Received` header, which a sender cannot write.
+  So every captured email already went through Microsoft's spam filtering and
+  the mailbox's rule; mail sent straight to the receiving domain is never
+  captured.
+- Only SES's own headers are believed: the first `Authentication-Results`
+  (signed `amazonses.com`) and the first spam/virus verdicts. A sender can add
+  copies of those headers; they are ignored.
+- Mail *from* partnerships@ is filed only with SES's `dmarc=pass`. An inbound
+  message is marked verified only with it (a sponsor domain without DKIM may
+  therefore show "Unverified sender"; that is the safe side).
+- Joining a conversation through `In-Reply-To` / `References` needs the same
+  sponsor domain, so a leaked Message-ID cannot drop a message into another
+  sponsor's thread.
+- At most 20 new contacts per minute; the rest wait for the next minute. An
+  email that fails three times running moves to `failed/` in the bucket.
 
 ### 1. Microsoft 365 (Exchange admin center, owner-run)
 
 1. **Recipients → Contacts → Add a mail contact**: display name `CRM Capture`,
-   external email `capture@reply.meetingmindsexperts.com`. (Any local part works:
-   SES accepts the whole domain.)
+   external email = the secret capture address (`CRM_CAPTURE_ADDRESS` below,
+   `capture-<random>@reply.meetingmindsexperts.com`). Treat the address like a
+   password: it is what proves a copy came through the mailbox rule.
 2. **Mail flow → Rules → Add a rule → Create a new rule**, name
    `CRM capture: mail to partnerships`:
    - *Apply this rule if*: **The recipient** → **is this person** → `partnerships@meetingmindsdubai.com`
@@ -278,10 +294,13 @@ the copy.
 ### 2. Env + deploy (on the box), BEFORE switching the rules on
 
 ```
-CRM_CAPTURE_ORG_ID="cmknqh87j0000mj0wk4j1tzk0"   # the organisation the mailbox belongs to
+CRM_CAPTURE_ORG_ID="cmknqh87j0000mj0wk4j1tzk0"                  # the organisation the mailbox belongs to
+CRM_CAPTURE_ADDRESS="capture-<random>@reply.meetingmindsexperts.com"   # the same address as the M365 mail contact
 ```
 
-Without it, capture is dormant and no-code mail keeps going to `unmatched/`.
+Without both, capture is dormant and no-code mail keeps going to `unmatched/`.
+A wrong organisation id logs `crm-capture:org-not-found` and leaves mail in
+`unmatched/` (move it back to `inbound/` once fixed and it is filed).
 `CRM_EMAIL_FROM_ADDRESS` (already set) names the mailbox. Then `scripts/deploy.sh`.
 
 ### 3. Verify
@@ -291,4 +310,10 @@ Without it, capture is dormant and no-code mail keeps going to `unmatched/`.
    `from-inbox`; `/logs` shows `crm-capture:stored`.
 2. Reply to that email from Outlook (as partnerships@): the reply joins the same
    conversation as an outgoing message.
-3. Mail that was skipped shows `crm-inbound:unmatched` with a `capture-skip:` reason.
+3. Mail that was skipped shows `crm-inbound:unmatched` with its reason
+   (`capture-skip:internal-sender`, `capture-not-via-mailbox-rule`,
+   `capture-outbound-unauthenticated`, ...).
+
+**Known limits.** An outgoing Outlook email to several sponsors is filed under
+the first outside recipient. A captured email from a contact who was archived is
+filed against that archived contact.

@@ -78,8 +78,19 @@ export interface InboundTickResult {
   duplicates: number;
   quarantined: number;
   unmatched: number;
+  /** Left for the next tick (the capture contact budget). */
+  deferred: number;
   failures: number;
 }
+
+/**
+ * Failures per object key in this worker process. An email that fails this
+ * many ticks running moves to failed/ instead of being retried forever, which
+ * would also starve the queue: the tick reads the first MAX_OBJECTS_PER_TICK
+ * keys only (review HIGH, Oct 27, 2026).
+ */
+const MAX_OBJECT_FAILURES = 3;
+const objectFailures = new Map<string, number>();
 
 function addressObjects(v: AddressObject | AddressObject[] | undefined): AddressObject[] {
   if (Array.isArray(v)) return v;
@@ -110,21 +121,57 @@ export function extractReplyToken(addresses: string[], replyDomain: string | nul
   return null;
 }
 
-/** SES receipt verdict headers on the stored MIME. Returns the failing verdict. */
+/**
+ * Every instance of a header, top first, unfolded. SES PREPENDS its own
+ * headers, so the first instance is SES's and any later one came from the
+ * sender, who can write whatever they like (review BLOCKER, Oct 27, 2026: a
+ * sender-added "Authentication-Results: x; dmarc=pass" used to satisfy a
+ * check that read all instances joined).
+ */
+function headerInstances(parsed: ParsedMail, key: string): string[] {
+  return (parsed.headerLines ?? [])
+    .filter((h) => h.key === key)
+    .map((h) => h.line.slice(h.line.indexOf(":") + 1).replace(/\r?\n[ \t]+/g, " ").trim());
+}
+
+/** SES's own Authentication-Results: the FIRST instance, and only when SES signed it. */
+export function sesAuthenticationResults(parsed: ParsedMail): string {
+  const first = headerInstances(parsed, "authentication-results")[0] ?? "";
+  return /^amazonses\.com\s*;/i.test(first) ? first : "";
+}
+
+/** SES judged the From domain's DMARC as passing. */
+export function sesDmarcPass(parsed: ParsedMail): boolean {
+  return /\bdmarc\s*=\s*pass\b/i.test(sesAuthenticationResults(parsed));
+}
+
+/**
+ * SES receipt verdict headers on the stored MIME. Returns the failing verdict.
+ * A FAIL in any instance fails, and SES's own (first) instance must be PASS: a
+ * sender-added second "PASS" can no longer hide SES's FAIL.
+ */
 export function failedVerdict(parsed: ParsedMail): string | null {
   for (const h of ["x-ses-spam-verdict", "x-ses-virus-verdict"]) {
-    const v = parsed.headers.get(h);
-    const s = typeof v === "string" ? v : "";
-    if (s.toUpperCase() === "FAIL") return `${h}:FAIL`;
+    const all = headerInstances(parsed, h).map((v) => v.toUpperCase());
+    if (all.includes("FAIL")) return `${h}:FAIL`;
+    if (all.length && all[0] !== "PASS") return `${h}:${all[0]}`;
   }
   return null;
 }
 
-/** A header that may arrive as a string or a list of strings, as one string. */
-function headerText(raw: unknown): string {
-  if (typeof raw === "string") return raw;
-  if (Array.isArray(raw)) return raw.join(" ");
-  return "";
+/**
+ * Did SES receive this for the secret capture address, relayed by Microsoft
+ * 365? Read from SES's own first Received header ("from
+ * ...outbound.protection.outlook.com ... by inbound-smtp.<region>.amazonaws.com
+ * ... for <envelope recipient>"), which the sender cannot write. Proves the
+ * copy came from the partnerships mail-flow rule, so Microsoft's spam
+ * filtering already ran on it (review HIGH, Oct 27, 2026).
+ */
+export function viaCaptureRule(parsed: ParsedMail, captureAddress: string): boolean {
+  const received = (headerInstances(parsed, "received")[0] ?? "").toLowerCase();
+  if (!/\bby inbound-smtp\.[a-z0-9-]+\.amazonaws\.com\b/.test(received)) return false;
+  if (!/\bfrom \S+\.outbound\.protection\.outlook\.com\b/.test(received)) return false;
+  return received.includes(`for ${captureAddress.toLowerCase()}`) || received.includes(`for <${captureAddress.toLowerCase()}>`);
 }
 
 function emailDomain(addr: string): string {
@@ -155,8 +202,8 @@ export function verifySender(
   const fromDomain = emailDomain(from);
   const cpDomain = emailDomain(counterpartyEmail);
 
-  const authRaw = parsed.headers.get("authentication-results");
-  const auth = headerText(authRaw);
+  // SES's own result only: a sender can add Authentication-Results lines too.
+  const auth = sesAuthenticationResults(parsed);
   if (/dmarc\s*=\s*fail/i.test(auth)) return { verified: false, reason: "dmarc-fail" };
 
   if (!fromDomain || !cpDomain || fromDomain !== cpDomain) {
@@ -198,6 +245,18 @@ interface StoredAttachment {
  */
 async function storeAttachments(parsed: ParsedMail, threadId: string): Promise<StoredAttachment[]> {
   const out: StoredAttachment[] = [];
+  try {
+    await storeEach(parsed, threadId, out);
+  } catch (err) {
+    // One upload failed part-way: remove the ones already written, or every
+    // retry of this email would leave more orphan files.
+    await cleanupAttachmentFiles(out.map((a) => a.path));
+    throw err;
+  }
+  return out;
+}
+
+async function storeEach(parsed: ParsedMail, threadId: string, out: StoredAttachment[]): Promise<void> {
   const list = parsed.attachments ?? [];
   for (const att of list) {
     if (out.length >= MAX_ATTACHMENTS) {
@@ -223,7 +282,6 @@ async function storeAttachments(parsed: ParsedMail, threadId: string): Promise<S
       path: storedPath,
     });
   }
-  return out;
 }
 
 /**
@@ -361,9 +419,12 @@ async function notifyOwner(args: {
   }
 }
 
-async function processObject(bucket: string, key: string, replyDomain: string | null): Promise<
-  "stored" | "duplicate" | "quarantined" | "unmatched"
-> {
+async function processObject(
+  bucket: string,
+  key: string,
+  replyDomain: string | null,
+  tick: CaptureTick,
+): Promise<ObjectOutcome> {
   const basename = key.slice("inbound/".length) || key;
   const processedKey = `processed/${basename}`;
 
@@ -414,7 +475,7 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
   if (!thread) {
     // No reply token: a copy of partnerships@ mail from the Microsoft 365 rule
     // (or stray mail). The capture path decides which.
-    return await processCapture({ bucket, key, basename, processedKey, parsed, replyDomain });
+    return await processCapture({ bucket, key, basename, processedKey, parsed, replyDomain, tick });
   }
 
   // Token lifecycle (review M1): a revoked (deal archived) or expired (dormant)
@@ -540,7 +601,21 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
 
 // ── Partnerships mailbox capture (Oct 27, 2026) ─────────────────────────────────
 
-type ObjectOutcome = "stored" | "duplicate" | "quarantined" | "unmatched";
+type ObjectOutcome = "stored" | "duplicate" | "quarantined" | "unmatched" | "deferred";
+
+/**
+ * New contacts one tick may create from captured mail. A flood (a mailing
+ * list, an attack that got past the capture-rule check) waits for the next
+ * tick instead of filling the CRM in one go.
+ */
+const MAX_CAPTURE_CONTACTS_PER_TICK = 20;
+
+/** Per-tick state for the capture path. */
+interface CaptureTick {
+  contactsCreated: number;
+  /** null until checked; false when CRM_CAPTURE_ORG_ID names no organisation. */
+  orgOk: boolean | null;
+}
 
 /** The message ids an email replies to, newest last (In-Reply-To + References). */
 function referencedIds(parsed: ParsedMail): string[] {
@@ -559,9 +634,12 @@ function recipientName(parsed: ParsedMail, email: string): string | null {
  * Dormant until CRM_CAPTURE_ORG_ID is set: the organisation the partnerships
  * mailbox belongs to (master silo: one). Rules in src/crm/lib/inbox-capture.ts.
  *
- * Trust: capturing an email "To: partnerships@" is no wider than the mailbox
- * itself (anyone can email it). Outbound ("From: partnerships@", a rep in
- * Outlook) must carry DMARC=pass, so nobody can forge what "we" said.
+ * Trust (adversarial review, Oct 27, 2026): only mail SES received for the
+ * SECRET capture address (CRM_CAPTURE_ADDRESS), relayed by Microsoft 365, is
+ * captured (viaCaptureRule), so it went through Microsoft's filtering and the
+ * mailbox's own rule. Only SES's own headers are believed. Outbound ("From:
+ * partnerships@", a rep in Outlook) needs SES's dmarc=pass, and an inbound
+ * message counts as verified only with it.
  */
 async function processCapture(args: {
   bucket: string;
@@ -570,18 +648,34 @@ async function processCapture(args: {
   processedKey: string;
   parsed: ParsedMail;
   replyDomain: string | null;
+  tick: CaptureTick;
 }): Promise<ObjectOutcome> {
-  const { bucket, key, basename, processedKey, parsed } = args;
+  const { bucket, key, basename, processedKey, parsed, tick } = args;
   const organizationId = process.env.CRM_CAPTURE_ORG_ID?.trim();
+  const captureAddress = process.env.CRM_CAPTURE_ADDRESS?.trim();
   const mailbox = crmSenderFromEnv()?.email;
   const unmatched = async (reason: string): Promise<ObjectOutcome> => {
     await moveObject(bucket, key, `unmatched/${basename}`);
     apiLogger.warn({ msg: "crm-inbound:unmatched", key, reason });
     return "unmatched";
   };
-  if (!organizationId || !mailbox) return unmatched("no-token-capture-off");
+  if (!organizationId || !captureAddress || !mailbox) return unmatched("no-token-capture-off");
+  if (!viaCaptureRule(parsed, captureAddress)) return unmatched("capture-not-via-mailbox-rule");
+
+  // A wrong CRM_CAPTURE_ORG_ID would fail every object forever (FK error,
+  // retried each tick): check it once per tick and leave the mail unmatched.
+  if (tick.orgOk === null) {
+    tick.orgOk = !!(await db.organization.findUnique({ where: { id: organizationId }, select: { id: true } }));
+    if (!tick.orgOk) apiLogger.error({ msg: "crm-capture:org-not-found", organizationId });
+  }
+  if (!tick.orgOk) return unmatched("capture-org-not-found");
+  if (tick.contactsCreated >= MAX_CAPTURE_CONTACTS_PER_TICK) {
+    apiLogger.warn({ msg: "crm-capture:deferred-contact-budget", key });
+    return "deferred";
+  }
 
   const fromEmail = (parsed.from?.value?.[0]?.address ?? "").toLowerCase();
+  if (!fromEmail) return unmatched("capture-no-sender");
   const fromName = parsed.from?.value?.[0]?.name || null;
   const direction = captureDirection({
     mailbox,
@@ -592,10 +686,8 @@ async function processCapture(args: {
   });
   if (direction.kind === "skip") return unmatched(`capture-skip:${direction.reason}`);
 
-  const auth = headerText(parsed.headers.get("authentication-results"));
-  if (direction.kind === "outbound" && !/dmarc\s*=\s*pass/i.test(auth)) {
-    return unmatched("capture-outbound-unauthenticated");
-  }
+  const dmarcPass = sesDmarcPass(parsed);
+  if (direction.kind === "outbound" && !dmarcPass) return unmatched("capture-outbound-unauthenticated");
 
   return await runWithTenant(organizationId, async () => {
     if (await alreadyCaptured(organizationId, parsed.messageId ?? null)) {
@@ -607,7 +699,6 @@ async function processCapture(args: {
     const inbound = direction.kind === "inbound";
     const counterparty = direction.counterparty;
     const counterpartyName = inbound ? fromName : recipientName(parsed, counterparty);
-    const sender = inbound ? verifySender(parsed, counterparty) : { verified: true, reason: "own-mailbox" };
     const automated = inbound && isAutomatedMail((h) => parsed.headers.get(h), counterparty);
 
     const contact = await resolveCaptureContact({
@@ -616,6 +707,7 @@ async function processCapture(args: {
       displayName: counterpartyName,
       automated,
     });
+    if (contact?.created) tick.contactsCreated++;
     const existingThreadId = await findCaptureThread({
       organizationId,
       references: referencedIds(parsed),
@@ -623,12 +715,16 @@ async function processCapture(args: {
       subject: parsed.subject ?? null,
     });
     const dealId = existingThreadId || !contact ? null : await soleDealForContact(organizationId, contact.id);
+    // Verified only on SES's own dmarc=pass. (Joining a thread by References
+    // is already limited to the same counterparty domain in findCaptureThread.)
+    const sender = { verified: dmarcPass };
 
-    const attachments = await storeAttachments(parsed, existingThreadId ?? `capture-${globalThis.crypto.randomUUID()}`);
+    let attachments: StoredAttachment[] = [];
     const now = new Date();
     const expiresAt = new Date(now.getTime() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
     let threadId = existingThreadId;
     try {
+      attachments = await storeAttachments(parsed, existingThreadId ?? `capture-${globalThis.crypto.randomUUID()}`);
       threadId = await tenantTransaction(async (tx) => {
         const id =
           existingThreadId ??
@@ -728,6 +824,17 @@ async function processCapture(args: {
   });
 }
 
+/** Move an email that keeps failing to failed/, kept for a person to look at. */
+async function setAsideFailed(bucket: string, key: string): Promise<void> {
+  try {
+    await moveObject(bucket, key, `failed/${key.slice("inbound/".length) || key}`);
+    objectFailures.delete(key);
+    apiLogger.error({ msg: "crm-inbound:object-set-aside", key, after: MAX_OBJECT_FAILURES });
+  } catch (err) {
+    apiLogger.error({ msg: "crm-inbound:set-aside-failed", key, err: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 export async function runTick(): Promise<InboundTickResult> {
   const result: InboundTickResult = {
     scanned: 0,
@@ -735,6 +842,7 @@ export async function runTick(): Promise<InboundTickResult> {
     duplicates: 0,
     quarantined: 0,
     unmatched: 0,
+    deferred: 0,
     failures: 0,
   };
 
@@ -751,20 +859,27 @@ export async function runTick(): Promise<InboundTickResult> {
   const keys = (listed.Contents ?? []).map((o) => o.Key!).filter((k) => k && k !== "inbound/");
   result.scanned = keys.length;
 
+  const tick: CaptureTick = { contactsCreated: 0, orgOk: null };
   for (const key of keys) {
     try {
-      const outcome = await processObject(bucket, key, replyDomain);
+      const outcome = await processObject(bucket, key, replyDomain, tick);
+      objectFailures.delete(key);
       if (outcome === "stored") result.stored++;
       else if (outcome === "duplicate") result.duplicates++;
       else if (outcome === "quarantined") result.quarantined++;
+      else if (outcome === "deferred") result.deferred++;
       else result.unmatched++;
     } catch (err) {
       result.failures++;
+      const failures = (objectFailures.get(key) ?? 0) + 1;
+      objectFailures.set(key, failures);
       apiLogger.error({
         msg: "crm-inbound:object-failed",
         key,
+        failures,
         err: err instanceof Error ? err.message : String(err),
       });
+      if (failures >= MAX_OBJECT_FAILURES) await setAsideFailed(bucket, key);
     }
   }
 

@@ -16,6 +16,7 @@ import {
   FROM_INBOX_TAG,
   NEEDS_ACCOUNT_TAG,
   contactNameFromSender,
+  domainMatchesWebsite,
   emailDomainOf,
   isFreemailDomain,
   normalizeSubject,
@@ -23,6 +24,8 @@ import {
 
 /** Recent threads with the same person checked for a subject match. */
 const SUBJECT_MATCH_WINDOW = 20;
+/** A subject match only joins a conversation active within this many days. */
+const SUBJECT_MATCH_MAX_AGE_DAYS = 180;
 
 export interface CaptureAccount {
   id: string;
@@ -38,11 +41,15 @@ export interface CaptureAccount {
 export async function findAccountForDomain(organizationId: string, domain: string): Promise<CaptureAccount | null> {
   if (!domain || isFreemailDomain(domain)) return null;
 
-  const byWebsite = await db.crmCompany.findMany({
+  // `contains` only narrows the candidates; the website's own domain must
+  // equal the email domain (or be its parent), so "abbott.co" never maps to
+  // the account whose site is abbott.com (review MED, Oct 27, 2026).
+  const candidates = await db.crmCompany.findMany({
     where: { organizationId, archivedAt: null, website: { contains: domain, mode: "insensitive" } },
-    select: { id: true },
-    take: 2,
+    select: { id: true, website: true },
+    take: 20,
   });
+  const byWebsite = candidates.filter((c) => domainMatchesWebsite(domain, c.website));
   if (byWebsite.length === 1) return { id: byWebsite[0]!.id, matchedBy: "website" };
   if (byWebsite.length > 1) return null;
 
@@ -128,8 +135,13 @@ export async function resolveCaptureContact(args: {
 
 /**
  * The conversation a captured email belongs to: the thread holding a message
- * it replies to (In-Reply-To / References), else the newest thread with the
- * same person on the same subject. Null starts a new one.
+ * it replies to (In-Reply-To / References), else the newest live thread with
+ * the same person on the same subject. Null starts a new one.
+ *
+ * A References hit joins only a thread whose person shares the email's
+ * counterparty domain: a Message-ID can leak through a forward, and must not
+ * let anyone drop a message into another sponsor's conversation (review HIGH,
+ * Oct 27, 2026).
  */
 export async function findCaptureThread(args: {
   organizationId: string;
@@ -140,15 +152,24 @@ export async function findCaptureThread(args: {
   if (args.references.length) {
     const hit = await db.crmEmailMessage.findFirst({
       where: { organizationId: args.organizationId, messageId: { in: args.references } },
-      select: { threadId: true },
+      select: { threadId: true, thread: { select: { counterpartyEmail: true } } },
       orderBy: { createdAt: "desc" },
     });
-    if (hit) return hit.threadId;
+    if (hit && emailDomainOf(hit.thread.counterpartyEmail) === emailDomainOf(args.counterpartyEmail)) {
+      return hit.threadId;
+    }
+    if (hit) apiLogger.warn({ msg: "crm-capture:reference-domain-mismatch", threadId: hit.threadId });
   }
   const subject = normalizeSubject(args.subject);
   if (!subject) return null;
+  const since = new Date(Date.now() - SUBJECT_MATCH_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
   const recent = await db.crmEmailThread.findMany({
-    where: { organizationId: args.organizationId, counterpartyEmail: args.counterpartyEmail.toLowerCase() },
+    where: {
+      organizationId: args.organizationId,
+      counterpartyEmail: args.counterpartyEmail.toLowerCase(),
+      revokedAt: null,
+      lastMessageAt: { gte: since },
+    },
     select: { id: true, subject: true },
     orderBy: { lastMessageAt: "desc" },
     take: SUBJECT_MATCH_WINDOW,

@@ -80,6 +80,28 @@ export function isAutomatedMail(get: HeaderLookup, fromEmail: string): boolean {
   return AUTOMATED_LOCAL_RE.test(fromEmail.split("@")[0] ?? "");
 }
 
+/**
+ * The domain a company website names: "https://www.Abbott.com/en" -> "abbott.com".
+ * Null when it does not parse.
+ */
+export function websiteDomain(website: string | null | undefined): string | null {
+  const raw = (website ?? "").trim();
+  if (!raw) return null;
+  try {
+    const host = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase();
+    return host.replace(/^www\./, "") || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Does an email domain belong to this website: the same domain, or a subdomain of it. */
+export function domainMatchesWebsite(emailDomain: string, website: string | null | undefined): boolean {
+  const site = websiteDomain(website);
+  const d = emailDomain.toLowerCase();
+  return !!site && (d === site || d.endsWith(`.${site}`));
+}
+
 /** "Re: Fwd: RE: Sponsorship" -> "sponsorship", for matching a conversation by subject. */
 export function normalizeSubject(subject: string | null | undefined): string {
   let s = (subject ?? "").trim();
@@ -135,8 +157,13 @@ export function contactNameFromSender(displayName: string | null, email: string)
  *   inbound   someone wrote TO the mailbox: the counterparty is the sender
  *   outbound  the mailbox wrote out (a rep in Outlook): the counterparty is the
  *             first outside recipient
- *   skip      it names neither, it is internal-only (colleagues, the CRM's own
- *             forward copies), or it is the CRM's receiving domain itself
+ *   skip      it is internal-only (colleagues, the CRM's own forward copies),
+ *             or it comes from the CRM's receiving domain itself
+ *
+ * The mailbox need not appear in To/Cc: the copy's delivery to the secret
+ * capture address already proves it went through the mailbox's rule, and a
+ * sponsor who Bcc'd partnerships@ (or reached it through a group) must not be
+ * dropped (owner: never ignore a person).
  */
 export function captureDirection(args: {
   mailbox: string;
@@ -158,7 +185,6 @@ export function captureDirection(args: {
     const counterparty = recipients.find(outside);
     return counterparty ? { kind: "outbound", counterparty } : { kind: "skip", reason: "internal-only" };
   }
-  if (!recipients.includes(mailbox)) return { kind: "skip", reason: "mailbox-not-addressed" };
   if (!outside(from)) return { kind: "skip", reason: "internal-sender" };
   return { kind: "inbound", counterparty: from };
 }

@@ -81,7 +81,7 @@ function rawEmail(over: { to?: string; spam?: string; from?: string; dmarc?: str
     "Message-ID: <msg-1@abbott.com>",
     `X-SES-Spam-Verdict: ${over.spam ?? "PASS"}`,
     "X-SES-Virus-Verdict: PASS",
-    ...(over.dmarc ? [`Authentication-Results: mx.ses; dmarc=${over.dmarc} header.from=abbott.com`] : []),
+    ...(over.dmarc ? [`Authentication-Results: amazonses.com; spf=pass; dmarc=${over.dmarc} header.from=abbott.com`] : []),
     "Content-Type: text/plain; charset=utf-8",
     "",
     "Sounds good, send the contract.",
@@ -182,6 +182,15 @@ describe("runTick", () => {
     const cmds = s3Send.mock.calls.map((c) => (c[0] as { cmd: string }).cmd);
     expect(cmds).toContain("Copy");
     expect(cmds).toContain("Delete");
+  });
+
+  it("files a reply once when the partnerships capture already filed it (same Message-ID)", async () => {
+    vi.mocked(db.crmEmailMessage.findFirst).mockImplementation((async (q: { where: Record<string, unknown> }) =>
+      q.where.messageId ? { id: "m-captured" } : null) as never);
+    mockS3({ "inbound/twice": rawEmail() });
+    expect(await runTick()).toMatchObject({ duplicates: 1, stored: 0 });
+    expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("a FAILING SES spam verdict is quarantined — no row, no notification", async () => {
@@ -343,10 +352,12 @@ describe("runTick", () => {
 });
 
 describe("verifySender", () => {
-  const parsed = (from: string, auth?: string) =>
+  // headerLines in order, as mailparser gives them: SES's own line comes first.
+  const parsed = (from: string, ...auth: string[]) =>
     ({
       from: { value: [{ address: from }] },
-      headers: new Map(auth ? [["authentication-results", auth]] : []),
+      headers: new Map(),
+      headerLines: auth.map((a) => ({ key: "authentication-results", line: `Authentication-Results: ${a}` })),
     }) as never;
 
   it("same domain as the counterparty → verified", () => {
@@ -358,8 +369,18 @@ describe("verifySender", () => {
       reason: "domain-mismatch",
     });
   });
+  it("a sender-added dmarc=pass cannot hide SES's own dmarc=fail (review BLOCKER)", () => {
+    expect(
+      verifySender(parsed("jane@abbott.com", "amazonses.com; dmarc=fail", "evil; dmarc=pass"), "jane@abbott.com").verified,
+    ).toBe(false);
+  });
+
+  it("an Authentication-Results not written by SES is ignored", () => {
+    expect(verifySender(parsed("jane@abbott.com", "evil; dmarc=fail"), "jane@abbott.com").verified).toBe(true);
+  });
+
   it("explicit dmarc=fail → unverified even on the right domain", () => {
-    expect(verifySender(parsed("jane@abbott.com", "mx; dmarc=fail"), "jane@abbott.com")).toMatchObject({
+    expect(verifySender(parsed("jane@abbott.com", "amazonses.com; dmarc=fail"), "jane@abbott.com")).toMatchObject({
       verified: false,
       reason: "dmarc-fail",
     });
