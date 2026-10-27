@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { StatTile, StatsRow } from "@/components/ui/typography";
+import { canEmailListed, emailRecipientIds, matchesKind, type SpeakerKind } from "@/lib/speaker-kinds";
 import { abstractStatusColor, abstractStatusLabel } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,21 +74,9 @@ interface Speaker {
   abstracts: { id: string; title: string; status: string }[];
 }
 
-/**
- * Who a speaker is to the event (owner, Oct 27): invited by the organisers, or someone who submitted an
- * abstract (a submitter, and its presenter once accepted). A speaker with an abstract counts as a submitter.
- */
-type SpeakerKind = "all" | "invited" | "submitters";
-const isSubmitter = (s: { _count: { abstracts: number } }) => s._count.abstracts > 0;
 const KIND_LABEL: Record<SpeakerKind, string> = { all: "All speakers", invited: "Invited speakers", submitters: "Abstract submitters" };
 const ABSTRACT_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED", "ACCEPTED", "REJECTED", "WITHDRAWN", "DRAFT"] as const;
-const matchesKind = (s: Speaker, kind: SpeakerKind) => kind === "all" || (kind === "submitters") === isSubmitter(s);
 
-/** Who "Email" sends to: the ticked speakers, else everyone listed when a tab narrows the list, else the status-wide audience (no ids). */
-function emailRecipientIds(selected: Set<string>, narrowed: boolean, listed: { id: string }[]): string[] {
-  if (selected.size > 0) return Array.from(selected);
-  return narrowed ? listed.map((s) => s.id) : [];
-}
 
 function bulkEmailLabel(selectedCount: number, statusFilter: string, listed: number | null): string {
   if (selectedCount > 0) return `Email (${selectedCount})`;
@@ -254,7 +243,7 @@ export default function SpeakersPage() {
           </Button>
           {!isReviewer && (
             <>
-              {canSendEmail && speakers.length > 0 && (
+              {canSendEmail && canEmailListed(selectedIds.size, narrowed, filteredSpeakers.length, speakers.length) && (
                 <Button
                   variant="outline"
                   onClick={() => setBulkEmailOpen(true)}
@@ -616,6 +605,7 @@ export default function SpeakersPage() {
         selectionMode={selectedIds.size > 0 || narrowed ? "selected" : "all"}
         statusFilter={statusFilter}
         recipientCountFor={countSpeakersForEmail}
+        fixedListOnly={narrowed && selectedIds.size === 0}
       />
     </div>
   );

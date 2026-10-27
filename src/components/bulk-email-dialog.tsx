@@ -146,6 +146,12 @@ interface BulkEmailDialogProps {
   /** Several registration types from the host page's multi-select; wins over `ticketTypeFilter` when given. */
   ticketTypeFilters?: string[];
   /**
+   * The `recipientIds` are a list the filters cannot express (the Speakers page's Invited / Abstract submitters
+   * tab), so a scheduled send must keep exactly that list: "everyone matching the filters" would quietly mail the
+   * other tab too (review HIGH, Oct 27). Hides that choice and defaults to the fixed list.
+   */
+  fixedListOnly?: boolean;
+  /**
    * Registrations recipient only — pass-through filters (the Communications
    * page Advanced-filters block provides the controls; the dialog carries
    * them into the send payload + recap + live count, like ticketTypeFilter).
@@ -253,6 +259,7 @@ export function BulkEmailDialog({
   paymentStatusFilter,
   ticketTypeFilter,
   ticketTypeFilters,
+  fixedListOnly = false,
   badgeTypesFilter,
   tagsFilter,
   surveyRespondedFilter,
@@ -301,7 +308,7 @@ export function BulkEmailDialog({
   // re-evaluated when the email fires, so it INCLUDES registrations added
   // between now and the scheduled time ("one-shot, late-inclusive"). Defaults
   // to the late-inclusive option — that's the common intent for a future send.
-  const [scheduledAudience, setScheduledAudience] = useState<"matching" | "selected">("matching");
+  const [scheduledAudience, setScheduledAudience] = useState<"matching" | "selected">(fixedListOnly ? "selected" : "matching");
   // Collapsible "Filter recipients" section — collapsed by default so the
   // dialog opens compact; auto-opens when the host arrived with a filter
   // already applied (a tile, or the list page's filter bar).
@@ -335,12 +342,13 @@ export function BulkEmailDialog({
       setLocalSurveyResponded(surveyRespondedFilter ?? null);
       setCertTemplateIds([]);
       setCoverSource("default");
-      setScheduledAudience("matching");
+      setScheduledAudience(fixedListOnly ? "selected" : "matching");
       setLocalAbstractStatus(recipientType === "abstracts" && statusFilter ? statusFilter : "all");
       setRsvpCampaignId("none");
       setFiltersOpen(
         (paymentStatusFilter != null && paymentStatusFilter !== "all") ||
           (ticketTypeFilter != null && ticketTypeFilter !== "all") ||
+          (ticketTypeFilters?.length ?? 0) > 0 ||
           (badgeTypesFilter?.length ?? 0) > 0 ||
           (tagsFilter?.length ?? 0) > 0 ||
           !!surveyRespondedFilter,
@@ -602,6 +610,10 @@ export function BulkEmailDialog({
   };
 
   const handleSend = async () => {
+    if (effectiveSelectionMode === "selected" && !resolvesToMatching && effectiveRecipientIds.length === 0) {
+      toast.error("No recipients to send to");
+      return;
+    }
     if (isCustom && (!customSubject.trim() || !customMessage.trim())) {
       toast.error("Please provide both subject and message for custom emails");
       return;
@@ -793,7 +805,7 @@ export function BulkEmailDialog({
     setAttachmentFiles([]);
     setSendMode("now");
     setScheduledFor("");
-    setScheduledAudience("matching");
+    setScheduledAudience(fixedListOnly ? "selected" : "matching");
     setCertTemplateIds([]);
     setLocalAbstractStatus("all");
     setCcInput("");
@@ -1580,7 +1592,12 @@ export function BulkEmailDialog({
                     selected rows and the late-inclusive "everyone matching"
                     audience. For an "all" send there's nothing to choose (it's
                     always matching), so we just reassure them it's late-inclusive. */}
-                {effectiveSelectionMode === "selected" ? (
+                {effectiveSelectionMode === "selected" && fixedListOnly && (
+                  <p className="text-xs font-medium text-primary">
+                    ✓ Sends to exactly the {recipientCount} {label} listed now. New {label} won&apos;t be added.
+                  </p>
+                )}
+                {!(effectiveSelectionMode === "selected" && fixedListOnly) && (effectiveSelectionMode === "selected" ? (
                   <div className="space-y-2 rounded-md border p-3">
                     <Label>Who should this go to at send time?</Label>
                     <div className="grid gap-2">
@@ -1624,7 +1641,7 @@ export function BulkEmailDialog({
                   <p className="text-xs font-medium text-primary">
                     ✓ Includes anyone matching at send time, including new {label}.
                   </p>
-                )}
+                ))}
               </div>
             )}
           </div>
@@ -1658,7 +1675,10 @@ export function BulkEmailDialog({
               (isCertificate && certTemplateIds.length === 0) ||
               // Review MED 4: never enqueue a send the server will resolve to
               // nobody, and never one whose audience could not be counted.
-              (isAbstracts && (abstractServerCount == null || abstractServerCount === 0))
+              (isAbstracts && (abstractServerCount == null || abstractServerCount === 0)) ||
+              // An empty fixed list reaches the server as no ids, which it reads as "everyone matching": never send
+              // it (review HIGH, Oct 27: "Email listed (0)" on an empty Speakers tab mailed every speaker).
+              (effectiveSelectionMode === "selected" && !resolvesToMatching && effectiveRecipientIds.length === 0)
             }
           >
             {sendButtonContent()}
