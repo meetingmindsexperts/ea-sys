@@ -601,8 +601,10 @@ export function useCrmInboxThread(threadId: string | null) {
     enabled: !!threadId,
     // Opening a thread is what marks it read, so it always asks the server
     // rather than showing a cached copy (a "mark unread" would otherwise stick
-    // through the next open).
+    // through the next open). Not on window focus, though: a colleague who
+    // left a thread open must not clear someone's "mark unread" by tabbing back.
     staleTime: 0,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -625,7 +627,8 @@ export function useCrmInbox(filters: CrmInboxFilters) {
       if (filters.dealId) qs.set("dealId", filters.dealId);
       if (filters.q?.trim()) qs.set("q", filters.q.trim());
       if (pageParam) qs.set("cursor", pageParam);
-      return apiFetch<{ threads: CrmInboxThreadRow[]; unreadCount: number; nextCursor: string | null }>(
+      // unreadCount is null on later pages: only the first page counts.
+      return apiFetch<{ threads: CrmInboxThreadRow[]; unreadCount: number | null; nextCursor: string | null }>(
         `/api/crm/inbox?${qs}`,
       );
     },

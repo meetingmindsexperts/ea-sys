@@ -62,7 +62,24 @@ export function inboxWhere(
   return { AND: and };
 }
 
-/** The Inbox badge: unread replies not archived (archived + unread is rare: a reply un-archives). */
+/** The Inbox badge: exactly the Inbox folder's unread threads, so the count never names one the Inbox cannot show. */
 export function unreadWhere(organizationId: string): Prisma.CrmEmailThreadWhereInput {
-  return { organizationId, hasUnread: true, archivedAt: null };
+  return { organizationId, hasUnread: true, ...folderWhere("inbox") };
+}
+
+/**
+ * Keyset paging: the cursor carries the last row's own (lastMessageAt, id), so
+ * a reply that bumps that row while someone reads page 1 cannot make page 2
+ * repeat page 1 (Prisma's `cursor` re-reads the row's CURRENT position).
+ */
+export function encodeInboxCursor(row: { lastMessageAt: Date; id: string }): string {
+  return `${row.lastMessageAt.toISOString()}|${row.id}`;
+}
+
+/** The rows after a cursor, or null for a cursor that does not parse. */
+export function afterCursor(cursor: string): Prisma.CrmEmailThreadWhereInput | null {
+  const [iso, id] = cursor.split("|");
+  const at = new Date(iso ?? "");
+  if (!id || Number.isNaN(at.getTime())) return null;
+  return { OR: [{ lastMessageAt: { lt: at } }, { lastMessageAt: at, id: { lt: id } }] };
 }

@@ -5,7 +5,14 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, crmCan } from "@/crm/lib/crm-route";
-import { INBOX_FOLDERS, INBOX_PAGE_SIZE, inboxWhere, unreadWhere } from "@/crm/lib/crm-inbox-filters";
+import {
+  INBOX_FOLDERS,
+  INBOX_PAGE_SIZE,
+  afterCursor,
+  encodeInboxCursor,
+  inboxWhere,
+  unreadWhere,
+} from "@/crm/lib/crm-inbox-filters";
 
 /**
  * GET /api/crm/inbox — the shared CRM inbox: every email thread in the org,
@@ -13,7 +20,8 @@ import { INBOX_FOLDERS, INBOX_PAGE_SIZE, inboxWhere, unreadWhere } from "@/crm/l
  *
  * Folders, filters, search and "load more" (Oct 27, 2026; rules in
  * crm-inbox-filters.ts): ?folder=inbox|sent|archived (default inbox),
- * &unread=1, &mine=1, &dealId=, &q=, &cursor=<thread id>.
+ * &unread=1, &mine=1, &dealId=, &q=, &cursor=<from the previous page>. The
+ * unread count rides only the first page, so "load more" costs one query.
  *
  * Staff-only via `crm.inbox.read` (crmCan) — MEMBER (read-only accounts)
  * passes the generic CRM read gate but must never read rival sponsors'
@@ -25,7 +33,7 @@ const querySchema = z.object({
   mine: z.enum(["1"]).optional(),
   dealId: z.string().min(1).max(64).optional(),
   q: z.string().max(200).optional(),
-  cursor: z.string().min(1).max(64).optional(),
+  cursor: z.string().min(1).max(100).optional(),
 });
 
 const THREAD_SELECT = {
@@ -62,14 +70,21 @@ export async function GET(req: Request) {
   }
   const { folder, unread, mine, dealId, q, cursor } = parsed.data;
 
+  const after = cursor ? afterCursor(cursor) : null;
+  if (cursor && !after) {
+    apiLogger.warn({ msg: "crm/inbox:bad-cursor", organizationId: ctx.organizationId });
+    return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
+  }
+
   try {
-    const where = inboxWhere(ctx.organizationId, ctx.userId, {
+    const filtered = inboxWhere(ctx.organizationId, ctx.userId, {
       folder,
       unreadOnly: !!unread,
       mine: !!mine,
       dealId,
       q,
     });
+    const where = after ? { AND: [filtered, after] } : filtered;
     const [rows, unreadCount] = await Promise.all([
       db.crmEmailThread.findMany({
         where,
@@ -77,13 +92,13 @@ export async function GET(req: Request) {
         // id breaks ties so a page boundary never repeats or skips a thread.
         orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
         take: INBOX_PAGE_SIZE + 1,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       }),
-      db.crmEmailThread.count({ where: unreadWhere(ctx.organizationId) }),
+      after ? Promise.resolve(null) : db.crmEmailThread.count({ where: unreadWhere(ctx.organizationId) }),
     ]);
 
     const threads = rows.slice(0, INBOX_PAGE_SIZE);
-    const nextCursor = rows.length > INBOX_PAGE_SIZE ? threads[threads.length - 1]!.id : null;
+    const last = threads[threads.length - 1];
+    const nextCursor = rows.length > INBOX_PAGE_SIZE && last ? encodeInboxCursor(last) : null;
     return NextResponse.json({ threads, unreadCount, nextCursor });
   } catch (err) {
     apiLogger.error({

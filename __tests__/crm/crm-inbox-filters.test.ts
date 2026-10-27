@@ -4,7 +4,7 @@
  * archived; Mine never widens for an API key; search is every-word-must-match.
  */
 import { describe, it, expect } from "vitest";
-import { inboxWhere, unreadWhere } from "@/crm/lib/crm-inbox-filters";
+import { afterCursor, encodeInboxCursor, inboxWhere, unreadWhere } from "@/crm/lib/crm-inbox-filters";
 
 const and = (w: ReturnType<typeof inboxWhere>) => w.AND as Record<string, unknown>[];
 
@@ -48,7 +48,28 @@ describe("inboxWhere", () => {
 });
 
 describe("unreadWhere", () => {
-  it("counts unread, unarchived threads in the organisation", () => {
-    expect(unreadWhere("o")).toEqual({ organizationId: "o", hasUnread: true, archivedAt: null });
+  it("counts exactly the Inbox folder's unread threads (never a Sent-only one the Inbox cannot show)", () => {
+    expect(unreadWhere("o")).toEqual({
+      organizationId: "o",
+      hasUnread: true,
+      lastInboundAt: { not: null },
+      archivedAt: null,
+    });
+  });
+});
+
+describe("keyset cursor", () => {
+  const at = new Date("2026-10-27T10:00:00.000Z");
+
+  it("round-trips the row's own position", () => {
+    const cursor = encodeInboxCursor({ lastMessageAt: at, id: "t-9" });
+    expect(afterCursor(cursor)).toEqual({
+      OR: [{ lastMessageAt: { lt: at } }, { lastMessageAt: at, id: { lt: "t-9" } }],
+    });
+  });
+
+  it("refuses a cursor that does not parse", () => {
+    expect(afterCursor("t-9")).toBeNull();
+    expect(afterCursor("not-a-date|t-9")).toBeNull();
   });
 });

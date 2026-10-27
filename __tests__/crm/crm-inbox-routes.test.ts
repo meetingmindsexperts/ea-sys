@@ -138,15 +138,32 @@ describe("thread list: folders and paging", () => {
     expect(db.crmEmailThread.findMany).not.toHaveBeenCalled();
   });
 
-  it("returns a cursor when there is another page, and pages from it", async () => {
-    const rows = Array.from({ length: 51 }, (_, i) => ({ id: `t-${i}` }));
+  it("returns a keyset cursor from the last row's own position, and pages after it", async () => {
+    const at = new Date("2026-10-27T10:00:00.000Z");
+    const rows = Array.from({ length: 51 }, (_, i) => ({ id: `t-${i}`, lastMessageAt: at }));
     vi.mocked(db.crmEmailThread.findMany).mockResolvedValue(rows as never);
     const body = await (await listThreads(new Request("http://test/api/crm/inbox?folder=sent"))).json();
     expect(body.threads).toHaveLength(50);
-    expect(body.nextCursor).toBe("t-49");
+    expect(body.nextCursor).toBe("2026-10-27T10:00:00.000Z|t-49");
+    expect(body.unreadCount).toBe(0);
 
-    await listThreads(new Request("http://test/api/crm/inbox?folder=sent&cursor=t-49"));
-    expect(vi.mocked(db.crmEmailThread.findMany).mock.calls[1]![0]).toMatchObject({ cursor: { id: "t-49" }, skip: 1 });
+    vi.mocked(db.crmEmailThread.count).mockClear();
+    const page2 = await listThreads(
+      new Request(`http://test/api/crm/inbox?folder=sent&cursor=${encodeURIComponent(body.nextCursor)}`),
+    );
+    const where = vi.mocked(db.crmEmailThread.findMany).mock.calls[1]![0]!.where as { AND: unknown[] };
+    expect(where.AND[1]).toEqual({
+      OR: [{ lastMessageAt: { lt: at } }, { lastMessageAt: at, id: { lt: "t-49" } }],
+    });
+    // Later pages skip the org-wide unread count.
+    expect(db.crmEmailThread.count).not.toHaveBeenCalled();
+    expect((await page2.json()).unreadCount).toBeNull();
+  });
+
+  it("400s a cursor that does not parse", async () => {
+    const res = await listThreads(new Request("http://test/api/crm/inbox?cursor=garbage"));
+    expect(res.status).toBe(400);
+    expect(db.crmEmailThread.findMany).not.toHaveBeenCalled();
   });
 });
 
@@ -176,7 +193,7 @@ describe("PATCH thread: archive and mark unread", () => {
     expect(db.crmEmailThread.updateMany).not.toHaveBeenCalled();
   });
 
-  it("MEMBER is refused", async () => {
+  it("MEMBER is refused by the inbox permission (the write gate is pinned by the route matrix)", async () => {
     gate.role = "MEMBER";
     expect((await patch({ archived: true })).status).toBe(403);
     expect(db.crmEmailThread.updateMany).not.toHaveBeenCalled();

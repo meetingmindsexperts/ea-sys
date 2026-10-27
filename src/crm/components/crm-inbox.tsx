@@ -208,7 +208,11 @@ export function CrmInbox() {
   const update = useUpdateInboxThread();
 
   const bottomRef = useRef<HTMLDivElement>(null);
-  const threads = useMemo(() => list.data?.pages.flatMap((p) => p.threads) ?? [], [list.data]);
+  // Deduped by id: a thread that moved between page fetches must not render twice.
+  const threads = useMemo(() => {
+    const seen = new Set<string>();
+    return (list.data?.pages.flatMap((p) => p.threads) ?? []).filter((t) => !seen.has(t.id) && !!seen.add(t.id));
+  }, [list.data]);
   const unreadCount = list.data?.pages[0]?.unreadCount ?? 0;
   const thread = detail?.thread;
   const filtered = unread || mine || !!deal || !!q;
@@ -300,7 +304,11 @@ export function CrmInbox() {
           </div>
         )}
         {threads.length > 0 && (
-          <ul className="max-h-[40rem] flex-1 divide-y overflow-y-auto">
+          // Dimmed while the previous folder's or search's rows stand in for the new ones.
+          <ul
+            className={`max-h-[40rem] flex-1 divide-y overflow-y-auto ${list.isPlaceholderData ? "opacity-50" : ""}`}
+            aria-busy={list.isPlaceholderData}
+          >
             {threads.map((t) => (
               <ThreadListItem
                 key={t.id}
@@ -310,7 +318,7 @@ export function CrmInbox() {
                 onDeal={setDeal}
               />
             ))}
-            {list.hasNextPage && (
+            {list.hasNextPage && !list.isPlaceholderData && (
               <li className="p-2 text-center">
                 <Button
                   type="button"
