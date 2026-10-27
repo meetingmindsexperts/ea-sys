@@ -42,14 +42,14 @@ const ORG = "org-1";
 type ToolFn = (input: Record<string, unknown>) => Promise<{ content: Array<{ text: string }>; isError?: true }>;
 
 /** Minimal McpServer stand-in that just collects registrations. */
-function collectTools() {
+function collectTools(userId = "system-user") {
   const tools = new Map<string, ToolFn>();
   const server = {
     tool: (name: string, _desc: string, _shape: unknown, fn: ToolFn) => {
       tools.set(name, fn);
     },
   };
-  registerCrmMcpTools(server as never, ORG, "system-user");
+  registerCrmMcpTools(server as never, ORG, userId);
   return tools;
 }
 
@@ -302,3 +302,32 @@ describe("get_crm_report — groupBy breakdown", () => {
     expect(db.crmDeal.findMany).not.toHaveBeenCalled();
   });
 });
+
+describe("the MCP placeholder user is never written as an owner (review of 8553d424)", () => {
+  // API-key and OAuth MCP calls run as "mcp-remote", which is not a User row;
+  // writing it into ownerId broke the User foreign key and failed every create.
+  it("create_crm_company over MCP stores no owner; a signed-in user owns it", async () => {
+    vi.mocked(db.crmCompany.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmCompany.create).mockResolvedValue({ id: "c-1", name: "Abbott", needsReview: false } as never);
+
+    const res = await collectTools("mcp-remote").get("create_crm_company")!({ name: "Abbott" });
+    expect(res.isError).toBeUndefined();
+    expect(vi.mocked(db.crmCompany.create).mock.calls[0]![0]).toMatchObject({ data: { ownerId: null } });
+
+    await collectTools("u-real").get("create_crm_company")!({ name: "Pfizer" });
+    expect(vi.mocked(db.crmCompany.create).mock.calls[1]![0]).toMatchObject({ data: { ownerId: "u-real" } });
+  });
+
+  it("create_crm_contact over MCP without an ownerEmail stores no owner", async () => {
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.crmContact.create).mockResolvedValue({ id: "ct-1", firstName: "Sara", lastName: "Khan" } as never);
+
+    await collectTools("mcp-remote").get("create_crm_contact")!({
+      firstName: "Sara", lastName: "Khan", email: "sara@abbott.com",
+    });
+    const call = vi.mocked(db.crmContact.create).mock.calls[0]![0] as { data: { ownerId: string | null } };
+    expect(call.data.ownerId).toBeNull();
+  });
+});
+

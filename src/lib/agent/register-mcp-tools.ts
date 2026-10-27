@@ -6,6 +6,7 @@
  */
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { MCP_PLACEHOLDER_USER_ID } from "@/lib/agent/mcp-placeholder-user";
 import { registerCrmMcpTools, type CrmMcpActor } from "@/crm/agent-tools"; // permitted core-side touch point (ESLint exemption)
 import { registerProcurementMcpTools } from "@/procurement/agent-tools"; // permitted core-side touch point (ESLint exemption)
 import { z } from "zod";
@@ -21,7 +22,7 @@ import { dashboardPathForTool, dashboardUrl } from "@/lib/agent/dashboard-links"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const DEFAULT_SYSTEM_USER_ID = "mcp-remote";
+const DEFAULT_SYSTEM_USER_ID = MCP_PLACEHOLDER_USER_ID;
 
 async function runTool(name: string, input: Record<string, unknown>, ctx: AgentContext): Promise<string> {
   const executor = TOOL_EXECUTOR_MAP[name];

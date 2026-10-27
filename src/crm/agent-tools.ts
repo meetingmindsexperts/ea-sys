@@ -19,6 +19,7 @@ import { z } from "zod";
 import { CrmDealPipeline, CrmProductSource, CrmContactStatus, CrmLifecycleStage } from "@prisma/client";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { db } from "@/lib/db";
+import { MCP_PLACEHOLDER_USER_ID } from "@/lib/agent/mcp-placeholder-user";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
@@ -198,9 +199,15 @@ export interface CrmMcpActor {
 export function registerCrmMcpTools(
   server: McpServer,
   organizationId: string,
-  systemUserId: string,
+  callerUserId: string,
   actor: CrmMcpActor = { role: null, fromApiKey: true },
 ): void {
+  // An API-key / OAuth MCP call runs as the "mcp-remote" placeholder, which is
+  // not a User. Every id written below (a new account's or contact's owner, an
+  // activity actor) has a User foreign key, so the placeholder becomes null:
+  // the record is created unowned and History says "System". Passing it through
+  // made every MCP account and contact create fail (review of 8553d424).
+  const systemUserId = callerUserId === MCP_PLACEHOLDER_USER_ID ? null : callerUserId;
   // Registering nothing is the right failure mode: a tool the caller may not use
   // should not appear in their tool list at all, rather than 403 on call.
   // The caller's CRM keys (custom roles Phase 6): what each route asks.

@@ -189,9 +189,9 @@ type FieldChangeValue = { from?: unknown; to?: unknown };
  * Show names, not ids, for owner and account changes in History (owner,
  * Oct 27, 2026). An edit records `ownerId: { from: "cm…", to: "cm…" }`, which
  * the timeline rendered as raw ids. Resolved at READ time, so every existing
- * entry reads too. Org-scoped (an id from another org stays an id); a value
- * that is already a name (the Freshsales backfill scripts store names) or a
- * purged record is left as it is.
+ * entry reads too. Org-scoped: an id from another org, or of someone who has
+ * since left this one, stays an id. A value that is already a name (the
+ * Freshsales backfill scripts store names) or a purged record is left as is.
  */
 export async function nameReferences<T extends { changes: Prisma.JsonValue }>(
   organizationId: string,
@@ -226,7 +226,8 @@ export async function nameReferences<T extends { changes: Prisma.JsonValue }>(
       : [],
   ]);
   const names = {
-    user: new Map(users.map((u) => [u.id, `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim()])),
+    // A user with no name keeps the id rather than rendering as a blank.
+    user: new Map(users.map((u) => [u.id, `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.id])),
     company: new Map(companies.map((c) => [c.id, c.name])),
   };
   const nameOf = (kind: keyof typeof names, v: unknown) =>
