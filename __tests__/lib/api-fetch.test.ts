@@ -78,6 +78,19 @@ describe("apiFetch — error path", () => {
     });
   });
 
+  it("names a too-large rejection, whose body is nginx's HTML page (Oct 27, 2026)", async () => {
+    mockFetch({ ok: false, status: 413, bodyText: "<html>413 Request Entity Too Large</html>" });
+    await expect(apiFetch("/api/x")).rejects.toMatchObject({
+      message: "Too large to send. Use smaller or fewer files.",
+      status: 413,
+    });
+  });
+
+  it("keeps the server's own 413 message when there is one", async () => {
+    mockFetch({ ok: false, status: 413, body: { error: "Request body too large" } });
+    await expect(apiFetch("/api/x")).rejects.toMatchObject({ message: "Request body too large" });
+  });
+
   it("code is undefined when server doesn't supply one (vs. mistyping it as the string 'undefined')", async () => {
     mockFetch({ ok: false, status: 400, body: { error: "bad" } });
     try {

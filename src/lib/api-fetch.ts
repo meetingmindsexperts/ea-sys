@@ -45,6 +45,17 @@ export class ApiError extends Error {
  * them. Body parse failures on the error path fall back to an empty
  * object — never lose the throw.
  */
+/**
+ * The message for a failed response. A 413 from nginx carries an HTML page, not
+ * our JSON, so without this the person saw a bare "Request failed" (Oct 27,
+ * 2026: a 13MB CRM email with attachments).
+ */
+export function errorMessageFor(status: number, data: Record<string, unknown>): string {
+  if (typeof data.error === "string" && data.error) return data.error;
+  if (status === 413) return "Too large to send. Use smaller or fewer files.";
+  return "Request failed";
+}
+
 export async function apiFetch<T = unknown>(
   url: string,
   init?: RequestInit,
@@ -52,9 +63,7 @@ export async function apiFetch<T = unknown>(
   const res = await fetch(url, init);
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    const message =
-      (typeof data.error === "string" && data.error) || "Request failed";
-    throw new ApiError(message, res.status, data);
+    throw new ApiError(errorMessageFor(res.status, data), res.status, data);
   }
   return (await res.json()) as T;
 }

@@ -13,6 +13,7 @@ import {
   MAX_BODY_SIZE,
   IMPORT_BODY_SIZE,
   LARGE_BODY_PREFIXES,
+  CRM_EMAIL_INLINE_ATTACHMENT_BUDGET,
 } from "@/lib/body-limits";
 
 describe("maxBodySizeFor", () => {
@@ -20,6 +21,12 @@ describe("maxBodySizeFor", () => {
     for (const type of ["companies", "contacts", "deals"]) {
       expect(maxBodySizeFor(`/api/crm/import/${type}`)).toBe(IMPORT_BODY_SIZE);
     }
+  });
+
+  it("lets the CRM email send carry its base64 attachments (Oct 27, 2026)", () => {
+    expect(maxBodySizeFor("/api/crm/sponsor-email/send", "application/json")).toBe(IMPORT_BODY_SIZE);
+    // The dialog's encoded budget leaves room for the message and the JSON.
+    expect(CRM_EMAIL_INLINE_ATTACHMENT_BUDGET + 60_000).toBeLessThan(IMPORT_BODY_SIZE);
   });
 
   it("keeps the 1MB default for the rest of the API — including the CRM's own writes", () => {
@@ -49,7 +56,7 @@ describe("maxBodySizeFor", () => {
     // NOTE this asserts the LIST, not a guarantee about bytes: the proxy check
     // reads `content-length`, so a chunked request bypasses it and nginx's 10MB
     // is the real ceiling. Don't read this test as proof of an 8MB bound.
-    expect(LARGE_BODY_PREFIXES).toEqual(["/api/crm/import/"]);
+    expect(LARGE_BODY_PREFIXES).toEqual(["/api/crm/import/", "/api/crm/sponsor-email/send"]);
     expect(IMPORT_BODY_SIZE).toBeGreaterThan(MAX_BODY_SIZE);
     // …and still under nginx's client_max_body_size (10MB), or nginx rejects it
     // first and the app's friendlier error never renders.

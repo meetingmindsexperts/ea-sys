@@ -171,7 +171,7 @@ describe("wiring", () => {
     // handler keyed on status would have covered the CRM and silently missed
     // every core dashboard hook. Reverting it is the regression to catch.
     const src = codeOnly(readSource("src/hooks/use-api.ts"));
-    expect(src).toContain("throw new ApiError(message, res.status, data)");
+    expect(src).toContain("throw new ApiError(errorMessageFor(res.status, data), res.status, data)");
     expect(src).not.toMatch(/throw new Error\(\s*error\.error/);
   });
 

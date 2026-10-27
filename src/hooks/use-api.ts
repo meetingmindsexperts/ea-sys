@@ -4,7 +4,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import type { StoredAttachmentRef } from "@/lib/email-attachment-limits";
-import { ApiError } from "@/lib/api-fetch";
+import { ApiError, errorMessageFor } from "@/lib/api-fetch";
 
 import type { WebinarHandout } from "@/lib/webinar/handouts";
 import type { LivePollOption, PollTally } from "@/lib/webinar/live-polls";
@@ -29,9 +29,7 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
     const data = (await res
       .json()
       .catch(() => ({}))) as Record<string, unknown>;
-    const message =
-      (typeof data.error === "string" && data.error) || "Request failed";
-    throw new ApiError(message, res.status, data);
+    throw new ApiError(errorMessageFor(res.status, data), res.status, data);
   }
   return res.json();
 }

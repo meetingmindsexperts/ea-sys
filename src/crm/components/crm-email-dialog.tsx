@@ -34,8 +34,10 @@ import {
   useCrmEmailRecipients,
   useSendCrmEmail,
   useCrmEmailTemplates,
+  useUploadCrmDealDocument,
   type CrmEmailTarget,
 } from "@/crm/hooks/use-crm-api";
+import { CRM_EMAIL_INLINE_ATTACHMENT_BUDGET } from "@/lib/body-limits";
 
 const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => m.TiptapEditor),
@@ -47,6 +49,8 @@ const TiptapEditor = dynamic(
 
 const MAX_FILES = 5;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB total
+/** Files sent inside the request travel as base64, a third bigger than on disk. */
+const INLINE_MB = Math.floor((CRM_EMAIL_INLINE_ATTACHMENT_BUDGET * 3) / 4 / 1_048_576);
 const TOKENS = ["{{firstName}}", "{{lastName}}", "{{companyName}}", "{{eventName}}"];
 const BLANK = "__blank__";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -70,6 +74,22 @@ function parseAddressField(raw: string): { emails: string[]; invalid: string[] }
     (EMAIL_RE.test(part) ? emails : invalid).push(part);
   }
   return { emails, invalid };
+}
+
+function encodedSize(bytes: number): number {
+  return Math.ceil(bytes / 3) * 4;
+}
+
+function readBase64(file: File): Promise<string | null> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(",")[1] ?? null);
+    reader.onerror = () => {
+      toast.error(`Failed to read ${file.name}`);
+      resolve(null);
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 interface LocalAttachment {
@@ -96,6 +116,8 @@ export function CrmEmailDialog({
     open && target?.kind === "deal" ? target.id : null,
   );
   const send = useSendCrmEmail();
+  const dealId = target?.kind === "deal" ? target.id : null;
+  const uploadDoc = useUploadCrmDealDocument(dealId ?? "");
 
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
@@ -112,6 +134,7 @@ export function CrmEmailDialog({
   const [bcc, setBcc] = useState("");
   const [copyToSender, setCopyToSender] = useState(true);
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const recipients = useMemo(() => data?.recipients ?? [], [data]);
   const selectedIds = useMemo(
@@ -122,6 +145,7 @@ export function CrmEmailDialog({
   const totalAttachmentSize =
     attachments.reduce((s, a) => s + a.size, 0) + selectedDocs.reduce((s, d) => s + d.size, 0);
   const totalFileCount = attachments.length + selectedDocs.length;
+  const inlineEncoded = attachments.reduce((s, a) => s + a.content.length, 0);
   const isDeal = data?.target.kind === "deal";
   const listState = recipientListState(isLoading, isError, recipients.length);
 
@@ -173,31 +197,55 @@ export function CrmEmailDialog({
     setDeselected(selected ? new Set() : new Set(recipients.map((r) => r.crmContactId)));
   }
 
-  async function handleFileAdd(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files?.length) return;
-    const remaining = MAX_FILES - totalFileCount;
-    for (const file of Array.from(files).slice(0, remaining)) {
-      if (totalAttachmentSize + file.size > MAX_ATTACHMENT_SIZE) {
-        toast.error("Total attachment size exceeds 10MB");
-        break;
-      }
-      const base64 = await new Promise<string | null>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve((reader.result as string).split(",")[1] ?? null);
-        reader.onerror = () => {
-          toast.error(`Failed to read ${file.name}`);
-          resolve(null);
-        };
-        reader.readAsDataURL(file);
-      });
-      if (!base64) continue;
-      setAttachments((prev) => [
-        ...prev,
-        { name: file.name, content: base64, contentType: file.type || undefined, size: file.size },
-      ]);
+  /**
+   * On a deal, a PDF is saved to the deal's documents and ticked, so it is
+   * attached on the server and never rides the send request (Oct 27, 2026: a
+   * 10MB PDF became a 13MB request that nginx refused). Anything else, and every
+   * file on an event-wide send, goes inline and must fit the encoded budget.
+   */
+  async function saveToDeal(file: File): Promise<boolean> {
+    try {
+      const { document } = await uploadDoc.mutateAsync({ file, kind: "OTHER" });
+      setSelectedDocIds((prev) => new Set(prev).add(document.id));
+      return true;
+    } catch {
+      return false; // the upload hook toasts the reason
     }
+  }
+
+  async function handleFileAdd(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
+    if (files.length === 0) return;
+    let total = totalAttachmentSize;
+    let inline = inlineEncoded;
+    setUploading(true);
+    try {
+      for (const file of files.slice(0, MAX_FILES - totalFileCount)) {
+        if (total + file.size > MAX_ATTACHMENT_SIZE) {
+          toast.error("Total attachment size exceeds 10MB");
+          break;
+        }
+        if (dealId && file.type === "application/pdf") {
+          if (await saveToDeal(file)) total += file.size;
+          continue;
+        }
+        if (inline + encodedSize(file.size) > CRM_EMAIL_INLINE_ATTACHMENT_BUDGET) {
+          toast.error(`${file.name} does not fit: files other than deal PDFs can add up to ${INLINE_MB}MB`);
+          break;
+        }
+        const base64 = await readBase64(file);
+        if (!base64) continue;
+        total += file.size;
+        inline += base64.length;
+        setAttachments((prev) => [
+          ...prev,
+          { name: file.name, content: base64, contentType: file.type || undefined, size: file.size },
+        ]);
+      }
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function handleSend() {
@@ -490,7 +538,9 @@ export function CrmEmailDialog({
               <Paperclip className="h-4 w-4 text-muted-foreground" />
               Attachments{" "}
               <span className="text-xs text-muted-foreground">
-                (up to {MAX_FILES} files, 10MB total)
+                {dealId
+                  ? `(up to ${MAX_FILES} files, 10MB total; PDFs are saved to the deal's documents)`
+                  : `(up to ${MAX_FILES} files, ${INLINE_MB}MB total)`}
               </span>
             </Label>
             {attachments.length > 0 && (
@@ -523,8 +573,15 @@ export function CrmEmailDialog({
                 multiple
                 accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg"
                 onChange={handleFileAdd}
+                disabled={uploading}
                 className="cursor-pointer"
               />
+            )}
+            {uploading && (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Adding files…
+              </p>
             )}
           </div>
         </div>
@@ -533,7 +590,7 @@ export function CrmEmailDialog({
           <Button variant="outline" onClick={resetAndClose} disabled={sending}>
             Cancel
           </Button>
-          <Button onClick={handleSend} disabled={sending || recipients.length === 0}>
+          <Button onClick={handleSend} disabled={sending || uploading || recipients.length === 0}>
             {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
             Send to {selectedIds.length} contact{selectedIds.length === 1 ? "" : "s"}
           </Button>

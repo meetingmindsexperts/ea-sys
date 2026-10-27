@@ -47,7 +47,17 @@ export const IMPORT_BODY_SIZE = 8 * 1_048_576; // 8MB
  * send the whole CSV as a string). FILE uploads are handled by the multipart
  * rule below instead, because a path list cannot keep up with them.
  */
-export const LARGE_BODY_PREFIXES = ["/api/crm/import/"] as const;
+export const LARGE_BODY_PREFIXES = ["/api/crm/import/", "/api/crm/sponsor-email/send"] as const;
+
+/**
+ * The CRM email send posts its ad-hoc attachments as base64 inside the JSON
+ * (Oct 27, 2026): at the 1MB default anything over ~750KB of files failed, and
+ * the dialog advertised 10MB. The route is CRM-write gated and rate limited.
+ * The dialog keeps the encoded attachments under this budget, leaving the rest
+ * of IMPORT_BODY_SIZE for the message and the JSON around it. Deal sends route
+ * PDFs through the deal's documents instead, so they never ride this body.
+ */
+export const CRM_EMAIL_INLINE_ATTACHMENT_BUDGET = IMPORT_BODY_SIZE - 1_048_576; // 7MB encoded
 
 /**
  * Ceiling for `multipart/form-data` — i.e. every file upload.
