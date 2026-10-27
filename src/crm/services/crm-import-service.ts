@@ -265,6 +265,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
   };
   const activity: CrmActivityEntry[] = [];
   const seenKeys = new Set<string>(); // duplicate rows within ONE file
+  const resolveOwner = await makeOwnerResolver(ctx.organizationId);
 
   // Prefetch every candidate match in one query instead of two reads per row.
   const wanted = parsed.rows.map((r) => {
@@ -334,6 +335,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
         externalId: row.externalId ?? existing?.externalId ?? null,
         ...(action === "enrich" ? {} : { lastImportedAt: new Date() }),
       };
+      const ownerId = resolveOwner.resolve(row.ownerEmail, row.ownerName);
 
       if (action === "create") {
         report.created++;
@@ -350,6 +352,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
               phone: row.phone ?? null,
               ...(row.tags ? { tags: normalizeContactTags(row.tags) } : {}),
               notes: row.notes ?? null,
+              ownerId,
               ...stamp,
             },
           });
@@ -368,6 +371,8 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
                 ...enrichPatch(existing!, {
                   website: row.website, industry: row.industry, city: row.city,
                   country: row.country, phone: row.phone, notes: row.notes,
+                  // Enrich-only, like contacts: a human-assigned owner stays.
+                  ownerId: ownerId ?? undefined,
                 }),
                 // Tags are an array, so enrichPatch's blank-scalar rule can't see
                 // them: fill only when the EA row has none (the contacts pattern).
@@ -387,6 +392,9 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
                 ...ifColumn(cols.index.phone, "phone", row.phone ?? null),
                 ...ifColumn(cols.index.notes, "notes", row.notes ?? null),
                 ...(row.tags ? { tags: normalizeContactTags(row.tags) } : {}),
+                // Freshsales wins, but an UNMATCHABLE owner never un-owns (the
+                // contacts and deals rule).
+                ...(ownerId ? { ownerId } : {}),
               };
         if (action === "enrich") report.enriched++;
         else report.updated++;
@@ -422,6 +430,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
   }
 
   if (archivedMatched > 0) report.notes.push(ARCHIVED_NOTE(archivedMatched, "account"));
+  report.notes.push(...ownerNotes(resolveOwner));
   if (!ctx.dryRun) void recordCrmActivityBulk(activity);
   apiLogger.info({
     msg: "crm-import:companies-done", organizationId: ctx.organizationId, dryRun: ctx.dryRun,
@@ -788,7 +797,7 @@ async function makeCompanyResolver(ctx: ImportCtx) {
  * matching a MEMBER/ONSITE account counts as unmatched rather than assigning CRM
  * content to a role the CRM excludes.
  */
-async function makeOwnerResolver(organizationId: string) {
+export async function makeOwnerResolver(organizationId: string) {
   const users = await db.user.findMany({
     where: crmOwnerUserWhere(organizationId),
     select: { id: true, email: true, firstName: true, lastName: true },

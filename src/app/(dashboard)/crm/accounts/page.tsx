@@ -15,6 +15,7 @@
  * so a filtered, sorted account list is shareable, bookmarkable, and survives a
  * refresh or a back-button. This used to be local React state, which lost all three.
  */
+import { useSession } from "next-auth/react";
 import { Suspense, useState } from "react";
 import { useCan } from "@/hooks/use-can";
 import { useRouter } from "next/navigation";
@@ -36,6 +37,7 @@ import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialo
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { SortableTh, nextSort, type SortDir } from "@/crm/components/sortable-th";
+import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -49,12 +51,31 @@ import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { formatDealValue, type CrmCompanyRow } from "@/crm/lib/crm-types";
 
+
+/**
+ * Column widths (owner, Oct 27, 2026). The table is `table-fixed`, so these
+ * header widths decide every column and no single long value can stretch one;
+ * Location takes what is left. Text cells truncate and show in full on hover.
+ */
+const COL = {
+  name: "w-[280px]",
+  industry: "w-[120px]",
+  owner: "w-[130px]",
+  contact: "w-[160px]",
+  value: "w-[120px]",
+  contacts: "w-[88px]",
+  deals: "w-[76px]",
+} as const;
+const CLIP = "truncate text-muted-foreground";
+
 function CompaniesInner() {
   const canWrite = useCan("crm.write") === "allowed";
 
   const { get, set } = useCrmFilters();
+  const { data: session } = useSession();
   const q = get("q");
   const industry = get("industry");
+  const owner = get("owner");
   const tagFilter = get("tags");
   const onlyReview = !!get("review");
   const showArchived = !!get("archived");
@@ -79,6 +100,7 @@ function CompaniesInner() {
   const companyFilters = {
     q: q || undefined,
     industry: industry || undefined,
+    owner: owner || undefined,
     tags: tagFilter || undefined,
     archived: showArchived ? "1" : undefined,
     needsReview: onlyReview ? "true" : undefined,
@@ -124,6 +146,15 @@ function CompaniesInner() {
             onChange={(e) => set({ q: e.target.value })}
           />
         </div>
+
+        {/* "All accounts" ↔ "My accounts" ↔ one rep's accounts. */}
+        <OwnerFilter
+          value={owner}
+          onChange={(userId) => set({ owner: userId ?? null })}
+          placeholder="All accounts"
+          meId={session?.user?.id}
+          meLabel="My accounts"
+        />
 
         {industries.length > 0 && (
           <Select value={industry || "__all__"} onValueChange={(v) => set({ industry: v === "__all__" ? null : v })}>
@@ -206,16 +237,40 @@ function CompaniesInner() {
       )}
       {view === "list" && (
         <div className="overflow-hidden rounded-xl border">
-          <Table>
+          <Table className="min-w-[1100px] table-fixed">
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={dir} onSort={onSort} />
-                <TableHead>Industry</TableHead>
+                <SortableTh
+                  label="Name"
+                  sortKey="name"
+                  activeKey={sortKey}
+                  dir={dir}
+                  onSort={onSort}
+                  className={COL.name}
+                />
+                <TableHead className={COL.industry}>Industry</TableHead>
+                <TableHead className={COL.owner}>Owner</TableHead>
                 <TableHead>Location</TableHead>
-                <TableHead>Primary contact</TableHead>
-                <TableHead className="text-right">Deal value</TableHead>
-                <SortableTh label="Contacts" sortKey="contacts" activeKey={sortKey} dir={dir} onSort={onSort} align="right" />
-                <SortableTh label="Deals" sortKey="deals" activeKey={sortKey} dir={dir} onSort={onSort} align="right" />
+                <TableHead className={COL.contact}>Primary contact</TableHead>
+                <TableHead className={cn("text-right", COL.value)}>Deal value</TableHead>
+                <SortableTh
+                  label="Contacts"
+                  sortKey="contacts"
+                  activeKey={sortKey}
+                  dir={dir}
+                  onSort={onSort}
+                  align="right"
+                  className={COL.contacts}
+                />
+                <SortableTh
+                  label="Deals"
+                  sortKey="deals"
+                  activeKey={sortKey}
+                  dir={dir}
+                  onSort={onSort}
+                  align="right"
+                  className={COL.deals}
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -227,7 +282,9 @@ function CompaniesInner() {
                 >
                   <TableCell className="font-medium">
                     <span className="flex items-center gap-2">
-                      {c.name}
+                      <span className="min-w-0 truncate" title={c.name}>
+                        {c.name}
+                      </span>
                       {c.needsReview && (
                         <Badge
                           variant="outline"
@@ -245,25 +302,30 @@ function CompaniesInner() {
                     {(c.tags?.length ?? 0) > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {c.tags!.map((t) => (
-                          <Badge key={t} variant="secondary" className="font-normal text-[10px]">
+                          <Badge key={t} variant="secondary" className="max-w-full truncate font-normal text-[10px]" title={t}>
                             {t}
                           </Badge>
                         ))}
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{c.industry ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className={CLIP} title={c.industry ?? undefined}>
+                    {c.industry ?? "—"}
+                  </TableCell>
+                  <TableCell className={CLIP}>
+                    {c.owner ? `${c.owner.firstName} ${c.owner.lastName}` : "—"}
+                  </TableCell>
+                  <TableCell className={CLIP} title={[c.city, c.country].filter(Boolean).join(", ") || undefined}>
                     {[c.city, c.country].filter(Boolean).join(", ") || "—"}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className={CLIP}>
                     {c.primaryContact
                       ? `${c.primaryContact.firstName} ${c.primaryContact.lastName}`
                       : "—"}
                   </TableCell>
                   {/* OPEN+WON deals, per currency — never summed across currencies.
                       Absent (MEMBER redaction) and genuinely-zero both render "—". */}
-                  <TableCell className="text-right font-medium tabular-nums">
+                  <TableCell className="truncate text-right font-medium tabular-nums">
                     {c.dealTotals && c.dealTotals.length > 0
                       ? c.dealTotals
                           .map((t) => formatDealValue(t.total, t.currency))

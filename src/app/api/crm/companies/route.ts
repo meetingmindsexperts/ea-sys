@@ -34,6 +34,7 @@ export async function GET(req: Request) {
     const q = searchParams.get("q")?.trim();
     const needsReview = searchParams.get("needsReview") === "true";
     const industry = searchParams.get("industry")?.trim();
+    const owner = searchParams.get("owner")?.trim();
     // Tag filter (any-of): comma-separated exact tags → hasSome (see /companies/tags).
     const tags = (searchParams.get("tags") || "")
       .split(",")
@@ -48,6 +49,7 @@ export async function GET(req: Request) {
       archivedAt: isArchivedView(searchParams.get("archived")) ? { not: null } : null,
       ...(needsReview ? { needsReview: true } : {}),
       ...(industry ? { industry: { equals: industry, mode: "insensitive" as const } } : {}),
+      ...(owner ? { ownerId: owner } : {}),
       ...(tags.length ? { tags: { hasSome: tags } } : {}),
       ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
     };
@@ -67,6 +69,7 @@ export async function GET(req: Request) {
         needsReview: true,
         archivedAt: true,
         createdAt: true,
+        owner: { select: { id: true, firstName: true, lastName: true } },
         _count: { select: { contacts: true, deals: true } },
         // Feeds the row rollups (company-rollup.ts), stripped below: per-currency
         // OPEN+WON deal totals + the derived primary contact (PRIMARY role on the

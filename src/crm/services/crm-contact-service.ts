@@ -117,7 +117,12 @@ export function normalizeContactTags(tags: string[]): string[] {
  * this checks who the contact is being handed TO. The creator-default path
  * skips it (the caller already passed the CRM write gate).
  */
-async function assertOwner(organizationId: string, ownerId?: string | null): Promise<Fail | null> {
+export async function assertOwner(
+  organizationId: string,
+  ownerId?: string | null,
+  /** "Contacts" / "Accounts": who the refusal message talks about. */
+  records = "Contacts",
+): Promise<Fail | null> {
   if (!ownerId) return null;
   const u = await db.user.findFirst({
     where: { id: ownerId, organizationId },
@@ -132,7 +137,7 @@ async function assertOwner(organizationId: string, ownerId?: string | null): Pro
     return {
       ok: false,
       code: "OWNER_ROLE_NOT_ALLOWED",
-      message: "Contacts can only be owned by CRM-capable roles (admin, organizer or sales)",
+      message: `${records} can only be owned by CRM-capable roles (admin, organizer or sales)`,
       meta: { role: u.role },
     };
   }

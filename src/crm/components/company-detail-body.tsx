@@ -230,6 +230,9 @@ export function CompanyDetailBody({
           <>
             <RecordCard icon={Info} title="Details">
               <Facts>
+                <Fact label="Owner">
+                  {company.owner ? `${company.owner.firstName} ${company.owner.lastName}` : <Dash />}
+                </Fact>
                 <Fact label="Industry">{company.industry || <Dash />}</Fact>
                 <Fact label="Location">{location || <Dash />}</Fact>
                 <Fact label="Website">

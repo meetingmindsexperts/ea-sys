@@ -27,10 +27,10 @@ import { Prisma, type CrmCompany } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
-import { normalizeContactTags } from "./crm-contact-service";
+import { assertOwner, normalizeContactTags } from "./crm-contact-service";
 
 /** Fields worth showing in the change log when an account is edited. */
-const COMPANY_DIFF_KEYS = ["name", "industry", "website", "phone", "country", "city", "notes", "tags", "needsReview"] as const;
+const COMPANY_DIFF_KEYS = ["name", "industry", "website", "phone", "country", "city", "notes", "tags", "needsReview", "ownerId"] as const;
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -60,6 +60,8 @@ export interface UpdateCompanyInput extends Partial<CompanyFields> {
   requestIp?: string;
   /** Clear the fuzzy-duplicate flag once a human has confirmed it's distinct. */
   needsReview?: boolean;
+  /** The rep who owns the account; null = unassign. Must be CRM-capable. */
+  ownerId?: string | null;
 }
 
 export type CompanyErrorCode =
@@ -68,6 +70,8 @@ export type CompanyErrorCode =
   | "COMPANY_NOT_FOUND"
   | "COMPANY_ARCHIVED"
   | "NO_FIELDS"
+  | "OWNER_NOT_FOUND"
+  | "OWNER_ROLE_NOT_ALLOWED"
   | "UNKNOWN";
 
 export type FindOrCreateCompanyResult =
@@ -224,7 +228,8 @@ export async function findOrCreateCompany(
 }
 
 export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCompanyResult> {
-  const data: Prisma.CrmCompanyUpdateInput = {};
+  // Unchecked: ownerId is written as the scalar, which updateMany needs.
+  const data: Prisma.CrmCompanyUncheckedUpdateManyInput = {};
 
   if (input.name !== undefined) {
     const name = input.name.trim();
@@ -242,10 +247,13 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
   if (input.notes !== undefined) data.notes = input.notes?.trim() || null;
   if (input.tags !== undefined) data.tags = normalizeContactTags(input.tags);
   if (input.needsReview !== undefined) data.needsReview = input.needsReview;
+  if (input.ownerId !== undefined) data.ownerId = input.ownerId; // null = unassign
 
   if (Object.keys(data).length === 0) {
     return { ok: false, code: "NO_FIELDS", message: "No fields to update" };
   }
+  const ownerFail = await assertOwner(input.organizationId, input.ownerId, "Accounts");
+  if (ownerFail) return ownerFail as UpdateCompanyResult;
 
   try {
     // Snapshot before the write for a real before→after log. Bind the row to the
@@ -253,7 +261,7 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
     // unbound update is this codebase's most repeated IDOR (accommodation + contacts).
     const before = await db.crmCompany.findFirst({
       where: { id: input.companyId, organizationId: input.organizationId },
-      select: { name: true, industry: true, website: true, phone: true, country: true, city: true, notes: true, tags: true, needsReview: true, archivedAt: true },
+      select: { name: true, industry: true, website: true, phone: true, country: true, city: true, notes: true, tags: true, needsReview: true, ownerId: true, archivedAt: true },
     });
     if (!before) {
       apiLogger.warn({

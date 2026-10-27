@@ -361,6 +361,8 @@ export interface CrmCompanyRow {
   city?: string | null;
   tags?: string[];
   needsReview: boolean;
+  /** The rep who owns the account (Oct 27, 2026). */
+  owner?: CrmPersonRef | null;
   archivedAt?: string | null;
   createdAt: string;
   _count?: { contacts: number; deals: number };

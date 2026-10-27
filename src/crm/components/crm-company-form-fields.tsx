@@ -13,8 +13,11 @@ import type { ReactNode } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TagInput } from "@/components/ui/tag-input";
+import { useCrmReps } from "@/crm/hooks/use-crm-api";
+import { NO_OWNER } from "@/crm/components/crm-contact-form-fields";
 
 export interface CrmCompanyFormState {
   name: string;
@@ -25,6 +28,11 @@ export interface CrmCompanyFormState {
   country: string;
   notes: string;
   tags: string[];
+  /**
+   * Edit only (Oct 27, 2026). Undefined on create, where the field is not shown
+   * and not sent; NO_OWNER means "unassigned".
+   */
+  ownerId?: string;
 }
 
 export function emptyCrmCompanyForm(): CrmCompanyFormState {
@@ -40,6 +48,7 @@ export function crmCompanyToForm(c: {
   country?: string | null;
   notes?: string | null;
   tags?: string[];
+  owner?: { id: string } | null;
 }): CrmCompanyFormState {
   return {
     name: c.name,
@@ -50,6 +59,7 @@ export function crmCompanyToForm(c: {
     country: c.country ?? "",
     notes: c.notes ?? "",
     tags: c.tags ?? [],
+    ownerId: c.owner?.id ?? NO_OWNER,
   };
 }
 
@@ -64,6 +74,7 @@ export function crmCompanyFormPayload(f: CrmCompanyFormState): Record<string, un
     country: f.country.trim() || null,
     notes: f.notes.trim() || null,
     tags: f.tags,
+    ...(f.ownerId === undefined ? {} : { ownerId: f.ownerId === NO_OWNER ? null : f.ownerId }),
   };
 }
 
@@ -80,6 +91,7 @@ export function CrmCompanyFormFields({
   nameHint?: ReactNode;
 }) {
   const f = value;
+  const { data: reps = [] } = useCrmReps();
 
   return (
     <div className="space-y-4">
@@ -137,6 +149,25 @@ export function CrmCompanyFormFields({
         <Label>Country</Label>
         <CountrySelect value={f.country} onChange={(v) => onChange({ country: v ?? "" })} />
       </div>
+
+      {f.ownerId !== undefined && (
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-owner`}>Owner</Label>
+          <Select value={f.ownerId} onValueChange={(v) => onChange({ ownerId: v })}>
+            <SelectTrigger id={`${idPrefix}-owner`} className="w-full">
+              <SelectValue placeholder="Unassigned" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_OWNER}>Unassigned</SelectItem>
+              {reps.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.firstName} {u.lastName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label>Tags</Label>

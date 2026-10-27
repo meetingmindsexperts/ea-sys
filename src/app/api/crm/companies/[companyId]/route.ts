@@ -19,6 +19,8 @@ const updateCompanySchema = z.object({
   tags: z.array(z.string().min(1).max(50)).max(25).optional(),
   /** Cleared once a human confirms a fuzzy-flagged company is genuinely distinct. */
   needsReview: z.boolean().optional(),
+  /** The rep who owns the account; null unassigns. The service checks the role. */
+  ownerId: z.string().min(1).nullable().optional(),
   /** Restore a soft-deleted account. Delete-gated separately below. */
   archived: z.boolean().optional(),
 });
@@ -33,6 +35,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ companyI
     const company = await db.crmCompany.findFirst({
       where: { id: companyId, organizationId: ctx.organizationId },
       include: {
+        owner: { select: { id: true, firstName: true, lastName: true } },
         contacts: {
           where: { archivedAt: null },
           select: { id: true, firstName: true, lastName: true, email: true, jobTitle: true, lifecycleStage: true },
@@ -53,7 +56,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ companyI
 
     if (!company) {
       apiLogger.warn({ msg: "crm/companies:detail-not-found", companyId, organizationId: ctx.organizationId });
-      return NextResponse.json({ error: "Company not found" }, { status: 404 });
+      return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
 
     return NextResponse.json({ company: redactForCaller(company, ctx) });

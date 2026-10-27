@@ -247,6 +247,7 @@ model User {
   // destroys deal/task/note history AND never blocks the delete. See CrmDeal.
   ownedCrmDeals            CrmDeal[]           @relation("CrmDealOwner")
   ownedCrmContacts         CrmContact[]        @relation("CrmContactOwner")
+  ownedCrmCompanies        CrmCompany[]        @relation("CrmCompanyOwner")
   ownedCrmTasks            CrmTask[]           @relation("CrmTaskOwner")
   authoredCrmNotes         CrmNote[]           @relation("CrmNoteAuthor")
   crmActivities            CrmActivity[]       @relation("CrmActivityActor")

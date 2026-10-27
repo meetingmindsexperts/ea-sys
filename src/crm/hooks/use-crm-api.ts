@@ -365,6 +365,8 @@ export function useCloseDeal(dealId: string) {
 export interface CrmCompanyFilters {
   q?: string;
   industry?: string;
+  /** Filter to one rep's accounts — "My accounts" passes the caller's own userId. */
+  owner?: string;
   needsReview?: string;
   /** Any-of tag filter — comma-separated exact tags (the list uses a single tag). */
   tags?: string;

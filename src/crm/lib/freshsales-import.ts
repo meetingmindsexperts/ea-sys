@@ -266,6 +266,9 @@ export const COMPANY_FIELDS = {
   phone: { synonyms: ["phone", "phonenumber", "workphone", "telephone"] },
   tags: { synonyms: ["tags", "tag"] },
   notes: { synonyms: ["description", "about", "notes"] },
+  // Freshsales "Sales owner" (Oct 27, 2026): accounts now carry an owner.
+  ownerEmail: { synonyms: ["salesowneremail", "owneremail", "accountowneremail"] },
+  ownerName: { synonyms: ["salesowner", "owner", "accountowner"] },
 } satisfies FieldSpec<string>;
 
 /**
@@ -402,6 +405,8 @@ export interface CompanyRow {
   phone?: string;
   tags?: string[];
   notes?: string;
+  ownerEmail?: string;
+  ownerName?: string;
 }
 
 export function mapCompanyRow(
@@ -421,6 +426,8 @@ export function mapCompanyRow(
       phone: cell(fields, cols.index.phone),
       tags: parseTagsCell(cell(fields, cols.index.tags)),
       notes: cell(fields, cols.index.notes),
+      ownerEmail: cell(fields, cols.index.ownerEmail)?.toLowerCase(),
+      ownerName: cell(fields, cols.index.ownerName),
     },
   };
 }

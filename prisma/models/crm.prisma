@@ -568,6 +568,12 @@ model CrmCompany {
   /// Clinic Foundation") so finance can merge later. Advisory — never blocks.
   needsReview Boolean @default(false)
 
+  /// The rep who OWNS this account (Oct 27, 2026; Freshsales "Sales owner").
+  /// Nullable + SetNull for the same reason as CrmContact.ownerId: deleting a
+  /// user must never block or destroy the account, it just becomes unowned.
+  ownerId String?
+  owner   User?   @relation("CrmCompanyOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
   contacts CrmContact[]
   deals    CrmDeal[]
   tasks    CrmTask[]
@@ -592,6 +598,7 @@ model CrmCompany {
   @@unique([organizationId, nameKey])
   @@unique([organizationId, externalSource, externalId])
   @@index([organizationId])
+  @@index([ownerId])
 }
 
 /// Org-configurable pipeline (locked, §9). A TABLE, not an enum — sales will
