@@ -215,7 +215,7 @@ function CompaniesInner() {
       <ListTruncationBanner meta={companiesMeta} shown={rows.length} noun="accounts" />
 
       {view === "loading" && (
-        <CrmTableSkeleton rows={6} cols={7} />
+        <CrmTableSkeleton rows={6} cols={8} />
       )}
       {view === "error" && (
         <CrmLoadError what="accounts" onRetry={() => refetch()} />

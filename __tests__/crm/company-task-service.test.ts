@@ -342,3 +342,42 @@ describe("R2 rider L12 — a due date arms the reminder IN THE SERVICE", () => {
     expect(data.remindAt).toBeNull();
   });
 });
+
+describe("updateCompany — owner (Oct 27, 2026)", () => {
+  const before = {
+    id: "c-1", name: "Abbott", industry: null, website: null, phone: null, country: null, city: null,
+    notes: null, tags: [], needsReview: false, ownerId: "u-old", archivedAt: null,
+  };
+  beforeEach(() => {
+    vi.mocked(db.crmCompany.findFirst).mockResolvedValue(before as never);
+    vi.mocked(db.crmCompany.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmCompany.findUniqueOrThrow).mockResolvedValue({ id: "c-1" } as never);
+  });
+
+  it("an UNCHANGED owner is not re-checked, so a since-demoted owner never blocks other edits", async () => {
+    const res = await updateCompany({
+      organizationId: "org-1", userId: "u-1", source: "rest", companyId: "c-1", city: "Dubai", ownerId: "u-old",
+    });
+    expect(res.ok).toBe(true);
+    expect(db.user.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("a CHANGED owner from outside the org is refused", async () => {
+    vi.mocked(db.user.findFirst).mockResolvedValue(null as never);
+    const res = await updateCompany({
+      organizationId: "org-1", userId: "u-1", source: "rest", companyId: "c-1", ownerId: "u-stranger",
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("OWNER_NOT_FOUND");
+    expect(db.crmCompany.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("null unassigns without an owner check", async () => {
+    const res = await updateCompany({
+      organizationId: "org-1", userId: "u-1", source: "rest", companyId: "c-1", ownerId: null,
+    });
+    expect(res.ok).toBe(true);
+    expect(db.crmCompany.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { ownerId: null } }));
+  });
+});

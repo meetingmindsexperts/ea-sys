@@ -1335,3 +1335,41 @@ describe("importFreshsalesContacts — name cleaning and quality tags", () => {
     expect(update.data).toMatchObject({ firstName: "Amal", lastName: "Badr" });
   });
 });
+
+describe("importFreshsalesCompanies — Sales owner (Oct 27, 2026)", () => {
+  const sohail = { id: "u-sohail", email: "sohail@mmg.com", firstName: "Sohail", lastName: "Qureshi" };
+  beforeEach(() => {
+    vi.mocked(db.user.findMany).mockResolvedValue([sohail] as never);
+    vi.mocked(db.crmCompany.create).mockResolvedValue({ id: "c-new" } as never);
+  });
+
+  it("resolves the Freshsales owner columns", () => {
+    const cols = resolveColumns(parseCSVHeaders("Id,Name,Sales owner id,Sales owner,Sales owner email"), COMPANY_FIELDS);
+    expect(cols.index.ownerName).toBe(3);
+    expect(cols.index.ownerEmail).toBe(4);
+    expect(cols.unrecognized).toEqual(["salesownerid"]);
+  });
+
+  it("a new account gets its owner", async () => {
+    const res = await importFreshsalesCompanies({
+      organizationId: ORG, userId: "u-1", dryRun: false, csvText: "Id,Name,Sales owner\na-1,Abbott,Sohail Qureshi",
+    });
+    if (!res.ok) throw new Error(res.message);
+    const created = vi.mocked(db.crmCompany.create).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(created.data.ownerId).toBe("u-sohail");
+  });
+
+  it("an update with an owner nobody matches never un-owns the account", async () => {
+    const imported = new Date("2026-08-24T10:00:00Z");
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([{
+      id: "c-1", name: "Abbott", nameKey: "abbott", tags: [], ownerId: "u-sohail",
+      externalSource: "freshsales", externalId: "a-1", updatedAt: imported, lastImportedAt: imported, archivedAt: null,
+    }] as never);
+    await importFreshsalesCompanies({
+      organizationId: ORG, userId: "u-1", dryRun: false, csvText: "Id,Name,Sales owner\na-1,Abbott,Lina Alaa Eldin",
+    });
+    const update = vi.mocked(db.crmCompany.update).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(update.data).not.toHaveProperty("ownerId");
+  });
+});
+

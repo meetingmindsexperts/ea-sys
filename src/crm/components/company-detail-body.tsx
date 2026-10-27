@@ -219,6 +219,7 @@ export function CompanyDetailBody({
             value={form}
             onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
             idPrefix="edit-company"
+            currentOwner={company.owner ?? null}
           />
           <p className="mt-3 text-xs text-muted-foreground">
             Changes are recorded in the account&apos;s history.

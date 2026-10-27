@@ -98,6 +98,7 @@ async function runType(
   organizationId: string,
   resolve: (name: string) => string | null,
   nameOf: Map<string, string>,
+  ambiguous: Set<string>,
 ) {
   const label = type === "account" ? "Accounts" : "Contacts";
   const mine = rows.filter((r) => r.type === type);
@@ -115,7 +116,10 @@ async function runType(
   }
   console.log(`Already owned correctly: ${plan.alreadyOwned}`);
   console.log(`Skipped, not in EA-SYS: ${plan.missingRecords}`);
-  for (const [name, n] of plan.unmatchedOwners) console.log(`Skipped, no EA-SYS user for "${name}": ${n}`);
+  for (const [name, n] of plan.unmatchedOwners) {
+    const why = ambiguous.has(name) ? "matches more than one EA-SYS user" : "no EA-SYS user";
+    console.log(`Skipped, ${why} for "${name}": ${n}`);
+  }
 
   if (!write || plan.writes.length === 0) return;
 
@@ -171,15 +175,23 @@ async function main() {
   console.log(`File: ${file}\nRows: ${rows.length}\nOrganisation: ${organizationId}`);
 
   const resolver = await makeOwnerResolver(organizationId);
-  const resolve = (name: string) => resolver.resolve(undefined, name);
+  // The resolver counts a name matching two users as "ambiguous"; remember which
+  // names those were so the printout does not call them "no EA-SYS user".
+  const ambiguous = new Set<string>();
+  const resolve = (name: string) => {
+    const before = resolver.ambiguous;
+    const id = resolver.resolve(undefined, name);
+    if (resolver.ambiguous > before) ambiguous.add(name);
+    return id;
+  };
   const users = await db.user.findMany({
     where: { organizationId },
     select: { id: true, firstName: true, lastName: true },
   });
   const nameOf = new Map(users.map((u) => [u.id, `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim()]));
 
-  await runType("account", rows, organizationId, resolve, nameOf);
-  await runType("contact", rows, organizationId, resolve, nameOf);
+  await runType("account", rows, organizationId, resolve, nameOf, ambiguous);
+  await runType("contact", rows, organizationId, resolve, nameOf, ambiguous);
   if (!write) console.log("\nDry run only. Re-run with --write to apply.");
 }
 

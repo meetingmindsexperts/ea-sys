@@ -252,8 +252,6 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
   if (Object.keys(data).length === 0) {
     return { ok: false, code: "NO_FIELDS", message: "No fields to update" };
   }
-  const ownerFail = await assertOwner(input.organizationId, input.ownerId, "Accounts");
-  if (ownerFail) return ownerFail as UpdateCompanyResult;
 
   try {
     // Snapshot before the write for a real before→after log. Bind the row to the
@@ -275,6 +273,12 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
     if (before.archivedAt) {
       apiLogger.warn({ msg: "crm-company:update-archived", companyId: input.companyId });
       return { ok: false, code: "COMPANY_ARCHIVED", message: "This account was archived — restore it before editing it" };
+    }
+    // Only a CHANGED owner is checked (see updateCrmContact): an owner who has
+    // since lost CRM access must not block editing the account's other fields.
+    if (input.ownerId !== undefined && input.ownerId !== before.ownerId) {
+      const ownerFail = await assertOwner(input.organizationId, input.ownerId, "Accounts");
+      if (ownerFail) return ownerFail as UpdateCompanyResult;
     }
 
     const res = await db.crmCompany.updateMany({

@@ -177,6 +177,7 @@ const COMPANY_SAMPLE: SampleColumn[] = [
   { header: "Phone", example: "+97141234567" },
   { header: "Tags", example: "sponsor;pharma" },
   { header: "Description", example: "Key sponsor account" },
+  { header: "Sales owner", example: "Sohail Qureshi" },
 ];
 
 const CONTACT_SAMPLE: SampleColumn[] = [

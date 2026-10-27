@@ -83,15 +83,24 @@ export function CrmCompanyFormFields({
   onChange,
   idPrefix,
   nameHint,
+  currentOwner = null,
 }: {
   value: CrmCompanyFormState;
   onChange: (patch: Partial<CrmCompanyFormState>) => void;
   idPrefix: string;
   /** Caller-specific helper under the name input (create's find-or-create note). */
   nameHint?: ReactNode;
+  /**
+   * The account's owner as saved. The picker lists reps only, so an owner who
+   * holds CRM rights some other way (a custom role) is added so the field never
+   * renders blank.
+   */
+  currentOwner?: { id: string; firstName: string | null; lastName: string | null } | null;
 }) {
   const f = value;
   const { data: reps = [] } = useCrmReps();
+  const ownerOptions =
+    currentOwner && !reps.some((u) => u.id === currentOwner.id) ? [...reps, currentOwner] : reps;
 
   return (
     <div className="space-y-4">
@@ -159,7 +168,7 @@ export function CrmCompanyFormFields({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NO_OWNER}>Unassigned</SelectItem>
-              {reps.map((u) => (
+              {ownerOptions.map((u) => (
                 <SelectItem key={u.id} value={u.id}>
                   {u.firstName} {u.lastName}
                 </SelectItem>

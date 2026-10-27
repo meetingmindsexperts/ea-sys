@@ -304,8 +304,6 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
 
   const companyFail = await assertCompany(input.organizationId, input.companyId);
   if (companyFail) return companyFail;
-  const ownerFail = await assertOwner(input.organizationId, input.ownerId);
-  if (ownerFail) return ownerFail;
 
   try {
     const before = await db.crmContact.findFirst({
@@ -324,6 +322,13 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
     if (before.archivedAt) {
       apiLogger.warn({ msg: "crm-contact:update-archived", crmContactId: input.crmContactId });
       return { ok: false, code: "CONTACT_ARCHIVED", message: "This contact was archived — restore it before editing it" };
+    }
+    // Only a CHANGED owner is checked: the edit form always sends the owner, and
+    // an owner who has since lost CRM access must not block editing every other
+    // field of the record.
+    if (input.ownerId !== undefined && input.ownerId !== before.ownerId) {
+      const ownerFail = await assertOwner(input.organizationId, input.ownerId);
+      if (ownerFail) return ownerFail;
     }
 
     const res = await db.crmContact.updateMany({
