@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Speakers: Session proposers tab; registrations export: badge printed date (October 27)
+
+- **Speakers**: a Session proposers tab, shown only when the event has any: speakers with a submitted session proposal and no submitted abstract. These are the people who signed up to propose and so have no complimentary registration unless the organiser grants one (the Aug 5 ruling). Each speaker sits in exactly one group: abstract submitter, else session proposer, else invited; drafts and withdrawn ones count for neither.
+- **Registrations export**: "Badge Printed Date" (the last print) and "Badge Print Count" after "Checked In Date".
+
 ### Registrations and Speakers: stats split, shorter, and following the filters (October 27)
 
 - **Registrations**: the stats are two compact rows in one card, Delegates (Total, Confirmed, Pending, Checked In, Paid) and Faculty (speakers' registrations: Total, Confirmed, Checked In), and they follow the filters as the table does. The Registration Type filter takes several types; the CSV export (`ticketTypeId` now accepts a comma-separated list) and the bulk email seed carry them all.

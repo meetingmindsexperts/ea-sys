@@ -2,7 +2,7 @@
  * The Speakers page tabs (owner, Oct 27) and who "Email" reaches from them (review HIGHs, Oct 27).
  */
 import { describe, it, expect } from "vitest";
-import { canEmailListed, emailRecipientIds, isSubmitter, matchesKind } from "@/lib/speaker-kinds";
+import { canEmailListed, emailRecipientIds, isProposer, isSubmitter, matchesKind, speakerKindOf } from "@/lib/speaker-kinds";
 
 const invited = { id: "a", abstracts: [] as { status: string }[] };
 const submitter = { id: "b", abstracts: [{ status: "SUBMITTED" }, { status: "DRAFT" }] };
@@ -14,6 +14,17 @@ describe("speaker kinds", () => {
     expect([invited, submitter].filter((s) => matchesKind(s, "invited")).map((s) => s.id)).toEqual(["a"]);
     expect([invited, submitter].filter((s) => matchesKind(s, "submitters")).map((s) => s.id)).toEqual(["b"]);
     expect([invited, submitter].filter((s) => matchesKind(s, "all"))).toHaveLength(2);
+  });
+
+  it("a session proposer has a submitted proposal and no submitted abstract; an abstract wins (Oct 27)", () => {
+    expect(speakerKindOf({ abstracts: [], sessionProposals: [{ status: "SUBMITTED" }] })).toBe("proposers");
+    expect(speakerKindOf({ abstracts: [], sessionProposals: [{ status: "DRAFT" }, { status: "WITHDRAWN" }] })).toBe("invited");
+    expect(speakerKindOf({ abstracts: [{ status: "ACCEPTED" }], sessionProposals: [{ status: "SUBMITTED" }] })).toBe("submitters");
+    expect(isProposer({ abstracts: [{ status: "DRAFT" }], sessionProposals: [{ status: "SUBMITTED" }] })).toBe(true);
+    expect(speakerKindOf({ abstracts: [] })).toBe("invited");
+    const proposer = { id: "p", abstracts: [], sessionProposals: [{ status: "SUBMITTED" }] };
+    expect([invited, submitter, proposer].filter((s) => matchesKind(s, "proposers")).map((s) => s.id)).toEqual(["p"]);
+    expect([invited, submitter, proposer].filter((s) => matchesKind(s, "invited")).map((s) => s.id)).toEqual(["a"]);
   });
 
   it("only a draft or a withdrawn abstract does not make an invited speaker a submitter (review MED)", () => {

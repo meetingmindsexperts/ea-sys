@@ -2,21 +2,33 @@
  * Who a speaker is to the event, for the Speakers page tabs (owner, Oct 27): invited by the organisers, or
  * someone who submitted an abstract (a submitter, and its presenter once accepted). Pure, client-safe.
  */
-export type SpeakerKind = "all" | "invited" | "submitters";
+export type SpeakerKind = "all" | "invited" | "submitters" | "proposers";
 
-type WithAbstracts = { abstracts: { status: string }[] };
+type WithSubmissions = { abstracts: { status: string }[]; sessionProposals?: { status: string }[] };
 
-/** Abstracts that do not make anyone a submitter: one only started, or taken back (review MED, Oct 27). */
+/** Abstracts and proposals that do not make anyone a submitter: one only started, or taken back (review MED, Oct 27). */
 const NOT_SUBMITTED = new Set(["DRAFT", "WITHDRAWN"]);
+const submitted = (items: { status: string }[] | undefined) => (items ?? []).some((a) => !NOT_SUBMITTED.has(a.status));
 
 /**
  * A speaker who has submitted at least one abstract. A draft or a withdrawn one does not count, so an invited
  * speaker who only started an abstract stays on the Invited tab.
  */
-export const isSubmitter = (s: WithAbstracts) => s.abstracts.some((a) => !NOT_SUBMITTED.has(a.status));
+export const isSubmitter = (s: WithSubmissions) => submitted(s.abstracts);
 
-export const matchesKind = (s: WithAbstracts, kind: SpeakerKind) =>
-  kind === "all" || (kind === "submitters") === isSubmitter(s);
+/**
+ * A speaker who proposed a session (owner, Oct 27) and is not an abstract submitter: someone who signed up to
+ * propose, and so has no complimentary registration unless the organiser grants one (Aug 5 ruling).
+ */
+export const isProposer = (s: WithSubmissions) => !isSubmitter(s) && submitted(s.sessionProposals);
+
+/** Each speaker is in exactly one group: abstract submitter, else session proposer, else invited. */
+export function speakerKindOf(s: WithSubmissions): Exclude<SpeakerKind, "all"> {
+  if (isSubmitter(s)) return "submitters";
+  return isProposer(s) ? "proposers" : "invited";
+}
+
+export const matchesKind = (s: WithSubmissions, kind: SpeakerKind) => kind === "all" || speakerKindOf(s) === kind;
 
 /**
  * Who "Email" sends to: the ticked speakers, else everyone listed when a tab narrows the list (the filters

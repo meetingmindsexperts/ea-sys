@@ -72,9 +72,10 @@ interface Speaker {
   sourceRegistration: { serialId: number | null } | null;
   _count: { sessions: number; abstracts: number };
   abstracts: { id: string; title: string; status: string }[];
+  sessionProposals?: { status: string }[];
 }
 
-const KIND_LABEL: Record<SpeakerKind, string> = { all: "All speakers", invited: "Invited speakers", submitters: "Abstract submitters" };
+const KIND_LABEL: Record<SpeakerKind, string> = { all: "All speakers", invited: "Invited speakers", submitters: "Abstract submitters", proposers: "Session proposers" };
 const ABSTRACT_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED", "ACCEPTED", "REJECTED", "WITHDRAWN", "DRAFT"] as const;
 
 
@@ -309,7 +310,8 @@ export default function SpeakersPage() {
       {/* Invited speakers and abstract submitters, apart (owner, Oct 27) */}
       <Tabs value={kind} onValueChange={(v) => { setKind(v as SpeakerKind); setAbstractStatuses([]); setPage(1); setSelectedIds(new Set()); }}>
         <TabsList className="max-w-full justify-start overflow-x-auto">
-          {(["all", "invited", "submitters"] as const).map((k) => (
+          {/* The Session proposers tab only on an event that has proposers (owner, Oct 27). */}
+          {(["all", "invited", "submitters", "proposers"] as const).filter((k) => k !== "proposers" || kindCount(k) > 0).map((k) => (
             <TabsTrigger key={k} value={k}>
               {KIND_LABEL[k]} <span className="ml-1.5 tabular-nums text-muted-foreground">{kindCount(k)}</span>
             </TabsTrigger>
@@ -325,7 +327,7 @@ export default function SpeakersPage() {
             <StatTile compact label="Confirmed" value={stats.confirmed} valueClassName="text-green-600" />
             <StatTile compact label="Awaiting reply" value={stats.invited} valueClassName="text-yellow-600" />
             <StatTile compact label="Declined" value={stats.declined} valueClassName="text-red-600" />
-            {kind !== "invited" && <StatTile compact label="Abstract accepted" value={stats.accepted} valueClassName="text-blue-600" />}
+            {(kind === "all" || kind === "submitters") && <StatTile compact label="Abstract accepted" value={stats.accepted} valueClassName="text-blue-600" />}
           </StatsRow>
         </CardContent>
       </Card>

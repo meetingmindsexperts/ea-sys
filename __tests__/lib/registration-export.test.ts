@@ -70,6 +70,16 @@ describe("buildRegistrationExportRow", () => {
     expect(buildRegistrationExportRow(row(), ctx)).toHaveLength(REGISTRATION_EXPORT_HEADERS.length);
   });
 
+  it("says when the badge was last printed and how many times; blank and 0 when never (Oct 27)", () => {
+    const never = buildRegistrationExportRow(row(), ctx);
+    expect(col(never, "Badge Printed Date")).toBe("");
+    expect(col(never, "Badge Print Count")).toBe("0");
+    const printed = buildRegistrationExportRow(row({ badgePrintedAt: new Date("2026-04-10T07:30:00Z"), badgePrintCount: 2 }), ctx);
+    expect(col(printed, "Badge Printed Date")).not.toBe("");
+    expect(col(printed, "Badge Printed Date")).toBe(col(buildRegistrationExportRow(row({ checkedInAt: new Date("2026-04-10T07:30:00Z") }), ctx), "Checked In Date"));
+    expect(col(printed, "Badge Print Count")).toBe("2");
+  });
+
   it("renders identity + attribution columns", () => {
     const r = buildRegistrationExportRow(row(), ctx);
     expect(col(r, "Registration ID")).toBe("reg_1");

@@ -68,6 +68,9 @@ export const REGISTRATION_EXPORT_HEADERS = [
   "DTCM Barcode",
   "Registered Date",
   "Checked In Date",
+  // When the badge was last printed, and how many times (owner, Oct 27): blank and 0 when never printed.
+  "Badge Printed Date",
+  "Badge Print Count",
   "Source",
   "Medium",
   "Campaign",
@@ -85,6 +88,8 @@ export interface RegistrationExportRow {
   paymentStatus: string;
   createdAt: Date | string;
   checkedInAt?: Date | string | null;
+  badgePrintedAt?: Date | string | null;
+  badgePrintCount?: number | null;
   dtcmBarcode?: string | null;
   discountAmount?: unknown;
   originalPrice?: unknown;
@@ -254,6 +259,8 @@ export function buildRegistrationExportRow(
     r.dtcmBarcode || "",
     formatDate(r.createdAt),
     r.checkedInAt ? formatDate(r.checkedInAt) : "",
+    r.badgePrintedAt ? formatDate(r.badgePrintedAt) : "",
+    String(r.badgePrintCount ?? 0),
     r.utmSource || "",
     r.utmMedium || "",
     r.utmCampaign || "",

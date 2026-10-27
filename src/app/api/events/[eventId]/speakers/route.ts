@@ -175,6 +175,11 @@ export async function GET(req: Request, { params }: RouteParams) {
               status: true,
             },
           },
+          // The Speakers page's Session proposers tab (owner, Oct 27): who proposed a session, and whether it
+          // was only a draft or was withdrawn.
+          sessionProposals: {
+            select: { status: true },
+          },
           accommodation: {
             select: { id: true },
           },
