@@ -231,7 +231,8 @@ export function CrmEmailDialog({
           continue;
         }
         if (inline + encodedSize(file.size) > CRM_EMAIL_INLINE_ATTACHMENT_BUDGET) {
-          toast.error(`${file.name} does not fit: files other than deal PDFs can add up to ${INLINE_MB}MB`);
+          const what = dealId ? "files other than PDFs" : "attachments";
+          toast.error(`${file.name} does not fit: ${what} can add up to ${INLINE_MB}MB`);
           break;
         }
         const base64 = await readBase64(file);
