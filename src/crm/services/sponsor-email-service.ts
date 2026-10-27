@@ -37,17 +37,24 @@ import {
 } from "@/crm/lib/sponsor-recipients";
 import type { SponsorRecipient } from "@/crm/lib/crm-types";
 import { crmSenderFromEnv } from "@/crm/lib/crm-sender";
-import { CRM_EMAIL_TOKEN_RE, crmEventVars, type CrmEventVars } from "@/crm/lib/crm-email-tokens";
+import {
+  CRM_EMAIL_TOKEN_RE,
+  SIGNATURE_TOKEN_RE,
+  crmEventVars,
+  startsWithGreeting,
+  type CrmEventVars,
+} from "@/crm/lib/crm-email-tokens";
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB total, mirrors the dashboard dialog
 const MAX_ATTACHMENTS = 5;
 const BATCH_SIZE = 25;
 
-/** Cover-email skeleton. The greeting is baked in so a body with no tokens is still
- *  personalized; `message` (the sender's HTML) and `signature` are inserted raw. */
-const BODY_TEMPLATE = `<p style="margin:0 0 8px">Dear {{firstName}},</p>\n{{message}}\n{{signature}}`;
-const TEXT_TEMPLATE =
-  "Dear {{firstName}},\n\nPlease find our message below / attached.\n";
+/** Cover-email skeleton. The greeting is added so a body with no tokens is still
+ *  personalized, unless the message opens with its own (startsWithGreeting);
+ *  `message` (the sender's HTML) and `signature` are inserted raw. */
+const GREETING_HTML = `<p style="margin:0 0 8px">Dear {{firstName}},</p>\n`;
+const BODY_TEMPLATE = `{{message}}\n{{signature}}`;
+const TEXT_TEMPLATE = "Please find our message below / attached.\n";
 const RAW_KEYS = new Set(["message", "signature"]);
 
 // Only the CRM tokens (crm-email-tokens.ts) are substituted inside the sender-
@@ -354,13 +361,19 @@ function toAddressList(...groups: (string[] | undefined)[]): { email: string }[]
  * signature), appended raw beneath the body, and their address for the "copy to
  * me" BCC. One query.
  */
-async function loadSender(actorUserId: string | null): Promise<{ signatureHtml: string; senderEmail: string | null }> {
-  if (!actorUserId) return { signatureHtml: "", senderEmail: null };
+async function loadSender(
+  actorUserId: string | null,
+): Promise<{ signatureHtml: string; senderEmail: string | null; senderName: string }> {
+  if (!actorUserId) return { signatureHtml: "", senderEmail: null, senderName: "" };
   const sender = await db.user.findUnique({
     where: { id: actorUserId },
-    select: { emailSignature: true, email: true },
+    select: { emailSignature: true, email: true, firstName: true, lastName: true },
   });
-  return { signatureHtml: sender?.emailSignature ?? "", senderEmail: sender?.email ?? null };
+  return {
+    signatureHtml: sender?.emailSignature ?? "",
+    senderEmail: sender?.email ?? null,
+    senderName: [sender?.firstName, sender?.lastName].filter(Boolean).join(" "),
+  };
 }
 
 interface DispatchArgs {
@@ -418,7 +431,7 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
     return { ok: false, code: "NO_RECIPIENTS", message: "No contacts to email" };
   }
 
-  const { signatureHtml, senderEmail } = await loadSender(args.actorUserId);
+  const { signatureHtml, senderEmail, senderName } = await loadSender(args.actorUserId);
 
   const from = crmSenderFrom(args.branding);
   // CC = event-branding CC + any manual CC. BCC = manual BCC + (when copyToSender
@@ -449,6 +462,7 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
           subject: args.subject,
           message: args.message,
           signatureHtml,
+          sender: { name: senderName, email: senderEmail ?? "" },
           eventVars: args.eventVars,
           branding: args.branding,
           from,
@@ -505,8 +519,15 @@ interface RenderInput {
   subject: string;
   message: string;
   signatureHtml: string;
+  /** The sending user, for {{senderName}} / {{senderEmail}}. */
+  sender: SenderInfo;
   eventVars: CrmEventVars;
   branding: EmailBranding;
+}
+
+interface SenderInfo {
+  name: string;
+  email: string;
 }
 
 /**
@@ -521,14 +542,22 @@ function renderForRecipient(
     firstName: r.firstName,
     lastName: r.lastName,
     companyName: r.companyName ?? "",
+    senderName: ctx.sender.name,
+    senderEmail: ctx.sender.email,
     ...ctx.eventVars,
   };
   // Personalize the sender's body first (tokens escaped), THEN insert it raw — so a
   // {{firstName}} typed into the body resolves, but the body's own markup survives.
-  const personalizedMessage = substituteBodyTokens(ctx.message, tokenVars);
+  // {{organizerSignature}} is the one HTML token: placed where written, and then
+  // not appended again at the end.
+  const escaped = substituteBodyTokens(ctx.message, tokenVars);
+  const placesSignature = escaped.search(SIGNATURE_TOKEN_RE) >= 0;
+  const personalizedMessage = escaped.replace(SIGNATURE_TOKEN_RE, () => ctx.signatureHtml);
+  const greeting = startsWithGreeting(personalizedMessage) ? "" : GREETING_HTML;
+  const textGreeting = greeting ? "Dear {{firstName}},\n\n" : "";
   return renderAndWrap(
-    { subject: ctx.subject, htmlContent: BODY_TEMPLATE, textContent: TEXT_TEMPLATE },
-    { ...tokenVars, message: personalizedMessage, signature: ctx.signatureHtml },
+    { subject: ctx.subject, htmlContent: greeting + BODY_TEMPLATE, textContent: textGreeting + TEXT_TEMPLATE },
+    { ...tokenVars, message: personalizedMessage, signature: placesSignature ? "" : ctx.signatureHtml },
     ctx.branding,
     RAW_KEYS,
   );
@@ -964,12 +993,13 @@ export async function previewCrmEmail(args: {
   const recipient = args.sample
     ? null
     : (resolved.recipients.find((r) => r.crmContactId === args.contactId) ?? resolved.recipients[0] ?? null);
-  const { signatureHtml } = await loadSender(args.actorUserId);
+  const { signatureHtml, senderEmail, senderName } = await loadSender(args.actorUserId);
 
   const rendered = renderForRecipient(recipient ?? SAMPLE_RECIPIENT, {
     subject: args.subject.trim() || "(no subject)",
     message: args.message,
     signatureHtml,
+    sender: { name: senderName, email: senderEmail ?? "" },
     eventVars,
     branding,
   });

@@ -181,8 +181,10 @@ export default function ProfilePage() {
         <CardHeader>
           <CardTitle>Email Signature</CardTitle>
           <CardDescription>
-            Appended to speaker emails you send (invitations and agreements). Each organizer has
-            their own signature.
+            Used in the emails you send: speaker emails (invitations and agreements) and CRM
+            emails. Each person has their own. In an email template or a CRM email,{" "}
+            <code>{"{{organizerSignature}}"}</code> places it where you want it; in a CRM email
+            without it, it goes at the end.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

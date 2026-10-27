@@ -24,11 +24,24 @@ export const CRM_EMAIL_TOKEN_KEYS = [
   "eventStartDate",
   "eventEndDate",
   "eventDates",
+  // The person sending (Oct 27, 2026): from their user profile.
+  "senderName",
+  "senderEmail",
 ] as const;
 
 export type CrmEmailTokenKey = (typeof CRM_EMAIL_TOKEN_KEYS)[number];
 
-export const CRM_EMAIL_TOKENS = CRM_EMAIL_TOKEN_KEYS.map((k) => `{{${k}}}`);
+/**
+ * The sender's profile signature (Profile → Email Signature), as HTML: the
+ * same token name the event emails use. It is placed where written, and then
+ * not added again at the end; without it, the signature goes at the end.
+ * Kept out of CRM_EMAIL_TOKEN_RE because it is inserted as HTML, not escaped.
+ */
+export const SIGNATURE_TOKEN = "organizerSignature";
+export const SIGNATURE_TOKEN_RE = /\{\{\s*organizerSignature\s*\}\}/g;
+
+/** Every token the dialogs offer, signature included. */
+export const CRM_EMAIL_TOKENS = [...CRM_EMAIL_TOKEN_KEYS, SIGNATURE_TOKEN].map((k) => `{{${k}}}`);
 
 /** Matches any CRM token, tolerating spaces inside the braces. Global: reset by replace(). */
 export const CRM_EMAIL_TOKEN_RE = new RegExp(`\\{\\{\\s*(${CRM_EMAIL_TOKEN_KEYS.join("|")})\\s*\\}\\}`, "g");
@@ -43,7 +56,27 @@ export interface CrmEmailEvent {
   country: string | null;
 }
 
-export type CrmEventVars = Record<Exclude<CrmEmailTokenKey, "firstName" | "lastName" | "companyName">, string>;
+export type CrmEventVars = Record<
+  Exclude<CrmEmailTokenKey, "firstName" | "lastName" | "companyName" | "senderName" | "senderEmail">,
+  string
+>;
+
+const GREETING_RE = /^(dear|hi|hello|hey|greetings|good\s+(morning|afternoon|evening))\b/i;
+
+/**
+ * Does the message already open with a greeting? Then the CRM's own "Dear
+ * {{firstName}}," is left out (Oct 27, 2026: "Dear Saleh, Dear Saleh" when a
+ * message or saved template began with its own greeting). Reads the text the
+ * reader sees first, ignoring tags, spaces and &nbsp;.
+ */
+export function startsWithGreeting(html: string): boolean {
+  const text = html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return GREETING_RE.test(text);
+}
 
 /** "Friday, October 2, 2026", in the event's own timezone (the event emails' {{eventDate}} format). */
 function longDate(d: Date, tz: string): string {

@@ -596,6 +596,61 @@ describe("crmSenderFrom — CRM emails come from the partnerships identity, not 
   });
 });
 
+// ── greeting + signature (Oct 27, 2026) ─────────────────────────────────────────
+
+describe("rendering the greeting and the signature", () => {
+  // The renderer normalizes <br/> to <br>.
+  const SIG = /Sohail Qureshi<br\s*\/?>Partnerships/g;
+  async function render(message: string, signature: string | null = "<p>Sohail Qureshi<br/>Partnerships</p>") {
+    const actual = await vi.importActual<typeof import("@/lib/email")>("@/lib/email");
+    vi.mocked(renderAndWrap).mockImplementationOnce(actual.renderAndWrap);
+    mockDeal([contact({ id: "c1", firstName: "Saleh", email: "s@a.com", emailKey: "s@a.com" })]);
+    vi.mocked(db.user.findUnique).mockResolvedValue({
+      emailSignature: signature,
+      email: "sohail@meetingmindsdubai.com",
+      firstName: "Sohail",
+      lastName: "Qureshi",
+    } as never);
+    const res = await previewCrmEmail({
+      organizationId: "org1",
+      target: { kind: "deal", id: "deal1" },
+      subject: "Hello",
+      message,
+      actorUserId: "u1",
+    });
+    if (!res.ok) throw new Error(res.message);
+    return res.html;
+  }
+
+  it("adds Dear {{firstName}} when the message has no greeting", async () => {
+    const html = await render("<p>We would love to have you.</p>");
+    expect(html.match(/Dear Saleh/g)).toHaveLength(1);
+  });
+
+  it("never doubles the greeting when the message opens with its own", async () => {
+    const html = await render("<p>Dear Saleh,</p><p>We would love to have you.</p>");
+    expect(html.match(/Dear Saleh/g)).toHaveLength(1);
+  });
+
+  it("appends the profile signature at the end when the message does not place it", async () => {
+    const html = await render("<p>Thanks</p>");
+    expect(html.match(SIG)).toHaveLength(1);
+    expect(html.indexOf("Thanks")).toBeLessThan(html.search(SIG));
+  });
+
+  it("{{organizerSignature}} places the signature where written, once, unescaped", async () => {
+    const html = await render("<p>Thanks</p>{{organizerSignature}}<p>P.S. see attached</p>");
+    expect(html.match(SIG)).toHaveLength(1);
+    expect(html.search(SIG)).toBeLessThan(html.indexOf("P.S. see attached"));
+    expect(html).not.toContain("{{organizerSignature}}");
+  });
+
+  it("{{senderName}} and {{senderEmail}} come from the sender's profile", async () => {
+    const html = await render("<p>Reach {{senderName}} at {{senderEmail}}</p>");
+    expect(html).toContain("Reach Sohail Qureshi at sohail@meetingmindsdubai.com");
+  });
+});
+
 // ── reply in a thread (the inbox, Oct 27, 2026) ─────────────────────────────────
 
 describe("replying in an inbox thread", () => {

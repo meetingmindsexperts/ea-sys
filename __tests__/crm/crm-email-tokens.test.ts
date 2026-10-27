@@ -4,7 +4,13 @@
  * dialogs share.
  */
 import { describe, it, expect } from "vitest";
-import { CRM_EMAIL_TOKEN_KEYS, CRM_EMAIL_TOKEN_RE, crmEventVars } from "@/crm/lib/crm-email-tokens";
+import {
+  CRM_EMAIL_TOKENS,
+  CRM_EMAIL_TOKEN_KEYS,
+  CRM_EMAIL_TOKEN_RE,
+  crmEventVars,
+  startsWithGreeting,
+} from "@/crm/lib/crm-email-tokens";
 
 const EVENT = {
   name: "MEHFC 2027",
@@ -44,7 +50,9 @@ describe("crmEventVars", () => {
   });
 
   it("covers every event token the list offers", () => {
+    // (senderName / senderEmail come from the sender, not the event.)
     const eventKeys = CRM_EMAIL_TOKEN_KEYS.filter((k) => k.startsWith("event"));
+    expect(CRM_EMAIL_TOKENS).toContain("{{organizerSignature}}");
     expect(Object.keys(crmEventVars(EVENT)).sort()).toEqual([...eventKeys].sort());
   });
 });
@@ -58,5 +66,20 @@ describe("CRM_EMAIL_TOKEN_RE", () => {
 
   it("leaves tokens the CRM does not offer alone", () => {
     expect("{{registrationLink}}".replace(CRM_EMAIL_TOKEN_RE, "X")).toBe("{{registrationLink}}");
+  });
+});
+
+describe("startsWithGreeting (Oct 27, 2026: no more \"Dear Saleh, Dear Saleh\")", () => {
+  it("sees a greeting the message already opens with, through markup and spaces", () => {
+    expect(startsWithGreeting("<p>Dear Saleh,</p><p>We would…</p>")).toBe(true);
+    expect(startsWithGreeting("<p>&nbsp;<strong>Hi</strong> team</p>")).toBe(true);
+    expect(startsWithGreeting("<p>Good morning Sohail</p>")).toBe(true);
+    expect(startsWithGreeting("Hello,")).toBe(true);
+  });
+
+  it("does not mistake an ordinary opening line for a greeting", () => {
+    expect(startsWithGreeting("<p>Thank you for your time</p>")).toBe(false);
+    expect(startsWithGreeting("<p>Dearest partners</p>")).toBe(false);
+    expect(startsWithGreeting("<p>Highlights of MEHFC 2027</p>")).toBe(false);
   });
 });

@@ -132,7 +132,8 @@ export function CrmEmailTemplateDialog({
                   {i < CRM_EMAIL_TOKENS.length - 1 ? " " : ""}
                 </span>
               ))}
-              . A greeting (&ldquo;Dear {"{{firstName}}"},&rdquo;) is added automatically on send — don&apos;t repeat it here.
+              . &ldquo;Dear {"{{firstName}}"},&rdquo; is added unless the message starts with its own greeting.{" "}
+              {"{{organizerSignature}}"} places your Profile signature; without it, the signature goes at the end.
             </p>
           </div>
         </div>
