@@ -1231,3 +1231,72 @@ describe("tag cells are capped (L)", () => {
     expect(res.row.tags!.every((t) => t.length <= 64)).toBe(true); // …and the 200-char one dropped
   });
 });
+
+describe("importFreshsalesContacts — name cleaning and quality tags", () => {
+  beforeEach(() => {
+    vi.mocked(db.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmContact.create).mockResolvedValue({ id: "ct-new" } as never);
+  });
+
+  it("stores the cleaned name on create and reports it", async () => {
+    const csv = `First name,Last name,Email\n"""Al Qaidhi,","Khuwailid""",k@x.com`;
+    const res = await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    if (!res.ok) throw new Error(res.message);
+    const created = vi.mocked(db.crmContact.create).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(created.data).toMatchObject({ firstName: "Khuwailid", lastName: "Al Qaidhi" });
+    expect(created.data).not.toHaveProperty("tags");
+    expect(res.notes.join(" ")).toMatch(/1 name\(s\) cleaned/);
+  });
+
+  it("an update with no tags column ADDS needs-name and keeps the person's tags", async () => {
+    const imported = new Date("2026-08-24T10:00:00Z");
+    vi.mocked(db.crmContact.findMany).mockResolvedValue([{
+      id: "ct-1", firstName: "x", lastName: "y", email: "a@b.ae", emailKey: "a@b.ae",
+      jobTitle: null, phone: null, mobile: null, country: null, companyId: null,
+      ownerId: null, lifecycleStage: null, status: null, tags: ["mecomed"],
+      externalSource: "freshsales", externalId: "c-1", updatedAt: imported, lastImportedAt: imported,
+    }] as never);
+
+    const csv = `Id,First name,Last name,Email\nc-1,"""a@b.ae""",a@b.ae,a@b.ae`;
+    const res = await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    if (!res.ok) throw new Error(res.message);
+    expect(res.updated).toBe(1);
+    const update = vi.mocked(db.crmContact.update).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(update.data.tags).toEqual(["mecomed", "needs-name"]);
+    expect(update.data.firstName).toBe("a@b.ae");
+  });
+
+  it("a CSV tag list still wins on update, with the quality tag added to it", async () => {
+    const imported = new Date("2026-08-24T10:00:00Z");
+    vi.mocked(db.crmContact.findMany).mockResolvedValue([{
+      id: "ct-1", firstName: "x", lastName: "y", email: "t@teamwork.com", emailKey: "t@teamwork.com",
+      jobTitle: null, phone: null, mobile: null, country: null, companyId: null,
+      ownerId: null, lifecycleStage: null, status: null, tags: ["old"],
+      externalSource: "freshsales", externalId: "c-1", updatedAt: imported, lastImportedAt: imported,
+    }] as never);
+
+    const csv = `Id,First name,Last name,Email,Tags\nc-1,The Box,Team,t@teamwork.com,newsletter-list`;
+    await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    const update = vi.mocked(db.crmContact.update).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(update.data.tags).toEqual(["newsletter-list", "not-a-person"]);
+  });
+
+  it("does not rewrite tags when the quality tag is already there", async () => {
+    const imported = new Date("2026-08-24T10:00:00Z");
+    vi.mocked(db.crmContact.findMany).mockResolvedValue([{
+      id: "ct-1", firstName: "x", lastName: "y", email: "a@b.ae", emailKey: "a@b.ae",
+      jobTitle: null, phone: null, mobile: null, country: null, companyId: null,
+      ownerId: null, lifecycleStage: null, status: null, tags: ["needs-name"],
+      externalSource: "freshsales", externalId: "c-1", updatedAt: imported, lastImportedAt: imported,
+    }] as never);
+
+    const csv = `Id,First name,Last name,Email\nc-1,a@b.ae,a@b.ae,a@b.ae`;
+    await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    const update = vi.mocked(db.crmContact.update).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(update.data).not.toHaveProperty("tags");
+  });
+});

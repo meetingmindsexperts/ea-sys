@@ -25,6 +25,7 @@ import { recordCrmActivityBulk, type CrmActivityEntry } from "@/crm/lib/crm-acti
 import { crmOwnerUserWhere } from "@/crm/services/crm-owner-eligibility";
 import { companyNameKey } from "@/crm/services/company-service";
 import { contactEmailKey, normalizeContactTags } from "@/crm/services/crm-contact-service";
+import { NEEDS_NAME_TAG, NOT_A_PERSON_TAG } from "@/crm/lib/contact-name";
 import {
   FRESHSALES_SOURCE,
   COMPANY_FIELDS,
@@ -459,6 +460,7 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
   ]);
   /** Lifecycle/status labels we couldn't map — reported WITH row counts (M3). */
   const unmappedEnums = new Map<string, number>();
+  const nameQuality = { cleaned: 0, needsName: 0, notAPerson: 0 };
 
   // One prefetch instead of two reads per row — see indexBy().
   const wanted = parsed.rows.map((r) => {
@@ -533,6 +535,12 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
       const dryCompany = typeof companyId === "string" && companyId.startsWith("dry:");
       const ownerId = resolveOwner.resolve(row.ownerEmail, row.ownerName);
       row.unmappedEnums.forEach((e) => tally(unmappedEnums, e));
+      // Counted only for rows whose name this import actually writes.
+      if (action === "create" || action === "update") {
+        if (row.nameCleaned) nameQuality.cleaned++;
+        if (row.qualityTags.includes(NEEDS_NAME_TAG)) nameQuality.needsName++;
+        if (row.qualityTags.includes(NOT_A_PERSON_TAG)) nameQuality.notAPerson++;
+      }
 
       if (action === "create") {
         report.created++;
@@ -548,7 +556,7 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
               phone: row.phone ?? null,
               mobile: row.mobile ?? null,
               country: row.country ?? null,
-              ...(row.tags ? { tags: normalizeContactTags(row.tags) } : {}),
+              ...withQualityTags(row.tags, row.qualityTags),
               ownerId,
               lifecycleStage: row.lifecycleStage ?? null,
               status: row.status ?? null,
@@ -567,10 +575,10 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
         // Tags don't fit enrichPatch's blank-scalar rule (an array is never
         // null): enrich fills them only when the EA row has none; a
         // Freshsales-wins update takes the CSV's list when the column is there.
-        const tagPatch =
-          row.tags && (action === "update" || (existing!.tags?.length ?? 0) === 0)
-            ? { tags: normalizeContactTags(row.tags) }
-            : {};
+        // Quality tags (needs-name / not-a-person) are then ADDED on top of
+        // whichever list survives, so they never replace a person's tags.
+        const csvTags = row.tags && (action === "update" || (existing!.tags?.length ?? 0) === 0) ? row.tags : undefined;
+        const tagPatch = withQualityTags(csvTags, row.qualityTags, existing!.tags ?? []);
         const data =
           action === "enrich"
             ? {
@@ -647,6 +655,7 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
   if (unmappedEnums.size > 0) {
     report.notes.push(`Left blank — no matching value in EA-SYS for: ${renderTally(unmappedEnums)}`);
   }
+  report.notes.push(...nameQualityNotes(nameQuality));
   if (!ctx.dryRun) void recordCrmActivityBulk(activity);
   apiLogger.info({
     msg: "crm-import:contacts-done", organizationId: ctx.organizationId, dryRun: ctx.dryRun,
@@ -657,8 +666,36 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
     ownersByName: resolveOwner.matchedByName,
     ownersAmbiguous: resolveOwner.ambiguous,
     unmappedEnumCount: unmappedEnums.size,
+    namesCleaned: nameQuality.cleaned,
+    taggedNeedsName: nameQuality.needsName,
+    taggedNotAPerson: nameQuality.notAPerson,
   });
   return report;
+}
+
+function nameQualityNotes(q: { cleaned: number; needsName: number; notAPerson: number }): string[] {
+  const notes: string[] = [];
+  if (q.cleaned > 0) notes.push(`${q.cleaned} name(s) cleaned (stray quotes, "Last, First" order, company tags)`);
+  if (q.needsName > 0) notes.push(`${q.needsName} contact(s) named only by an email address, tagged "${NEEDS_NAME_TAG}"`);
+  if (q.notAPerson > 0) notes.push(`${q.notAPerson} contact(s) that look like a company or system sender, tagged "${NOT_A_PERSON_TAG}"`);
+  return notes;
+}
+
+/**
+ * The `tags` write for a contact row: the CSV's list when it has one (else the
+ * row's current tags), plus the name-quality tags from cleanContactName().
+ * Returns `{}` when nothing would change, so an untouched row is not rewritten.
+ */
+function withQualityTags(
+  csvTags: string[] | undefined,
+  qualityTags: string[],
+  currentTags: string[] = [],
+): { tags?: string[] } {
+  if (!csvTags && qualityTags.length === 0) return {};
+  const base = csvTags ?? currentTags;
+  const tags = normalizeContactTags([...base, ...qualityTags]);
+  if (!csvTags && tags.length === currentTags.length) return {};
+  return { tags };
 }
 
 // ── Shared: CSV company-name → CrmCompany id (find-or-create) ────────────────

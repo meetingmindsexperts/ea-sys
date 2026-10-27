@@ -19,6 +19,7 @@
  */
 
 import { LIFECYCLE_VALUES, CONTACT_STATUS_VALUES } from "@/crm/lib/crm-types";
+import { cleanContactName } from "@/crm/lib/contact-name";
 
 export const FRESHSALES_SOURCE = "freshsales";
 
@@ -436,6 +437,14 @@ export interface ContactRow {
   companyName?: string;
   /** Undefined when the CSV has no tags column OR the cell is blank. */
   tags?: string[];
+  /**
+   * `needs-name` / `not-a-person` from cleanContactName(). Kept apart from
+   * `tags` because a Freshsales-wins update REPLACES the tag list with the
+   * CSV's: these are always ADDED, so they can never wipe a person's tags.
+   */
+  qualityTags: string[];
+  /** True when cleanContactName() changed the name, for the import report. */
+  nameCleaned: boolean;
   ownerEmail?: string;
   ownerName?: string;
   /** Already coerced to our enum, or undefined when absent/unrecognised. */
@@ -477,10 +486,13 @@ export function mapContactRow(
   fields: string[],
   cols: ColumnResolution<keyof typeof CONTACT_FIELDS & string>,
 ): { row: ContactRow } | { error: string } {
-  const firstName = cell(fields, cols.index.firstName);
-  const lastName = cell(fields, cols.index.lastName);
+  const rawFirst = cell(fields, cols.index.firstName);
+  const rawLast = cell(fields, cols.index.lastName);
   // Freshsales can export multiple emails comma-separated; the first is primary.
   const rawEmail = cell(fields, cols.index.email)?.split(",")[0]?.trim();
+  if (!rawFirst || !rawLast) return { error: "Missing first or last name" };
+  const { firstName, lastName, qualityTags } = cleanContactName(rawFirst, rawLast);
+  // A cell of nothing but quotes is blank once cleaned.
   if (!firstName || !lastName) return { error: "Missing first or last name" };
   if (!rawEmail) return { error: "Missing email" };
   if (!EMAIL_RE.test(rawEmail)) return { error: `Invalid email "${rawEmail}"` };
@@ -514,6 +526,8 @@ export function mapContactRow(
       country: cell(fields, cols.index.country),
       companyName: cell(fields, cols.index.companyName),
       tags: parseTagsCell(cell(fields, cols.index.tags)),
+      qualityTags,
+      nameCleaned: firstName !== rawFirst || lastName !== rawLast,
     },
   };
 }
