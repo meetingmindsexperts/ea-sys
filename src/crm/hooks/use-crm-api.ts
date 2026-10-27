@@ -679,7 +679,7 @@ function contactsQueryOptions(key: string) {
   };
 }
 
-export function useCrmContacts(arg?: string | CrmContactFilters) {
+export function useCrmContacts(arg?: string | CrmContactFilters, opts: { enabled?: boolean } = {}) {
   const filters: CrmContactFilters = typeof arg === "string" ? { q: arg } : arg ?? {};
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
@@ -687,6 +687,9 @@ export function useCrmContacts(arg?: string | CrmContactFilters) {
   return useQuery({
     ...contactsQueryOptions(key),
     select: (r) => r.contacts,
+    // A picker passes false for the mode it is not showing, so it never loads
+    // the whole (capped) contact list by accident.
+    enabled: opts.enabled ?? true,
   });
 }
 
