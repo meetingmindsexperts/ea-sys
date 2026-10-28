@@ -217,7 +217,7 @@ export async function syncWebinarEngagement(
       const { questionNames, rows } = extractPollDefinition(pollReport.questions);
       if (rows.length > 0) {
         const pollTitle = pollReport.topic
-          ? `Poll — ${pollReport.topic}`
+          ? `Poll: ${pollReport.topic}`
           : "Webinar Poll";
 
         // tenantTransaction (multi-tenancy sweep): flag-off it IS db.$transaction;

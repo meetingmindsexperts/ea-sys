@@ -111,9 +111,9 @@ export function ZoomSettingsCard({ eventId }: ZoomSettingsCardProps) {
                 <li>
                   Choose the type:
                   <ul className="ml-5 mt-1 space-y-0.5 list-disc text-xs">
-                    <li><strong>Meeting</strong> &mdash; interactive, all participants can share audio/video (up to 1,000 participants).</li>
-                    <li><strong>Webinar</strong> &mdash; view-only for attendees, only panelists can speak (up to 10,000 attendees).</li>
-                    <li><strong>Webinar Series</strong> &mdash; recurring webinar with multiple occurrences under one registration.</li>
+                    <li><strong>Meeting</strong>: interactive, all participants can share audio/video (up to 1,000 participants).</li>
+                    <li><strong>Webinar</strong>: view-only for attendees, only panelists can speak (up to 10,000 attendees).</li>
+                    <li><strong>Webinar Series</strong>: recurring webinar with multiple occurrences under one registration.</li>
                   </ul>
                 </li>
                 <li>

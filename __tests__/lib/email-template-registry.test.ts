@@ -36,15 +36,15 @@ const tokensIn = (...parts: string[]) => {
 };
 
 describe("registry shape", () => {
-  it("holds 36 system templates, each with a body and a spec under its own slug", () => {
-    expect(SYSTEM_TEMPLATE_SLUG_LIST).toHaveLength(36);
+  it("holds 37 system templates, each with a body and a spec under its own slug", () => {
+    expect(SYSTEM_TEMPLATE_SLUG_LIST).toHaveLength(37);
     for (const slug of SYSTEM_TEMPLATE_SLUG_LIST) {
       expect(EMAIL_TEMPLATE_REGISTRY[slug].slug).toBe(slug);
       expect(DEFAULT_TEMPLATE_BODIES[slug].subject.length).toBeGreaterThan(0);
       expect(DEFAULT_TEMPLATE_BODIES[slug].htmlContent.length).toBeGreaterThan(0);
       expect(EMAIL_TEMPLATE_REGISTRY[slug].description.length).toBeGreaterThan(0);
     }
-    expect(new Set(SYSTEM_TEMPLATE_SLUG_LIST).size).toBe(36);
+    expect(new Set(SYSTEM_TEMPLATE_SLUG_LIST).size).toBe(37);
   });
 
   it("derives DEFAULT_TEMPLATES, TEMPLATE_VARIABLES and the client-safe slug set from the registry, in seed order", () => {
@@ -57,7 +57,7 @@ describe("registry shape", () => {
   });
 
   it("every template advertises a variable list now (the nine that had none are covered)", () => {
-    for (const slug of ["abstract-reminder", "webinar-confirmation", "webinar-reminder-24h", "webinar-reminder-1h", "webinar-live-now", "webinar-thank-you", "webinar-panelist-invitation", "survey-invitation", "survey-thankyou"] as const) {
+    for (const slug of ["abstract-reminder", "webinar-confirmation", "webinar-reminder-24h", "webinar-reminder-1h", "webinar-reminder-15m", "webinar-live-now", "webinar-thank-you", "webinar-panelist-invitation", "survey-invitation", "survey-thankyou"] as const) {
       expect(EMAIL_TEMPLATE_REGISTRY[slug].variables.length, slug).toBeGreaterThan(0);
     }
   });
@@ -113,7 +113,7 @@ describe("the derived raw-key set", () => {
 });
 
 describe("the type-to-slug maps", () => {
-  it("bulk: the sixteen types map as the hand map did, and a reviewer invitation is the pool invitation", () => {
+  it("bulk: the seventeen types map as the hand map did, and a reviewer invitation is the pool invitation", () => {
     expect(BULK_EMAIL_TEMPLATE_SLUGS).toEqual({
       invitation: "speaker-invitation",
       agreement: "speaker-agreement",
@@ -124,6 +124,7 @@ describe("the type-to-slug maps", () => {
       "webinar-confirmation": "webinar-confirmation",
       "webinar-reminder-24h": "webinar-reminder-24h",
       "webinar-reminder-1h": "webinar-reminder-1h",
+      "webinar-reminder-15m": "webinar-reminder-15m",
       "webinar-live-now": "webinar-live-now",
       "webinar-thank-you": "webinar-thank-you",
       "survey-invitation": "survey-invitation",

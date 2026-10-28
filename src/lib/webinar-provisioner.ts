@@ -367,7 +367,7 @@ export async function provisionWebinar(
       return { ...cur, webinar: merged };
     });
 
-    // Enqueue the 4 future email phases (reminder-24h, reminder-1h, live-now,
+    // Enqueue the 5 future email phases (reminder-24h, reminder-1h, reminder-15m, live-now,
     // thank-you) regardless of whether Zoom attached here. The reminders point
     // at OUR gated session page (not a Zoom URL), so they render even before
     // Zoom is attached (lifecycle review) — and once Zoom IS attached, the same

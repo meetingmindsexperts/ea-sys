@@ -158,8 +158,8 @@ for (const t of EMAIL_TEMPLATE_SPECS) {
 }
 
 describe("bulk pipeline: every registered (type, audience) renders its default template with nothing unresolved", () => {
-  it("covers the sixteen bulk types the registry declares", () => {
-    expect(new Set(CASES.map((c) => c.type)).size).toBe(16);
+  it("covers the seventeen bulk types the registry declares", () => {
+    expect(new Set(CASES.map((c) => c.type)).size).toBe(17);
   });
 
   it.each(CASES)("$type → $audience ($slug)", async ({ type, audience }) => {

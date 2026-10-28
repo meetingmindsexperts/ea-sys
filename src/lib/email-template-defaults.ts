@@ -693,7 +693,7 @@ If you have already made the payment, please disregard this email.
     subject: "You're registered for {{eventName}}",
     htmlContent: `<div style="padding: 20px 0;">
     <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
-    <p>You're confirmed for <strong>{{eventName}}</strong>. Save this email — it contains your join link.</p>
+    <p>You're confirmed for <strong>{{eventName}}</strong>. Save this email: it contains your join link.</p>
     <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #bae6fd;">
       <h3 style="margin-top: 0; color: #075985;">Webinar Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
@@ -785,6 +785,26 @@ Doors open 15 minutes before the scheduled start.
 
 {{organizerSignature}}`,
   },
+  "webinar-reminder-15m": {
+    subject: "Starting in 15 minutes: {{eventName}}",
+    htmlContent: `<div style="padding: 20px 0;">
+    <p>Hi <strong>{{firstName}}</strong>,</p>
+    <p><strong>{{eventName}}</strong> starts in 15 minutes and the doors are open. Join now to get settled in.</p>
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{joinUrl}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 16px 40px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 18px;">Join Webinar</a>
+    </div>
+    {{passcodeBlock}}
+    <p style="color: #6b7280; font-size: 13px;">If the host has not opened the room yet, you will wait on the page and be let in automatically.</p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `Starting in 15 minutes: {{eventName}}
+Hi {{firstName}},
+{{eventName}} starts in 15 minutes and the doors are open.
+Join here: {{joinUrl}}
+{{passcodeBlock}}
+If the host has not opened the room yet, you will wait on the page and be let in automatically.
+{{organizerSignature}}`,
+  },
   "webinar-live-now": {
     subject: "We're live: {{eventName}}",
     htmlContent: `<div style="padding: 20px 0;">
@@ -837,7 +857,7 @@ If you have any feedback, we'd love to hear from you.
     htmlContent: `<div style="padding: 20px 0;">
     <p>Hi <strong>{{panelistName}}</strong>,</p>
     <p>You've been added as a panelist for <strong>{{eventName}}</strong>.</p>
-    <p>As a panelist you can present, share your screen, unmute, and answer attendee Q&amp;A. Use the privileged link below to join &mdash; <em>please don't share it</em>.</p>
+    <p>As a panelist you can present, share your screen, unmute, and answer attendee Q&amp;A. Use the privileged link below to join, and <em>please don't share it</em>.</p>
     <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #bae6fd;">
       <table style="width: 100%; border-collapse: collapse;">
         <tr><td style="padding: 8px 0; color: #6b7280;">Session:</td><td style="padding: 8px 0; font-weight: 500;">{{sessionName}}</td></tr>
@@ -858,7 +878,7 @@ Hi {{panelistName}},
 
 You've been added as a panelist for {{eventName}}.
 
-As a panelist you can present, share your screen, unmute, and answer attendee Q&A. Use the privileged link below to join — please don't share it.
+As a panelist you can present, share your screen, unmute, and answer attendee Q&A. Use the privileged link below to join, and please don't share it.
 
 Session: {{sessionName}}
 Starts:  {{sessionStart}}

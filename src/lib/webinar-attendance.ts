@@ -247,7 +247,7 @@ export async function syncWebinarAttendance(
       return {
         ok: true,
         status: "pending",
-        reason: "zoom returned 404 — report not ready",
+        reason: "zoom returned 404: report not ready",
         durationMs: Date.now() - startedAt,
       };
     }

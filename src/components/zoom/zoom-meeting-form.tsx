@@ -348,7 +348,7 @@ export function ZoomMeetingForm({
                   Enable Live Streaming
                 </Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Attendees watch via an embedded video player — no Zoom account needed.
+                  Attendees watch via an embedded video player, with no Zoom account needed.
                 </p>
               </div>
               <Switch

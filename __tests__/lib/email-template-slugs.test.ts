@@ -55,7 +55,7 @@ describe("email-template-slugs", () => {
     // A custom template that merely happens to start with "webinar" (but isn't
     // one of the system sequence slugs) is NOT treated as a webinar template.
     expect(isWebinarTemplateSlug("webinar-custom-blast")).toBe(false);
-    expect(WEBINAR_TEMPLATE_SLUGS.size).toBe(6);
+    expect(WEBINAR_TEMPLATE_SLUGS.size).toBe(7);
   });
 
   describe("formatTemplateLabel", () => {

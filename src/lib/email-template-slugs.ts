@@ -59,6 +59,7 @@ const TEMPLATE_LABEL_OVERRIDES: Readonly<Record<string, string>> = {
   "speaker-reimbursement-received": "Reimbursement Received",
   "speaker-profile-form-request": "Speaker Profile Form Request",
   "webinar-reminder-1h": "Webinar Reminder (1h)",
+  "webinar-reminder-15m": "Webinar Reminder (15m)",
   "webinar-reminder-24h": "Webinar Reminder (24h)",
 };
 

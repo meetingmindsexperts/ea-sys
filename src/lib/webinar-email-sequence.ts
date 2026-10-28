@@ -23,6 +23,7 @@ type SequenceRow = { emailType: string; scheduledFor: Date; filters: unknown };
 function phaseOffsetMs(phase: string, start: Date, end: Date): number | null {
   if (phase === "webinar-reminder-24h") return -24 * 60 * 60_000;
   if (phase === "webinar-reminder-1h") return -60 * 60_000;
+  if (phase === "webinar-reminder-15m") return -15 * 60_000;
   if (phase === "webinar-live-now") return 0;
   if (phase === "webinar-thank-you") return end.getTime() + 30 * 60_000 - start.getTime();
   return null;
@@ -54,15 +55,17 @@ export function isSequenceRowForOtherDate(row: SequenceRow, current: { startTime
 export type WebinarPhase =
   | "webinar-reminder-24h"
   | "webinar-reminder-1h"
+  | "webinar-reminder-15m"
   | "webinar-live-now"
   | "webinar-thank-you";
 
-/** The 4 auto-sequence phases. Deliberately NOT WEBINAR_EMAIL_TYPES — that
+/** The 5 auto-sequence phases. Deliberately NOT WEBINAR_EMAIL_TYPES — that
  * list also carries webinar-confirmation, which organizers schedule MANUALLY
  * (send join links at 9am); the sequence machinery must never touch it. */
 export const WEBINAR_SEQUENCE_PHASES: readonly WebinarPhase[] = [
   "webinar-reminder-24h",
   "webinar-reminder-1h",
+  "webinar-reminder-15m",
   "webinar-live-now",
   "webinar-thank-you",
 ];
@@ -77,6 +80,8 @@ function computePhases(startTime: Date, endTime: Date): PhaseTiming[] {
   const phases: PhaseTiming[] = [
     { phase: "webinar-reminder-24h", scheduledFor: new Date(startTime.getTime() - 24 * 60 * 60_000) },
     { phase: "webinar-reminder-1h", scheduledFor: new Date(startTime.getTime() - 60 * 60_000) },
+    // When the doors open: the session page lets attendees in from 15 minutes before (owner, Oct 28, 2026).
+    { phase: "webinar-reminder-15m", scheduledFor: new Date(startTime.getTime() - 15 * 60_000) },
     { phase: "webinar-live-now", scheduledFor: new Date(startTime.getTime()) },
     { phase: "webinar-thank-you", scheduledFor: new Date(endTime.getTime() + 30 * 60_000) },
   ];
@@ -119,8 +124,8 @@ export interface EnqueueSequenceResult {
 }
 
 /**
- * Create the 4 future-phase ScheduledEmail rows (reminder-24h, reminder-1h,
- * live-now, thank-you) for a webinar event. Idempotent: if ANY webinar-* row
+ * Create the 5 future-phase ScheduledEmail rows (reminder-24h, reminder-1h,
+ * reminder-15m, live-now, thank-you) for a webinar event. Idempotent: if ANY webinar-* row
  * already exists for this event, returns { skipped: "already-enqueued" } and
  * creates nothing.
  *

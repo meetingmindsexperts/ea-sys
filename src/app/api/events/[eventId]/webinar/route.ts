@@ -374,7 +374,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       // holds the provisioning claim — a benign race, not a server error.
       if (result.reason === "provision-already-in-progress") {
         return NextResponse.json(
-          { error: "Provisioning is already running for this event — try again in a moment." },
+          { error: "Provisioning is already running for this event. Try again in a moment." },
           { status: 409 },
         );
       }

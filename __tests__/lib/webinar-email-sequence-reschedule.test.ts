@@ -44,7 +44,7 @@ import {
 } from "@/lib/webinar-email-sequence";
 
 const NOW = new Date("2026-09-01T00:00:00Z");
-// New webinar window: start in 3 days → all 4 phases are in the future.
+// New webinar window: start in 3 days → all 5 phases are in the future.
 const START = new Date("2026-09-04T10:00:00Z");
 const END = new Date("2026-09-04T11:00:00Z");
 
@@ -84,13 +84,14 @@ describe("enqueueWebinarSequenceForEvent — force mode", () => {
     expect(mockDb.scheduledEmail.createMany).not.toHaveBeenCalled();
   });
 
-  it("force: skips the guard and creates all 4 future phases at the anchor's times", async () => {
+  it("force: skips the guard and creates all 5 future phases at the anchor's times", async () => {
     mockDb.scheduledEmail.findFirst.mockResolvedValue({ id: "stale-row" }); // would block non-force
     const res = await enqueueWebinarSequenceForEvent("ev1", "u1", { force: true });
-    expect(res.created).toBe(4);
+    expect(res.created).toBe(5);
     expect(createdPhases()).toEqual([
       "webinar-reminder-24h",
       "webinar-reminder-1h",
+      "webinar-reminder-15m",
       "webinar-live-now",
       "webinar-thank-you",
     ]);
@@ -100,6 +101,7 @@ describe("enqueueWebinarSequenceForEvent — force mode", () => {
     const byType = Object.fromEntries(rows.map((r) => [r.emailType, r.scheduledFor.getTime()]));
     expect(byType["webinar-reminder-24h"]).toBe(START.getTime() - 24 * 3600_000);
     expect(byType["webinar-reminder-1h"]).toBe(START.getTime() - 3600_000);
+    expect(byType["webinar-reminder-15m"]).toBe(START.getTime() - 15 * 60_000);
     expect(byType["webinar-live-now"]).toBe(START.getTime());
     expect(byType["webinar-thank-you"]).toBe(END.getTime() + 30 * 60_000);
   });
@@ -109,7 +111,7 @@ describe("enqueueWebinarSequenceForEvent — force mode", () => {
       { emailType: "webinar-reminder-24h", status: "SENT", emailedKeys: [], scheduledFor: new Date("2026-09-03T10:00:00Z") }, // fired for this date
     ]);
     const res = await enqueueWebinarSequenceForEvent("ev1", "u1", { force: true });
-    expect(res.created).toBe(3);
+    expect(res.created).toBe(4);
     expect(createdPhases()).not.toContain("webinar-reminder-24h");
     expect(createdPhases()).toContain("webinar-live-now");
     // The SENT-exclusion query filters on SENT/PROCESSING only — pending rows
@@ -124,14 +126,14 @@ describe("enqueueWebinarSequenceForEvent — force mode", () => {
   });
 
   it("force: past phases are still dropped (webinar moved EARLIER)", async () => {
-    // Webinar starts in 30 minutes → 24h + 1h reminders are in the past.
+    // Webinar starts in 30 minutes → 24h + 1h reminders are in the past; the 15-minute one is not.
     mockDb.eventSession.findFirst.mockResolvedValue({
       startTime: new Date(NOW.getTime() + 30 * 60_000),
       endTime: new Date(NOW.getTime() + 90 * 60_000),
     });
     const res = await enqueueWebinarSequenceForEvent("ev1", "u1", { force: true });
-    expect(res.created).toBe(2);
-    expect(createdPhases()).toEqual(["webinar-live-now", "webinar-thank-you"]);
+    expect(res.created).toBe(3);
+    expect(createdPhases()).toEqual(["webinar-reminder-15m", "webinar-live-now", "webinar-thank-you"]);
   });
 });
 
@@ -140,8 +142,8 @@ describe("rescheduleWebinarSequenceForEvent", () => {
     mockDb.scheduledEmail.deleteMany.mockResolvedValue({ count: 3 });
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
     expect(res.cleared).toBe(3);
-    expect(res.created).toBe(4);
-    // Clear touches ONLY re-creatable auto-sequence rows (M1/M2/M3): the 4
+    expect(res.created).toBe(5);
+    // Clear touches ONLY re-creatable auto-sequence rows (M1/M2/M3): the 5
     // phases (never webinar-confirmation), never manually-composed rows,
     // PENDING + fully-unsent FAILED; CANCELLED stays unless resurrecting.
     expect(mockDb.scheduledEmail.deleteMany).toHaveBeenCalledWith(
@@ -149,7 +151,7 @@ describe("rescheduleWebinarSequenceForEvent", () => {
         where: expect.objectContaining({
           eventId: "ev1",
           emailType: {
-            in: ["webinar-reminder-24h", "webinar-reminder-1h", "webinar-live-now", "webinar-thank-you"],
+            in: ["webinar-reminder-24h", "webinar-reminder-1h", "webinar-reminder-15m", "webinar-live-now", "webinar-thank-you"],
           },
           customSubject: null,
           customMessage: null,
@@ -174,10 +176,11 @@ describe("rescheduleWebinarSequenceForEvent", () => {
       { emailType: "webinar-live-now", status: "SENT", emailedKeys: [], scheduledFor: new Date("2026-09-04T10:00:00Z") },
     ]);
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
-    expect(res.created).toBe(3);
+    expect(res.created).toBe(4);
     expect(createdPhases()).toEqual([
       "webinar-reminder-24h",
       "webinar-reminder-1h",
+      "webinar-reminder-15m",
       "webinar-thank-you",
     ]);
   });
@@ -189,7 +192,7 @@ describe("reschedule semantics — cancelled / partial-failed phases (review M1/
       { emailType: "webinar-live-now", status: "CANCELLED", emailedKeys: [], scheduledFor: new Date("2026-09-04T10:00:00Z") },
     ]);
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
-    expect(res.created).toBe(3);
+    expect(res.created).toBe(4);
     expect(createdPhases()).not.toContain("webinar-live-now");
     // The clear must not delete the CANCELLED row either (no OR branch for it).
     const where = (mockDb.scheduledEmail.deleteMany.mock.calls[0][0] as {
@@ -203,7 +206,7 @@ describe("reschedule semantics — cancelled / partial-failed phases (review M1/
       { emailType: "webinar-live-now", status: "CANCELLED", emailedKeys: [], scheduledFor: new Date("2026-09-04T10:00:00Z") },
     ]);
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1", { resurrectCancelled: true });
-    expect(res.created).toBe(4);
+    expect(res.created).toBe(5);
     expect(createdPhases()).toContain("webinar-live-now");
     const where = (mockDb.scheduledEmail.deleteMany.mock.calls[0][0] as {
       where: { OR: Array<{ status: string }> };
@@ -218,7 +221,7 @@ describe("reschedule semantics — cancelled / partial-failed phases (review M1/
       { emailType: "webinar-reminder-24h", status: "FAILED", emailedKeys: ["r1", "r2"], scheduledFor: new Date("2026-09-03T10:00:00Z") },
     ]);
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
-    expect(res.created).toBe(3);
+    expect(res.created).toBe(4);
     expect(createdPhases()).not.toContain("webinar-reminder-24h");
   });
 });
@@ -231,12 +234,13 @@ describe("postponement: a phase sent for the OLD date is sent again for the new 
     mockDb.scheduledEmail.findMany.mockResolvedValue([
       { emailType: "webinar-reminder-24h", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-08-19T10:00:00Z") },
       { emailType: "webinar-reminder-1h", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-08-20T09:00:00Z") },
+      { emailType: "webinar-reminder-15m", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-08-20T09:45:00Z") },
       { emailType: "webinar-live-now", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-08-20T10:00:00Z") },
       { emailType: "webinar-thank-you", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-08-20T11:30:00Z") },
     ]);
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
-    expect(res.created).toBe(4);
-    expect(createdPhases()).toEqual(["webinar-reminder-24h", "webinar-reminder-1h", "webinar-live-now", "webinar-thank-you"]);
+    expect(res.created).toBe(5);
+    expect(createdPhases()).toEqual(["webinar-reminder-24h", "webinar-reminder-1h", "webinar-reminder-15m", "webinar-live-now", "webinar-thank-you"]);
   });
 
   it("a move of an hour does not double-send: the organiser emails by hand", async () => {
@@ -264,7 +268,7 @@ describe("postponement: a phase sent for the OLD date is sent again for the new 
       { emailType: "webinar-reminder-24h", status: "FAILED", emailedKeys: ["r1"], scheduledFor: OLD("2026-08-19T10:00:00Z") },
     ]);
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
-    expect(res.created).toBe(4);
+    expect(res.created).toBe(5);
   });
 });
 
@@ -298,6 +302,8 @@ describe("which date a row was for: the stamped webinar start, not its send time
   it("rows from before the stamp are read back through the phase offset", () => {
     const legacy = (emailType: string, at: string) => ({ emailType, scheduledFor: new Date(at), filters: { status: "CONFIRMED" } });
     expect(isSequenceRowForOtherDate(legacy("webinar-reminder-1h", "2026-09-04T09:00:00Z"), current)).toBe(false);
+    expect(isSequenceRowForOtherDate(legacy("webinar-reminder-15m", "2026-09-04T09:45:00Z"), current)).toBe(false);
+    expect(isSequenceRowForOtherDate(legacy("webinar-reminder-15m", "2026-08-20T09:45:00Z"), current)).toBe(true);
     expect(isSequenceRowForOtherDate(legacy("webinar-thank-you", "2026-09-04T11:30:00Z"), current)).toBe(false);
     expect(isSequenceRowForOtherDate(legacy("webinar-live-now", "2026-08-20T10:00:00Z"), current)).toBe(true);
     expect(isSequenceRowForOtherDate(legacy("webinar-confirmation", "2026-08-20T10:00:00Z"), current)).toBe(false);

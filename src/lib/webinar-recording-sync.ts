@@ -85,7 +85,7 @@ export async function syncRecordingForZoomMeeting(
     return {
       ok: true,
       status: "pending",
-      reason: `recording previously marked ${meeting.recordingStatus} — skipping`,
+      reason: `recording previously marked ${meeting.recordingStatus}, skipping`,
       durationMs,
     };
   }
@@ -190,7 +190,7 @@ export async function syncRecordingForZoomMeeting(
       return {
         ok: true,
         status: "pending",
-        reason: "zoom returned 404 — recording not ready",
+        reason: "zoom returned 404: recording not ready",
         durationMs,
       };
     }

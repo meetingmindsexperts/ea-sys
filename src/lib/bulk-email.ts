@@ -99,6 +99,7 @@ export type BulkEmailType =
   | "webinar-confirmation"
   | "webinar-reminder-24h"
   | "webinar-reminder-1h"
+  | "webinar-reminder-15m"
   | "webinar-live-now"
   | "webinar-thank-you"
   /**
@@ -155,6 +156,7 @@ export const WEBINAR_EMAIL_TYPES = [
   "webinar-confirmation",
   "webinar-reminder-24h",
   "webinar-reminder-1h",
+  "webinar-reminder-15m",
   "webinar-live-now",
   "webinar-thank-you",
 ] as const;
@@ -618,6 +620,7 @@ export const bulkEmailSchema = z.object({
     "webinar-confirmation",
     "webinar-reminder-24h",
     "webinar-reminder-1h",
+    "webinar-reminder-15m",
     "webinar-live-now",
     "webinar-thank-you",
     "survey-invitation",

@@ -153,13 +153,13 @@ function useEventTz(): string {
 
 /** A timestamp in the event timezone, or "—". */
 function fmtTz(iso: string | null | undefined, tz: string, opts?: { short?: boolean }): string {
-  if (!iso) return "—";
+  if (!iso) return "–";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : formatDateTimeInTz(d, tz, opts);
 }
 
 function formatDateTime(iso: string | undefined, tz: string): string {
-  if (!iso) return "—";
+  if (!iso) return "–";
   try {
     return fmtTz(iso, tz);
   } catch {
@@ -223,11 +223,11 @@ export default function WebinarConsolePage() {
         return;
       }
       if (result.zoomStatus === "created") {
-        toast.success("Webinar provisioned — Zoom meeting ready");
+        toast.success("Webinar provisioned. Zoom meeting ready");
       } else if (result.zoomStatus === "already-attached") {
         toast.success("Webinar already provisioned");
       } else if (result.zoomStatus === "not-configured") {
-        toast.warning("Anchor session created — Zoom not configured for this org");
+        toast.warning("Anchor session created. Zoom isn't configured for this organisation");
       } else if (result.zoomStatus === "failed") {
         toast.error("Anchor session created, but Zoom webinar creation failed");
       } else {
@@ -687,7 +687,7 @@ function WebinarStatusBar({
     setConfirmStartOpen(false);
     try {
       const res = await toggleRoom.mutateAsync(true);
-      toast.success("Room opened — attendees are being let in");
+      toast.success("Room opened: attendees are being let in");
       if (res.stream && !res.stream.ok) {
         toast.info("Waiting for Zoom to start the webinar, then starting the custom stream…");
         void retryStreamStart();
@@ -699,7 +699,7 @@ function WebinarStatusBar({
       toast.error(
         err instanceof Error
           ? `Started, but opening the room failed: ${err.message}`
-          : "Started, but opening the room failed — use the Lobby card",
+          : "Started, but opening the room failed. Use the Lobby card",
       );
     }
   };
@@ -974,7 +974,7 @@ function OverviewCard({
                 <Label className="text-muted-foreground text-xs uppercase tracking-wide">
                   Duration
                 </Label>
-                <p className="font-medium">{zoom.duration ?? "—"} min</p>
+                <p className="font-medium">{zoom.duration ?? "–"} min</p>
               </div>
               <div className="md:col-span-2">
                 <Label className="text-muted-foreground text-xs uppercase tracking-wide">
@@ -1042,7 +1042,7 @@ function OverviewCard({
 
 function refreshAllTitle(hasZoom: boolean, sessionEnded: boolean): string {
   if (!hasZoom) return "Attach a Zoom webinar first";
-  if (!sessionEnded) return "Session hasn't ended — some sources will be pending";
+  if (!sessionEnded) return "Session hasn't ended, so some sources will be pending";
   return "Refresh recording + attendance + polls/Q&A";
 }
 
@@ -1120,7 +1120,7 @@ function GlobalRefreshButton({
 
     const anyFailed = results.some((r) => r.status === "rejected");
     if (anyFailed) {
-      toast.warning(`Refreshed with errors — ${parts.join(" · ")}`);
+      toast.warning(`Refreshed with errors: ${parts.join(" · ")}`);
     } else {
       toast.success(`Refreshed · ${parts.join(" · ")}`);
     }
@@ -1158,14 +1158,14 @@ function EmailSequenceCard({
     try {
       const result = await reenqueue.mutateAsync();
       if (result.skipped === "no-anchor-session") {
-        toast.error("No anchor session — run the provisioner first");
+        toast.error("No anchor session. Run the provisioner first");
       } else if (result.skipped === "no-future-phases") {
-        toast.warning("All phase times are in the past — nothing to schedule");
+        toast.warning("All phase times are in the past, so nothing was scheduled");
       } else if (result.skipped === "no-actor") {
         toast.error("No admin user found to create sequence rows");
       } else {
         toast.success(
-          `Queue refreshed — ${result.deleted} cleared, ${result.created} scheduled`,
+          `Queue refreshed: ${result.deleted} cleared, ${result.created} scheduled`,
         );
       }
     } catch (err) {
@@ -1211,8 +1211,8 @@ function EmailSequenceCard({
           <CardEmpty
             message={
               hasZoom
-                ? "No sequence rows queued yet. Click Re-enqueue to schedule the 24h / 1h / live-now / thank-you emails."
-                : "No sequence rows queued yet. Attach a Zoom webinar first — the sequence needs a join link to render."
+                ? "No sequence rows queued yet. Click Re-enqueue to schedule the 24h / 1h / 15m / live-now / thank-you emails."
+                : "No sequence rows queued yet. Attach a Zoom webinar first: the sequence needs a join link to render."
             }
           />
         ) : null}
@@ -1233,8 +1233,9 @@ function SequenceRowView({ row }: { row: WebinarSequenceRow }) {
   const label = (
     {
       "webinar-confirmation": "Confirmation",
-      "webinar-reminder-24h": "Reminder — 24 hours",
-      "webinar-reminder-1h": "Reminder — 1 hour",
+      "webinar-reminder-24h": "24-hour reminder",
+      "webinar-reminder-1h": "1-hour reminder",
+      "webinar-reminder-15m": "15-minute reminder",
       "webinar-live-now": "Live now",
       "webinar-thank-you": "Thank you + recording",
     } as Record<string, string>
@@ -1386,7 +1387,7 @@ function RecordingCard({
               Recording
             </ConsoleTitle>
             <CardDescription>
-              Zoom cloud recording — polled automatically after the session ends.
+              Zoom cloud recording, checked automatically after the session ends.
             </CardDescription>
           </div>
           <Button
@@ -1565,7 +1566,7 @@ function AttendanceCard({
       const result = await sync.mutateAsync();
       if (result.status === "synced") {
         toast.success(
-          `Synced — fetched ${result.fetched ?? 0} participants, matched ${result.matched ?? 0} to registrations`,
+          `Synced: fetched ${result.fetched ?? 0} participants, matched ${result.matched ?? 0} to registrations`,
         );
       } else if (result.status === "pending") {
         toast.warning(result.reason || "Attendance report not ready yet");
@@ -1716,7 +1717,7 @@ function AttendeeRowView({ row }: { row: WebinarAttendeeRow }) {
   return (
     <tr className="hover:bg-muted/30">
       <td className="px-3 py-2 font-medium">{row.name}</td>
-      <td className="px-3 py-2 text-muted-foreground">{row.email ?? "—"}</td>
+      <td className="px-3 py-2 text-muted-foreground">{row.email ?? "–"}</td>
       <td className="px-3 py-2 text-xs text-muted-foreground">
         {fmtTz(row.joinTime, eventTz, { short: true })}
       </td>
@@ -1727,7 +1728,7 @@ function AttendeeRowView({ row }: { row: WebinarAttendeeRow }) {
             {String(row.registrationSerialId).padStart(3, "0")}
           </span>
         ) : (
-          <span className="text-muted-foreground">—</span>
+          <span className="text-muted-foreground">–</span>
         )}
       </td>
     </tr>
@@ -1771,7 +1772,7 @@ function PanelistsCard({
       const result = await addPanelist.mutateAsync({ name, email });
       toast.success(
         result.invitesQueued
-          ? `Added ${name} — invite email sent`
+          ? `Added ${name}. Invite email sent`
           : `Added ${name} as panelist`,
       );
     } catch (err) {
@@ -1797,7 +1798,7 @@ function PanelistsCard({
       await navigator.clipboard.writeText(panelist.join_url);
       toast.success(`Copied join link for ${panelist.name}`);
     } catch {
-      toast.error("Failed to copy link — try again");
+      toast.error("Failed to copy link. Try again");
     }
   };
 
@@ -2013,7 +2014,7 @@ function PollsCard({
         const responses = result.pollResponsesPersisted ?? 0;
         const qa = result.questionsPersisted ?? 0;
         toast.success(
-          `Engagement synced — ${polls} poll(s), ${responses} response(s), ${qa} Q&A`,
+          `Engagement synced: ${polls} poll(s), ${responses} response(s), ${qa} Q&A`,
         );
       } else if (result.status === "pending") {
         toast.warning(result.reason || "Report not ready yet");
@@ -2256,7 +2257,7 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
           Live now
         </ConsoleTitle>
         <CardDescription>
-          Registrants currently on the webinar page (heartbeat in the last 60s) —
+          Registrants currently on the webinar page (heartbeat in the last 60s):
           lobby-page presence, distinct from the post-event attendance report.
         </CardDescription>
       </CardHeader>
@@ -3021,10 +3022,10 @@ function LobbyCard({
             <SelectContent>
               {/* The chosen mode is shaded in the theme colour, not just ticked. */}
               <SelectItem value="zoom" className="data-[state=checked]:bg-primary/10 data-[state=checked]:text-primary data-[state=checked]:font-medium">
-                Zoom embed — interactive, native Q&amp;A/chat
+                Zoom embed: interactive, native Q&amp;A/chat
               </SelectItem>
               <SelectItem value="hls" className="data-[state=checked]:bg-primary/10 data-[state=checked]:text-primary data-[state=checked]:font-medium">
-                Custom stream — one-way broadcast, scales to thousands
+                Custom stream: one-way broadcast, scales to thousands
               </SelectItem>
             </SelectContent>
           </Select>
@@ -3110,7 +3111,7 @@ function LobbyCard({
             value={lobbyMessage}
             onChange={(e) => setLobbyMessage(e.target.value)}
             maxLength={280}
-            placeholder="We'll begin shortly — thanks for joining early!"
+            placeholder="We'll begin shortly. Thanks for joining early!"
           />
         </div>
 
@@ -3174,7 +3175,7 @@ function GoLiveCard({
     try {
       const res = await toggleRoom.mutateAsync(!roomOpen);
       toast.success(
-        res.open ? "Room opened — attendees are being let in" : "Room closed",
+        res.open ? "Room opened: attendees are being let in" : "Room closed",
       );
       announceStreamResult(res.stream, res.open);
     } catch (err) {
@@ -3206,7 +3207,7 @@ function GoLiveCard({
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
             <div className="min-w-0">
               <p className="font-medium text-red-800">
-                The scheduled start has passed — the room is still closed
+                The scheduled start has passed and the room is still closed
               </p>
               <p className="text-sm text-red-700">
                 {overduePresence && overduePresence.lobby > 0

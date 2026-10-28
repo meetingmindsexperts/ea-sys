@@ -207,13 +207,14 @@ The **24-hour re-sync cap** on attendance is important: without it, every webina
 
 ## Email sequence
 
-5 templates in [src/lib/email.ts](../src/lib/email.ts) `DEFAULT_TEMPLATES`:
+6 templates in [src/lib/email-template-defaults.ts](../src/lib/email-template-defaults.ts):
 
 | Slug | When fires |
 |---|---|
 | `webinar-confirmation` | Immediately on registration (direct, not via cron) |
 | `webinar-reminder-24h` | 24 h before anchor session start |
 | `webinar-reminder-1h` | 1 h before start |
+| `webinar-reminder-15m` | 15 min before start, when the session page starts letting attendees in (Oct 28, 2026) |
 | `webinar-live-now` | At start time |
 | `webinar-thank-you` | 30 min after end |
 
