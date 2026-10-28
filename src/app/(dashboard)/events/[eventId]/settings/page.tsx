@@ -174,6 +174,13 @@ interface Event {
 
 const BADGE_ALIGN_LABELS = { left: "Left", center: "Centre", right: "Right" } as const;
 
+/** What the save says about Zoom after moving the webinar session ("skipped-live": it is running now). */
+function anchorZoomNote(zoomSync: string | undefined): string {
+  if (zoomSync === "failed") return " Zoom still shows the old time. Retime the session from the Agenda to retry.";
+  if (zoomSync === "skipped-live") return " The webinar is running now, so Zoom keeps its current time.";
+  return "";
+}
+
 /** Convert a Date to `datetime-local` input value in Dubai timezone (UTC+4) */
 function toDatetimeLocal(date: Date): string {
   const dubaiOffset = 4 * 60 * 60 * 1000; // UTC+4
@@ -638,10 +645,7 @@ export default function EventSettingsPage() {
           queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
           queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
         } else if (cascade?.anchorMoved) {
-          const zoomNote =
-            cascade.zoomSync === "failed"
-              ? " Zoom still shows the old time — retime the session from the Agenda to retry."
-              : "";
+          const zoomNote = anchorZoomNote(cascade.zoomSync);
           const seqNote =
             cascade.sequenceSync === "failed"
               ? " Reminder emails may still be on the old schedule — use the Webinar Console's Re-enqueue."

@@ -427,7 +427,7 @@ export default function AgendaPage() {
         );
       }
       if (data?.zoomSync === "skipped-live") {
-        toast.info("Session saved. It is live, so Zoom keeps its current time and the stream is left untouched.");
+        toast.info("Session saved. It is running now, so Zoom keeps its current time.");
       }
       // Aug 4, 2026: a retimed webinar anchor also reschedules the reminder
       // emails; a failure here means they may still fire on the OLD clock.

@@ -389,6 +389,8 @@ const updateSession: ToolExecutor = async (input, ctx) => {
     if (!result.ok) return { error: result.message, code: result.code, ...(result.meta ?? {}) };
     // zoomSync (M6): "failed" ⇒ the session saved but the linked Zoom meeting
     // still shows the OLD time — the agent should tell the operator to retry.
+    // "skipped-live" ⇒ the session is running now, so Zoom was deliberately left
+    // on its current time; nothing to retry (Oct 28, 2026).
     return {
       success: true,
       session: result.session,

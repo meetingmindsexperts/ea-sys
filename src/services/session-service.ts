@@ -165,8 +165,8 @@ export type UpdateSessionResult =
        * Zoom meeting/webinar. "failed" means the session SAVED but Zoom still
        * shows the old time — surface it so the operator fixes Zoom or retries.
        * Absent when the times didn't change or there is no Zoom meeting.
-       * "skipped-live": the session is LIVE (a webinar's room is open), so the
-       * new time was deliberately not sent (owner, Oct 28, 2026).
+       * "skipped-live": the session is running now (isRunningNow), so the new
+       * time was deliberately not sent (owner, Oct 28, 2026).
        */
       zoomSync?: "synced" | "failed" | "skipped-live";
       /**
@@ -578,6 +578,19 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
 /** Thrown inside the transaction to abort on a lost optimistic-lock claim. */
 class StaleWriteSentinel extends Error {}
 
+/** A room may open an hour early and run two hours over, the room auto-close's own safety net. */
+const RUNNING_EARLY_MS = 60 * 60 * 1000;
+const RUNNING_OVERRUN_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Whether a session is running now: LIVE (after this save) and now inside its new times, with the room's
+ * early opening and overrun allowed. A session merely left on LIVE, or moved to another day, is not.
+ */
+export function isRunningNow(status: string, start: Date, end: Date, now = Date.now()): boolean {
+  if (status !== "LIVE") return false;
+  return now >= start.getTime() - RUNNING_EARLY_MS && now <= end.getTime() + RUNNING_OVERRUN_MS;
+}
+
 export async function updateSession(input: UpdateSessionInput): Promise<UpdateSessionResult> {
   const { eventId, sessionId, userId, source, requestIp, expectedUpdatedAt } = input;
 
@@ -759,10 +772,11 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
     (input.startTime !== undefined &&
       input.startTime.getTime() !== existing.startTime.getTime()) ||
     (input.endTime !== undefined && input.endTime.getTime() !== existing.endTime.getTime());
-  // While the session is LIVE (a webinar's room is open) the scheduled time means nothing to Zoom, and
-  // changing a running webinar is the one Zoom call an agenda edit makes, so it is left alone until the
-  // session ends (owner, Oct 28, 2026; reported as "editing the agenda stops the stream", not reproduced).
-  if (timesChanged && existing.zoomMeeting && existing.status === "LIVE") {
+  // While the session is running (LIVE, with the new times still around now) the scheduled time means
+  // nothing to Zoom, and changing a running webinar is the one Zoom call an agenda edit makes, so it is
+  // left alone (owner, Oct 28, 2026; reported as "editing the agenda stops the stream", not reproduced).
+  // A move to another time, or a session no longer LIVE, still reaches Zoom (review MEDs).
+  if (timesChanged && existing.zoomMeeting && isRunningNow(input.status ?? existing.status, input.startTime ?? existing.startTime, input.endTime ?? existing.endTime)) {
     zoomSync = "skipped-live";
     apiLogger.info({ eventId, sessionId, userId, source }, "session:zoom-time-sync-skipped-live");
   } else if (timesChanged && existing.zoomMeeting) {

@@ -5,7 +5,7 @@
  * row, sent no admin notification, and dropped status/abstractId/sortOrder;
  * capacity + zero-duration rules disagreed between REST and MCP).
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Prisma } from "@prisma/client";
 
 const {
@@ -64,7 +64,7 @@ vi.mock("@/lib/webinar-email-sequence", () => ({
   rescheduleWebinarSequenceForEvent: (...a: unknown[]) => mockReschedule(...a),
 }));
 
-import { createSession, updateSession } from "@/services/session-service";
+import { createSession, isRunningNow, updateSession } from "@/services/session-service";
 
 const EVENT = {
   startDate: new Date("2026-09-01T00:00:00Z"),
@@ -653,25 +653,66 @@ describe("updateSession — M6: retime re-syncs the linked Zoom meeting", () => 
     expect(mockUpdateZoomWebinar).not.toHaveBeenCalled();
   });
 
-  it("leaves Zoom alone while the session is LIVE (a webinar's room is open) and says so (Oct 28, 2026)", async () => {
-    withZoom("WEBINAR", "LIVE");
-    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
-    expect(res.ok).toBe(true);
-    if (res.ok) expect(res.zoomSync).toBe("skipped-live");
-    expect(mockUpdateZoomWebinar).not.toHaveBeenCalled();
-    expect(mockUpdateZoomMeeting).not.toHaveBeenCalled();
-    expect(mockApiLogger.info).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: "s1" }),
-      "session:zoom-time-sync-skipped-live",
-    );
-  });
+  describe("while the session is running now (Oct 28, 2026)", () => {
+    // The session runs 06:00 to 07:00 on Sep 2 (inside the test event) and the clock reads 06:30: on air.
+    // The organiser extends the end by 15 minutes.
+    const extendedEnd = () => new Date(END.getTime() + 15 * 60_000);
+    function runningNow(status: string) {
+      mockDb.eventSession.findFirst.mockResolvedValue({
+        id: "s1", startTime: START, endTime: END, status,
+        type: "SESSION", abstractId: null, zoomMeeting: { ...ZOOM_ROW },
+        _count: { speakers: 0, topics: 0 },
+      });
+    }
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(START.getTime() + 30 * 60_000));
+      mockUpdateZoomWebinar.mockResolvedValue(undefined); // the outage test leaves a rejection
+    });
+    afterEach(() => vi.useRealTimers());
 
-  it("syncs again once the session is no longer LIVE", async () => {
-    withZoom("WEBINAR", "COMPLETED");
-    mockUpdateZoomWebinar.mockResolvedValue(undefined); // the outage test above leaves a rejection behind
-    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
-    if (res.ok) expect(res.zoomSync).toBe("synced");
-    expect(mockUpdateZoomWebinar).toHaveBeenCalledTimes(1);
+    it("leaves Zoom alone for a LIVE session whose new times still cover now, and says so", async () => {
+      runningNow("LIVE");
+      const res = await updateSession({ ...BASE_UPDATE, endTime: extendedEnd() });
+      expect(res.ok).toBe(true);
+      if (res.ok) expect(res.zoomSync).toBe("skipped-live");
+      expect(mockUpdateZoomWebinar).not.toHaveBeenCalled();
+      expect(mockApiLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: "s1" }),
+        "session:zoom-time-sync-skipped-live",
+      );
+    });
+
+    it("still moves Zoom when a LIVE session is moved to times that no longer cover now (review MED-1)", async () => {
+      runningNow("LIVE");
+      const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+      if (res.ok) expect(res.zoomSync).toBe("synced");
+      expect(mockUpdateZoomWebinar).toHaveBeenCalledTimes(1);
+    });
+
+    it("judges the status being saved, not the old one (review MED-2)", async () => {
+      runningNow("LIVE");
+      let res = await updateSession({ ...BASE_UPDATE, status: "COMPLETED", endTime: extendedEnd() });
+      if (res.ok) expect(res.zoomSync).toBe("synced");
+      expect(mockUpdateZoomWebinar).toHaveBeenCalledTimes(1);
+
+      mockUpdateZoomWebinar.mockClear();
+      runningNow("SCHEDULED");
+      res = await updateSession({ ...BASE_UPDATE, status: "LIVE", endTime: extendedEnd() });
+      if (res.ok) expect(res.zoomSync).toBe("skipped-live");
+      expect(mockUpdateZoomWebinar).not.toHaveBeenCalled();
+    });
+
+    it("isRunningNow: LIVE and inside the times, an hour early or two hours over allowed", () => {
+      const now = new Date("2026-10-28T10:00:00Z").getTime();
+      const at = (h: number) => new Date(now + h * 3600_000);
+      expect(isRunningNow("LIVE", at(-0.5), at(1), now)).toBe(true);
+      expect(isRunningNow("LIVE", at(0.9), at(2), now)).toBe(true); // room opened before the start
+      expect(isRunningNow("LIVE", at(-3), at(-1.9), now)).toBe(true); // overrunning
+      expect(isRunningNow("LIVE", at(24), at(25), now)).toBe(false); // moved to tomorrow
+      expect(isRunningNow("LIVE", at(-30), at(-29), now)).toBe(false); // left on LIVE days ago
+      expect(isRunningNow("SCHEDULED", at(-0.5), at(1), now)).toBe(false);
+    });
   });
 
   it("no Zoom call when the session has no linked meeting", async () => {
