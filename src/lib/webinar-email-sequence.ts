@@ -270,7 +270,7 @@ async function enqueueSequenceInner(
  * this, the non-force idempotency check (findFirst → createMany) is an unlocked
  * check-then-act: a provisioner enqueue racing a retime-reschedule, or two
  * concurrent "Run provisioner" clicks on a zero-row webinar, both see "no rows"
- * under READ COMMITTED and each createMany the full 4-phase set — every reminder
+ * under READ COMMITTED and each createMany the full 5-phase set — every reminder
  * fires TWICE to the whole audience (there is no @@unique on (eventId,emailType)
  * to collide on). When a `tx` IS supplied, the caller (reschedule) already holds
  * the lock inside its transaction, so we run the body directly.
@@ -379,7 +379,7 @@ export async function rescheduleWebinarSequenceForEvent(
 
 /**
  * Delete the AUTO-SEQUENCE rows that are safe to re-create (review M1/M2/M3):
- *  - only the 4 phase types — never webinar-confirmation, which organizers
+ *  - only the 5 phase types — never webinar-confirmation, which organizers
  *    schedule manually ("send join links at 9am");
  *  - only sequence-minted rows (no custom subject/message, no explicit
  *    recipient list) — a manually composed reminder is the organizer's own

@@ -798,11 +798,16 @@ Doors open 15 minutes before the scheduled start.
     {{organizerSignature}}
   </div>`,
     textContent: `Starting in 15 minutes: {{eventName}}
+
 Hi {{firstName}},
+
 {{eventName}} starts in 15 minutes and the doors are open.
+
 Join here: {{joinUrl}}
 {{passcodeBlock}}
+
 If the host has not opened the room yet, you will wait on the page and be let in automatically.
+
 {{organizerSignature}}`,
   },
   "webinar-live-now": {

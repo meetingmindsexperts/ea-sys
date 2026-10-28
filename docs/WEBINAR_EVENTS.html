@@ -61,7 +61,7 @@
     <p>Creating an event with <code>eventType = 'WEBINAR'</code> turns on a differentiated mode:</p>
     <ol>
       <li><strong>Auto-provisions</strong> an anchor <code>EventSession</code> and a Zoom webinar</li>
-      <li><strong>Queues</strong> a 5-phase email sequence (confirmation → 24h → 1h → live-now → thank-you+recording)</li>
+      <li><strong>Queues</strong> a 6-phase email sequence (confirmation → 24h → 1h → 15 min → live-now → thank-you+recording)</li>
       <li><strong>Polls Zoom</strong> post-event for cloud recording, attendance, polls, and Q&amp;A</li>
       <li><strong>Surfaces everything</strong> on a dedicated Webinar Console at <code>/events/[eventId]/webinar</code></li>
       <li><strong>Hides</strong> irrelevant sidebar modules (Accommodation, Check-In, Promo Codes, Abstracts, Reviewers)</li>
@@ -231,6 +231,7 @@ mark lastEngagementSyncAt</code></pre>
         <tr><td><code>webinar-confirmation</code></td><td>Immediately on registration (direct, not via cron)</td></tr>
         <tr><td><code>webinar-reminder-24h</code></td><td>24 h before anchor session start</td></tr>
         <tr><td><code>webinar-reminder-1h</code></td><td>1 h before start</td></tr>
+        <tr><td><code>webinar-reminder-15m</code></td><td>15 min before start, when the session page starts letting attendees in</td></tr>
         <tr><td><code>webinar-live-now</code></td><td>At start time</td></tr>
         <tr><td><code>webinar-thank-you</code></td><td>30 min after end</td></tr>
       </tbody>
