@@ -31,6 +31,7 @@ import { AskQuestionBox } from "@/components/webinar/ask-question-box";
 import { HandoutsCard, useWebinarHandouts } from "@/components/webinar/handouts-card";
 import { PanelistsCard, collectPanelists } from "@/components/webinar/panelists-card";
 import { EndOfWebinarSurvey } from "@/components/webinar/end-survey-dialog";
+import { WebinarExitScreen } from "@/components/webinar/exit-screen";
 import { isWebinarOver, webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { cn, formatPersonName } from "@/lib/utils";
@@ -743,6 +744,39 @@ export default function PublicSessionPage() {
         </div>
         </div>
 
+        {/* The webinar is over for this viewer: the exit screen replaces the video and tabs (owner, Oct 28,
+            2026), with the end-of-webinar survey's banner and popup above it. */}
+        {webinarEnded ? (
+          <>
+            <EndOfWebinarSurvey slug={slug} sessionId={sessionId} ended={webinarEnded} />
+            <WebinarExitScreen
+              sessionName={session?.name || joinInfo?.sessionName || "The webinar"}
+              hasRecording={hasRecording}
+              recordingPassword={recording?.password ?? null}
+              recordingLoading={recordingLoading}
+              onWatchRecording={handleWatchRecording}
+              onRejoin={
+                roomOpen
+                  ? () => {
+                      setHostEnded(false);
+                      setIsJoining(true);
+                    }
+                  : undefined
+              }
+            />
+            {/* The same footer image as under the video, so the exit screen keeps the webinar's branding
+                (owner, Oct 28, 2026); the logo and background already come from the page around it. */}
+            {branding?.footerImageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element -- an uploaded image of any size (see EventBannerBand)
+              <img
+                src={branding.footerImageUrl}
+                alt=""
+                className="mx-auto block h-auto max-w-full rounded-xl"
+              />
+            )}
+          </>
+        ) : (
+        <>
         {/* Sticky CTA — stays pinned at the top of the content area so the
              primary action is always visible regardless of which tab the
              user scrolled to. `top-0 z-10` keeps it above the tabs while
@@ -797,9 +831,6 @@ export default function PublicSessionPage() {
           />
         </div>
 
-        {isWebinarEvent && authState.kind === "ok" && (
-          <EndOfWebinarSurvey slug={slug} sessionId={sessionId} ended={webinarEnded} />
-        )}
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -1208,6 +1239,8 @@ export default function PublicSessionPage() {
             <SponsorsTab sponsors={sponsors} />
           </TabsContent>
         </Tabs>
+        </>
+        )}
       </div>
     </div>
   );

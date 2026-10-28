@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinars: an exit screen when the webinar ends (October 28)
+
+- Once the webinar is over for the viewer (`isWebinarOver`: the host ended it in Zoom, or the room is closed after the scheduled end), the attendee page swaps the video and tabs for a "Thank you for attending" screen ([exit-screen.tsx](src/components/webinar/exit-screen.tsx)). Same URL and the same branding (page logo, background, and the footer image under it); the end-of-webinar survey banner and popup sit above it; the replay button shows once the recording switch is on; Rejoin stays for a host who restarted while the room is open.
+
 ### Budgets: a new budget copied from a past one; layout fixes (October 28)
 
 - **New budget, Start from: a past budget** (owner: the sheet is a reference, a budget is created in the app): pick any budget in the organisation and a price change % (-50 to +100). The plan is copied through the same create path as an import: lines, quantities and unit prices with the change applied, the contingency %, and the revenue lines for someone with finance sight. Commitments, actuals, forecasts and variance notes stay with the source. A product archived since is dropped (the line keeps its category); a line whose category is archived is left out and counted in the notes. The source is recorded as the benchmark (`EA_SYS_BUDGET`). Events that already have a budget are no longer offered.
