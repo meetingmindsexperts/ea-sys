@@ -73,7 +73,7 @@ export const createBudgetSchema = z.object({
   /** Copy the plan of a past budget (owner, Oct 28, 2026). */
   fromBudgetId: z.string().min(1).max(100).nullable().optional(),
   priceChangePercent: z.number().min(-50).max(100).nullable().optional(),
-}).refine((v) => [!!v.templateId, (v.lines?.length ?? 0) > 0 || (v.revenueLines?.length ?? 0) > 0, !!v.fromBudgetId].filter(Boolean).length <= 1, {
+}).refine((v) => [!!v.templateId, !!v.importedFrom || (v.lines?.length ?? 0) > 0 || (v.revenueLines?.length ?? 0) > 0, !!v.fromBudgetId].filter(Boolean).length <= 1, {
   message: "A budget starts from one of: a template, imported lines, or a past budget",
   path: ["templateId"],
 });

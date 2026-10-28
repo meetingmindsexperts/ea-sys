@@ -115,7 +115,7 @@ describe("createBudget from imported lines", () => {
 
 describe("createBudget copying a past budget's plan", () => {
   const source = {
-    id: "b-src", eventCode: "OGSC2026", versionNo: 1, reportingCurrency: "AED", contingencyPercent: "3.00",
+    id: "b-src", eventCode: "OGSC2026", versionNo: 1, reportingCurrency: "AED", contingencyPercent: "3.00", naCategoryCodes: ["510100", "OLDCODE"],
     lines: [
       { productId: "p-ddr", categoryId: "cat-venue", description: "Day Delegate Rate", qty: "300.0000", unitCost: "251.4200", transactionCurrency: "AED", fxRateToReporting: "1", taxRatePercent: null, notes: "Sheet 1.1", category: { isActive: true } },
       { productId: "p-gone", categoryId: "cat-av", description: "AV rental", qty: "1.0000", unitCost: "1000.0000", transactionCurrency: "USD", fxRateToReporting: "3.6725", taxRatePercent: "5.00", notes: null, category: { isActive: true } },
@@ -131,7 +131,7 @@ describe("createBudget copying a past budget's plan", () => {
     mockDb.eventBudget.findFirst.mockReset().mockResolvedValueOnce(source).mockResolvedValue(null);
     // p-gone was archived since: only p-ddr comes back as live.
     mockDb.budgetProduct.findMany.mockResolvedValue([{ id: "p-ddr", categoryId: "cat-venue" }]);
-    mockDb.budgetCategory.findMany.mockResolvedValue([{ id: "cat-av" }]);
+    mockDb.budgetCategory.findMany.mockImplementation(async (q: { where: { code?: unknown } }) => (q.where.code ? [{ code: "510100" }] : [{ id: "cat-av" }]));
   });
 
   it("reads the source inside this organisation only", async () => {
@@ -178,5 +178,26 @@ describe("createBudget copying a past budget's plan", () => {
   it("refuses a price change outside -50% to +100%", async () => {
     expect(await createBudget({ ...copyInput, priceChangePercent: 150 })).toMatchObject({ ok: false, code: "INVALID_AMOUNT" });
     expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("carries the not-applicable marks that are still active categories, so the copy can be submitted (review M2)", async () => {
+    await createBudget(copyInput);
+    expect(tx.eventBudget.create.mock.calls[0][0].data.naCategoryCodes).toEqual(["510100"]);
+  });
+
+  it("drops a product whose category changed or was archived since, keeping the source line's category (review M1)", async () => {
+    // Two answers, one per query: the copy's live check (p-ddr now sits in another category) and the resolver's.
+    mockDb.budgetProduct.findMany.mockReset()
+      .mockResolvedValueOnce([{ id: "p-ddr", categoryId: "cat-moved" }])
+      .mockResolvedValue([]);
+    mockDb.budgetCategory.findMany.mockImplementation(async (q: { where: { code?: unknown } }) => (q.where.code ? [] : [{ id: "cat-av" }, { id: "cat-venue" }]));
+    await createBudget(copyInput);
+    const written = tx.budgetLine.createMany.mock.calls[0][0].data;
+    expect(written[0]).toMatchObject({ productId: null, categoryId: "cat-venue", description: "Day Delegate Rate" });
+  });
+
+  it("records what the copy brought on the audit row (review L4)", async () => {
+    await createBudget(copyInput);
+    expect(tx.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ copiedLines: 2, copiedRevenueLines: 1, copyRevenue: true });
   });
 });

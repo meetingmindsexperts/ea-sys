@@ -322,10 +322,7 @@ export default function ProcurementBudgetsPage() {
                   <Input id="price-change" type="number" min={-50} max={100} step="0.5" value={form.priceChange} onChange={(e) => setForm((f) => ({ ...f, priceChange: e.target.value }))} />
                 </div>
                 <p className="text-xs text-muted-foreground sm:col-span-2">
-                  {source
-                    ? `Copies the planned lines${canSeeRevenue ? " and revenue lines" : ""} of ${source.eventCode} v${source.versionNo}${source.eventId && eventById.get(source.eventId) ? ` (${eventById.get(source.eventId)!.name})` : ""}, about ${copyTotal(source.plannedExpenseTotal, form.priceChange)} ${source.reportingCurrency} planned. Commitments, actuals and forecasts stay with that event.`
-                    : "Only the plan is copied: lines, quantities and unit prices, with the price change applied to every unit price."}
-                  {source && !canSeeRevenue ? " Revenue lines need finance access and are not copied." : ""}
+                  {copyHint(source, source?.eventId ? eventById.get(source.eventId)?.name : undefined, form.priceChange, canSeeRevenue)}
                 </p>
               </div>
             )}
@@ -398,6 +395,15 @@ function BudgetListRow({ b, eventName }: { b: BudgetRow; eventName?: string }) {
       <TableCell className="hidden text-xs text-muted-foreground xl:table-cell">{updated ? new Date(updated).toLocaleDateString("en-GB") : "draft"}</TableCell>
     </TableRow>
   );
+}
+
+/** The dialog's line under the copy fields: what will travel, and roughly how much. */
+function copyHint(source: BudgetRow | undefined, eventName: string | undefined, priceChange: string, canSeeRevenue: boolean): string {
+  if (!source) return "Only the plan is copied: lines, quantities and unit prices, with the price change applied to every unit price.";
+  const what = canSeeRevenue ? "planned lines and revenue lines" : "planned lines";
+  const where = eventName ? ` (${eventName})` : "";
+  const revenueNote = canSeeRevenue ? "" : " Revenue lines need finance access and are not copied.";
+  return `Copies the ${what} of ${source.eventCode} v${source.versionNo}${where}, about ${copyTotal(source.plannedExpenseTotal, priceChange)} ${source.reportingCurrency} planned. Commitments, actuals and forecasts stay with that event.${revenueNote}`;
 }
 
 /** The copy's planned total after the price change, for the dialog's one-line preview. */

@@ -352,10 +352,14 @@ async function resolveImportedLines(input: CreateBudgetInput, ctx: Record<string
   }
 }
 
+/** BudgetLine / BudgetRevenueLine notes accept this much on their edit schemas; a copy keeps the same room. */
+const NOTE_MAX = 5000;
+
 interface CopiedPlan {
   lines: ImportedBudgetLine[];
   revenueLines: ImportedRevenueLine[];
   source: { id: string; eventCode: string; versionNo: number; contingencyPercent: string };
+  naCategoryCodes: string[];
   /** Lines left behind because their category (or income account) is archived now. */
   skipped: number;
 }
@@ -367,13 +371,16 @@ interface CopiedPlan {
  * forecasts and variance notes belong to the other event. A product archived
  * since is dropped and the line keeps its category; a line whose category is
  * archived is left behind and counted. A foreign-currency line arrives in the
- * reporting currency at the rate the source stored, which the note says.
+ * reporting currency at the rate the source stored, which the note says. Its
+ * unit is rounded to 4 decimals after conversion, so its planned figure can
+ * differ from the source's by a few fils on large quantities (review L2,
+ * accepted: keeping the quantity matters more than the last fils).
  */
 async function copyPlanFrom(input: CreateBudgetInput, ctx: Record<string, unknown>): Promise<BudgetResult<CopiedPlan>> {
   const src = await db.eventBudget.findFirst({
     where: { id: input.fromBudgetId!, organizationId: input.organizationId },
     select: {
-      id: true, eventCode: true, versionNo: true, reportingCurrency: true, contingencyPercent: true,
+      id: true, eventCode: true, versionNo: true, reportingCurrency: true, contingencyPercent: true, naCategoryCodes: true,
       lines: {
         where: { deletedAt: null, isContingency: false },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -393,20 +400,34 @@ async function copyPlanFrom(input: CreateBudgetInput, ctx: Record<string, unknow
   if (!(pct >= -50 && pct <= 100)) return fail("INVALID_AMOUNT", "The price change must be between -50% and +100%.", ctx);
   const factor = money(100 + pct).div(100);
   const productIds = [...new Set(src.lines.flatMap((l) => (l.productId ? [l.productId] : [])))];
-  const live = productIds.length === 0
-    ? new Set<string>()
-    : new Set((await db.budgetProduct.findMany({ where: { organizationId: input.organizationId, id: { in: productIds }, isActive: true }, select: { id: true } })).map((p) => p.id));
+  // The same filter resolveImportedLines applies, so a product whose category was archived is dropped here
+  // rather than failing the whole copy there. Its current category is kept to compare with the line's.
+  const liveCategory = productIds.length === 0
+    ? new Map<string, string>()
+    : new Map((await db.budgetProduct.findMany({ where: { organizationId: input.organizationId, id: { in: productIds }, isActive: true, category: { isActive: true, type: "EXPENSE" } }, select: { id: true, categoryId: true } })).map((p) => [p.id, p.categoryId]));
+  // The source line's category wins: a product moved to another category since is dropped, not followed.
+  const keepProduct = (productId: string | null, categoryId: string) => (productId && liveCategory.get(productId) === categoryId ? productId : null);
   const reprice = (unit: MoneyInput, fx: MoneyInput) => storedString(money(unit).mul(money(fx)).mul(factor));
   const rateNote = (cur: string, fx: MoneyInput) => (cur === input.reportingCurrency ? null : `Copied from ${cur} at ${money(fx).toString()} to ${input.reportingCurrency}`);
-  const join = (...parts: (string | null)[]) => parts.filter(Boolean).join(" · ").slice(0, 2000) || null;
+  const join = (...parts: (string | null)[]) => {
+    const text = parts.filter(Boolean).join(" · ");
+    if (text.length <= NOTE_MAX) return text || null;
+    apiLogger.warn({ msg: "procurement/budget:copy-note-cut", ...ctx, length: text.length });
+    return `${text.slice(0, NOTE_MAX - 1)}…`;
+  };
 
   const keptLines = src.lines.filter((l) => l.category.isActive);
+  // The not-applicable marks are what let the source submit; a copy without them opens with a list of
+  // "no planned amount" errors. Only codes that are still active categories travel.
+  const naCategoryCodes = src.naCategoryCodes.length === 0
+    ? []
+    : (await db.budgetCategory.findMany({ where: { organizationId: input.organizationId, code: { in: src.naCategoryCodes }, isActive: true, type: "EXPENSE" }, select: { code: true } })).map((c) => c.code);
   const keptRevenue = input.copyRevenue ? src.revenueLines.filter((r) => r.category.isActive) : [];
   return {
     ok: true,
     budget: {
       lines: keptLines.map((l) => ({
-        productId: l.productId && live.has(l.productId) ? l.productId : null,
+        productId: keepProduct(l.productId, l.categoryId),
         categoryId: l.categoryId,
         description: l.description,
         qty: storedString(l.qty),
@@ -422,6 +443,7 @@ async function copyPlanFrom(input: CreateBudgetInput, ctx: Record<string, unknow
         notes: join(rateNote(r.transactionCurrency, r.fxRateToReporting), r.notes),
       })),
       source: { id: src.id, eventCode: src.eventCode, versionNo: src.versionNo, contingencyPercent: money(src.contingencyPercent).toString() },
+      naCategoryCodes,
       skipped: src.lines.length - keptLines.length + (input.copyRevenue ? src.revenueLines.length - keptRevenue.length : 0),
     },
   };
@@ -476,6 +498,7 @@ export async function createBudget(input: CreateBudgetInput): Promise<BudgetResu
           financeOwnerUserId: input.financeOwnerUserId ?? null,
           createdByUserId: input.actorUserId,
           notes: input.notes ?? (copy ? copyNote(copy, input.priceChangePercent ?? 0) : null),
+          ...(copy ? { naCategoryCodes: copy.naCategoryCodes } : {}),
         },
         select: { id: true },
       });
@@ -543,7 +566,11 @@ export async function createBudget(input: CreateBudgetInput): Promise<BudgetResu
             ? { importedFrom: input.importedFrom ?? null, importedLines: importedLines.length, importedRevenueLines: imported.budget.revenue.length }
             : {}),
           ...(copy
-            ? { copiedFrom: { budgetId: copy.source.id, eventCode: copy.source.eventCode, versionNo: copy.source.versionNo }, priceChangePercent: input.priceChangePercent ?? 0, skippedLines: copy.skipped }
+            ? {
+                copiedFrom: { budgetId: copy.source.id, eventCode: copy.source.eventCode, versionNo: copy.source.versionNo },
+                priceChangePercent: input.priceChangePercent ?? 0, copiedLines: importedLines.length,
+                copiedRevenueLines: imported.budget.revenue.length, copyRevenue: input.copyRevenue ?? false, skippedLines: copy.skipped,
+              }
             : {}),
         },
       });

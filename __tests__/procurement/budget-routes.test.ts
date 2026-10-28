@@ -180,6 +180,7 @@ describe("procurement routes: copying a past budget", () => {
     expect((await createPost(post("/api/procurement/budgets", { ...body, templateId: "t1" }))).status).toBe(400);
     expect((await createPost(post("/api/procurement/budgets", { ...body, lines: [{ productId: "p1", description: "x", qty: "1", unitCost: "1" }] }))).status).toBe(400);
     expect((await createPost(post("/api/procurement/budgets", { ...body, priceChangePercent: 101 }))).status).toBe(400);
+    expect((await createPost(post("/api/procurement/budgets", { ...body, importedFrom: "x.csv" }))).status).toBe(400);
     expect(svc.createBudget).not.toHaveBeenCalled();
   });
   it("never lets a caller set copyRevenue in the body", async () => {

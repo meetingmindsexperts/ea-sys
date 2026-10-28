@@ -242,8 +242,9 @@ export default function ImportBudgetSheetPage() {
             <Label htmlFor="sheet-file">Budget sheet (CSV)</Label>
             {/* The native input is cleared after each read (so the same file can be read again), which would make it say
                 "No file chosen" beside a loaded sheet; it stays for the label and keyboard, the button and name are what show. */}
-            <input id="sheet-file" type="file" accept=".csv,text/csv" className="sr-only" disabled={productsLoading} onChange={(e) => void readFile(e.target)} />
-            <div className="flex min-w-0 items-center gap-3">
+            <input id="sheet-file" type="file" accept=".csv,text/csv" className="peer sr-only" disabled={productsLoading} onChange={(e) => void readFile(e.target)} />
+            {/* The ring shows on the visible button while the hidden input has keyboard focus. */}
+            <div className="flex min-w-0 items-center gap-3 rounded-md peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2">
               <Button asChild variant="outline" className={productsLoading ? "pointer-events-none opacity-50" : ""}>
                 <label htmlFor="sheet-file" className="cursor-pointer"><FileSpreadsheet className="h-4 w-4" />{fileName ? "Choose another sheet" : "Choose a sheet"}</label>
               </Button>
