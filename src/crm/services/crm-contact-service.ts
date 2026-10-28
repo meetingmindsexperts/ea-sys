@@ -58,13 +58,6 @@ export interface CreateCrmContactInput extends ContactFields {
   /** "inbox": created from an email to the partnerships mailbox (inbox-capture-service). */
   source: "rest" | "mcp" | "agent" | "api" | "inbox";
   requestIp?: string;
-  /**
-   * When the email matches an ARCHIVED contact: restore it, recording this
-   * reason in its History. Without it the match is refused (CONTACT_ARCHIVED),
-   * never silently reused (Oct 28, 2026). Only automatic paths pass it: an
-   * email from that person means they are active again.
-   */
-  restoreArchivedReason?: string;
 }
 
 export interface UpdateCrmContactInput extends Partial<ContactFields> {
@@ -176,38 +169,9 @@ async function assertCompany(
   }
   if (refuseArchived && c.archivedAt) {
     apiLogger.warn({ msg: "crm-contact:company-archived", organizationId, companyId });
-    return { ok: false, code: "COMPANY_ARCHIVED", message: "That account is archived. Restore it first." };
+    return { ok: false, code: "COMPANY_ARCHIVED", message: "That account is archived. Restore it from the CRM's Archive view first." };
   }
   return null;
-}
-
-/**
- * The email matched an ARCHIVED contact. Refused unless the caller is an
- * automatic path that may restore it, and then restored with the reason in
- * its History (Oct 28, 2026: silent reuse attached new work to a record no
- * list shows).
- */
-async function archivedMatch(existing: CrmContact, input: CreateCrmContactInput): Promise<CrmContactResult> {
-  const name = `${existing.firstName} ${existing.lastName}`.trim();
-  if (!input.restoreArchivedReason) {
-    apiLogger.warn({ msg: "crm-contact:archived-match", crmContactId: existing.id, organizationId: input.organizationId, source: input.source });
-    return {
-      ok: false,
-      code: "CONTACT_ARCHIVED",
-      message: `${name} (${existing.emailKey}) is archived. Restore the contact instead of adding it again.`,
-      meta: { crmContactId: existing.id },
-    };
-  }
-  const restored = await setCrmContactArchived({
-    crmContactId: existing.id,
-    organizationId: input.organizationId,
-    userId: input.userId,
-    source: input.source,
-    archived: false,
-    reason: input.restoreArchivedReason,
-  });
-  if (!restored.ok) return restored;
-  return { ok: true, crmContact: restored.crmContact, created: false };
 }
 
 // ── Create (find-or-create) ──────────────────────────────────────────────────
@@ -235,7 +199,9 @@ export async function findOrCreateCrmContact(
 
   const emailKey = contactEmailKey(email);
 
-  const companyFail = await assertCompany(input.organizationId, input.companyId);
+  // Existence up front; "archived" only when a contact is actually created
+  // (below): a reuse ignores companyId, so it must not be refused for it.
+  const companyFail = await assertCompany(input.organizationId, input.companyId, { refuseArchived: false });
   if (companyFail) return companyFail;
   const ownerFail = await assertOwner(input.organizationId, input.ownerId);
   if (ownerFail) return ownerFail;
@@ -244,7 +210,18 @@ export async function findOrCreateCrmContact(
     const existing = await db.crmContact.findUnique({
       where: { organizationId_emailKey: { organizationId: input.organizationId, emailKey } },
     });
-    if (existing?.archivedAt) return await archivedMatch(existing, input);
+    // An archived match is refused, never silently reused (Oct 28, 2026): new
+    // work would sit on a record no list shows. Partnerships capture restores
+    // its own matches before calling here (inbox-capture-service.ts).
+    if (existing?.archivedAt) {
+      apiLogger.warn({ msg: "crm-contact:archived-match", crmContactId: existing.id, organizationId: input.organizationId, source: input.source });
+      return {
+        ok: false,
+        code: "CONTACT_ARCHIVED",
+        message: `${`${existing.firstName} ${existing.lastName}`.trim()} (${existing.emailKey}) is archived. Restore the contact from the CRM's Archive view instead of adding it again.`,
+        meta: { crmContactId: existing.id },
+      };
+    }
     if (existing) {
       apiLogger.info({
         msg: "crm-contact:reused",
@@ -254,6 +231,8 @@ export async function findOrCreateCrmContact(
       });
       return { ok: true, crmContact: existing, created: false };
     }
+    const archivedCompany = await assertCompany(input.organizationId, input.companyId);
+    if (archivedCompany) return archivedCompany;
 
     const crmContact = await db.crmContact.create({
       data: {

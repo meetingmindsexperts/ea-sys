@@ -62,6 +62,13 @@ describe("findAccountForDomain", () => {
     expect(db.crmContact.findMany).not.toHaveBeenCalled();
   });
 
+  it("never maps by colleagues on an ARCHIVED account (review MED, Oct 28, 2026)", async () => {
+    await findAccountForDomain("org-1", "acme.com");
+    expect(db.crmContact.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ archivedAt: null, company: { archivedAt: null } }) }),
+    );
+  });
+
   it("falls back to the one account colleagues on the domain belong to", async () => {
     vi.mocked(db.crmContact.findMany).mockResolvedValue([{ companyId: "co-gsk" }] as never);
     expect(await findAccountForDomain("org-1", "gsk.com")).toEqual({ id: "co-gsk", matchedBy: "colleague" });
@@ -90,6 +97,12 @@ describe("resolveCaptureContact", () => {
       expect.objectContaining({ crmContactId: "c-1", archived: false, source: "inbox", reason: "Emailed the partnerships mailbox" }),
     );
     expect(findOrCreateCrmContact).not.toHaveBeenCalled();
+  });
+
+  it("machine mail from an archived contact's address never restores them (review MED)", async () => {
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue({ id: "c-1", companyId: null, archivedAt: new Date() } as never);
+    expect(await resolveCaptureContact({ ...args, automated: true })).toBeNull();
+    expect(setCrmContactArchived).not.toHaveBeenCalled();
   });
 
   it("if the restore fails the email is still filed, with no contact", async () => {

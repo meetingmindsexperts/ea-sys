@@ -74,7 +74,7 @@ async function writeAudit(tx: Prisma.TransactionClient, entry: AuditEntry) {
   });
 }
 
-/** Thrown inside the transaction when the record was restored after the read. */
+/** Thrown inside the transaction when the record was restored (or already deleted) after the read. */
 class RestoredMeanwhile extends Error {}
 
 /**
@@ -104,7 +104,7 @@ async function runPurge(args: {
     });
   } catch (err) {
     if (err instanceof RestoredMeanwhile) {
-      return reject("NOT_ARCHIVED", `This ${args.label === "company" ? "account" : args.label} was restored. Reload the page.`, {
+      return reject("NOT_ARCHIVED", `This ${args.label === "company" ? "account" : args.label} is no longer in the archive (restored or already deleted)`, {
         entityId: audit.entityId,
       });
     }

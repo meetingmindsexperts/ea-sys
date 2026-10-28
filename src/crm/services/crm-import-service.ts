@@ -663,7 +663,7 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
   }
   if (resolveCompany.archivedLinked > 0) {
     report.notes.push(
-      `${resolveCompany.archivedLinked} account${resolveCompany.archivedLinked === 1 ? " is" : "s are"} archived but named in the CSV, so rows were linked to ${resolveCompany.archivedLinked === 1 ? "it" : "them"}. Restore ${resolveCompany.archivedLinked === 1 ? "it" : "them"} in the archive if that's wrong.`,
+      `${resolveCompany.archivedLinked} account${resolveCompany.archivedLinked === 1 ? " is" : "s are"} archived but named in the CSV, so rows ${ctx.dryRun ? "would be" : "were"} linked to ${resolveCompany.archivedLinked === 1 ? "it" : "them"}. Restore ${resolveCompany.archivedLinked === 1 ? "it" : "them"} in the archive if that's wrong.`,
     );
   }
   if (archivedMatched > 0) report.notes.push(ARCHIVED_NOTE(archivedMatched, "contact"));
@@ -1223,7 +1223,7 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   }
   if (resolveCompany.archivedLinked > 0) {
     report.notes.push(
-      `${resolveCompany.archivedLinked} account${resolveCompany.archivedLinked === 1 ? " is" : "s are"} archived but named in the CSV, so rows were linked to ${resolveCompany.archivedLinked === 1 ? "it" : "them"}. Restore ${resolveCompany.archivedLinked === 1 ? "it" : "them"} in the archive if that's wrong.`,
+      `${resolveCompany.archivedLinked} account${resolveCompany.archivedLinked === 1 ? " is" : "s are"} archived but named in the CSV, so rows ${ctx.dryRun ? "would be" : "were"} linked to ${resolveCompany.archivedLinked === 1 ? "it" : "them"}. Restore ${resolveCompany.archivedLinked === 1 ? "it" : "them"} in the archive if that's wrong.`,
     );
   }
 

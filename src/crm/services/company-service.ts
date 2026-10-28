@@ -137,7 +137,7 @@ export async function findOrCreateCompany(
       return {
         ok: false,
         code: "COMPANY_ARCHIVED",
-        message: `${existing.name} is archived. Restore the account instead of adding it again.`,
+        message: `${existing.name} is archived. Restore it from the CRM's Archive view instead of adding it again.`,
         meta: { companyId: existing.id },
       };
     }

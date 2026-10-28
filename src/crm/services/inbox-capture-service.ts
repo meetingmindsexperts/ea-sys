@@ -54,7 +54,15 @@ export async function findAccountForDomain(organizationId: string, domain: strin
   if (byWebsite.length > 1) return null;
 
   const colleagues = await db.crmContact.findMany({
-    where: { organizationId, archivedAt: null, companyId: { not: null }, emailKey: { endsWith: `@${domain}` } },
+    // Both live: archiving an account leaves its people active, and a new
+    // contact may not be put on an archived account (review MED, Oct 28, 2026).
+    where: {
+      organizationId,
+      archivedAt: null,
+      companyId: { not: null },
+      company: { archivedAt: null },
+      emailKey: { endsWith: `@${domain}` },
+    },
     select: { companyId: true },
     distinct: ["companyId"],
     take: 2,
@@ -111,7 +119,9 @@ export async function resolveCaptureContact(args: {
     where: { organizationId: args.organizationId, emailKey: contactEmailKey(args.email) },
     select: { id: true, companyId: true, archivedAt: true },
   });
-  if (existing?.archivedAt) return await restoreCaptureContact(args.organizationId, existing);
+  // Machine mail (out-of-office, bounce) never restores a contact, as it never
+  // creates one: only a person writing in means they are active again.
+  if (existing?.archivedAt) return args.automated ? null : await restoreCaptureContact(args.organizationId, existing);
   if (existing) return { id: existing.id, companyId: existing.companyId, created: false };
   if (args.automated) return null;
 

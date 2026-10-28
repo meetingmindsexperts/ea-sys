@@ -160,7 +160,7 @@ async function validateRelations(
         .then((r) => {
           if (!r) return { ok: false, code: "COMPANY_NOT_FOUND", message: "Account not found" } as Fail;
           if (refuseArchivedCompany && r.archivedAt) {
-            return { ok: false, code: "COMPANY_ARCHIVED", message: "That account is archived. Restore it first." } as Fail;
+            return { ok: false, code: "COMPANY_ARCHIVED", message: "That account is archived. Restore it from the CRM's Archive view first." } as Fail;
           }
           return null;
         }),
@@ -894,15 +894,19 @@ export async function addDealContact(input: {
     }
     if (contact.archivedAt) {
       apiLogger.warn({ msg: "crm-deal:add-contact-archived", crmContactId: input.crmContactId });
-      return { ok: false, code: "CONTACT_ARCHIVED", message: "That contact is archived. Restore it first." };
+      return { ok: false, code: "CONTACT_ARCHIVED", message: "That contact is archived. Restore it from the CRM's Archive view first." };
     }
 
-    // The deal's row is locked while the link is written, so an archive that
-    // lands after the check above waits, and one that landed already refuses.
+    // The deal's and the contact's rows are locked while the link is written,
+    // so an archive that lands after the checks above waits, and one that
+    // landed already refuses. Deal first, then contact: one fixed order.
     const linked = await tenantTransaction(async (tx) => {
-      const live = await tx.$queryRaw<Array<{ id: string }>>`
+      const liveDeal = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM "CrmDeal" WHERE id = ${deal.id} AND "archivedAt" IS NULL FOR UPDATE`;
-      if (live.length === 0) return false;
+      if (liveDeal.length === 0) return "DEAL_ARCHIVED" as const;
+      const liveContact = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "CrmContact" WHERE id = ${contact.id} AND "archivedAt" IS NULL FOR UPDATE`;
+      if (liveContact.length === 0) return "CONTACT_ARCHIVED" as const;
       await tx.crmDealContact.upsert({
       where: { dealId_crmContactId: { dealId: deal.id, crmContactId: contact.id } },
       // Denormalized org for RLS-readiness — both parents are org-bound above.
@@ -914,11 +918,15 @@ export async function addDealContact(input: {
       },
       update: { role: input.role ?? "PRIMARY" },
       });
-      return true;
+      return "LINKED" as const;
     });
-    if (!linked) {
+    if (linked === "DEAL_ARCHIVED") {
       apiLogger.warn({ msg: "crm-deal:add-contact-deal-archived-race", dealId: input.dealId });
       return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived. Restore it before adding people." };
+    }
+    if (linked === "CONTACT_ARCHIVED") {
+      apiLogger.warn({ msg: "crm-deal:add-contact-archived-race", crmContactId: input.crmContactId });
+      return { ok: false, code: "CONTACT_ARCHIVED", message: "That contact was archived. Restore it from the CRM's Archive view first." };
     }
 
     void recordCrmActivity({

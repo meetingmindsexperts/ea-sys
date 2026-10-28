@@ -292,8 +292,8 @@ per-record refusal rather than silently skipping.
   **reporting** them, never restoring.
 - A PATCH that sends `archived` with other fields is a 400 (`crm-archive-patch.ts`); the
   deal PATCH names `stageId` / `status` and points at their own routes.
-- A lost History line is an accepted loss, logged with the whole entry (see
-  `crm-activity.ts`).
+- A lost History line is an accepted loss, logged with the record, action and the
+  names of the changed fields, never their values (see `crm-activity.ts`).
 
 The "detailed activity log" (`CrmActivity`) is written by **exactly one function**,
 `recordCrmActivity` in [`lib/crm-activity.ts`](lib/crm-activity.ts) — every service

@@ -17,9 +17,10 @@
  *
  * RECOVERY (decided Oct 28, 2026): a lost History line is an ACCEPTED loss.
  * The record itself is unaffected; only its History misses one line. There is
- * no retry and no outbox. The error log `crm-activity:record-failed` carries
- * the whole entry (organisation, record, action, actor, changes), so a line
- * that matters can be rebuilt by hand from /logs. The exception is a permanent
+ * no retry and no outbox. The error log `crm-activity:record-failed` names the
+ * organisation, record, action, actor and WHICH fields changed (not their
+ * values: those are names, emails and deal values, and the log is kept 30
+ * days), so a line that matters can be rebuilt by hand from the record. The exception is a permanent
  * delete, whose trace is the AuditLog row written INSIDE the delete's
  * transaction (crm-purge-service.ts), never this best-effort log.
  */
@@ -57,7 +58,7 @@ export function recordCrmActivity(entry: CrmActivityEntry): Promise<unknown> {
       },
     })
     .catch((err: unknown) => {
-      // The whole entry, so the lost line can be rebuilt from the log.
+      // Enough to rebuild the lost line from the record; field names, not values.
       apiLogger.error({
         msg: "crm-activity:record-failed",
         organizationId: entry.organizationId,
@@ -65,7 +66,7 @@ export function recordCrmActivity(entry: CrmActivityEntry): Promise<unknown> {
         entityId: entry.entityId,
         action: entry.action,
         actorId: entry.actorId,
-        changes: entry.changes,
+        changedFields: entry.changes ? Object.keys(entry.changes) : [],
         err: err instanceof Error ? err.message : String(err),
       });
     });

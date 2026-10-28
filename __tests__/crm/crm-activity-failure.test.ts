@@ -1,7 +1,7 @@
 /**
  * A History insert that fails (Oct 28, 2026): never throws into the caller,
- * whose write already committed, and logs the WHOLE entry at error so the
- * accepted loss can be rebuilt by hand from /logs.
+ * whose write already committed, and logs who, what and which fields at
+ * error (never the values) so the accepted loss can be rebuilt by hand.
  */
 import { describe, it, expect, vi } from "vitest";
 
@@ -17,7 +17,7 @@ import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 
 describe("recordCrmActivity when the insert fails", () => {
-  it("resolves (never throws) and logs the full entry at error", async () => {
+  it("resolves (never throws) and logs the entry's identity and field names at error", async () => {
     vi.mocked(db.crmActivity.create).mockRejectedValue(new Error("connection reset"));
     const entry = {
       organizationId: "org-1",
@@ -28,8 +28,10 @@ describe("recordCrmActivity when the insert fails", () => {
       changes: { name: { from: "A", to: "B" } },
     };
     await expect(recordCrmActivity(entry)).resolves.toBeUndefined();
+    const identity = { organizationId: entry.organizationId, entityType: entry.entityType, entityId: entry.entityId, action: entry.action, actorId: entry.actorId };
     expect(apiLogger.error).toHaveBeenCalledWith(
-      expect.objectContaining({ msg: "crm-activity:record-failed", ...entry, err: "connection reset" }),
+      expect.objectContaining({ msg: "crm-activity:record-failed", ...identity, changedFields: ["name"], err: "connection reset" }),
     );
+    expect(JSON.stringify(vi.mocked(apiLogger.error).mock.calls)).not.toContain('"to":"B"');
   });
 });

@@ -45,6 +45,15 @@ describe("addDealContact", () => {
     expect(db.crmDealContact.upsert).not.toHaveBeenCalled();
   });
 
+  it("a contact archived after the check refuses the link (review LOW: both rows are locked)", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", eventId: "e-1", archivedAt: null } as never);
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue({ id: "cc-1", archivedAt: null } as never);
+    vi.mocked(db.$queryRaw).mockResolvedValueOnce([{ id: "d-1" }] as never).mockResolvedValueOnce([] as never);
+    const res = await addDealContact({ ...base, dealId: "d-1", crmContactId: "cc-1" });
+    expect(res).toMatchObject({ ok: false, code: "CONTACT_ARCHIVED" });
+    expect(db.crmDealContact.upsert).not.toHaveBeenCalled();
+  });
+
   it("a deal archived after the check refuses the link (the row lock finds no live deal)", async () => {
     vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", eventId: "e-1", archivedAt: null } as never);
     vi.mocked(db.crmContact.findFirst).mockResolvedValue({ id: "cc-1", archivedAt: null } as never);

@@ -142,32 +142,15 @@ describe("archived records are never silently reused (Oct 28, 2026)", () => {
     expect(db.crmContact.create).not.toHaveBeenCalled();
   });
 
-  it("an automatic path restores it, with the reason in History", async () => {
-    vi.mocked(db.crmContact.findUnique).mockResolvedValue(archived as never);
-    vi.mocked(db.crmContact.findFirst).mockResolvedValue(archived as never);
-    vi.mocked(db.crmContact.updateMany).mockResolvedValue({ count: 1 } as never);
-    vi.mocked(db.crmContact.findUniqueOrThrow).mockResolvedValue({ ...archived, archivedAt: null } as never);
-    const res = await findOrCreateCrmContact({
-      ...base, source: "inbox", firstName: "Sara", lastName: "Khan", email: "s.khan@abbott.com",
-      restoreArchivedReason: "Emailed the partnerships mailbox",
-    });
+  it("reusing an ACTIVE contact is not refused for an archived companyId it ignores (review LOW)", async () => {
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue({ ...archived, archivedAt: null } as never);
+    vi.mocked(db.crmCompany.findFirst).mockResolvedValue({ id: "c-1", archivedAt: new Date() } as never);
+    const res = await findOrCreateCrmContact({ ...base, firstName: "Sara", lastName: "Khan", email: "s.khan@abbott.com", companyId: "c-1" });
     expect(res).toMatchObject({ ok: true, created: false });
-    expect(db.crmContact.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ archivedAt: { not: null } }), data: { archivedAt: null } }),
-    );
-    await vi.waitFor(() =>
-      expect(db.crmActivity.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            action: "RESTORE",
-            changes: expect.objectContaining({ reason: "Emailed the partnerships mailbox" }),
-          }),
-        }),
-      ),
-    );
   });
 
   it("a new contact cannot be put on an archived account", async () => {
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue(null as never);
     vi.mocked(db.crmCompany.findFirst).mockResolvedValue({ id: "c-1", archivedAt: new Date() } as never);
     const res = await findOrCreateCrmContact({ ...base, firstName: "A", lastName: "B", email: "a@b.com", companyId: "c-1" });
     expect(res).toMatchObject({ ok: false, code: "COMPANY_ARCHIVED" });
