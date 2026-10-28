@@ -8,6 +8,7 @@ import { getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, requireCrmDelete, denyCrmDelete, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
 import { updateDeal, setDealArchived } from "@/crm/services/deal-service";
+import { archiveAlone } from "@/crm/lib/crm-archive-patch";
 
 const updateDealSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -23,7 +24,20 @@ const updateDealSchema = z.object({
   tags: z.array(z.string().min(1).max(50)).max(25).optional(),
   /** Restore a soft-deleted deal (archive → active). Delete-gated separately below. */
   archived: z.boolean().optional(),
-});
+  // Stage and status have their own routes (they record History and check the
+  // pipeline). Named here so they are refused, not silently stripped.
+  stageId: z.unknown().optional(),
+  status: z.unknown().optional(),
+})
+  .superRefine(archiveAlone)
+  .superRefine((data, ctx) => {
+    if (data.stageId !== undefined) {
+      ctx.addIssue({ code: "custom", path: ["stageId"], message: "Move a deal's stage with PATCH /api/crm/deals/{dealId}/stage" });
+    }
+    if (data.status !== undefined) {
+      ctx.addIssue({ code: "custom", path: ["status"], message: "Win or lose a deal with POST /api/crm/deals/{dealId}/close" });
+    }
+  });
 
 /** GET /api/crm/deals/[dealId] — detail, with its notes + tasks. */
 export async function GET(req: Request, { params }: { params: Promise<{ dealId: string }> }) {
@@ -98,6 +112,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ dealId
     return zodErrorResponse(parsed, { route: "crm/deals/[dealId]:PATCH", organizationId: ctx.organizationId, dealId });
   }
 
+  // stageId / status never get here: the schema refused them.
   const { archived, ...fields } = parsed.data;
 
   // Archive / restore is a separate, more-privileged operation than a field edit

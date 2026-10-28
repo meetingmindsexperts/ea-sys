@@ -279,6 +279,22 @@ record it existed). A company still referenced by any deal is refused (`COMPANY_
 only deals were just purged becomes deletable in the same pass, and it **reports** every
 per-record refusal rather than silently skipping.
 
+**Archive integrity (Oct 28, 2026), from an external test list:**
+- The purge's `AuditLog` row is written **inside** the delete's transaction, so a failed
+  audit rolls the delete back, and the delete itself matches `archivedAt IS NOT NULL`, so a
+  restore that lands after the read wins (`NOT_ARCHIVED`).
+- **Nothing is silently attached to an archived record.** Find-or-create by email or name
+  refuses an archived match (`CONTACT_ARCHIVED` / `COMPANY_ARCHIVED`, naming its id),
+  and a new contact, deal or deal link cannot point at an archived account or contact.
+  An edit that keeps an already-archived account is still allowed. Two automatic paths
+  differ by design: partnerships capture **restores** a contact who writes in (History
+  says why), and the CSV import keeps its older rule of updating archived matches and
+  **reporting** them, never restoring.
+- A PATCH that sends `archived` with other fields is a 400 (`crm-archive-patch.ts`); the
+  deal PATCH names `stageId` / `status` and points at their own routes.
+- A lost History line is an accepted loss, logged with the whole entry (see
+  `crm-activity.ts`).
+
 The "detailed activity log" (`CrmActivity`) is written by **exactly one function**,
 `recordCrmActivity` in [`lib/crm-activity.ts`](lib/crm-activity.ts) — every service
 calls it and nothing else writes the table, so the trail can't drift between callers

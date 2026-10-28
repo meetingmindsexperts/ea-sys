@@ -4,6 +4,7 @@ import { z } from "zod";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmWrite, requireCrmDelete, denyCrmDelete, crmErrorResponse } from "@/crm/lib/crm-route";
 import { updateTask, completeTask, reopenTask, setTaskArchived } from "@/crm/services/task-service";
+import { archiveAlone } from "@/crm/lib/crm-archive-patch";
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(255).optional(),
@@ -15,7 +16,7 @@ const updateTaskSchema = z.object({
   status: z.enum(["OPEN", "DONE"]).optional(),
   /** Restore a soft-deleted task. Delete-gated separately below. */
   archived: z.boolean().optional(),
-});
+}).superRefine(archiveAlone);
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ taskId: string }> }) {
   const [{ error, ctx }, { taskId }] = await Promise.all([requireCrmWrite(req), params]);

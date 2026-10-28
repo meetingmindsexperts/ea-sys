@@ -58,6 +58,13 @@ export interface CreateCrmContactInput extends ContactFields {
   /** "inbox": created from an email to the partnerships mailbox (inbox-capture-service). */
   source: "rest" | "mcp" | "agent" | "api" | "inbox";
   requestIp?: string;
+  /**
+   * When the email matches an ARCHIVED contact: restore it, recording this
+   * reason in its History. Without it the match is refused (CONTACT_ARCHIVED),
+   * never silently reused (Oct 28, 2026). Only automatic paths pass it: an
+   * email from that person means they are active again.
+   */
+  restoreArchivedReason?: string;
 }
 
 export interface UpdateCrmContactInput extends Partial<ContactFields> {
@@ -74,6 +81,7 @@ export type CrmContactErrorCode =
   | "CONTACT_NOT_FOUND"
   | "CONTACT_ARCHIVED"
   | "COMPANY_NOT_FOUND"
+  | "COMPANY_ARCHIVED"
   | "EVENT_CONTACT_NOT_FOUND"
   | "OWNER_NOT_FOUND"
   | "OWNER_ROLE_NOT_ALLOWED"
@@ -145,11 +153,19 @@ export async function assertOwner(
   return null;
 }
 
-async function assertCompany(organizationId: string, companyId?: string | null): Promise<Fail | null> {
+/**
+ * The account exists in this org. With refuseArchived, an archived account is
+ * refused too: nothing new is attached to a record no list shows (Oct 28, 2026).
+ */
+async function assertCompany(
+  organizationId: string,
+  companyId?: string | null,
+  { refuseArchived = true }: { refuseArchived?: boolean } = {},
+): Promise<Fail | null> {
   if (!companyId) return null;
   const c = await db.crmCompany.findFirst({
     where: { id: companyId, organizationId },
-    select: { id: true },
+    select: { id: true, archivedAt: true },
   });
   if (!c) {
     // Per-site log (R2 rider L6) — the deal/task/note peers all warn on a bad
@@ -158,7 +174,40 @@ async function assertCompany(organizationId: string, companyId?: string | null):
     apiLogger.warn({ msg: "crm-contact:bad-company-relation", organizationId, companyId });
     return { ok: false, code: "COMPANY_NOT_FOUND", message: "Account not found" };
   }
+  if (refuseArchived && c.archivedAt) {
+    apiLogger.warn({ msg: "crm-contact:company-archived", organizationId, companyId });
+    return { ok: false, code: "COMPANY_ARCHIVED", message: "That account is archived. Restore it first." };
+  }
   return null;
+}
+
+/**
+ * The email matched an ARCHIVED contact. Refused unless the caller is an
+ * automatic path that may restore it, and then restored with the reason in
+ * its History (Oct 28, 2026: silent reuse attached new work to a record no
+ * list shows).
+ */
+async function archivedMatch(existing: CrmContact, input: CreateCrmContactInput): Promise<CrmContactResult> {
+  const name = `${existing.firstName} ${existing.lastName}`.trim();
+  if (!input.restoreArchivedReason) {
+    apiLogger.warn({ msg: "crm-contact:archived-match", crmContactId: existing.id, organizationId: input.organizationId, source: input.source });
+    return {
+      ok: false,
+      code: "CONTACT_ARCHIVED",
+      message: `${name} (${existing.emailKey}) is archived. Restore the contact instead of adding it again.`,
+      meta: { crmContactId: existing.id },
+    };
+  }
+  const restored = await setCrmContactArchived({
+    crmContactId: existing.id,
+    organizationId: input.organizationId,
+    userId: input.userId,
+    source: input.source,
+    archived: false,
+    reason: input.restoreArchivedReason,
+  });
+  if (!restored.ok) return restored;
+  return { ok: true, crmContact: restored.crmContact, created: false };
 }
 
 // ── Create (find-or-create) ──────────────────────────────────────────────────
@@ -195,6 +244,7 @@ export async function findOrCreateCrmContact(
     const existing = await db.crmContact.findUnique({
       where: { organizationId_emailKey: { organizationId: input.organizationId, emailKey } },
     });
+    if (existing?.archivedAt) return await archivedMatch(existing, input);
     if (existing) {
       apiLogger.info({
         msg: "crm-contact:reused",
@@ -303,7 +353,10 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
     return { ok: false, code: "NO_FIELDS", message: "No fields to update" };
   }
 
-  const companyFail = await assertCompany(input.organizationId, input.companyId);
+  // Existence here; "archived" only for a CHANGED account (below): the edit
+  // form always sends the account, and a contact whose account was archived
+  // must stay editable.
+  const companyFail = await assertCompany(input.organizationId, input.companyId, { refuseArchived: false });
   if (companyFail) return companyFail;
 
   try {
@@ -330,6 +383,10 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
     if (input.ownerId !== undefined && input.ownerId !== before.ownerId) {
       const ownerFail = await assertOwner(input.organizationId, input.ownerId);
       if (ownerFail) return ownerFail;
+    }
+    if (input.companyId && input.companyId !== before.companyId) {
+      const archivedFail = await assertCompany(input.organizationId, input.companyId);
+      if (archivedFail) return archivedFail;
     }
 
     const res = await db.crmContact.updateMany({
@@ -476,8 +533,10 @@ export async function setCrmContactArchived(input: {
   crmContactId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "agent" | "api";
+  source: "rest" | "mcp" | "agent" | "api" | "inbox";
   archived: boolean;
+  /** Why an automatic path restored it, shown in History. */
+  reason?: string;
 }): Promise<CrmContactResult> {
   try {
     const current = await db.crmContact.findFirst({
@@ -511,7 +570,12 @@ export async function setCrmContactArchived(input: {
       entityId: crmContact.id,
       action: input.archived ? "ARCHIVE" : "RESTORE",
       actorId: input.userId,
-      changes: { source: input.source, name: `${crmContact.firstName} ${crmContact.lastName}`.trim(), email: crmContact.emailKey },
+      changes: {
+        source: input.source,
+        name: `${crmContact.firstName} ${crmContact.lastName}`.trim(),
+        email: crmContact.emailKey,
+        ...(input.reason ? { reason: input.reason } : {}),
+      },
     });
 
     apiLogger.info({

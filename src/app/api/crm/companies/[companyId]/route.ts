@@ -7,6 +7,7 @@ import { getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, requireCrmDelete, denyCrmDelete, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
 import { updateCompany, setCompanyArchived } from "@/crm/services/company-service";
+import { archiveAlone } from "@/crm/lib/crm-archive-patch";
 
 const updateCompanySchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -23,7 +24,7 @@ const updateCompanySchema = z.object({
   ownerId: z.string().min(1).nullable().optional(),
   /** Restore a soft-deleted account. Delete-gated separately below. */
   archived: z.boolean().optional(),
-});
+}).superRefine(archiveAlone);
 
 export async function GET(req: Request, { params }: { params: Promise<{ companyId: string }> }) {
   const [{ error, ctx }, { companyId }] = await Promise.all([requireCrmRead(req), params]);

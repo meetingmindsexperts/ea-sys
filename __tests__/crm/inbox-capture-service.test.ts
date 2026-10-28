@@ -20,12 +20,13 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/crm/lib/crm-activity", () => ({ recordCrmActivity: vi.fn(() => Promise.resolve({})) }));
 vi.mock("@/crm/services/crm-contact-service", () => ({
   findOrCreateCrmContact: vi.fn(),
+  setCrmContactArchived: vi.fn(),
   contactEmailKey: (e: string) => e.trim().toLowerCase(),
 }));
 
 import { db } from "@/lib/db";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
-import { findOrCreateCrmContact } from "@/crm/services/crm-contact-service";
+import { findOrCreateCrmContact, setCrmContactArchived } from "@/crm/services/crm-contact-service";
 import {
   findAccountForDomain,
   findCaptureThread,
@@ -79,6 +80,22 @@ describe("resolveCaptureContact", () => {
     vi.mocked(db.crmContact.findFirst).mockResolvedValue({ id: "c-1", companyId: "co-1" } as never);
     expect(await resolveCaptureContact(args)).toEqual({ id: "c-1", companyId: "co-1", created: false });
     expect(findOrCreateCrmContact).not.toHaveBeenCalled();
+  });
+
+  it("an ARCHIVED contact who writes in is restored, with the reason in History (Oct 28, 2026)", async () => {
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue({ id: "c-1", companyId: "co-1", archivedAt: new Date() } as never);
+    vi.mocked(setCrmContactArchived).mockResolvedValue({ ok: true, crmContact: { id: "c-1" } } as never);
+    expect(await resolveCaptureContact(args)).toEqual({ id: "c-1", companyId: "co-1", created: false });
+    expect(setCrmContactArchived).toHaveBeenCalledWith(
+      expect.objectContaining({ crmContactId: "c-1", archived: false, source: "inbox", reason: "Emailed the partnerships mailbox" }),
+    );
+    expect(findOrCreateCrmContact).not.toHaveBeenCalled();
+  });
+
+  it("if the restore fails the email is still filed, with no contact", async () => {
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue({ id: "c-1", companyId: null, archivedAt: new Date() } as never);
+    vi.mocked(setCrmContactArchived).mockResolvedValue({ ok: false, code: "UNKNOWN", message: "x" } as never);
+    expect(await resolveCaptureContact(args)).toBeNull();
   });
 
   it("creates a fresh person as a tagged contact on the matched account, with History on the account", async () => {

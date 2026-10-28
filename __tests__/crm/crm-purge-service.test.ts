@@ -3,8 +3,10 @@
  *
  * The rules that keep the one hard-delete path in the module safe, pinned:
  *   1. ARCHIVED ONLY — an active record is never purgeable (NOT_ARCHIVED).
- *   2. Every purge leaves an AuditLog snapshot — after the delete it is the only
- *      record the row existed.
+ *   2. Every purge leaves an AuditLog snapshot, written in the delete's own
+ *      transaction: no audit row, no delete (Oct 28, 2026).
+ *   2b. The delete re-checks "archived", so a restore that lands after the read
+ *      wins and nothing active is destroyed.
  *   3. A company still referenced by deals is refused (COMPANY_HAS_DEALS) — the
  *      FK is Restrict; we surface a friendly message, not a raw P2003.
  *   4. Bulk runs deals → companies → contacts so a company whose only deals were
@@ -20,9 +22,9 @@ vi.mock("@/lib/logger", () => ({
 const { txMock } = vi.hoisted(() => ({ txMock: vi.fn() }));
 vi.mock("@/lib/db", () => ({
   db: {
-    crmDeal: { findFirst: vi.fn(), findMany: vi.fn(), delete: vi.fn() },
-    crmCompany: { findFirst: vi.fn(), findMany: vi.fn(), delete: vi.fn() },
-    crmContact: { findFirst: vi.fn(), findMany: vi.fn(), delete: vi.fn() },
+    crmDeal: { findFirst: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
+    crmCompany: { findFirst: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
+    crmContact: { findFirst: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
     crmActivity: { deleteMany: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     $transaction: txMock,
@@ -42,8 +44,10 @@ const base = { organizationId: ORG, userId: "u-super" };
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(db.auditLog.create).mockResolvedValue({} as never);
-  // The tx runs the batched writes; forward to the mocked delegates.
-  vi.mocked(db.$transaction).mockResolvedValue([] as never);
+  // The tx runs against the mocked delegates; each guarded delete hits one row.
+  vi.mocked(db.$transaction).mockImplementation((async (fn: (tx: typeof db) => unknown) => fn(db)) as never);
+  for (const m of [db.crmDeal, db.crmCompany, db.crmContact]) vi.mocked(m.deleteMany).mockResolvedValue({ count: 1 } as never);
+  vi.mocked(db.crmActivity.deleteMany).mockResolvedValue({ count: 0 } as never);
 });
 
 const dealRow = (over: Record<string, unknown> = {}) => ({
@@ -75,6 +79,50 @@ describe("purgeDeal", () => {
     expect(audit.entityType).toBe("CrmDeal");
     expect(audit.changes.name).toBe("Abbott — Gold");
     expect(audit.changes.cascaded).toMatchObject({ contacts: 2, products: 1 });
+  });
+});
+
+describe("purge integrity (P0 + the restore race)", () => {
+  it("a failed audit write fails the purge: the transaction rolls back, nothing is reported purged", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue(dealRow() as never);
+    vi.mocked(db.auditLog.create).mockRejectedValue(new Error("audit table down"));
+    const res = await purgeDeal({ ...base, dealId: "d-1" });
+    expect(res).toMatchObject({ ok: false, code: "UNKNOWN" });
+    // The audit write ran INSIDE the transaction, after the delete: its throw is what rolls the delete back.
+    expect(db.crmDeal.deleteMany).toHaveBeenCalledOnce();
+    expect(apiLogger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "crm-purge:deal-failed" }));
+  });
+
+  it("deletes only while still archived, inside the transaction", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue(dealRow() as never);
+    await purgeDeal({ ...base, dealId: "d-1" });
+    expect(db.crmDeal.deleteMany).toHaveBeenCalledWith({
+      where: { id: "d-1", organizationId: ORG, archivedAt: { not: null } },
+    });
+  });
+
+  it("a restore that lands after the read wins: NOT_ARCHIVED, no audit row", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue(dealRow() as never);
+    vi.mocked(db.crmDeal.deleteMany).mockResolvedValue({ count: 0 } as never);
+    const res = await purgeDeal({ ...base, dealId: "d-1" });
+    expect(res).toMatchObject({ ok: false, code: "NOT_ARCHIVED" });
+    expect(db.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("the same guard covers accounts and contacts", async () => {
+    vi.mocked(db.crmCompany.findFirst).mockResolvedValue({
+      id: "c-1", name: "Abbott", industry: null, website: null, country: null, city: null, archivedAt: new Date(),
+      _count: { deals: 0, contacts: 0, notes_: 0, tasks: 0 },
+    } as never);
+    vi.mocked(db.crmCompany.deleteMany).mockResolvedValue({ count: 0 } as never);
+    expect(await purgeCompany({ ...base, companyId: "c-1" })).toMatchObject({ ok: false, code: "NOT_ARCHIVED" });
+
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue({
+      id: "ct-1", firstName: "Jane", lastName: "Doe", emailKey: "jane@abbott.com", companyId: null, archivedAt: new Date(),
+      _count: { deals: 0, crmNotes: 0, tasks: 0 },
+    } as never);
+    vi.mocked(db.auditLog.create).mockRejectedValue(new Error("down"));
+    expect(await purgeCrmContact({ ...base, crmContactId: "ct-1" })).toMatchObject({ ok: false, code: "UNKNOWN" });
   });
 });
 

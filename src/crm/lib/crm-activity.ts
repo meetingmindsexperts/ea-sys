@@ -14,6 +14,14 @@
  * Fire-and-forget WITH a logged catch: an activity-insert blip must never 500 a
  * write that already committed (the registrations-review M13 class). The services
  * `void`-call it after the real mutation has landed.
+ *
+ * RECOVERY (decided Oct 28, 2026): a lost History line is an ACCEPTED loss.
+ * The record itself is unaffected; only its History misses one line. There is
+ * no retry and no outbox. The error log `crm-activity:record-failed` carries
+ * the whole entry (organisation, record, action, actor, changes), so a line
+ * that matters can be rebuilt by hand from /logs. The exception is a permanent
+ * delete, whose trace is the AuditLog row written INSIDE the delete's
+ * transaction (crm-purge-service.ts), never this best-effort log.
  */
 import { Prisma, type CrmActivityEntity } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -49,11 +57,15 @@ export function recordCrmActivity(entry: CrmActivityEntry): Promise<unknown> {
       },
     })
     .catch((err: unknown) => {
+      // The whole entry, so the lost line can be rebuilt from the log.
       apiLogger.error({
         msg: "crm-activity:record-failed",
+        organizationId: entry.organizationId,
         entityType: entry.entityType,
         entityId: entry.entityId,
         action: entry.action,
+        actorId: entry.actorId,
+        changes: entry.changes,
         err: err instanceof Error ? err.message : String(err),
       });
     });

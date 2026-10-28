@@ -11,15 +11,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
-vi.mock("@/lib/db", () => ({
-  db: {
+vi.mock("@/lib/db", () => {
+  const db = {
     crmDeal: { findFirst: vi.fn() },
     crmContact: { findFirst: vi.fn() },
     crmDealContact: { upsert: vi.fn(), deleteMany: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     crmActivity: { create: vi.fn().mockResolvedValue({}) },
-  },
-}));
+    // The deal-row lock inside the link transaction: a live deal by default.
+    $queryRaw: vi.fn(),
+  };
+  return { db, tenantTransaction: (fn: (tx: typeof db) => unknown) => fn(db) };
+});
 
 import { db } from "@/lib/db";
 import { addDealContact, removeDealContact } from "@/crm/services/deal-service";
@@ -30,9 +33,27 @@ const base = { organizationId: ORG, userId: "u-1", source: "rest" as const };
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(db.auditLog.create).mockResolvedValue({} as never);
+  vi.mocked(db.$queryRaw).mockResolvedValue([{ id: "d-1" }] as never);
 });
 
 describe("addDealContact", () => {
+  it("refuses an archived contact (Oct 28, 2026)", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", eventId: "e-1", archivedAt: null } as never);
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue({ id: "cc-1", archivedAt: new Date() } as never);
+    const res = await addDealContact({ ...base, dealId: "d-1", crmContactId: "cc-1" });
+    expect(res).toMatchObject({ ok: false, code: "CONTACT_ARCHIVED" });
+    expect(db.crmDealContact.upsert).not.toHaveBeenCalled();
+  });
+
+  it("a deal archived after the check refuses the link (the row lock finds no live deal)", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", eventId: "e-1", archivedAt: null } as never);
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue({ id: "cc-1", archivedAt: null } as never);
+    vi.mocked(db.$queryRaw).mockResolvedValue([] as never);
+    const res = await addDealContact({ ...base, dealId: "d-1", crmContactId: "cc-1" });
+    expect(res).toMatchObject({ ok: false, code: "DEAL_ARCHIVED" });
+    expect(db.crmDealContact.upsert).not.toHaveBeenCalled();
+  });
+
   it("links a person with a role, binding BOTH ids to the org", async () => {
     vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", eventId: "e-1" } as never);
     vi.mocked(db.crmContact.findFirst).mockResolvedValue({ id: "cc-1" } as never);

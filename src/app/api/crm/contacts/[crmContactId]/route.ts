@@ -8,6 +8,7 @@ import { requireCrmRead, requireCrmWrite, requireCrmDelete, denyCrmDelete, redac
 import { updateCrmContact, linkToEventContact, setCrmContactArchived } from "@/crm/services/crm-contact-service";
 import { computeContactScore } from "@/crm/lib/contact-score";
 import { CONTACT_STATUS_VALUES } from "@/crm/lib/crm-types";
+import { archiveAlone } from "@/crm/lib/crm-archive-patch";
 
 const updateSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -32,7 +33,7 @@ const updateSchema = z.object({
   contactId: z.string().min(1).nullable().optional(),
   /** Restore a soft-deleted contact. Delete-gated separately below. */
   archived: z.boolean().optional(),
-});
+}).superRefine(archiveAlone);
 
 export async function GET(req: Request, { params }: { params: Promise<{ crmContactId: string }> }) {
   const [{ error, ctx }, { crmContactId }] = await Promise.all([requireCrmRead(req), params]);

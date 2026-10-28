@@ -130,6 +130,17 @@ export async function findOrCreateCompany(
     const existing = await db.crmCompany.findUnique({
       where: { organizationId_nameKey: { organizationId: input.organizationId, nameKey } },
     });
+    // An archived match is refused, never silently reused (Oct 28, 2026): a
+    // deal or contact attached to it would sit on a record no list shows.
+    if (existing?.archivedAt) {
+      apiLogger.warn({ msg: "crm-company:archived-match", companyId: existing.id, organizationId: input.organizationId, source: input.source });
+      return {
+        ok: false,
+        code: "COMPANY_ARCHIVED",
+        message: `${existing.name} is archived. Restore the account instead of adding it again.`,
+        meta: { companyId: existing.id },
+      };
+    }
     if (existing) {
       apiLogger.info({
         msg: "crm-company:reused",

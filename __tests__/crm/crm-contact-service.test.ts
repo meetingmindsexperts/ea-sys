@@ -128,6 +128,67 @@ describe("findOrCreateCrmContact", () => {
   });
 });
 
+describe("archived records are never silently reused (Oct 28, 2026)", () => {
+  const archived = {
+    id: "cc-9", firstName: "Sara", lastName: "Khan", email: "s.khan@abbott.com", emailKey: "s.khan@abbott.com",
+    companyId: null, archivedAt: new Date(),
+  };
+
+  it("an email matching an ARCHIVED contact is refused with CONTACT_ARCHIVED, naming it", async () => {
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue(archived as never);
+    const res = await findOrCreateCrmContact({ ...base, firstName: "Sara", lastName: "Khan", email: "s.khan@abbott.com" });
+    expect(res).toMatchObject({ ok: false, code: "CONTACT_ARCHIVED", meta: { crmContactId: "cc-9" } });
+    expect(db.crmContact.updateMany).not.toHaveBeenCalled();
+    expect(db.crmContact.create).not.toHaveBeenCalled();
+  });
+
+  it("an automatic path restores it, with the reason in History", async () => {
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue(archived as never);
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue(archived as never);
+    vi.mocked(db.crmContact.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmContact.findUniqueOrThrow).mockResolvedValue({ ...archived, archivedAt: null } as never);
+    const res = await findOrCreateCrmContact({
+      ...base, source: "inbox", firstName: "Sara", lastName: "Khan", email: "s.khan@abbott.com",
+      restoreArchivedReason: "Emailed the partnerships mailbox",
+    });
+    expect(res).toMatchObject({ ok: true, created: false });
+    expect(db.crmContact.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ archivedAt: { not: null } }), data: { archivedAt: null } }),
+    );
+    await vi.waitFor(() =>
+      expect(db.crmActivity.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: "RESTORE",
+            changes: expect.objectContaining({ reason: "Emailed the partnerships mailbox" }),
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("a new contact cannot be put on an archived account", async () => {
+    vi.mocked(db.crmCompany.findFirst).mockResolvedValue({ id: "c-1", archivedAt: new Date() } as never);
+    const res = await findOrCreateCrmContact({ ...base, firstName: "A", lastName: "B", email: "a@b.com", companyId: "c-1" });
+    expect(res).toMatchObject({ ok: false, code: "COMPANY_ARCHIVED" });
+  });
+
+  it("editing a contact whose account is archived still works when the account is unchanged", async () => {
+    vi.mocked(db.crmCompany.findFirst).mockResolvedValue({ id: "c-1", archivedAt: new Date() } as never);
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue({
+      id: "cc-1", firstName: "Sara", lastName: "Khan", email: "s@abbott.com", jobTitle: null, phone: null, mobile: null,
+      country: null, notes: null, lifecycleStage: null, status: null, tags: [], companyId: "c-1", ownerId: null, archivedAt: null,
+    } as never);
+    vi.mocked(db.crmContact.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmContact.findUniqueOrThrow).mockResolvedValue({ id: "cc-1" } as never);
+    const same = await updateCrmContact({ ...base, crmContactId: "cc-1", companyId: "c-1", jobTitle: "Head" });
+    expect(same.ok).toBe(true);
+
+    const moved = await updateCrmContact({ ...base, crmContactId: "cc-1", companyId: "c-2", jobTitle: "Head" });
+    expect(moved).toMatchObject({ ok: false, code: "COMPANY_ARCHIVED" });
+  });
+});
+
 describe("enrichment fields — status / mobile / tags (July 21, 2026)", () => {
   it("defaults a NEW contact's status to NEW and normalizes tags on create", async () => {
     vi.mocked(db.crmContact.findUnique).mockResolvedValue(null as never);

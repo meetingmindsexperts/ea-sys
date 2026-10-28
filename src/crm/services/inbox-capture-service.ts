@@ -11,7 +11,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
-import { contactEmailKey, findOrCreateCrmContact } from "@/crm/services/crm-contact-service";
+import { contactEmailKey, findOrCreateCrmContact, setCrmContactArchived } from "@/crm/services/crm-contact-service";
 import {
   FROM_INBOX_TAG,
   NEEDS_ACCOUNT_TAG,
@@ -70,6 +70,32 @@ export interface CaptureContact {
 }
 
 /**
+ * An archived contact emailed the mailbox: they are active again, so the
+ * contact is restored with the reason in its History, never used silently
+ * while archived (Oct 28, 2026). If the restore fails the email is still
+ * filed, with no contact.
+ */
+async function restoreCaptureContact(
+  organizationId: string,
+  existing: { id: string; companyId: string | null },
+): Promise<CaptureContact | null> {
+  const res = await setCrmContactArchived({
+    crmContactId: existing.id,
+    organizationId,
+    userId: null,
+    source: "inbox",
+    archived: false,
+    reason: "Emailed the partnerships mailbox",
+  });
+  if (!res.ok) {
+    apiLogger.error({ msg: "crm-capture:contact-restore-failed", organizationId, crmContactId: existing.id, code: res.code });
+    return null;
+  }
+  apiLogger.info({ msg: "crm-capture:contact-restored", organizationId, crmContactId: existing.id });
+  return { id: existing.id, companyId: existing.companyId, created: false };
+}
+
+/**
  * The contact a captured email is with. An existing contact (matched by email)
  * is used as is. An unknown PERSON becomes a new contact, tagged from-inbox,
  * mapped to an account by domain where one is unambiguous (needs-account
@@ -83,8 +109,9 @@ export async function resolveCaptureContact(args: {
 }): Promise<CaptureContact | null> {
   const existing = await db.crmContact.findFirst({
     where: { organizationId: args.organizationId, emailKey: contactEmailKey(args.email) },
-    select: { id: true, companyId: true },
+    select: { id: true, companyId: true, archivedAt: true },
   });
+  if (existing?.archivedAt) return await restoreCaptureContact(args.organizationId, existing);
   if (existing) return { id: existing.id, companyId: existing.companyId, created: false };
   if (args.automated) return null;
 

@@ -314,6 +314,37 @@ describe("closeDeal — double-close guard", () => {
   });
 });
 
+describe("archived accounts (Oct 28, 2026)", () => {
+  const before = (companyId: string | null) => ({
+    name: "Abbott", dealValue: null, currency: "USD", expectedClose: null,
+    companyId, eventId: "e-1", ownerId: null, archivedAt: null,
+  });
+
+  it("a new deal cannot be put on an archived account", async () => {
+    vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue(stage() as never);
+    vi.mocked(db.event.findFirst).mockResolvedValue({ id: "e-1" } as never);
+    vi.mocked(db.crmCompany.findFirst).mockResolvedValue({ id: "co-1", archivedAt: new Date() } as never);
+    const res = await createDeal({ ...base, name: "Abbott", stageId: "s-neg", eventId: "e-1", companyId: "co-1" });
+    expect(res).toMatchObject({ ok: false, code: "COMPANY_ARCHIVED" });
+    expect(db.crmDeal.create).not.toHaveBeenCalled();
+  });
+
+  it("a deal on an archived account stays editable while the account is unchanged, but cannot move TO one", async () => {
+    vi.mocked(db.crmCompany.findFirst).mockResolvedValue({ id: "co-1", archivedAt: new Date() } as never);
+    vi.mocked(db.event.findFirst).mockResolvedValue({ id: "e-1" } as never);
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue(before("co-1") as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", ...before("co-1") } as never);
+    expect((await updateDeal({ ...base, dealId: "d-1", companyId: "co-1", name: "Renamed" })).ok).toBe(true);
+
+    vi.mocked(db.crmDeal.updateMany).mockClear();
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue(before("co-other") as never);
+    const moved = await updateDeal({ ...base, dealId: "d-1", companyId: "co-1", name: "Renamed" });
+    expect(moved).toMatchObject({ ok: false, code: "COMPANY_ARCHIVED" });
+    expect(db.crmDeal.updateMany).not.toHaveBeenCalled();
+  });
+});
+
 describe("createDeal — relations are bound to the caller's org", () => {
   it("rejects an eventId from another org", async () => {
     vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue(stage() as never);

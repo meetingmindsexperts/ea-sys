@@ -129,6 +129,17 @@ describe("importFreshsalesContacts — account column", () => {
     expect(created.data.companyId).toBe("co-1");
   });
 
+  it("reports rows linked to an ARCHIVED account, without restoring it (Oct 28, 2026)", async () => {
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([{ id: "co-old", nameKey: "abbott", archivedAt: new Date() }] as never);
+    const res = await importFreshsalesContacts({
+      organizationId: ORG, userId: "u-1", dryRun: false,
+      csvText: "First name,Last name,Email,Account\nSara,Khan,s@abbott.com,Abbott\nAli,Raza,a@abbott.com,Abbott",
+    });
+    if (!res.ok) throw new Error(res.message);
+    expect(res.notes).toContainEqual(expect.stringMatching(/^1 account is archived but named in the CSV/));
+    expect(db.crmCompany.create).not.toHaveBeenCalled();
+  });
+
   it("warns when the file has no account column", async () => {
     const res = await importFreshsalesContacts({
       organizationId: ORG, userId: "u-1", dryRun: true,

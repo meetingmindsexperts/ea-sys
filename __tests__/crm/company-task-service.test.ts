@@ -88,6 +88,15 @@ describe("findOrCreateCompany", () => {
     });
   });
 
+  it("an ARCHIVED match is refused, never silently reused (Oct 28, 2026)", async () => {
+    vi.mocked(db.crmCompany.findUnique).mockResolvedValue({
+      id: "c-1", name: "Abbott", nameKey: "abbott", needsReview: false, archivedAt: new Date(),
+    } as never);
+    const res = await findOrCreateCompany({ ...base, name: "Abbott" });
+    expect(res).toMatchObject({ ok: false, code: "COMPANY_ARCHIVED", meta: { companyId: "c-1" } });
+    expect(db.crmCompany.create).not.toHaveBeenCalled();
+  });
+
   it("creates a new account and stores the normalized key alongside the display name", async () => {
     vi.mocked(db.crmCompany.findUnique).mockResolvedValue(null as never);
     vi.mocked(db.crmCompany.create).mockResolvedValue({ id: "c-2", name: "Abbott", needsReview: false } as never);

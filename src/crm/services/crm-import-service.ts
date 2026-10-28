@@ -661,6 +661,11 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
   if (resolveCompany.created > 0) {
     report.notes.push(`${resolveCompany.created} compan${resolveCompany.created === 1 ? "y" : "ies"} named in the CSV didn't exist and ${ctx.dryRun ? "would be" : "were"} created`);
   }
+  if (resolveCompany.archivedLinked > 0) {
+    report.notes.push(
+      `${resolveCompany.archivedLinked} account${resolveCompany.archivedLinked === 1 ? " is" : "s are"} archived but named in the CSV, so rows were linked to ${resolveCompany.archivedLinked === 1 ? "it" : "them"}. Restore ${resolveCompany.archivedLinked === 1 ? "it" : "them"} in the archive if that's wrong.`,
+    );
+  }
   if (archivedMatched > 0) report.notes.push(ARCHIVED_NOTE(archivedMatched, "contact"));
   report.notes.push(...ownerNotes(resolveOwner));
   if (unmappedEnums.size > 0) {
@@ -731,16 +736,25 @@ function withQualityTags(
 async function makeCompanyResolver(ctx: ImportCtx) {
   const companies = await db.crmCompany.findMany({
     where: { organizationId: ctx.organizationId },
-    select: { id: true, nameKey: true },
+    select: { id: true, nameKey: true, archivedAt: true },
   });
   const byKey = new Map(companies.map((c) => [c.nameKey, c.id]));
+  // Linking to an archived account follows the import's archived rule: it is
+  // reported, never restored and never silent (Oct 28, 2026).
+  const archivedIds = new Set(companies.filter((c) => c.archivedAt).map((c) => c.id));
+  const archivedLinked = new Set<string>();
   const resolver = {
     created: 0,
+    /** Archived accounts rows were linked to: the import's notes name the count. */
+    get archivedLinked() {
+      return archivedLinked.size;
+    },
     async idFor(name: string | undefined): Promise<string | null> {
       if (!name?.trim()) return null;
       const key = companyNameKey(name);
       if (!key) return null;
       const hit = byKey.get(key);
+      if (hit && archivedIds.has(hit)) archivedLinked.add(hit);
       if (hit) return hit;
       if (ctx.dryRun) {
         // Count it, remember it, don't write it.
@@ -1206,6 +1220,11 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   }
   if (resolveCompany.created > 0) {
     report.notes.push(`${resolveCompany.created} compan${resolveCompany.created === 1 ? "y" : "ies"} named in the CSV didn't exist and ${ctx.dryRun ? "would be" : "were"} created`);
+  }
+  if (resolveCompany.archivedLinked > 0) {
+    report.notes.push(
+      `${resolveCompany.archivedLinked} account${resolveCompany.archivedLinked === 1 ? " is" : "s are"} archived but named in the CSV, so rows were linked to ${resolveCompany.archivedLinked === 1 ? "it" : "them"}. Restore ${resolveCompany.archivedLinked === 1 ? "it" : "them"} in the archive if that's wrong.`,
+    );
   }
 
   if (!ctx.dryRun) void recordCrmActivityBulk(activity);

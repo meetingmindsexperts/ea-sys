@@ -27,7 +27,7 @@
  * Conventions: src/services/README.md.
  */
 import { Prisma, type CrmDeal, type CrmDealStatus, type CrmDealContactRole, type CrmDealPipeline, type CrmStageOutcome } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
@@ -118,7 +118,9 @@ export type DealErrorCode =
   | "STAGE_NOT_FOUND"
   | "NO_TERMINAL_STAGE"
   | "COMPANY_NOT_FOUND"
+  | "COMPANY_ARCHIVED"
   | "CONTACT_NOT_FOUND"
+  | "CONTACT_ARCHIVED"
   | "CONTACT_ALREADY_ON_DEAL"
   | "EVENT_NOT_FOUND"
   | "DEAL_TYPE_NOT_FOUND"
@@ -146,14 +148,22 @@ export type CloseDealResult = { ok: true; deal: CrmDeal } | Fail;
 async function validateRelations(
   organizationId: string,
   rel: { companyId?: string | null; eventId?: string | null; ownerId?: string | null; dealTypeId?: string | null },
+  /** Refuse an archived account (Oct 28, 2026). An edit passes false when the account is unchanged. */
+  { refuseArchivedCompany = true }: { refuseArchivedCompany?: boolean } = {},
 ): Promise<Fail | null> {
   const checks: Array<Promise<Fail | null>> = [];
 
   if (rel.companyId) {
     checks.push(
       db.crmCompany
-        .findFirst({ where: { id: rel.companyId, organizationId }, select: { id: true } })
-        .then((r) => (r ? null : ({ ok: false, code: "COMPANY_NOT_FOUND", message: "Account not found" } as Fail))),
+        .findFirst({ where: { id: rel.companyId, organizationId }, select: { id: true, archivedAt: true } })
+        .then((r) => {
+          if (!r) return { ok: false, code: "COMPANY_NOT_FOUND", message: "Account not found" } as Fail;
+          if (refuseArchivedCompany && r.archivedAt) {
+            return { ok: false, code: "COMPANY_ARCHIVED", message: "That account is archived. Restore it first." } as Fail;
+          }
+          return null;
+        }),
     );
   }
   if (rel.dealTypeId) {
@@ -317,7 +327,9 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
     return { ok: false, code: "NO_FIELDS", message: "No fields to update" };
   }
 
-  const relFail = await validateRelations(input.organizationId, input);
+  // The edit form always sends the account: "archived" is checked below, only
+  // when it CHANGES, so a deal whose account was archived stays editable.
+  const relFail = await validateRelations(input.organizationId, input, { refuseArchivedCompany: false });
   if (relFail) {
     apiLogger.warn({ msg: "crm-deal:update-bad-relation", code: relFail.code, dealId: input.dealId });
     return relFail;
@@ -342,6 +354,13 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
     if (before.archivedAt) {
       apiLogger.warn({ msg: "crm-deal:update-archived", dealId: input.dealId });
       return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived — restore it before editing it" };
+    }
+    if (input.companyId && input.companyId !== before.companyId) {
+      const companyFail = await validateRelations(input.organizationId, { companyId: input.companyId });
+      if (companyFail) {
+        apiLogger.warn({ msg: "crm-deal:update-bad-relation", code: companyFail.code, dealId: input.dealId });
+        return companyFail;
+      }
     }
 
     // A deal's product lines are priced in the deal's currency (owner, Oct 27,
@@ -857,7 +876,7 @@ export async function addDealContact(input: {
       }),
       db.crmContact.findFirst({
         where: { id: input.crmContactId, organizationId: input.organizationId },
-        select: { id: true },
+        select: { id: true, archivedAt: true },
       }),
     ]);
 
@@ -873,8 +892,18 @@ export async function addDealContact(input: {
       apiLogger.warn({ msg: "crm-deal:add-contact-not-found", crmContactId: input.crmContactId });
       return { ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" };
     }
+    if (contact.archivedAt) {
+      apiLogger.warn({ msg: "crm-deal:add-contact-archived", crmContactId: input.crmContactId });
+      return { ok: false, code: "CONTACT_ARCHIVED", message: "That contact is archived. Restore it first." };
+    }
 
-    await db.crmDealContact.upsert({
+    // The deal's row is locked while the link is written, so an archive that
+    // lands after the check above waits, and one that landed already refuses.
+    const linked = await tenantTransaction(async (tx) => {
+      const live = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "CrmDeal" WHERE id = ${deal.id} AND "archivedAt" IS NULL FOR UPDATE`;
+      if (live.length === 0) return false;
+      await tx.crmDealContact.upsert({
       where: { dealId_crmContactId: { dealId: deal.id, crmContactId: contact.id } },
       // Denormalized org for RLS-readiness — both parents are org-bound above.
       create: {
@@ -884,7 +913,13 @@ export async function addDealContact(input: {
         role: input.role ?? "PRIMARY",
       },
       update: { role: input.role ?? "PRIMARY" },
+      });
+      return true;
     });
+    if (!linked) {
+      apiLogger.warn({ msg: "crm-deal:add-contact-deal-archived-race", dealId: input.dealId });
+      return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived. Restore it before adding people." };
+    }
 
     void recordCrmActivity({
       organizationId: input.organizationId,

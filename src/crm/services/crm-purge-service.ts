@@ -18,6 +18,13 @@
  *     delete, the audit entry IS the only record it existed). The entity's
  *     CrmActivity history is deleted with it — those rows are unreachable once
  *     the record is gone, and the snapshot preserves the fact of deletion.
+ *     The audit row is written INSIDE the delete's transaction: if it cannot
+ *     be written the delete rolls back (Oct 28, 2026), so no record is ever
+ *     destroyed without its trace.
+ *  5. THE DELETE RE-CHECKS "ARCHIVED". The archived read above the
+ *     transaction is a snapshot; the delete itself matches archivedAt IS NOT
+ *     NULL, so a restore that lands in between wins and nothing active is
+ *     destroyed (NOT_ARCHIVED).
  *  4. FK REALITY. Deleting a deal cascades its people links, line items, notes
  *     and tasks (all Cascade). A company is Restrict-protected by its deals —
  *     purging one still referenced by ANY deal is refused (COMPANY_HAS_DEALS);
@@ -45,32 +52,78 @@ function reject(code: CrmPurgeErrorCode, message: string, ctx: Record<string, un
   return { ok: false, code, message };
 }
 
-/** Fire-and-forget with a logged catch — the delete already committed. */
-function writeAudit(entry: {
+type AuditEntry = {
   organizationId: string;
   userId: string | null;
   entityType: "CrmDeal" | "CrmCompany" | "CrmContact";
   entityId: string;
   changes: Record<string, unknown>;
-}) {
-  return db.auditLog
-    .create({
-      data: {
-        organizationId: entry.organizationId,
-        userId: entry.userId,
-        action: "CRM_PURGE",
-        entityType: entry.entityType,
-        entityId: entry.entityId,
-        changes: entry.changes as Prisma.InputJsonValue,
-      },
-    })
-    .catch((err: unknown) => {
-      apiLogger.error({
-        msg: "crm-purge:audit-failed",
-        entityId: entry.entityId,
-        err: err instanceof Error ? err.message : String(err),
+};
+
+/** Inside the delete's transaction: a failed audit write rolls the delete back. */
+async function writeAudit(tx: Prisma.TransactionClient, entry: AuditEntry) {
+  await tx.auditLog.create({
+    data: {
+      organizationId: entry.organizationId,
+      userId: entry.userId,
+      action: "CRM_PURGE",
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      changes: entry.changes as Prisma.InputJsonValue,
+    },
+  });
+}
+
+/** Thrown inside the transaction when the record was restored after the read. */
+class RestoredMeanwhile extends Error {}
+
+/**
+ * One purge: History rows, the guarded delete and the audit row, in ONE
+ * transaction. The delete matches archivedAt IS NOT NULL, so a restore after
+ * the caller's read wins (NOT_ARCHIVED); a failed audit write rolls it all back.
+ */
+async function runPurge(args: {
+  activityType: "DEAL" | "COMPANY" | "CONTACT";
+  remove: (tx: Prisma.TransactionClient) => Promise<{ count: number }>;
+  audit: AuditEntry;
+  label: "deal" | "company" | "contact";
+  failMessage: string;
+  knownError?: (err: unknown) => Fail | null;
+}): Promise<{ ok: true } | Fail> {
+  const { audit } = args;
+  try {
+    await tenantTransaction(async (tx) => {
+      // The record's History is unreachable once the record is gone; the audit
+      // snapshot is the durable trace.
+      await tx.crmActivity.deleteMany({
+        where: { organizationId: audit.organizationId, entityType: args.activityType, entityId: audit.entityId },
       });
+      const { count } = await args.remove(tx);
+      if (count === 0) throw new RestoredMeanwhile();
+      await writeAudit(tx, audit);
     });
+  } catch (err) {
+    if (err instanceof RestoredMeanwhile) {
+      return reject("NOT_ARCHIVED", `This ${args.label === "company" ? "account" : args.label} was restored. Reload the page.`, {
+        entityId: audit.entityId,
+      });
+    }
+    const known = args.knownError?.(err);
+    if (known) return known;
+    apiLogger.error({
+      msg: `crm-purge:${args.label}-failed`,
+      entityId: audit.entityId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, code: "UNKNOWN", message: args.failMessage };
+  }
+  apiLogger.info({
+    msg: `crm-purge:${args.label}-purged`,
+    entityId: audit.entityId,
+    organizationId: audit.organizationId,
+    userId: audit.userId,
+  });
+  return { ok: true };
 }
 
 interface PurgeCtx {
@@ -90,38 +143,31 @@ export async function purgeDeal(input: PurgeCtx & { dealId: string }): Promise<{
     return reject("NOT_ARCHIVED", "Only archived deals can be permanently deleted — archive it first", { dealId: input.dealId });
   }
 
-  try {
-    await tenantTransaction(async (tx) => {
-      // The record's History is unreachable once the record is gone; the audit
-      // snapshot below is the durable trace.
-      await tx.crmActivity.deleteMany({ where: { organizationId: input.organizationId, entityType: "DEAL", entityId: deal.id } });
-      // Cascades: CrmDealContact, CrmDealProduct, CrmNote.dealId, CrmTask.dealId.
-      await tx.crmDeal.delete({ where: { id: deal.id } });
-    });
-  } catch (err) {
-    apiLogger.error({ msg: "crm-purge:deal-failed", dealId: deal.id, err: err instanceof Error ? err.message : String(err) });
-    return { ok: false, code: "UNKNOWN", message: "Could not delete the deal" };
-  }
-
-  void writeAudit({
-    organizationId: input.organizationId,
-    userId: input.userId,
-    entityType: "CrmDeal",
-    entityId: deal.id,
-    changes: {
-      name: deal.name,
-      status: deal.status,
-      dealValue: deal.dealValue ? Number(deal.dealValue) : null,
-      currency: deal.currency,
-      eventId: deal.eventId,
-      companyId: deal.companyId,
-      ownerId: deal.ownerId,
-      archivedAt: deal.archivedAt.toISOString(),
-      cascaded: deal._count, // people links / line items / notes / tasks deleted with it
+  return await runPurge({
+    activityType: "DEAL",
+    // Cascades: CrmDealContact, CrmDealProduct, CrmNote.dealId, CrmTask.dealId.
+    remove: (tx) =>
+      tx.crmDeal.deleteMany({ where: { id: deal.id, organizationId: input.organizationId, archivedAt: { not: null } } }),
+    audit: {
+      organizationId: input.organizationId,
+      userId: input.userId,
+      entityType: "CrmDeal",
+      entityId: deal.id,
+      changes: {
+        name: deal.name,
+        status: deal.status,
+        dealValue: deal.dealValue ? Number(deal.dealValue) : null,
+        currency: deal.currency,
+        eventId: deal.eventId,
+        companyId: deal.companyId,
+        ownerId: deal.ownerId,
+        archivedAt: deal.archivedAt.toISOString(),
+        cascaded: deal._count, // people links / line items / notes / tasks deleted with it
+      },
     },
+    label: "deal",
+    failMessage: "Could not delete the deal",
   });
-  apiLogger.info({ msg: "crm-purge:deal-purged", dealId: deal.id, organizationId: input.organizationId, userId: input.userId });
-  return { ok: true };
 }
 
 export async function purgeCompany(input: PurgeCtx & { companyId: string }): Promise<{ ok: true } | Fail> {
@@ -146,38 +192,34 @@ export async function purgeCompany(input: PurgeCtx & { companyId: string }): Pro
     };
   }
 
-  try {
-    await tenantTransaction(async (tx) => {
-      await tx.crmActivity.deleteMany({ where: { organizationId: input.organizationId, entityType: "COMPANY", entityId: company.id } });
-      // Cascades notes + tasks; CrmContact.companyId is SetNull (contacts survive).
-      await tx.crmCompany.delete({ where: { id: company.id } });
-    });
-  } catch (err) {
-    // A deal re-pointed here between the count and the delete → Restrict P2003.
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
-      return reject("COMPANY_HAS_DEALS", "A deal was linked to this account — reload and try again", { companyId: company.id });
-    }
-    apiLogger.error({ msg: "crm-purge:company-failed", companyId: company.id, err: err instanceof Error ? err.message : String(err) });
-    return { ok: false, code: "UNKNOWN", message: "Could not delete the account" };
-  }
-
-  void writeAudit({
-    organizationId: input.organizationId,
-    userId: input.userId,
-    entityType: "CrmCompany",
-    entityId: company.id,
-    changes: {
-      name: company.name,
-      industry: company.industry,
-      website: company.website,
-      country: company.country,
-      city: company.city,
-      archivedAt: company.archivedAt.toISOString(),
-      cascaded: { notes: company._count.notes_, tasks: company._count.tasks, contactsUnlinked: company._count.contacts },
+  return await runPurge({
+    activityType: "COMPANY",
+    // Cascades notes + tasks; CrmContact.companyId is SetNull (contacts survive).
+    remove: (tx) =>
+      tx.crmCompany.deleteMany({ where: { id: company.id, organizationId: input.organizationId, archivedAt: { not: null } } }),
+    audit: {
+      organizationId: input.organizationId,
+      userId: input.userId,
+      entityType: "CrmCompany",
+      entityId: company.id,
+      changes: {
+        name: company.name,
+        industry: company.industry,
+        website: company.website,
+        country: company.country,
+        city: company.city,
+        archivedAt: company.archivedAt.toISOString(),
+        cascaded: { notes: company._count.notes_, tasks: company._count.tasks, contactsUnlinked: company._count.contacts },
+      },
     },
+    label: "company",
+    failMessage: "Could not delete the account",
+    // A deal re-pointed here between the count and the delete: Restrict P2003.
+    knownError: (err) =>
+      err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003"
+        ? reject("COMPANY_HAS_DEALS", "A deal was linked to this account — reload and try again", { companyId: company.id })
+        : null,
   });
-  apiLogger.info({ msg: "crm-purge:company-purged", companyId: company.id, organizationId: input.organizationId, userId: input.userId });
-  return { ok: true };
 }
 
 export async function purgeCrmContact(input: PurgeCtx & { crmContactId: string }): Promise<{ ok: true } | Fail> {
@@ -190,32 +232,27 @@ export async function purgeCrmContact(input: PurgeCtx & { crmContactId: string }
     return reject("NOT_ARCHIVED", "Only archived contacts can be permanently deleted — archive it first", { crmContactId: input.crmContactId });
   }
 
-  try {
-    await tenantTransaction(async (tx) => {
-      await tx.crmActivity.deleteMany({ where: { organizationId: input.organizationId, entityType: "CONTACT", entityId: contact.id } });
-      // Cascades deal links (they vanish from any deal's people list), notes, tasks.
-      await tx.crmContact.delete({ where: { id: contact.id } });
-    });
-  } catch (err) {
-    apiLogger.error({ msg: "crm-purge:contact-failed", crmContactId: contact.id, err: err instanceof Error ? err.message : String(err) });
-    return { ok: false, code: "UNKNOWN", message: "Could not delete the contact" };
-  }
-
-  void writeAudit({
-    organizationId: input.organizationId,
-    userId: input.userId,
-    entityType: "CrmContact",
-    entityId: contact.id,
-    changes: {
-      name: `${contact.firstName} ${contact.lastName}`.trim(),
-      email: contact.emailKey,
-      companyId: contact.companyId,
-      archivedAt: contact.archivedAt.toISOString(),
-      cascaded: { dealLinks: contact._count.deals, notes: contact._count.crmNotes, tasks: contact._count.tasks },
+  return await runPurge({
+    activityType: "CONTACT",
+    // Cascades deal links (they vanish from any deal's people list), notes, tasks.
+    remove: (tx) =>
+      tx.crmContact.deleteMany({ where: { id: contact.id, organizationId: input.organizationId, archivedAt: { not: null } } }),
+    audit: {
+      organizationId: input.organizationId,
+      userId: input.userId,
+      entityType: "CrmContact",
+      entityId: contact.id,
+      changes: {
+        name: `${contact.firstName} ${contact.lastName}`.trim(),
+        email: contact.emailKey,
+        companyId: contact.companyId,
+        archivedAt: contact.archivedAt.toISOString(),
+        cascaded: { dealLinks: contact._count.deals, notes: contact._count.crmNotes, tasks: contact._count.tasks },
+      },
     },
+    label: "contact",
+    failMessage: "Could not delete the contact",
   });
-  apiLogger.info({ msg: "crm-purge:contact-purged", crmContactId: contact.id, organizationId: input.organizationId, userId: input.userId });
-  return { ok: true };
 }
 
 // ── Bulk: purge the whole archive ────────────────────────────────────────────
