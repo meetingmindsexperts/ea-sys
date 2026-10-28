@@ -418,6 +418,7 @@ export default function EmailTemplateEditorPage() {
             </CardHeader>
             <CardContent>
               <TiptapEditor
+                cleanPastedStyles
                 key={editorKey}
                 content={htmlContent}
                 onChange={(html) => {

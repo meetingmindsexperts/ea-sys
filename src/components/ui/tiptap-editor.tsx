@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import { Node, Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
@@ -17,6 +17,7 @@ import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import { toast } from "sonner";
 import { MediaPickerDialog } from "@/components/media/media-picker-dialog";
+import { cleanPastedHtml } from "@/lib/clean-pasted-html";
 
 // ── Custom extensions for structural HTML preservation ──────────────────────
 
@@ -169,6 +170,33 @@ interface TiptapEditorProps {
    * the editor.
    */
   minHeightClass?: string;
+  /**
+   * An email editor: text pasted from a website loses the site's styling, which breaks in email apps
+   * (owner, Oct 28, 2026), with a one-click "Keep original formatting". Read once at editor init.
+   */
+  cleanPastedStyles?: boolean;
+}
+
+/**
+ * Tells the person their paste was cleaned and offers the original back. It is restored only while the
+ * editor still holds exactly what the paste produced: undo then reinserts the original, which never goes
+ * through the paste cleaner. After any further edit the undo would take that edit with it, so it declines.
+ */
+function offerOriginalFormatting(editor: Editor, raw: string) {
+  const afterPaste = editor.state.doc;
+  toast.info("Formatting from the website was removed so the email displays correctly.", {
+    duration: 8000,
+    action: {
+      label: "Keep original formatting",
+      onClick: () => {
+        if (editor.isDestroyed || editor.state.doc !== afterPaste) {
+          toast.error("The text was edited after pasting. Paste it again to keep the original formatting.");
+          return;
+        }
+        editor.chain().focus().undo().insertContent(raw).run();
+      },
+    },
+  });
 }
 
 function ToolbarButton({
@@ -513,9 +541,11 @@ function formatHtml(html: string): string {
   return formatted.trim();
 }
 
-export function TiptapEditor({ content, onChange, placeholder, minHeightClass = "min-h-[300px]" }: TiptapEditorProps) {
+export function TiptapEditor({ content, onChange, placeholder, minHeightClass = "min-h-[300px]", cleanPastedStyles = false }: TiptapEditorProps) {
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceHtml, setSourceHtml] = useState("");
+  // The editor, for the paste hook below, which is fixed at init and runs before the paste is inserted.
+  const editorRef = useRef<Editor | null>(null);
 
   const editor = useEditor({
     // Every caller loads this editor client-only (next/dynamic, ssr: false),
@@ -565,8 +595,20 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
       attributes: {
         class: `prose prose-sm max-w-none focus:outline-none ${minHeightClass} px-4 py-3 [&>*]:mb-2 [&>*:last-child]:mb-0`,
       },
+      ...(cleanPastedStyles && {
+        transformPastedHTML: (html: string) => {
+          const cleaned = cleanPastedHtml(html);
+          const current = editorRef.current;
+          // After the paste lands, so the offer compares against the document it produced.
+          if (cleaned.changed && current) setTimeout(() => offerOriginalFormatting(current, html), 0);
+          return cleaned.html;
+        },
+      }),
     },
   });
+  useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
 
   const toggleSource = useCallback(() => {
     if (!editor) return;

@@ -2584,6 +2584,7 @@ export default function EventSettingsPage() {
             <div className="space-y-2">
               <Label>Email Footer</Label>
               <TiptapEditor
+                cleanPastedStyles
                 content={brandingSettings.emailFooterHtml}
                 onChange={(html) =>
                   setBrandingSettings({

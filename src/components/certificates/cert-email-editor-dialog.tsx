@@ -153,6 +153,7 @@ export function CertEmailEditorDialog({
           <div className="space-y-2">
             <Label>Body</Label>
             <TiptapEditor
+              cleanPastedStyles
               content={body}
               onChange={setBody}
               placeholder="Write the cover message..."

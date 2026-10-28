@@ -119,6 +119,7 @@ export function CrmEmailTemplateDialog({
               Body <span className="text-destructive">*</span>
             </Label>
             <TiptapEditor
+              cleanPastedStyles
               key={template?.id ?? "new"}
               content={body}
               onChange={setBody}

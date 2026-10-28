@@ -512,6 +512,7 @@ export function CrmEmailDialog({
               Message <span className="text-destructive">*</span>
             </Label>
             <TiptapEditor
+              cleanPastedStyles
               key={editorNonce}
               content={message}
               onChange={setMessage}
