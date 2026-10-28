@@ -18,6 +18,8 @@ import TableHeader from "@tiptap/extension-table-header";
 import { toast } from "sonner";
 import { MediaPickerDialog } from "@/components/media/media-picker-dialog";
 import { cleanPastedHtml } from "@/lib/clean-pasted-html";
+import { closeHistory } from "@tiptap/pm/history";
+import type { EditorView } from "@tiptap/pm/view";
 
 // ── Custom extensions for structural HTML preservation ──────────────────────
 
@@ -182,13 +184,18 @@ interface TiptapEditorProps {
  * editor still holds exactly what the paste produced: undo then reinserts the original, which never goes
  * through the paste cleaner. After any further edit the undo would take that edit with it, so it declines.
  */
-function offerOriginalFormatting(editor: Editor, raw: string) {
+function offerOriginalFormatting(editor: Editor, raw: string, inSourceView: () => boolean) {
   const afterPaste = editor.state.doc;
   toast.info("Formatting from the website was removed so the email displays correctly.", {
     duration: 8000,
     action: {
       label: "Keep original formatting",
       onClick: () => {
+        // The Source view holds its own copy of the HTML and would put it back on the way out (review LOW).
+        if (inSourceView()) {
+          toast.error("Switch back to the visual editor, then paste again to keep the original formatting.");
+          return;
+        }
         if (editor.isDestroyed || editor.state.doc !== afterPaste) {
           toast.error("The text was edited after pasting. Paste it again to keep the original formatting.");
           return;
@@ -546,6 +553,10 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
   const [sourceHtml, setSourceHtml] = useState("");
   // The editor, for the paste hook below, which is fixed at init and runs before the paste is inserted.
   const editorRef = useRef<Editor | null>(null);
+  const sourceModeRef = useRef(false);
+  useEffect(() => {
+    sourceModeRef.current = sourceMode;
+  }, [sourceMode]);
 
   const editor = useEditor({
     // Every caller loads this editor client-only (next/dynamic, ssr: false),
@@ -596,11 +607,15 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
         class: `prose prose-sm max-w-none focus:outline-none ${minHeightClass} px-4 py-3 [&>*]:mb-2 [&>*:last-child]:mb-0`,
       },
       ...(cleanPastedStyles && {
-        transformPastedHTML: (html: string) => {
+        transformPastedHTML: (html: string, view: EditorView) => {
           const cleaned = cleanPastedHtml(html);
           const current = editorRef.current;
+          if (!cleaned.changed || !current) return cleaned.html;
+          // The paste gets its own undo step: typing just before it would otherwise share one, and
+          // "Keep original formatting" would undo that typing too (review MED).
+          view.dispatch(closeHistory(view.state.tr));
           // After the paste lands, so the offer compares against the document it produced.
-          if (cleaned.changed && current) setTimeout(() => offerOriginalFormatting(current, html), 0);
+          setTimeout(() => offerOriginalFormatting(current, html, () => sourceModeRef.current), 0);
           return cleaned.html;
         },
       }),

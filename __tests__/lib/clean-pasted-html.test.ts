@@ -44,6 +44,28 @@ describe("cleanPastedHtml (owner, Oct 28, 2026)", () => {
     expect(plain.html).toBe("<p>Hello <b>there</b></p>");
   });
 
+  it("a Google Docs paste keeps its real bold and italic and is not bolded whole (review HIGH)", () => {
+    const docs =
+      '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-1a2b"><p dir="ltr" style="line-height:1.38"><span style="font-size:11pt;font-family:Arial;font-weight:400">Dear colleague, </span><span style="font-size:11pt;font-family:Arial;font-weight:700">registration closes Friday</span><span style="font-size:11pt;font-family:Arial;font-weight:400;font-style:italic">, so book early.</span></p></b>';
+    const out = cleanPastedHtml(docs);
+    expect(out.changed).toBe(true);
+    expect(out.html).not.toMatch(/<b>|<b /);
+    expect(out.html).toContain("<strong>registration closes Friday</strong>");
+    expect(out.html).toContain("<em>, so book early.</em>");
+    expect(out.html).not.toContain("<strong>Dear colleague");
+  });
+
+  it("drops a dropdown's options and a button's label instead of spilling them as text (review LOW)", () => {
+    const out = cleanPastedHtml('<p>Pick your country</p><select><option>Albania</option><option>Zambia</option></select><button>Submit</button>');
+    expect(out.html).toBe("<p>Pick your country</p>");
+  });
+
+  it("says so when only table spacing attributes were removed (review LOW)", () => {
+    const out = cleanPastedHtml('<table border="1" cellpadding="4"><tbody><tr><td>Day 1</td></tr></tbody></table>');
+    expect(out.changed).toBe(true);
+    expect(out.html).toBe("<table><tbody><tr><td>Day 1</td></tr></tbody></table>");
+  });
+
   it("removes Word's conditional comments", () => {
     const word = '<!--[if gte mso 9]><xml><o:OfficeDocumentSettings/></xml><![endif]--><p class="MsoNormal">Text</p>';
     const out = cleanPastedHtml(word);
