@@ -16,6 +16,7 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { getLastZoomEndTime } from "@/lib/zoom/reports";
+import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
 
 export const SAFETY_NET_MS = 2 * 60 * 60 * 1000;
 export const MAX_ROOMS_PER_TICK = 20;
@@ -127,6 +128,8 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
           { eventId: room.eventId, sessionId: room.id, decision, zoomEndedAt: zoomEndedAt?.toISOString() },
           "webinar-room-autoclose:closed",
         );
+        // The thank-you follows the close (Oct 28, 2026): Zoom's own end when it gave one, else now.
+        await retimeThankYouAfterRoomClose(room.eventId, decision === "close-zoom-ended" && zoomEndedAt ? zoomEndedAt : now);
         return decision;
       });
       if (outcome !== "keep") report.closed += 1;

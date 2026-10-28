@@ -5,16 +5,18 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDbOperator, mockDb, getLastZoomEndTimeSpy } = vi.hoisted(() => ({
+const { mockDbOperator, mockDb, getLastZoomEndTimeSpy, retimeSpy } = vi.hoisted(() => ({
   mockDbOperator: { eventSession: { findMany: vi.fn() } },
   mockDb: { eventSession: { updateMany: vi.fn() } },
   getLastZoomEndTimeSpy: vi.fn(),
+  retimeSpy: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDbOperator }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/lib/zoom/reports", () => ({ getLastZoomEndTime: getLastZoomEndTimeSpy }));
+vi.mock("@/lib/webinar-email-sequence", () => ({ retimeThankYouAfterRoomClose: retimeSpy }));
 
 import { decideRoomClose, runWebinarRoomAutoCloseTick, SAFETY_NET_MS } from "@/lib/webinar/room-autoclose";
 
@@ -101,6 +103,8 @@ describe("runWebinarRoomAutoCloseTick", () => {
       where: { id: "s1", eventId: "ev1", status: "LIVE" },
       data: { status: "COMPLETED" },
     });
+    // The thank-you follows Zoom's real end, not the tick time (Oct 28, 2026).
+    expect(retimeSpy).toHaveBeenCalledWith("ev1", new Date("2026-10-01T11:25:00Z"));
   });
 
   it("ignores live sessions that are not the event's anchor room", async () => {
@@ -115,6 +119,8 @@ describe("runWebinarRoomAutoCloseTick", () => {
     const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:00:00Z"));
     expect(r.closed).toBe(1);
     expect(getLastZoomEndTimeSpy).not.toHaveBeenCalled();
+    // No Zoom end to go by, so the thank-you follows the close itself.
+    expect(retimeSpy).toHaveBeenCalledWith("ev1", new Date("2026-10-01T14:00:00Z"));
   });
 
   it("a Zoom failure on one room is counted and does not stop the tick", async () => {

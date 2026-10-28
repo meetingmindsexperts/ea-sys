@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockExecuteBulkEmail, mockNotify, mockLogger, BulkEmailError, NO_RECIPIENTS_CODE } =
+const { mockDb, mockExecuteBulkEmail, mockRoomOpen, mockNotify, mockLogger, BulkEmailError, NO_RECIPIENTS_CODE } =
   vi.hoisted(() => {
     // Genuine error shape so the worker's
     // `err instanceof BulkEmailError && err.code === NO_RECIPIENTS_CODE`
@@ -30,6 +30,7 @@ const { mockDb, mockExecuteBulkEmail, mockNotify, mockLogger, BulkEmailError, NO
         auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
       },
       mockExecuteBulkEmail: vi.fn(),
+      mockRoomOpen: vi.fn(),
       mockNotify: vi.fn().mockReturnValue({ catch: () => {} }),
       mockLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
       BulkEmailError,
@@ -43,6 +44,10 @@ const { mockDb, mockExecuteBulkEmail, mockNotify, mockLogger, BulkEmailError, NO
 vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotify }));
+vi.mock("@/lib/webinar-email-sequence", () => ({
+  isWebinarRoomOpen: (...a: unknown[]) => mockRoomOpen(...a),
+  THANK_YOU_HOLD_MS: 10 * 60_000,
+}));
 vi.mock("@/lib/bulk-email", () => ({
   executeBulkEmail: mockExecuteBulkEmail,
   BulkEmailError,
@@ -80,6 +85,37 @@ beforeEach(() => {
     { id: "user_1", firstName: "Ana", lastName: "Org", email: "ana@x.com", emailSignature: null },
   ]);
   mockExecuteBulkEmail.mockResolvedValue({ total: 2, successCount: 2, failureCount: 0, errors: [] });
+  mockRoomOpen.mockResolvedValue(false);
+});
+
+describe("scheduled-emails worker: a webinar's thank-you waits for its room to close (Oct 28, 2026)", () => {
+  it("holds the thank-you, unclaimed, while the room is open and looks again in 10 minutes", async () => {
+    mockRoomOpen.mockResolvedValue(true);
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ emailType: "webinar-thank-you", customSubject: null, customMessage: null })]);
+    const before = Date.now();
+    const report = await runScheduledEmailsTick();
+    expect(mockExecuteBulkEmail).not.toHaveBeenCalled();
+    expect(report.results[0]).toEqual({ id: "se_1", status: "skipped" });
+    const hold = mockDb.scheduledEmail.updateMany.mock.calls.find((c) => c[0]?.data?.scheduledFor);
+    expect(hold?.[0].where).toEqual({ id: "se_1", status: "PENDING" });
+    const at = (hold?.[0].data.scheduledFor as Date).getTime();
+    expect(at - before).toBeGreaterThanOrEqual(10 * 60_000 - 1000);
+    // Never claimed: no PROCESSING write.
+    expect(mockDb.scheduledEmail.updateMany.mock.calls.some((c) => c[0]?.data?.status === "PROCESSING")).toBe(false);
+  });
+
+  it("sends it once the room is closed", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ emailType: "webinar-thank-you", customSubject: null, customMessage: null })]);
+    await runScheduledEmailsTick();
+    expect(mockExecuteBulkEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("never asks about the room for any other email", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ emailType: "webinar-reminder-1h" })]);
+    await runScheduledEmailsTick();
+    expect(mockRoomOpen).not.toHaveBeenCalled();
+    expect(mockExecuteBulkEmail).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("scheduled-emails worker — recipientIds passthrough", () => {

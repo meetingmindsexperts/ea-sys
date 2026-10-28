@@ -43,6 +43,7 @@ import {
   type BulkEmailFilters,
 } from "@/lib/bulk-email";
 import { MAX_STORED_ERRORS } from "@/lib/scheduled-email-failures";
+import { isWebinarRoomOpen, THANK_YOU_HOLD_MS } from "@/lib/webinar-email-sequence";
 import type { StoredAttachmentRef } from "@/lib/email-attachment-limits";
 
 // How many due rows to process per cron tick. Each row may dispatch hundreds of
@@ -110,6 +111,17 @@ async function processRow(
   // the platform the scanner needs a privileged read lane before this worker
   // does any work. Passthrough on master.
   return await runWithTenant(row.organizationId, async () => {
+  // A webinar's thank-you waits while its room is open: an overrunning webinar must not thank its
+  // audience while still on air (owner, Oct 28, 2026). Pushed back, unclaimed, and looked at again.
+  if (row.emailType === "webinar-thank-you" && (await isWebinarRoomOpen(row.eventId))) {
+    await db.scheduledEmail.updateMany({
+      where: { id: row.id, status: "PENDING" },
+      data: { scheduledFor: new Date(Date.now() + THANK_YOU_HOLD_MS) },
+    });
+    apiLogger.info({ id: row.id, eventId: row.eventId }, "scheduled-email:thank-you-held-room-open");
+    return { id: row.id, status: "skipped" };
+  }
+
   // Atomic claim — only proceed if we flipped PENDING→PROCESSING. The claim
   // stamps a per-claim ownership token (review C1): `status = PROCESSING`
   // alone proves the row is live, not that WE own it — after a DB-write

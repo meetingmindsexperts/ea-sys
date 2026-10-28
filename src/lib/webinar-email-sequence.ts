@@ -410,3 +410,75 @@ export async function clearPendingWebinarSequence(
   });
   return result.count;
 }
+
+// ── The thank-you follows the room, not the clock (owner, Oct 28, 2026) ───────
+//
+// The thank-you used to go out 30 minutes after the SCHEDULED end, so a webinar
+// that overran told its audience "thank you for joining" while it was still on
+// air, and one that ended early waited for the scheduled time. Now:
+//  - while the room is open, the sender holds the thank-you and looks again
+//    every THANK_YOU_HOLD_MS (the room auto-close's two-hour safety net bounds
+//    the wait);
+//  - closing the room, by the producer or the auto-close, moves the queued
+//    thank-you to THANK_YOU_AFTER_CLOSE_MS after the close.
+
+export const THANK_YOU_HOLD_MS = 10 * 60_000;
+export const THANK_YOU_AFTER_CLOSE_MS = 30 * 60_000;
+/** A close counts as the webinar's end only inside this window around its scheduled times, so
+ *  opening and closing the room for a rehearsal days before never sends the real thank-you. */
+const CLOSE_COUNTS_FROM_MS = 60 * 60_000;
+const CLOSE_COUNTS_UNTIL_MS = 6 * 60 * 60_000;
+
+/** Whether this event's webinar room is open now: its anchor session is LIVE. */
+export async function isWebinarRoomOpen(eventId: string): Promise<boolean> {
+  const event = await db.event.findUnique({ where: { id: eventId }, select: { settings: true } });
+  const anchorSessionId = readWebinarSettings(event?.settings)?.sessionId;
+  if (!anchorSessionId) return false;
+  const anchor = await db.eventSession.findFirst({
+    where: { id: anchorSessionId, eventId },
+    select: { status: true },
+  });
+  return anchor?.status === "LIVE";
+}
+
+/**
+ * Move the queued automatic thank-you to THANK_YOU_AFTER_CLOSE_MS after the room closed, earlier or
+ * later than its scheduled time. Only sequence-minted rows, only PENDING ones, and only when the close
+ * falls near the webinar's scheduled times. Returns how many rows moved; never throws.
+ */
+export async function retimeThankYouAfterRoomClose(eventId: string, closedAt: Date = new Date()): Promise<number> {
+  try {
+    const event = await db.event.findUnique({ where: { id: eventId }, select: { settings: true } });
+    const anchorSessionId = readWebinarSettings(event?.settings)?.sessionId;
+    if (!anchorSessionId) return 0;
+    const anchor = await db.eventSession.findFirst({
+      where: { id: anchorSessionId, eventId },
+      select: { startTime: true, endTime: true },
+    });
+    if (!anchor) return 0;
+    const at = closedAt.getTime();
+    const near = at >= anchor.startTime.getTime() - CLOSE_COUNTS_FROM_MS && at <= anchor.endTime.getTime() + CLOSE_COUNTS_UNTIL_MS;
+    if (!near) {
+      apiLogger.info({ eventId, closedAt: closedAt.toISOString() }, "webinar-sequence:thank-you-not-moved-rehearsal");
+      return 0;
+    }
+    const moved = await db.scheduledEmail.updateMany({
+      where: {
+        eventId,
+        emailType: "webinar-thank-you",
+        status: "PENDING",
+        customSubject: null,
+        customMessage: null,
+        recipientIds: { isEmpty: true },
+      },
+      data: { scheduledFor: new Date(at + THANK_YOU_AFTER_CLOSE_MS) },
+    });
+    if (moved.count > 0) {
+      apiLogger.info({ eventId, moved: moved.count, closedAt: closedAt.toISOString() }, "webinar-sequence:thank-you-moved-after-close");
+    }
+    return moved.count;
+  } catch (err) {
+    apiLogger.error({ err, eventId }, "webinar-sequence:thank-you-retime-failed");
+    return 0;
+  }
+}

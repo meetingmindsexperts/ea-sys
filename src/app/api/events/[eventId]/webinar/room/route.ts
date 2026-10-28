@@ -11,6 +11,7 @@ import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
 import { isStreamArriving } from "@/lib/webinar/stream-probe";
 import { updateEventSettings } from "@/lib/event-settings";
+import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -139,6 +140,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       { eventId, sessionId: webinar.sessionId, userId: session.user.id, status: nextStatus },
       validated.data.open ? "webinar:room-opened" : "webinar:room-closed",
     );
+    // The thank-you follows the close, not the scheduled end (Oct 28, 2026). Never throws.
+    if (!validated.data.open) await retimeThankYouAfterRoomClose(eventId);
 
     // Custom-stream mode: tell Zoom to start pushing when the room opens and
     // to stop when it closes. Failure-isolated: the room state is already

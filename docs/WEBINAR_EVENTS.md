@@ -216,7 +216,7 @@ The **24-hour re-sync cap** on attendance is important: without it, every webina
 | `webinar-reminder-1h` | 1 h before start |
 | `webinar-reminder-15m` | 15 min before start, when the session page starts letting attendees in (Oct 28, 2026) |
 | `webinar-live-now` | At start time |
-| `webinar-thank-you` | 30 min after end |
+| `webinar-thank-you` | 30 min after the room closes (held while it is open; a close more than an hour before the start, a rehearsal, does not count). Without a room close, 30 min after the scheduled end (Oct 28, 2026) |
 
 Variables: `{{joinUrl}}`, `{{passcode}}`, `{{webinarDate}}`, `{{webinarTime}}`, `{{recordingUrl}}` + conditional `{{passcodeBlock}}` / `{{recordingBlock}}` HTML fragments.
 

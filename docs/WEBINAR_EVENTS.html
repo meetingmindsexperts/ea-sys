@@ -233,7 +233,7 @@ mark lastEngagementSyncAt</code></pre>
         <tr><td><code>webinar-reminder-1h</code></td><td>1 h before start</td></tr>
         <tr><td><code>webinar-reminder-15m</code></td><td>15 min before start, when the session page starts letting attendees in</td></tr>
         <tr><td><code>webinar-live-now</code></td><td>At start time</td></tr>
-        <tr><td><code>webinar-thank-you</code></td><td>30 min after end</td></tr>
+        <tr><td><code>webinar-thank-you</code></td><td>30 min after the room closes (held while it is open; a close more than an hour before the start, a rehearsal, does not count). Without a room close, 30 min after the scheduled end</td></tr>
       </tbody>
     </table>
     <p>Variables: <code>{{joinUrl}}</code>, <code>{{passcode}}</code>, <code>{{webinarDate}}</code>, <code>{{webinarTime}}</code>, <code>{{recordingUrl}}</code> + conditional <code>{{passcodeBlock}}</code> / <code>{{recordingBlock}}</code> HTML fragments.</p>
