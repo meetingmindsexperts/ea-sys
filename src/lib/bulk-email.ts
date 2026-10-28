@@ -179,6 +179,11 @@ export interface BulkEmailFilters {
   /** RegistrationStatus filter (PENDING/CONFIRMED/CANCELLED/WAITLISTED/CHECKED_IN) — registrations recipient only */
   status?: string;
   /**
+   * Not a recipient filter: the webinar start an automatic sequence row was made for (Oct 28, 2026), so a
+   * postponement can tell old-date rows apart. Recipient selection never reads it.
+   */
+  webinarStartsAt?: string;
+  /**
    * PaymentStatus filter (UNPAID/PAID/PENDING/COMPLIMENTARY/UNASSIGNED/REFUNDED/FAILED).
    * Registrations recipient only. Closes W2-F4 — the unpaid-chase
    * workflow (`paymentStatus=UNPAID`) was previously blocked at the

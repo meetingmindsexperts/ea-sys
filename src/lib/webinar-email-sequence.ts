@@ -16,6 +16,41 @@ const MIN_LEAD_MS = 60_000;
  */
 export const RESEND_AFTER_MOVE_MS = 12 * 60 * 60_000;
 
+/** A sequence row's view of the webinar it was made for. */
+type SequenceRow = { emailType: string; scheduledFor: Date; filters: unknown };
+
+/** When a phase fires relative to the webinar start, for rows that predate `webinarStartsAt`. */
+function phaseOffsetMs(phase: string, start: Date, end: Date): number | null {
+  if (phase === "webinar-reminder-24h") return -24 * 60 * 60_000;
+  if (phase === "webinar-reminder-1h") return -60 * 60_000;
+  if (phase === "webinar-live-now") return 0;
+  if (phase === "webinar-thank-you") return end.getTime() + 30 * 60_000 - start.getTime();
+  return null;
+}
+
+/**
+ * The webinar start a sequence row was made for (review MED, Oct 28, 2026). Rows carry it in
+ * `filters.webinarStartsAt`, because `scheduledFor` is no witness: an organiser may move a pending row
+ * and Retry resets it to now. Older rows have only `scheduledFor`, read back through the phase offset.
+ */
+export function sequenceRowWebinarStart(row: SequenceRow, current: { startTime: Date; endTime: Date }): Date | null {
+  const stamped = (row.filters as { webinarStartsAt?: unknown } | null)?.webinarStartsAt;
+  if (typeof stamped === "string" && Number.isFinite(Date.parse(stamped))) return new Date(stamped);
+  const offset = phaseOffsetMs(row.emailType, current.startTime, current.endTime);
+  return offset === null ? null : new Date(row.scheduledFor.getTime() - offset);
+}
+
+/**
+ * Whether a sequence row belongs to a date the webinar has since moved away from by more than
+ * RESEND_AFTER_MOVE_MS. Such a row neither blocks the new date's phase nor may be retried (it would
+ * email people about the old date, beside the new date's own row).
+ */
+export function isSequenceRowForOtherDate(row: SequenceRow, current: { startTime: Date; endTime: Date }): boolean {
+  const madeFor = sequenceRowWebinarStart(row, current);
+  if (!madeFor) return false;
+  return Math.abs(madeFor.getTime() - current.startTime.getTime()) > RESEND_AFTER_MOVE_MS;
+}
+
 export type WebinarPhase =
   | "webinar-reminder-24h"
   | "webinar-reminder-1h"
@@ -151,7 +186,9 @@ async function enqueueSequenceInner(
     //  - SENT/PROCESSING: it fired (or is firing) — re-creating would double-
     //    email the audience.
     //  - CANCELLED: an operator deliberately killed it (dashboard cancel /
-    //    MCP) — an automatic retime must not undo that decision (review M1).
+    //    MCP) — an automatic retime must not undo that decision (review M1)
+    //    for the SAME date; a cancel made for a date the webinar has since
+    //    left by more than 12 hours does not carry over (owner, Oct 28, 2026).
     //    The console's explicit Re-enqueue passes resurrectCancelled.
     //  - FAILED with some emails already delivered: the row carries the
     //    emailedKeys resume state; a fresh row would re-email the delivered
@@ -162,20 +199,14 @@ async function enqueueSequenceInner(
         emailType: { in: phases.map((p) => p.phase) },
         status: { in: ["SENT", "PROCESSING", "CANCELLED", "FAILED"] },
       },
-      select: { emailType: true, status: true, emailedKeys: true, scheduledFor: true },
+      select: { emailType: true, status: true, emailedKeys: true, scheduledFor: true, filters: true },
     });
-    // A row speaks only for the date it was scheduled for: a webinar postponed by more than
+    // A row speaks only for the webinar date it was made for: one postponed by more than
     // RESEND_AFTER_MOVE_MS gets that phase again (Oct 28, 2026). Before this, one reminder sent for the
     // old date silenced it for every later date, so a postponed webinar lost its reminders.
-    const newTimeOf = new Map(phases.map((p) => [p.phase, p.scheduledFor.getTime()]));
-    const sameDate = (r: { emailType: string; scheduledFor: Date | null }) => {
-      const next = newTimeOf.get(r.emailType as WebinarPhase);
-      if (next === undefined || !r.scheduledFor) return true;
-      return Math.abs(next - r.scheduledFor.getTime()) <= RESEND_AFTER_MOVE_MS;
-    };
     const fired = new Set(
       firedRows
-        .filter(sameDate)
+        .filter((r) => !isSequenceRowForOtherDate(r, anchorSession))
         .filter((r) => {
           if (r.status === "SENT" || r.status === "PROCESSING") return true;
           if (r.status === "CANCELLED") return !opts?.resurrectCancelled;
@@ -213,7 +244,8 @@ async function enqueueSequenceInner(
       createdById,
       recipientType: "registrations",
       emailType: p.phase,
-      filters: { status: "CONFIRMED" },
+      // webinarStartsAt is not a recipient filter: it records which webinar date the row is for.
+      filters: { status: "CONFIRMED", webinarStartsAt: anchorSession.startTime.toISOString() },
       scheduledFor: p.scheduledFor,
     })),
   });

@@ -7,9 +7,28 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { bulkEmailTypePermission } from "@/lib/permissions/field-permissions";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { readWebinarSettings } from "@/lib/webinar";
+import { WEBINAR_SEQUENCE_PHASES, isSequenceRowForOtherDate } from "@/lib/webinar-email-sequence";
 
 interface RouteParams {
   params: Promise<{ eventId: string; id: string }>;
+}
+
+const SEQUENCE_PHASES: ReadonlySet<string> = new Set(WEBINAR_SEQUENCE_PHASES);
+
+/** Whether a webinar sequence row belongs to a date the webinar's session has since left. */
+async function isStaleWebinarPhase(
+  eventId: string,
+  row: { emailType: string; scheduledFor: Date; filters: unknown; event: { settings: unknown } },
+): Promise<boolean> {
+  if (!SEQUENCE_PHASES.has(row.emailType)) return false;
+  const anchorId = readWebinarSettings(row.event.settings)?.sessionId;
+  if (!anchorId) return false;
+  const anchor = await db.eventSession.findFirst({
+    where: { id: anchorId, eventId },
+    select: { startTime: true, endTime: true },
+  });
+  return anchor ? isSequenceRowForOtherDate(row, anchor) : false;
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -33,12 +52,25 @@ export async function POST(req: Request, { params }: RouteParams) {
     // read first and bound on the write, so it cannot change in between.
     const typeRow = await db.scheduledEmail.findFirst({
       where: { id, eventId, event: gate.eventWhere },
-      select: { emailType: true },
+      select: { emailType: true, scheduledFor: true, filters: true, event: { select: { settings: true } } },
     });
     const typeKey = typeRow ? bulkEmailTypePermission(typeRow.emailType) : null;
     const typeGate = typeKey ? requirePermission(session, typeKey, { route: "events/[eventId]/emails/schedule/[id]/retry:POST", eventId }) : null;
     if (typeGate && !typeGate.ok) return typeGate.response;
     const eventWhere = typeGate ? { AND: [gate.eventWhere, typeGate.eventWhere] } : gate.eventWhere;
+
+    // A webinar reminder made for a date the webinar has since moved away from must not go out: it would
+    // tell people about the old date, beside the new date's own reminder (review MED, Oct 28, 2026).
+    if (typeRow && await isStaleWebinarPhase(eventId, typeRow)) {
+      apiLogger.warn({ msg: "scheduled-email:retry-rejected-webinar-moved", id, eventId, emailType: typeRow.emailType });
+      return NextResponse.json(
+        {
+          error: "This reminder was for the webinar's earlier date. The new date has its own reminders, so it cannot be retried.",
+          code: "WEBINAR_DATE_CHANGED",
+        },
+        { status: 409 },
+      );
+    }
 
     // Atomic retry — only succeeds if the row is still FAILED.
     const result = await db.scheduledEmail.updateMany({

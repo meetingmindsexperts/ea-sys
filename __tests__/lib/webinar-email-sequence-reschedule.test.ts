@@ -39,6 +39,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 
 import {
   enqueueWebinarSequenceForEvent,
+  isSequenceRowForOtherDate,
   rescheduleWebinarSequenceForEvent,
 } from "@/lib/webinar-email-sequence";
 
@@ -264,5 +265,41 @@ describe("postponement: a phase sent for the OLD date is sent again for the new 
     ]);
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
     expect(res.created).toBe(4);
+  });
+});
+
+describe("which date a row was for: the stamped webinar start, not its send time (review MED, Oct 28, 2026)", () => {
+  const current = { startTime: START, endTime: END };
+
+  it("new rows record the webinar start they were made for", async () => {
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    const data = (mockDb.scheduledEmail.createMany.mock.calls[0][0] as { data: Array<{ filters: unknown }> }).data;
+    for (const row of data) expect(row.filters).toEqual({ status: "CONFIRMED", webinarStartsAt: START.toISOString() });
+  });
+
+  it("an organiser moving a sent row's time does not make it look like another date (no double send)", async () => {
+    // The 24h reminder was dragged to 3 days before and went out; the webinar has not moved.
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      { emailType: "webinar-reminder-24h", status: "SENT", emailedKeys: [], scheduledFor: new Date("2026-09-01T10:00:00Z"), filters: { status: "CONFIRMED", webinarStartsAt: START.toISOString() } },
+    ]);
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(createdPhases()).not.toContain("webinar-reminder-24h");
+  });
+
+  it("a late retry of an old-date row does not hide the new date's phase (no lost reminder)", async () => {
+    // Made for a webinar starting 13h earlier, retried late so its send time sits near the new one.
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      { emailType: "webinar-reminder-24h", status: "FAILED", emailedKeys: ["r1"], scheduledFor: new Date("2026-09-03T09:00:00Z"), filters: { status: "CONFIRMED", webinarStartsAt: "2026-09-03T21:00:00.000Z" } },
+    ]);
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(createdPhases()).toContain("webinar-reminder-24h");
+  });
+
+  it("rows from before the stamp are read back through the phase offset", () => {
+    const legacy = (emailType: string, at: string) => ({ emailType, scheduledFor: new Date(at), filters: { status: "CONFIRMED" } });
+    expect(isSequenceRowForOtherDate(legacy("webinar-reminder-1h", "2026-09-04T09:00:00Z"), current)).toBe(false);
+    expect(isSequenceRowForOtherDate(legacy("webinar-thank-you", "2026-09-04T11:30:00Z"), current)).toBe(false);
+    expect(isSequenceRowForOtherDate(legacy("webinar-live-now", "2026-08-20T10:00:00Z"), current)).toBe(true);
+    expect(isSequenceRowForOtherDate(legacy("webinar-confirmation", "2026-08-20T10:00:00Z"), current)).toBe(false);
   });
 });
