@@ -59,7 +59,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ slug, sessionId, userId: authSession.user.id }, "session-recording:event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-    // A webinar's recording reaches attendees only once the organiser switches it on (Oct 28, 2026).
+    // A webinar's recording reaches attendees only once the organiser switches it on (Oct 28, 2026). Org
+    // staff are refused here too, on purpose: the page shows what attendees see, and the Webinar Console
+    // keeps the recording link for staff.
     if (event.eventType === "WEBINAR" && !webinarRecordingShown(event.settings)) {
       apiLogger.warn({ sessionId, eventId: event.id, userId: authSession.user.id }, "session-recording:hidden-by-organiser");
       return NextResponse.json(

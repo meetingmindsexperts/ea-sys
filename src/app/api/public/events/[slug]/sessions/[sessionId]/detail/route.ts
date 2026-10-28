@@ -220,6 +220,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       s.tier && !builtIn.has(s.tier) ? { ...s, tierLabel: sponsorTierLabel(s.tier, sponsorTiers) } : s,
     );
 
+    const recordingHidden = event.eventType === "WEBINAR" && !webinarRecordingShown(event.settings);
     return NextResponse.json({
       event: {
         name: event.name,
@@ -243,11 +244,11 @@ export async function GET(req: Request, { params }: RouteParams) {
         status: session.status,
         track: session.track,
         // A webinar offers its recording only once the organiser switches it on (Oct 28, 2026). Until then
-        // the page is told nothing about it, so it shows neither a replay nor a "processing" note.
+        // the page is told nothing about it, so it shows neither a replay nor a "processing" note, and
+        // promises none.
+        recordingHidden,
         zoomMeeting:
-          session.zoomMeeting && event.eventType === "WEBINAR" && !webinarRecordingShown(event.settings)
-            ? { ...session.zoomMeeting, recordingStatus: null }
-            : session.zoomMeeting,
+          session.zoomMeeting && recordingHidden ? { ...session.zoomMeeting, recordingStatus: null } : session.zoomMeeting,
         speakers: session.speakers.map((s) => ({
           ...s.speaker,
           role: s.role,

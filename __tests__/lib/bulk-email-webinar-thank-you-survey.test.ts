@@ -241,6 +241,31 @@ describe("webinar thank-you: the end-of-webinar survey link", () => {
   });
 });
 
+describe("webinar thank-you: the organiser's recording switch (Oct 28, 2026)", () => {
+  const REC = "https://zoom.us/rec/play/abc";
+  beforeEach(() => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue({
+      joinUrl: "https://zoom.us/j/1", passcode: null, recordingUrl: REC, recordingPassword: null, recordingStatus: "AVAILABLE",
+    });
+  });
+
+  it("switch off (the default): the automatic thank-you neither links nor promises the recording", async () => {
+    mockDb.event.findFirst.mockResolvedValue(EVENT({}));
+    await executeBulkEmail(INPUT);
+    const { htmlContent, textContent } = sent();
+    expect(htmlContent).not.toContain(REC);
+    expect(htmlContent).not.toContain("Watch Replay");
+    expect(htmlContent).not.toContain("available shortly");
+    expect(textContent ?? "").not.toContain(REC);
+  });
+
+  it("switch on: the thank-you carries the replay button", async () => {
+    mockDb.event.findFirst.mockResolvedValue(EVENT({ showRecording: true }));
+    await executeBulkEmail(INPUT);
+    expect(sent().htmlContent).toContain(REC);
+  });
+});
+
 describe("withThankYouSurveyBlock: each part on its own (review of steps 1 to 5)", () => {
   it("a token only in the text part: the text is left alone, the HTML gains the block", () => {
     const out = withThankYouSurveyBlock({ htmlContent: "<p>Hi</p>", textContent: "Hi\n{{surveyBlockText}}" });

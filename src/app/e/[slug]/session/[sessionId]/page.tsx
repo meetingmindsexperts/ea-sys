@@ -158,6 +158,8 @@ interface SessionDetail {
   speakers: SpeakerInfo[];
   topics: TopicInfo[];
   track?: { name: string; color: string } | null;
+  /** A webinar whose organiser has not switched the recording on: the page promises no replay (Oct 28, 2026). */
+  recordingHidden?: boolean;
   zoomMeeting?: {
     // B2: recordingUrl + recordingPassword are no longer served by the public
     // detail route. They come from the registration-gated `../recording` route.
@@ -779,6 +781,7 @@ export default function PublicSessionPage() {
             onWatchRecording={handleWatchRecording}
             isJoining={isJoining}
             hostEnded={hostEnded}
+            recordingHidden={session?.recordingHidden === true}
             onRejoin={
               roomOpen
                 ? () => {
@@ -1228,6 +1231,7 @@ function StickyCta({
   onWatchRecording,
   isJoining,
   hostEnded,
+  recordingHidden,
   onRejoin,
   inWaitingRoom,
   playsStream,
@@ -1250,6 +1254,8 @@ function StickyCta({
   isJoining: boolean;
   /** The host ended the webinar in Zoom; the room closes shortly after. */
   hostEnded: boolean;
+  /** The organiser has not switched the webinar's recording on, so no replay is promised. */
+  recordingHidden: boolean;
   /** Back into the room after "ended by host", for a host who restarted. */
   onRejoin?: () => void;
   /** The branded waiting room is showing: the host has not opened the room. */
@@ -1418,7 +1424,9 @@ function StickyCta({
           <div className="flex-1 text-center sm:text-left">
             <p className="font-semibold">This webinar has ended</p>
             <p className="text-xs text-muted-foreground">
-              Thank you for joining. The recording will appear on this page when it is ready.
+              {recordingHidden
+                ? "Thank you for joining."
+                : "Thank you for joining. The recording will appear on this page when it is ready."}
             </p>
           </div>
           {/* A host who ends by mistake (or whose Zoom crashes) and restarts

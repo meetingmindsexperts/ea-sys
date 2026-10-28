@@ -137,6 +137,19 @@ export function webinarRecordingShown(settings: unknown): boolean {
   return readWebinarSettings(settings)?.showRecording === true;
 }
 
+/**
+ * The {{recordingBlock}} of a webinar email: a Watch Replay button once the recording is fetched, a
+ * "coming shortly" line before that, and nothing at all while the organiser has not switched the
+ * recording on (Oct 28, 2026), since the thank-you email goes out on its own.
+ */
+export function webinarRecordingBlock(shown: boolean, recordingUrl: string, format: "html" | "text"): string {
+  if (!shown) return "";
+  const pending = "The recording will be available shortly. We'll send it to you as soon as it's ready.";
+  if (format === "text") return recordingUrl ? `Watch replay: ${recordingUrl}` : pending;
+  if (!recordingUrl) return `<p style="color:#6b7280;">${pending}</p>`;
+  return `<div style="text-align:center; margin:20px 0;"><a href="${recordingUrl}" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Watch Replay</a></div>`;
+}
+
 export interface WebinarPageBranding {
   logoUrl: string | null;
   backgroundUrl: string | null;

@@ -330,7 +330,9 @@ describe("webinar recording on the attendee page: the organiser's switch, off by
 
   it("the detail tells the page nothing about the recording until the switch is on", async () => {
     mockDb.event.findFirst.mockResolvedValue(event("WEBINAR", {}));
-    expect((await (await DETAIL_GET(req(), params)).json()).session.zoomMeeting).toEqual({ recordingStatus: null });
+    const hidden = (await (await DETAIL_GET(req(), params)).json()).session;
+    expect(hidden.zoomMeeting).toEqual({ recordingStatus: null });
+    expect(hidden.recordingHidden).toBe(true);
     mockDb.event.findFirst.mockResolvedValue(event("WEBINAR", { webinar: { showRecording: false } }));
     expect((await (await DETAIL_GET(req(), params)).json()).session.zoomMeeting).toEqual({ recordingStatus: null });
     mockDb.event.findFirst.mockResolvedValue(event("WEBINAR", { webinar: { showRecording: true } }));
@@ -339,7 +341,9 @@ describe("webinar recording on the attendee page: the organiser's switch, off by
 
   it("conference sessions keep showing their recording as before (webinars only, owner)", async () => {
     mockDb.event.findFirst.mockResolvedValue(event("CONFERENCE", {}));
-    expect((await (await DETAIL_GET(req(), params)).json()).session.zoomMeeting).toEqual({ recordingStatus: "AVAILABLE" });
+    const conference = (await (await DETAIL_GET(req(), params)).json()).session;
+    expect(conference.zoomMeeting).toEqual({ recordingStatus: "AVAILABLE" });
+    expect(conference.recordingHidden).toBe(false);
   });
 
   it("the recording route refuses the link to a registered attendee while the switch is off", async () => {

@@ -34,6 +34,7 @@ import {
 } from "./survey/expiry";
 import { ensurePersonalSurveyLink, surveyLinkWasRepaired } from "./survey/invitation-link";
 import { buildThankYouSurveyBlock, registrationsThatAnswered, resolveThankYouSurvey, withThankYouSurveyBlock } from "./webinar-thank-you-survey";
+import { webinarRecordingBlock, webinarRecordingShown } from "./webinar";
 import { resolveInvitationSurvey, responseWhereForSurvey, surveyTokenIdentifier } from "@/services/survey-service";
 import { surveyRespondedSchema } from "./survey/responded-filter";
 import { isDailyMode, type SurveyResponseModeValue } from "./survey/response-mode";
@@ -1832,8 +1833,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // Recording URL is only populated once the webinar has ended AND the
     // cron worker has successfully fetched it from Zoom. Until then, the
     // template renders a "coming soon" fallback via recordingBlock.
+    // The organiser's switch (Oct 28, 2026): while the recording is not shown to attendees the email
+    // neither links it nor promises it, since the thank-you goes out on its own at end + 30 min.
+    const recordingShown = webinarRecordingShown(event.settings);
     const recordingUrl =
-      zoomMeeting?.recordingStatus === "AVAILABLE" && zoomMeeting.recordingUrl
+      recordingShown && zoomMeeting?.recordingStatus === "AVAILABLE" && zoomMeeting.recordingUrl
         ? zoomMeeting.recordingUrl
         : "";
     webinarEnrichment = {
@@ -1852,12 +1856,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         ? `<div style="text-align:center; margin:12px 0; color:#374151; font-size:14px;">Passcode: <strong style="font-family:monospace;">${passcode}</strong></div>`
         : "",
       passcodeBlockText: passcode ? `Passcode: ${passcode}` : "",
-      recordingBlockHtml: recordingUrl
-        ? `<div style="text-align:center; margin:20px 0;"><a href="${recordingUrl}" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Watch Replay</a></div>`
-        : `<p style="color:#6b7280;">The recording will be available shortly. We'll send it to you as soon as it's ready.</p>`,
-      recordingBlockText: recordingUrl
-        ? `Watch replay: ${recordingUrl}`
-        : "The recording will be available shortly. We'll send it to you as soon as it's ready.",
+      recordingBlockHtml: webinarRecordingBlock(recordingShown, recordingUrl, "html"),
+      recordingBlockText: webinarRecordingBlock(recordingShown, recordingUrl, "text"),
       ...buildWebinarCalendarEnrichment({
         eventName: event.name,
         joinUrl: `${appUrl}/e/${event.slug}/session/${anchorSessionId}`,

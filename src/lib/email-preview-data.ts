@@ -30,6 +30,7 @@ import { apiLogger } from "./logger";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "./event-time";
 import { buildSpeakerEmailContext } from "./speaker-agreement";
 import { buildAbstractManagementLink } from "./abstract-notifications";
+import { webinarRecordingBlock, webinarRecordingShown } from "./webinar";
 
 export async function buildRealPreviewOverrides(
   eventId: string,
@@ -41,6 +42,8 @@ export async function buildRealPreviewOverrides(
         select: {
           slug: true,
           timezone: true,
+          eventType: true,
+          settings: true,
           eventSessions: {
             orderBy: { startTime: "asc" },
             take: 1,
@@ -118,13 +121,13 @@ export async function buildRealPreviewOverrides(
         overrides.passcodeBlock = passcode
           ? `<div style="text-align:center; margin:12px 0; color:#374151; font-size:14px;">Passcode: <strong style="font-family:monospace;">${passcode}</strong></div>`
           : "";
+        // The organiser's recording switch applies to webinars, as in the real send.
+        const recordingShown = event.eventType !== "WEBINAR" || webinarRecordingShown(event.settings);
         const recordingUrl =
-          session.zoomMeeting.recordingStatus === "AVAILABLE" && session.zoomMeeting.recordingUrl
+          recordingShown && session.zoomMeeting.recordingStatus === "AVAILABLE" && session.zoomMeeting.recordingUrl
             ? session.zoomMeeting.recordingUrl
             : "";
-        overrides.recordingBlock = recordingUrl
-          ? `<div style="text-align:center; margin:20px 0;"><a href="${recordingUrl}" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Watch Replay</a></div>`
-          : `<p style="color:#6b7280;">The recording will be available shortly. We'll send it to you as soon as it's ready.</p>`;
+        overrides.recordingBlock = webinarRecordingBlock(recordingShown, recordingUrl, "html");
       }
     }
 

@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Webinars: the organiser decides when attendees see the recording (October 28)
 
-- **Webinar Console, Analytics, Recording card**: a "Show the recording to attendees" switch, **off by default**. While off, the webinar page shows no "Recording available" card and no "processing" note, and the replay link route refuses with 404 even for a registered attendee. Stored as `settings.webinar.showRecording`. Conference session pages are unchanged (owner: webinars only). The thank-you email still carries the recording when the organiser sends it.
+- **Webinar Console, Analytics, Recording card**: a "Show the recording to attendees" switch, **off by default**. While off, the webinar page shows no "Recording available" card and no "processing" note, and the replay link route refuses with 404 even for a registered attendee. Stored as `settings.webinar.showRecording`. Conference session pages are unchanged (owner: webinars only). The webinar emails follow the same switch: while off, `{{recordingBlock}}` is empty (the automatic thank-you at end + 30 min neither links the recording nor promises it), and previews match. The "webinar has ended" card no longer promises a replay while the switch is off.
 
 ### Speakers: Invited speakers means the organisers' own faculty (October 27)
 
