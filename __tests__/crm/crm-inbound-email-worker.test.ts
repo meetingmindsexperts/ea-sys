@@ -68,6 +68,7 @@ import {
   extractReplyToken,
   verifySender,
   buildForwardAudience,
+  microsoftJunkVerdict,
 } from "@/crm/inbound-email-worker";
 
 const TOKEN = "abcdef0123456789abcd";
@@ -348,6 +349,27 @@ describe("runTick", () => {
     expect(sendEmail).not.toHaveBeenCalled(); // the loser never forwards
     const cmds = s3Send.mock.calls.map((c) => (c[0] as { cmd: string }).cmd);
     expect(cmds).toContain("Copy"); // still moved out of inbound/
+  });
+});
+
+describe("microsoftJunkVerdict", () => {
+  const parsed = (...reports: string[]) =>
+    ({ headerLines: reports.map((r) => ({ key: "x-forefront-antispam-report", line: `X-Forefront-Antispam-Report: ${r}` })) }) as never;
+
+  it("reads Microsoft's spam verdict, category and SCL", () => {
+    expect(microsoftJunkVerdict(parsed("SCL:5;SFV:SPM;CAT:OSPM"))).toBe("microsoft-sfv:SPM");
+    expect(microsoftJunkVerdict(parsed("SCL:1;SFV:NSPM;CAT:PHSH"))).toBe("microsoft-cat:PHSH");
+    expect(microsoftJunkVerdict(parsed("SCL:6;SFV:NSPM;CAT:NONE"))).toBe("microsoft-scl:6");
+  });
+
+  it("clean mail, or no report at all, is not junk", () => {
+    expect(microsoftJunkVerdict(parsed("CIP:1.2.3.4;SCL:1;SFV:NSPM;CAT:NONE"))).toBeNull();
+    expect(microsoftJunkVerdict(parsed("SCL:-1;SFV:SKN"))).toBeNull();
+    expect(microsoftJunkVerdict(parsed())).toBeNull();
+  });
+
+  it("a sender-added clean report cannot hide Microsoft's junk one", () => {
+    expect(microsoftJunkVerdict(parsed("SCL:1;SFV:NSPM", "SCL:5;SFV:SPM"))).toBe("microsoft-sfv:SPM");
   });
 });
 

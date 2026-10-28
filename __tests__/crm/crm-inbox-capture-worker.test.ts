@@ -229,6 +229,24 @@ describe("partnerships capture", () => {
     expect(resolveCaptureContact).not.toHaveBeenCalled();
   });
 
+  it("quarantines what Microsoft 365 called junk, though SES passed the relayed copy (Oct 28 scam)", async () => {
+    mockS3({
+      "inbound/scam": rawEmail({
+        from: '"COMPENSATION FUND" <hr@bda.com.sa>',
+        extra: ["X-Forefront-Antispam-Report: CIP:172.81.118.15;CTRY:US;LANG:en;SCL:5;SRV:;IPV:NLI;SFV:SPM;CAT:OSPM;DIR:OUT;SFP:1501"],
+      }),
+    });
+    expect(await runTick()).toMatchObject({ quarantined: 1, stored: 0 });
+    expect(movedTo()).toEqual(["quarantine/scam"]);
+    expect(resolveCaptureContact).not.toHaveBeenCalled();
+    expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
+  });
+
+  it("files mail Microsoft called clean", async () => {
+    mockS3({ "inbound/clean": rawEmail({ extra: ["X-Forefront-Antispam-Report: CIP:1.2.3.4;SCL:1;SFV:NSPM;CAT:NONE;DIR:INB"] }) });
+    expect(await runTick()).toMatchObject({ stored: 1 });
+  });
+
   it("an inbound message is verified only with SES's dmarc=pass", async () => {
     mockS3({ "inbound/none": rawEmail({ dmarc: "none" }) });
     await runTick();
