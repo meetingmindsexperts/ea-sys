@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, tx } = vi.hoisted(() => {
   const tx = {
-    eventBudget: { findUnique: vi.fn(), update: vi.fn() },
+    eventBudget: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     budgetLine: { aggregate: vi.fn().mockResolvedValue({ _max: { sortOrder: 2 } }), create: vi.fn(), update: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   };

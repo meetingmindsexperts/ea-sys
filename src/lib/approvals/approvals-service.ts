@@ -296,7 +296,11 @@ export async function createApprovalRequest(db: Db, input: CreateApprovalRequest
         },
       },
     })
-    .catch((err) => apiLogger.error({ msg: "approvals:audit-failed", err }));
+    .catch((err) => {
+          // Rethrown, never swallowed: inside a transaction a swallowed failure reports success for a rolled-back write (P0-1).
+          apiLogger.error({ msg: "approvals:audit-failed", err });
+          throw err;
+        });
   return { ok: true as const, request };
 }
 
@@ -393,7 +397,11 @@ export async function decideApprovalRequest(db: Db, input: DecideApprovalInput) 
         },
       },
     })
-    .catch((err) => apiLogger.error({ msg: "approvals:audit-failed", err }));
+    .catch((err) => {
+          // Rethrown, never swallowed: inside a transaction a swallowed failure reports success for a rolled-back write (P0-1).
+          apiLogger.error({ msg: "approvals:audit-failed", err });
+          throw err;
+        });
   return { ok: true as const, request: updated };
 }
 
@@ -481,7 +489,11 @@ async function decideChainLevel(db: Db, input: DecideApprovalInput, request: Req
         },
       },
     })
-    .catch((err) => apiLogger.error({ msg: "approvals:audit-failed", err }));
+    .catch((err) => {
+          // Rethrown, never swallowed: inside a transaction a swallowed failure reports success for a rolled-back write (P0-1).
+          apiLogger.error({ msg: "approvals:audit-failed", err });
+          throw err;
+        });
   apiLogger.info({ msg: advancing ? "approvals:chain-level-approved" : "approvals:chain-decided", organizationId: input.organizationId, requestId: request.id, level: levelIndex + 1, levels: chain.levels.length, decision: input.decision, asStandIn: judged.asStandIn });
   return { ok: true as const, request: updated };
 }
@@ -534,7 +546,11 @@ export async function cancelPendingApprovals(
         changes: { source: input.source, subjectType: input.subjectType, subjectId: input.subjectId, requestIds: ids },
       },
     })
-    .catch((err) => apiLogger.error({ msg: "approvals:audit-failed", err }));
+    .catch((err) => {
+          // Rethrown, never swallowed: inside a transaction a swallowed failure reports success for a rolled-back write (P0-1).
+          apiLogger.error({ msg: "approvals:audit-failed", err });
+          throw err;
+        });
   return res.count;
 }
 

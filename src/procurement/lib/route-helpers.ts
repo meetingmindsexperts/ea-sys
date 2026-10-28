@@ -177,6 +177,7 @@ export const HTTP_STATUS_FOR_SPEND_REQUEST_ERROR: Record<SpendRequestErrorCode, 
 };
 
 export const HTTP_STATUS_FOR_REVENUE_ERROR: Record<RevenueErrorCode, number> = {
+  STALE_WRITE: 409,
   BUDGET_NOT_FOUND: 404,
   LINE_NOT_FOUND: 404,
   CATEGORY_NOT_FOUND: 404,

@@ -115,7 +115,8 @@ export const upsertBudgetLineSchema = z.object({
   description: z.string().trim().min(1).max(500).optional(),
   qty: moneyInput.optional(),
   unitCost: moneyInput.optional(),
-  transactionCurrency: z.string().trim().length(3).toUpperCase().optional(),
+  // One of the module's currencies, whatever the case (P1-2, Oct 28, 2026): any three letters used to be written.
+  transactionCurrency: z.preprocess((v) => (typeof v === "string" ? v.trim().toUpperCase() : v), z.enum(BUDGET_CURRENCIES)).optional(),
   fxRateToReporting: rateInput.nullable().optional(),
   taxCode: z.string().max(30).nullable().optional(),
   taxRatePercent: moneyInput.nullable().optional(),

@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Budgets and spend requests: no silent no-ops, no lost edits, no mispriced approvals (October 28)
+
+From an adversarial test plan, each failure reproduced on the local database before the fix:
+
+- **A failed audit write no longer reports success.** The money services swallowed an audit insert error inside their transaction; Postgres had already aborted it, so the change rolled back while the caller was told it saved. The audit helpers in budgets, revenue, spend requests, purchase orders and approvals now rethrow, and the five writes that audited after committing (spend request edit and amend, quote removal and file, purchase order send) now commit with their audit row. A purchase order emailed but not recorded says so, so it is not sent twice.
+- **Two edits of one budget can no longer both win.** Every line and revenue-line write first claims the budget row on the version it read (`claimBudgetForWrite`); the loser gets 409 `STALE_WRITE` and writes nothing. Before: 40 of 40 simultaneous edits were both accepted.
+- **A line edit can no longer change a budget the approval was already priced on.** The submit is conditional on the version read. Before: 5 of 40 races sent an approval below the budget's real total.
+- **A budget line's currency must be one of the module's** (AED, USD, EUR, GBP, SAR); any three letters were accepted.
+- `scripts/budget-race-check.ts` races the real services on the local database (local only) and checks both invariants.
+
 ### Webinars: an exit screen when the webinar ends (October 28)
 
 - Once the webinar is over for the viewer (`isWebinarOver`: the host ended it in Zoom, or the room is closed after the scheduled end), the attendee page swaps the video and tabs for a "Thank you for attending" screen ([exit-screen.tsx](src/components/webinar/exit-screen.tsx)). Same URL and the same branding (page logo, background, and the footer image under it); the end-of-webinar survey banner and popup sit above it; the replay button shows once the recording switch is on; Rejoin stays for a host who restarted while the room is open.

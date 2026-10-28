@@ -188,10 +188,20 @@ function fail(code: SpendRequestErrorCode, message: string, ctx: Record<string, 
   return { ok: false, code, message, ...(meta ? { meta } : {}) };
 }
 
+/**
+ * The audit row is written in the caller's transaction and a failure is
+ * RETHROWN (adversarial test P0-1, Oct 28, 2026). Swallowing it was worse than
+ * losing the row: Postgres had already aborted the transaction, so the
+ * mutation rolled back while the caller was told it succeeded. Rethrown, the
+ * whole write fails and the service returns its logged UNKNOWN instead.
+ */
 async function audit(client: Db, data: { userId: string; organizationId: string; action: string; entityId: string; changes: Prisma.InputJsonValue }) {
   await client.auditLog
     .create({ data: { ...data, entityType: "SpendRequest" } })
-    .catch((err) => apiLogger.error({ msg: "procurement/requests:audit-failed", err, action: data.action }));
+    .catch((err) => {
+      apiLogger.error({ msg: "procurement/requests:audit-failed", err, action: data.action });
+      throw err;
+    });
 }
 
 async function loadRequest(client: Db, organizationId: string, requestId: string) {
@@ -600,9 +610,14 @@ export async function updateSpendRequest(input: UpdateSpendRequestInput): Promis
     ...(input.emailSupplierOnIssue !== undefined ? { emailSupplierOnIssue: input.emailSupplierOnIssue } : {}),
   };
   try {
-    const res = await db.spendRequest.updateMany({ where: { id: r.id, organizationId: input.organizationId, status: "DRAFT", version: input.expectedVersion }, data: { ...data, version: { increment: 1 } } });
-    if (res.count === 0) return fail("STALE_WRITE", "Someone else changed this request; reload and try again.", ctx, { currentVersion: r.version });
-    await audit(db, { userId: input.actor.id, organizationId: input.organizationId, action: "UPDATE", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, budgetId: refs.budget.id, fields: Object.keys(input).filter((k) => !["organizationId", "actor", "source", "requestId", "expectedVersion"].includes(k)) } });
+    // The write and its audit row commit together, or neither does (P0-1).
+    const written = await tenantTransaction(async (tx) => {
+      const res = await tx.spendRequest.updateMany({ where: { id: r.id, organizationId: input.organizationId, status: "DRAFT", version: input.expectedVersion }, data: { ...data, version: { increment: 1 } } });
+      if (res.count === 0) return false;
+      await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "UPDATE", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, budgetId: refs.budget.id, fields: Object.keys(input).filter((k) => !["organizationId", "actor", "source", "requestId", "expectedVersion"].includes(k)) } });
+      return true;
+    });
+    if (!written) return fail("STALE_WRITE", "Someone else changed this request; reload and try again.", ctx, { currentVersion: r.version });
     return getSpendRequest(input.organizationId, r.id);
   } catch (err) {
     apiLogger.error({ msg: "procurement/requests:update-failed", err, ...ctx });
@@ -849,12 +864,17 @@ export async function amendSpendRequest(input: { organizationId: string; actor: 
     // Applied at once; the check is re-read so a request lowered back within the line drops its exception badge.
     const lowered = budgetCheck({ budgetStatus: budget.status, line, amountReporting: nextReporting, alreadyCommitted: r.linkedCommitmentId ? previousReporting : 0, reservedByOthers: reserved });
     try {
-      const res = await db.spendRequest.updateMany({
-        where: { id: r.id, organizationId: input.organizationId, status: r.status, version: input.expectedVersion },
-        data: { amount: storedString(amount), taxRatePercent: nextTaxPair.taxRatePercent, taxAmount: nextTax, amountAed: r.amountAed === null ? null : storedString(toStored(money(r.amountAed).mul(nextReporting).div(previousReporting))), budgetCheckStatus: lowered.status, version: { increment: 1 } },
+      // The write and its audit row commit together, or neither does (P0-1).
+      const written = await tenantTransaction(async (tx) => {
+        const res = await tx.spendRequest.updateMany({
+          where: { id: r.id, organizationId: input.organizationId, status: r.status, version: input.expectedVersion },
+          data: { amount: storedString(amount), taxRatePercent: nextTaxPair.taxRatePercent, taxAmount: nextTax, amountAed: r.amountAed === null ? null : storedString(toStored(money(r.amountAed).mul(nextReporting).div(previousReporting))), budgetCheckStatus: lowered.status, version: { increment: 1 } },
+        });
+        if (res.count === 0) return false;
+        await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "AMEND", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, previousAmount: storedString(r.amount), nextAmount: storedString(amount), nextTaxRatePercent: nextTaxPair.taxRatePercent, nextTaxAmount: nextTax, deltaReporting: storedString(effect.delta), reason: input.reason.trim() } });
+        return true;
       });
-      if (res.count === 0) return fail("STALE_WRITE", "Someone else changed this request; reload and try again.", ctx, { currentVersion: r.version });
-      await audit(db, { userId: input.actor.id, organizationId: input.organizationId, action: "AMEND", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, previousAmount: storedString(r.amount), nextAmount: storedString(amount), nextTaxRatePercent: nextTaxPair.taxRatePercent, nextTaxAmount: nextTax, deltaReporting: storedString(effect.delta), reason: input.reason.trim() } });
+      if (!written) return fail("STALE_WRITE", "Someone else changed this request; reload and try again.", ctx, { currentVersion: r.version });
       return getSpendRequest(input.organizationId, r.id);
     } catch (err) {
       apiLogger.error({ msg: "procurement/requests:amend-failed", err, ...ctx });
@@ -1035,9 +1055,13 @@ export async function removeQuote(input: { organizationId: string; actor: Actor;
   if (r.requesterUserId !== input.actor.id && !input.actor.isAdmin) return fail("NOT_REQUESTER", "Only the person who raised this request can remove a quote.", ctx);
   try {
     // Bound to a DRAFT parent in the same statement, so a submit racing this cannot strip the quote it was checked on.
-    const res = await db.spendRequestQuote.deleteMany({ where: { id: input.quoteId, spendRequestId: r.id, organizationId: input.organizationId, spendRequest: { status: "DRAFT" } } });
-    if (res.count === 0) return fail("QUOTE_NOT_FOUND", "That quote is not on this request, or the request is no longer a draft.", ctx);
-    await audit(db, { userId: input.actor.id, organizationId: input.organizationId, action: "QUOTE_REMOVED", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, quoteId: input.quoteId } });
+    const removed = await tenantTransaction(async (tx) => {
+      const res = await tx.spendRequestQuote.deleteMany({ where: { id: input.quoteId, spendRequestId: r.id, organizationId: input.organizationId, spendRequest: { status: "DRAFT" } } });
+      if (res.count === 0) return false;
+      await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "QUOTE_REMOVED", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, quoteId: input.quoteId } });
+      return true;
+    });
+    if (!removed) return fail("QUOTE_NOT_FOUND", "That quote is not on this request, or the request is no longer a draft.", ctx);
     return getSpendRequest(input.organizationId, r.id);
   } catch (err) {
     apiLogger.error({ msg: "procurement/requests:quote-remove-failed", err, ...ctx });
@@ -1067,12 +1091,16 @@ export async function setQuoteFile(input: { organizationId: string; actor: Actor
     return { ...detail, replacedFileUrl: null };
   }
   try {
-    const res = await db.spendRequestQuote.updateMany({
-      where: { id: quote.id, spendRequestId: r.id, organizationId: input.organizationId, spendRequest: { status: "DRAFT" } },
-      data: { fileUrl: input.fileUrl, fileName: input.fileName, fileMimeType: input.fileMimeType, fileSize: input.fileSize },
+    const attached = await tenantTransaction(async (tx) => {
+      const res = await tx.spendRequestQuote.updateMany({
+        where: { id: quote.id, spendRequestId: r.id, organizationId: input.organizationId, spendRequest: { status: "DRAFT" } },
+        data: { fileUrl: input.fileUrl, fileName: input.fileName, fileMimeType: input.fileMimeType, fileSize: input.fileSize },
+      });
+      if (res.count === 0) return false;
+      await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: input.fileUrl ? "QUOTE_FILE_ATTACHED" : "QUOTE_FILE_REMOVED", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, quoteId: quote.id, fileName: input.fileName, fileSize: input.fileSize } });
+      return true;
     });
-    if (res.count === 0) return fail("STALE_WRITE", "The request was submitted while the file was being attached. Reload.", ctx);
-    await audit(db, { userId: input.actor.id, organizationId: input.organizationId, action: input.fileUrl ? "QUOTE_FILE_ATTACHED" : "QUOTE_FILE_REMOVED", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, quoteId: quote.id, fileName: input.fileName, fileSize: input.fileSize } });
+    if (!attached) return fail("STALE_WRITE", "The request was submitted while the file was being attached. Reload.", ctx);
     const detail = await getSpendRequest(input.organizationId, r.id);
     return { ...detail, replacedFileUrl: quote.fileUrl };
   } catch (err) {

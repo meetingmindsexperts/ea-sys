@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb, tx } = vi.hoisted(() => {
   const tx = {
     budgetRevenueLine: { update: vi.fn(), create: vi.fn().mockResolvedValue({ id: "r-new" }), delete: vi.fn(), aggregate: vi.fn(), findMany: vi.fn(), createMany: vi.fn() },
-    eventBudget: { update: vi.fn() },
+    eventBudget: { update: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   };
   const mockDb = {
@@ -38,7 +38,7 @@ const savedLine = { id: "r-new", lineKey: "k", categoryId: "c-430005", descripti
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDb.eventBudget.findFirst.mockResolvedValue({ id: "b1", status: "DRAFT", reportingCurrency: "AED" });
+  mockDb.eventBudget.findFirst.mockResolvedValue({ id: "b1", status: "DRAFT", reportingCurrency: "AED", version: 4 });
   mockDb.budgetCategory.findFirst.mockResolvedValue({ id: "c-430005" });
   mockDb.budgetRevenueLine.findFirst.mockResolvedValue(savedLine);
   tx.budgetRevenueLine.aggregate.mockImplementation(({ _sum, _max }: { _sum?: unknown; _max?: unknown }) => Promise.resolve(_sum ? { _sum: { planned: "300000" } } : _max ? { _max: { sortOrder: 2 } } : {}));
@@ -81,7 +81,8 @@ describe("upsertRevenueLine", () => {
     expect(r).toMatchObject({ ok: true });
     expect(tx.budgetRevenueLine.create.mock.calls[0][0].data).toMatchObject({ organizationId: ORG, budgetId: "b1", description: "Physicians", planned: "1101750.0000", sortOrder: 3, transactionCurrency: "USD" });
     expect(tx.eventBudget.update).toHaveBeenCalledWith({ where: { id: "b1" }, data: { plannedRevenueTotal: "300000.0000" } });
-    expect(tx.eventBudget.update).toHaveBeenCalledWith({ where: { id: "b1" }, data: { version: { increment: 1 } } });
+    // The version moves through the claim, conditional on the version read and on DRAFT (P0-2, P0-3).
+    expect(tx.eventBudget.updateMany).toHaveBeenCalledWith({ where: { id: "b1", version: 4, status: "DRAFT" }, data: { version: { increment: 1 } } });
     expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ entityType: "BudgetRevenueLine", action: "CREATE", changes: expect.objectContaining({ budgetId: "b1", planned: "1101750.0000" }) }) }));
   });
   it("deletes only on a draft and only a line of that budget and org", async () => {

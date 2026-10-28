@@ -37,6 +37,7 @@ import {
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { ensureBudgetCategories } from "./budget-category-service";
 import { eventBudgetIds, lockEventCommitted, syncBudgetCommitted } from "./committed-figures";
+import { BudgetStaleWrite, claimBudgetForWrite } from "./budget-claim";
 import { cloneRevenueLines, ensureRevenueCategories, readRevenueActuals, recomputePlannedRevenue } from "./budget-revenue-service";
 
 export type BudgetErrorCode =
@@ -143,9 +144,21 @@ function fail(code: BudgetErrorCode, message: string, ctx: Record<string, unknow
   return { ok: false, code, message, ...(meta ? { meta } : {}) };
 }
 
+/**
+ * The audit row is written in the caller's transaction and a failure is
+ * RETHROWN (adversarial test P0-1, Oct 28, 2026). Swallowing it was worse than
+ * losing the row: Postgres had already aborted the transaction, so the
+ * mutation rolled back while the caller was told it succeeded. Rethrown, the
+ * whole write fails and the service returns its logged UNKNOWN instead.
+ */
 async function audit(client: Db, data: { userId: string; organizationId: string; action: string; entityType: string; entityId: string; changes: Prisma.InputJsonValue }) {
-  await client.auditLog.create({ data }).catch((err) => apiLogger.error({ msg: "procurement/budget:audit-failed", err, action: data.action }));
+  await client.auditLog.create({ data }).catch((err) => {
+    apiLogger.error({ msg: "procurement/budget:audit-failed", err, action: data.action });
+    throw err;
+  });
 }
+
+const STALE_MESSAGE = "Someone else changed this budget a moment ago. Reload and try again.";
 
 async function loadBudget(client: Db, organizationId: string, budgetId: string) {
   return client.eventBudget.findFirst({ where: { id: budgetId, organizationId }, select: BUDGET_SELECT });
@@ -797,6 +810,7 @@ export async function upsertBudgetLine(input: UpsertBudgetLineInput): Promise<Bu
   };
   try {
     await tenantTransaction(async (tx) => {
+      await claimBudgetForWrite(tx, b, { requireDraft: touchesPlanned });
       if (existing) {
         await tx.budgetLine.update({ where: { id: existing.id }, data: { ...plannedData, ...softData } });
       } else {
@@ -813,7 +827,6 @@ export async function upsertBudgetLine(input: UpsertBudgetLineInput): Promise<Bu
         });
       }
       await recomputeBudgetTotals(tx, b.id);
-      await tx.eventBudget.update({ where: { id: b.id }, data: { version: { increment: 1 } } });
       await audit(tx, {
         userId: input.actorUserId, organizationId: input.organizationId, action: existing ? "UPDATE" : "CREATE", entityType: "BudgetLine",
         entityId: existing?.id ?? b.id, changes: { source: input.source, budgetId: b.id, description, planned: storedString(totals.planned), touchesPlanned, productSku },
@@ -821,6 +834,7 @@ export async function upsertBudgetLine(input: UpsertBudgetLineInput): Promise<Bu
     });
     return getBudget(input.organizationId, b.id);
   } catch (err) {
+    if (err instanceof BudgetStaleWrite) return fail("STALE_WRITE", STALE_MESSAGE, ctx);
     apiLogger.error({ msg: "procurement/budget:line-upsert-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not save the line.", ctx);
   }
@@ -837,13 +851,14 @@ export async function deleteBudgetLine(input: { organizationId: string; actorUse
   if (money(line.committedOpen).gt(0)) return fail("LINE_HAS_COMMITMENTS", "This line has open commitments; reassign them before removing it (spec §5).", ctx);
   try {
     await tenantTransaction(async (tx) => {
+      await claimBudgetForWrite(tx, b, { requireDraft: true });
       await tx.budgetLine.update({ where: { id: line.id }, data: { deletedAt: new Date() } });
       await recomputeBudgetTotals(tx, b.id);
-      await tx.eventBudget.update({ where: { id: b.id }, data: { version: { increment: 1 } } });
       await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "DELETE", entityType: "BudgetLine", entityId: line.id, changes: { source: input.source, budgetId: b.id, description: line.description } });
     });
     return getBudget(input.organizationId, b.id);
   } catch (err) {
+    if (err instanceof BudgetStaleWrite) return fail("STALE_WRITE", STALE_MESSAGE, ctx);
     apiLogger.error({ msg: "procurement/budget:line-delete-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not remove the line.", ctx);
   }
@@ -893,7 +908,9 @@ export async function submitBudget(input: { organizationId: string; actorUserId:
         source: input.source,
       });
       if (!req.ok) return req;
-      const res = await tx.eventBudget.updateMany({ where: { id: b.id, organizationId: input.organizationId, status: "DRAFT" }, data: { status: "UNDER_REVIEW", submittedAt: new Date(), version: { increment: 1 } } });
+      // On the version read too, not only the status: the approval's amount was taken from that read,
+      // so a line saved since must make this submit stale rather than route the old figure (P0-3).
+      const res = await tx.eventBudget.updateMany({ where: { id: b.id, organizationId: input.organizationId, status: "DRAFT", version: b.version }, data: { status: "UNDER_REVIEW", submittedAt: new Date(), version: { increment: 1 } } });
       if (res.count === 0) throw new Error("STALE");
       await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "SUBMIT", entityType: "EventBudget", entityId: b.id, changes: { source: input.source, amountAed: amountAed.toString(), ...rateUsed, approvalRequestId: req.request.id } });
       return req;

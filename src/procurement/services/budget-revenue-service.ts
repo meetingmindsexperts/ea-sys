@@ -14,6 +14,7 @@
  * Errors as values; runs inside the caller's tenant lane.
  */
 import { db, tenantTransaction } from "@/lib/db";
+import { BudgetStaleWrite, claimBudgetForWrite } from "./budget-claim";
 import { apiLogger } from "@/lib/logger";
 import type { Prisma } from "@prisma/client";
 import type { Db } from "@/lib/approvals/approvals-service";
@@ -22,7 +23,7 @@ import { INCOME_ACCOUNTS } from "../lib/income-accounts";
 import { lineTotals, money, storedString, type MoneyInput } from "../lib/money";
 import { aggregateActuals, marginView, type MarginView, type RevenueActuals } from "../lib/revenue-rules";
 
-export type RevenueErrorCode = "BUDGET_NOT_FOUND" | "LINE_NOT_FOUND" | "CATEGORY_NOT_FOUND" | "INVALID_STATUS" | "RATE_REQUIRED" | "INVALID_AMOUNT" | "UNKNOWN";
+export type RevenueErrorCode = "STALE_WRITE" | "BUDGET_NOT_FOUND" | "LINE_NOT_FOUND" | "CATEGORY_NOT_FOUND" | "INVALID_STATUS" | "RATE_REQUIRED" | "INVALID_AMOUNT" | "UNKNOWN";
 export type RevenueResult<T> = { ok: true; value: T } | { ok: false; code: RevenueErrorCode; message: string };
 type Source = "ui" | "mcp";
 
@@ -194,7 +195,7 @@ export interface UpsertRevenueLineInput {
 }
 
 async function draftBudget(organizationId: string, budgetId: string, ctx: Record<string, unknown>) {
-  const b = await db.eventBudget.findFirst({ where: { id: budgetId, organizationId }, select: { id: true, status: true, reportingCurrency: true } });
+  const b = await db.eventBudget.findFirst({ where: { id: budgetId, organizationId }, select: { id: true, status: true, reportingCurrency: true, version: true } });
   if (!b) return fail("BUDGET_NOT_FOUND", "The budget was not found.", ctx);
   if (b.status !== "DRAFT") {
     return fail("INVALID_STATUS", "Planned revenue changes on a draft version only, like planned expense. Create a new version to revise it.", ctx);
@@ -250,6 +251,8 @@ export async function upsertRevenueLine(input: UpsertRevenueLineInput): Promise<
   };
   try {
     const id = await tenantTransaction(async (tx) => {
+      // Claimed first on the version read and on DRAFT, like the expense lines (P0-2, P0-3).
+      await claimBudgetForWrite(tx, b, { requireDraft: true });
       let lineId: string;
       if (existing) {
         await tx.budgetRevenueLine.update({ where: { id: existing.id }, data });
@@ -263,7 +266,7 @@ export async function upsertRevenueLine(input: UpsertRevenueLineInput): Promise<
         lineId = created.id;
       }
       await recomputePlannedRevenue(tx, b.id);
-      await tx.eventBudget.update({ where: { id: b.id }, data: { version: { increment: 1 } } });
+
       await tx.auditLog
         .create({
           data: {
@@ -271,13 +274,18 @@ export async function upsertRevenueLine(input: UpsertRevenueLineInput): Promise<
             changes: { source: input.source, budgetId: b.id, description, planned: storedString(planned), currency },
           },
         })
-        .catch((err) => apiLogger.error({ msg: "procurement/revenue:audit-failed", err }));
+        .catch((err) => {
+          // Rethrown, never swallowed: inside a transaction a swallowed failure reports success for a rolled-back write (P0-1).
+          apiLogger.error({ msg: "procurement/revenue:audit-failed", err });
+          throw err;
+        });
       return lineId;
     });
     const row = await db.budgetRevenueLine.findFirst({ where: { id, organizationId: input.organizationId }, select: REVENUE_LINE_SELECT });
     if (!row) return fail("LINE_NOT_FOUND", "The revenue line was not found.", ctx);
     return { ok: true, value: toRevenueLineView(row) };
   } catch (err) {
+    if (err instanceof BudgetStaleWrite) return fail("STALE_WRITE", "Someone else changed this budget a moment ago. Reload and try again.", ctx);
     apiLogger.error({ msg: "procurement/revenue:upsert-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not save the revenue line.", ctx);
   }
@@ -291,16 +299,22 @@ export async function deleteRevenueLine(input: { organizationId: string; actorUs
   if (!line) return fail("LINE_NOT_FOUND", "The revenue line was not found.", ctx);
   try {
     await tenantTransaction(async (tx) => {
+      await claimBudgetForWrite(tx, budget.value, { requireDraft: true });
       // Nothing points at a revenue line, so a removal is a real delete (expense lines are soft-deleted for their commitments).
       await tx.budgetRevenueLine.delete({ where: { id: line.id } });
       await recomputePlannedRevenue(tx, input.budgetId);
-      await tx.eventBudget.update({ where: { id: input.budgetId }, data: { version: { increment: 1 } } });
+
       await tx.auditLog
         .create({ data: { userId: input.actorUserId, organizationId: input.organizationId, action: "DELETE", entityType: "BudgetRevenueLine", entityId: line.id, changes: { source: input.source, budgetId: input.budgetId, description: line.description } } })
-        .catch((err) => apiLogger.error({ msg: "procurement/revenue:audit-failed", err }));
+        .catch((err) => {
+          // Rethrown, never swallowed: inside a transaction a swallowed failure reports success for a rolled-back write (P0-1).
+          apiLogger.error({ msg: "procurement/revenue:audit-failed", err });
+          throw err;
+        });
     });
     return { ok: true, value: { id: line.id } };
   } catch (err) {
+    if (err instanceof BudgetStaleWrite) return fail("STALE_WRITE", "Someone else changed this budget a moment ago. Reload and try again.", ctx);
     apiLogger.error({ msg: "procurement/revenue:delete-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not remove the revenue line.", ctx);
   }

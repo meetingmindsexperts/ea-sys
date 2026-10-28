@@ -141,8 +141,19 @@ function fail(code: CommitmentErrorCode, message: string, ctx: Record<string, un
   return { ok: false, code, message, ...(meta ? { meta } : {}) };
 }
 
+/**
+ * Same rule as budget-service's audit().
+ * The audit row is written in the caller's transaction and a failure is
+ * RETHROWN (adversarial test P0-1, Oct 28, 2026). Swallowing it was worse than
+ * losing the row: Postgres had already aborted the transaction, so the
+ * mutation rolled back while the caller was told it succeeded. Rethrown, the
+ * whole write fails and the service returns its logged UNKNOWN instead.
+ */
 async function audit(client: Db, data: { userId: string; organizationId: string; action: string; entityType: "Commitment" | "SpendRequest"; entityId: string; changes: Prisma.InputJsonValue }) {
-  await client.auditLog.create({ data }).catch((err) => apiLogger.error({ msg: "procurement/commitments:audit-failed", err, action: data.action }));
+  await client.auditLog.create({ data }).catch((err) => {
+    apiLogger.error({ msg: "procurement/commitments:audit-failed", err, action: data.action });
+    throw err;
+  });
 }
 
 async function loadCommitment(client: Db, organizationId: string, commitmentId: string) {
@@ -501,9 +512,18 @@ export async function sendOrderToSupplier(input: { organizationId: string; actor
     await noteFailure(result.error ?? "The email could not be sent.");
     return fail("SEND_FAILED", "The email could not be sent; the order itself is unchanged. Try again, or send the PDF by hand.", ctx);
   }
-  // Sent at last: the standing failure note is cleared, so the card stops warning.
-  await db.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId }, data: { sentToSupplierAt: new Date(), lastSendAttemptAt: new Date(), lastSendError: null } });
-  await audit(db, { userId: input.actor.id, organizationId: input.organizationId, action: "SEND", entityType: "Commitment", entityId: c.id, changes: { source: input.source, commitmentNo: c.commitmentNo, to: to.map((t) => t.email), supplierId: c.supplierId } });
+  // Sent at last: the standing failure note is cleared, so the card stops warning. The record and its
+  // audit row commit together (P0-1). The email has already gone, so a failure here must say so:
+  // a person told "not sent" would send the order to the supplier a second time.
+  try {
+    await tenantTransaction(async (tx) => {
+      await tx.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId }, data: { sentToSupplierAt: new Date(), lastSendAttemptAt: new Date(), lastSendError: null } });
+      await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "SEND", entityType: "Commitment", entityId: c.id, changes: { source: input.source, commitmentNo: c.commitmentNo, to: to.map((t) => t.email), supplierId: c.supplierId } });
+    });
+  } catch (err) {
+    apiLogger.error({ msg: "procurement/commitments:sent-not-recorded", err, ...ctx });
+    return fail("UNKNOWN", "The order was emailed to the supplier, but recording the send failed. Do not send it again; tell an admin.", ctx);
+  }
   apiLogger.info({ msg: "procurement/commitments:sent-to-supplier", recipients: to.length, ...ctx, organizationId: input.organizationId });
   return getCommitment(input.organizationId, c.id);
 }
