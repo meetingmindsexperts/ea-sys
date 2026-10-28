@@ -37,6 +37,17 @@ vi.mock("@/procurement/services/budget-category-service", () => ({ ensureBudgetC
 import { deleteBudgetLine, submitBudget, upsertBudgetLine } from "@/procurement/services/budget-service";
 import { upsertBudgetLineSchema } from "@/procurement/lib/budget-schemas";
 
+/** The source of a `.catch(` argument, from just after the parenthesis to its matching close. */
+function catchHandler(src: string, from: number): string {
+  let depth = 1;
+  for (let i = from; i < src.length; i++) {
+    if (src[i] === "(") depth++;
+    if (src[i] === ")") depth--;
+    if (depth === 0) return src.slice(from, i);
+  }
+  return src.slice(from);
+}
+
 const ORG = "org-1";
 const draft = { id: "b1", organizationId: ORG, status: "DRAFT", reportingCurrency: "AED", versionNo: 1, version: 7, naCategoryCodes: [], contingencyPercent: "10", contingencyAmount: "0.0000", plannedExpenseTotal: "1000.0000", taxTotalPlanned: "0.0000", forecastTotal: "0.0000", expectedAttendance: 100 };
 const base = { organizationId: ORG, actorUserId: "u1", source: "ui" as const, budgetId: "b1" };
@@ -69,7 +80,12 @@ describe("P0-1: a failed audit fails the mutation", () => {
       const src = readFileSync(f, "utf8");
       const swallowed = src.match(/audit-failed"[^;]*?\}\)\);/g) ?? [];
       expect(swallowed, `${f} swallows an audit failure`).toEqual([]);
-      expect(src.match(/audit-failed/g)?.length ?? 0).toBeLessThanOrEqual(src.match(/throw err;/g)?.length ?? 0);
+      // Every .catch hung on an auditLog write must rethrow, whatever its log message or shape
+      // (".catch(() => {})" included): the handler is read up to the end of its statement.
+      for (const m of src.matchAll(/auditLog[\s\S]{0,600}?\.catch\(/g)) {
+        const handler = catchHandler(src, m.index! + m[0].length);
+        expect(handler.includes("throw"), `${f}: an auditLog .catch near offset ${m.index} does not rethrow`).toBe(true);
+      }
     }
   });
 });

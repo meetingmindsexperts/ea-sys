@@ -99,7 +99,11 @@ describe("reallocation under the row lock", () => {
     stage(usdHall, aedFnb);
     const r = await reallocateBudget({ organizationId: ORG, actorUserId: "u1", actor, source: "ui", budgetId: "b1", fromLineKey: "k-from", toLineKey: "k-fnb", amount: "1836.25", reason: "Catering quote" });
     expect(r).toMatchObject({ ok: true });
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    // The budget row first, then both lines in id order: the one lock order every budget write keeps (review M1).
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(3);
+    const locked = tx.$queryRaw.mock.calls.map((c: unknown[]) => (c[0] as string[]).join("?"));
+    expect(locked[0]).toContain('"EventBudget"');
+    expect(locked.slice(1).every((q: string) => q.includes('"BudgetLine"'))).toBe(true);
     const updates = tx.budgetLine.update.mock.calls.map((c) => c[0]);
     // USD line: 34,888.75 AED planned is 9,500 USD at 3.6725; tax follows the new amount.
     expect(updates[0]).toMatchObject({ where: { id: "from" }, data: { planned: "34888.7500", qty: "1", unitCost: "9500.0000", taxAmountPlanned: "1744.4375", reallocatedOut: "1836.2500" } });

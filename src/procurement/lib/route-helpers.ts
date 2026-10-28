@@ -126,6 +126,8 @@ export const HTTP_STATUS_FOR_COMMITMENT_ERROR: Record<CommitmentErrorCode, numbe
   SEND_FAILED: 502,
   STALE_WRITE: 409,
   INVALID_FILTER: 400,
+  // The email went; its record did not. A server fault, with a message that says not to send again.
+  SENT_NOT_RECORDED: 500,
   UNKNOWN: 500,
 };
 

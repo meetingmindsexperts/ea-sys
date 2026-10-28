@@ -108,6 +108,10 @@ export async function syncLineCommitted(tx: Db, input: { organizationId: string;
     return targetId;
   }
   const figures = (await committedByLineKey(tx, input.organizationId, locked.versions.map((v) => v.id), [input.lineKey])).get(input.lineKey) ?? NONE;
+  // The budget row before the line: the order claimBudgetForWrite keeps, so an order issued while the
+  // owner saves the same line's forecast cannot deadlock (review M1). The caller's totals recompute
+  // writes this row next anyway, so the lock is taken a moment earlier, not added.
+  await tx.$queryRaw`SELECT id FROM "EventBudget" WHERE id = ${targetId} FOR UPDATE`;
   await tx.budgetLine.update({ where: { id: line.id }, data: { committedOpen: figures.open, committedTotal: figures.total } });
   return targetId;
 }

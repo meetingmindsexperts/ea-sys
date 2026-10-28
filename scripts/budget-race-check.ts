@@ -1,8 +1,10 @@
 /**
  * Races the real budget services against the LOCAL database (adversarial test
  * plan, Oct 28, 2026: P0-2 and P0-3). Refuses any database but the local
- * container. Mutates one DRAFT budget you name and puts back every field it
- * touched; take `npm run db:snapshot` first anyway.
+ * container. Mutates one DRAFT budget you name and puts back its quantity,
+ * not-applicable marks and DRAFT status, in a finally. It leaves behind what
+ * a real run leaves: a higher version, audit rows and CANCELLED approval
+ * requests. Take `npm run db:snapshot` first.
  *
  *   npx tsx scripts/budget-race-check.ts <budgetId> <actorEmail> [rounds]
  *
@@ -24,7 +26,15 @@ const brief = (r: { ok: boolean; code?: string }): Outcome => ({ ok: r.ok, ...(r
 async function main() {
   const [budgetId, actorEmail, roundsArg] = process.argv.slice(2);
   if (!budgetId || !actorEmail) throw new Error("usage: budget-race-check.ts <budgetId> <actorEmail> [rounds]");
-  if (!process.env.DATABASE_URL?.includes("localhost:54322")) throw new Error("Refused: this script runs against the local database only.");
+  // Host and port compared exactly, not as a substring: a URL that merely mentions the local port is refused.
+  const url = (() => {
+    try {
+      return new URL(process.env.DATABASE_URL ?? "");
+    } catch {
+      return null;
+    }
+  })();
+  if (!url || !["localhost", "127.0.0.1"].includes(url.hostname) || url.port !== "54322") throw new Error("Refused: this script runs against the local database only.");
   const rounds = Number(roundsArg ?? 15);
 
   const { db } = await import("@/lib/db");
@@ -44,6 +54,7 @@ async function main() {
   const failures: string[] = [];
 
   await runWithTenant(orgId, async () => {
+   try {
     // ── P0-2 ──
     const tally = { bothOk: 0, oneStale: 0, other: 0 };
     for (let i = 0; i < rounds; i++) {
@@ -98,9 +109,18 @@ async function main() {
     }
     console.log("P0-3 an edit racing the submit:", { rounds, outcomes: tallyB });
 
-    // Put back what the run touched.
-    await db.eventBudget.update({ where: { id: budgetId }, data: { naCategoryCodes: start.naCategoryCodes } });
-    await upsertBudgetLine({ ...base, lineId: line.id, qty: originalQty });
+   } finally {
+    // Put back what the run touched, whatever happened above; a restore that fails is a failure of the run.
+    const pending = await db.approvalRequest.count({ where: { subjectType: "BUDGET", subjectId: budgetId, status: "PENDING" } });
+    if (pending > 0) {
+      await db.$transaction(async (tx) => {
+        await cancelPendingApprovals(tx, { organizationId: orgId, subjectType: "BUDGET", subjectId: budgetId, actorUserId: actor.id, source: "ui" });
+      });
+    }
+    await db.eventBudget.update({ where: { id: budgetId }, data: { status: "DRAFT", submittedAt: null, naCategoryCodes: start.naCategoryCodes } });
+    const restored = await upsertBudgetLine({ ...base, lineId: line.id, qty: originalQty });
+    if (!restored.ok) failures.push(`restore: the line's quantity could not be put back (${restored.code}); it should be ${originalQty}`);
+   }
   });
 
   console.log(failures.length === 0 ? "PASS: no lost update, no mispriced approval." : `FAIL (${failures.length}):\n  ${failures.join("\n  ")}`);

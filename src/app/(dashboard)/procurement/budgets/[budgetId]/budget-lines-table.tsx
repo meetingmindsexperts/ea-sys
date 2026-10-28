@@ -252,7 +252,9 @@ function LineEditForm({ b, categories, mode, line, onDone }: { b: BudgetRow; cat
           description: f.description.trim(),
           qty: f.qty.trim() === "" ? "1" : f.qty.trim(),
           unitCost: f.unitCost.trim() === "" ? "0" : f.unitCost.trim(),
-          transactionCurrency: f.transactionCurrency,
+          // Sent only when it changed: a line stored in a currency the module has since stopped accepting
+          // (P1-2) can still have its quantity or description edited (review L1).
+          ...(f.transactionCurrency !== line?.transactionCurrency ? { transactionCurrency: f.transactionCurrency } : {}),
           ...(foreign ? { fxRateToReporting: f.fxRateToReporting.trim() } : {}),
           taxRatePercent: f.taxRatePercent.trim() === "" ? null : f.taxRatePercent.trim(),
         });

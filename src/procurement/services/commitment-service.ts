@@ -54,6 +54,7 @@ export type CommitmentErrorCode =
   | "SEND_FAILED"
   | "STALE_WRITE"
   | "INVALID_FILTER"
+  | "SENT_NOT_RECORDED"
   | "UNKNOWN";
 
 export type CommitmentRefusal = { ok: false; code: CommitmentErrorCode; message: string; meta?: Record<string, unknown> };
@@ -340,6 +341,11 @@ export async function afterOrderIssued(input: { organizationId: string; actorUse
     const c = await loadCommitment(db, input.organizationId, input.commitmentId);
     if (!c?.spendRequest?.emailSupplierOnIssue) return { requested: false };
     const sent = await sendOrderToSupplier({ organizationId: input.organizationId, actor: { id: input.actorUserId, isAdmin: true, canRequest: false, canSettle: false, canApprove: false }, source: input.source, commitmentId: input.commitmentId });
+    // The email went; only its record failed. Reported as sent so no one is prompted to send it again (review M2).
+    if (!sent.ok && sent.code === "SENT_NOT_RECORDED") {
+      apiLogger.warn({ msg: "procurement/commitments:auto-sent-not-recorded", commitmentId: input.commitmentId, organizationId: input.organizationId });
+      return { requested: true, sent: true };
+    }
     if (!sent.ok) {
       apiLogger.warn({ msg: "procurement/commitments:auto-send-skipped", code: sent.code, commitmentId: input.commitmentId, organizationId: input.organizationId });
       return { requested: true, sent: false, code: sent.code };
@@ -521,8 +527,18 @@ export async function sendOrderToSupplier(input: { organizationId: string; actor
       await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "SEND", entityType: "Commitment", entityId: c.id, changes: { source: input.source, commitmentNo: c.commitmentNo, to: to.map((t) => t.email), supplierId: c.supplierId } });
     });
   } catch (err) {
-    apiLogger.error({ msg: "procurement/commitments:sent-not-recorded", err, ...ctx });
-    return fail("UNKNOWN", "The order was emailed to the supplier, but recording the send failed. Do not send it again; tell an admin.", ctx);
+    // The email cannot be unsent, so the send must still be recorded: without sentToSupplierAt the card
+    // offers Send again and the supplier gets the order twice (review M2). The mark alone, on the plain
+    // client; the audit row is what is lost, and that is logged at error.
+    apiLogger.error({ msg: "procurement/commitments:send-audit-lost", err, ...ctx });
+    const marked = await db.commitment
+      .updateMany({ where: { id: c.id, organizationId: input.organizationId }, data: { sentToSupplierAt: new Date(), lastSendAttemptAt: new Date(), lastSendError: null } })
+      .then(() => true)
+      .catch((markErr) => {
+        apiLogger.error({ msg: "procurement/commitments:sent-not-recorded", err: markErr, ...ctx });
+        return false;
+      });
+    if (!marked) return fail("SENT_NOT_RECORDED", "The order was emailed to the supplier, but recording the send failed. Do not send it again; tell an admin.", ctx);
   }
   apiLogger.info({ msg: "procurement/commitments:sent-to-supplier", recipients: to.length, ...ctx, organizationId: input.organizationId });
   return getCommitment(input.organizationId, c.id);

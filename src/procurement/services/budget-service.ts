@@ -1069,6 +1069,9 @@ async function applyReallocation(tx: Db, budgetId: string, move: { fromLineKey: 
   // caller read before the lock may be a move behind (two clicks, two tabs).
   // Holds through the pooler inside an interactive transaction (the
   // createCreditNote pattern).
+  // The budget row before any line: the one lock order every budget write keeps (claimBudgetForWrite
+  // takes the budget row first, so line-first here could deadlock with a line save; review M1).
+  await tx.$queryRaw`SELECT id FROM "EventBudget" WHERE id = ${budgetId} FOR UPDATE`;
   for (const id of [fromRef.id, toRef.id].sort()) await tx.$queryRaw`SELECT id FROM "BudgetLine" WHERE id = ${id} FOR UPDATE`;
   const from = await tx.budgetLine.findUnique({ where: { id: fromRef.id }, select: REALLOCATION_LINE_SELECT });
   const to = await tx.budgetLine.findUnique({ where: { id: toRef.id }, select: REALLOCATION_LINE_SELECT });
