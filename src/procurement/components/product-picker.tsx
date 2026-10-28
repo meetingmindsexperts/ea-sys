@@ -45,7 +45,9 @@ export function ProductPicker({ products, loading, value, onPick, onClear }: {
   }, [products, search, value]);
 
   return (
-    <div className="flex gap-2">
+    // min-w-0 on both: a flex child will not shrink below its label otherwise, and the clear
+    // button then overflows its cell onto the next column (seen on the sheet import, Oct 28 2026).
+    <div className="flex w-full min-w-0 gap-2">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           {/* The empty state is styled as an action (accent border and text, a
@@ -58,7 +60,7 @@ export function ProductPicker({ products, loading, value, onPick, onClear }: {
             aria-expanded={open}
             title="Search the catalogue by SKU or name"
             className={cn(
-              "h-9 w-full justify-between font-normal",
+              "h-9 min-w-0 flex-1 justify-between font-normal",
               !current && !loading && "border-primary/50 text-primary hover:border-primary hover:bg-primary/5 hover:text-primary",
             )}
             disabled={loading}

@@ -164,6 +164,31 @@ describe("procurement routes: creating from an imported budget sheet", () => {
   });
 });
 
+describe("procurement routes: copying a past budget", () => {
+  const body = { eventId: "e2", reportingCurrency: "AED", fromBudgetId: "b-src", priceChangePercent: 5 };
+  it("copies revenue only for a caller with finance sight, and logs the copy", async () => {
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
+    expect((await createPost(post("/api/procurement/budgets", body))).status).toBe(201);
+    expect(svc.createBudget).toHaveBeenLastCalledWith(expect.objectContaining({ fromBudgetId: "b-src", priceChangePercent: 5, copyRevenue: true }));
+    expect(loggerMock.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "procurement/budgets:copied", copyRevenue: true }));
+    authMock.mockResolvedValue(user({ role: "CRM_USER", procurementPermissions: ["procurement.budgets.view", "procurement.budgets.create"] }));
+    expect((await createPost(post("/api/procurement/budgets", body))).status).toBe(201);
+    expect(svc.createBudget).toHaveBeenLastCalledWith(expect.objectContaining({ copyRevenue: false }));
+  });
+  it("refuses a copy combined with a template or imported lines, and a price change out of range", async () => {
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
+    expect((await createPost(post("/api/procurement/budgets", { ...body, templateId: "t1" }))).status).toBe(400);
+    expect((await createPost(post("/api/procurement/budgets", { ...body, lines: [{ productId: "p1", description: "x", qty: "1", unitCost: "1" }] }))).status).toBe(400);
+    expect((await createPost(post("/api/procurement/budgets", { ...body, priceChangePercent: 101 }))).status).toBe(400);
+    expect(svc.createBudget).not.toHaveBeenCalled();
+  });
+  it("never lets a caller set copyRevenue in the body", async () => {
+    authMock.mockResolvedValue(user({ role: "CRM_USER", procurementPermissions: ["procurement.budgets.view", "procurement.budgets.create"] }));
+    await createPost(post("/api/procurement/budgets", { ...body, copyRevenue: true }));
+    expect(svc.createBudget).toHaveBeenLastCalledWith(expect.objectContaining({ copyRevenue: false }));
+  });
+});
+
 describe("procurement routes: deciding and the lifecycle moves", () => {
   it("only an approval grant reaches decide; the settle grant and a plain admin do not", async () => {
     authMock.mockResolvedValue(user({ role: "MEMBER", procurementSettle: true }));

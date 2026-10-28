@@ -70,8 +70,11 @@ export const createBudgetSchema = z.object({
   importedFrom: z.string().trim().min(1).max(200).nullable().optional(),
   lines: z.array(importedBudgetLine).max(BUDGET_IMPORT_MAX_LINES).optional(),
   revenueLines: z.array(importedRevenueLine).max(BUDGET_IMPORT_MAX_LINES).optional(),
-}).refine((v) => !(v.templateId && ((v.lines?.length ?? 0) > 0 || (v.revenueLines?.length ?? 0) > 0)), {
-  message: "A budget starts from a template or from imported lines, not both",
+  /** Copy the plan of a past budget (owner, Oct 28, 2026). */
+  fromBudgetId: z.string().min(1).max(100).nullable().optional(),
+  priceChangePercent: z.number().min(-50).max(100).nullable().optional(),
+}).refine((v) => [!!v.templateId, (v.lines?.length ?? 0) > 0 || (v.revenueLines?.length ?? 0) > 0, !!v.fromBudgetId].filter(Boolean).length <= 1, {
+  message: "A budget starts from one of: a template, imported lines, or a past budget",
   path: ["templateId"],
 });
 

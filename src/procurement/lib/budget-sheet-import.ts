@@ -489,7 +489,12 @@ export interface PlanOptions {
 const roundTo = (n: number, scale: number) => (Math.sign(n) * Math.round(Number((Math.abs(n) * scale).toPrecision(12)))) / scale;
 const round2 = (n: number) => roundTo(n, 100);
 const round4 = (n: number) => roundTo(n, 10_000);
-const aed = (n: number) => `${n < 0 ? "-" : ""}${Math.abs(round2(n)).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+/** Whole amounts without decimals ("75,426"), anything else with two ("228,138.20", never "228,138.2"). */
+const aed = (n: number) => {
+  const v = Math.abs(round2(n));
+  const digits = Number.isInteger(v) ? 0 : 2;
+  return `${n < 0 ? "-" : ""}${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+};
 const lineName = (l: { ref: string; description: string }) => (l.ref ? `${l.ref} ${l.description}` : l.description);
 
 /** A catalogue product for a description: the rule table, then a whole-name match, else null. */

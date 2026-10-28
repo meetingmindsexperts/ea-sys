@@ -14,7 +14,7 @@
  * someone with finance sight, the same rule as the budget page.
  */
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -217,12 +217,10 @@ export default function ImportBudgetSheetPage() {
 
   if (!canAuthor) return <ErrorState title="Budget authors only" message="Importing a budget sheet creates a budget, which needs budget author access." backHref="/procurement" backLabel="Back to budgets" />;
 
-  const warningsByKind = new Map<SheetWarning["kind"], SheetWarning[]>();
-  for (const w of plan?.warnings ?? []) warningsByKind.set(w.kind, [...(warningsByKind.get(w.kind) ?? []), w]);
   const flaggedRows = new Set((plan?.warnings ?? []).filter((w) => w.kind !== "RESULT_ON_FOOTER" && w.kind !== "SUBTOTAL_MISMATCH").map((w) => w.rowNum));
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-4">
       <div>
         <Link href="/procurement" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" />
@@ -233,51 +231,62 @@ export default function ImportBudgetSheetPage() {
           Import budget sheet
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Upload the costing sheet (CSV, comma or semicolon) with the ACT COST and PER UNIT columns. Every total is recalculated from the lines, and the
-          sheet&apos;s own subtotals are only checked against them. Nothing is saved until you create the draft.
+          Upload the costing sheet as CSV. Every total is recalculated from its lines; the sheet&apos;s own subtotals are only checked. Nothing is saved until
+          you create the draft.
         </p>
       </div>
 
-      <div className="grid gap-4 rounded-lg border bg-card p-4 md:grid-cols-2 lg:grid-cols-4">
-        <div className="space-y-2">
-          <Label htmlFor="sheet-file">Budget sheet</Label>
-          <Input id="sheet-file" type="file" accept=".csv,text/csv" disabled={productsLoading} onChange={(e) => void readFile(e.target)} />
-          <p className="text-xs text-muted-foreground">{fileName || "In Excel: File, Save As, CSV."}</p>
+      <section className="space-y-4 rounded-lg border bg-card p-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="sheet-file">Budget sheet (CSV)</Label>
+            {/* The native input is cleared after each read (so the same file can be read again), which would make it say
+                "No file chosen" beside a loaded sheet; it stays for the label and keyboard, the button and name are what show. */}
+            <input id="sheet-file" type="file" accept=".csv,text/csv" className="sr-only" disabled={productsLoading} onChange={(e) => void readFile(e.target)} />
+            <div className="flex min-w-0 items-center gap-3">
+              <Button asChild variant="outline" className={productsLoading ? "pointer-events-none opacity-50" : ""}>
+                <label htmlFor="sheet-file" className="cursor-pointer"><FileSpreadsheet className="h-4 w-4" />{fileName ? "Choose another sheet" : "Choose a sheet"}</label>
+              </Button>
+              <span className="min-w-0 break-all text-sm text-muted-foreground">{fileName || "No sheet yet"}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">In Excel: File, Save As, CSV. Semicolon or comma both work.</p>
+          </div>
+          <div className="space-y-2">
+            <Label>Event</Label>
+            <Select value={eventId} onValueChange={setEventId}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Pick an event with a code and no budget" /></SelectTrigger>
+              <SelectContent>
+                {eventOptions.map((e) => <SelectItem key={e.id} value={e.id}>{e.code} · {e.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">An event without a code gets one under its Settings first.</p>
+          </div>
         </div>
-        <div className="space-y-2">
-          <Label>Event</Label>
-          <Select value={eventId} onValueChange={setEventId}>
-            <SelectTrigger><SelectValue placeholder="An event with a code and no budget" /></SelectTrigger>
-            <SelectContent>
-              {eventOptions.map((e) => <SelectItem key={e.id} value={e.id}>{e.code} · {e.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">An event without a code gets one under its Settings first.</p>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-4 border-t pt-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-2">
             <Label htmlFor="contingency">Contingency %</Label>
             <Input id="contingency" type="number" min={0} max={100} step="0.5" value={contingency} onChange={(e) => setContingency(e.target.value)} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="attendance">Attendance</Label>
-            <Input id="attendance" type="number" min={0} value={attendance} onChange={(e) => setAttendance(e.target.value)} placeholder="Expected" />
+            <Label htmlFor="attendance">Expected attendance</Label>
+            <Input id="attendance" type="number" min={0} value={attendance} onChange={(e) => setAttendance(e.target.value)} placeholder="Needed to submit" />
           </div>
-        </div>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <Label htmlFor="count-internal" className="leading-snug">Count internal staff cost</Label>
-            <Switch id="count-internal" checked={countInternal} onCheckedChange={setCountInternal} />
-          </div>
-          <div className="flex items-end gap-2">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="all-vat">VAT % for every line</Label>
+          <div className="space-y-2">
+            <Label htmlFor="all-vat">VAT % for every line</Label>
+            <div className="flex gap-2">
               <Input id="all-vat" type="number" min={0} max={100} step="0.5" value={allVat} onChange={(e) => setAllVat(e.target.value)} />
+              <Button variant="outline" disabled={lines.length === 0} onClick={applyVatToAll}>Apply</Button>
             </div>
-            <Button variant="outline" disabled={lines.length === 0} onClick={applyVatToAll}>Apply</Button>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="count-internal">Internal staff cost</Label>
+            <div className="flex h-9 items-center gap-2.5">
+              <Switch id="count-internal" checked={countInternal} onCheckedChange={setCountInternal} />
+              <span className="text-sm text-muted-foreground">{countInternal ? "Counted as cost" : "Left at 0, as on the sheet"}</span>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {sheet && sheet.errors.length > 0 && (
         <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
@@ -290,69 +299,33 @@ export default function ImportBudgetSheetPage() {
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <Stat label="Cost (AED, ex-VAT)" value={money2(String(totals.cost))} sub={`${lines.filter((l) => l.include).length} of ${lines.length} lines ticked`} />
             <Stat label="VAT (AED)" value={money2(String(vatTotal))} sub={`incl. VAT ${money2(String(totals.cost + vatTotal))}`} />
-            <Stat label="Contingency" value={money2(String((totals.cost * Number(contingency || 0)) / 100))} sub={`${contingency || 0}% of cost`} />
-            <Stat label="Billed (AED)" value={withRevenue ? money2(String(totals.billed)) : "Needs finance access"} />
+            <Stat label="Contingency (AED)" value={money2(String((totals.cost * Number(contingency || 0)) / 100))} sub={`${contingency || 0}% of cost`} />
+            <Stat label="Billed (AED)" value={withRevenue ? money2(String(totals.billed)) : "Finance only"} />
             <Stat
-              label="Margin"
-              value={withRevenue ? money2(String(totals.margin)) : "–"}
+              label="Margin (AED)"
+              value={withRevenue ? money2(String(totals.margin)) : "Finance only"}
               sub={withRevenue && totals.marginPercent !== null ? `${totals.marginPercent}% of billed` : undefined}
               tone={totals.margin < 0 ? "warn" : undefined}
             />
           </div>
 
-          {plan.warnings.length > 0 && (
-            <details open className="rounded-lg border border-amber-300 bg-amber-50/60 p-4 dark:border-amber-900 dark:bg-amber-950/40">
-              <summary className="flex cursor-pointer items-center gap-2 font-medium text-amber-900 dark:text-amber-100">
-                <TriangleAlert className="h-4 w-4" />
-                {`${plan.warnings.length} things to check on this sheet`}
-              </summary>
-              <div className="mt-3 grid gap-4 md:grid-cols-2">
-                {WARNING_ORDER.filter((k) => warningsByKind.has(k)).map((k) => (
-                  <div key={k}>
-                    <div className="text-sm font-semibold">{`${WARNING_HEADING[k]} (${warningsByKind.get(k)!.length})`}</div>
-                    <ul className="mt-1 space-y-1 text-sm text-muted-foreground">
-                      {warningsByKind.get(k)!.map((w) => <li key={`${w.rowNum}-${w.message}`}>{w.message}</li>)}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
+          {plan.warnings.length > 0 && <SheetWarnings warnings={plan.warnings} />}
 
-          <div className="rounded-lg border bg-card">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8" />
-                  <TableHead>Line</TableHead>
-                  <TableHead className="min-w-56">Catalogue product</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Unit</TableHead>
-                  <TableHead className="text-right">Cost</TableHead>
-                  <TableHead className="w-20">VAT %</TableHead>
-                  {withRevenue && <TableHead className="text-right">Billed</TableHead>}
-                  {withRevenue && <TableHead className="min-w-48">Income account</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lines.map((l) => (
-                  <SheetLineRow
-                    key={l.rowNum}
-                    line={l}
-                    flagged={flaggedRows.has(l.rowNum)}
-                    withRevenue={withRevenue}
-                    products={products}
-                    productsLoading={productsLoading}
-                    onPatch={(change) => patch(l.rowNum, change)}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <SheetLinesTable
+            lines={lines}
+            flaggedRows={flaggedRows}
+            withRevenue={withRevenue}
+            products={products}
+            productsLoading={productsLoading}
+            onPatch={patch}
+          />
 
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            {stop && <p className="text-sm text-amber-800 dark:text-amber-300">{stop}</p>}
-            {!withRevenue && <p className="text-sm text-muted-foreground">Billed amounts are left out: revenue needs finance access.</p>}
+          {/* pr-24 keeps the button clear of the floating agent button, which sits fixed in this corner on every page. */}
+          <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-end gap-3 rounded-lg border bg-background/95 py-3 pl-4 pr-24 shadow-sm backdrop-blur">
+            <p className="mr-auto min-w-0 text-sm text-muted-foreground">
+              {stop ?? (eventId ? "Ready: the draft opens when it is created." : "Pick the event the budget is for.")}
+              {!withRevenue && " Billed amounts are left out: revenue needs finance access."}
+            </p>
             <Button onClick={submit} disabled={!!stop || !eventId || create.isPending}>
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Create draft budget
@@ -364,6 +337,94 @@ export default function ImportBudgetSheetPage() {
   );
 }
 
+/** Grouped by kind, each group folded; the two that change the money picture start open. */
+function SheetWarnings({ warnings }: { warnings: SheetWarning[] }) {
+  const byKind = new Map<SheetWarning["kind"], SheetWarning[]>();
+  for (const w of warnings) byKind.set(w.kind, [...(byKind.get(w.kind) ?? []), w]);
+  const openFirst: ReadonlySet<SheetWarning["kind"]> = new Set(["RESULT_ON_FOOTER", "SUBTOTAL_MISMATCH"]);
+  return (
+    <section className="rounded-lg border border-amber-300 bg-amber-50/60 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+      <h2 className="flex items-center gap-2 font-medium text-amber-900 dark:text-amber-100">
+        <TriangleAlert className="h-4 w-4 shrink-0" />
+        {`${warnings.length} things to check on this sheet`}
+      </h2>
+      <div className="mt-3 grid items-start gap-2 lg:grid-cols-2">
+        {WARNING_ORDER.filter((k) => byKind.has(k)).map((k) => (
+          <details key={k} open={openFirst.has(k)} className="group rounded-md border border-amber-200 bg-background/70 px-3 py-2 dark:border-amber-900/60">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium">
+              <span className="min-w-0">{WARNING_HEADING[k]}</span>
+              <span className="shrink-0 rounded-full bg-amber-100 px-2 text-xs tabular-nums text-amber-900 dark:bg-amber-900 dark:text-amber-100">{byKind.get(k)!.length}</span>
+            </summary>
+            <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
+              {byKind.get(k)!.map((w) => <li key={`${w.rowNum}-${w.message}`}>{w.message}</li>)}
+            </ul>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+type SectionGroup = { section: string; lines: EditableLine[] };
+
+function bySection(lines: EditableLine[]): SectionGroup[] {
+  const groups: SectionGroup[] = [];
+  for (const l of lines) {
+    const last = groups.at(-1);
+    if (last && last.section === l.section) last.lines.push(l);
+    else groups.push({ section: l.section, lines: [l] });
+  }
+  return groups;
+}
+
+function SheetLinesTable({ lines, flaggedRows, withRevenue, products, productsLoading, onPatch }: {
+  lines: EditableLine[];
+  flaggedRows: ReadonlySet<number>;
+  withRevenue: boolean;
+  products: Parameters<typeof ProductPicker>[0]["products"];
+  productsLoading: boolean;
+  onPatch: (rowNum: number, change: LineOverride) => void;
+}) {
+  const cols = withRevenue ? 7 : 6;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-10" />
+          <TableHead>Line</TableHead>
+          <TableHead className="text-right">Qty</TableHead>
+          <TableHead className="text-right">Unit</TableHead>
+          <TableHead className="text-right">Cost</TableHead>
+          <TableHead className="w-20">VAT %</TableHead>
+          {withRevenue && <TableHead className="text-right">Billed</TableHead>}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {bySection(lines).map((g) => {
+          const t = planTotals(g.lines);
+          return (
+            <Fragment key={`${g.section}-${g.lines[0].rowNum}`}>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableCell colSpan={cols} className="whitespace-normal py-2">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <span className="font-semibold">{g.section || "Lines"}</span>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {withRevenue ? `cost ${money2(String(t.cost))} · billed ${money2(String(t.billed))} · margin ${money2(String(t.margin))}` : `cost ${money2(String(t.cost))}`}
+                    </span>
+                  </div>
+                </TableCell>
+              </TableRow>
+              {g.lines.map((l) => (
+                <SheetLineRow key={l.rowNum} line={l} flagged={flaggedRows.has(l.rowNum)} withRevenue={withRevenue} products={products} productsLoading={productsLoading} onPatch={(c) => onPatch(l.rowNum, c)} />
+              ))}
+            </Fragment>
+          );
+        })}
+      </TableBody>
+    </Table>
+  );
+}
+
 function SheetLineRow({ line: l, flagged, withRevenue, products, productsLoading, onPatch }: {
   line: EditableLine;
   flagged: boolean;
@@ -372,54 +433,60 @@ function SheetLineRow({ line: l, flagged, withRevenue, products, productsLoading
   productsLoading: boolean;
   onPatch: (change: LineOverride) => void;
 }) {
-  const muted = l.include ? "" : "opacity-50";
-  const costLabel = l.isContingency ? "sets %" : money2(String(l.costTotal));
+  const meta = [l.type === "INTERNAL" ? "Internal" : "", l.vendor, l.internalCostCounted ? "internal cost counted" : ""].filter(Boolean).join(" · ");
+  const dim = l.include ? "" : "opacity-55";
+  const showAccount = withRevenue && l.billedTotal > 0;
   return (
-    <TableRow className={muted}>
-      <TableCell>
-        <Checkbox checked={l.include} onCheckedChange={(v) => onPatch({ include: v === true })} aria-label={`Include ${l.description}`} />
-      </TableCell>
-      <TableCell className="max-w-72">
-        <div className="flex items-start gap-1.5">
-          {flagged && <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-label="See the warnings above" />}
-          <div>
-            <div className="font-medium">{l.ref ? `${l.ref} ` : ""}{l.description}</div>
-            <div className="text-xs text-muted-foreground">{[l.section, l.type === "INTERNAL" ? "Internal" : "", l.vendor, l.internalCostCounted ? "internal cost counted" : ""].filter(Boolean).join(" · ")}</div>
-          </div>
-        </div>
-      </TableCell>
-      <TableCell>
-        {l.isContingency ? (
-          <span className="text-sm text-muted-foreground">Contingency line</span>
-        ) : (
-          <ProductPicker
-            products={products}
-            loading={productsLoading}
-            value={l.productId}
-            onPick={(p) => onPatch(l.accountByHand || l.billedTotal <= 0 ? { productId: p.id, sku: p.sku } : { productId: p.id, sku: p.sku, incomeAccount: incomeAccountFor(p.sku, l.type, false) })}
-            onClear={() => onPatch({ productId: null, sku: null })}
-          />
-        )}
-      </TableCell>
-      <TableCell className="text-right tabular-nums">{l.isContingency ? "" : l.costQty}</TableCell>
-      <TableCell className="text-right tabular-nums">{l.isContingency ? "" : money2(String(l.costUnit))}</TableCell>
-      <TableCell className="text-right tabular-nums">{costLabel}</TableCell>
-      <TableCell>
-        <Input className="h-8 w-16" type="number" min={0} max={100} step="0.5" value={l.vatPercent} disabled={!needsExpenseLine(l)} onChange={(e) => onPatch({ vatPercent: e.target.value })} aria-label={`VAT for ${l.description}`} />
-      </TableCell>
-      {withRevenue && <TableCell className="text-right tabular-nums">{l.billedTotal > 0 ? money2(String(l.billedTotal)) : "–"}</TableCell>}
-      {withRevenue && (
-        <TableCell>
-          {l.billedTotal > 0 && (
-            <Select value={l.incomeAccount ?? ""} onValueChange={(v) => onPatch({ incomeAccount: v, accountByHand: true })}>
-              <SelectTrigger className="h-8"><SelectValue placeholder="Pick an account" /></SelectTrigger>
-              <SelectContent>
-                {INCOME_ACCOUNTS.map((a) => <SelectItem key={a.code} value={a.code}>{a.code} · {a.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          )}
+    <>
+      <TableRow className={`border-b-0 hover:bg-transparent ${dim}`}>
+        <TableCell className="pt-3 align-top">
+          <Checkbox checked={l.include} onCheckedChange={(v) => onPatch({ include: v === true })} aria-label={`Include ${l.description}`} />
         </TableCell>
-      )}
-    </TableRow>
+        {/* The shared cell never wraps; this one must, so a long line name stays inside its column. */}
+        <TableCell className="min-w-[12rem] whitespace-normal pt-3 pb-1 align-top">
+          <div className="flex items-start gap-1.5">
+            {flagged && <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-label="See the warnings above" />}
+            <div className="min-w-0">
+              <div className="font-medium leading-snug">{l.ref ? <span className="mr-1.5 tabular-nums text-muted-foreground">{l.ref}</span> : null}{l.description}</div>
+              {meta && <div className="mt-0.5 text-xs text-muted-foreground">{meta}</div>}
+            </div>
+          </div>
+        </TableCell>
+        <TableCell className="pt-3 text-right align-top tabular-nums">{l.isContingency ? "" : l.costQty}</TableCell>
+        <TableCell className="pt-3 text-right align-top tabular-nums">{l.isContingency ? "" : money2(String(l.costUnit))}</TableCell>
+        <TableCell className="pt-3 text-right align-top tabular-nums">{l.isContingency ? "–" : money2(String(l.costTotal))}</TableCell>
+        <TableCell className="pt-2 align-top">
+          <Input className="h-8 w-16" type="number" min={0} max={100} step="0.5" value={l.vatPercent} disabled={!needsExpenseLine(l)} onChange={(e) => onPatch({ vatPercent: e.target.value })} aria-label={`VAT for ${l.description}`} />
+        </TableCell>
+        {withRevenue && <TableCell className="pt-3 text-right align-top tabular-nums">{l.billedTotal > 0 ? money2(String(l.billedTotal)) : "–"}</TableCell>}
+      </TableRow>
+      {/* The pickers get a row of their own across the table, so they are never squeezed into the name column. */}
+      <TableRow className={`hover:bg-transparent ${dim}`}>
+        <TableCell />
+        <TableCell colSpan={withRevenue ? 6 : 5} className="whitespace-normal pt-1 pb-3">
+          <div className={`grid gap-2 ${showAccount ? "xl:grid-cols-2" : ""} max-w-4xl`}>
+            {l.isContingency ? (
+              <p className="text-sm text-muted-foreground">Sets the contingency percent; no cost line.</p>
+            ) : (
+              <ProductPicker
+                products={products}
+                loading={productsLoading}
+                value={l.productId}
+                onPick={(p) => onPatch(l.accountByHand || l.billedTotal <= 0 ? { productId: p.id, sku: p.sku } : { productId: p.id, sku: p.sku, incomeAccount: incomeAccountFor(p.sku, l.type, false) })}
+                onClear={() => onPatch({ productId: null, sku: null })}
+              />
+            )}
+            {showAccount && (
+              <Select value={l.incomeAccount ?? ""} onValueChange={(v) => onPatch({ incomeAccount: v, accountByHand: true })}>
+                <SelectTrigger className="h-9 w-full min-w-0" aria-label={`Income account for ${l.description}`}><SelectValue placeholder="Pick an income account" /></SelectTrigger>
+                <SelectContent>
+                  {INCOME_ACCOUNTS.map((a) => <SelectItem key={a.code} value={a.code}>{a.code} · {a.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        </TableCell>
+      </TableRow>
+    </>
   );
 }

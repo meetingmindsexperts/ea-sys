@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { useEvents } from "@/hooks/use-api";
+import { useCan } from "@/hooks/use-can";
 import { canAuthorBudgets } from "@/lib/procurement-visibility";
 import Link from "next/link";
 import {
@@ -41,14 +42,25 @@ const BRANDS: { value: string; label: string }[] = [
   { value: "MEDULIVE", label: "MedULive" },
 ];
 
-const EMPTY_FORM = { eventId: "", templateId: "", reportingCurrency: "AED", contingencyPercent: "10", expectedAttendance: "", brand: "" };
+const EMPTY_FORM = { eventId: "", startFrom: "template" as StartFrom, templateId: "", fromBudgetId: "", priceChange: "0", reportingCurrency: "AED", contingencyPercent: "10", expectedAttendance: "", brand: "" };
+
+/** Where a new budget's lines come from: a template's blank lines, or a past budget's plan (owner, Oct 28, 2026). */
+type StartFrom = "template" | "copy";
+
+/** Short enough to sit in the field without being cut; the event's name is shown under it instead. */
+function sourceLabel(b: BudgetRow): string {
+  return `${b.eventCode} v${b.versionNo} · ${BUDGET_STATUS_LABEL[b.status]} · ${b.reportingCurrency} ${money2(b.plannedExpenseTotal)}`;
+}
 
 export default function ProcurementBudgetsPage() {
   const router = useRouter();
   const { data: session } = useSession();
   const canAuthor = canAuthorBudgets(session?.user);
+  const canSeeRevenue = useCan("finance.view") === "allowed";
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const { data: budgets = [], isLoading, isError, error } = useBudgets(statusFilter === "all" ? {} : { status: statusFilter });
+  // Unfiltered: the copy source list and the "already has a budget" test must not follow the status filter.
+  const { data: allBudgets = [] } = useBudgets();
   const { data: events = [] } = useEvents();
   const { data: templates = [] } = useBudgetTemplates();
   const { data: inbox = [] } = useApprovals("inbox");
@@ -71,6 +83,11 @@ export default function ProcurementBudgetsPage() {
   );
   const uncodedCount = (events as { code: string | null }[]).length - codedEvents.length;
   const eventById = useMemo(() => new Map(codedEvents.map((e) => [e.id, e])), [codedEvents]);
+  // An event holds one budget family; the POST refuses a second, so the dropdown does not offer it.
+  const budgetedEventIds = useMemo(() => new Set(allBudgets.map((b) => b.eventId)), [allBudgets]);
+  const openEvents = useMemo(() => codedEvents.filter((e) => !budgetedEventIds.has(e.id)), [codedEvents, budgetedEventIds]);
+  const copySources = useMemo(() => [...allBudgets].sort((a, b) => a.eventCode.localeCompare(b.eventCode) || b.versionNo - a.versionNo), [allBudgets]);
+  const source = form.startFrom === "copy" ? allBudgets.find((b) => b.id === form.fromBudgetId) : undefined;
 
   const counts = useMemo(() => {
     const c: Partial<Record<BudgetStatus, number>> = {};
@@ -86,9 +103,24 @@ export default function ProcurementBudgetsPage() {
     setForm((f) => ({ ...f, eventId, templateId: match?.id ?? f.templateId }));
   }
 
+  function pickSource(budgetId: string) {
+    const b = allBudgets.find((x) => x.id === budgetId);
+    // A copy keeps its source's currency (the service refuses another) and starts from its contingency.
+    setForm((f) => ({ ...f, fromBudgetId: budgetId, reportingCurrency: b?.reportingCurrency ?? f.reportingCurrency, contingencyPercent: b ? String(Number(b.contingencyPercent)) : f.contingencyPercent }));
+  }
+
   async function submitCreate() {
     if (!form.eventId) {
       toast.error("Pick the event the budget is for.");
+      return;
+    }
+    if (form.startFrom === "copy" && !form.fromBudgetId) {
+      toast.error("Pick the budget to copy from.");
+      return;
+    }
+    const priceChange = Number(form.priceChange || "0");
+    if (form.startFrom === "copy" && !(priceChange >= -50 && priceChange <= 100)) {
+      toast.error("The price change must be between -50% and +100%.");
       return;
     }
     const attendance = form.expectedAttendance.trim() === "" ? null : Number(form.expectedAttendance);
@@ -99,13 +131,15 @@ export default function ProcurementBudgetsPage() {
     try {
       const b = await create.mutateAsync({
         eventId: form.eventId,
-        templateId: form.templateId || null,
+        templateId: form.startFrom === "template" ? form.templateId || null : null,
+        fromBudgetId: form.startFrom === "copy" ? form.fromBudgetId : null,
+        priceChangePercent: form.startFrom === "copy" ? priceChange : null,
         reportingCurrency: form.reportingCurrency,
         contingencyPercent: Number(form.contingencyPercent || "10"),
         expectedAttendance: attendance,
         brand: form.brand || null,
       });
-      toast.success(`Budget ${b.eventCode} v${b.versionNo} created as a draft.`);
+      toast.success(form.startFrom === "copy" ? `Budget ${b.eventCode} v${b.versionNo} created as a draft, copied from ${source?.eventCode ?? "the past budget"}.` : `Budget ${b.eventCode} v${b.versionNo} created as a draft.`);
       setCreating(false);
       router.push(`/procurement/budgets/${b.id}`);
     } catch (err) {
@@ -195,8 +229,9 @@ export default function ProcurementBudgetsPage() {
               <TableHead className="text-right">Planned</TableHead>
               <TableHead className="text-right">Contingency</TableHead>
               <TableHead className="text-right">Forecast</TableHead>
-              <TableHead>Attendance</TableHead>
-              <TableHead>Updated</TableHead>
+              {/* The two least-used columns wait for a wide screen, so the table fits beside the sidebar at 1024px. */}
+              <TableHead className="hidden xl:table-cell">Attendance</TableHead>
+              <TableHead className="hidden xl:table-cell">Updated</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -215,20 +250,20 @@ export default function ProcurementBudgetsPage() {
       </div>
 
       <Dialog open={creating} onOpenChange={setCreating}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>New budget</DialogTitle>
             <DialogDescription>
-              A draft from a template: one blank line per category. Fill the lines, mark what does not apply, then submit for approval.
+              A draft for one event: blank lines from a template, or a copy of a past budget&apos;s plan. Adjust it, then submit for approval.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Event</Label>
               <Select value={form.eventId} onValueChange={pickEvent}>
-                <SelectTrigger><SelectValue placeholder="Pick an event with a code" /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Pick an event with a code and no budget" /></SelectTrigger>
                 <SelectContent>
-                  {codedEvents.map((e) => (
+                  {openEvents.map((e) => (
                     <SelectItem key={e.id} value={e.id}>{e.code} · {e.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -240,27 +275,70 @@ export default function ProcurementBudgetsPage() {
               )}
             </div>
             <div className="space-y-2">
-              <Label>Template</Label>
-              <Select value={form.templateId || "none"} onValueChange={(v) => setForm((f) => ({ ...f, templateId: v === "none" ? "" : v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No template (start empty)</SelectItem>
-                  {templates.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.name} · {t.lines.length} lines</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Start from</Label>
+              <div role="radiogroup" aria-label="Start from" className="grid grid-cols-2 gap-1 rounded-lg border bg-muted/40 p-1">
+                {([["template", "A template"], ["copy", "A past budget"]] as const).map(([value, text]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={form.startFrom === value}
+                    onClick={() => setForm((f) => ({ ...f, startFrom: value }))}
+                    className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${form.startFrom === value ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    {text}
+                  </button>
+                ))}
+              </div>
             </div>
+            {form.startFrom === "template" ? (
+              <div className="space-y-2">
+                <Label>Template</Label>
+                <Select value={form.templateId || "none"} onValueChange={(v) => setForm((f) => ({ ...f, templateId: v === "none" ? "" : v }))}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No template (start empty)</SelectItem>
+                    {templates.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{t.name} · {t.lines.length} lines</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
+                <div className="min-w-0 space-y-2">
+                  <Label>Budget to copy</Label>
+                  <Select value={form.fromBudgetId} onValueChange={pickSource}>
+                    <SelectTrigger className="w-full min-w-0"><SelectValue placeholder="Pick a past budget" /></SelectTrigger>
+                    <SelectContent>
+                      {copySources.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>{sourceLabel(b)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="price-change">Price change %</Label>
+                  <Input id="price-change" type="number" min={-50} max={100} step="0.5" value={form.priceChange} onChange={(e) => setForm((f) => ({ ...f, priceChange: e.target.value }))} />
+                </div>
+                <p className="text-xs text-muted-foreground sm:col-span-2">
+                  {source
+                    ? `Copies the planned lines${canSeeRevenue ? " and revenue lines" : ""} of ${source.eventCode} v${source.versionNo}${source.eventId && eventById.get(source.eventId) ? ` (${eventById.get(source.eventId)!.name})` : ""}, about ${copyTotal(source.plannedExpenseTotal, form.priceChange)} ${source.reportingCurrency} planned. Commitments, actuals and forecasts stay with that event.`
+                    : "Only the plan is copied: lines, quantities and unit prices, with the price change applied to every unit price."}
+                  {source && !canSeeRevenue ? " Revenue lines need finance access and are not copied." : ""}
+                </p>
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Reporting currency</Label>
-                <Select value={form.reportingCurrency} onValueChange={(v) => setForm((f) => ({ ...f, reportingCurrency: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                <Select value={form.reportingCurrency} onValueChange={(v) => setForm((f) => ({ ...f, reportingCurrency: v }))} disabled={form.startFrom === "copy"}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Locked once the budget has lines.</p>
+                <p className="text-xs text-muted-foreground">{form.startFrom === "copy" ? "A copy keeps its source's currency." : "Locked once the budget has lines."}</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="contingency">Contingency %</Label>
@@ -273,7 +351,7 @@ export default function ProcurementBudgetsPage() {
               <div className="space-y-2">
                 <Label>Brand</Label>
                 <Select value={form.brand || "none"} onValueChange={(v) => setForm((f) => ({ ...f, brand: v === "none" ? "" : v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Not set</SelectItem>
                     {BRANDS.map((b) => <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>)}
@@ -300,7 +378,7 @@ function BudgetListRow({ b, eventName }: { b: BudgetRow; eventName?: string }) {
   const updated = b.closedAt ?? b.frozenAt ?? b.activatedAt ?? b.approvedAt ?? b.submittedAt;
   return (
     <TableRow className="cursor-pointer" onClick={() => router.push(`/procurement/budgets/${b.id}`)}>
-      <TableCell>
+      <TableCell className="min-w-[12rem] whitespace-normal">
         <div className="font-medium">{b.eventCode}</div>
         {eventName && <div className="text-xs text-muted-foreground">{eventName}</div>}
       </TableCell>
@@ -316,10 +394,16 @@ function BudgetListRow({ b, eventName }: { b: BudgetRow; eventName?: string }) {
       <TableCell className="text-right tabular-nums">{b.reportingCurrency} {money2(b.plannedExpenseTotal)}</TableCell>
       <TableCell className="text-right tabular-nums">{money2(b.contingencyAmount)} <span className="text-xs text-muted-foreground">({Number(b.contingencyPercent)}%)</span></TableCell>
       <TableCell className="text-right tabular-nums">{money2(b.forecastTotal)}</TableCell>
-      <TableCell className="tabular-nums">{b.recordedAttendance ?? b.expectedAttendance ?? "–"}{attendanceSuffix(b.recordedAttendance, b.expectedAttendance)}</TableCell>
-      <TableCell className="text-xs text-muted-foreground">{updated ? new Date(updated).toLocaleDateString("en-GB") : "draft"}</TableCell>
+      <TableCell className="hidden tabular-nums xl:table-cell">{b.recordedAttendance ?? b.expectedAttendance ?? "–"}{attendanceSuffix(b.recordedAttendance, b.expectedAttendance)}</TableCell>
+      <TableCell className="hidden text-xs text-muted-foreground xl:table-cell">{updated ? new Date(updated).toLocaleDateString("en-GB") : "draft"}</TableCell>
     </TableRow>
   );
+}
+
+/** The copy's planned total after the price change, for the dialog's one-line preview. */
+function copyTotal(planned: string, priceChange: string): string {
+  const pct = Number(priceChange || "0");
+  return money2(String(Number(planned) * (1 + (Number.isFinite(pct) ? pct : 0) / 100)));
 }
 
 function attendanceSuffix(recorded: number | null | undefined, expected: number | null | undefined): string {

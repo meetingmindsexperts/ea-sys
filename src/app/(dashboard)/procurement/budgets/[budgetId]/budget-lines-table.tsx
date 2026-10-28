@@ -174,8 +174,9 @@ function LineRow({ l, cur, mode, dimmed, onEdit, onDelete }: { l: BudgetLineRow;
       className={lineRowClass(l.isContingency, dimmed)}
       title={dimmed ? "This category is marked not applicable for this budget." : undefined}
     >
-      <TableCell className="text-xs text-muted-foreground"><CategoryLabel code={l.category.code} name={l.category.name} stacked /></TableCell>
-      <TableCell>
+      {/* The shared cell never wraps; these two text columns must, or one long name pushes the amounts and actions off the card. */}
+      <TableCell className="min-w-[8rem] whitespace-normal text-xs text-muted-foreground"><CategoryLabel code={l.category.code} name={l.category.name} stacked /></TableCell>
+      <TableCell className="min-w-[14rem] whitespace-normal break-words">
         <div>
           {l.description}
           {l.product && <span className="ml-2 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground" title={l.product.name}>{l.product.sku}</span>}

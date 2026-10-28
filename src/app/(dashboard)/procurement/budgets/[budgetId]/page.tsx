@@ -190,7 +190,8 @@ export default function BudgetEditorPage() {
         <Stat label="Not applicable" value={String(b.naCategoryCodes.length)} sub={b.naCategoryCodes.join(", ") || "no categories marked"} />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_16rem]">
+      {/* The side panel waits for xl: at 1024px beside the sidebar it left the lines table 472px. Below xl it sits first, so the actions stay in reach. */}
+      <div className="grid gap-5 xl:grid-cols-[1fr_16rem]">
         <div className="min-w-0 space-y-5">
           <NaCategoryChips b={b} categories={categories} editable={mode === "plan"} onFailed={failed} />
           <BudgetLinesTable b={b} categories={categories} mode={mode} />
@@ -207,10 +208,11 @@ export default function BudgetEditorPage() {
           <BudgetActivityCard budgetId={b.id} />
         </div>
 
-        <aside className="space-y-2 lg:sticky lg:top-4 lg:self-start">
+        <aside className="order-first space-y-2 xl:sticky xl:top-4 xl:order-none xl:self-start">
           <div className="rounded-lg border bg-card p-3">
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Actions</div>
-            <div className="flex flex-col gap-2">
+            {/* A row of buttons while the panel sits above the tables; a column once it is the side panel (xl). */}
+            <div className="flex flex-wrap gap-2 xl:flex-col xl:flex-nowrap">
               {b.status === "DRAFT" && canAuthor && (
                 <>
                   <Button onClick={() => setSubmitOpen(true)}><Send className="h-4 w-4" /> Submit for approval</Button>

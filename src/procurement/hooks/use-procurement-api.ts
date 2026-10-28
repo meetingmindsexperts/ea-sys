@@ -719,6 +719,9 @@ export interface CreateBudgetInput {
   importedFrom?: string | null;
   lines?: { productId: string; description: string; qty: string; unitCost: string; taxRatePercent: string | null; notes: string | null }[];
   revenueLines?: { incomeAccount: string; description: string; qty: string; unitAmount: string; notes: string | null }[];
+  /** Copy a past budget's plan, with an optional price change in percent. */
+  fromBudgetId?: string | null;
+  priceChangePercent?: number | null;
 }
 
 export function useCreateBudget() {

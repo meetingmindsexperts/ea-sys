@@ -250,10 +250,18 @@ export interface CreateBudgetInput {
   revenueLines?: ImportedRevenueLine[];
   /** The sheet's file name, kept on the audit row. */
   importedFrom?: string | null;
+  /** Copy the plan of this past budget (any event, this organisation); never with a template or imported lines. */
+  fromBudgetId?: string | null;
+  /** Applied to every copied unit cost and unit amount, e.g. 5 for +5%. */
+  priceChangePercent?: number | null;
+  /** Copy the source's revenue lines too: the route sets it from the caller's finance sight. */
+  copyRevenue?: boolean;
 }
 
 export interface ImportedBudgetLine {
-  productId: string;
+  /** A catalogue product, whose category the line takes; or null with `categoryId` (a copied line whose product was archived). */
+  productId: string | null;
+  categoryId?: string;
   description: string;
   qty: MoneyInput;
   unitCost: MoneyInput;
@@ -270,6 +278,12 @@ export interface ImportedRevenueLine {
   notes?: string | null;
 }
 
+function copyNote(copy: CopiedPlan, pct: number): string {
+  const change = pct === 0 ? "at the same prices" : `with prices ${pct > 0 ? "+" : ""}${pct}%`;
+  const skipped = copy.skipped > 0 ? ` ${copy.skipped} line${copy.skipped === 1 ? " was" : "s were"} left out: the category or income account is archived.` : "";
+  return `Copied from ${copy.source.eventCode} v${copy.source.versionNo} ${change}.${skipped}`;
+}
+
 type ImportedRows = { lines: Prisma.BudgetLineCreateManyInput[]; revenue: Prisma.BudgetRevenueLineCreateManyInput[] };
 
 /**
@@ -282,8 +296,10 @@ type ImportedRows = { lines: Prisma.BudgetLineCreateManyInput[]; revenue: Prisma
 async function resolveImportedLines(input: CreateBudgetInput, ctx: Record<string, unknown>): Promise<BudgetResult<ImportedRows>> {
   const lines = input.lines ?? [];
   const revenueLines = input.revenueLines ?? [];
-  const productIds = [...new Set(lines.map((l) => l.productId))];
-  const [products, incomeCategories] = await Promise.all([
+  const productIds = [...new Set(lines.flatMap((l) => (l.productId ? [l.productId] : [])))];
+  const bareCategoryIds = [...new Set(lines.flatMap((l) => (!l.productId && l.categoryId ? [l.categoryId] : [])))];
+  if (lines.some((l) => !l.productId && !l.categoryId)) return fail("CATEGORY_NOT_FOUND", "An imported line needs a product or a category.", ctx);
+  const [products, incomeCategories, bareCategories] = await Promise.all([
     productIds.length === 0
       ? Promise.resolve([])
       : db.budgetProduct.findMany({
@@ -291,7 +307,13 @@ async function resolveImportedLines(input: CreateBudgetInput, ctx: Record<string
           select: { id: true, categoryId: true },
         }),
     revenueLines.length === 0 ? Promise.resolve([]) : ensureRevenueCategories(input.organizationId),
+    bareCategoryIds.length === 0
+      ? Promise.resolve([])
+      : db.budgetCategory.findMany({ where: { organizationId: input.organizationId, id: { in: bareCategoryIds }, isActive: true, type: "EXPENSE" }, select: { id: true } }),
   ]);
+  const activeBare = new Set(bareCategories.map((c) => c.id));
+  const missingCategory = bareCategoryIds.find((id) => !activeBare.has(id));
+  if (missingCategory) return fail("CATEGORY_NOT_FOUND", "A copied line's category is not in the catalogue or is archived.", { ...ctx, categoryId: missingCategory });
   const productById = new Map(products.map((p) => [p.id, p]));
   const missingProduct = productIds.find((id) => !productById.has(id));
   if (missingProduct) return fail("PRODUCT_NOT_FOUND", "An imported line names a product that is not in the catalogue or is archived.", { ...ctx, productId: missingProduct });
@@ -310,7 +332,7 @@ async function resolveImportedLines(input: CreateBudgetInput, ctx: Record<string
           const t = lineTotals({ qty: l.qty, unitCost: l.unitCost, fxRateToReporting: 1, taxRatePercent: tax });
           return {
             organizationId: input.organizationId, budgetId: "", lineKey: globalThis.crypto.randomUUID(),
-            productId: l.productId, categoryId: productById.get(l.productId)!.categoryId, description: l.description.trim(),
+            productId: l.productId, categoryId: l.productId ? productById.get(l.productId)!.categoryId : l.categoryId!, description: l.description.trim(),
             qty: storedString(l.qty), unitCost: storedString(l.unitCost), ...same,
             planned: storedString(t.planned), taxRatePercent: tax === null ? null : tax.toString(), taxAmountPlanned: storedString(t.taxAmountPlanned),
             notes: l.notes ?? null, sortOrder: i,
@@ -328,6 +350,81 @@ async function resolveImportedLines(input: CreateBudgetInput, ctx: Record<string
   } catch (err) {
     return fail("INVALID_AMOUNT", (err as Error).message, ctx);
   }
+}
+
+interface CopiedPlan {
+  lines: ImportedBudgetLine[];
+  revenueLines: ImportedRevenueLine[];
+  source: { id: string; eventCode: string; versionNo: number; contingencyPercent: string };
+  /** Lines left behind because their category (or income account) is archived now. */
+  skipped: number;
+}
+
+/**
+ * A past budget's PLAN as imported lines (owner, Oct 28, 2026: "copy a past
+ * budget"), so the copy goes through the one create path and every line is
+ * re-checked there. Only what was planned travels: commitments, actuals,
+ * forecasts and variance notes belong to the other event. A product archived
+ * since is dropped and the line keeps its category; a line whose category is
+ * archived is left behind and counted. A foreign-currency line arrives in the
+ * reporting currency at the rate the source stored, which the note says.
+ */
+async function copyPlanFrom(input: CreateBudgetInput, ctx: Record<string, unknown>): Promise<BudgetResult<CopiedPlan>> {
+  const src = await db.eventBudget.findFirst({
+    where: { id: input.fromBudgetId!, organizationId: input.organizationId },
+    select: {
+      id: true, eventCode: true, versionNo: true, reportingCurrency: true, contingencyPercent: true,
+      lines: {
+        where: { deletedAt: null, isContingency: false },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: { productId: true, categoryId: true, description: true, qty: true, unitCost: true, transactionCurrency: true, fxRateToReporting: true, taxRatePercent: true, notes: true, category: { select: { isActive: true } } },
+      },
+      revenueLines: {
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: { description: true, qty: true, unitAmount: true, transactionCurrency: true, fxRateToReporting: true, notes: true, category: { select: { code: true, isActive: true } } },
+      },
+    },
+  });
+  if (!src) return fail("BUDGET_NOT_FOUND", "The budget to copy from was not found.", ctx);
+  if (src.reportingCurrency !== input.reportingCurrency) {
+    return fail("CURRENCY_LOCKED", `A copy keeps the source's currency: ${src.reportingCurrency}.`, ctx);
+  }
+  const pct = input.priceChangePercent ?? 0;
+  if (!(pct >= -50 && pct <= 100)) return fail("INVALID_AMOUNT", "The price change must be between -50% and +100%.", ctx);
+  const factor = money(100 + pct).div(100);
+  const productIds = [...new Set(src.lines.flatMap((l) => (l.productId ? [l.productId] : [])))];
+  const live = productIds.length === 0
+    ? new Set<string>()
+    : new Set((await db.budgetProduct.findMany({ where: { organizationId: input.organizationId, id: { in: productIds }, isActive: true }, select: { id: true } })).map((p) => p.id));
+  const reprice = (unit: MoneyInput, fx: MoneyInput) => storedString(money(unit).mul(money(fx)).mul(factor));
+  const rateNote = (cur: string, fx: MoneyInput) => (cur === input.reportingCurrency ? null : `Copied from ${cur} at ${money(fx).toString()} to ${input.reportingCurrency}`);
+  const join = (...parts: (string | null)[]) => parts.filter(Boolean).join(" · ").slice(0, 2000) || null;
+
+  const keptLines = src.lines.filter((l) => l.category.isActive);
+  const keptRevenue = input.copyRevenue ? src.revenueLines.filter((r) => r.category.isActive) : [];
+  return {
+    ok: true,
+    budget: {
+      lines: keptLines.map((l) => ({
+        productId: l.productId && live.has(l.productId) ? l.productId : null,
+        categoryId: l.categoryId,
+        description: l.description,
+        qty: storedString(l.qty),
+        unitCost: reprice(l.unitCost, l.fxRateToReporting),
+        taxRatePercent: l.taxRatePercent === null ? null : money(l.taxRatePercent).toString(),
+        notes: join(rateNote(l.transactionCurrency, l.fxRateToReporting), l.notes),
+      })),
+      revenueLines: keptRevenue.map((r) => ({
+        incomeAccount: r.category.code,
+        description: r.description,
+        qty: storedString(r.qty),
+        unitAmount: reprice(r.unitAmount, r.fxRateToReporting),
+        notes: join(rateNote(r.transactionCurrency, r.fxRateToReporting), r.notes),
+      })),
+      source: { id: src.id, eventCode: src.eventCode, versionNo: src.versionNo, contingencyPercent: money(src.contingencyPercent).toString() },
+      skipped: src.lines.length - keptLines.length + (input.copyRevenue ? src.revenueLines.length - keptRevenue.length : 0),
+    },
+  };
 }
 
 export async function createBudget(input: CreateBudgetInput): Promise<BudgetResult<BudgetView>> {
@@ -349,12 +446,15 @@ export async function createBudget(input: CreateBudgetInput): Promise<BudgetResu
       })
     : null;
   if (input.templateId && !template) return fail("TEMPLATE_NOT_FOUND", "The template was not found or is inactive.", ctx);
-  const imported = await resolveImportedLines(input, ctx);
+  const copied = input.fromBudgetId ? await copyPlanFrom(input, ctx) : null;
+  if (copied && !copied.ok) return copied;
+  const copy = copied?.budget ?? null;
+  const imported = await resolveImportedLines(copy ? { ...input, lines: copy.lines, revenueLines: copy.revenueLines } : input, ctx);
   if (!imported.ok) return imported;
   const categories = await ensureBudgetCategories(input.organizationId);
   const contingencyCat = categories.find((c) => c.code === CONTINGENCY_CATEGORY_CODE);
   if (!contingencyCat) return fail("CATEGORY_NOT_FOUND", "The contingency category is missing from the catalogue.", ctx);
-  const contingencyPercent = money(input.contingencyPercent ?? 10);
+  const contingencyPercent = money(input.contingencyPercent ?? copy?.source.contingencyPercent ?? 10);
   if (contingencyPercent.lt(0) || contingencyPercent.gt(100)) return fail("INVALID_AMOUNT", "Contingency percent must be between 0 and 100.", ctx);
 
   try {
@@ -369,12 +469,13 @@ export async function createBudget(input: CreateBudgetInput): Promise<BudgetResu
           reportingCurrency: input.reportingCurrency,
           contingencyPercent: contingencyPercent.toString(),
           expectedAttendance: input.expectedAttendance ?? null,
-          benchmarkSourceType: input.benchmarkSourceType ?? "NONE",
-          benchmarkSourceId: input.benchmarkSourceId ?? null,
+          // A copy names its source as the benchmark, the column built for "this plan came from that budget".
+          benchmarkSourceType: copy ? "EA_SYS_BUDGET" : (input.benchmarkSourceType ?? "NONE"),
+          benchmarkSourceId: copy ? copy.source.id : (input.benchmarkSourceId ?? null),
           ownerUserId: input.actorUserId,
           financeOwnerUserId: input.financeOwnerUserId ?? null,
           createdByUserId: input.actorUserId,
-          notes: input.notes ?? null,
+          notes: input.notes ?? (copy ? copyNote(copy, input.priceChangePercent ?? 0) : null),
         },
         select: { id: true },
       });
@@ -438,8 +539,11 @@ export async function createBudget(input: CreateBudgetInput): Promise<BudgetResu
         entityId: budget.id,
         changes: {
           source: input.source, eventId: event.id, eventCode: event.code, templateId: template?.id ?? null, reportingCurrency: input.reportingCurrency, seededLines: seeded.length,
-          ...(input.importedFrom || importedLines.length > 0 || imported.budget.revenue.length > 0
+          ...(!copy && (input.importedFrom || importedLines.length > 0 || imported.budget.revenue.length > 0)
             ? { importedFrom: input.importedFrom ?? null, importedLines: importedLines.length, importedRevenueLines: imported.budget.revenue.length }
+            : {}),
+          ...(copy
+            ? { copiedFrom: { budgetId: copy.source.id, eventCode: copy.source.eventCode, versionNo: copy.source.versionNo }, priceChangePercent: input.priceChangePercent ?? 0, skippedLines: copy.skipped }
             : {}),
         },
       });

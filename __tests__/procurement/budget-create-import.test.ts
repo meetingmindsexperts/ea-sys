@@ -20,6 +20,7 @@ const { mockDb, tx, revenue } = vi.hoisted(() => {
     eventBudget: { count: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
     budgetTemplate: { findFirst: vi.fn() },
     budgetProduct: { findMany: vi.fn() },
+    budgetCategory: { findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)),
   };
   const revenue = {
@@ -109,5 +110,73 @@ describe("createBudget from imported lines", () => {
     expect(changes).not.toHaveProperty("importedFrom");
     expect(revenue.ensureRevenueCategories).not.toHaveBeenCalled();
     expect(tx.budgetRevenueLine.createMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("createBudget copying a past budget's plan", () => {
+  const source = {
+    id: "b-src", eventCode: "OGSC2026", versionNo: 1, reportingCurrency: "AED", contingencyPercent: "3.00",
+    lines: [
+      { productId: "p-ddr", categoryId: "cat-venue", description: "Day Delegate Rate", qty: "300.0000", unitCost: "251.4200", transactionCurrency: "AED", fxRateToReporting: "1", taxRatePercent: null, notes: "Sheet 1.1", category: { isActive: true } },
+      { productId: "p-gone", categoryId: "cat-av", description: "AV rental", qty: "1.0000", unitCost: "1000.0000", transactionCurrency: "USD", fxRateToReporting: "3.6725", taxRatePercent: "5.00", notes: null, category: { isActive: true } },
+      { productId: null, categoryId: "cat-old", description: "Legacy bucket", qty: "1.0000", unitCost: "50.0000", transactionCurrency: "AED", fxRateToReporting: "1", taxRatePercent: null, notes: null, category: { isActive: false } },
+    ],
+    revenueLines: [
+      { description: "Venue billed", qty: "200.0000", unitAmount: "300.0000", transactionCurrency: "AED", fxRateToReporting: "1", notes: null, category: { code: "440011", isActive: true } },
+    ],
+  };
+  const copyInput = { ...base, eventId: "e2", fromBudgetId: "b-src", priceChangePercent: 10, copyRevenue: true };
+
+  beforeEach(() => {
+    mockDb.eventBudget.findFirst.mockReset().mockResolvedValueOnce(source).mockResolvedValue(null);
+    // p-gone was archived since: only p-ddr comes back as live.
+    mockDb.budgetProduct.findMany.mockResolvedValue([{ id: "p-ddr", categoryId: "cat-venue" }]);
+    mockDb.budgetCategory.findMany.mockResolvedValue([{ id: "cat-av" }]);
+  });
+
+  it("reads the source inside this organisation only", async () => {
+    await createBudget(copyInput);
+    expect(mockDb.eventBudget.findFirst.mock.calls[0][0].where).toEqual({ id: "b-src", organizationId: ORG });
+  });
+
+  it("refuses a source in another organisation (not found) and a different currency, before any write", async () => {
+    mockDb.eventBudget.findFirst.mockReset().mockResolvedValue(null);
+    expect(await createBudget(copyInput)).toMatchObject({ ok: false, code: "BUDGET_NOT_FOUND" });
+    mockDb.eventBudget.findFirst.mockReset().mockResolvedValueOnce(source);
+    expect(await createBudget({ ...copyInput, reportingCurrency: "USD" })).toMatchObject({ ok: false, code: "CURRENCY_LOCKED" });
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("copies the plan with the price change, drops an archived product, converts a foreign line, leaves an archived category behind", async () => {
+    await createBudget(copyInput);
+    const written = tx.budgetLine.createMany.mock.calls[0][0].data;
+    expect(written).toHaveLength(3); // two copied lines + the contingency line; the archived category's line is left out
+    expect(written[0]).toMatchObject({ productId: "p-ddr", categoryId: "cat-venue", qty: "300.0000", unitCost: "276.5620", planned: "82968.6000", notes: "Sheet 1.1" });
+    // USD 1,000 at 3.6725 is AED 3,672.50, +10% is 4,039.75; the product is gone, the category stays.
+    expect(written[1]).toMatchObject({ productId: null, categoryId: "cat-av", unitCost: "4039.7500", transactionCurrency: "AED", taxRatePercent: "5", notes: "Copied from USD at 3.6725 to AED" });
+    expect(written[2]).toMatchObject({ isContingency: true });
+    expect(tx.budgetRevenueLine.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ categoryId: "rev-venue", unitAmount: "330.0000", planned: "66000.0000" })] });
+  });
+
+  it("names the source as the benchmark, takes its contingency, and says what it did in notes and audit", async () => {
+    await createBudget(copyInput);
+    expect(tx.eventBudget.create.mock.calls[0][0].data).toMatchObject({
+      benchmarkSourceType: "EA_SYS_BUDGET", benchmarkSourceId: "b-src", contingencyPercent: "3",
+      notes: "Copied from OGSC2026 v1 with prices +10%. 1 line was left out: the category or income account is archived.",
+    });
+    const changes = tx.auditLog.create.mock.calls[0][0].data.changes;
+    expect(changes).toMatchObject({ copiedFrom: { budgetId: "b-src", eventCode: "OGSC2026", versionNo: 1 }, priceChangePercent: 10, skippedLines: 1 });
+    expect(changes).not.toHaveProperty("importedFrom");
+  });
+
+  it("copies no revenue line when the caller has no finance sight", async () => {
+    await createBudget({ ...copyInput, copyRevenue: false });
+    expect(tx.budgetRevenueLine.createMany).not.toHaveBeenCalled();
+    expect(revenue.ensureRevenueCategories).not.toHaveBeenCalled();
+  });
+
+  it("refuses a price change outside -50% to +100%", async () => {
+    expect(await createBudget({ ...copyInput, priceChangePercent: 150 })).toMatchObject({ ok: false, code: "INVALID_AMOUNT" });
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
   });
 });

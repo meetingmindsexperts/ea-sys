@@ -108,7 +108,7 @@ function RevenueBody({ b, data, editable }: { b: BudgetRow; data: BudgetRevenue;
             ) : (
               data.accounts.map((r) => (
                 <TableRow key={r.code}>
-                  <TableCell className="text-sm"><CategoryLabel code={r.code} name={r.name} /></TableCell>
+                  <TableCell className="whitespace-normal text-sm"><CategoryLabel code={r.code} name={r.name} /></TableCell>
                   <TableCell className="text-right tabular-nums">{money2(r.planned)}</TableCell>
                   <TableCell className="text-right tabular-nums">{money2(r.actual)}</TableCell>
                 </TableRow>
@@ -116,7 +116,7 @@ function RevenueBody({ b, data, editable }: { b: BudgetRow; data: BudgetRevenue;
             )}
             {notItemised !== 0 && (
               <TableRow className="bg-muted/30">
-                <TableCell className="text-sm">
+                <TableCell className="whitespace-normal text-sm">
                   Not itemised on won deals
                   <div className="text-xs text-muted-foreground">{notItemised > 0 ? "Deal values not covered by the deals' products." : "The deals' products add up to more than the deal values."}</div>
                 </TableCell>
@@ -126,7 +126,7 @@ function RevenueBody({ b, data, editable }: { b: BudgetRow; data: BudgetRevenue;
             )}
             {noAccount !== 0 && (
               <TableRow className="bg-muted/30">
-                <TableCell className="text-sm">
+                <TableCell className="whitespace-normal text-sm">
                   Products with no income account
                   <ul className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
                     {a.noAccount.products.map((p, i) => (
@@ -204,8 +204,9 @@ function RevenueLines({ b, data, editable }: { b: BudgetRow; data: BudgetRevenue
                 </TableRow>
               ) : (
                 <TableRow key={l.id}>
-                  <TableCell className="text-xs text-muted-foreground"><CategoryLabel code={l.category.code} name={l.category.name} stacked /></TableCell>
-                  <TableCell>
+                  {/* Wrapping text columns, as on the cost lines: the shared cell never wraps. */}
+                  <TableCell className="min-w-[8rem] whitespace-normal text-xs text-muted-foreground"><CategoryLabel code={l.category.code} name={l.category.name} stacked /></TableCell>
+                  <TableCell className="min-w-[12rem] whitespace-normal break-words">
                     {l.description}
                     {l.transactionCurrency !== cur && <div className="text-xs text-muted-foreground">{`${l.transactionCurrency} ${money2(l.unitAmount)} × ${Number(l.qty)} at ${Number(l.fxRateToReporting)}`}</div>}
                   </TableCell>
