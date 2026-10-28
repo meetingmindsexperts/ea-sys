@@ -25,12 +25,14 @@ export function completedAtOnCreate(source: RegistrationCreatedSource | null | u
  * spread into a where that has its own `status` or `OR` without overwriting either.
  */
 export const NOT_COMPLETED_WHERE: Prisma.RegistrationWhereInput = {
-  AND: [{ completedAt: null }, { status: { not: "CANCELLED" } }],
+  // An account counts as completed too: the account sweeps link rows across events without stamping
+  // them, and the link and the form send already treat those as done (review MED).
+  AND: [{ completedAt: null }, { userId: null }, { status: { not: "CANCELLED" } }],
 };
 
 /** The list filter `completion=pending|done`; anything else (or nothing) filters nothing. */
 export function completionWhereFor(param: string | null | undefined): Prisma.RegistrationWhereInput {
   if (param === "pending") return NOT_COMPLETED_WHERE;
-  if (param === "done") return { AND: [{ completedAt: { not: null } }] };
+  if (param === "done") return { AND: [{ OR: [{ completedAt: { not: null } }, { userId: { not: null } }] }] };
   return {};
 }

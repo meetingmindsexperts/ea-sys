@@ -663,6 +663,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(groupId ? { groupId } : {}),
           ...(status ? { status } : {}),
           ...(paymentStatus ? { paymentStatus } : {}),
+          ...(completionParam ? { completion: completionParam } : {}),
           ...(ticketTypeId ? { ticketTypeId } : {}),
         },
       });

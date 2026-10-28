@@ -41,7 +41,6 @@ import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
 import {
   BillingDetailsSection,
   SupportingDocumentField,
-  billingFromPersonal,
   missingBillingFields,
   type UploadedDocument,
 } from "@/components/public/registration-form-extras";
@@ -156,7 +155,7 @@ const completionSchema = z.object({
   taxNumber: z.string().optional(),
   billingFirstName: z.string().optional(),
   billingLastName: z.string().optional(),
-  billingEmail: z.string().optional(),
+  billingEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
   billingPhone: z.string().optional(),
   billingAddress: z.string().optional(),
   billingCity: z.string().optional(),
@@ -237,7 +236,7 @@ function CompleteRegistrationContent() {
           return;
         }
         if (result.alreadyCompleted) {
-          setError("This registration has already been completed. You can sign in to manage your registration.");
+          setError("This registration has already been completed. Your confirmation and barcode were sent by email; if you set a password, you can also sign in to manage it.");
           return;
         }
         // The link's rate has closed: nothing to complete at it (owner D3).
@@ -265,6 +264,10 @@ function CompleteRegistrationContent() {
           memberId: a.memberId || "",
           studentId: a.studentId || "",
           studentIdExpiry: a.studentIdExpiry ? new Date(a.studentIdExpiry).toISOString().split("T")[0] : "",
+          // Every field the form renders starts as a string, so none switches from uncontrolled (review LOW).
+          additionalEmail: "", taxNumber: "",
+          billingFirstName: "", billingLastName: "", billingEmail: "", billingPhone: "", billingAddress: "",
+          billingCity: "", billingState: "", billingZipCode: "", billingCountry: "",
           password: "",
           confirmPassword: "",
           agreeTerms: undefined as unknown as true,
@@ -337,9 +340,6 @@ function CompleteRegistrationContent() {
         return;
       }
     }
-    const billing = billingSame
-      ? billingFromPersonal({ ...formData, firstName: data?.attendee.firstName, lastName: data?.attendee.lastName, email: data?.attendee.email })
-      : {};
 
     setSubmitting(true);
     try {
@@ -348,7 +348,8 @@ function CompleteRegistrationContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
-          ...billing,
+          // "Same as personal details" (also when billing is hidden): the server fills only empty billing.
+          billingSame,
           supportingDocumentUrl: requiresSupportingDocument(docPolicy) ? supportingDoc?.url : undefined,
           supportingDocumentFilename: requiresSupportingDocument(docPolicy) ? supportingDoc?.filename : undefined,
           token,

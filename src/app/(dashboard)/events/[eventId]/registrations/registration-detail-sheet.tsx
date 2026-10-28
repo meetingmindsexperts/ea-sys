@@ -3078,14 +3078,10 @@ export function RegistrationDetailSheet({
                           {t.name}
                         </DropdownMenuItem>
                       ))}
-                      {/* Token-gated completion link — only meaningful for
-                          registrations that haven't been linked to a user
-                          yet. The action is hidden once the registrant
-                          completes (and thus has a userId) because the
-                          link they'd get would 410-expire on first access:
-                          the route checks for an existing linked user up
-                          front. */}
-                      {!selectedRegistration.userId && (
+                      {/* Token-gated completion link: only for registrations not yet completed. Hidden once
+                          they complete, with or without an account (completedAt), because the link would only
+                          tell them so (docs/ONSITE_DESK_PLAN.md §3.1). */}
+                      {!selectedRegistration.userId && !selectedRegistration.completedAt && (
                         <DropdownMenuItem
                           onClick={() => setSendFormConfirmOpen(true)}
                         >

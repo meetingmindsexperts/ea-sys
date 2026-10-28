@@ -491,6 +491,7 @@ describe("the completion form captures what the public form does (docs/ONSITE_DE
       makeRequest(makeBody({
         ticketTypeId: "tt-1",
         additionalEmail: "pat.alt@example.com",
+        billingSame: false,
         taxNumber: "AE123",
         billingFirstName: "Pat", billingLastName: "Lee", billingEmail: "billing@hospital.ae", billingPhone: "+971500",
         billingAddress: "1 Main St", billingCity: "Dubai", billingState: "Dubai", billingZipCode: "000", billingCountry: "UAE",
@@ -505,6 +506,16 @@ describe("the completion form captures what the public form does (docs/ONSITE_DE
       billingCountry: "UAE",
     });
     expect(mockTxAttendeeUpdate.mock.calls[0][0].data).toMatchObject({ additionalEmail: "pat.alt@example.com" });
+  });
+
+  it("billing \"same as personal details\" fills only empty columns: the organiser's company billing stays (review MED)", async () => {
+    mockRegFindFirst.mockResolvedValue(makeRegistration({ billingFirstName: "Acme", billingAddress: "1 Corporate Rd" }));
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1", billingSame: true })), makeParams());
+    expect(res.status).toBe(200);
+    const data = stamp()!;
+    expect(data).not.toHaveProperty("billingFirstName");
+    expect(data).not.toHaveProperty("billingAddress");
+    expect(data).toMatchObject({ billingLastName: "Lee", billingEmail: "person@example.com" });
   });
 
   it("requires the supporting document when the type requires one", async () => {

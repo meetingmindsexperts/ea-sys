@@ -76,7 +76,6 @@ interface SelectableTicketType {
   available: boolean;
 }
 
-/** Prisma select for a type + the tier fields `pickOpenPublicRate` needs. */
 /** The submitted optional text fields that were sent, a blank one stored as null (as on the public form). */
 function optionalText<K extends string>(fields: Record<K, string | undefined>): Partial<Record<K, string | null>> {
   const out: Partial<Record<K, string | null>> = {};
@@ -86,6 +85,20 @@ function optionalText<K extends string>(fields: Record<K, string | undefined>): 
   return out;
 }
 
+/** Billing from the person's own details, only into the columns the registration has empty. */
+function fillBlankBilling(
+  current: Record<string, unknown>,
+  personal: Record<string, string | null | undefined>,
+): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const [key, value] of Object.entries(personal)) {
+    const existing = current[key];
+    if ((existing === null || existing === undefined || existing === "") && value && value.trim()) out[key] = value.trim();
+  }
+  return out;
+}
+
+/** Prisma select for a type + the tier fields `pickOpenPublicRate` needs. */
 const SELECTABLE_TICKET_TYPE_SELECT = {
   ...IDENTITY_EVIDENCE_SELECT,
   ...SUPPORTING_DOCUMENT_POLICY_SELECT,
@@ -468,6 +481,9 @@ const completionSchema = z.object({
   billingState: z.string().max(255).optional(),
   billingZipCode: z.string().max(20).optional(),
   billingCountry: z.string().max(255).optional(),
+  /** Billing is the person's own details (the default, and when the form hides billing). Then only empty
+   *  billing columns are filled, so billing the organiser entered is never overwritten (review MED). */
+  billingSame: z.boolean().optional(),
   /** Required only when the registration has no type yet. The pricing TIER is
    *  deliberately not accepted from the client — it's re-resolved server-side
    *  so a crafted request can't claim a closed Early-Bird rate. */
@@ -572,7 +588,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
-    const { token: rawToken, title, role, jobTitle, organization, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, password, ticketTypeId: chosenTicketTypeId, additionalEmail, supportingDocumentUrl, supportingDocumentFilename, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry } = validated.data;
+    const { token: rawToken, title, role, jobTitle, organization, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, password, ticketTypeId: chosenTicketTypeId, additionalEmail, supportingDocumentUrl, supportingDocumentFilename, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry, billingSame } = validated.data;
 
     // Validate studentIdExpiry date format if provided
     if (studentIdExpiry && isNaN(new Date(studentIdExpiry).getTime())) {
@@ -684,7 +700,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (registration.userId || registration.completedAt) {
       apiLogger.info({ msg: "Completion POST on already-completed registration", registrationId, email: registration.attendee.email });
-      return NextResponse.json({ error: "This registration has already been completed. You can sign in to manage your registration." }, { status: 409 });
+      return NextResponse.json({ error: "This registration has already been completed. Your confirmation and barcode were sent by email; if you set a password, you can also sign in to manage it." }, { status: 409 });
     }
 
     // ── Registration type ────────────────────────────────────────────────
@@ -849,6 +865,21 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // What billing to store. Entered billing as typed; "same as personal details" fills only the blank
+    // columns from their details (review MED: it used to overwrite the organiser's company billing).
+    const billingWrite: Record<string, string | null> = billingSame === false
+      ? optionalText({ taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry })
+      : fillBlankBilling(registration, {
+          billingFirstName: registration.attendee.firstName,
+          billingLastName: registration.attendee.lastName,
+          billingEmail: registration.attendee.email,
+          billingPhone: phone,
+          billingCity: city,
+          billingState: state,
+          billingZipCode: zipCode,
+          billingCountry: country,
+        });
+
     const resolvedPrice = resolvedType ? Number(resolvedTier?.price ?? resolvedType.price) : null;
     // Self-selecting a type that requires approval puts the row into the
     // organizer's approval queue — public-register semantics, because at
@@ -994,7 +1025,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           completedAt: new Date(),
           // A document is only ever added here, never cleared: one the organiser attached stays.
           ...(document.url && { supportingDocumentUrl: document.url, supportingDocumentFilename: document.filename }),
-          ...optionalText({ taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry }),
+          ...billingWrite,
         },
       });
 
@@ -1123,6 +1154,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // just picked, or what the row already held. The loaded `registration`
     // predates this request and would price a freshly-typed one at 0.
     const final = finalPricing({ ratedPlan, resolvedType, resolvedTier, resolvedPrice, registration });
+    /** A billing column as it now stands: what this submit wrote, else what the row already had. */
+    const savedBilling = (key: string): string | null =>
+      key in billingWrite ? billingWrite[key] : ((registration as unknown as Record<string, string | null>)[key] ?? null);
 
     // Send confirmation email
     try {
@@ -1132,7 +1166,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       await sendRegistrationConfirmation({
         ...buildEventConfirmationFields(registration.event),
         to: email,
-        additionalEmail: registration.attendee.additionalEmail,
+        // What was just saved, not the row read before the submit (review MED).
+        additionalEmail: additionalEmail !== undefined ? additionalEmail || null : registration.attendee.additionalEmail,
         firstName,
         lastName,
         title: title || null,
@@ -1149,16 +1184,16 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketPrice: finalPrice,
         ticketCurrency: finalCurrency,
         jobTitle,
-        billingFirstName: registration.billingFirstName,
-        billingLastName: registration.billingLastName,
-        billingEmail: registration.billingEmail,
-        billingPhone: registration.billingPhone,
-        billingAddress: registration.billingAddress,
-        billingCity: registration.billingCity || city,
-        billingState: registration.billingState,
-        billingZipCode: registration.billingZipCode,
-        billingCountry: registration.billingCountry || country,
-        taxNumber: registration.taxNumber,
+        billingFirstName: savedBilling("billingFirstName"),
+        billingLastName: savedBilling("billingLastName"),
+        billingEmail: savedBilling("billingEmail"),
+        billingPhone: savedBilling("billingPhone"),
+        billingAddress: savedBilling("billingAddress"),
+        billingCity: savedBilling("billingCity") || city,
+        billingState: savedBilling("billingState"),
+        billingZipCode: savedBilling("billingZipCode"),
+        billingCountry: savedBilling("billingCountry") || country,
+        taxNumber: savedBilling("taxNumber"),
       });
     } catch (emailError) {
       apiLogger.error({ err: emailError, msg: "Failed to send confirmation email after registration completion" });

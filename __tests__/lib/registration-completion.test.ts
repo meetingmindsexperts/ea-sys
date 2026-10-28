@@ -25,11 +25,12 @@ describe("completedAtOnCreate", () => {
 describe("completionWhereFor", () => {
   it("pending: not completed and not cancelled, as one AND so it never overwrites a status or OR filter", () => {
     expect(completionWhereFor("pending")).toBe(NOT_COMPLETED_WHERE);
-    expect(NOT_COMPLETED_WHERE).toEqual({ AND: [{ completedAt: null }, { status: { not: "CANCELLED" } }] });
+    // An account counts as completed too (review MED: the account sweeps link rows without stamping them).
+    expect(NOT_COMPLETED_WHERE).toEqual({ AND: [{ completedAt: null }, { userId: null }, { status: { not: "CANCELLED" } }] });
     expect(Object.keys({ status: "CONFIRMED", ...completionWhereFor("pending") })).toEqual(["status", "AND"]);
   });
   it("done: completed; anything else filters nothing", () => {
-    expect(completionWhereFor("done")).toEqual({ AND: [{ completedAt: { not: null } }] });
+    expect(completionWhereFor("done")).toEqual({ AND: [{ OR: [{ completedAt: { not: null } }, { userId: { not: null } }] }] });
     expect(completionWhereFor(null)).toEqual({});
     expect(completionWhereFor("bogus")).toEqual({});
   });
