@@ -584,6 +584,12 @@ export default function PublicSessionPage() {
   }
 
   const hasRecording = session?.zoomMeeting?.recordingStatus === "AVAILABLE";
+  // The organiser shows the recording and Zoom has not delivered it yet: the exit screen says it is coming.
+  const recordingStatus = session?.zoomMeeting?.recordingStatus;
+  const replayExpected =
+    Boolean(session?.zoomMeeting) &&
+    !session?.recordingHidden &&
+    (recordingStatus === "PENDING" || recordingStatus === "NOT_REQUESTED");
   const isRecordingProcessing =
     isPast &&
     !hasRecording &&
@@ -746,14 +752,20 @@ export default function PublicSessionPage() {
 
         {/* The webinar is over for this viewer: the exit screen replaces the video and tabs (owner, Oct 28,
             2026), with the end-of-webinar survey's banner and popup above it. */}
+        {/* Mounted for the whole visit, as before the exit screen: a room reopened after the end keeps the
+            attendee's half-filled answers and does not pop the survey a second time (review LOW). */}
+        {isWebinarEvent && authState.kind === "ok" && (
+          <EndOfWebinarSurvey slug={slug} sessionId={sessionId} ended={webinarEnded} />
+        )}
         {webinarEnded ? (
           <>
-            <EndOfWebinarSurvey slug={slug} sessionId={sessionId} ended={webinarEnded} />
             <WebinarExitScreen
               sessionName={session?.name || joinInfo?.sessionName || "The webinar"}
               hasRecording={hasRecording}
               recordingPassword={recording?.password ?? null}
               recordingLoading={recordingLoading}
+              recordingError={recordingError}
+              replayExpected={replayExpected}
               onWatchRecording={handleWatchRecording}
               onRejoin={
                 roomOpen
@@ -764,6 +776,8 @@ export default function PublicSessionPage() {
                   : undefined
               }
             />
+            {/* Slides and files stay downloadable after the end (review MED). */}
+            <HandoutsCard slug={slug} sessionId={sessionId} handouts={handouts} />
             {/* The same footer image as under the video, so the exit screen keeps the webinar's branding
                 (owner, Oct 28, 2026); the logo and background already come from the page around it. */}
             {branding?.footerImageUrl && (

@@ -15,6 +15,8 @@ export function WebinarExitScreen({
   hasRecording,
   recordingPassword,
   recordingLoading,
+  recordingError,
+  replayExpected,
   onWatchRecording,
   onRejoin,
 }: {
@@ -23,6 +25,10 @@ export function WebinarExitScreen({
   hasRecording: boolean;
   recordingPassword: string | null;
   recordingLoading: boolean;
+  /** Why the replay did not open (not registered, network), shown under the button. */
+  recordingError: string | null;
+  /** The organiser has switched the recording on but Zoom has not delivered it yet. */
+  replayExpected: boolean;
   onWatchRecording: () => void;
   /** Back into the room, for a host who ended in Zoom and restarted while the room is still open. */
   onRejoin?: () => void;
@@ -47,6 +53,7 @@ export function WebinarExitScreen({
               {recordingLoading ? "Loading…" : "Watch the replay"}
               <ExternalLink className="h-4 w-4" />
             </Button>
+            {recordingError && <p className="text-xs text-red-600">{recordingError}</p>}
             {recordingPassword && (
               <p className="text-xs text-muted-foreground">
                 Passcode: <span className="font-mono">{recordingPassword}</span>
@@ -55,7 +62,9 @@ export function WebinarExitScreen({
           </div>
         )}
 
-        <p className="text-sm text-muted-foreground">You can close this page.</p>
+        <p className="text-sm text-muted-foreground">
+          {replayExpected ? "The replay will be available here soon. Check back later." : "You can close this page."}
+        </p>
 
         {onRejoin && (
           <Button variant="link" size="sm" className="text-muted-foreground" onClick={onRejoin}>
