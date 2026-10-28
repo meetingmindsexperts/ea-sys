@@ -309,3 +309,36 @@ describe("which date a row was for: the stamped webinar start, not its send time
     expect(isSequenceRowForOtherDate(legacy("webinar-confirmation", "2026-08-20T10:00:00Z"), current)).toBe(false);
   });
 });
+
+describe("a rebuild after the webinar has run keeps the thank-you (review MED, Oct 28, 2026)", () => {
+  const thankYouAt = () => {
+    const rows = (mockDb.scheduledEmail.createMany.mock.calls[0]?.[0] as { data: Array<{ emailType: string; scheduledFor: Date }> } | undefined)?.data ?? [];
+    return rows.find((r) => r.emailType === "webinar-thank-you")?.scheduledFor;
+  };
+
+  it("an overrunning webinar, room still open past end + 30: the thank-you is re-created 30 minutes from now", async () => {
+    vi.setSystemTime(new Date("2026-09-04T11:45:00Z"));
+    mockDb.eventSession.findFirst.mockResolvedValue({ startTime: START, endTime: END, status: "LIVE" });
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(thankYouAt()).toEqual(new Date("2026-09-04T12:15:00Z"));
+  });
+
+  it("closed after an overrun: a Re-enqueue does not lose it", async () => {
+    vi.setSystemTime(new Date("2026-09-04T11:45:00Z"));
+    mockDb.eventSession.findFirst.mockResolvedValue({ startTime: START, endTime: END, status: "COMPLETED" });
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(thankYouAt()).toEqual(new Date("2026-09-04T12:15:00Z"));
+  });
+
+  it("closed early: a Re-enqueue keeps it early rather than putting it back to end + 30", async () => {
+    vi.setSystemTime(new Date("2026-09-04T10:40:00Z"));
+    mockDb.eventSession.findFirst.mockResolvedValue({ startTime: START, endTime: END, status: "COMPLETED" });
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(thankYouAt()).toEqual(new Date("2026-09-04T11:10:00Z"));
+  });
+
+  it("before it runs, nothing changes: end + 30", async () => {
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(thankYouAt()).toEqual(new Date("2026-09-04T11:30:00Z"));
+  });
+});

@@ -15,7 +15,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/bulk-email", () => ({ WEBINAR_EMAIL_TYPES: [], executeBulkEmail: vi.fn() }));
 
-import { isWebinarRoomOpen, retimeThankYouAfterRoomClose, THANK_YOU_AFTER_CLOSE_MS } from "@/lib/webinar-email-sequence";
+import { retimeThankYouAfterRoomClose, shouldHoldThankYou, THANK_YOU_AFTER_CLOSE_MS } from "@/lib/webinar-email-sequence";
 
 const START = new Date("2026-11-03T10:00:00Z");
 const END = new Date("2026-11-03T11:00:00Z");
@@ -52,9 +52,9 @@ describe("retimeThankYouAfterRoomClose", () => {
     expect(mockDb.scheduledEmail.updateMany).not.toHaveBeenCalled();
   });
 
-  it("a rehearsal two hours before the start does not either; an hour before does count", async () => {
-    expect(await retimeThankYouAfterRoomClose("ev1", at("2026-11-03T08:00:00Z"))).toBe(0);
-    expect(await retimeThankYouAfterRoomClose("ev1", at("2026-11-03T09:10:00Z"))).toBe(1);
+  it("a soundcheck closed before the start does not count; a close after the start does (review MED)", async () => {
+    expect(await retimeThankYouAfterRoomClose("ev1", at("2026-11-03T09:30:00Z"))).toBe(0);
+    expect(await retimeThankYouAfterRoomClose("ev1", at("2026-11-03T10:05:00Z"))).toBe(1);
   });
 
   it("never throws: a failure is logged and nothing moves", async () => {
@@ -63,12 +63,18 @@ describe("retimeThankYouAfterRoomClose", () => {
   });
 });
 
-describe("isWebinarRoomOpen", () => {
-  it("is the anchor session being LIVE", async () => {
-    expect(await isWebinarRoomOpen("ev1")).toBe(true);
-    mockDb.eventSession.findFirst.mockResolvedValue({ status: "COMPLETED" });
-    expect(await isWebinarRoomOpen("ev1")).toBe(false);
+describe("shouldHoldThankYou", () => {
+  const t = (iso: string) => new Date(iso).getTime();
+  it("holds while the anchor is LIVE, not once it is closed or there is no webinar", async () => {
+    expect(await shouldHoldThankYou("ev1", t("2026-11-03T11:40:00Z"))).toBe(true);
+    mockDb.eventSession.findFirst.mockResolvedValue({ startTime: START, endTime: END, status: "COMPLETED" });
+    expect(await shouldHoldThankYou("ev1", t("2026-11-03T11:40:00Z"))).toBe(false);
     mockDb.event.findUnique.mockResolvedValue({ settings: {} });
-    expect(await isWebinarRoomOpen("ev1")).toBe(false);
+    expect(await shouldHoldThankYou("ev1", t("2026-11-03T11:40:00Z"))).toBe(false);
+  });
+
+  it("stops holding two and a half hours after the scheduled end, for a room nobody closed (review MED)", async () => {
+    expect(await shouldHoldThankYou("ev1", t("2026-11-03T13:20:00Z"))).toBe(true);
+    expect(await shouldHoldThankYou("ev1", t("2026-11-03T13:40:00Z"))).toBe(false);
   });
 });

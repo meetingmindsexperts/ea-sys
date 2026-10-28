@@ -45,7 +45,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotify }));
 vi.mock("@/lib/webinar-email-sequence", () => ({
-  isWebinarRoomOpen: (...a: unknown[]) => mockRoomOpen(...a),
+  shouldHoldThankYou: (...a: unknown[]) => mockRoomOpen(...a),
   THANK_YOU_HOLD_MS: 10 * 60_000,
 }));
 vi.mock("@/lib/bulk-email", () => ({
@@ -91,13 +91,15 @@ beforeEach(() => {
 describe("scheduled-emails worker: a webinar's thank-you waits for its room to close (Oct 28, 2026)", () => {
   it("holds the thank-you, unclaimed, while the room is open and looks again in 10 minutes", async () => {
     mockRoomOpen.mockResolvedValue(true);
-    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ emailType: "webinar-thank-you", customSubject: null, customMessage: null })]);
+    const due = new Date("2026-11-03T11:30:00Z");
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ emailType: "webinar-thank-you", customSubject: null, customMessage: null, scheduledFor: due })]);
     const before = Date.now();
     const report = await runScheduledEmailsTick();
     expect(mockExecuteBulkEmail).not.toHaveBeenCalled();
     expect(report.results[0]).toEqual({ id: "se_1", status: "skipped" });
     const hold = mockDb.scheduledEmail.updateMany.mock.calls.find((c) => c[0]?.data?.scheduledFor);
-    expect(hold?.[0].where).toEqual({ id: "se_1", status: "PENDING" });
+    // Conditioned on the time it was read with, so a room close in between is not overwritten.
+    expect(hold?.[0].where).toEqual({ id: "se_1", status: "PENDING", scheduledFor: due });
     const at = (hold?.[0].data.scheduledFor as Date).getTime();
     expect(at - before).toBeGreaterThanOrEqual(10 * 60_000 - 1000);
     // Never claimed: no PROCESSING write.

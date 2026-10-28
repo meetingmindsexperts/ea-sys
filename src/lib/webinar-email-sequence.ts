@@ -75,7 +75,22 @@ interface PhaseTiming {
   scheduledFor: Date;
 }
 
-function computePhases(startTime: Date, endTime: Date): PhaseTiming[] {
+/**
+ * When the thank-you goes, as the sequence is (re)built. Before the webinar runs, 30 minutes after the
+ * scheduled end. Once it has run (room open, or closed since the start) that time may be past or later
+ * than the real end, and a rebuild must not drop or delay it, so it goes 30 minutes from now; the
+ * sender still holds it while the room is open (review MED, Oct 28, 2026).
+ */
+function thankYouTime(startTime: Date, endTime: Date, anchorStatus: string | null | undefined, now: number): Date {
+  const afterEnd = endTime.getTime() + THANK_YOU_AFTER_CLOSE_MS;
+  const soon = now + THANK_YOU_AFTER_CLOSE_MS;
+  if (anchorStatus === "LIVE") return new Date(Math.max(afterEnd, soon));
+  const closedSinceStart =
+    anchorStatus === "COMPLETED" && now >= startTime.getTime() && now <= endTime.getTime() + CLOSE_COUNTS_UNTIL_MS;
+  return new Date(closedSinceStart ? soon : afterEnd);
+}
+
+function computePhases(startTime: Date, endTime: Date, anchorStatus?: string | null): PhaseTiming[] {
   const now = Date.now();
   const phases: PhaseTiming[] = [
     { phase: "webinar-reminder-24h", scheduledFor: new Date(startTime.getTime() - 24 * 60 * 60_000) },
@@ -83,7 +98,7 @@ function computePhases(startTime: Date, endTime: Date): PhaseTiming[] {
     // When the doors open: the session page lets attendees in from 15 minutes before (owner, Oct 28, 2026).
     { phase: "webinar-reminder-15m", scheduledFor: new Date(startTime.getTime() - 15 * 60_000) },
     { phase: "webinar-live-now", scheduledFor: new Date(startTime.getTime()) },
-    { phase: "webinar-thank-you", scheduledFor: new Date(endTime.getTime() + 30 * 60_000) },
+    { phase: "webinar-thank-you", scheduledFor: thankYouTime(startTime, endTime, anchorStatus, now) },
   ];
   // Drop phases whose scheduledFor is already in the past (too late to send).
   return phases.filter((p) => p.scheduledFor.getTime() > now + MIN_LEAD_MS);
@@ -178,13 +193,13 @@ async function enqueueSequenceInner(
 
   const anchorSession = await client.eventSession.findFirst({
     where: { id: anchorSessionId, eventId },
-    select: { startTime: true, endTime: true },
+    select: { startTime: true, endTime: true, status: true },
   });
   if (!anchorSession) {
     return { ok: false, created: 0, skipped: "no-anchor-session" };
   }
 
-  let phases = computePhases(anchorSession.startTime, anchorSession.endTime);
+  let phases = computePhases(anchorSession.startTime, anchorSession.endTime, anchorSession.status);
 
   if (opts?.force && phases.length > 0) {
     // Never duplicate or resurrect a phase:
@@ -424,21 +439,31 @@ export async function clearPendingWebinarSequence(
 
 export const THANK_YOU_HOLD_MS = 10 * 60_000;
 export const THANK_YOU_AFTER_CLOSE_MS = 30 * 60_000;
-/** A close counts as the webinar's end only inside this window around its scheduled times, so
- *  opening and closing the room for a rehearsal days before never sends the real thank-you. */
-const CLOSE_COUNTS_FROM_MS = 60 * 60_000;
+/** A close counts as the webinar's end only from its scheduled start (a soundcheck closed before the
+ *  start must not thank anyone, review MED) up to this long after its scheduled end. */
 const CLOSE_COUNTS_UNTIL_MS = 6 * 60 * 60_000;
+/** A room still open this long after the scheduled end is a room nobody closed (an anchor with no Zoom
+ *  meeting is never auto-closed, review MED): the thank-you stops waiting and the log says so. */
+const HOLD_CAP_AFTER_END_MS = 2.5 * 60 * 60_000;
 
-/** Whether this event's webinar room is open now: its anchor session is LIVE. */
-export async function isWebinarRoomOpen(eventId: string): Promise<boolean> {
+/**
+ * Whether the sender should hold this event's thank-you now: the webinar room is open (its anchor
+ * session is LIVE) and the scheduled end is not long past.
+ */
+export async function shouldHoldThankYou(eventId: string, now: number = Date.now()): Promise<boolean> {
   const event = await db.event.findUnique({ where: { id: eventId }, select: { settings: true } });
   const anchorSessionId = readWebinarSettings(event?.settings)?.sessionId;
   if (!anchorSessionId) return false;
   const anchor = await db.eventSession.findFirst({
     where: { id: anchorSessionId, eventId },
-    select: { status: true },
+    select: { status: true, endTime: true },
   });
-  return anchor?.status === "LIVE";
+  if (anchor?.status !== "LIVE") return false;
+  if (now > anchor.endTime.getTime() + HOLD_CAP_AFTER_END_MS) {
+    apiLogger.warn({ eventId }, "webinar-sequence:thank-you-sent-room-left-open");
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -457,7 +482,7 @@ export async function retimeThankYouAfterRoomClose(eventId: string, closedAt: Da
     });
     if (!anchor) return 0;
     const at = closedAt.getTime();
-    const near = at >= anchor.startTime.getTime() - CLOSE_COUNTS_FROM_MS && at <= anchor.endTime.getTime() + CLOSE_COUNTS_UNTIL_MS;
+    const near = at >= anchor.startTime.getTime() && at <= anchor.endTime.getTime() + CLOSE_COUNTS_UNTIL_MS;
     if (!near) {
       apiLogger.info({ eventId, closedAt: closedAt.toISOString() }, "webinar-sequence:thank-you-not-moved-rehearsal");
       return 0;
