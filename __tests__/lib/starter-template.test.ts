@@ -111,16 +111,27 @@ describe("starter text boxes — adapts to the event, no dangling labels", () =>
       const bare = contentOf(category, BARE);
       expect(bare).toContain("{{recipientName}}");
       expect(bare).toContain("{{eventName}}");
-      expect(bare).toContain("{{organizationName}}");
       expect(bare.some((c) => c.includes("{{eventDateRange}}"))).toBe(true);
     }
   });
 });
 
 describe("starter text boxes — category differences", () => {
-  it("titles each category correctly", () => {
-    expect(contentOf("ATTENDANCE", BARE)).toContain("CERTIFICATE OF ATTENDANCE");
+  it("titles appreciation only: attendance carries no title (owner, Oct 28, 2026)", () => {
+    expect(contentOf("ATTENDANCE", BARE).some((c) => /CERTIFICATE OF/.test(c))).toBe(false);
     expect(contentOf("APPRECIATION", BARE)).toContain("CERTIFICATE OF APPRECIATION");
+  });
+
+  it("prints no organisation name, signature captions or Issued line on either (owner, Oct 28, 2026)", () => {
+    for (const category of CATEGORIES) {
+      const all = contentOf(category, FULLY_CONFIGURED);
+      expect(all.some((c) => c.includes("{{organizationName}}"))).toBe(false);
+      expect(all).not.toContain("Conference Chair");
+      expect(all).not.toContain("CME / CPD Director");
+      expect(all.some((c) => /^Issued\b/.test(c) || c.includes("{{issuedDate}}"))).toBe(false);
+      // What stays: the serial.
+      expect(all).toContain("Certificate No. {{certificateSerial}}");
+    }
   });
 
   it("puts {{role}} in the appreciation wording and pairs it with a default role", () => {

@@ -133,7 +133,6 @@ export interface StarterEventShape {
 
 /** Vertical rhythm, shared by the boxes and the background rules. */
 const Y = {
-  orgName: 470,
   title: 660,
   intro: 1100,
   name: 1340,
@@ -171,14 +170,11 @@ export function starterTextBoxes(
 ): CertificateTextBox[] {
   const specs: BoxSpec[] = [];
 
-  specs.push({ content: "{{organizationName}}", yFromTop: Y.orgName, size: 54, bold: true });
-  specs.push({
-    content:
-      category === "ATTENDANCE" ? "CERTIFICATE OF ATTENDANCE" : "CERTIFICATE OF APPRECIATION",
-    yFromTop: Y.title,
-    size: 110,
-    bold: true,
-  });
+  // No organisation name, and no "CERTIFICATE OF ATTENDANCE" title: organisers' own backgrounds carry
+  // both, so the starter printed them twice (owner, Oct 28, 2026). Appreciation keeps its title.
+  if (category === "APPRECIATION") {
+    specs.push({ content: "CERTIFICATE OF APPRECIATION", yFromTop: Y.title, size: 110, bold: true });
+  }
 
   if (category === "ATTENDANCE") {
     specs.push({ content: "We hereby confirm that", yFromTop: Y.intro, size: 60 });
@@ -219,25 +215,10 @@ export function starterTextBoxes(
     specs.push({ content: "Total Hour/s Awarded: {{cmeHours}}", yFromTop: Y.cmeHours, size: 60 });
   }
 
-  // Signature labels sit under the rules the background draws.
-  specs.push({
-    content: "Conference Chair",
-    yFromTop: Y.signatureLabel,
-    size: 48,
-    x: SIGNATURE_LEFT_X,
-    width: SIGNATURE_COLUMN_WIDTH,
-  });
-  specs.push({
-    content: "CME / CPD Director",
-    yFromTop: Y.signatureLabel,
-    size: 48,
-    x: SIGNATURE_RIGHT_X,
-    width: SIGNATURE_COLUMN_WIDTH,
-  });
+  // The background still draws the two signature lines, but they carry no captions: "Conference Chair"
+  // and "CME / CPD Director" were dropped (owner, Oct 28, 2026). The organiser adds whoever signs.
 
-  // Footer: serial left, issue date right. Two boxes rather than one joined
-  // string so neither needs a separator glyph (the standard-14 fonts encode
-  // WinAnsi only, and a stray separator is an avoidable encoding risk).
+  // Footer: the serial only. The "Issued {{issuedDate}}" line was dropped (owner, Oct 28, 2026).
   specs.push({
     content: "Certificate No. {{certificateSerial}}",
     yFromTop: Y.footer,
@@ -245,14 +226,6 @@ export function starterTextBoxes(
     x: CONTENT_X,
     width: CONTENT_WIDTH / 2,
     align: "left",
-  });
-  specs.push({
-    content: "Issued {{issuedDate}}",
-    yFromTop: Y.footer,
-    size: 36,
-    x: CONTENT_X + CONTENT_WIDTH / 2,
-    width: CONTENT_WIDTH / 2,
-    align: "right",
   });
 
   return specs.map((spec, i) => toTextBox(spec, category, i));
@@ -265,13 +238,13 @@ export function starterTextBoxes(
  * never drift apart: change `Y.name` and the rule under the recipient's name
  * follows it.
  */
-function starterRules(): Rule[] {
+function starterRules(category: CertificateType): Rule[] {
   const titleBottom = Y.title + boxHeight(110);
   const nameBottom = Y.name + boxHeight(90);
-  return [
-    { yFromTop: titleBottom + 40, width: 760, thickness: 5 },
-    { yFromTop: nameBottom + 24, width: 1500, thickness: 3 },
-  ];
+  const nameRule = { yFromTop: nameBottom + 24, width: 1500, thickness: 3 };
+  // The rule under the title goes with the title: attendance has none (Oct 28, 2026).
+  if (category === "ATTENDANCE") return [nameRule];
+  return [{ yFromTop: titleBottom + 40, width: 760, thickness: 5 }, nameRule];
 }
 
 /**
@@ -311,7 +284,7 @@ export async function buildStarterBackgroundPdf(category: CertificateType): Prom
   });
 
   // Centred rules under the title and the recipient name.
-  for (const rule of starterRules()) {
+  for (const rule of starterRules(category)) {
     const x = (STARTER_PAGE_WIDTH - rule.width) / 2;
     page.drawLine({
       start: { x, y: fromTop(rule.yFromTop) },
