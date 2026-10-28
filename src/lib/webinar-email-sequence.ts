@@ -9,6 +9,13 @@ import { NOTIFIED_ROLES } from "@/lib/team-roles";
 // from now is useless, so if we're too close to an anchor time we skip that phase.
 const MIN_LEAD_MS = 60_000;
 
+/**
+ * How far a webinar must move before a phase that already went out is sent again for the new date (owner,
+ * Oct 28, 2026). A postponement of a day or more gets a fresh reminder; a retime of an hour or so does not
+ * double-send (the organiser emails by hand if they want to).
+ */
+export const RESEND_AFTER_MOVE_MS = 12 * 60 * 60_000;
+
 export type WebinarPhase =
   | "webinar-reminder-24h"
   | "webinar-reminder-1h"
@@ -86,8 +93,10 @@ export interface EnqueueSequenceResult {
  * the sequence can be re-created after a schedule change; phases that already
  * fired (SENT/PROCESSING), were deliberately CANCELLED by an operator (unless
  * `resurrectCancelled`), or FAILED mid-send with some emails delivered are
- * still excluded so no recipient ever gets a phase twice and no operator
- * decision is silently undone. Callers must clear pending rows first — use
+ * still excluded so no recipient ever gets a phase twice for the same date and
+ * no operator decision is silently undone. A row scheduled more than
+ * RESEND_AFTER_MOVE_MS from the phase's new time belongs to the old date and
+ * excludes nothing (postponement, Oct 28, 2026). Callers must clear pending rows first — use
  * rescheduleWebinarSequenceForEvent, which does both under a per-event lock.
  */
 async function enqueueSequenceInner(
@@ -153,10 +162,20 @@ async function enqueueSequenceInner(
         emailType: { in: phases.map((p) => p.phase) },
         status: { in: ["SENT", "PROCESSING", "CANCELLED", "FAILED"] },
       },
-      select: { emailType: true, status: true, emailedKeys: true },
+      select: { emailType: true, status: true, emailedKeys: true, scheduledFor: true },
     });
+    // A row speaks only for the date it was scheduled for: a webinar postponed by more than
+    // RESEND_AFTER_MOVE_MS gets that phase again (Oct 28, 2026). Before this, one reminder sent for the
+    // old date silenced it for every later date, so a postponed webinar lost its reminders.
+    const newTimeOf = new Map(phases.map((p) => [p.phase, p.scheduledFor.getTime()]));
+    const sameDate = (r: { emailType: string; scheduledFor: Date | null }) => {
+      const next = newTimeOf.get(r.emailType as WebinarPhase);
+      if (next === undefined || !r.scheduledFor) return true;
+      return Math.abs(next - r.scheduledFor.getTime()) <= RESEND_AFTER_MOVE_MS;
+    };
     const fired = new Set(
       firedRows
+        .filter(sameDate)
         .filter((r) => {
           if (r.status === "SENT" || r.status === "PROCESSING") return true;
           if (r.status === "CANCELLED") return !opts?.resurrectCancelled;

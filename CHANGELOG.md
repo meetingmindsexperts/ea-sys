@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinars: a postponed webinar gets its reminders again (October 28)
+
+- Rescheduling the webinar sequence skipped any phase that had ever been sent, so a webinar postponed after its reminders went out got none for the new date (seen on prod: test-webinar, moved from Oct 7 to Oct 28, queued nothing). A sent, cancelled or partly failed row now blocks its phase only when it was scheduled within 12 hours of the phase's new time (`RESEND_AFTER_MOVE_MS`, owner); a move of an hour or so still sends nothing twice.
+
 ### Webinars: the organiser decides when attendees see the recording (October 28)
 
 - **Webinar Console, Analytics, Recording card**: a "Show the recording to attendees" switch, **off by default**. While off, the webinar page shows no "Recording available" card and no "processing" note, and the replay link route refuses with 404 even for a registered attendee. Stored as `settings.webinar.showRecording`. Conference session pages are unchanged (owner: webinars only). The webinar emails follow the same switch: while off, `{{recordingBlock}}` is empty (the automatic thank-you at end + 30 min neither links the recording nor promises it), and previews match. The "webinar has ended" card no longer promises a replay while the switch is off.

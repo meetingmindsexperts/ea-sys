@@ -105,7 +105,7 @@ describe("enqueueWebinarSequenceForEvent — force mode", () => {
 
   it("force: a phase that already SENT is NEVER re-created (no duplicate reminder)", async () => {
     mockDb.scheduledEmail.findMany.mockResolvedValue([
-      { emailType: "webinar-reminder-24h", status: "SENT", emailedKeys: [] }, // fired at the old time
+      { emailType: "webinar-reminder-24h", status: "SENT", emailedKeys: [], scheduledFor: new Date("2026-09-03T10:00:00Z") }, // fired for this date
     ]);
     const res = await enqueueWebinarSequenceForEvent("ev1", "u1", { force: true });
     expect(res.created).toBe(3);
@@ -170,7 +170,7 @@ describe("rescheduleWebinarSequenceForEvent", () => {
     // Before force mode, one SENT row made the plain clear+enqueue pair skip
     // EVERYTHING ("already-enqueued") — the console button silently did nothing.
     mockDb.scheduledEmail.findMany.mockResolvedValue([
-      { emailType: "webinar-live-now", status: "SENT", emailedKeys: [] },
+      { emailType: "webinar-live-now", status: "SENT", emailedKeys: [], scheduledFor: new Date("2026-09-04T10:00:00Z") },
     ]);
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
     expect(res.created).toBe(3);
@@ -185,7 +185,7 @@ describe("rescheduleWebinarSequenceForEvent", () => {
 describe("reschedule semantics — cancelled / partial-failed phases (review M1/M2)", () => {
   it("an operator-CANCELLED phase is NOT resurrected by an automatic reschedule", async () => {
     mockDb.scheduledEmail.findMany.mockResolvedValue([
-      { emailType: "webinar-live-now", status: "CANCELLED", emailedKeys: [] },
+      { emailType: "webinar-live-now", status: "CANCELLED", emailedKeys: [], scheduledFor: new Date("2026-09-04T10:00:00Z") },
     ]);
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
     expect(res.created).toBe(3);
@@ -199,7 +199,7 @@ describe("reschedule semantics — cancelled / partial-failed phases (review M1/
 
   it("the console's explicit Re-enqueue (resurrectCancelled) DOES re-create cancelled phases", async () => {
     mockDb.scheduledEmail.findMany.mockResolvedValue([
-      { emailType: "webinar-live-now", status: "CANCELLED", emailedKeys: [] },
+      { emailType: "webinar-live-now", status: "CANCELLED", emailedKeys: [], scheduledFor: new Date("2026-09-04T10:00:00Z") },
     ]);
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1", { resurrectCancelled: true });
     expect(res.created).toBe(4);
@@ -214,10 +214,55 @@ describe("reschedule semantics — cancelled / partial-failed phases (review M1/
     // 500 of 2000 delivered → emailedKeys non-empty. Re-creating would email
     // the 500 again; the row survives for the operator's Retry instead.
     mockDb.scheduledEmail.findMany.mockResolvedValue([
-      { emailType: "webinar-reminder-24h", status: "FAILED", emailedKeys: ["r1", "r2"] },
+      { emailType: "webinar-reminder-24h", status: "FAILED", emailedKeys: ["r1", "r2"], scheduledFor: new Date("2026-09-03T10:00:00Z") },
     ]);
     const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
     expect(res.created).toBe(3);
     expect(createdPhases()).not.toContain("webinar-reminder-24h");
+  });
+});
+
+describe("postponement: a phase sent for the OLD date is sent again for the new one (Oct 28, 2026)", () => {
+  // The anchor now starts 2026-09-04T10:00Z; these rows went out for a webinar once set for 2026-08-20.
+  const OLD = (iso: string) => new Date(iso);
+
+  it("every phase that fired for a date more than 12 hours away is queued again", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      { emailType: "webinar-reminder-24h", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-08-19T10:00:00Z") },
+      { emailType: "webinar-reminder-1h", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-08-20T09:00:00Z") },
+      { emailType: "webinar-live-now", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-08-20T10:00:00Z") },
+      { emailType: "webinar-thank-you", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-08-20T11:30:00Z") },
+    ]);
+    const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(res.created).toBe(4);
+    expect(createdPhases()).toEqual(["webinar-reminder-24h", "webinar-reminder-1h", "webinar-live-now", "webinar-thank-you"]);
+  });
+
+  it("a move of an hour does not double-send: the organiser emails by hand", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      // sent for 09:00, the webinar now starts 10:00
+      { emailType: "webinar-reminder-1h", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-09-04T08:00:00Z") },
+    ]);
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(createdPhases()).not.toContain("webinar-reminder-1h");
+  });
+
+  it("exactly 12 hours still counts as the same date; just over it does not", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      { emailType: "webinar-live-now", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-09-03T22:00:00Z") },
+      { emailType: "webinar-thank-you", status: "SENT", emailedKeys: [], scheduledFor: OLD("2026-09-03T23:29:00Z") },
+    ]);
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(createdPhases()).not.toContain("webinar-live-now");
+    expect(createdPhases()).toContain("webinar-thank-you");
+  });
+
+  it("a cancel or a partial failure on the old date does not block the new date either", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      { emailType: "webinar-live-now", status: "CANCELLED", emailedKeys: [], scheduledFor: OLD("2026-08-20T10:00:00Z") },
+      { emailType: "webinar-reminder-24h", status: "FAILED", emailedKeys: ["r1"], scheduledFor: OLD("2026-08-19T10:00:00Z") },
+    ]);
+    const res = await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(res.created).toBe(4);
   });
 });
