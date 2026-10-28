@@ -24,6 +24,12 @@ import rules it forces are section 2a; the per-event actuals summary drops to a 
 (`src/procurement/lib/px-import.ts`, tests in `__tests__/procurement/px-import.test.ts` on invented rows).
 Storage, the upload page and the comparison wait for the full export and the budget sheets.
 
+**Oct 28, 2026: the first Excel budget sheet arrived (2nd OGSC 2026), and its reader is BUILT**, as a way to
+create a new draft budget rather than as archive history: `src/procurement/lib/budget-sheet-import.ts` (pure,
+tests in `__tests__/procurement/budget-sheet-import.test.ts` on invented rows), the Import sheet page, and
+imported lines on `createBudget`. Its rules are in the module header. Storing sheets as archive batches for
+the comparison (3.2) is still stage 1 work.
+
 It is the build plan's Phase 4 archive loader and Phase 6 benchmarks
 ([BUDGET_PROCUREMENT_BUILD_PLAN.md](BUDGET_PROCUREMENT_BUILD_PLAN.md) sections 8 and 9), staged and joined.
 

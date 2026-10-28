@@ -2,8 +2,10 @@
  * A budget version as a CSV that opens straight in Excel: a short header
  * block (event, version, status, currency, contingency), one row per line,
  * then a totals block. Every money cell is the stored ex-VAT figure rounded
- * to two decimals at the edge with the tax beside it, never a gross (spec
- * §7). Pure so the file's shape is pinned by a test and the route only
+ * to two decimals at the edge with the tax beside it (spec §7). The one
+ * VAT-included column, planned plus its tax (Oct 28, 2026: finance wants both
+ * beside each other), is derived here from those two stored figures and is
+ * never stored. Pure so the file's shape is pinned by a test and the route only
  * streams it; the numbers come from the same view the page renders, so the
  * export cannot disagree with the screen.
  *
@@ -13,7 +15,7 @@
  * that revenue was left out, rather than going quiet about it.
  */
 import { toCsv } from "@/lib/csv-escape";
-import { toDisplay } from "./money";
+import { money, toDisplay } from "./money";
 
 export interface ExportLine {
   lineKey: string;
@@ -109,6 +111,11 @@ function fmt(v: string | null | undefined): string {
   return toDisplay(v).toFixed(2);
 }
 
+/** Planned plus its VAT, both stored ex-VAT figures, summed exactly and rounded once at the edge. */
+function inclVat(planned: string, tax: string): string {
+  return toDisplay(money(planned).plus(money(tax))).toFixed(2);
+}
+
 export function budgetExportFilename(b: Pick<ExportBudget, "eventCode" | "versionNo">): string {
   const code = b.eventCode.replace(/[^A-Za-z0-9._-]+/g, "_");
   return `budget-${code}-v${b.versionNo}.csv`;
@@ -128,6 +135,7 @@ export function budgetCsvColumns(reportingCurrency: string): string[] {
     `Planned (${cur}, ex-VAT)`,
     "Tax %",
     `Tax (${cur})`,
+    `Planned incl. VAT (${cur})`,
     `Approved planned (${cur})`,
     `Committed open (${cur})`,
     `Committed total (${cur})`,
@@ -219,6 +227,7 @@ export function buildBudgetCsv(b: ExportBudget, exportedAt: Date, opts: { revenu
       fmt(l.planned),
       l.taxRatePercent ?? "",
       fmt(l.taxAmountPlanned),
+      inclVat(l.planned, l.taxAmountPlanned),
       fmt(l.approvedPlanned),
       fmt(l.committedOpen),
       fmt(l.committedTotal),
@@ -238,6 +247,7 @@ export function buildBudgetCsv(b: ExportBudget, exportedAt: Date, opts: { revenu
     ["Totals"],
     [`Planned (${cur}, ex-VAT)`, fmt(b.plannedExpenseTotal)],
     [`Tax (${cur})`, fmt(b.taxTotalPlanned)],
+    [`Planned incl. VAT (${cur})`, inclVat(b.plannedExpenseTotal, b.taxTotalPlanned)],
     [`Contingency (${Number.isFinite(contingencyPct) ? contingencyPct : b.contingencyPercent}%)`, fmt(b.contingencyAmount)],
     [`Planned plus contingency (${cur})`, plannedPlusContingency],
     [`Forecast (${cur})`, fmt(b.forecastTotal)],

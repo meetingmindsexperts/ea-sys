@@ -18,11 +18,42 @@ const rateInput = z.union([z.number(), z.string().trim().min(1)]).refine(
   (v) => Number.isFinite(Number(v)) && Number(v) > 0,
   { message: "Must be a rate greater than zero" },
 );
+
+/** A VAT percentage: 0 to 100, two decimals, the same shape BudgetLine.taxRatePercent stores. */
+const percentInput = z.union([z.number(), z.string().trim().min(1)]).refine(
+  (v) => Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100,
+  { message: "A VAT rate is a percentage between 0 and 100" },
+);
 const amountInput = z.union([z.number(), z.string().trim().min(1)]).refine(
   (v) => Number.isFinite(Number(v)) && Number(v) > 0,
   { message: "Must be an amount greater than zero" },
 );
 const dateInput = z.string().datetime().transform((s) => new Date(s));
+
+/**
+ * A line read from a budget sheet (budget-sheet-import.ts). The category is
+ * never sent: the service takes it from the product, so a client cannot file
+ * a cost under a category its product does not belong to.
+ */
+const importedBudgetLine = z.object({
+  productId: z.string().min(1).max(100),
+  description: z.string().trim().min(1).max(300),
+  qty: moneyInput,
+  unitCost: moneyInput,
+  taxRatePercent: percentInput.nullable().optional(),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+/** A billed amount read from a budget sheet, filed under an income account by its number. */
+const importedRevenueLine = z.object({
+  incomeAccount: z.string().regex(/^4\d{5}$/, "An income account is a six-digit number starting with 4"),
+  description: z.string().trim().min(1).max(300),
+  qty: moneyInput,
+  unitAmount: moneyInput,
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+export const BUDGET_IMPORT_MAX_LINES = 500;
 
 export const createBudgetSchema = z.object({
   eventId: z.string().min(1).max(100),
@@ -35,6 +66,13 @@ export const createBudgetSchema = z.object({
   benchmarkSourceId: z.string().max(100).nullable().optional(),
   financeOwnerUserId: z.string().max(100).nullable().optional(),
   notes: z.string().max(5000).nullable().optional(),
+  /** Imported from a budget sheet: the file's name, kept on the audit row. */
+  importedFrom: z.string().trim().min(1).max(200).nullable().optional(),
+  lines: z.array(importedBudgetLine).max(BUDGET_IMPORT_MAX_LINES).optional(),
+  revenueLines: z.array(importedRevenueLine).max(BUDGET_IMPORT_MAX_LINES).optional(),
+}).refine((v) => !(v.templateId && ((v.lines?.length ?? 0) > 0 || (v.revenueLines?.length ?? 0) > 0)), {
+  message: "A budget starts from a template or from imported lines, not both",
+  path: ["templateId"],
 });
 
 export const updateBudgetHeaderSchema = z.object({
@@ -238,11 +276,6 @@ const isoCurrency = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "A curre
 const moduleCurrency = z.preprocess((v) => (typeof v === "string" ? v.trim().toUpperCase() : v), z.enum(BUDGET_CURRENCIES));
 const calendarDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "A date is YYYY-MM-DD");
 
-/** A VAT percentage: 0 to 100, two decimals, the same shape BudgetLine.taxRatePercent stores. */
-const percentInput = z.union([z.number(), z.string().trim().min(1)]).refine(
-  (v) => Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100,
-  { message: "A VAT rate is a percentage between 0 and 100" },
-);
 
 const spendRequestFields = {
   budgetId: z.string().min(1).max(100),

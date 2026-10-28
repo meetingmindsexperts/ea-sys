@@ -2,7 +2,8 @@
 
 /**
  * /procurement, the budgets list: every event's budget versions with status,
- * planned, forecast and the at-risk flag, plus New budget (from a template).
+ * planned, forecast and the at-risk flag, plus New budget (from a template)
+ * and Import sheet (a draft from finance's costing sheet).
  * Reads are for org staff; the New budget button is for budget authors
  * (ORGANIZER and above), the same predicate the POST asks.
  */
@@ -31,7 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FileText, Inbox, Loader2, Plus, TriangleAlert, Wallet, Package, Truck } from "lucide-react";
+import { FileSpreadsheet, FileText, Inbox, Loader2, Plus, TriangleAlert, Wallet, Package, Truck } from "lucide-react";
 
 const CURRENCIES = ["AED", "USD", "EUR", "GBP", "SAR"] as const;
 const BRANDS: { value: string; label: string }[] = [
@@ -153,6 +154,14 @@ export default function ProcurementBudgetsPage() {
               {inbox.length > 0 && <span className="ml-1 rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white">{inbox.length}</span>}
             </Link>
           </Button>
+          {canAuthor && (
+            <Button asChild variant="outline">
+              <Link href="/procurement/budgets/import">
+                <FileSpreadsheet className="h-4 w-4" />
+                Import sheet
+              </Link>
+            </Button>
+          )}
           {canAuthor && (
             <Button onClick={() => setCreating(true)}>
               <Plus className="h-4 w-4" />

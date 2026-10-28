@@ -37,7 +37,7 @@ import {
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { ensureBudgetCategories } from "./budget-category-service";
 import { eventBudgetIds, lockEventCommitted, syncBudgetCommitted } from "./committed-figures";
-import { cloneRevenueLines, readRevenueActuals } from "./budget-revenue-service";
+import { cloneRevenueLines, ensureRevenueCategories, readRevenueActuals, recomputePlannedRevenue } from "./budget-revenue-service";
 
 export type BudgetErrorCode =
   | "EVENT_NOT_FOUND"
@@ -244,6 +244,90 @@ export interface CreateBudgetInput {
   benchmarkSourceId?: string | null;
   financeOwnerUserId?: string | null;
   notes?: string | null;
+  /** Lines read from a budget sheet (budget-sheet-import.ts); never together with a template. */
+  lines?: ImportedBudgetLine[];
+  /** Billed amounts read from the same sheet. The route admits these only with finance sight. */
+  revenueLines?: ImportedRevenueLine[];
+  /** The sheet's file name, kept on the audit row. */
+  importedFrom?: string | null;
+}
+
+export interface ImportedBudgetLine {
+  productId: string;
+  description: string;
+  qty: MoneyInput;
+  unitCost: MoneyInput;
+  taxRatePercent?: MoneyInput | null;
+  notes?: string | null;
+}
+
+export interface ImportedRevenueLine {
+  /** The income account's number (430009), resolved to the organisation's REVENUE category. */
+  incomeAccount: string;
+  description: string;
+  qty: MoneyInput;
+  unitAmount: MoneyInput;
+  notes?: string | null;
+}
+
+type ImportedRows = { lines: Prisma.BudgetLineCreateManyInput[]; revenue: Prisma.BudgetRevenueLineCreateManyInput[] };
+
+/**
+ * Imported lines, checked and priced before the transaction opens: every
+ * product must be the organisation's and active, every income account one of
+ * its revenue categories, every amount valid. The category comes from the
+ * product, never from the caller. Rows are built without budgetId, which the
+ * transaction fills in.
+ */
+async function resolveImportedLines(input: CreateBudgetInput, ctx: Record<string, unknown>): Promise<BudgetResult<ImportedRows>> {
+  const lines = input.lines ?? [];
+  const revenueLines = input.revenueLines ?? [];
+  const productIds = [...new Set(lines.map((l) => l.productId))];
+  const [products, incomeCategories] = await Promise.all([
+    productIds.length === 0
+      ? Promise.resolve([])
+      : db.budgetProduct.findMany({
+          where: { organizationId: input.organizationId, id: { in: productIds }, isActive: true, category: { isActive: true, type: "EXPENSE" } },
+          select: { id: true, categoryId: true },
+        }),
+    revenueLines.length === 0 ? Promise.resolve([]) : ensureRevenueCategories(input.organizationId),
+  ]);
+  const productById = new Map(products.map((p) => [p.id, p]));
+  const missingProduct = productIds.find((id) => !productById.has(id));
+  if (missingProduct) return fail("PRODUCT_NOT_FOUND", "An imported line names a product that is not in the catalogue or is archived.", { ...ctx, productId: missingProduct });
+  const incomeByCode = new Map(incomeCategories.filter((c) => c.isActive).map((c) => [c.code, c.id]));
+  const missingAccount = revenueLines.find((r) => !incomeByCode.has(r.incomeAccount));
+  if (missingAccount) return fail("CATEGORY_NOT_FOUND", `Income account ${missingAccount.incomeAccount} is not in the chart or is archived.`, { ...ctx, incomeAccount: missingAccount.incomeAccount });
+
+  const cur = input.reportingCurrency;
+  const same = { transactionCurrency: cur, fxRateToReporting: "1", fxRateSource: "same-currency" };
+  try {
+    return {
+      ok: true,
+      budget: {
+        lines: lines.map((l, i) => {
+          const tax = l.taxRatePercent === null || l.taxRatePercent === undefined ? null : money(l.taxRatePercent);
+          const t = lineTotals({ qty: l.qty, unitCost: l.unitCost, fxRateToReporting: 1, taxRatePercent: tax });
+          return {
+            organizationId: input.organizationId, budgetId: "", lineKey: globalThis.crypto.randomUUID(),
+            productId: l.productId, categoryId: productById.get(l.productId)!.categoryId, description: l.description.trim(),
+            qty: storedString(l.qty), unitCost: storedString(l.unitCost), ...same,
+            planned: storedString(t.planned), taxRatePercent: tax === null ? null : tax.toString(), taxAmountPlanned: storedString(t.taxAmountPlanned),
+            notes: l.notes ?? null, sortOrder: i,
+          };
+        }),
+        revenue: revenueLines.map((r, i) => ({
+          organizationId: input.organizationId, budgetId: "", lineKey: globalThis.crypto.randomUUID(),
+          categoryId: incomeByCode.get(r.incomeAccount)!, description: r.description.trim(),
+          qty: storedString(r.qty), unitAmount: storedString(r.unitAmount), ...same,
+          planned: storedString(lineTotals({ qty: r.qty, unitCost: r.unitAmount, fxRateToReporting: 1 }).planned),
+          notes: r.notes ?? null, sortOrder: i,
+        })),
+      },
+    };
+  } catch (err) {
+    return fail("INVALID_AMOUNT", (err as Error).message, ctx);
+  }
 }
 
 export async function createBudget(input: CreateBudgetInput): Promise<BudgetResult<BudgetView>> {
@@ -265,6 +349,8 @@ export async function createBudget(input: CreateBudgetInput): Promise<BudgetResu
       })
     : null;
   if (input.templateId && !template) return fail("TEMPLATE_NOT_FOUND", "The template was not found or is inactive.", ctx);
+  const imported = await resolveImportedLines(input, ctx);
+  if (!imported.ok) return imported;
   const categories = await ensureBudgetCategories(input.organizationId);
   const contingencyCat = categories.find((c) => c.code === CONTINGENCY_CATEGORY_CODE);
   if (!contingencyCat) return fail("CATEGORY_NOT_FOUND", "The contingency category is missing from the catalogue.", ctx);
@@ -316,9 +402,15 @@ export async function createBudget(input: CreateBudgetInput): Promise<BudgetResu
           sortOrder: sort++,
         };
       });
+      const importedLines = imported.budget.lines.map((l) => ({ ...l, budgetId: budget.id, sortOrder: seeded.length + (l.sortOrder ?? 0) }));
+      if (imported.budget.revenue.length > 0) {
+        await tx.budgetRevenueLine.createMany({ data: imported.budget.revenue.map((r) => ({ ...r, budgetId: budget.id })) });
+        await recomputePlannedRevenue(tx, budget.id);
+      }
       await tx.budgetLine.createMany({
         data: [
           ...seeded,
+          ...importedLines,
           {
             organizationId: input.organizationId,
             budgetId: budget.id,
@@ -344,7 +436,12 @@ export async function createBudget(input: CreateBudgetInput): Promise<BudgetResu
         action: "CREATE",
         entityType: "EventBudget",
         entityId: budget.id,
-        changes: { source: input.source, eventId: event.id, eventCode: event.code, templateId: template?.id ?? null, reportingCurrency: input.reportingCurrency, seededLines: seeded.length },
+        changes: {
+          source: input.source, eventId: event.id, eventCode: event.code, templateId: template?.id ?? null, reportingCurrency: input.reportingCurrency, seededLines: seeded.length,
+          ...(input.importedFrom || importedLines.length > 0 || imported.budget.revenue.length > 0
+            ? { importedFrom: input.importedFrom ?? null, importedLines: importedLines.length, importedRevenueLines: imported.budget.revenue.length }
+            : {}),
+        },
       });
       return budget.id;
     });

@@ -131,6 +131,39 @@ describe("procurement routes: reading and authoring", () => {
   });
 });
 
+describe("procurement routes: creating from an imported budget sheet", () => {
+  const sheetLine = { productId: "p1", description: "Day Delegate Rate", qty: "300", unitCost: "251.42", taxRatePercent: null, notes: "Sheet 1.1" };
+  const billed = { incomeAccount: "440011", description: "Day Delegate Rate", qty: "200", unitAmount: "300", notes: null };
+  const body = { eventId: "e1", reportingCurrency: "AED", importedFrom: "sheet.csv", lines: [sheetLine], revenueLines: [billed] };
+
+  it("hands the lines, the billed lines and the file name to the one create path", async () => {
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
+    const res = await createPost(post("/api/procurement/budgets", body));
+    expect(res.status).toBe(201);
+    expect(svc.createBudget).toHaveBeenCalledWith(expect.objectContaining({ importedFrom: "sheet.csv", lines: [expect.objectContaining({ productId: "p1" })], revenueLines: [expect.objectContaining({ incomeAccount: "440011" })] }));
+    expect(loggerMock.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "procurement/budgets:imported", lines: 1, revenueLines: 1 }));
+  });
+
+  it("refuses billed lines to an author without finance sight, and logs it; their cost lines alone go through", async () => {
+    // An import is not a side door around the revenue route's finance rule.
+    authMock.mockResolvedValue(user({ role: "CRM_USER", procurementPermissions: ["procurement.budgets.view", "procurement.budgets.create"] }));
+    const refused = await createPost(post("/api/procurement/budgets", body));
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ code: "FINANCE_REQUIRED" });
+    expect(loggerMock.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "procurement/budgets:finance-refused" }));
+    expect(svc.createBudget).not.toHaveBeenCalled();
+    expect((await createPost(post("/api/procurement/budgets", { ...body, revenueLines: [] }))).status).toBe(201);
+  });
+
+  it("refuses a template together with imported lines, and an income account outside the 4xxxxx range", async () => {
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
+    expect((await createPost(post("/api/procurement/budgets", { ...body, templateId: "t1" }))).status).toBe(400);
+    expect((await createPost(post("/api/procurement/budgets", { ...body, revenueLines: [{ ...billed, incomeAccount: "510401" }] }))).status).toBe(400);
+    expect((await createPost(post("/api/procurement/budgets", { ...body, lines: [{ ...sheetLine, unitCost: "-1" }] }))).status).toBe(400);
+    expect(svc.createBudget).not.toHaveBeenCalled();
+  });
+});
+
 describe("procurement routes: deciding and the lifecycle moves", () => {
   it("only an approval grant reaches decide; the settle grant and a plain admin do not", async () => {
     authMock.mockResolvedValue(user({ role: "MEMBER", procurementSettle: true }));

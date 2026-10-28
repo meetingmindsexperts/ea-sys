@@ -1,12 +1,14 @@
 /**
  * GET  /api/procurement/budgets?eventId=&status=   list (org staff or any grant)
- * POST /api/procurement/budgets                    create from a template (ORGANIZER and above)
+ * POST /api/procurement/budgets                    create from a template, or from the lines of
+ *                                                   an imported budget sheet (ORGANIZER and above;
+ *                                                   imported billed lines also need finance sight)
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { createBudgetSchema } from "@/procurement/lib/budget-schemas";
-import { HTTP_STATUS_FOR_BUDGET_ERROR, procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
+import { denyWithoutFinance, HTTP_STATUS_FOR_BUDGET_ERROR, procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
 import { apiLogger } from "@/lib/logger";
 import { createBudget, invalidBudgetStatusFilter, listBudgets } from "@/procurement/services/budget-service";
 
@@ -34,9 +36,17 @@ export async function POST(req: NextRequest) {
   if (!g.ok) return g.response;
   const parsed = createBudgetSchema.safeParse(await readJson(req));
   if (!parsed.success) return zodErrorResponse(parsed, { route: "procurement/budgets", userId: g.user.id });
+  // Revenue is finance data on every other door (the revenue route); an import is not a side door.
+  if ((parsed.data.revenueLines?.length ?? 0) > 0) {
+    const denied = denyWithoutFinance("procurement/budgets", g.user);
+    if (denied) return denied;
+  }
   return runWithTenant(g.orgId, async () => {
     const result = await createBudget({ organizationId: g.orgId, actorUserId: g.user.id, source: "ui", ...parsed.data });
     if (!result.ok) return rejected("procurement/budgets", g.user.id, result, HTTP_STATUS_FOR_BUDGET_ERROR);
+    if (parsed.data.importedFrom) {
+      apiLogger.info({ msg: "procurement/budgets:imported", userId: g.user.id, budgetId: result.budget.id, lines: parsed.data.lines?.length ?? 0, revenueLines: parsed.data.revenueLines?.length ?? 0 });
+    }
     return NextResponse.json({ budget: result.budget }, { status: 201 });
   });
 }

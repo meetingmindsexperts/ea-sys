@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Budgets: a draft budget from finance's costing sheet (October 28)
+
+- **Budgets, Import sheet** (`/procurement/budgets/import`): upload the per-event costing sheet (CSV, semicolon or comma; ACT COST / ITEMS / DAYS / TOTAL for cost, PER UNIT / ITEMS / DAYS / TOTAL for billing). The reader (`src/procurement/lib/budget-sheet-import.ts`, pure, in the browser) recomputes every total from the lines and only checks the sheet's own subtotals, naming the line a subtotal left out. It warns on costs billed to nobody, billing below cost, cost vs billed quantity differences, internal cost the sheet set to 0, quotes never ordered, duplicate or missing line numbers, and reads the income and result written below the totals (with the year-on-year change). Each line gets a suggested catalogue product and income account and a VAT rate, all editable; Create draft posts them to the ordinary create route, so the budget, its lines, its revenue lines and the audit row land in one transaction and approval is unchanged.
+- Internal staff cost is counted by default, at the sheet's stated cost, under the product's chart group (owner); a switch leaves it at 0. Amounts are ex-VAT as entered (owner). Billed lines need finance sight (403 `FINANCE_REQUIRED` otherwise, the revenue route's rule).
+- **Budget CSV export**: a "Planned incl. VAT" column beside the tax, and a total. Reverses the "never a gross figure" rule (owner: finance needs both).
+
 ### Webinars: a postponed webinar gets its reminders again (October 28)
 
 - Rescheduling the webinar sequence skipped any phase that had ever been sent, so a webinar postponed after its reminders went out got none for the new date (seen on prod: test-webinar, moved from Oct 7 to Oct 28, queued nothing). A sent, cancelled or partly failed row now blocks its phase only when it was scheduled within 12 hours of the phase's new time (`RESEND_AFTER_MOVE_MS`, owner); a move of an hour or so still sends nothing twice.

@@ -85,7 +85,7 @@ describe("buildBudgetCsv", () => {
     const first = rows[13];
     expect(first.startsWith("AV,AV & Production,500201,")).toBe(true);
     expect(first).toContain('"Badges, ""premium"" lanyards"');
-    expect(first).toContain(",2.00,1500.00,AED,1,3000.00,5,150.00,,0.00,0.00,0.00,0.00,3000.00,3000.00,,,,");
+    expect(first).toContain(",2.00,1500.00,AED,1,3000.00,5,150.00,3150.00,,0.00,0.00,0.00,0.00,3000.00,3000.00,,,,");
     expect(first.endsWith(",")).toBe(true);
     const second = rows[14];
     expect(second.startsWith("CONTINGENCY,Contingency,,Contingency,")).toBe(true);
@@ -97,15 +97,21 @@ describe("buildBudgetCsv", () => {
     expect(rows[16]).toBe("Totals");
     expect(rows[17]).toBe('"Planned (AED, ex-VAT)",3000.00');
     expect(rows[18]).toBe("Tax (AED),150.00");
-    expect(rows[19]).toBe("Contingency (10%),300.00");
-    expect(rows[20]).toBe("Planned plus contingency (AED),3300.00");
-    expect(rows[21]).toBe("Forecast (AED),3000.00");
-    expect(rows[22]).toBe("At risk,no");
-    expect(rows[23]).toBe("Lines,2");
+    expect(rows[19]).toBe("Planned incl. VAT (AED),3150.00");
+    expect(rows[20]).toBe("Contingency (10%),300.00");
+    expect(rows[21]).toBe("Planned plus contingency (AED),3300.00");
+    expect(rows[22]).toBe("Forecast (AED),3000.00");
+    expect(rows[23]).toBe("At risk,no");
+    expect(rows[24]).toBe("Lines,2");
   });
 
-  it("never prints a gross figure: no column sums planned and tax", () => {
-    expect(csv).not.toContain("3150.00");
+  // Reversed Oct 28, 2026 (owner: finance needs ex-VAT and VAT-included figures side by side).
+  // The gross now appears in exactly two labelled places, a line's own column and the totals row;
+  // every other money cell stays ex-VAT.
+  it("prints the VAT-included figure only in its labelled column and total", () => {
+    const cols = budgetCsvColumns("AED");
+    expect(cols.indexOf("Planned incl. VAT (AED)")).toBe(cols.indexOf("Tax (AED)") + 1);
+    expect(csv.split("3150.00").length - 1).toBe(2);
   });
 
   it("copes with a budget that has no lines loaded", () => {

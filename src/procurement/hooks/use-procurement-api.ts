@@ -715,6 +715,10 @@ export interface CreateBudgetInput {
   brand?: string | null;
   expectedAttendance?: number | null;
   notes?: string | null;
+  /** From the budget sheet import page: the file's name and the lines read from it. */
+  importedFrom?: string | null;
+  lines?: { productId: string; description: string; qty: string; unitCost: string; taxRatePercent: string | null; notes: string | null }[];
+  revenueLines?: { incomeAccount: string; description: string; qty: string; unitAmount: string; notes: string | null }[];
 }
 
 export function useCreateBudget() {
