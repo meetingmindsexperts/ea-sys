@@ -22,6 +22,7 @@
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
 import { apiLogger } from "@/lib/logger";
+import { sanitizePdfText } from "@/lib/pdf/pdf-text";
 import { effectiveTemplate, mergeBody } from "./template";
 import type {
   CertificateData,
@@ -175,7 +176,10 @@ async function drawTextBox(
   data: CertificateData,
   page: ReturnType<PDFDocument["getPages"]>[number],
 ) {
-  const text = mergeBody(box.content, data);
+  // The standard fonts encode WinAnsi only: one pasted Unicode hyphen (an accreditation reference
+  // "ACA‐2026…", Oct 28, 2026) failed the whole certificate. Characters it cannot draw become their
+  // plain equivalent, or "?", as on every other PDF we render.
+  const text = sanitizePdfText(mergeBody(box.content, data));
   if (!text || text.trim().length === 0) return;
 
   const font = await getFont(box.font);
