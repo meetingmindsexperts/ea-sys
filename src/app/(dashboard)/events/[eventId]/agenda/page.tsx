@@ -414,7 +414,7 @@ export default function AgendaPage() {
       }
       return res.json();
     },
-    onSuccess: (data: { zoomSync?: "synced" | "failed"; sequenceSync?: "rescheduled" | "failed" }) => {
+    onSuccess: (data: { zoomSync?: "synced" | "failed" | "skipped-live"; sequenceSync?: "rescheduled" | "failed" }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
       setIsSessionDialogOpen(false);
       resetSessionForm();
@@ -425,6 +425,9 @@ export default function AgendaPage() {
         toast.warning(
           "Session saved, but updating the linked Zoom meeting's time failed — Zoom still shows the old time. Save again to retry, or update it in Zoom.",
         );
+      }
+      if (data?.zoomSync === "skipped-live") {
+        toast.info("Session saved. It is live, so Zoom keeps its current time and the stream is left untouched.");
       }
       // Aug 4, 2026: a retimed webinar anchor also reschedules the reminder
       // emails; a failure here means they may still fire on the OLD clock.

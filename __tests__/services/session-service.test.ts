@@ -588,9 +588,9 @@ describe("updateSession — M6: retime re-syncs the linked Zoom meeting", () => 
   const NEW_START = new Date("2026-09-02T08:00:00Z");
   const NEW_END = new Date("2026-09-02T09:30:00Z");
 
-  function withZoom(meetingType = "WEBINAR") {
+  function withZoom(meetingType = "WEBINAR", status = "SCHEDULED") {
     mockDb.eventSession.findFirst.mockResolvedValue({
-      id: "s1", startTime: START, endTime: END, status: "SCHEDULED",
+      id: "s1", startTime: START, endTime: END, status,
       type: "SESSION", abstractId: null,
       zoomMeeting: { ...ZOOM_ROW, meetingType },
       _count: { speakers: 0, topics: 0 },
@@ -651,6 +651,27 @@ describe("updateSession — M6: retime re-syncs the linked Zoom meeting", () => 
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.zoomSync).toBeUndefined();
     expect(mockUpdateZoomWebinar).not.toHaveBeenCalled();
+  });
+
+  it("leaves Zoom alone while the session is LIVE (a webinar's room is open) and says so (Oct 28, 2026)", async () => {
+    withZoom("WEBINAR", "LIVE");
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.zoomSync).toBe("skipped-live");
+    expect(mockUpdateZoomWebinar).not.toHaveBeenCalled();
+    expect(mockUpdateZoomMeeting).not.toHaveBeenCalled();
+    expect(mockApiLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1" }),
+      "session:zoom-time-sync-skipped-live",
+    );
+  });
+
+  it("syncs again once the session is no longer LIVE", async () => {
+    withZoom("WEBINAR", "COMPLETED");
+    mockUpdateZoomWebinar.mockResolvedValue(undefined); // the outage test above leaves a rejection behind
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    if (res.ok) expect(res.zoomSync).toBe("synced");
+    expect(mockUpdateZoomWebinar).toHaveBeenCalledTimes(1);
   });
 
   it("no Zoom call when the session has no linked meeting", async () => {

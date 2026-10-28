@@ -165,8 +165,10 @@ export type UpdateSessionResult =
        * Zoom meeting/webinar. "failed" means the session SAVED but Zoom still
        * shows the old time — surface it so the operator fixes Zoom or retries.
        * Absent when the times didn't change or there is no Zoom meeting.
+       * "skipped-live": the session is LIVE (a webinar's room is open), so the
+       * new time was deliberately not sent (owner, Oct 28, 2026).
        */
-      zoomSync?: "synced" | "failed";
+      zoomSync?: "synced" | "failed" | "skipped-live";
       /**
        * Aug 4, 2026: outcome of rescheduling the webinar email sequence
        * (reminder-24h / 1h / live-now / thank-you) after retiming the WEBINAR
@@ -752,12 +754,18 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
   // while the lobby countdown and public agenda used the new times. Runs AFTER
   // the local save commits and is failure-isolated: a Zoom outage never fails
   // the session update, it surfaces as zoomSync: "failed" for the caller.
-  let zoomSync: "synced" | "failed" | undefined;
+  let zoomSync: "synced" | "failed" | "skipped-live" | undefined;
   const timesChanged =
     (input.startTime !== undefined &&
       input.startTime.getTime() !== existing.startTime.getTime()) ||
     (input.endTime !== undefined && input.endTime.getTime() !== existing.endTime.getTime());
-  if (timesChanged && existing.zoomMeeting) {
+  // While the session is LIVE (a webinar's room is open) the scheduled time means nothing to Zoom, and
+  // changing a running webinar is the one Zoom call an agenda edit makes, so it is left alone until the
+  // session ends (owner, Oct 28, 2026; reported as "editing the agenda stops the stream", not reproduced).
+  if (timesChanged && existing.zoomMeeting && existing.status === "LIVE") {
+    zoomSync = "skipped-live";
+    apiLogger.info({ eventId, sessionId, userId, source }, "session:zoom-time-sync-skipped-live");
+  } else if (timesChanged && existing.zoomMeeting) {
     zoomSync = await syncZoomMeetingTimes({
       eventId,
       sessionId,
