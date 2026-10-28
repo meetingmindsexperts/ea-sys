@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Budgets: cross-organisation and lifecycle tests on a real database (October 28)
+
+- **Cross-organisation sweep** (`tests/integration-db/procurement-cross-org.db.test.ts`): an admin of another organisation calls all 43 procurement writes that take an id with this organisation's ids. Every one is refused at its organisation check, and every procurement row is byte-identical afterwards (updatedAt included). A control proves the same call succeeds for the owner; a coverage check fails when a new write is not in the sweep. The route half (`route-org-source.test.ts`) pins that all 40 write routes take the organisation from the session.
+- **Lifecycle** (`budget-lifecycle.db.test.ts`): reject, resubmit, approve, new version, freeze, unfreeze, close, sign-off and reopen through the real services, with the totals, the one pending approval priced at the plan, one current version per event and the audit trail checked after every step. It found that **an unfreeze accepted an empty reason** (the route passed "" through); the service now refuses it like a reopen.
+- **Lock order** (`budget-lock-order.db.test.ts`): a line save racing orders on the same line, 25 rounds, no deadlock. Order issue and reallocation now take the budget row with `FOR NO KEY UPDATE` before the line; `FOR UPDATE` deadlocked two simultaneous orders through the order insert's foreign-key lock (caught by the existing committed-figures test). Mutation-checked: without the lock the test hits Postgres 40P01.
+
 ### Budgets and spend requests: no silent no-ops, no lost edits, no mispriced approvals (October 28)
 
 From an adversarial test plan, each failure reproduced on the local database before the fix:

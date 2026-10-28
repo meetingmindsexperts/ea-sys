@@ -37,7 +37,7 @@ vi.mock("@/lib/approvals/approvals-service", () => ({
 }));
 vi.mock("@/procurement/services/budget-category-service", () => ({ ensureBudgetCategories: vi.fn().mockResolvedValue([]) }));
 
-import { decideReallocation, reallocateBudget, reopenBudget, updateBudgetHeader } from "@/procurement/services/budget-service";
+import { decideReallocation, reallocateBudget, reopenBudget, unfreezeBudget, updateBudgetHeader } from "@/procurement/services/budget-service";
 
 const ORG = "org-1";
 const activeBudget = { id: "b1", organizationId: ORG, status: "ACTIVE", reportingCurrency: "AED", versionNo: 1, version: 3, naCategoryCodes: [], contingencyPercent: "10", contingencyAmount: "0.0000", plannedExpenseTotal: "36725.0000", taxTotalPlanned: "0.0000", forecastTotal: "0.0000" };
@@ -133,6 +133,14 @@ describe("reopen needs a reason", () => {
     // The guard passed; the transition itself then reported the (mocked-away) budget as missing.
     expect(r).toMatchObject({ ok: false, code: "BUDGET_NOT_FOUND" });
     expect(mockDb.eventBudget.findFirst).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("unfreeze needs a reason (lifecycle test, Oct 28, 2026)", () => {
+  it("refuses a blank reason before reading the budget; the route used to pass an empty one through", async () => {
+    const r = await unfreezeBudget({ organizationId: ORG, actorUserId: "a1", source: "ui", budgetId: "b1", reason: "  " });
+    expect(r).toMatchObject({ ok: false, code: "INVALID_AMOUNT" });
+    expect(mockDb.eventBudget.findFirst).not.toHaveBeenCalled();
   });
 });
 

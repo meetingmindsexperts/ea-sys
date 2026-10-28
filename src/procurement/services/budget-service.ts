@@ -1071,7 +1071,9 @@ async function applyReallocation(tx: Db, budgetId: string, move: { fromLineKey: 
   // createCreditNote pattern).
   // The budget row before any line: the one lock order every budget write keeps (claimBudgetForWrite
   // takes the budget row first, so line-first here could deadlock with a line save; review M1).
-  await tx.$queryRaw`SELECT id FROM "EventBudget" WHERE id = ${budgetId} FOR UPDATE`;
+  // NO KEY UPDATE, the strength of the claim's UPDATE; FOR UPDATE would also block foreign-key checks
+  // on this row (an order being inserted), which deadlocked concurrent orders in committed-figures.
+  await tx.$queryRaw`SELECT id FROM "EventBudget" WHERE id = ${budgetId} FOR NO KEY UPDATE`;
   for (const id of [fromRef.id, toRef.id].sort()) await tx.$queryRaw`SELECT id FROM "BudgetLine" WHERE id = ${id} FOR UPDATE`;
   const from = await tx.budgetLine.findUnique({ where: { id: fromRef.id }, select: REALLOCATION_LINE_SELECT });
   const to = await tx.budgetLine.findUnique({ where: { id: toRef.id }, select: REALLOCATION_LINE_SELECT });
@@ -1209,8 +1211,11 @@ async function transition(input: { organizationId: string; actorUserId: string; 
 export function freezeBudget(input: { organizationId: string; actorUserId: string; source: Source; budgetId: string }) {
   return transition({ ...input, from: ["ACTIVE"], to: "FROZEN", action: "FREEZE", data: { frozenAt: new Date() } });
 }
-export function unfreezeBudget(input: { organizationId: string; actorUserId: string; source: Source; budgetId: string; reason: string }) {
-  return transition({ ...input, from: ["FROZEN"], to: "ACTIVE", action: "UNFREEZE", data: { frozenAt: null }, changes: { reason: input.reason } });
+export async function unfreezeBudget(input: { organizationId: string; actorUserId: string; source: Source; budgetId: string; reason: string }): Promise<BudgetResult<BudgetView>> {
+  // Unfreezing reopens the plan to reallocation; like a reopen, the trail must say why. The route passed
+  // "" for a missing reason and this wrote it (found by the lifecycle test, Oct 28, 2026).
+  if (!input.reason.trim()) return fail("INVALID_AMOUNT", "An unfreeze needs a reason (spec §6a).", { budgetId: input.budgetId, userId: input.actorUserId });
+  return transition({ ...input, from: ["FROZEN"], to: "ACTIVE", action: "UNFREEZE", data: { frozenAt: null }, changes: { reason: input.reason.trim() } });
 }
 
 export interface CloseBudgetInput {

@@ -111,7 +111,11 @@ export async function syncLineCommitted(tx: Db, input: { organizationId: string;
   // The budget row before the line: the order claimBudgetForWrite keeps, so an order issued while the
   // owner saves the same line's forecast cannot deadlock (review M1). The caller's totals recompute
   // writes this row next anyway, so the lock is taken a moment earlier, not added.
-  await tx.$queryRaw`SELECT id FROM "EventBudget" WHERE id = ${targetId} FOR UPDATE`;
+  // NO KEY UPDATE, never FOR UPDATE: the order's own insert has already taken KEY SHARE on this row
+  // (its foreign key), and FOR UPDATE conflicts with that, so two orders issued at once each held one
+  // and waited on the other; the integration test of ten simultaneous orders deadlocked on it. NO KEY
+  // UPDATE is what the claim's UPDATE takes, so it still queues behind a line save.
+  await tx.$queryRaw`SELECT id FROM "EventBudget" WHERE id = ${targetId} FOR NO KEY UPDATE`;
   await tx.budgetLine.update({ where: { id: line.id }, data: { committedOpen: figures.open, committedTotal: figures.total } });
   return targetId;
 }
