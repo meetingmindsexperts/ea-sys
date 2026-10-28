@@ -38,6 +38,20 @@ import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { toast } from "sonner";
 import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
+import {
+  BillingDetailsSection,
+  SupportingDocumentField,
+  billingFromPersonal,
+  missingBillingFields,
+  type UploadedDocument,
+} from "@/components/public/registration-form-extras";
+import {
+  requiresSupportingDocument,
+  supportingDocumentBlocks,
+  supportingDocumentInstructions,
+  supportingDocumentLabel,
+  type SupportingDocumentPolicy,
+} from "@/lib/supporting-document";
 
 interface PrefilledData {
   alreadyCompleted: boolean;
@@ -93,12 +107,14 @@ interface PrefilledData {
         requiresMemberId?: boolean;
         requiresStudentId?: boolean;
         requiresStudentIdExpiry?: boolean;
-      }
+        /** The type's own price; billing is hidden when it is free and no other type is offered. */
+        price?: number | string;
+      } & SupportingDocumentPolicy
     | null;
   /** Populated only when `ticketType` is null — the types this person may
    *  choose from, priced at whichever tier is on sale today. Display only:
    *  the server re-resolves the price on submit. */
-  selectableTicketTypes?: {
+  selectableTicketTypes?: ({
     id: string;
     name: string;
     description: string | null;
@@ -109,7 +125,7 @@ interface PrefilledData {
     requiresMemberId?: boolean;
     requiresStudentId?: boolean;
     requiresStudentIdExpiry?: boolean;
-  }[];
+  } & SupportingDocumentPolicy)[];
   /** The rate the link carries (docs/REGISTRATION_FORM_LINKS_PLAN.md); null on older links. */
   linkRate?: { name: string; closed: boolean } | null;
 }
@@ -135,6 +151,18 @@ const completionSchema = z.object({
   memberId: z.string().optional(),
   studentId: z.string().optional(),
   studentIdExpiry: z.string().optional(),
+  // As on the public form (docs/ONSITE_DESK_PLAN.md §3.3).
+  additionalEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
+  taxNumber: z.string().optional(),
+  billingFirstName: z.string().optional(),
+  billingLastName: z.string().optional(),
+  billingEmail: z.string().optional(),
+  billingPhone: z.string().optional(),
+  billingAddress: z.string().optional(),
+  billingCity: z.string().optional(),
+  billingState: z.string().optional(),
+  billingZipCode: z.string().optional(),
+  billingCountry: z.string().optional(),
   password: z.string().min(6, "Password must be at least 6 characters").optional().or(z.literal("")),
   confirmPassword: z.string().optional(),
   agreeTerms: z.literal(true, { message: "You must agree to the terms and conditions" }),
@@ -164,6 +192,10 @@ function CompleteRegistrationContent() {
   const [submitting, setSubmitting] = useState(false);
   // What stopped the last Complete Registration tap, shown by the button.
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
+  // The supporting document and billing, as on the public form.
+  const [supportingDoc, setSupportingDoc] = useState<UploadedDocument | null>(null);
+  const [docError, setDocError] = useState<string | null>(null);
+  const [billingSame, setBillingSame] = useState(true);
 
   const form = useForm<CompletionForm>({
     resolver: zodResolver(completionSchema),
@@ -176,6 +208,9 @@ function CompleteRegistrationContent() {
       city: "", state: "", zipCode: "", country: "",
       specialty: "", customSpecialty: "", dietaryReqs: "",
       associationName: "", memberId: "", studentId: "", studentIdExpiry: "",
+      additionalEmail: "", taxNumber: "",
+      billingFirstName: "", billingLastName: "", billingEmail: "", billingPhone: "", billingAddress: "",
+      billingCity: "", billingState: "", billingZipCode: "", billingCountry: "",
       password: "", confirmPassword: "",
       agreeTerms: undefined as unknown as true,
     },
@@ -288,6 +323,24 @@ function CompleteRegistrationContent() {
       return;
     }
 
+    const docPolicy = chosenType ?? data?.ticketType;
+    if (supportingDocumentBlocks(docPolicy) && !supportingDoc) {
+      setDocError(`Please attach the ${supportingDocumentLabel(docPolicy).toLowerCase()} to continue.`);
+      showBlockedSubmit();
+      return;
+    }
+    if (!billingSame) {
+      const missing = missingBillingFields(formData);
+      for (const { field, label } of missing) form.setError(field, { message: `${label} is required` });
+      if (missing.length > 0) {
+        showBlockedSubmit();
+        return;
+      }
+    }
+    const billing = billingSame
+      ? billingFromPersonal({ ...formData, firstName: data?.attendee.firstName, lastName: data?.attendee.lastName, email: data?.attendee.email })
+      : {};
+
     setSubmitting(true);
     try {
       const res = await fetch(`/api/public/events/${slug}/complete-registration`, {
@@ -295,6 +348,9 @@ function CompleteRegistrationContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
+          ...billing,
+          supportingDocumentUrl: requiresSupportingDocument(docPolicy) ? supportingDoc?.url : undefined,
+          supportingDocumentFilename: requiresSupportingDocument(docPolicy) ? supportingDoc?.filename : undefined,
           token,
           password: formData.password || undefined,
           confirmPassword: formData.confirmPassword || undefined,
@@ -361,6 +417,14 @@ function CompleteRegistrationContent() {
   const isMember = evidencePolicy.requiresMemberId;
   const isStudent = evidencePolicy.requiresStudentId;
   const showStudentExpiry = evidencePolicy.requiresStudentIdExpiry;
+  const docPolicy = chosenType ?? data.ticketType;
+  const needsDocument = requiresSupportingDocument(docPolicy);
+  // Billing is noise when there is nothing to pay: a complimentary link, or every option free (as the
+  // public form hides it); "same as personal details" is the default, so it costs the person nothing.
+  const allOptionsFree = selectableTypes.length > 0 && selectableTypes.every((t) => Number(t.price) <= 0);
+  // With no other type offered, their own type decides: a free one (Faculty, a comp) has nothing to bill.
+  const ownTypeFree = selectableTypes.length === 0 && data.ticketType?.price !== undefined && Number(data.ticketType.price) <= 0;
+  const showBilling = data.linkRate?.name !== "Complimentary" && !allOptionsFree && !ownTypeFree;
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
   return (
@@ -558,6 +622,15 @@ function CompleteRegistrationContent() {
                       )} />
                   </div>
 
+                  <FormField control={form.control} name="additionalEmail"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-medium text-slate-600">Additional Email</FormLabel>
+                        <FormControl><Input autoComplete="off" type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormField control={form.control} name="city"
                       render={({ field }) => (
@@ -676,6 +749,25 @@ function CompleteRegistrationContent() {
                       )}
                     </div>
                   </div>
+                )}
+
+                {/* Section: Supporting document, from the type's own policy (as on the public form) */}
+                {needsDocument && (
+                  <SupportingDocumentField
+                    slug={slug}
+                    label={supportingDocumentLabel(docPolicy)}
+                    required={supportingDocumentBlocks(docPolicy)}
+                    instructions={supportingDocumentInstructions(docPolicy)}
+                    value={supportingDoc}
+                    onChange={setSupportingDoc}
+                    error={docError}
+                    onError={setDocError}
+                    onBeforeUpload={() => setSubmitNotice(null)}
+                  />
+                )}
+
+                {showBilling && (
+                  <BillingDetailsSection control={form.control} billingSame={billingSame} onBillingSameChange={setBillingSame} />
                 )}
 
                 {/* Section: Create Account */}

@@ -144,6 +144,7 @@ describe("the checks: every skip reason, and nothing written for a skipped perso
   const cases: [string, Record<string, unknown>, string][] = [
     ["cancelled", { status: "CANCELLED" }, "CANCELLED"],
     ["has an account", { userId: "u-9" }, "HAS_ACCOUNT"],
+    ["completed without an account", { completedAt: new Date("2026-10-01T00:00:00Z") }, "ALREADY_COMPLETED"],
     ["paid", { paymentStatus: "PAID" }, "MONEY_RECORDED"],
     ["a payment in flight", { paymentStatus: "PENDING" }, "MONEY_RECORDED"],
     ["an issued invoice", { _count: { payments: 0, invoices: 1 } }, "MONEY_RECORDED"],

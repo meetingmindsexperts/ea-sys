@@ -244,6 +244,11 @@ model Registration {
   /// for the full list. NULL on historical rows that pre-date the
   /// column; the detail sheet renders "Unknown" for those.
   createdSource              RegistrationCreatedSource?
+  /// When the person's own details were completed: at creation for the
+  /// self-service paths (public form, submitter sign-up, group, speaker
+  /// companion), on submit of the completion form for organiser-added and
+  /// imported rows. NULL = still to complete (docs/ONSITE_DESK_PLAN.md §3.1).
+  completedAt                DateTime?
   notes                      String?                    @db.Text
   /// Supporting document substantiating this registration's rate (an
   /// institutional letter, a membership card, a certificate) — the path to the

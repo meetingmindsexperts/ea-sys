@@ -25,6 +25,12 @@ import { holdsSeat, seatCounter, type SeatState } from "@/lib/registration-seat"
 import { registerTierSlug } from "@/lib/main-register-tiers";
 import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import {
+  SUPPORTING_DOCUMENT_POLICY_SELECT,
+  resolveSupportingDocument,
+  supportingDocumentLabel,
+  type SupportingDocumentPolicy,
+} from "@/lib/supporting-document";
+import {
   readIdentityEvidencePolicy,
   missingIdentityEvidence,
   IDENTITY_EVIDENCE_SELECT,
@@ -71,8 +77,18 @@ interface SelectableTicketType {
 }
 
 /** Prisma select for a type + the tier fields `pickOpenPublicRate` needs. */
+/** The submitted optional text fields that were sent, a blank one stored as null (as on the public form). */
+function optionalText<K extends string>(fields: Record<K, string | undefined>): Partial<Record<K, string | null>> {
+  const out: Partial<Record<K, string | null>> = {};
+  for (const [key, value] of Object.entries(fields) as [K, string | undefined][]) {
+    if (value !== undefined) out[key] = value.trim() || null;
+  }
+  return out;
+}
+
 const SELECTABLE_TICKET_TYPE_SELECT = {
   ...IDENTITY_EVIDENCE_SELECT,
+  ...SUPPORTING_DOCUMENT_POLICY_SELECT,
   id: true,
   name: true,
   description: true,
@@ -121,6 +137,11 @@ async function loadSelectableTicketTypes(eventId: string, sponsorLinkSlugs: stri
       requiresMemberId: tt.requiresMemberId,
       requiresStudentId: tt.requiresStudentId,
       requiresStudentIdExpiry: tt.requiresStudentIdExpiry,
+      // The document the type asks for, so the form shows the upload (docs/ONSITE_DESK_PLAN.md §3.3).
+      requiresDocument: tt.requiresDocument,
+      documentRequired: tt.documentRequired,
+      documentLabel: tt.documentLabel,
+      documentInstructions: tt.documentInstructions,
     };
   });
 }
@@ -205,6 +226,11 @@ async function loadRatedTicketTypes(
       requiresMemberId: tt.requiresMemberId,
       requiresStudentId: tt.requiresStudentId,
       requiresStudentIdExpiry: tt.requiresStudentIdExpiry,
+      // The document the type asks for, so the form shows the upload (docs/ONSITE_DESK_PLAN.md §3.3).
+      requiresDocument: tt.requiresDocument,
+      documentRequired: tt.documentRequired,
+      documentLabel: tt.documentLabel,
+      documentInstructions: tt.documentInstructions,
     }];
   });
   return { types: selectable, rateName, closed: selectable.length === 0 };
@@ -269,7 +295,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         userId: true,
         ticketTypeId: true,
         ...LINK_REPRICE_SELECT,
-        ticketType: { select: { id: true, name: true, ...IDENTITY_EVIDENCE_SELECT } },
+        // The price is public (the register page shows it); the form hides billing for a free type.
+        ticketType: { select: { id: true, name: true, price: true, ...IDENTITY_EVIDENCE_SELECT, ...SUPPORTING_DOCUMENT_POLICY_SELECT } },
+        completedAt: true,
         attendee: {
           select: {
             firstName: true,
@@ -350,8 +378,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const { settings: eventSettings, ...eventFields } = registration.event;
     const publicEvent = { ...eventFields, formFields: readFormFields(eventSettings) };
 
-    // Check if already completed (user account linked)
-    if (registration.userId) {
+    // Already completed: an account was linked, or the form was submitted without one (completedAt,
+    // docs/ONSITE_DESK_PLAN.md §3.1; before it, a password-less completion looked incomplete).
+    if (registration.userId || registration.completedAt) {
       apiLogger.info({ msg: "Already-completed registration accessed via token", registrationId, email: registration.attendee.email });
       return NextResponse.json({ alreadyCompleted: true, event: publicEvent });
     }
@@ -424,6 +453,21 @@ const completionSchema = z.object({
   memberId: z.string().max(100).optional(),
   studentId: z.string().max(100).optional(),
   studentIdExpiry: z.string().max(20).optional(),
+  // The rest of what the public form captures (docs/ONSITE_DESK_PLAN.md §3.3): a second email, the
+  // per-type supporting document, and the tax and billing details, optional exactly as there.
+  additionalEmail: z.string().email().max(255).optional().or(z.literal("")),
+  supportingDocumentUrl: z.string().max(500).optional(),
+  supportingDocumentFilename: z.string().max(255).optional(),
+  taxNumber: z.string().max(100).optional(),
+  billingFirstName: z.string().max(100).optional(),
+  billingLastName: z.string().max(100).optional(),
+  billingEmail: z.string().email().max(255).optional().or(z.literal("")),
+  billingPhone: z.string().max(50).optional(),
+  billingAddress: z.string().max(500).optional(),
+  billingCity: z.string().max(255).optional(),
+  billingState: z.string().max(255).optional(),
+  billingZipCode: z.string().max(20).optional(),
+  billingCountry: z.string().max(255).optional(),
   /** Required only when the registration has no type yet. The pricing TIER is
    *  deliberately not accepted from the client — it's re-resolved server-side
    *  so a crafted request can't claim a closed Early-Bird rate. */
@@ -528,7 +572,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
-    const { token: rawToken, title, role, jobTitle, organization, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, password, ticketTypeId: chosenTicketTypeId } = validated.data;
+    const { token: rawToken, title, role, jobTitle, organization, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, password, ticketTypeId: chosenTicketTypeId, additionalEmail, supportingDocumentUrl, supportingDocumentFilename, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry } = validated.data;
 
     // Validate studentIdExpiry date format if provided
     if (studentIdExpiry && isNaN(new Date(studentIdExpiry).getTime())) {
@@ -573,6 +617,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         serialId: true,
         status: true,
         userId: true,
+        completedAt: true,
         attendeeId: true,
         taxNumber: true,
         billingFirstName: true,
@@ -618,7 +663,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         // minted one).
         qrCode: true,
         ...LINK_REPRICE_SELECT,
-        ticketType: { select: { id: true, name: true, price: true, currency: true, ...IDENTITY_EVIDENCE_SELECT } },
+        ticketType: { select: { id: true, name: true, price: true, currency: true, ...IDENTITY_EVIDENCE_SELECT, ...SUPPORTING_DOCUMENT_POLICY_SELECT } },
         pricingTier: { select: { id: true, name: true, price: true, currency: true } },
       },
     });
@@ -637,7 +682,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
-    if (registration.userId) {
+    if (registration.userId || registration.completedAt) {
       apiLogger.info({ msg: "Completion POST on already-completed registration", registrationId, email: registration.attendee.email });
       return NextResponse.json({ error: "This registration has already been completed. You can sign in to manage your registration." }, { status: 409 });
     }
@@ -652,12 +697,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       | null = null;
     let resolvedTier: { id: string; name: string; price: unknown; currency: string } | null = null;
     /** The just-self-selected type, kept in scope for the evidence check below. */
-    let evidenceCandidate: {
+    let evidenceCandidate: ({
       id: string;
       requiresMemberId: boolean;
       requiresStudentId: boolean;
       requiresStudentIdExpiry: boolean;
-    } | null = null;
+    } & SupportingDocumentPolicy) | null = null;
 
     /** A link with a rate: the type (kept, set or changed) and its price at that rate. */
     let ratedPlan: {
@@ -777,6 +822,28 @@ export async function POST(req: Request, { params }: RouteParams) {
           error: `${missingEvidence.join(" and ")} ${missingEvidence.length > 1 ? "are" : "is"} required for this registration type`,
           code: "IDENTITY_EVIDENCE_REQUIRED",
           missing: missingEvidence,
+        },
+        { status: 400 },
+      );
+    }
+
+    // The supporting document, by the same rule as the public form, against the type that will apply.
+    const document = resolveSupportingDocument(evidenceTicketType, registration.event.id, supportingDocumentUrl, supportingDocumentFilename);
+    if (document.dropped) {
+      apiLogger.warn({
+        msg: document.dropped === "not-our-upload"
+          ? "complete-registration:supporting-document-path-rejected"
+          : "complete-registration:supporting-document-dropped-type-not-asking",
+        registrationId,
+        ticketTypeId: evidenceTicketType?.id ?? null,
+      });
+    }
+    if (document.missingRequired) {
+      apiLogger.warn({ msg: "complete-registration:supporting-document-missing", registrationId, ticketTypeId: evidenceTicketType?.id ?? null });
+      return NextResponse.json(
+        {
+          error: `${supportingDocumentLabel(evidenceTicketType)} is required for this registration type.`,
+          code: "SUPPORTING_DOCUMENT_REQUIRED",
         },
         { status: 400 },
       );
@@ -902,6 +969,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           specialty,
           customSpecialty: customSpecialty || null,
           ...(dietaryReqs !== undefined && { dietaryReqs: dietaryReqs || null }),
+          ...(additionalEmail !== undefined && { additionalEmail: additionalEmail || null }),
           ...(associationName !== undefined && { associationName: associationName || null }),
           ...(memberId !== undefined && { memberId: memberId || null }),
           ...(studentId !== undefined && { studentId: studentId || null }),
@@ -917,6 +985,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       // The entry barcode, if this in-person registration never got one. The
       // where keeps it to rows still without one, so nothing is replaced.
       mintedQrCode = await ensureEntryBarcode(registration, "registration-completed", tx);
+
+      // Completed, on whichever device (emailed link, the attendee's phone at the desk, the desk tablet):
+      // the "Not completed" filter and the desk read this, not the account (docs/ONSITE_DESK_PLAN.md §3.1).
+      await tx.registration.updateMany({
+        where: { id: registrationId },
+        data: {
+          completedAt: new Date(),
+          // A document is only ever added here, never cleared: one the organiser attached stays.
+          ...(document.url && { supportingDocumentUrl: document.url, supportingDocumentFilename: document.filename }),
+          ...optionalText({ taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry }),
+        },
+      });
 
       // Delete token (one-time use)
       await tx.verificationToken.delete({ where: { token: hashedToken } });

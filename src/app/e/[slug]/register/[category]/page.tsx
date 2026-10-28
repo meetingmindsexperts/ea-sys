@@ -23,7 +23,6 @@ import {
   AlertCircle,
   Lock,
   CheckCircle2,
-  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,12 +36,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CountrySelect } from "@/components/ui/country-select";
+import { BillingDetailsSection, SupportingDocumentField, billingFromPersonal, missingBillingFields } from "@/components/public/registration-form-extras";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import {
-  SUPPORTING_DOCUMENT_ACCEPT,
-  SUPPORTING_DOCUMENT_MAX_SIZE,
   requiresSupportingDocument,
   supportingDocumentBlocks,
   supportingDocumentLabel,
@@ -251,7 +249,6 @@ function CategoryRegistrationContent() {
   // submit (the registration POST is JSON and the body limit is 1MB, far under
   // a scanned letter), so what travels with the form is just the stored path.
   const [supportingDoc, setSupportingDoc] = useState<{ url: string; filename: string } | null>(null);
-  const [docUploading, setDocUploading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   // What stopped the last Complete Registration tap, shown by the button.
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
@@ -471,41 +468,6 @@ function CategoryRegistrationContent() {
     };
   }, [event]);
 
-  async function handleSupportingDocChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    // Clear the input immediately so picking the SAME file again after an
-    // error still fires a change event.
-    e.target.value = "";
-    if (!file) return;
-
-    setDocError(null);
-    setSubmitNotice(null);
-    // Checked here purely to fail fast with a clear message — the server
-    // re-checks size, type and magic bytes, and is the authority.
-    if (file.size > SUPPORTING_DOCUMENT_MAX_SIZE) {
-      setDocError("The file must be under 5MB.");
-      return;
-    }
-
-    setDocUploading(true);
-    try {
-      const body = new FormData();
-      body.append("file", file);
-      const res = await fetch(`/api/public/events/${slug}/supporting-document`, { method: "POST", body });
-      const json = await res.json().catch(() => null);
-      if (!res.ok) {
-        setDocError(json?.error || "Could not upload the file. Please try again.");
-        return;
-      }
-      setSupportingDoc({ url: json.url, filename: json.filename });
-    } catch (err) {
-      console.error("supporting document upload failed", err);
-      setDocError("Could not upload the file. Please check your connection and try again.");
-    } finally {
-      setDocUploading(false);
-    }
-  }
-
   // A tap that did not go through: once the errors have rendered, scroll to the
   // first one (a picker or a type has no focusable field for react-hook-form to
   // jump to) and name what is missing by the button. Also react-hook-form's
@@ -598,25 +560,9 @@ function CategoryRegistrationContent() {
 
     // Validate billing fields when not using personal details
     if (!billingSame) {
-      const billingRequired: { field: keyof RegistrationForm; label: string }[] = [
-        { field: "billingFirstName", label: "Billing first name" },
-        { field: "billingLastName", label: "Billing last name" },
-        { field: "billingEmail", label: "Billing email" },
-        { field: "billingPhone", label: "Billing phone" },
-        { field: "billingAddress", label: "Billing address" },
-        { field: "billingCity", label: "Billing city" },
-        { field: "billingState", label: "Billing state" },
-        { field: "billingZipCode", label: "Billing zip code" },
-        { field: "billingCountry", label: "Billing country" },
-      ];
-      let hasError = false;
-      for (const { field, label } of billingRequired) {
-        if (!data[field]?.toString().trim()) {
-          form.setError(field, { message: `${label} is required` });
-          hasError = true;
-        }
-      }
-      if (hasError) {
+      const missing = missingBillingFields(data);
+      for (const { field, label } of missing) form.setError(field, { message: `${label} is required` });
+      if (missing.length > 0) {
         showBlockedSubmit();
         return;
       }
@@ -624,16 +570,7 @@ function CategoryRegistrationContent() {
 
     setSubmitting(true);
     // Copy personal details to billing if "same as above" is checked
-    if (billingSame) {
-      data.billingFirstName = data.firstName;
-      data.billingLastName = data.lastName;
-      data.billingEmail = data.email;
-      data.billingPhone = data.phone;
-      data.billingCity = data.city;
-      data.billingState = data.state;
-      data.billingZipCode = data.zipCode;
-      data.billingCountry = data.country;
-    }
+    if (billingSame) Object.assign(data, billingFromPersonal(data));
     try {
       const res = await fetch(`/api/public/events/${slug}/register`, {
         method: "POST",
@@ -1227,119 +1164,14 @@ function CategoryRegistrationContent() {
                       left null (preserves contact-sync + invoice fallback if
                       the event ever flips to paid later). */}
                   {!allOptionsFree && (
-                  <div className="space-y-5">
-                    <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Billing Details</h3>
-
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <Checkbox
-                        checked={billingSame}
-                        onCheckedChange={(checked) => {
-                          setBillingSame(!!checked);
-                          setSubmitNotice(null);
-                        }}
-                      />
-                      <span className="text-sm text-slate-600">Billing address same as personal details</span>
-                    </label>
-
-                    {!billingSame && (
-                      <div className="space-y-4 pt-1">
-                        <FormField control={form.control} name="taxNumber"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Tax Number / VAT ID</FormLabel>
-                              <FormControl><Input autoComplete="off" placeholder="e.g. AE1234567890" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <FormField control={form.control} name="billingFirstName"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input autoComplete="billing given-name" placeholder="Billing first name" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )} />
-                          <FormField control={form.control} name="billingLastName"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input autoComplete="billing family-name" placeholder="Billing last name" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )} />
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <FormField control={form.control} name="billingEmail"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">Email <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input autoComplete="billing email" type="email" placeholder="billing@company.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )} />
-                          <FormField control={form.control} name="billingPhone"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">Phone <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input type="tel" autoComplete="billing tel" placeholder="+971..." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )} />
-                        </div>
-
-                        <FormField control={form.control} name="billingAddress"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Address <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input autoComplete="billing street-address" placeholder="Street address" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <FormField control={form.control} name="billingCountry"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">Country <span className="text-red-400">*</span></FormLabel>
-                                <FormControl>
-                                  <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )} />
-                          <FormField control={form.control} name="billingCity"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">City <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input autoComplete="billing address-level2" placeholder="City" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )} />
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <FormField control={form.control} name="billingState"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">State / Province <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input autoComplete="billing address-level1" placeholder="State" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )} />
-                          <FormField control={form.control} name="billingZipCode"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">Zip / Postal Code <span className="text-red-400">*</span></FormLabel>
-                                <FormControl><Input autoComplete="billing postal-code" placeholder="00000" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )} />
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                    <BillingDetailsSection
+                      control={form.control}
+                      billingSame={billingSame}
+                      onBillingSameChange={(same) => {
+                        setBillingSame(same);
+                        setSubmitNotice(null);
+                      }}
+                    />
                   )}
 
                   {/* Section: Select Your Category */}
@@ -1635,70 +1467,17 @@ function CategoryRegistrationContent() {
                       are the organizer's words rather than hardcoded Resident
                       copy, and the requirement survives a type being renamed. */}
                   {needsDocument && (
-                    <div className="space-y-5">
-                      <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">
-                        {documentLabel} {documentRequired && <span className="text-red-400">*</span>}
-                      </h3>
-                      {(documentInstructions || !documentRequired) && (
-                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                          {documentInstructions && (
-                            // Organizer-authored plain text. Rendered as TEXT,
-                            // never HTML: it is typed into a textarea by a
-                            // staff member and has no reason to carry markup.
-                            <p className="text-sm text-amber-800 whitespace-pre-line">{documentInstructions}</p>
-                          )}
-                          {!documentRequired && (
-                            <p className="mt-2 text-sm text-amber-700">
-                              You can complete your registration without it, but we will
-                              need it before the event.
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      {supportingDoc ? (
-                        <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                            <span className="truncate text-sm text-emerald-900" title={supportingDoc.filename}>
-                              {supportingDoc.filename}
-                            </span>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="shrink-0 rounded-lg"
-                            onClick={() => { setSupportingDoc(null); setDocError(null); }}
-                          >
-                            Replace
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <label
-                            htmlFor="supportingDocFile"
-                            className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600 transition hover:border-primary/50 hover:bg-slate-100"
-                          >
-                            {docUploading ? (
-                              <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</>
-                            ) : (
-                              <><Upload className="h-4 w-4" /> Choose a file (PDF, JPG or PNG, up to 5MB)</>
-                            )}
-                          </label>
-                          <input
-                            id="supportingDocFile"
-                            type="file"
-                            className="sr-only"
-                            accept={SUPPORTING_DOCUMENT_ACCEPT}
-                            disabled={docUploading}
-                            onChange={handleSupportingDocChange}
-                          />
-                        </div>
-                      )}
-
-                      {docError && <p className="text-sm text-red-500" data-form-error="Supporting document">{docError}</p>}
-                    </div>
+                    <SupportingDocumentField
+                      slug={slug}
+                      label={documentLabel}
+                      required={documentRequired}
+                      instructions={documentInstructions}
+                      value={supportingDoc}
+                      onChange={setSupportingDoc}
+                      error={docError}
+                      onError={setDocError}
+                      onBeforeUpload={() => setSubmitNotice(null)}
+                    />
                   )}
 
                   {/* Section: Terms & Conditions */}

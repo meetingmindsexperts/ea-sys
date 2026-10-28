@@ -93,7 +93,7 @@ export { stampedPaymentStatus } from "@/lib/registration-form-pricing";
 
 type LoadedRegistration = Prisma.RegistrationGetPayload<{
   select: {
-    id: true; status: true; userId: true; paymentStatus: true; refundedAmount: true;
+    id: true; status: true; userId: true; completedAt: true; paymentStatus: true; refundedAmount: true;
     groupId: true; promoCodeId: true; sponsorId: true; ticketTypeId: true;
     pricingTierId: true; originalPrice: true; attendanceMode: true; createdSource: true;
     attendee: { select: { email: true; title: true; firstName: true; lastName: true } };
@@ -112,6 +112,8 @@ function skipReason(
 ): RegistrationFormSkipReason | null {
   if (reg.status === "CANCELLED") return "CANCELLED";
   if (reg.userId) return "HAS_ACCOUNT";
+  // Completed without an account (docs/ONSITE_DESK_PLAN.md §3.1): a new link would only say so.
+  if (reg.completedAt) return "ALREADY_COMPLETED";
   if (!RESTAMPABLE_STATUSES.includes(reg.paymentStatus)) return "MONEY_RECORDED";
   if (Number(reg.refundedAmount) > 0 || reg._count.payments > 0 || reg._count.invoices > 0) return "MONEY_RECORDED";
   if (reg.groupId) return "IN_GROUP";
@@ -172,7 +174,7 @@ export async function prepareRegistrationForms(input: PrepareRegistrationFormsIn
   const registrations = await db.registration.findMany({
     where: { id: { in: input.registrationIds }, eventId },
     select: {
-      id: true, status: true, userId: true, paymentStatus: true, refundedAmount: true,
+      id: true, status: true, userId: true, completedAt: true, paymentStatus: true, refundedAmount: true,
       groupId: true, promoCodeId: true, sponsorId: true, ticketTypeId: true,
       pricingTierId: true, originalPrice: true, attendanceMode: true, createdSource: true,
       attendee: { select: { email: true, title: true, firstName: true, lastName: true } },
@@ -279,6 +281,7 @@ async function stampRate(
         id: reg.id,
         eventId: ctx.eventId,
         userId: null,
+        completedAt: null,
         ticketTypeId: reg.ticketTypeId,
         paymentStatus: { in: [...RESTAMPABLE_STATUSES] },
       },

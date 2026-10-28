@@ -37,6 +37,7 @@ import {
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { getSponsorNameMap } from "@/lib/sponsors";
 import { parseSerialQuery } from "@/lib/registration-search";
+import { completionWhereFor } from "@/lib/registration-completion";
 import {
   createRegistration,
   type CreateRegistrationErrorCode,
@@ -214,6 +215,17 @@ export async function GET(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
+    // Registration form completed or not (docs/ONSITE_DESK_PLAN.md §3.2): "pending" = not completed and
+    // not cancelled, "done" = completed. Rejected when unknown, like the filters above.
+    const completionParam = searchParams.get("completion");
+    if (completionParam && completionParam !== "pending" && completionParam !== "done") {
+      apiLogger.warn({ msg: "events/registrations:invalid-completion-filter", eventId, value: completionParam });
+      return NextResponse.json(
+        { error: `Invalid completion filter: "${completionParam}"`, code: "INVALID_FILTER" },
+        { status: 400 },
+      );
+    }
+    const completionWhere = completionWhereFor(completionParam);
     const status = parsedStatus?.success ? parsedStatus.data : undefined;
     const paymentStatus = parsedPaymentStatus?.success ? parsedPaymentStatus.data : undefined;
     // One registration type, or several comma-separated (the list page's multi-select, Oct 27).
@@ -345,6 +357,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(paymentStatus && { paymentStatus }),
           ...(ticketTypeIds.length && { ticketTypeId: { in: ticketTypeIds } }),
           ...(groupId && { groupId }),
+          ...completionWhere,
           ...(qSerial !== null && { serialId: qSerial }),
           ...sponsorWhere,
           // Tags and free-text search BOTH constrain `attendee`, so they must
@@ -697,6 +710,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(status ? { status } : {}),
           ...(paymentStatus ? { paymentStatus } : {}),
           ...(ticketTypeId ? { ticketTypeId } : {}),
+          ...(completionParam ? { completion: completionParam } : {}),
           ...(tagsFilter.length > 0 ? { tags: tagsFilter } : {}),
           // The raw search term is NOT stored. Operators search full names and
           // email addresses, and `AuditLog` has no prune job and survives a

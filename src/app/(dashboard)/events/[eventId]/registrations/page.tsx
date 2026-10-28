@@ -115,6 +115,24 @@ import { resolvePastedIds } from "./resolve-pasted-ids";
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 
+/** The registration form filter: not completed (and not cancelled), or completed. */
+function matchesCompletionFilter(r: Registration, filter: "all" | "pending" | "done"): boolean {
+  if (filter === "pending") return !r.completedAt && r.status !== "CANCELLED";
+  if (filter === "done") return !!r.completedAt;
+  return true;
+}
+
+/** Who "Email" sends to: the ticked rows, else exactly the listed rows when the form filter narrows them. */
+function formFilterRecipientIds(selected: Set<string>, narrowed: boolean, listed: Registration[]): string[] {
+  if (selected.size > 0) return Array.from(selected);
+  return narrowed ? listed.map((r) => r.id) : [];
+}
+
+function emailButtonLabel(selectedCount: number, narrowed: boolean, listedCount: number): string {
+  if (selectedCount > 0) return `Email (${selectedCount})`;
+  return narrowed ? `Email listed (${listedCount})` : "Email All";
+}
+
 function selectAllCheckedState(all: boolean, some: boolean): boolean | "indeterminate" {
   if (all) return true;
   return some ? "indeterminate" : false;
@@ -262,6 +280,8 @@ export default function RegistrationsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
+  // Registration form completed or not (docs/ONSITE_DESK_PLAN.md §3.2).
+  const [completionFilter, setCompletionFilter] = useState<"all" | "pending" | "done">("all");
   // Several registration types at once (owner, Oct 27); empty means every type.
   const [ticketFilters, setTicketFilters] = useState<string[]>([]);
   // "Answered / Not answered <survey>" (several surveys, Phase 2): client-side
@@ -324,6 +344,7 @@ export default function RegistrationsPage() {
       if (!scopeGroupId) {
         if (statusFilter !== "all") p.set("status", statusFilter);
         if (paymentFilter !== "all") p.set("paymentStatus", paymentFilter);
+        if (completionFilter !== "all") p.set("completion", completionFilter);
         if (ticketFilters.length > 0) p.set("ticketTypeId", ticketFilters.join(","));
       }
       // The tag filter is applied SERVER-side on the table's own query
@@ -368,9 +389,12 @@ export default function RegistrationsPage() {
     const matchesPayment = paymentFilter === "all" || r.paymentStatus === paymentFilter;
     const matchesTicket = ticketFilters.length === 0 || (!!r.ticketType?.id && ticketFilters.includes(r.ticketType.id));
     const matchesSurvey = matchesSurveyResponded(r.answeredSurveyIds, surveyFilter);
+    const matchesCompletion = matchesCompletionFilter(r, completionFilter);
 
-    return matchesSearch && matchesStatus && matchesPayment && matchesTicket && matchesSurvey;
+    return matchesSearch && matchesStatus && matchesPayment && matchesTicket && matchesSurvey && matchesCompletion;
   });
+  // The bulk send cannot express the form filter, so with it on "Email" sends to exactly the listed rows.
+  const completionNarrowed = completionFilter !== "all";
 
   // Live recipient count for the bulk-email dialog's "all" mode. Mirrors the
   // SEND semantics (status + payment + ticket) and deliberately EXCLUDES the
@@ -596,7 +620,7 @@ export default function RegistrationsPage() {
                   onClick={() => setBulkEmailOpen(true)}
                 >
                   <Send className="mr-2 h-4 w-4" />
-                  {selectedIds.size > 0 ? `Email (${selectedIds.size})` : "Email All"}
+                  {emailButtonLabel(selectedIds.size, completionNarrowed, filteredRegistrations.length)}
                 </Button>
               )}
               {canImport && <CSVImportButton eventId={eventId} entityType="registrations" />}
@@ -763,6 +787,16 @@ export default function RegistrationsPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={completionFilter} onValueChange={(v) => { setCompletionFilter(v as "all" | "pending" | "done"); setPage(1); }}>
+              <SelectTrigger className="w-[190px]" aria-label="Registration form">
+                <SelectValue placeholder="Registration form" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any registration form</SelectItem>
+                <SelectItem value="pending">Form not completed</SelectItem>
+                <SelectItem value="done">Form completed</SelectItem>
+              </SelectContent>
+            </Select>
             <MultiSelect
               className="w-[220px]"
               options={(ticketTypes as TicketType[]).map((t) => ({ value: t.id, label: t.name }))}
@@ -824,6 +858,7 @@ export default function RegistrationsPage() {
                 setSearchQuery("");
                 setStatusFilter("all");
                 setPaymentFilter("all");
+                setCompletionFilter("all");
                 setTicketFilters([]);
                 setSurveyFilter(null);
               }}
@@ -1147,7 +1182,7 @@ export default function RegistrationsPage() {
               />
               <p className="text-xs text-muted-foreground">
                 Matches a registration #, the full registration ID, or the attendee email.
-                {(statusFilter !== "all" || paymentFilter !== "all" || ticketFilters.length > 0 || tagFilter.length > 0 || sponsorFilter !== "" || surveyFilter)
+                {(statusFilter !== "all" || paymentFilter !== "all" || completionFilter !== "all" || ticketFilters.length > 0 || tagFilter.length > 0 || sponsorFilter !== "" || surveyFilter)
                   ? " Note: only currently-loaded rows are matched — clear filters to match across all registrations."
                   : ""}
               </p>
@@ -1263,9 +1298,10 @@ export default function RegistrationsPage() {
         onOpenChange={setBulkEmailOpen}
         eventId={eventId}
         recipientType="registrations"
-        recipientIds={Array.from(selectedIds)}
+        recipientIds={formFilterRecipientIds(selectedIds, completionNarrowed, filteredRegistrations)}
         recipientCount={selectedIds.size > 0 ? selectedIds.size : filteredRegistrations.length}
-        selectionMode={selectedIds.size > 0 ? "selected" : "all"}
+        selectionMode={selectedIds.size > 0 || completionNarrowed ? "selected" : "all"}
+        fixedListOnly={completionNarrowed && selectedIds.size === 0}
         statusFilter={statusFilter}
         paymentStatusFilter={paymentFilter}
         ticketTypeFilters={ticketFilters}

@@ -152,6 +152,8 @@ export interface Registration {
    * section of the detail sheet.
    */
   createdSource: string | null;
+  /** When their own details were completed; null = still to complete (docs/ONSITE_DESK_PLAN.md §3.1). */
+  completedAt?: string | null;
   checkedInAt: string | null;
   /** First time this registrant entered the webinar lobby / joined (presence). */
   webinarFirstJoinedAt?: string | null;

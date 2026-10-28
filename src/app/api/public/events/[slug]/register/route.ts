@@ -21,13 +21,8 @@ import { claimEventSeats, claimSeats } from "@/lib/registration-seat-db";
 import type { SeatCounter } from "@/lib/registration-seat";
 import { claimSpareDtcmCode } from "@/lib/dtcm-pool";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
-import {
-  SUPPORTING_DOCUMENT_PATH_PREFIX,
-  isSupportingDocumentPath,
-  requiresSupportingDocument,
-  supportingDocumentBlocks,
-  supportingDocumentLabel,
-} from "@/lib/supporting-document";
+import { completedAtOnCreate } from "@/lib/registration-completion";
+import { resolveSupportingDocument, supportingDocumentLabel } from "@/lib/supporting-document";
 import {
   readIdentityEvidencePolicy,
   missingIdentityEvidence,
@@ -453,7 +448,6 @@ export async function POST(req: Request, { params }: RouteParams) {
     // (not 400'd): a malformed value can only come from a tampered request,
     // and failing the whole registration would punish the honest case where a
     // proxy mangled the field.
-    const needsDocument = requiresSupportingDocument(ticketType);
     // Fall back to the pre-rename field names (see the schema note above).
     const documentUrl = supportingDocumentUrl ?? validated.data.residentLetterUrl;
     const documentFilename =
@@ -465,33 +459,20 @@ export async function POST(req: Request, { params }: RouteParams) {
         note: "pre-Aug-13 browser bundle; safe to remove the alias once this stops appearing",
       });
     }
-    let letterUrl: string | null = null;
-    let letterFilename: string | null = null;
-    if (needsDocument && documentUrl) {
-      // Shape AND ownership: the path's {eventId} segment must be the event
-      // being registered for. Without this an anonymous POST can point this
-      // registration at ANOTHER event's file (no upload needed — just a known
-      // filename), and that event's own staff would then stream it from their
-      // detail sheet.
-      if (
-        isSupportingDocumentPath(documentUrl) &&
-        documentUrl.startsWith(`${SUPPORTING_DOCUMENT_PATH_PREFIX}${event.id}/`)
-      ) {
-        letterUrl = documentUrl;
-        letterFilename = documentFilename?.trim() || null;
-      } else {
-        apiLogger.warn({
-          msg: "public/register:supporting-document-path-rejected",
-          eventId: event.id,
-          email,
-          supportingDocumentUrl: documentUrl,
-        });
-      }
-    } else if (documentUrl) {
-      // A document was attached for a type that does not ask for one — the
-      // registrant uploaded, then changed their registration type. Dropping it
-      // is right, but it was the ONE drop in this flow with no log at all, so
-      // an organizer chasing "they said they uploaded it" had nothing to find.
+    // The one document rule, shared with the completion form (resolveSupportingDocument).
+    const document = resolveSupportingDocument(ticketType, event.id, documentUrl, documentFilename);
+    const letterUrl = document.url;
+    const letterFilename = document.filename;
+    if (document.dropped === "not-our-upload") {
+      apiLogger.warn({
+        msg: "public/register:supporting-document-path-rejected",
+        eventId: event.id,
+        email,
+        supportingDocumentUrl: documentUrl,
+      });
+    } else if (document.dropped === "type-does-not-ask") {
+      // The registrant uploaded, then changed their registration type: dropping it is right, but logged
+      // so an organizer chasing "they said they uploaded it" has something to find.
       apiLogger.warn({
         msg: "public/register:supporting-document-dropped-type-not-asking",
         eventId: event.id,
@@ -499,7 +480,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketTypeId,
       });
     }
-    if (needsDocument && !letterUrl && supportingDocumentBlocks(ticketType)) {
+    if (document.missingRequired) {
       apiLogger.warn({
         msg: "public/register:supporting-document-missing",
         eventId: event.id,
@@ -709,6 +690,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           serialId,
           attendanceMode,
           createdSource: "PUBLIC_REGISTER",
+          completedAt: completedAtOnCreate("PUBLIC_REGISTER"),
           status: effectiveApproval ? "PENDING" : "CONFIRMED",
           // A zero-price registration (free ticket, or a promo code that
           // discounts to 0) never goes through Stripe, so PAID is the wrong

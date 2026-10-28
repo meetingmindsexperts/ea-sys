@@ -16,6 +16,15 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+/** Writes to the registration that touch its type, rate, price or payment: everything but the completion
+ *  stamp (completedAt, the document, tax and billing), which every successful completion writes. */
+function typeOrPriceWrites(mock: { mock: { calls: unknown[][] } }): unknown[] {
+  const STAMP = new Set(["completedAt", "supportingDocumentUrl", "supportingDocumentFilename", "taxNumber",
+    "billingFirstName", "billingLastName", "billingEmail", "billingPhone", "billingAddress", "billingCity",
+    "billingState", "billingZipCode", "billingCountry"]);
+  return mock.mock.calls.filter((c) => Object.keys((c[0] as { data: object }).data).some((k) => !STAMP.has(k)));
+}
+
 const {
   mockTokenFindUnique, mockTokenDelete, mockRegFindFirst, mockTtFindFirst, mockTtFindMany,
   mockTransaction, mockTxTtUpdateMany, mockTxRegUpdateMany, mockTxAttendeeUpdate,
@@ -323,7 +332,7 @@ describe("already-typed registrations are untouched by the type machinery", () =
     // No type resolution, no seat claim, no registration row write.
     expect(mockTtFindFirst).not.toHaveBeenCalled();
     expect(mockTxTtUpdateMany).not.toHaveBeenCalled();
-    expect(mockTxRegUpdateMany).not.toHaveBeenCalled();
+    expect(typeOrPriceWrites(mockTxRegUpdateMany)).toEqual([]);
     expect((await res.json()).registration).toMatchObject({ ticketPrice: 50 });
   });
 });
@@ -470,5 +479,69 @@ describe("completion never prices on a sponsor-link or presenter rate (Oct 16, 2
     const body = await res.json();
     expect(body.event).not.toHaveProperty("settings");
     expect(body.selectableTicketTypes[0]).toMatchObject({ id: "tt-1", available: false });
+  });
+});
+
+describe("the completion form captures what the public form does (docs/ONSITE_DESK_PLAN.md §3.3)", () => {
+  const stamp = () =>
+    mockTxRegUpdateMany.mock.calls.map((c) => c[0] as { data: Record<string, unknown> }).find((c) => "completedAt" in c.data)?.data;
+
+  it("stamps completedAt, and saves the tax and billing details and the second email", async () => {
+    const res = await POST(
+      makeRequest(makeBody({
+        ticketTypeId: "tt-1",
+        additionalEmail: "pat.alt@example.com",
+        taxNumber: "AE123",
+        billingFirstName: "Pat", billingLastName: "Lee", billingEmail: "billing@hospital.ae", billingPhone: "+971500",
+        billingAddress: "1 Main St", billingCity: "Dubai", billingState: "Dubai", billingZipCode: "000", billingCountry: "UAE",
+      })),
+      makeParams(),
+    );
+    expect(res.status).toBe(200);
+    expect(stamp()).toMatchObject({
+      completedAt: expect.any(Date),
+      taxNumber: "AE123",
+      billingEmail: "billing@hospital.ae",
+      billingCountry: "UAE",
+    });
+    expect(mockTxAttendeeUpdate.mock.calls[0][0].data).toMatchObject({ additionalEmail: "pat.alt@example.com" });
+  });
+
+  it("requires the supporting document when the type requires one", async () => {
+    mockTtFindFirst.mockResolvedValue(makeChosenType({ requiresDocument: true, documentRequired: true, documentLabel: "Resident letter" }));
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "SUPPORTING_DOCUMENT_REQUIRED", error: "Resident letter is required for this registration type." });
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it("keeps a document uploaded for this event, and drops one pointing at another event", async () => {
+    mockTtFindFirst.mockResolvedValue(makeChosenType({ requiresDocument: true, documentRequired: false }));
+    let res = await POST(makeRequest(makeBody({
+      ticketTypeId: "tt-1",
+      supportingDocumentUrl: "/uploads/resident-letters/evt-1/0b1c2d3e-aaaa-bbbb-cccc-123456789abc.pdf",
+      supportingDocumentFilename: "letter.pdf",
+    })), makeParams());
+    expect(res.status).toBe(200);
+    expect(stamp()).toMatchObject({ supportingDocumentUrl: "/uploads/resident-letters/evt-1/0b1c2d3e-aaaa-bbbb-cccc-123456789abc.pdf", supportingDocumentFilename: "letter.pdf" });
+
+    vi.clearAllMocks();
+    mockTokenFindUnique.mockResolvedValue({ identifier: "reg:reg-1", token: "hashed:tok1", expires: new Date(Date.now() + 86_400_000) });
+    mockRegFindFirst.mockResolvedValue(makeRegistration());
+    mockTtFindFirst.mockResolvedValue(makeChosenType({ requiresDocument: true, documentRequired: false }));
+    mockTxRegUpdateMany.mockResolvedValue({ count: 1 });
+    res = await POST(makeRequest(makeBody({
+      ticketTypeId: "tt-1",
+      supportingDocumentUrl: "/uploads/resident-letters/evt-OTHER/0b1c2d3e-aaaa-bbbb-cccc-123456789abc.pdf",
+    })), makeParams());
+    expect(res.status).toBe(200);
+    expect(stamp()).not.toHaveProperty("supportingDocumentUrl");
+  });
+
+  it("refuses a registration already completed without an account (completedAt set)", async () => {
+    mockRegFindFirst.mockResolvedValue(makeRegistration({ completedAt: new Date("2026-10-01T00:00:00Z") }));
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
+    expect(res.status).toBe(409);
+    expect(mockTransaction).not.toHaveBeenCalled();
   });
 });

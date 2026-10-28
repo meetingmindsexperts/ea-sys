@@ -65,6 +65,7 @@ export type RegistrationFormSkipReason =
   | "NOT_FOUND"
   | "CANCELLED"
   | "HAS_ACCOUNT"
+  | "ALREADY_COMPLETED"
   | "MONEY_RECORDED"
   | "IN_GROUP"
   | "PROMO_APPLIED"
@@ -78,6 +79,7 @@ export const REGISTRATION_FORM_SKIP_LABELS: Record<RegistrationFormSkipReason, s
   NOT_FOUND: "not found on this event",
   CANCELLED: "cancelled",
   HAS_ACCOUNT: "already completed (has an account)",
+  ALREADY_COMPLETED: "already completed the registration form",
   MONEY_RECORDED: "already paid or invoiced",
   IN_GROUP: "part of a group registration",
   PROMO_APPLIED: "has a promo code applied",

@@ -65,6 +65,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import { escapeHtml } from "@/lib/html";
 import { round2 } from "@/lib/registration-financials";
+import { completedAtOnCreate } from "@/lib/registration-completion";
 
 // ── Input / result shapes ────────────────────────────────────────────────────
 
@@ -405,6 +406,7 @@ async function claimSeatsAndCreateMembers(
         userId: a.email === coordinatorEmail ? coordinatorUserId : null,
         serialId,
         createdSource: "GROUP_REGISTER",
+        completedAt: completedAtOnCreate("GROUP_REGISTER"),
         status: pricing.requiresApproval
           ? RegistrationStatus.PENDING
           : RegistrationStatus.CONFIRMED,

@@ -15,6 +15,7 @@ import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import { getNextSerialId } from "@/lib/registration-serial";
+import { completedAtOnCreate } from "@/lib/registration-completion";
 import { Prisma, type Title, type AttendeeRole, type SpeakerStatus } from "@prisma/client";
 
 /** The speakers' type's name when an ordinary "Faculty" already exists and cannot be adopted. */
@@ -304,6 +305,7 @@ export async function ensureSpeakerCompanionRegistration(
         serialId,
         badgeType: "Faculty",
         createdSource: "SPEAKER_COMPANION",
+        completedAt: completedAtOnCreate("SPEAKER_COMPANION"),
         // Faculty companion is comp (price 0) — stamp it so the read surfaces
         // treat it as a $0 registration, not an unresolved one.
         originalPrice: 0,

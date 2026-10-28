@@ -43,6 +43,7 @@ import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-regis
 import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
 import { computeDetailsDelta, syncRegistrationDetailsToSpeakers } from "@/lib/person-details-sync";
 import { getSponsors } from "@/lib/sponsors";
+import { completedAtOnCreate } from "@/lib/registration-completion";
 // Leaf constants module (no agent machinery) — the admin-settable
 // paymentStatus policy (review H12) shared with the MCP boundary.
 import {
@@ -909,6 +910,7 @@ export async function createRegistration(
           attendeeId: attendeeRecord.id,
           serialId,
           createdSource,
+          completedAt: completedAtOnCreate(createdSource),
           status: finalStatus,
           paymentStatus: finalPaymentStatus,
           attendanceMode,

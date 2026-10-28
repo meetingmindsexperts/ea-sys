@@ -11,6 +11,15 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+/** Writes to the registration that touch its type, rate, price or payment: everything but the completion
+ *  stamp (completedAt, the document, tax and billing), which every successful completion writes. */
+function typeOrPriceWrites(mock: { mock: { calls: unknown[][] } }): unknown[] {
+  const STAMP = new Set(["completedAt", "supportingDocumentUrl", "supportingDocumentFilename", "taxNumber",
+    "billingFirstName", "billingLastName", "billingEmail", "billingPhone", "billingAddress", "billingCity",
+    "billingState", "billingZipCode", "billingCountry"]);
+  return mock.mock.calls.filter((c) => Object.keys((c[0] as { data: object }).data).some((k) => !STAMP.has(k)));
+}
+
 const { mockDb, tx, transitionMock, claimSeatMock, confirmationMock } = vi.hoisted(() => {
   const tx = {
     registration: { updateMany: vi.fn() },
@@ -200,14 +209,14 @@ describe("POST with a rated link", () => {
     const res = await post();
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: "RATE_CLOSED" });
-    expect(tx.registration.updateMany).not.toHaveBeenCalled();
+    expect(typeOrPriceWrites(tx.registration.updateMany)).toEqual([]);
   });
 
   it("refuses a type without the link's rate", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue(EXH);
     const res = await post({ ticketTypeId: "tt-exh" });
     expect(await res.json()).toMatchObject({ code: "RATE_NOT_ON_TYPE" });
-    expect(tx.registration.updateMany).not.toHaveBeenCalled();
+    expect(typeOrPriceWrites(tx.registration.updateMany)).toEqual([]);
   });
 
   it("money recorded since the send: the link no longer sets type or price (review H1)", async () => {
@@ -232,7 +241,7 @@ describe("POST with a rated link", () => {
       // Even a crafted request for another type changes nothing but the details.
       const res = await post({ ticketTypeId: "tt-nurse" });
       expect(res.status, JSON.stringify(over)).toBe(200);
-      expect(tx.registration.updateMany, JSON.stringify(over)).not.toHaveBeenCalled();
+      expect(typeOrPriceWrites(tx.registration.updateMany), JSON.stringify(over)).toEqual([]);
       expect(transitionMock, JSON.stringify(over)).not.toHaveBeenCalled();
     }
   });
@@ -241,13 +250,13 @@ describe("POST with a rated link", () => {
     mockDb.registration.findFirst.mockResolvedValue(registration({ paymentStatus: "COMPLIMENTARY" }));
     const res = await post();
     expect(res.status).toBe(200);
-    expect(tx.registration.updateMany).not.toHaveBeenCalled();
+    expect(typeOrPriceWrites(tx.registration.updateMany)).toEqual([]);
   });
 
   it("staff moved them to another rate after the send: the link no longer applies", async () => {
     mockDb.registration.findFirst.mockResolvedValue(registration({ pricingTierId: "t-std" }));
     await post();
-    expect(tx.registration.updateMany).not.toHaveBeenCalled();
+    expect(typeOrPriceWrites(tx.registration.updateMany)).toEqual([]);
   });
 
   it("the GET offers no type change once the link no longer applies", async () => {

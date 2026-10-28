@@ -1,0 +1,169 @@
+# Onsite desk: walk-ins and completing registration at the venue
+
+Status: **IN BUILD** (planned Oct 28, 2026). Owner decisions are in §6.
+
+## 1. The two problems
+
+1. **A walk-in takes too long.** Registering someone at the desk, marking them
+   complimentary or paid, printing the badge and checking them in takes about
+   4 screens and 12 to 16 clicks today: Add Registration is a separate page that
+   returns to the list, the person must be searched for again, the badge prints
+   from the Activity tab of the detail sheet, and Check In is a further click.
+   A paid walk-in also waits for the invoice, receipt and payment email, which
+   `issuePaidRegistrationDocuments` creates inside the request. Target: 30 to 40
+   seconds per walk-in, most of it typing.
+2. **People added by the organiser or imported by CSV cannot complete at the
+   venue.** Their "complete your registration" link is only ever emailed, and
+   only its hash is stored, so the desk cannot show it again. The goal is that
+   at the venue they fill in everything the public registration form asks and
+   leave with a barcode and a badge, exactly as if they had used the emailed
+   link.
+
+## 2. What exists and is reused
+
+- `registration-service.createRegistration` (the one create path), the
+  check-in library (`src/lib/check-in.ts`), the badge route
+  (`registrations/badges`), the payments route and `record-payment-dialog`.
+- The completion form `/e/[slug]/complete-registration` and its route, with
+  `mintRegistrationFormLink` in `src/services/registration-form-service.ts`
+  (single use, minting a new link deletes the person's older links).
+- `renderQrPng` in `src/lib/barcode.ts` (server side QR rendering).
+
+## 3. Step 1: foundation
+
+### 3.1 "Completed at" on each registration
+
+Today the only signal that someone completed is `Registration.userId`, which
+is set only when they chose a password. Someone who completes without one
+still looks incomplete and can be sent the form again.
+
+- New column `Registration.completedAt TIMESTAMP(3)`, nullable, additive
+  (`ADD COLUMN IF NOT EXISTS`), no default. Blue/green safe: old code ignores it.
+- Set it when the registration's details come from the person themself:
+  - public registration, abstract submitter sign-up and group registration:
+    at creation;
+  - the completion form: on submit (any device, emailed link or onsite);
+  - the speaker companion: at creation (the speaker's details come from their
+    speaker record, so the desk never asks them to complete).
+- Left empty for rows the organiser or a tool created with partial details:
+  dashboard Add Registration, CSV import, EventsAir import, contacts import,
+  the agent, and desk walk-ins (§4).
+- Backfill in the same migration, idempotent (only rows still null):
+  - `createdAt` for rows whose source is PUBLIC_REGISTER, PUBLIC_SUBMITTER,
+    PUBLIC_COMPLETION_FORM, GROUP_REGISTER or SPEAKER_COMPANION;
+  - the time of the row's `COMPLETE_REGISTRATION` audit entry, where one exists.
+- "Not completed" means `completedAt IS NULL` and the registration is not
+  cancelled.
+
+### 3.2 A "Not completed" filter
+
+- Registrations list API: `completion=pending|done`.
+- Registrations page: a "Registration form" filter (All / Not completed /
+  Completed), so the organiser sees before the event how many imported people
+  still need to complete.
+
+### 3.3 The completion form matches the public form
+
+The completion route accepts everything the public form does except what is
+fixed by the link (name, email, rate) or deliberately excluded (promo code,
+attribution). Added:
+
+- `additionalEmail`;
+- the supporting document, with the same per-type rules
+  (`src/lib/supporting-document.ts`): asked when the type asks, required when it
+  requires;
+- `taxNumber` and the billing fields (billing name, email, phone, address,
+  city, state, postcode, country), optional exactly as on the public form.
+
+Field rules are taken from the public form's schema so the two cannot drift; a
+test pins that every public field is either on the completion form or on the
+documented exclusion list.
+
+## 4. Step 2: the Walk-in panel
+
+On the Check-In page, a second tab beside the scanner: **Desk**.
+
+- **One search box**: name, email, organisation or registration number. Each
+  result shows Not completed / Completed / Checked in, whether payment is due,
+  and the registration type, with the action that fits:
+  - Completed and nothing owed: **Check in & print badge**;
+  - Not completed: **Complete onsite** (§5);
+  - payment due: **Record payment** (cash / card), then check in & print.
+- **New walk-in**: first name, last name, email; the registration type,
+  remembered per desk; Complimentary or Paid (cash / card); organisation and
+  mobile optional. One button, **Register, check in & print**.
+- Server: one desk route that runs the create through
+  `registration-service`, records the payment when paid, and checks the person
+  in, then returns. The badge PDF opens in the page and the operator clicks
+  Print (the owner's choice: manual print dialog, no kiosk printing).
+- Paid walk-ins: the invoice, receipt and payment email are created after the
+  response, not while the desk waits (owner: fine to arrive later). Failures
+  are logged at error and notify the event's admins, as today.
+- Permissions: the route asks `registrations.create`, `registrations.checkin`
+  and, when paid, `payments.record`, judged on the event (ONSITE staff on their
+  assigned events, organisers everywhere).
+- The unused `add-registration-dialog.tsx` is removed.
+
+## 5. Step 3: Complete onsite
+
+### 5.1 At the desk
+
+1. Search the person; a Not completed result offers **Complete onsite**.
+2. A window with two tabs:
+   - **Their phone**: a large QR code, the link in text under it, and a
+     30-minute countdown;
+   - **This tablet**: opens the same form on the desk tablet in tablet mode.
+3. The window checks every few seconds. When the form is submitted it shows
+   the person's completed details and either **Check in & print badge** or,
+   for a paid rate, **Record payment** first.
+4. Staff can close the window and serve the next person. Everyone with an open
+   link sits in a **Waiting to complete** list on the panel (kept per desk),
+   which turns green when they finish.
+
+### 5.2 On the attendee's phone
+
+The same branded completion page as the emailed link: name and email shown,
+not editable; every public form field (§3.3); optional password. On submit the
+confirmation page shows the barcode and the confirmation email with the
+barcode is sent, as today.
+
+### 5.3 On the desk tablet (`mode=tablet`)
+
+The same form for a shared device: no password field, no autofill kept between
+people, and after submitting a "Thank you, please hand the tablet back" screen
+that clears itself after a few seconds. The tablet needs no staff login.
+
+### 5.4 The link
+
+- New staff route `POST .../registrations/[registrationId]/onsite-link`
+  (`registrations.checkin` on the event): mints a completion link with a
+  30-minute expiry through `mintRegistrationFormLink`, returns the URL and a
+  QR image, and writes an audit row. It is the only place the raw link is ever
+  shown to staff.
+- Single use; minting cancels the person's emailed link, so they cannot
+  complete twice; an expired link is replaced by pressing the button again.
+- The rate comes from the registration's own type, so the organiser fixes a
+  wrong type before making the link.
+
+### 5.5 Edge cases
+
+- Not in the system: the walk-in form (§4).
+- Already completed: straight to check in & print.
+- Wrong email from the import: corrected with the existing Change Email first.
+- A paid rate with nothing paid: the badge stays refused until payment is
+  recorded, as today.
+
+## 6. Owner decisions (Oct 28, 2026)
+
+- Paid walk-ins: the invoice, receipt and email may arrive later.
+- Printing: manual print dialog at the desk (no Chrome kiosk printing).
+- Completing onsite: both the attendee's phone (QR) and a desk tablet.
+
+## 7. Delivery
+
+Three steps, each built, tested, adversarially reviewed and committed on its
+own, with the touched screens shown before it is pushed:
+
+1. Foundation (§3), about a day.
+2. Walk-in panel (§4), about two days.
+3. Complete onsite (§5), about two days.

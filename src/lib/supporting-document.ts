@@ -157,3 +157,54 @@ export function redactSupportingDocumentFields<T>(value: T): T {
   for (const k of SUPPORTING_DOCUMENT_KEYS) delete out[k];
   return out as T;
 }
+
+// ── Accepting a submitted document ─────────────────────────────────────────
+
+/** The document-policy columns, for a ticket type `select`. */
+export const SUPPORTING_DOCUMENT_POLICY_SELECT = {
+  requiresDocument: true,
+  documentRequired: true,
+  documentLabel: true,
+  documentInstructions: true,
+} as const;
+
+export interface ResolvedSupportingDocument {
+  /** What to store: the accepted path and filename, or null. */
+  url: string | null;
+  filename: string | null;
+  /** Why a submitted value was not kept, for the caller to log (the value came from the client). */
+  dropped: "not-our-upload" | "type-does-not-ask" | null;
+  /** The type requires a document and none was accepted: the caller refuses the submission. */
+  missingRequired: boolean;
+}
+
+/**
+ * The one rule for a document submitted with a registration, shared by the public form and the
+ * completion form (docs/ONSITE_DESK_PLAN.md §3.3). Kept only when the type asks for one and the path
+ * is our own upload for THIS event; anything else is dropped, not refused, since a malformed value can
+ * only come from a tampered request. Pure: the caller logs `dropped` and answers `missingRequired`.
+ */
+export function resolveSupportingDocument(
+  ticketType: SupportingDocumentPolicy | null | undefined,
+  eventId: string,
+  submittedUrl: string | null | undefined,
+  submittedFilename: string | null | undefined,
+): ResolvedSupportingDocument {
+  const needed = requiresSupportingDocument(ticketType);
+  let url: string | null = null;
+  let filename: string | null = null;
+  let dropped: ResolvedSupportingDocument["dropped"] = null;
+  if (needed && submittedUrl) {
+    // Shape AND ownership: the path's {eventId} segment must be this event, or an anonymous POST could
+    // point the registration at another event's file, which that event's staff would then open.
+    if (isSupportingDocumentPath(submittedUrl) && submittedUrl.startsWith(`${SUPPORTING_DOCUMENT_PATH_PREFIX}${eventId}/`)) {
+      url = submittedUrl;
+      filename = submittedFilename?.trim() || null;
+    } else {
+      dropped = "not-our-upload";
+    }
+  } else if (submittedUrl) {
+    dropped = "type-does-not-ask";
+  }
+  return { url, filename, dropped, missingRequired: needed && !url && supportingDocumentBlocks(ticketType) };
+}
