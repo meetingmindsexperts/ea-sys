@@ -13,7 +13,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { useApprovals, useDecideApproval, type ApprovalRequestRow } from "@/procurement/hooks/use-procurement-api";
+import { autoSendWarning, useApprovals, useDecideApproval, type ApprovalRequestRow } from "@/procurement/hooks/use-procurement-api";
 import { ErrorState, LoadingState, StatusBadge, fmtWhen, money2 } from "@/procurement/components/budget-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -125,7 +125,7 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
     try {
       const out = await decide.mutateAsync({ requestId: r.id, decision, note: note.trim() || null });
       if (out.autoSend?.requested && !out.autoSend.sent) {
-        toast.warning("Approved and the purchase order is issued, but the email to the supplier did not go. Use Send on the order.");
+        toast.warning(autoSendWarning(out.autoSend, "Approved and the purchase order is issued"));
         return;
       }
       if (decision === "APPROVED" && chain && chain.currentLevel < chain.levels.length) {

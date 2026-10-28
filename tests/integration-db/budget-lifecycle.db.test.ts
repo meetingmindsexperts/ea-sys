@@ -163,7 +163,8 @@ describe("a budget's lifecycle stays consistent end to end (P2)", () => {
   });
 
   it("left an audit trail with one row per transition, in order", async () => {
-    expect(await actions(v1)).toEqual(["CREATE", "UPDATE", "SUBMIT", "REJECT", "SUBMIT", "APPROVE"]);
+    // v1's trail ends where it was retired by v2's approval, not silently at its own APPROVE (review L6).
+    expect(await actions(v1)).toEqual(["CREATE", "UPDATE", "SUBMIT", "REJECT", "SUBMIT", "APPROVE", "ARCHIVE"]);
     expect(await actions(v2)).toEqual(["NEW_VERSION", "SUBMIT", "APPROVE", "FREEZE", "UNFREEZE", "CLOSE", "SIGN_OFF", "REOPEN"]);
     // Each submit opens a request and each decision closes it: three of each, paired in order.
     const decisions = await db.auditLog.findMany({ where: { entityType: "ApprovalRequest", organizationId: orgId }, orderBy: { createdAt: "asc" }, select: { action: true } });

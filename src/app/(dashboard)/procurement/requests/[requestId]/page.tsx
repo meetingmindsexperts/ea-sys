@@ -16,6 +16,7 @@ import { AED_PEG_RATES } from "@/procurement/lib/money";
 import { missingForSubmission } from "@/procurement/lib/spend-request-rules";
 import { orderReadiness } from "@/procurement/lib/commitment-rules";
 import {
+  autoSendWarning,
   useAddQuote,
   useAmendSpendRequest,
   useCancelOrder,
@@ -196,7 +197,7 @@ function RaiseOrderDialog({ r, onClose }: { r: SpendRequestDetailRow; onClose: (
     try {
       const out = await raise.mutateAsync();
       const c = out.commitment;
-      if (out.autoSend?.requested && !out.autoSend.sent) toast.warning(`Purchase order ${c.commitmentNo} issued, but the email to the supplier did not go. Use Send on the order.`);
+      if (out.autoSend?.requested && !out.autoSend.sent) toast.warning(autoSendWarning(out.autoSend, `Purchase order ${c.commitmentNo} issued`));
       else toast.success(`Purchase order ${c.commitmentNo} issued.${c.sentToSupplierAt ? " Sent to the supplier." : ""}`);
       onClose();
     } catch (err) {

@@ -948,7 +948,12 @@ export async function decideBudget(input: { organizationId: string; decider: Pro
       // archiving could deadlock.
       await lockEventCommitted(tx, input.organizationId, b.id);
       if (b.eventId) {
-        await tx.eventBudget.updateMany({ where: { eventId: b.eventId, status: { in: ["ACTIVE", "FROZEN"] }, id: { not: b.id } }, data: { status: "ARCHIVED", version: { increment: 1 } } });
+        const retiring = await tx.eventBudget.findMany({ where: { eventId: b.eventId, status: { in: ["ACTIVE", "FROZEN"] }, id: { not: b.id } }, select: { id: true, versionNo: true, status: true } });
+        await tx.eventBudget.updateMany({ where: { id: { in: retiring.map((r) => r.id) } }, data: { status: "ARCHIVED", version: { increment: 1 } } });
+        // Each retired version records why it left, so its own trail does not stop at APPROVE (review L6).
+        for (const r of retiring) {
+          await audit(tx, { userId: input.decider.id, organizationId: input.organizationId, action: "ARCHIVE", entityType: "EventBudget", entityId: r.id, changes: { source: input.source, fromStatus: r.status, supersededBy: b.id, supersededByVersionNo: b.versionNo } });
+        }
       }
       const res = await tx.eventBudget.updateMany({
         where: { id: b.id, status: "UNDER_REVIEW" },
@@ -1299,15 +1304,17 @@ export async function closeBudget(input: CloseBudgetInput): Promise<BudgetResult
   const event = b.eventId ? await db.event.findUnique({ where: { id: b.eventId }, select: { name: true, startDate: true, eventType: true } }) : null;
   try {
     await tenantTransaction(async (tx) => {
-      for (const l of lines) {
-        const note = notes[l.lineKey]?.trim();
-        if (note) await tx.budgetLine.update({ where: { id: l.id }, data: { varianceNote: note } });
-      }
+      // The budget row before the lines, the order every budget write keeps: with the notes written first,
+      // a close racing a line save or an order on the same line deadlocked (review of Oct 28, 2026, 13 of 120 rounds).
       const res = await tx.eventBudget.updateMany({
         where: { id: b.id, organizationId: input.organizationId, status: { in: ["ACTIVE", "FROZEN"] } },
         data: { status: "CLOSED", closedAt: new Date(), closedByUserId: input.actorUserId, recordedAttendance, closeOutSummary: summary, version: { increment: 1 } },
       });
       if (res.count === 0) throw new Error("STALE");
+      for (const l of lines) {
+        const note = notes[l.lineKey]?.trim();
+        if (note) await tx.budgetLine.update({ where: { id: l.id }, data: { varianceNote: note } });
+      }
       // The archive row every cross-event and benchmark report reads (spec §13a):
       // rewritten if the budget is reopened and closed again.
       await tx.eventFinancialSummary.upsert({

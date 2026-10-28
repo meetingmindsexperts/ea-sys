@@ -22,12 +22,15 @@ import * as products from "@/procurement/services/budget-product-service";
 import * as suppliers from "@/procurement/services/supplier-service";
 import * as requests from "@/procurement/services/spend-request-service";
 import * as orders from "@/procurement/services/commitment-service";
+import * as chains from "@/procurement/services/approval-chain-service";
+import * as realign from "@/procurement/services/category-realignment-service";
 import { resetCrm } from "./helper";
 
 interface A {
   orgId: string; userId: string; eventId: string; budgetId: string; lineId: string; lineKey: string; revenueLineId: string;
   templateId: string; templateLineId: string; categoryId: string; productId: string; supplierId: string;
   requestId: string; quoteId: string; commitmentId: string; approvalId: string;
+  reallocationApprovalId: string; secondUserId: string;
 }
 let a: A;
 let orgB: string;
@@ -37,7 +40,7 @@ let userB: string;
 async function snapshotA() {
   const org = { organizationId: a.orgId };
   const order = { id: "asc" as const };
-  const [b, l, r, t, tl, c, p, s, sr, q, co, ar, st, audit] = await Promise.all([
+  const [b, l, r, t, tl, c, p, s, sr, q, co, ar, st, audit, wf, fs, sp, cl, pr, src, cc] = await Promise.all([
     db.eventBudget.findMany({ where: org, orderBy: order }),
     db.budgetLine.findMany({ where: org, orderBy: order }),
     db.budgetRevenueLine.findMany({ where: org, orderBy: order }),
@@ -52,8 +55,15 @@ async function snapshotA() {
     db.approvalRequest.findMany({ where: org, orderBy: order }),
     db.approvalStep.findMany({ where: org, orderBy: order }),
     db.auditLog.count({ where: org }),
+    db.approvalWorkflowDefinition.findMany({ where: org, orderBy: order }),
+    db.eventFinancialSummary.findMany({ where: org, orderBy: order }),
+    db.supplierProduct.findMany({ where: org, orderBy: order }),
+    db.commitmentLine.findMany({ where: org, orderBy: order }),
+    db.paymentRecord.findMany({ where: org, orderBy: order }),
+    db.spendRequestCounter.findMany({ where: org }),
+    db.commitmentCounter.findMany({ where: org }),
   ]);
-  return JSON.stringify({ b, l, r, t, tl, c, p, s, sr, q, co, ar, st, audit });
+  return JSON.stringify({ b, l, r, t, tl, c, p, s, sr, q, co, ar, st, audit, wf, fs, sp, cl, pr, src, cc });
 }
 
 beforeAll(async () => {
@@ -76,10 +86,18 @@ beforeAll(async () => {
   const commitment = await db.commitment.create({ data: { organizationId: orgId, commitmentNo: "PO-A-0001", budgetId: created.budget.id, lineKey: "k-av", supplierId: supplier.id, eventCode: "ACON26", currency: "AED", amount: "900", fxRateToReporting: "1", status: "APPROVED" }, select: { id: true } });
   const approval = await db.approvalRequest.create({ data: { organizationId: orgId, subjectType: "SPEND_REQUEST", subjectId: request.id, amountAed: "900", requesterUserId: userId, status: "PENDING" }, select: { id: true } });
   await db.approvalStep.create({ data: { organizationId: orgId, requestId: approval.id, sequence: 1, assigneeUserId: userId, dueAt: new Date("2026-12-01") } });
+  // A second person of A's, so an approval chain naming two of A's people is refused for whose they are, not for its length.
+  const second = await db.user.create({ data: { organizationId: orgId, email: `a2-${Date.now()}@test.local`, passwordHash: "x", firstName: "Al", lastName: "Two", role: "ADMIN", procurementApproveUnlimited: true }, select: { id: true } });
+  // So the reallocation decide and the supplier conversion are refused for the organisation, not for having
+  // nothing of the right kind to find (review L3): a pending reallocation, and a request waiting on the supplier.
+  const reallocation = await db.approvalRequest.create({ data: { organizationId: orgId, subjectType: "BUDGET_REALLOCATION", subjectId: created.budget.id, amountAed: "100", requesterUserId: userId, status: "PENDING", payload: { fromLineKey: "k-av", toLineKey: "k-av", amount: "100" } }, select: { id: true } });
+  await db.approvalStep.create({ data: { organizationId: orgId, requestId: reallocation.id, sequence: 1, assigneeUserId: userId, dueAt: new Date("2026-12-01") } });
+  await db.spendRequest.create({ data: { organizationId: orgId, requestNo: "PR-A-0002", eventCode: "ACON26", requesterUserId: userId, title: "Staging", currency: "AED", budgetId: created.budget.id, lineKey: "k-av", amount: "50", status: "AWAITING_SUPPLIER", supplierId: supplier.id } });
   a = {
     orgId, userId, eventId: event.id, budgetId: created.budget.id, lineId: line.id, lineKey: line.lineKey, revenueLineId: revenueLine.id,
     templateId: template.id, templateLineId: templateLine.id, categoryId, productId: product.id, supplierId: supplier.id,
     requestId: request.id, quoteId: quote.id, commitmentId: commitment.id, approvalId: approval.id,
+    reallocationApprovalId: reallocation.id, secondUserId: second.id,
   };
 
   const b = await db.organization.create({ data: { name: "B org", slug: `b-org-${Date.now()}`, companyName: "B Co" }, select: { id: true } });
@@ -106,7 +124,7 @@ function attacks() {
     decideBudget: call(() => budgets.decideBudget({ organizationId: orgB, decider: decider as never, source: ui, budgetId: a.budgetId, decision: "APPROVED" })),
     newBudgetVersion: call(() => budgets.newBudgetVersion({ ...base, budgetId: a.budgetId })),
     reallocateBudget: call(() => budgets.reallocateBudget({ ...base, actor: decider as never, budgetId: a.budgetId, fromLineKey: a.lineKey, toLineKey: a.lineKey, amount: 1, reason: "x" })),
-    decideReallocation: call(() => budgets.decideReallocation({ organizationId: orgB, decider: decider as never, source: ui, requestId: a.approvalId, decision: "APPROVED" })),
+    decideReallocation: call(() => budgets.decideReallocation({ organizationId: orgB, decider: decider as never, source: ui, requestId: a.reallocationApprovalId, decision: "APPROVED" })),
     freezeBudget: call(() => budgets.freezeBudget({ ...base, budgetId: a.budgetId })),
     unfreezeBudget: call(() => budgets.unfreezeBudget({ ...base, budgetId: a.budgetId, reason: "x" })),
     closeBudget: call(() => budgets.closeBudget({ ...base, budgetId: a.budgetId })),
@@ -137,6 +155,10 @@ function attacks() {
     confirmReceipt: call(() => orders.confirmReceipt({ organizationId: orgB, actor: orderActor, source: ui, commitmentId: a.commitmentId, expectedVersion: 0 })),
     undoReceipt: call(() => orders.undoReceipt({ organizationId: orgB, actor: orderActor, source: ui, commitmentId: a.commitmentId, expectedVersion: 0 })),
     cancelOrder: call(() => orders.cancelOrder({ organizationId: orgB, actor: orderActor, source: ui, commitmentId: a.commitmentId, reason: "x", expectedVersion: 0 } as never)),
+    // Writes in B's own organisation that point at A's rows (review L4).
+    createBudgetCategory: call(() => categories.createBudgetCategory({ organizationId: orgB, actorUserId: userB, code: "B.SUB", name: "Under A's parent", parentId: a.categoryId } as never)),
+    createBudgetProduct: call(() => products.createBudgetProduct({ organizationId: orgB, actorUserId: userB, sku: "B-1", name: "In A's category", categoryId: a.categoryId } as never)),
+    saveApprovalChain: call(() => chains.saveApprovalChain({ organizationId: orgB, actorUserId: userB, kind: "SPEND_REQUEST", config: { levels: [a.userId, a.secondUserId], standInUserId: null } })),
     convertRequestsAwaitingSupplier: call(() => orders.convertRequestsAwaitingSupplier({ organizationId: orgB, supplierId: a.supplierId, actorUserId: userB, source: ui })),
   };
 }
@@ -170,11 +192,12 @@ describe("procurement writes refuse another organisation's ids (P1-4)", () => {
 
   it("covers every exported write that takes an id", () => {
     // A new write function must join the list above or be named here as not taking an id.
+    // Writes that take no id from the caller, or run inside one of the services above (their ids come from it).
     const noId = new Set([
-      "claimBudgetForWrite", "createBudgetCategory", "createBudgetProduct", "importBudgetProducts", "createBudgetTemplate",
-      "realignBudgetCategories", "proposeSupplier", "importSuppliers", "saveApprovalChain", "issueOrderInTx", "afterOrderIssued",
+      "claimBudgetForWrite", "importBudgetProducts", "createBudgetTemplate",
+      "realignBudgetCategories", "proposeSupplier", "importSuppliers", "issueOrderInTx", "afterOrderIssued",
       "renderOrderPdf", "supplierContactEmails", "rerouteAfterOrderCancelInTx", "deriveSupplierCode", "withIdSuffix", "redactSupplier",    ]);
-    const modules = { budgets, revenue, templates, categories, products, suppliers, requests, orders };
+    const modules = { budgets, revenue, templates, categories, products, suppliers, requests, orders, chains, realign };
     const writes = Object.values(modules).flatMap((m) => Object.entries(m))
       .filter(([k, v]) => typeof v === "function" && /^(create|update|upsert|delete|submit|decide|new|reallocate|freeze|unfreeze|close|sign|reopen|discard|archive|redact|amend|transition|add|remove|set|raise|send|receive|confirm|undo|cancel|convert|import|propose|save|realign)/.test(k))
       .map(([k]) => k);

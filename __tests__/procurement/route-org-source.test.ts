@@ -21,6 +21,18 @@ function routeFiles(dir: string): string[] {
 
 const writeRoutes = routeFiles(ROOT).filter((f) => /export async function (POST|PUT|PATCH|DELETE)\b/.test(readFileSync(f, "utf8")));
 
+describe("no request schema can carry the session's fields (review L5)", () => {
+  // About twenty routes build { organizationId: g.orgId, ..., ...parsed.data }: a key in parsed.data would
+  // override the session's. Zod drops unknown keys, so this holds while no schema names those fields or
+  // lets unknown keys through.
+  const files = ["src/procurement/lib/budget-schemas.ts", ...writeRoutes];
+  it.each(files)("%s declares no organisation, actor or decider field and no loose object", (file) => {
+    const src = readFileSync(file, "utf8");
+    expect(src).not.toMatch(/\b(organizationId|orgId|decider|actor|actorUserId|copyRevenue)\s*:\s*z\./);
+    expect(src).not.toMatch(/\.passthrough\(|looseObject\(|\.catchall\(/);
+  });
+});
+
 describe("procurement write routes take the organisation from the session", () => {
   it("finds the write routes", () => {
     expect(writeRoutes.length).toBeGreaterThan(30);

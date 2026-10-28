@@ -341,10 +341,11 @@ export async function afterOrderIssued(input: { organizationId: string; actorUse
     const c = await loadCommitment(db, input.organizationId, input.commitmentId);
     if (!c?.spendRequest?.emailSupplierOnIssue) return { requested: false };
     const sent = await sendOrderToSupplier({ organizationId: input.organizationId, actor: { id: input.actorUserId, isAdmin: true, canRequest: false, canSettle: false, canApprove: false }, source: input.source, commitmentId: input.commitmentId });
-    // The email went; only its record failed. Reported as sent so no one is prompted to send it again (review M2).
+    // The email went and nothing could record it, so the order card still offers Send. The code travels to
+    // the page, which says not to send again, rather than reading as either "sent" or "not sent" (review L2).
     if (!sent.ok && sent.code === "SENT_NOT_RECORDED") {
-      apiLogger.warn({ msg: "procurement/commitments:auto-sent-not-recorded", commitmentId: input.commitmentId, organizationId: input.organizationId });
-      return { requested: true, sent: true };
+      apiLogger.error({ msg: "procurement/commitments:auto-sent-not-recorded", commitmentId: input.commitmentId, organizationId: input.organizationId });
+      return { requested: true, sent: false, code: "SENT_NOT_RECORDED" };
     }
     if (!sent.ok) {
       apiLogger.warn({ msg: "procurement/commitments:auto-send-skipped", code: sent.code, commitmentId: input.commitmentId, organizationId: input.organizationId });

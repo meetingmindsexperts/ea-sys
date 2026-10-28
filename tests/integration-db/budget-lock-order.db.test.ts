@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { upsertBudgetLine, recomputeBudgetTotals } from "@/procurement/services/budget-service";
+import { closeBudget, reopenBudget, upsertBudgetLine, recomputeBudgetTotals } from "@/procurement/services/budget-service";
 import { syncLineCommitted } from "@/procurement/services/committed-figures";
 import { resetCrm } from "./helper";
 
@@ -58,5 +58,25 @@ describe("a line save and an order on the same line never deadlock", () => {
     expect(errors, "no transaction failed (a 40P01 deadlock would show here)").toEqual([]);
     const line = await db.budgetLine.findUniqueOrThrow({ where: { id: lineId }, select: { committedOpen: true } });
     expect(line.committedOpen.toFixed(4)).toBe((50 * 100).toFixed(4));
+  });
+
+  it("runs 20 rounds of a close (with variance notes) racing a line save, with no deadlock", async () => {
+    // The close wrote its notes before the budget row: line then budget, the reverse of the claim (review MED).
+    const lineKey = (await db.budgetLine.findUniqueOrThrow({ where: { id: lineId }, select: { lineKey: true } })).lineKey;
+    const failures: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const [closed, saved] = await Promise.all([
+        runWithTenant(orgId, () => closeBudget({ organizationId: orgId, actorUserId: userId, source: "ui", budgetId, varianceNotes: { [lineKey]: `round ${i}` } })),
+        new Promise((r) => setTimeout(r, Math.random() * 40)).then(() => runWithTenant(orgId, () => upsertBudgetLine({ organizationId: orgId, actorUserId: userId, source: "ui", budgetId, lineId, notes: `save ${i}` }))),
+      ]);
+      // Either may lose the race politely (STALE_WRITE, or the save meeting a closed budget); neither may fail.
+      for (const r of [closed, saved]) if (!r.ok && !["STALE_WRITE", "INVALID_STATUS", "VARIANCE_NOTES_REQUIRED"].includes(r.code)) failures.push(`round ${i}: ${r.code}`);
+      const status = (await db.eventBudget.findUniqueOrThrow({ where: { id: budgetId }, select: { status: true } })).status;
+      if (status === "CLOSED") {
+        const reopened = await runWithTenant(orgId, () => reopenBudget({ organizationId: orgId, actorUserId: userId, source: "ui", budgetId, reason: "next round" }));
+        if (!reopened.ok) failures.push(`round ${i}: reopen ${reopened.code}`);
+      }
+    }
+    expect(failures, "no UNKNOWN (a 40P01 deadlock surfaces as UNKNOWN)").toEqual([]);
   });
 });

@@ -1009,6 +1009,12 @@ export function useCommitments(filter: { status?: CommitmentStatusValue; budgetI
 /** Every order mutation refreshes the request it belongs to, the lists, and the budget whose line it moved. */
 /** What became of the automatic supplier email an order was issued with. */
 export type AutoSendRow = { requested: false } | { requested: true; sent: true } | { requested: true; sent: false; code: string };
+
+/** The toast after an order was issued but its automatic email did not end as sent. SENT_NOT_RECORDED means it did go. */
+export function autoSendWarning(row: { code: string }, lead: string): string {
+  if (row.code === "SENT_NOT_RECORDED") return `${lead}. It was emailed to the supplier, but recording the send failed: do not send it again, and tell an admin.`;
+  return `${lead}, but the email to the supplier did not go. Use Send on the order.`;
+}
 /** Where a cancelled order's request went: back to its approver, or to draft when nobody can take it. */
 export type RerouteRow = { status: "PENDING_APPROVAL"; approvalRequestId: string; exception: boolean } | { status: "DRAFT"; reason: string } | { status: "UNCHANGED" };
 
