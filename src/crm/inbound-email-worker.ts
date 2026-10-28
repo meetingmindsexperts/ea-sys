@@ -160,33 +160,60 @@ export function failedVerdict(parsed: ParsedMail): string | null {
 }
 
 /** Microsoft's spam filter verdicts (SFV) and categories (CAT) that mean junk. */
-const MS_JUNK_SFV = new Set(["SPM", "SKS", "BLK"]);
-const MS_JUNK_CAT = new Set(["SPM", "HSPM", "OSPM", "PHSH", "HPHSH", "SPOOF", "GIMP", "MALW", "UIMP", "DIMP"]);
+const MS_JUNK_SFV = new Set(["SPM", "SKS", "SKB", "BLK"]);
+const MS_JUNK_CAT = new Set([
+  "SPM", "HSPM", "OSPM", "PHSH", "HPHSH", "HPHISH", "INTOS", "SPOOF", "GIMP", "UIMP", "DIMP", "MALW", "AMP", "SAP",
+]);
+/**
+ * Verdicts where a person overrode the filter: an allow-listed sender or
+ * domain (SKA), a mail-flow rule (SKN), the organisation's own mail (SKI), an
+ * admin release from quarantine (SKQ), the recipient's safe senders (SFE).
+ * Microsoft delivered it, so the CRM files it too (review, Oct 28, 2026).
+ */
+const MS_OVERRIDE_SFV = new Set(["SKA", "SKN", "SKI", "SKQ", "SFE"]);
+/** Malware and high-confidence phish: no allow-list makes these safe. */
+const MS_NEVER_OVERRIDDEN_CAT = new Set(["MALW", "AMP", "SAP", "HPHSH", "HPHISH"]);
+
+type ForefrontReport = { sfv: string; cat: string; scl: number };
+
+function forefrontReport(report: string): ForefrontReport {
+  const fields = new Map<string, string>();
+  for (const part of report.split(";")) {
+    const i = part.indexOf(":");
+    if (i > 0) fields.set(part.slice(0, i).trim().toUpperCase(), part.slice(i + 1).trim().toUpperCase());
+  }
+  return {
+    sfv: fields.get("SFV") ?? "",
+    cat: fields.get("CAT") ?? "",
+    scl: Number.parseInt(fields.get("SCL") ?? "", 10),
+  };
+}
+
+function junkReason({ sfv, cat, scl }: ForefrontReport): string | null {
+  if (MS_NEVER_OVERRIDDEN_CAT.has(cat)) return `microsoft-cat:${cat}`;
+  if (MS_OVERRIDE_SFV.has(sfv)) return null;
+  if (MS_JUNK_SFV.has(sfv)) return `microsoft-sfv:${sfv}`;
+  if (MS_JUNK_CAT.has(cat)) return `microsoft-cat:${cat}`;
+  if (scl >= 5) return `microsoft-scl:${scl}`;
+  return null;
+}
 
 /**
- * Microsoft 365's own junk verdict on a captured copy (Oct 28, 2026). The
- * mail-flow rule copies EVERY message, the junk too, and SES's verdict on the
- * copy is PASS because Microsoft relayed it. Microsoft's verdict travels in
- * X-Forefront-Antispam-Report ("SFV:SPM; SCL:5; CAT:OSPM").
+ * Microsoft 365's own junk verdict on a copy it relayed (Oct 28, 2026). The
+ * partnerships mail-flow rule copies EVERY message, the junk too, and SES's
+ * verdict on the copy is PASS because Microsoft relayed it. Microsoft's verdict
+ * travels in X-Forefront-Antispam-Report ("SFV:SPM; SCL:5; CAT:OSPM").
  *
- * Any instance counts, top or not: this check only ever REFUSES mail, so a
- * sender who writes the header themselves can only make their mail junkier.
- * Returns the reason, or null when Microsoft called it clean.
+ * Any instance that calls it junk counts: this check only ever REFUSES mail,
+ * so a sender who writes the header themselves can only make their mail
+ * junkier. Mail Microsoft delivered past an allow-list or a quarantine release
+ * is filed, except malware and high-confidence phish.
+ * Returns the reason, or null when Microsoft called it clean (or never saw it).
  */
 export function microsoftJunkVerdict(parsed: ParsedMail): string | null {
   for (const report of headerInstances(parsed, "x-forefront-antispam-report")) {
-    const fields = new Map(
-      report.split(";").map((part) => {
-        const i = part.indexOf(":");
-        return [part.slice(0, i).trim().toUpperCase(), part.slice(i + 1).trim().toUpperCase()] as const;
-      }),
-    );
-    const sfv = fields.get("SFV") ?? "";
-    const cat = fields.get("CAT") ?? "";
-    const scl = Number.parseInt(fields.get("SCL") ?? "", 10);
-    if (MS_JUNK_SFV.has(sfv)) return `microsoft-sfv:${sfv}`;
-    if (MS_JUNK_CAT.has(cat)) return `microsoft-cat:${cat}`;
-    if (scl >= 5) return `microsoft-scl:${scl}`;
+    const reason = junkReason(forefrontReport(report));
+    if (reason) return reason;
   }
   return null;
 }
@@ -476,7 +503,9 @@ async function processObject(
   const raw = Buffer.from(await obj.Body!.transformToByteArray());
   const parsed = await simpleParser(raw);
 
-  const verdict = failedVerdict(parsed);
+  // Microsoft's verdict too: a copy Microsoft 365 relayed carries it, and a
+  // reply-token address in its To/Cc must not route junk around the check.
+  const verdict = failedVerdict(parsed) ?? microsoftJunkVerdict(parsed);
   if (verdict) {
     await moveObject(bucket, key, `quarantine/${basename}`);
     apiLogger.warn({ msg: "crm-inbound:quarantined", key, verdict });
@@ -693,13 +722,11 @@ async function processCapture(args: {
   };
   if (!organizationId || !captureAddress || !mailbox) return unmatched("no-token-capture-off");
   if (!viaCaptureRule(parsed, captureAddress)) return unmatched("capture-not-via-mailbox-rule");
-
-  // Junk in partnerships@ stays junk: no contact, no thread, no bell.
-  const junk = microsoftJunkVerdict(parsed);
-  if (junk) {
-    await moveObject(bucket, key, `quarantine/${basename}`);
-    apiLogger.warn({ msg: "crm-capture:quarantined-microsoft-junk", key, verdict: junk });
-    return "quarantined";
+  // Junk never gets here (quarantined with the SES verdicts in processObject).
+  // A copy with no Microsoft report at all means the rule or the pipeline
+  // changed: say so, since the junk check then saw nothing.
+  if (!headerInstances(parsed, "x-forefront-antispam-report").length) {
+    apiLogger.warn({ msg: "crm-capture:no-microsoft-verdict", key });
   }
 
   // A wrong CRM_CAPTURE_ORG_ID would fail every object forever (FK error,

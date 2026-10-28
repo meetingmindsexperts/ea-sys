@@ -368,6 +368,29 @@ describe("microsoftJunkVerdict", () => {
     expect(microsoftJunkVerdict(parsed())).toBeNull();
   });
 
+  it("knows the blocked-sender, intra-org phish and malware values", () => {
+    expect(microsoftJunkVerdict(parsed("SFV:SKB;SCL:1"))).toBe("microsoft-sfv:SKB");
+    expect(microsoftJunkVerdict(parsed("SFV:BLK"))).toBe("microsoft-sfv:BLK");
+    expect(microsoftJunkVerdict(parsed("SFV:SKS;SCL:1"))).toBe("microsoft-sfv:SKS");
+    expect(microsoftJunkVerdict(parsed("SFV:NSPM;CAT:INTOS"))).toBe("microsoft-cat:INTOS");
+  });
+
+  it("files mail a person let through: allow-list, safe sender, quarantine release (review MEDIUM)", () => {
+    expect(microsoftJunkVerdict(parsed("SFV:SKA;CAT:SPOOF;SCL:5"))).toBeNull();
+    expect(microsoftJunkVerdict(parsed("SFV:SFE;CAT:GIMP"))).toBeNull();
+    expect(microsoftJunkVerdict(parsed("SFV:SKQ;SCL:6;CAT:SPM"))).toBeNull();
+  });
+
+  it("but malware and high-confidence phish are never let through", () => {
+    expect(microsoftJunkVerdict(parsed("SFV:SKA;CAT:MALW"))).toBe("microsoft-cat:MALW");
+    expect(microsoftJunkVerdict(parsed("SFV:SKQ;CAT:HPHISH"))).toBe("microsoft-cat:HPHISH");
+  });
+
+  it("ignores case, spacing and fields with no colon", () => {
+    expect(microsoftJunkVerdict(parsed(" sfv : spm ; scl: 5"))).toBe("microsoft-sfv:SPM");
+    expect(microsoftJunkVerdict(parsed("garbage;SFV:NSPM;SCL:abc;"))).toBeNull();
+  });
+
   it("a sender-added clean report cannot hide Microsoft's junk one", () => {
     expect(microsoftJunkVerdict(parsed("SCL:1;SFV:NSPM", "SCL:5;SFV:SPM"))).toBe("microsoft-sfv:SPM");
   });

@@ -217,7 +217,9 @@ re-read `.env`; it must be `deploy.sh`.
 
 ## Operational notes
 
-- `quarantine/` holds SES spam/virus FAILs (never filed, never notified);
+- `quarantine/` holds SES spam/virus FAILs and mail Microsoft 365 called junk
+  (never filed, never notified; nothing moves it back, so a wrongly
+  quarantined email is read from the bucket by hand);
   `unmatched/` holds mail with no resolvable/active thread token (revoked or
   expired tokens land here too). Both auto-expire at 90 days.
 - Anti-spoofing (review H1): an inbound whose From doesn't verify against the
@@ -262,6 +264,13 @@ capture copy and the reply-code copy) is filed once, by Message-ID.
 - Only SES's own headers are believed: the first `Authentication-Results`
   (signed `amazonses.com`) and the first spam/virus verdicts. A sender can add
   copies of those headers; they are ignored.
+- Microsoft's own junk verdict is honoured (Oct 28, 2026). The rule copies the
+  junk too, and SES passes the copy because Microsoft relayed it, so the worker
+  reads `X-Forefront-Antispam-Report`: spam, phish, spoofing, blocked senders
+  and SCL 5 or more go to `quarantine/` before any contact or thread is made.
+  Mail a person let through (allow-list, safe senders, quarantine release) is
+  filed, except malware and high-confidence phish. A copy with no report logs
+  `crm-capture:no-microsoft-verdict`.
 - Mail *from* partnerships@ is filed only with SES's `dmarc=pass`. An inbound
   message is marked verified only with it (a sponsor domain without DKIM may
   therefore show "Unverified sender"; that is the safe side).

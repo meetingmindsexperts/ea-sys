@@ -242,6 +242,17 @@ describe("partnerships capture", () => {
     expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
   });
 
+  it("quarantines junk even when a reply-token address rides in its Cc", async () => {
+    mockS3({
+      "inbound/scam-token": rawEmail({
+        to: `${MAILBOX}, abcdef0123456789abcd@reply.meetingmindsexperts.com`,
+        extra: ["X-Forefront-Antispam-Report: SCL:9;SFV:SPM;", " CAT:HSPM"],
+      }),
+    });
+    expect(await runTick()).toMatchObject({ quarantined: 1, stored: 0 });
+    expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
+  });
+
   it("files mail Microsoft called clean", async () => {
     mockS3({ "inbound/clean": rawEmail({ extra: ["X-Forefront-Antispam-Report: CIP:1.2.3.4;SCL:1;SFV:NSPM;CAT:NONE;DIR:INB"] }) });
     expect(await runTick()).toMatchObject({ stored: 1 });
