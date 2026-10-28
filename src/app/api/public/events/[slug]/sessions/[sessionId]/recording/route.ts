@@ -6,6 +6,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
+import { webinarRecordingShown } from "@/lib/webinar";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -52,11 +53,19 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, eventType: true, settings: true },
     });
     if (!event) {
       apiLogger.warn({ slug, sessionId, userId: authSession.user.id }, "session-recording:event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+    // A webinar's recording reaches attendees only once the organiser switches it on (Oct 28, 2026).
+    if (event.eventType === "WEBINAR" && !webinarRecordingShown(event.settings)) {
+      apiLogger.warn({ sessionId, eventId: event.id, userId: authSession.user.id }, "session-recording:hidden-by-organiser");
+      return NextResponse.json(
+        { error: "No recording is available for this session", code: "RECORDING_NOT_AVAILABLE" },
+        { status: 404 },
+      );
     }
 
     return await runWithTenant(event.organizationId, async () => {

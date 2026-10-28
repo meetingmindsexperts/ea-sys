@@ -2569,6 +2569,7 @@ export interface WebinarConsoleData {
     thankYouSurveyLink?: boolean;
     qaUpvote?: boolean;
     livePolls?: boolean;
+    showRecording?: boolean;
     handouts?: WebinarHandout[];
   };
   anchorSession: {

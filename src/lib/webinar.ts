@@ -107,6 +107,11 @@ export interface WebinarSettings {
    *  the console's Polls tab. Off unless turned on; while off nothing reaches
    *  attendees and no poll can be launched. */
   livePolls?: boolean;
+  /** Whether the attendee page offers the Zoom recording once it is fetched
+   *  (Oct 28, 2026): the organiser's switch on the console's Recording card.
+   *  Off unless turned on; while off the page shows no replay and the
+   *  recording route refuses the link. */
+  showRecording?: boolean;
   /** Files for attendees, in display order (Oct 6, 2026); see
    *  src/lib/webinar/handouts.ts. Written only by the handouts routes. */
   handouts?: import("./webinar/handouts").WebinarHandout[];
@@ -125,6 +130,11 @@ export function readWebinarSettings(
   const w = (settings as Record<string, unknown>).webinar;
   if (!w || typeof w !== "object") return null;
   return w as WebinarSettings;
+}
+
+/** Whether a webinar's attendee page may offer the recording (unset means no). */
+export function webinarRecordingShown(settings: unknown): boolean {
+  return readWebinarSettings(settings)?.showRecording === true;
 }
 
 export interface WebinarPageBranding {

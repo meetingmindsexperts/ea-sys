@@ -6,7 +6,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isBreakSessionType } from "@/lib/session-enums";
-import { readWebinarPageBranding, readWebinarSettings } from "@/lib/webinar";
+import { readWebinarPageBranding, readWebinarSettings, webinarRecordingShown } from "@/lib/webinar";
 import { getSponsorTiers, getSponsors } from "@/lib/sponsors";
 import { BUILT_IN_SPONSOR_TIER_KEYS, sponsorTierLabel } from "@/lib/sponsor-tiers";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
@@ -242,7 +242,12 @@ export async function GET(req: Request, { params }: RouteParams) {
         capacity: session.capacity,
         status: session.status,
         track: session.track,
-        zoomMeeting: session.zoomMeeting,
+        // A webinar offers its recording only once the organiser switches it on (Oct 28, 2026). Until then
+        // the page is told nothing about it, so it shows neither a replay nor a "processing" note.
+        zoomMeeting:
+          session.zoomMeeting && event.eventType === "WEBINAR" && !webinarRecordingShown(event.settings)
+            ? { ...session.zoomMeeting, recordingStatus: null }
+            : session.zoomMeeting,
         speakers: session.speakers.map((s) => ({
           ...s.speaker,
           role: s.role,

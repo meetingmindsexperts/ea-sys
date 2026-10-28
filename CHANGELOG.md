@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinars: the organiser decides when attendees see the recording (October 28)
+
+- **Webinar Console, Analytics, Recording card**: a "Show the recording to attendees" switch, **off by default**. While off, the webinar page shows no "Recording available" card and no "processing" note, and the replay link route refuses with 404 even for a registered attendee. Stored as `settings.webinar.showRecording`. Conference session pages are unchanged (owner: webinars only). The thank-you email still carries the recording when the organiser sends it.
+
+### Speakers: Invited speakers means the organisers' own faculty (October 27)
+
+- A speaker who signed up through the public abstract or proposal door and has submitted nothing now sits on the tab of that door, not on Invited; organiser-added speakers, and sign-ups the organisers put on the programme (a session role or a topic), stay invited. On MEHF 2027 Invited went from 68 to 30. `Speaker.submitterSource` now reaches only callers who read both abstracts and proposals, and the speaker PUT returns its row through `withVisibleSubmissions`.
+
 ### Speakers: Session proposers tab; registrations export: badge printed date (October 27)
 
 - **Speakers**: a Session proposers tab, shown only when the event has any: speakers with a submitted session proposal and no submitted abstract. These are the people who signed up to propose and so have no complimentary registration unless the organiser grants one (the Aug 5 ruling). Each speaker sits in exactly one group: abstract submitter, else session proposer, else invited; drafts and withdrawn ones count for neither.

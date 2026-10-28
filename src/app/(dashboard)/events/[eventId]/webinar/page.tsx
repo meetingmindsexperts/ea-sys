@@ -462,6 +462,7 @@ export default function WebinarConsolePage() {
             eventId={eventId}
             zoom={data?.zoomMeeting ?? null}
             sessionEnded={status === "ended"}
+            shown={data?.webinar?.showRecording === true}
           />
           <AttendanceCard
             eventId={eventId}
@@ -1312,6 +1313,7 @@ function RecordingCard({
   eventId,
   zoom,
   sessionEnded,
+  shown,
 }: {
   eventId: string;
   zoom:
@@ -1324,9 +1326,23 @@ function RecordingCard({
       }
     | null;
   sessionEnded: boolean;
+  /** Whether the attendee page offers the recording (off unless turned on, Oct 28, 2026). */
+  shown: boolean;
 }) {
   const eventTz = useEventTz();
   const fetchRecording = useFetchWebinarRecording(eventId);
+  const updateSettings = useUpdateWebinarSettings(eventId);
+  // A settings write: shown only to producers, so a read-only viewer never flips it into a 403.
+  const canManage = useCan("webinar.manage", eventId) === "allowed";
+
+  const toggleShown = async (next: boolean) => {
+    try {
+      await updateSettings.mutateAsync({ showRecording: next });
+      toast.success(next ? "Attendees can now watch the recording" : "Recording hidden from attendees");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not change the recording setting");
+    }
+  };
 
   const handleFetch = async () => {
     try {
@@ -1390,6 +1406,23 @@ function RecordingCard({
         </div>
       </CardHeader>
       <CardContent>
+        {canManage && zoom ? (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+            <label htmlFor="show-recording" className="space-y-0.5">
+              <span className="block text-sm font-medium">Show the recording to attendees</span>
+              <span className="block text-xs text-muted-foreground">
+                Off by default. When on, registered attendees see &quot;Recording available&quot; and a Watch Replay
+                button on the webinar page once the recording is fetched.
+              </span>
+            </label>
+            <Switch
+              id="show-recording"
+              checked={shown}
+              disabled={updateSettings.isPending}
+              onCheckedChange={(next) => void toggleShown(next)}
+            />
+          </div>
+        ) : null}
         {!zoom ? (
           <CardEmpty message="No Zoom webinar attached yet." />
         ) : null}

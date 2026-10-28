@@ -166,7 +166,9 @@ interface SessionDetail {
       | "PENDING"
       | "AVAILABLE"
       | "FAILED"
-      | "EXPIRED";
+      | "EXPIRED"
+      // A webinar whose organiser has not switched the recording on (Oct 28, 2026).
+      | null;
   } | null;
 }
 

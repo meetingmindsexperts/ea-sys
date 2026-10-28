@@ -61,6 +61,8 @@ vi.mock("@/lib/webinar", () => ({
   // Real-shaped: the detail route's webinar anchor redirect reads this.
   readWebinarSettings: (settings: unknown) =>
     (settings as { webinar?: unknown } | null)?.webinar ?? null,
+  webinarRecordingShown: (settings: unknown) =>
+    (settings as { webinar?: { showRecording?: boolean } } | null)?.webinar?.showRecording === true,
   readWebinarPageBranding: (settings: unknown) => {
     const w = ((settings as { webinar?: Record<string, string> } | null)?.webinar ?? {}) as Record<string, string>;
     return { logoUrl: w.pageLogoUrl ?? null, backgroundUrl: w.pageBackgroundUrl ?? null, footerImageUrl: w.pageFooterImageUrl ?? null };
@@ -69,6 +71,7 @@ vi.mock("@/lib/webinar", () => ({
 
 import { GET as SESSIONS_GET } from "@/app/api/events/[eventId]/sessions/route";
 import { GET as DETAIL_GET } from "@/app/api/public/events/[slug]/sessions/[sessionId]/detail/route";
+import { GET as RECORDING_GET } from "@/app/api/public/events/[slug]/sessions/[sessionId]/recording/route";
 
 const ZOOM_ROW = {
   id: "z1",
@@ -130,7 +133,7 @@ describe("B2 — public session detail must not leak recording credentials or DR
     mockAuth.mockResolvedValue(null); // anonymous
     mockDb.event.findFirst.mockResolvedValue({
       id: "ev1", name: "Ev", slug: "ev", status: "PUBLISHED", eventType: "WEBINAR",
-      bannerImage: null, timezone: "Asia/Dubai", settings: {}, organizationId: "org1",
+      bannerImage: null, timezone: "Asia/Dubai", settings: { webinar: { showRecording: true } }, organizationId: "org1",
       organization: { name: "Org" },
     });
     mockDb.eventSession.findFirst.mockResolvedValue({
@@ -305,5 +308,55 @@ describe("webinar anchor auto-heal — non-anchor session URLs redirect (Aug 4, 
     const res = await DETAIL_GET(req(), detailParams);
     expect(res.status).toBe(200);
     expect((await res.json()).redirectToSessionId).toBeUndefined();
+  });
+});
+
+describe("webinar recording on the attendee page: the organiser's switch, off by default (Oct 28, 2026)", () => {
+  const params = { params: Promise.resolve({ slug: "ev", sessionId: "s1" }) };
+  const event = (eventType: string, settings: unknown) => ({
+    id: "ev1", name: "Ev", slug: "ev", status: "PUBLISHED", eventType,
+    bannerImage: null, timezone: "Asia/Dubai", settings, organizationId: "org1", organization: { name: "Org" },
+  });
+  const sessionRow = {
+    id: "s1", name: "Keynote", description: null, startTime: new Date(0), endTime: new Date(0),
+    location: null, capacity: null, status: "COMPLETED", track: null, speakers: [], topics: [],
+    zoomMeeting: { recordingStatus: "AVAILABLE" },
+  };
+
+  beforeEach(() => {
+    mockAuth.mockResolvedValue(null);
+    mockDb.eventSession.findFirst.mockResolvedValue(sessionRow);
+  });
+
+  it("the detail tells the page nothing about the recording until the switch is on", async () => {
+    mockDb.event.findFirst.mockResolvedValue(event("WEBINAR", {}));
+    expect((await (await DETAIL_GET(req(), params)).json()).session.zoomMeeting).toEqual({ recordingStatus: null });
+    mockDb.event.findFirst.mockResolvedValue(event("WEBINAR", { webinar: { showRecording: false } }));
+    expect((await (await DETAIL_GET(req(), params)).json()).session.zoomMeeting).toEqual({ recordingStatus: null });
+    mockDb.event.findFirst.mockResolvedValue(event("WEBINAR", { webinar: { showRecording: true } }));
+    expect((await (await DETAIL_GET(req(), params)).json()).session.zoomMeeting).toEqual({ recordingStatus: "AVAILABLE" });
+  });
+
+  it("conference sessions keep showing their recording as before (webinars only, owner)", async () => {
+    mockDb.event.findFirst.mockResolvedValue(event("CONFERENCE", {}));
+    expect((await (await DETAIL_GET(req(), params)).json()).session.zoomMeeting).toEqual({ recordingStatus: "AVAILABLE" });
+  });
+
+  it("the recording route refuses the link to a registered attendee while the switch is off", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", role: "REGISTRANT", organizationId: null } });
+    mockDb.registration.findFirst.mockResolvedValue({ id: "r1" });
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      zoomMeeting: { recordingUrl: "https://zoom.us/rec/1", recordingPassword: "pw", recordingStatus: "AVAILABLE" },
+    });
+
+    mockDb.event.findFirst.mockResolvedValue(event("WEBINAR", {}));
+    const off = await RECORDING_GET(req(), params);
+    expect(off.status).toBe(404);
+    expect(JSON.stringify(await off.json())).not.toContain("zoom.us/rec");
+
+    mockDb.event.findFirst.mockResolvedValue(event("WEBINAR", { webinar: { showRecording: true } }));
+    const on = await RECORDING_GET(req(), params);
+    expect(on.status).toBe(200);
+    expect((await on.json()).recordingUrl).toBe("https://zoom.us/rec/1");
   });
 });

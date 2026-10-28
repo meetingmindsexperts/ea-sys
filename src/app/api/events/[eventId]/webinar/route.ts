@@ -59,6 +59,8 @@ const updateWebinarSchema = z.object({
   qaUpvote: z.boolean().optional(),
   // Live polls on the attendee page (off unless turned on).
   livePolls: z.boolean().optional(),
+  // The recording on the attendee page (off unless turned on).
+  showRecording: z.boolean().optional(),
 });
 
 // ── GET — Return webinar settings + anchor session + zoom meeting ───
