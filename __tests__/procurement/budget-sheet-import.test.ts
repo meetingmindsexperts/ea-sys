@@ -222,3 +222,68 @@ describe("planBudgetSheet: warnings", () => {
     expect(rows).toEqual([...rows].sort((a, b) => a - b));
   });
 });
+
+// Review of d25b305f (Oct 28, 2026): each finding pinned on the smallest sheet that shows it.
+describe("review fixes", () => {
+  const one = (...rows: string[]) => planBudgetSheet(parseBudgetSheet([H, "01 - A;;;;;;;;;;;;;;;", ...rows, ";TOTAL EXPENSES;;;;;;;;;;;;;;"].join("\n")), { products: PRODUCTS, countInternalCost: true });
+
+  it("reads a blank ITEMS or DAYS cell as 1, so the stored amount is the sheet's total (HIGH)", () => {
+    const p = one("1.1;Day Delegate Rate;External;AED 500;1;;AED 500;AED 600;;1;AED 600;AED 100;;;;");
+    expect(p.lines[0]).toMatchObject({ costQty: 1, costUnit: 500, costTotal: 500, billedQty: 1, billedUnit: 600, billedTotal: 600 });
+  });
+  it("posts qty × unit equal to the total: a total with no 4-decimal unit becomes one amount, its quantity in the note", () => {
+    const p = one("1.1;Rollups;External;AED 152;11;1;AED 1,675;AED 1,828;9;1;AED 16,449;;;;;");
+    expect(p.lines[0]).toMatchObject({ costQty: 1, costUnit: 1675, billedQty: 1, billedUnit: 16449 });
+    expect(p.lines[0].notes).toContain("Sheet quantity 11, entered as one amount");
+    for (const l of p.lines) {
+      expect(l.costQty * l.costUnit).toBe(l.costTotal);
+      expect(l.billedQty * l.billedUnit).toBe(l.billedTotal);
+    }
+  });
+  it("treats an unnumbered Grand Total row as a total, never a line, and reads the footer after it", () => {
+    const p = planBudgetSheet(parseBudgetSheet([H, "1.1;Venue;External;AED 500;1;1;AED 500;AED 900;1;1;AED 900;;;;;", ";Grand Total;;;;;AED 500;;;;AED 900;;;;;", ";;;;;;AED 700;;;;;;;;;", ";;;;;;AED 200;;;;;;;;;"].join("\n")), { products: PRODUCTS, countInternalCost: true });
+    expect(p.lines).toHaveLength(1);
+    expect(p.totals.cost).toBe(500);
+    expect(p.warnings.find((w) => w.kind === "RESULT_ON_FOOTER")?.message).toContain("income of AED 700");
+  });
+  it("warns when the sheet has no grand total at all", () => {
+    const p = planBudgetSheet(parseBudgetSheet([H, "1.1;Venue;External;AED 500;1;1;AED 500;;;;;;;;;"].join("\n")), { products: PRODUCTS, countInternalCost: true });
+    expect(p.warnings.map((w) => w.kind)).toContain("NO_GRAND_TOTAL");
+  });
+  it("keeps a numbered line whose description starts with Total as a line", () => {
+    const p = one("1.1;Total station hire;External;AED 300;1;1;AED 300;;;;;;;;;");
+    expect(p.lines.map((l) => l.description)).toEqual(["Total station hire"]);
+    expect(p.totals.cost).toBe(300);
+  });
+  it("reads decimal-comma and grouped amounts the way Excel writes them", () => {
+    expect(parseAmount("AED 1.234,50")).toBe(1234.5);
+    expect(parseAmount("1 234,50")).toBe(1234.5);
+    expect(parseAmount("12,5")).toBe(12.5);
+    expect(parseAmount("1,234.50")).toBe(1234.5);
+    expect(parseAmount("1,234")).toBe(1234);
+    expect(parseAmount("1.234.567")).toBe(1234567);
+    expect(parseAmount("20.25")).toBe(20.25);
+    expect(parseAmount("1,2,3")).toBeNaN();
+  });
+  it("leaves a negative line (a credit or discount) out with a warning, never as a quote not ordered", () => {
+    const p = one("1.1;Sponsor discount;External;;;;;-AED 100;1;1;-AED 100;;;;;");
+    expect(p.lines[0]).toMatchObject({ include: false, billedTotal: -100 });
+    expect(p.warnings.map((w) => w.kind)).toEqual(["NEGATIVE_AMOUNT"]);
+    expect(p.totals.billed).toBe(0);
+  });
+  it("keeps a long comment and the internal-cost note within the 2,000-character limit", () => {
+    const p = one(`1.1;Project Manager;Internal;AED 10,000;0;1;AED 0;AED 10,000;1;1;AED 10,000;;;;;${"x".repeat(2100)}`);
+    expect(p.lines[0].internalCostCounted).toBe(true);
+    expect(p.lines[0].notes.length).toBeLessThanOrEqual(2000);
+    expect(p.lines[0].notes).toContain("Internal cost counted");
+  });
+});
+
+describe("review fixes: checks read the sheet's quantities", () => {
+  it("raises no unit-total warning for a line folded into one amount, and still sees a quantity difference", () => {
+    // 3,305 over 18 has no 4-decimal unit; billing is for 12. (3 × 2 against 2 × 3 would be the same 6, no warning.)
+    const p = planBudgetSheet(parseBudgetSheet([H, "1.1;Day Delegate Rate;External;AED 184;6;3;AED 3,305;AED 300;4;3;AED 3,600;;;;;", ";TOTAL EXPENSES;;;;;;;;;;;;;;"].join("\n")), { products: PRODUCTS, countInternalCost: true });
+    expect(p.lines[0]).toMatchObject({ costQty: 1, costUnit: 3305 });
+    expect(p.warnings.map((w) => w.kind)).toEqual(["QTY_MISMATCH"]);
+  });
+});

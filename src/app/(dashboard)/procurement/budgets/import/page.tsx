@@ -50,16 +50,22 @@ const MAX_FILE_BYTES = 1024 * 1024;
 /** A line on the preview: the reader's plan plus what the person set. */
 interface EditableLine extends PlannedSheetLine {
   vatPercent: string;
+  accountByHand?: boolean;
 }
 
 /** What the person changed on a line, kept apart from the plan so a re-plan never loses it. */
-type LineOverride = Partial<Pick<EditableLine, "include" | "productId" | "sku" | "incomeAccount" | "vatPercent">>;
+type LineOverride = Partial<Pick<EditableLine, "include" | "productId" | "sku" | "incomeAccount" | "vatPercent">> & {
+  /** The income account was picked by hand, so a later product pick leaves it alone. */
+  accountByHand?: boolean;
+};
 
 const WARNING_HEADING: Record<SheetWarning["kind"], string> = {
   RESULT_ON_FOOTER: "What the sheet says it earned",
   SUBTOTAL_MISMATCH: "Sheet totals that leave lines out",
   UNBILLED_COST: "Costs billed to nobody",
   BILLED_WITHOUT_COST: "Billed with no cost recorded",
+  NEGATIVE_AMOUNT: "Credits and discounts (left out)",
+  NO_GRAND_TOTAL: "No grand total on the sheet",
   BILLED_BELOW_COST: "Billed below cost",
   INTERNAL_COST_ZERO: "Internal cost the sheet set to zero",
   QTY_MISMATCH: "Cost and billing quantities differ",
@@ -82,6 +88,8 @@ function toEditable(plan: SheetPlan | null, overrides: ReadonlyMap<number, LineO
 function blocker(lines: EditableLine[], withRevenue: boolean): string | null {
   const included = lines.filter((l) => l.include);
   if (included.length === 0) return "No lines are ticked.";
+  const negative = included.find((l) => l.costTotal < 0 || l.billedTotal < 0);
+  if (negative) return `${negative.ref || "Row " + negative.rowNum} ${negative.description} is negative; a budget line cannot be. Untick it.`;
   const noProduct = included.find((l) => !l.isContingency && needsExpenseLine(l) && !l.productId);
   if (noProduct) return `Pick a catalogue product for ${noProduct.ref || "row " + noProduct.rowNum} ${noProduct.description}.`;
   const noAccount = withRevenue ? included.find((l) => l.billedTotal > 0 && !l.incomeAccount) : undefined;
@@ -134,7 +142,11 @@ export default function ImportBudgetSheetPage() {
   const vatTotal = useMemo(() => lines.filter((l) => l.include && needsExpenseLine(l)).reduce((s, l) => s + (l.costTotal * Number(l.vatPercent || 0)) / 100, 0), [lines]);
   const stop = blocker(lines, withRevenue);
 
-  async function readFile(file: File) {
+  async function readFile(input: HTMLInputElement) {
+    const file = input.files?.[0];
+    // Cleared so choosing the same file again (after fixing it in Excel) reads it again.
+    input.value = "";
+    if (!file) return;
     if (file.size > MAX_FILE_BYTES) {
       toast.error("The file is over 1 MB. A budget sheet is far smaller; check it is the right file.");
       return;
@@ -147,8 +159,8 @@ export default function ImportBudgetSheetPage() {
       toast.error(parsed.errors[0].message);
       return;
     }
-    const pct = parsed.lines.find((l) => l.contingencyPercent !== null)?.contingencyPercent;
-    if (pct !== undefined && pct !== null) setContingency(String(pct));
+    const pct = parsed.lines.find((l) => l.contingencyPercent !== null)?.contingencyPercent ?? null;
+    setContingency(pct === null ? "10" : String(pct));
   }
 
   const patch = (rowNum: number, change: LineOverride) =>
@@ -168,14 +180,15 @@ export default function ImportBudgetSheetPage() {
       return;
     }
     const included = lines.filter((l) => l.include);
-    const result = plan.warnings.filter((w) => w.kind === "RESULT_ON_FOOTER").map((w) => w.message);
+    // The sheet's income and result are finance figures; the budget notes are read without finance sight.
+    const result = withRevenue ? plan.warnings.filter((w) => w.kind === "RESULT_ON_FOOTER").map((w) => w.message) : [];
     try {
       const b = await create.mutateAsync({
         eventId,
         reportingCurrency: "AED",
         contingencyPercent: Number(contingency || "0"),
         expectedAttendance: expected,
-        importedFrom: fileName,
+        importedFrom: fileName.slice(0, 200),
         notes: [`Imported from the budget sheet "${fileName}"${plan.title ? ` (${plan.title})` : ""}. Amounts ex-VAT as entered on the sheet; billed amounts are revenue lines.`, ...result].join("\n").slice(0, 5000),
         lines: included.filter(needsExpenseLine).map((l) => ({
           productId: l.productId!,
@@ -228,7 +241,7 @@ export default function ImportBudgetSheetPage() {
       <div className="grid gap-4 rounded-lg border bg-card p-4 md:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-2">
           <Label htmlFor="sheet-file">Budget sheet</Label>
-          <Input id="sheet-file" type="file" accept=".csv,text/csv" disabled={productsLoading} onChange={(e) => e.target.files?.[0] && void readFile(e.target.files[0])} />
+          <Input id="sheet-file" type="file" accept=".csv,text/csv" disabled={productsLoading} onChange={(e) => void readFile(e.target)} />
           <p className="text-xs text-muted-foreground">{fileName || "In Excel: File, Save As, CSV."}</p>
         </div>
         <div className="space-y-2">
@@ -383,7 +396,7 @@ function SheetLineRow({ line: l, flagged, withRevenue, products, productsLoading
             products={products}
             loading={productsLoading}
             value={l.productId}
-            onPick={(p) => onPatch({ productId: p.id, sku: p.sku, incomeAccount: l.billedTotal > 0 ? incomeAccountFor(p.sku, l.type, false) : null })}
+            onPick={(p) => onPatch(l.accountByHand || l.billedTotal <= 0 ? { productId: p.id, sku: p.sku } : { productId: p.id, sku: p.sku, incomeAccount: incomeAccountFor(p.sku, l.type, false) })}
             onClear={() => onPatch({ productId: null, sku: null })}
           />
         )}
@@ -398,7 +411,7 @@ function SheetLineRow({ line: l, flagged, withRevenue, products, productsLoading
       {withRevenue && (
         <TableCell>
           {l.billedTotal > 0 && (
-            <Select value={l.incomeAccount ?? ""} onValueChange={(v) => onPatch({ incomeAccount: v })}>
+            <Select value={l.incomeAccount ?? ""} onValueChange={(v) => onPatch({ incomeAccount: v, accountByHand: true })}>
               <SelectTrigger className="h-8"><SelectValue placeholder="Pick an account" /></SelectTrigger>
               <SelectContent>
                 {INCOME_ACCOUNTS.map((a) => <SelectItem key={a.code} value={a.code}>{a.code} · {a.name}</SelectItem>)}

@@ -157,10 +157,33 @@ export function parseAmount(raw: string | undefined): number | null {
     negative = !negative;
     s = s.slice(1).trim();
   }
-  s = s.replace(/,/g, "").replace(/\s+/g, "");
+  s = normaliseSeparators(s.replace(/\s+/g, ""));
   if (!/^\d+(\.\d+)?$/.test(s)) return Number.NaN;
   const n = Number(s);
   return negative ? -n : n;
+}
+
+/**
+ * Thousands and decimal separators to plain digits and one dot. The LAST
+ * separator decides when both appear ("1.234,50" and "1,234.50" are both
+ * 1234.5). A lone comma followed by exactly three digits is grouping
+ * ("1,234"), by one or two a decimal comma ("12,5"), as Excel writes in a
+ * comma-decimal locale. A lone dot stays a decimal point unless it repeats
+ * in groups of three ("1.234.567"). Anything else is left for the caller to
+ * refuse.
+ */
+function normaliseSeparators(s: string): string {
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  if (lastComma >= 0 && lastDot >= 0) {
+    return lastComma > lastDot ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  }
+  if (lastComma >= 0) {
+    if (/^\d{1,3}(,\d{3})+$/.test(s)) return s.replace(/,/g, "");
+    return /^\d+,\d{1,2}$/.test(s) ? s.replace(",", ".") : s;
+  }
+  if (/^\d{1,3}(\.\d{3}){2,}$/.test(s)) return s.replace(/\./g, "");
+  return s;
 }
 
 // ── parsing ─────────────────────────────────────────────────────────────────
@@ -205,8 +228,10 @@ function findColumns(row: string[]): Columns | null {
 
 const SECTION_RE = /^\d{1,2}\s*-\s*\S/;
 const REF_RE = /^\d+(\.\d+)+$/;
-const TOTAL_RE = /^(sub\s*total|total)\b/i;
-const CUMULATIVE_RE = /^(sub\s*total|total expenses\b)/i;
+/** A numbered row is always a line ("1.2 Total station hire"); an unnumbered one naming a total is a total. */
+const TOTAL_RE = /\b(sub\s*total|total)\b/i;
+const CUMULATIVE_RE = /^(sub\s*total|total expenses\b)|\bgrand total\b/i;
+const GRAND_TOTAL_RE = /^total expenses\b|\bgrand total\b/i;
 
 function typeOf(raw: string): SheetLineType {
   const t = raw.trim().toLowerCase();
@@ -262,11 +287,11 @@ export function parseBudgetSheet(text: string): ParsedSheet {
       group = null;
       continue;
     }
-    if (TOTAL_RE.test(description)) {
+    if (!REF_RE.test(ref) && TOTAL_RE.test(description)) {
       const cumulative = CUMULATIVE_RE.test(description);
       out.totals.push({ rowNum, label: description, cumulative, cost: cost[3], billed: billed[3], margin, lineRows: cumulative ? [] : sinceLastTotal });
       if (!cumulative) sinceLastTotal = [];
-      if (/^total expenses\b/i.test(description)) pastGrandTotal = true;
+      if (GRAND_TOTAL_RE.test(description)) pastGrandTotal = true;
       continue;
     }
     if (pastGrandTotal) {
@@ -296,8 +321,9 @@ export function parseBudgetSheet(text: string): ParsedSheet {
       group,
       description,
       type: typeOf(cellAt(row, cols.type)),
-      cost: { unit: cost[0], items: cost[1] ?? 0, days: cost[2] ?? 0, total: cost[3] },
-      billed: billedBlank ? null : { unit: billed[0], items: billed[1] ?? 0, days: billed[2] ?? 0, total: billed[3] },
+      // A blank ITEMS or DAYS cell is 1; only a written 0 means "not ordered".
+      cost: { unit: cost[0], items: cost[1] ?? 1, days: cost[2] ?? 1, total: cost[3] },
+      billed: billedBlank ? null : { unit: billed[0], items: billed[1] ?? 1, days: billed[2] ?? 1, total: billed[3] },
       sheetMargin: margin,
       vendor: cellAt(row, cols.vendor),
       quotation: cellAt(row, cols.quotation),
@@ -399,6 +425,8 @@ export type SheetWarningKind =
   | "INTERNAL_COST_ZERO"
   | "QUOTED_NOT_ORDERED"
   | "BILLED_WITHOUT_COST"
+  | "NEGATIVE_AMOUNT"
+  | "NO_GRAND_TOTAL"
   | "UNIT_TOTAL_MISMATCH"
   | "DUPLICATE_REF"
   | "MISSING_REF"
@@ -485,23 +513,34 @@ export function incomeAccountFor(sku: string | null, type: SheetLineType, isCont
   return type === "INTERNAL" ? pair.internal : pair.external;
 }
 
-function amountsOf(a: SheetAmounts): { qty: number; total: number; unit: number } {
+/**
+ * Quantity, unit and total such that qty × unit is EXACTLY the sheet's total,
+ * which is what the server stores. When the total has no 4-decimal unit (1,675
+ * over 11 rollups) or the sheet gives a total with a quantity of 0, the line
+ * becomes 1 × total and the sheet's quantity goes in the note instead.
+ */
+function amountsOf(a: SheetAmounts): { qty: number; total: number; unit: number; lumped: boolean } {
   const qty = round4(a.items * a.days);
   const total = a.total ?? round2((a.unit ?? 0) * qty);
-  const unit = qty > 0 ? round4(total / qty) : (a.unit ?? 0);
-  return { qty, total, unit };
+  if (qty === 0) return total === 0 ? { qty, total, unit: a.unit ?? 0, lumped: false } : { qty: 1, total, unit: total, lumped: true };
+  const unit = round4(total / qty);
+  if (Math.abs(round4(unit * qty) - total) > 0.00005) return { qty: 1, total, unit: total, lumped: true };
+  return { qty, total, unit, lumped: false };
 }
 
-function quantityNote(a: SheetAmounts): string {
+function quantityNote(a: SheetAmounts, lumped: boolean): string {
+  if (lumped) return `Sheet quantity ${a.items}${a.days !== 1 ? ` × ${a.days} days` : ""}, entered as one amount`;
   return a.days > 1 ? `${a.items} × ${a.days} days` : "";
 }
 
-function noteFor(l: SheetLine): string {
+function noteFor(l: SheetLine, lumped: boolean, internalCostCounted: boolean): string {
   const parts = [
     `Sheet ${l.ref || "row " + l.rowNum}${l.section ? `, ${l.section}` : ""}`,
-    quantityNote(l.cost),
+    quantityNote(l.cost, lumped),
     l.vendor ? `Vendor: ${l.vendor}` : "",
     l.quotation ? `(${l.quotation.toLowerCase()})` : "",
+    // Before the free-text comment, so a long comment is what the 2,000-character cut trims.
+    internalCostCounted ? "Internal cost counted (the sheet had quantity 0)" : "",
     l.comments,
   ];
   return parts.filter(Boolean).join(" · ").slice(0, 2000);
@@ -515,12 +554,30 @@ function quoteWord(quotation: string): string {
 
 const sameItem = (a: string, b: string) => a.trim().toLowerCase().replace(/\s+/g, " ") === b.trim().toLowerCase().replace(/\s+/g, " ");
 
+/**
+ * A credit or discount (a negative cost or billed amount). A budget line is
+ * never negative (spec §7.6), so it is left out and named; the person enters
+ * it as a reduction of the line it belongs to.
+ */
+function negativeLine(l: SheetLine, product: CatalogueProduct | null, cost: ReturnType<typeof amountsOf>, billed: ReturnType<typeof amountsOf>, warnings: SheetWarning[]): PlannedSheetLine {
+  const which = cost.total < 0 ? `a cost of AED ${aed(cost.total)}` : `a billed amount of AED ${aed(billed.total)}`;
+  warnings.push({ kind: "NEGATIVE_AMOUNT", rowNum: l.rowNum, message: `${lineName(l)} has ${which}. A budget line cannot be negative, so it was left out; reduce the line it belongs to instead.` });
+  return {
+    rowNum: l.rowNum, ref: l.ref, section: l.section, description: l.description.slice(0, 300), type: l.type, vendor: l.vendor,
+    include: false, isContingency: false, productId: product?.id ?? null, sku: product?.sku ?? null,
+    costQty: cost.qty, costUnit: cost.unit, costTotal: cost.total, internalCostCounted: false,
+    billedQty: billed.qty, billedUnit: billed.unit, billedTotal: billed.total, incomeAccount: null,
+    notes: noteFor(l, false, false),
+  };
+}
+
 function planLine(l: SheetLine, opts: PlanOptions, warnings: SheetWarning[], all: readonly SheetLine[]): PlannedSheetLine {
   const isContingency = l.contingencyPercent !== null;
   const product = isContingency ? null : suggestProduct(l.description, opts.products);
   const sku = product?.sku ?? null;
   const cost = amountsOf(l.cost);
-  const billed = l.billed ? amountsOf(l.billed) : { qty: 0, total: 0, unit: 0 };
+  const billed = l.billed ? amountsOf(l.billed) : { qty: 0, total: 0, unit: 0, lumped: false };
+  if (cost.total < 0 || billed.total < 0) return negativeLine(l, product, cost, billed, warnings);
 
   let internalCostCounted = false;
   if (!isContingency && l.type === "INTERNAL" && cost.qty === 0 && (l.cost.unit ?? 0) > 0) {
@@ -538,10 +595,13 @@ function planLine(l: SheetLine, opts: PlanOptions, warnings: SheetWarning[], all
     });
   }
 
-  if (!isContingency && !internalCostCounted && cost.qty > 0 && l.cost.unit !== null && l.cost.total !== null) {
+  // The checks below read the SHEET's quantities: amountsOf may have folded a line into 1 × total.
+  const sheetCostQty = round4(l.cost.items * l.cost.days);
+  const sheetBilledQty = l.billed ? round4(l.billed.items * l.billed.days) : 0;
+  if (!isContingency && !internalCostCounted && sheetCostQty > 0 && l.cost.unit !== null && l.cost.total !== null) {
     // The unit is shown rounded; a gap beyond half a unit per item is a formula problem, not rounding.
-    if (Math.abs(l.cost.unit * cost.qty - l.cost.total) > cost.qty * 0.5 + 1) {
-      warnings.push({ kind: "UNIT_TOTAL_MISMATCH", rowNum: l.rowNum, message: `${lineName(l)}: ${aed(l.cost.unit)} × ${cost.qty} is not the sheet's total of ${aed(l.cost.total)}. The total was used.` });
+    if (Math.abs(l.cost.unit * sheetCostQty - l.cost.total) > sheetCostQty * 0.5 + 1) {
+      warnings.push({ kind: "UNIT_TOTAL_MISMATCH", rowNum: l.rowNum, message: `${lineName(l)}: ${aed(l.cost.unit)} × ${sheetCostQty} is not the sheet's total of ${aed(l.cost.total)}. The total was used.` });
     }
   }
 
@@ -560,7 +620,7 @@ function planLine(l: SheetLine, opts: PlanOptions, warnings: SheetWarning[], all
   if (billed.total > 0 && cost.total > billed.total) {
     warnings.push({ kind: "BILLED_BELOW_COST", rowNum: l.rowNum, message: `${lineName(l)} bills AED ${aed(billed.total)} against a cost of AED ${aed(cost.total)}: a loss of AED ${aed(cost.total - billed.total)}.` });
   }
-  if (!isContingency && l.billed && cost.qty > 0 && billed.qty > 0 && cost.qty !== billed.qty && !internalCostCounted) {
+  if (!isContingency && l.billed && sheetCostQty > 0 && sheetBilledQty > 0 && sheetCostQty !== sheetBilledQty && !internalCostCounted) {
     warnings.push({ kind: "QTY_MISMATCH", rowNum: l.rowNum, message: `${lineName(l)}: cost is for ${l.cost.items} × ${l.cost.days}, billing for ${l.billed.items} × ${l.billed.days}.` });
   }
   if (!isContingency && ordered && !product) {
@@ -586,7 +646,7 @@ function planLine(l: SheetLine, opts: PlanOptions, warnings: SheetWarning[], all
     billedUnit: billed.unit,
     billedTotal: billed.total,
     incomeAccount: billed.total > 0 ? incomeAccountFor(sku, l.type, isContingency) : null,
-    notes: internalCostCounted ? `${noteFor(l)} · Internal cost counted (the sheet had quantity 0)` : noteFor(l),
+    notes: noteFor(l, cost.lumped, internalCostCounted),
   };
 }
 
@@ -688,6 +748,9 @@ export function planBudgetSheet(sheet: ParsedSheet, opts: PlanOptions): SheetPla
   const cost = round2(included.filter((l) => !l.isContingency).reduce((s, l) => s + l.costTotal, 0));
   const billed = round2(included.reduce((s, l) => s + l.billedTotal, 0));
   warnings.push(...footerWarnings(sheet));
+  if (sheet.lines.length > 0 && !sheet.totals.some((t) => GRAND_TOTAL_RE.test(t.label))) {
+    warnings.push({ kind: "NO_GRAND_TOTAL", rowNum: sheet.lines.at(-1)!.rowNum, message: "The sheet has no TOTAL EXPENSES or Grand Total row, so its own totals could not be checked and nothing below them was read." });
+  }
   warnings.sort((a, b) => a.rowNum - b.rowNum);
   return {
     title: sheet.title,
