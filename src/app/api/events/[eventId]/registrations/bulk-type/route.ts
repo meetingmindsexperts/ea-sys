@@ -9,8 +9,8 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { refreshEventStats } from "@/lib/event-stats";
-import { holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
-import { claimSeats, releaseSeats } from "@/lib/registration-seat-db";
+import { planSeatTransition, type SeatCounter } from "@/lib/registration-seat";
+import { claimEventSeats, claimSeats, releaseEventSeats, releaseSeats } from "@/lib/registration-seat-db";
 import { lockRegistrationRows } from "@/lib/registration-row-lock";
 
 const bulkTypeSchema = z.object({
@@ -114,39 +114,35 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       });
       if (moving.length === 0) return moving;
 
-      // Release side: group each reg's HELD seat by its actual counter (tier or
-      // ticket type); a virtual reg holds none, an uncategorised one has no
-      // counter. Claim side: only in-person regs claim a seat on the new type.
-      // After a type change the old tier is invalid, so all moved rows get
-      // pricingTierId nulled (their seat now lives on the new ticket-type counter).
-      const releaseCounts = new Map<string, { counter: SeatCounter; count: number }>();
-      let claimCount = 0;
+      // Each row's seat move, from the ONE planner every single-row path uses
+      // (planSeatTransition): the counter it releases, the one it claims, and
+      // whether it gains or loses its event seat. A row with no type holds no
+      // seat anywhere and gains both; a speaker's companion stays on no counter
+      // (review of 8740deeb: hand-rolled counting missed both).
+      const ops = new Map<string, { counter: SeatCounter; delta: number }>();
+      let eventDelta = 0;
       for (const r of moving) {
-        if (!holdsSeat(r.status, r.attendanceMode)) continue;
-        claimCount++;
-        const counter = seatCounter(r);
-        if (!counter) continue;
-        const key = `${counter.kind}:${counter.id}`;
-        const entry = releaseCounts.get(key);
-        if (entry) entry.count++;
-        else releaseCounts.set(key, { counter, count: 1 });
-      }
-
-      // Release each held counter (guarded, never below 0)
-      for (const { counter, count } of releaseCounts.values()) {
-        await releaseSeats(tx, counter, count);
-      }
-
-      // Claim the in-person seats on the new type ATOMICALLY via the shared
-      // guarded bulk claim (same oversell guard as every single-row path).
-      // All-or-nothing: if it can't fit, the whole move rolls back (admin
-      // raises quantity / moves fewer). Skipped when every moved reg is virtual.
-      if (claimCount > 0) {
-        const claimed = await claimSeats(tx, { kind: "ticketType", id: ticketTypeId }, claimCount);
-        if (!claimed) {
-          throw new Error("CAPACITY_EXCEEDED");
+        const plan = planSeatTransition(r, { ...r, ticketTypeId, pricingTierId: null });
+        for (const [counter, step] of [[plan.release, -1], [plan.claim, 1]] as const) {
+          if (!counter) continue;
+          const key = `${counter.kind}:${counter.id}`;
+          const entry = ops.get(key) ?? { counter, delta: 0 };
+          entry.delta += step;
+          ops.set(key, entry);
         }
+        eventDelta += plan.eventDelta;
       }
+
+      // Counters in one sorted order, releases and claims together, so two bulk
+      // moves in opposite directions cannot take them in opposite orders; then
+      // the event seat, as applyRegistrationTransition does. The claim is
+      // all-or-nothing: if it can't fit, the whole move rolls back.
+      for (const [, { counter, delta }] of [...ops].sort(([a], [b]) => a.localeCompare(b))) {
+        if (delta < 0) await releaseSeats(tx, counter, -delta);
+        if (delta > 0 && !(await claimSeats(tx, counter, delta))) throw new Error("CAPACITY_EXCEEDED");
+      }
+      if (eventDelta < 0) await releaseEventSeats(tx, eventId, -eventDelta);
+      if (eventDelta > 0 && !(await claimEventSeats(tx, eventId, eventDelta))) throw new Error("EVENT_FULL");
 
       // Update all registrations — new type + drop the now-invalid tier —
       // and RE-STAMP originalPrice for money-outstanding rows (review H8).
@@ -229,6 +225,16 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     return NextResponse.json({ updated: registrations.length });
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "EVENT_FULL") {
+      apiLogger.warn({ msg: "bulk-type:event-full", eventId });
+      return NextResponse.json(
+        {
+          error: "The event has reached its maximum number of attendees. Raise the cap in Settings → Registration, or move fewer.",
+          code: "EVENT_FULL",
+        },
+        { status: 409 }
+      );
+    }
     if (error instanceof Error && error.message === "CAPACITY_EXCEEDED") {
       apiLogger.warn({ msg: "bulk-type:capacity-exceeded", eventId });
       return NextResponse.json(

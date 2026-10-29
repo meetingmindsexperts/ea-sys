@@ -3,6 +3,14 @@
  * Tests the result-union contract (codes) directly; the routes cover HTTP mapping.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// Row locks are Postgres FOR UPDATE; a mocked transaction cannot take them.
+// Pinned against the real database in
+// tests/integration-db/registration-row-lock.db.test.ts.
+const { mockLockRegistrationRows } = vi.hoisted(() => ({ mockLockRegistrationRows: vi.fn(async () => undefined) }));
+vi.mock("@/lib/registration-row-lock", () => ({
+  lockRegistrationRows: mockLockRegistrationRows,
+  lockRegistrationIfUnchanged: vi.fn(async () => "unchanged"),
+}));
 
 const { mockDb, stripeRefundsCreate, verifyRefundSpy, createCreditNoteSpy, sendInvoiceEmailSpy, releaseSeatSpy, planSeatTransitionSpy, applyRegistrationTransitionSpy, CreditNoteAmountError } = vi.hoisted(() => {
   class CreditNoteAmountError extends Error {

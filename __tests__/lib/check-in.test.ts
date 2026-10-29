@@ -324,6 +324,21 @@ describe("executeCheckIn", () => {
     expect(mockDb.registration.updateMany.mock.calls[0][0].where).toMatchObject({ id: "reg1", checkedInAt: null, status: "CANCELLED" });
   });
 
+  it("an override that lost because the row was reactivated meanwhile checks it in plainly, without a second seat (review of 8740deeb)", async () => {
+    const reactivation = {
+      prev: { status: "CANCELLED", attendanceMode: "IN_PERSON", ticketTypeId: "tt1", pricingTierId: null, createdSource: null },
+      next: { status: "CHECKED_IN", attendanceMode: "IN_PERSON", ticketTypeId: "tt1", pricingTierId: null, createdSource: null },
+      promoCodeId: null,
+    } as never;
+    mockDb.registration.updateMany
+      .mockResolvedValueOnce({ count: 0 }) // the override's claim: no longer cancelled
+      .mockResolvedValueOnce({ count: 1 }); // the plain claim
+    await executeCheckIn({ eventId: "ev1", registrationId: "reg1", actorUserId: "u1", attendeeName: "A B", source: "mcp", reactivation });
+    expect(mockApplyTransition).not.toHaveBeenCalled();
+    expect(mockDb.registration.updateMany.mock.calls[1][0].where).toMatchObject({ id: "reg1", checkedInAt: null, status: { not: "CANCELLED" } });
+    expect(mockDb.auditLog.create).toHaveBeenCalled(); // a real check-in, audited once
+  });
+
   it("M7: a lost claim in the reactivation path does NOT run the seat/promo transition", async () => {
     mockDb.registration.updateMany.mockResolvedValue({ count: 0 }); // concurrent reactivation won
     await executeCheckIn({

@@ -229,7 +229,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         // nothing: if the batch won't fit, the whole tx rolls back (no rows
         // created) and the operator imports fewer or raises the quantity.
         // Uncategorised rows have no ticket-type counter to move (seatCounter
-        // agrees) — the event-wide counter below still counts them.
+        // agrees), and no event seat either (below).
         if (ticketType) {
           const claimed = await tx.ticketType.updateMany({
             where: { id: ticketType.id, soldCount: { lte: ticketType.quantity - toCreate.length } },
@@ -240,9 +240,15 @@ export async function POST(req: Request, { params }: RouteParams) {
           }
         }
         // Event-wide cap: imports BYPASS the cap (owner decision July 24, 2026)
-        // — unguarded increment, warn when over.
-        const eventSeat = await incrementEventSeatsOverselling(tx, eventId, toCreate.length);
-        if (eventSeat.oversold) {
+        // — unguarded increment, warn when over. Only rows WITH a type hold an
+        // event seat (holdsEventSeat; the event recount filters ticketTypeId
+        // not null): uncategorised rows gain theirs when a type is assigned
+        // (bulk Change Type, the completion form), so counting them here
+        // counted them twice (Oct 29, 2026).
+        const eventSeat = ticketType
+          ? await incrementEventSeatsOverselling(tx, eventId, toCreate.length)
+          : null;
+        if (eventSeat?.oversold) {
           apiLogger.warn({
             msg: "import:event-oversold",
             eventId,

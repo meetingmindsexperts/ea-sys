@@ -22,6 +22,7 @@ vi.mock("@/lib/checkout-session-cleanup", () => ({ expireOpenCheckoutSessionOnCa
 import { db } from "@/lib/db";
 import { createRegistration, updateRegistration } from "@/services/registration-service";
 import { REGISTRATION_EXECUTORS } from "@/lib/agent/tools/registrations";
+import { cancelRegistration } from "@/services/payment-service";
 import { lockRegistrationIfUnchanged, lockRegistrationRows } from "@/lib/registration-row-lock";
 import { resetCrm, type CrmSeed } from "./helper";
 
@@ -97,6 +98,45 @@ describe("cancel races on one registration", () => {
     expect(row.status).toBe("CANCELLED");
     // 5 seats, this one released exactly once.
     expect(await counters(eventId, typeId)).toEqual({ soldCount: 4, seatCount: 4 });
+  });
+});
+
+describe("a cancel behind a bulk move (deterministic)", () => {
+  it("waits for the move, then releases the NEW type, not the one it would have read before", async () => {
+    const { eventId, typeId: typeA, registrationId } = await seedRegistration();
+    const typeB = await db.ticketType.create({ data: { eventId, name: "Nurse", price: 0, quantity: 100, soldCount: 5 }, select: { id: true } });
+
+    // A bulk Change Type holding the row: move it A -> B under the lock.
+    let release!: () => void;
+    const hold = new Promise<void>((r) => (release = r));
+    let moved!: () => void;
+    const isMoved = new Promise<void>((r) => (moved = r));
+    const bulk = db.$transaction(async (tx) => {
+      await lockRegistrationRows(tx, eventId, [registrationId]);
+      await tx.registration.update({ where: { id: registrationId }, data: { ticketTypeId: typeB.id } });
+      await tx.ticketType.update({ where: { id: typeA }, data: { soldCount: { decrement: 1 } } });
+      await tx.ticketType.update({ where: { id: typeB.id }, data: { soldCount: { increment: 1 } } });
+      moved();
+      await hold;
+    });
+    await isMoved;
+
+    // The cancel starts while the move holds the row: it must wait for it.
+    let cancelled = false;
+    const cancel = cancelRegistration({ registrationId, eventId, organizationId: seed.orgId, refund: false, source: "rest" })
+      .then((r) => { cancelled = true; return r; });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(cancelled).toBe(false);
+    release();
+    await bulk;
+    expect(await cancel).toMatchObject({ ok: true });
+
+    // A: 5 - 1 (moved away), not released again. B: 5 + 1 (moved in) - 1 (cancelled).
+    const [a, b] = await Promise.all([
+      db.ticketType.findUniqueOrThrow({ where: { id: typeA }, select: { soldCount: true } }),
+      db.ticketType.findUniqueOrThrow({ where: { id: typeB.id }, select: { soldCount: true } }),
+    ]);
+    expect({ a: a.soldCount, b: b.soldCount }).toEqual({ a: 4, b: 5 });
   });
 });
 

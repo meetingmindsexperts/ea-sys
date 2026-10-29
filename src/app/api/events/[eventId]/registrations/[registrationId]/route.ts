@@ -4,6 +4,7 @@ import { z } from "zod";
 import { RegistrationStatus, AttendanceMode } from "@prisma/client";
 import { holdsSeat, seatCounter } from "@/lib/registration-seat";
 import { releaseEventSeats, releasePromoUsage, releaseSeat } from "@/lib/registration-seat-db";
+import { lockRegistrationRows } from "@/lib/registration-row-lock";
 import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
 import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
 import { auth } from "@/lib/auth";
@@ -598,11 +599,20 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // Wrap soldCount decrement + delete in a transaction
     await tenantTransaction(async (tx) => {
+      // The row first, then the counters, the order every seat-moving path
+      // takes; and what it holds is read again under the lock, so a cancel or
+      // type change that landed since the read above is not released a second
+      // time (review of 8740deeb, M3).
+      await lockRegistrationRows(tx, eventId, [registrationId]);
+      const held = await tx.registration.findUniqueOrThrow({
+        where: { id: registrationId },
+        select: { status: true, attendanceMode: true, ticketTypeId: true, pricingTierId: true, createdSource: true, promoCodeId: true },
+      });
       // Release the seat this registration actually held, on the correct counter
       // (tier vs ticket type). Gating on holdsSeat also fixes the latent bug
       // where deleting a VIRTUAL (uncapped) reg wrongly decremented the counter.
-      const heldSeat = holdsSeat(registration.status, registration.attendanceMode)
-        ? seatCounter(registration)
+      const heldSeat = holdsSeat(held.status, held.attendanceMode)
+        ? seatCounter(held)
         : null;
       if (heldSeat) {
         await releaseSeat(tx, heldSeat);
@@ -613,8 +623,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       // DATA-1: release the promo code's usage count on delete (unless this row
       // was already CANCELLED, in which case the cancel already released it).
       // Guarded via the shared helper — never drives usedCount negative.
-      if (registration.status !== "CANCELLED" && registration.promoCodeId) {
-        await releasePromoUsage(tx, registration.promoCodeId);
+      if (held.status !== "CANCELLED" && held.promoCodeId) {
+        await releasePromoUsage(tx, held.promoCodeId);
       }
       // H4 (accommodation review): Accommodation cascade-deletes from
       // Registration, and a DB cascade fires no application code — so the

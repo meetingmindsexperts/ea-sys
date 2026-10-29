@@ -22,7 +22,7 @@ vi.mock("@/lib/registration-row-lock", () => ({
 // tests/integration-db/registration-email-lock.db.test.ts.
 const { mockLockRegistrationEmails } = vi.hoisted(() => ({ mockLockRegistrationEmails: vi.fn(async () => undefined) }));
 vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: mockLockRegistrationEmails }));
-import { rawClaims, seatRawExecutor } from "../helpers/raw-seat-sql";
+import { rawClaims, rawSeatCalls, seatRawExecutor } from "../helpers/raw-seat-sql";
 
 const { mockDb, mockAuth } = vi.hoisted(() => {
   // Who is already registered is read inside the transaction now (behind the
@@ -119,6 +119,32 @@ describe("bulk-type — soldCount oversell guard", () => {
     expect(mockLockRegistrationRows.mock.invocationCallOrder[0]).toBeLessThan(mockDb.registration.findMany.mock.invocationCallOrder[0]);
     // `not` alone drops NULL in SQL, which left rows with no type unmovable.
     expect(mockDb.registration.findMany.mock.calls[0][0].where.OR).toEqual([{ ticketTypeId: null }, { ticketTypeId: { not: "T" } }]);
+  });
+
+  it("an uncategorised row gains its type seat AND its event seat; a speaker's companion moves no counter (review of 8740deeb)", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      { id: "u1", ticketTypeId: null, attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "COMPLIMENTARY" },
+      { id: "c1", ticketTypeId: "old", attendeeId: "a2", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "SPEAKER_COMPANION", paymentStatus: "COMPLIMENTARY" },
+    ]);
+    const res = await bulkType(req({ registrationIds: ["u1", "c1"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBeLessThan(400);
+    // One type seat (the uncategorised row), none for the companion.
+    expect(rawClaims(mockDb._tx.$executeRaw, "TicketType")).toEqual([{ id: "T", count: 1 }]);
+    // And one event seat: a row with no type held none.
+    const eventClaims = rawSeatCalls(mockDb._tx.$executeRaw).filter((c) => c.table === "Event");
+    expect(eventClaims.map((c) => c.values.slice(0, 2))).toEqual([[1, "ev1"]]);
+    expect(mockDb._tx.ticketType.updateMany).not.toHaveBeenCalled(); // nothing released
+  });
+
+  it("a full event refuses moving an uncategorised row in, and nothing moves (EVENT_FULL)", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      { id: "u1", ticketTypeId: null, attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "COMPLIMENTARY" },
+    ]);
+    mockDb._tx.$executeRaw.mockImplementation(seatRawExecutor({ Event: false }));
+    const res = await bulkType(req({ registrationIds: ["u1"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("EVENT_FULL");
+    expect(mockDb._tx.registration.updateMany).not.toHaveBeenCalled();
   });
 
   it("a PUBLIC+TIER reg releases its TIER counter AND the old type (the ceiling), then claims the new type (P1.1)", async () => {

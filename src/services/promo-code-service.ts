@@ -6,6 +6,7 @@ import { readRegistrationBasePrice } from "@/lib/registration-financials";
 import { sponsorExistsOnEvent } from "@/lib/sponsors";
 import { sponsorCoverError } from "@/lib/promo-sponsor-cover";
 import { promoDiscount, promoRefusal, promoSponsorCovers, type PromoRefusal } from "@/lib/promo-redeem";
+import { lockRegistrationRows } from "@/lib/registration-row-lock";
 
 /**
  * Promo-code application against an EXISTING registration.
@@ -100,6 +101,9 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
 
   try {
     const out = await tenantTransaction(async (tx) => {
+      // The registration row first, then the promo row: the order every
+      // seat-moving path takes (review of 8740deeb, M3).
+      await lockRegistrationRows(tx, input.eventId, [input.registrationId]);
       const reg = await tx.registration.findFirst({
         where: { id: input.registrationId, eventId: input.eventId },
         include: {
@@ -298,6 +302,7 @@ export async function removePromoCodeFromRegistration(input: {
 }): Promise<RemovePromoResult> {
   try {
     const removed = await tenantTransaction(async (tx) => {
+      await lockRegistrationRows(tx, input.eventId, [input.registrationId]);
       const reg = await tx.registration.findFirst({
         where: { id: input.registrationId, eventId: input.eventId },
         select: { id: true, status: true, paymentStatus: true, promoCodeId: true },

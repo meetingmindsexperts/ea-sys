@@ -6,10 +6,24 @@
  * DELETE_BLOCKED audit snapshot. A clean registration still deletes normally.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// Row locks are Postgres FOR UPDATE; a mocked transaction cannot take them.
+// Pinned against the real database in
+// tests/integration-db/registration-row-lock.db.test.ts.
+const { mockLockRegistrationRows } = vi.hoisted(() => ({ mockLockRegistrationRows: vi.fn(async () => undefined) }));
+vi.mock("@/lib/registration-row-lock", () => ({
+  lockRegistrationRows: mockLockRegistrationRows,
+  lockRegistrationIfUnchanged: vi.fn(async () => "unchanged"),
+}));
 
 const { mockDb, mockAuth } = vi.hoisted(() => {
+  // The delete re-reads the row under its lock; the same fixture serves both reads.
+  const registrationRead = vi.fn();
   const tx = {
-    registration: { delete: vi.fn().mockResolvedValue({}), count: vi.fn().mockResolvedValue(0) },
+    registration: {
+      delete: vi.fn().mockResolvedValue({}),
+      count: vi.fn().mockResolvedValue(0),
+      findUniqueOrThrow: (...a: unknown[]) => registrationRead(...a),
+    },
     promoCode: { update: vi.fn().mockResolvedValue({}) },
     attendee: { delete: vi.fn().mockResolvedValue({}) },
     // H4: the delete tx now releases any room the person held before the DB
@@ -20,7 +34,7 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
   return {
     mockDb: {
       event: { findFirst: vi.fn() },
-      registration: { findFirst: vi.fn() },
+      registration: { findFirst: registrationRead },
       invoice: { findMany: vi.fn() },
       payment: { findMany: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },

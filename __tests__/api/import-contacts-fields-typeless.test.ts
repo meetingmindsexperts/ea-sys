@@ -165,11 +165,12 @@ describe("import-contacts — typeless (uncategorised) import", () => {
     expect(regData.paymentStatus).toBe("COMPLIMENTARY"); // nothing to owe without a price
     expect(regData.originalPrice).toBeNull(); // no price to stamp
     expect(regData.qrCode).toEqual(expect.stringMatching(/^\d{13,}$/));
-    // No ticket-type counter to move — but the event-wide counter still counts them.
+    // No counter to move: no ticket-type seat, and no event seat either. A row
+    // with no type holds none (holdsEventSeat, the event recount); it gains
+    // both when a type is assigned, so counting it here counted it twice
+    // (Oct 29, 2026).
     expect(mockDb._tx.ticketType.updateMany).not.toHaveBeenCalled();
-    expect(mockDb._tx.event.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { seatCount: { increment: 1 } } }),
-    );
+    expect(mockDb._tx.event.updateMany).not.toHaveBeenCalled();
 
     // The attendee's free-text mirror falls back to the contact's own category.
     const attData = mockDb._tx.attendee.create.mock.calls[0][0].data as Record<string, unknown>;

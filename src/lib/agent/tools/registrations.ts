@@ -763,18 +763,15 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
             }
           }
         }
-        // Guarded release — never drives usedCount negative (was an unguarded
-        // `promoCode.update({ decrement })` before the seat/promo consolidation).
-        for (const [promoId, n] of promoRelease) {
-          await releasePromoUsage(tx, promoId, n);
-        }
-        for (const [promoId, n] of promoClaim) {
-          await claimPromoUsage(tx, promoId, n);
-        }
-        for (const { counter, count } of toRelease.values()) {
+        // Counters in sorted order (review of 8740deeb, L4): seats, then the
+        // event seat, then promo usage, as applyRegistrationTransition does, so
+        // this cannot cross a single-row path or another bulk change.
+        const sorted = (m: Map<string, { counter: SeatCounter; count: number }>) =>
+          [...m].sort(([x], [y]) => x.localeCompare(y)).map(([, v]) => v);
+        for (const { counter, count } of sorted(toRelease)) {
           await releaseSeats(tx, counter, count);
         }
-        for (const { counter, count } of toClaim.values()) {
+        for (const { counter, count } of sorted(toClaim)) {
           // Bulk reactivation can't cleanly partial-fail 200 rows on a capacity
           // guard, so it's allowed to oversell — but logged so it's never silent
           // (single-row paths still hard-block via CAPACITY_EXCEEDED).
@@ -809,6 +806,14 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
               source: ctx.source,
             });
           }
+        }
+        // Guarded release — never drives usedCount negative (was an unguarded
+        // `promoCode.update({ decrement })` before the seat/promo consolidation).
+        for (const [promoId, n] of [...promoRelease].sort(([x], [y]) => x.localeCompare(y))) {
+          await releasePromoUsage(tx, promoId, n);
+        }
+        for (const [promoId, n] of [...promoClaim].sort(([x], [y]) => x.localeCompare(y))) {
+          await claimPromoUsage(tx, promoId, n);
         }
         const res = await tx.registration.updateMany({
           where: {

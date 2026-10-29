@@ -271,7 +271,24 @@ export async function executeCheckIn(args: ExecuteCheckInArgs) {
         })
       ).count > 0;
 
-  if (!won) {
+  // The override lost because the row is no longer cancelled: someone
+  // reactivated it meanwhile, so it holds its seat again. Check it in plainly,
+  // without the transition, rather than report a check-in that did not happen
+  // (review of 8740deeb, L5).
+  const reclaimed =
+    !won &&
+    !!args.reactivation &&
+    (
+      await db.registration.updateMany({
+        where: { id: args.registrationId, eventId: args.eventId, checkedInAt: null, status: { not: "CANCELLED" } },
+        data: claimData,
+      })
+    ).count > 0;
+  if (reclaimed) {
+    apiLogger.info({ msg: "check-in:reactivated-meanwhile", eventId: args.eventId, registrationId: args.registrationId });
+  }
+
+  if (!won && !reclaimed) {
     // A concurrent scan already checked this registration in. Return the
     // existing row idempotently — no duplicate audit row, no second
     // notification, no clobbered timestamp.

@@ -7,6 +7,7 @@ import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from
 import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError, issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
 import { applyRegistrationTransition } from "@/lib/registration-seat-db";
+import { lockRegistrationRows } from "@/lib/registration-row-lock";
 import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { findStripeRefundForAttempt } from "@/lib/refund-reconciliation";
@@ -786,7 +787,10 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
         // RE-READ the seat-relevant fields INSIDE the transaction (review M2):
         // the pre-refund snapshot is seconds old by now — a concurrent type/tier
         // change during the CN + Stripe phase would make us release the WRONG
-        // counter (double-release the old type, leak the new one).
+        // counter (double-release the old type, leak the new one). LOCKED first
+        // (review of 8740deeb, M1): a plain read here could still see the old
+        // type while a bulk move holding the row committed a new one.
+        await lockRegistrationRows(tx, eventId, [registrationId]);
         const fresh = await tx.registration.findUnique({
           where: { id: registrationId },
           select: { status: true, attendanceMode: true, ticketTypeId: true, pricingTierId: true, createdSource: true, promoCodeId: true },
