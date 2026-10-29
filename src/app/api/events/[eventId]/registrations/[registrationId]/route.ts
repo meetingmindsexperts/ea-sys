@@ -469,8 +469,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
 }
 
 export async function DELETE(req: Request, { params }: RouteParams) {
+  // Resolved before the try so the catch's logs can name the registration.
+  const { eventId, registrationId } = await params;
   try {
-    const { eventId, registrationId } = await params;
     const session = await auth();
 
     if (!session?.user) {
@@ -604,10 +605,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       // type change that landed since the read above is not released a second
       // time (review of 8740deeb, M3).
       await lockRegistrationRows(tx, eventId, [registrationId]);
-      const held = await tx.registration.findUniqueOrThrow({
+      const held = await tx.registration.findUnique({
         where: { id: registrationId },
         select: { status: true, attendanceMode: true, ticketTypeId: true, pricingTierId: true, createdSource: true, promoCodeId: true },
       });
+      // Deleted by someone else since the read above: nothing to release.
+      if (!held) throw new RegistrationGoneError();
       // Release the seat this registration actually held, on the correct counter
       // (tier vs ticket type). Gating on holdsSeat also fixes the latent bug
       // where deleting a VIRTUAL (uncapped) reg wrongly decremented the counter.
@@ -688,10 +691,22 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true });
     });
   } catch (error) {
+    if (error instanceof RegistrationGoneError) {
+      apiLogger.warn({ msg: "registration-delete:already-deleted", eventId, registrationId });
+      return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
     apiLogger.error({ err: error, msg: "Error deleting registration" });
     return NextResponse.json(
       { error: "Failed to delete registration" },
       { status: 500 }
     );
+  }
+}
+
+/** Deleted by a concurrent request between the route's read and its lock. */
+class RegistrationGoneError extends Error {
+  constructor() {
+    super("REGISTRATION_GONE");
+    this.name = "RegistrationGoneError";
   }
 }

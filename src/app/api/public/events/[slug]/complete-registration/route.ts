@@ -20,8 +20,8 @@ import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
 import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { parseRegistrationFormIdentifier, type RegistrationFormRate } from "@/lib/registration-form-link";
 import { linkMayReprice, priceAtLinkRate, RESTAMPABLE_STATUSES, stampedPaymentStatus, type LinkRepriceState } from "@/lib/registration-form-pricing";
-import { applyRegistrationTransition, claimSeat } from "@/lib/registration-seat-db";
-import { holdsSeat, seatCounter, type SeatState } from "@/lib/registration-seat";
+import { applyRegistrationTransition, claimEventSeats } from "@/lib/registration-seat-db";
+import { holdsEventSeat, type SeatState } from "@/lib/registration-seat";
 import { registerTierSlug } from "@/lib/main-register-tiers";
 import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import {
@@ -519,12 +519,12 @@ function storedCurrency(registration: StoredPricing): string {
 }
 
 /**
- * Moves the seat for a completion on a rated link. A registration with no type
- * yet was already counted on the EVENT at import ("an uncategorised row ... the
- * event-wide counter still moves"), so it claims only its new type's counter,
- * exactly as the legacy typeless path does (review of b269ff6e, M1); going
- * through the transition would count the event seat a second time. Every
- * other move (keep or change type) is the shared transition.
+ * Moves the seat for a completion on a rated link, through the shared
+ * transition in every case. A registration with no type holds no event seat
+ * (holdsEventSeat, owner decision July 24, 2026), so gaining its first type
+ * claims the type's seat AND the event's. Imports used to count the event
+ * seat up front and this skipped it (review of b269ff6e, M1); the imports no
+ * longer do, so the transition is right for both (Oct 29, 2026).
  */
 async function moveLinkSeat(
   tx: Prisma.TransactionClient,
@@ -532,12 +532,7 @@ async function moveLinkSeat(
   prev: SeatState,
   next: SeatState,
 ): Promise<void> {
-  if (prev.ticketTypeId) {
-    await applyRegistrationTransition(tx, { eventId, prev, next });
-    return;
-  }
-  const counter = holdsSeat(next.status, next.attendanceMode) ? seatCounter(next) : null;
-  if (counter && !(await claimSeat(tx, counter))) throw new Error("CAPACITY_EXCEEDED");
+  await applyRegistrationTransition(tx, { eventId, prev, next });
 }
 
 /** The type and price a completion settled on, for the email and the response. */
@@ -951,6 +946,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           data: { soldCount: { increment: 1 } },
         });
         if (claimed.count === 0) throw new SoldOutError();
+        // Its first type also gives it its event seat: a typeless row holds none
+        // (holdsEventSeat), and the imports no longer count one up front.
+        const gainsEventSeat = holdsEventSeat({
+          status: registration.status,
+          attendanceMode: registration.attendanceMode,
+          createdSource: registration.createdSource,
+          ticketTypeId: resolvedType.id,
+          pricingTierId: resolvedTier?.id ?? null,
+        });
+        if (gainsEventSeat && !(await claimEventSeats(tx, registration.event.id))) throw new SoldOutError();
 
         // Conditional claim on the registration ROW (`ticketTypeId: null` in
         // the where): the pre-tx "has no type" check is a stale read, so an

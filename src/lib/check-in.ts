@@ -266,7 +266,9 @@ export async function executeCheckIn(args: ExecuteCheckInArgs) {
       })
     : (
         await db.registration.updateMany({
-          where: { id: args.registrationId, eventId: args.eventId, checkedInAt: null },
+          // Not a row cancelled since the gate read it: checking it in would
+          // hold a seat the cancel already released (review of 5ca4281f, M2).
+          where: { id: args.registrationId, eventId: args.eventId, checkedInAt: null, status: { not: "CANCELLED" } },
           data: claimData,
         })
       ).count > 0;
@@ -382,7 +384,10 @@ export async function undoCheckIn(args: UndoCheckInArgs): Promise<UndoCheckInRes
   const include = { attendee: true, ticketType: true } as const;
 
   const claim = await db.registration.updateMany({
-    where: { id: args.registrationId, eventId: args.eventId, checkedInAt: { not: null } },
+    // Only a row that is still checked in: cancel leaves checkedInAt set, and
+    // undoing a cancelled row would bring it back to CONFIRMED holding a seat
+    // no counter has (review of 5ca4281f, M3).
+    where: { id: args.registrationId, eventId: args.eventId, checkedInAt: { not: null }, status: "CHECKED_IN" },
     data: { status: "CONFIRMED", checkedInAt: null },
   });
   if (claim.count === 0) {

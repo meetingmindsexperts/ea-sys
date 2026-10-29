@@ -56,7 +56,7 @@ vi.mock("@/lib/email", () => ({ sendRegistrationConfirmation: confirmationMock }
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/registrant-account", () => ({ ensureRegistrantAccount: vi.fn() }));
 vi.mock("@/lib/registration-confirmation", () => ({ buildEventConfirmationFields: vi.fn(() => ({})) }));
-vi.mock("@/lib/registration-seat-db", () => ({ applyRegistrationTransition: transitionMock, claimSeat: claimSeatMock }));
+vi.mock("@/lib/registration-seat-db", () => ({ applyRegistrationTransition: transitionMock, claimSeat: claimSeatMock, claimEventSeats: vi.fn(async () => true) }));
 
 import { GET, POST } from "@/app/api/public/events/[slug]/complete-registration/route";
 
@@ -199,9 +199,12 @@ describe("POST with a rated link", () => {
     expect(res.status).toBe(200);
     expect(rowWrite().where).toMatchObject({ id: "reg-1", ticketTypeId: null, userId: null });
     expect(rowWrite().data).toMatchObject({ ticketTypeId: "tt-phys", originalPrice: 250, paymentStatus: "UNASSIGNED" });
-    // The event seat was counted at import: only the type counter is claimed (review M1).
-    expect(claimSeatMock.mock.calls[0][1]).toEqual({ kind: "ticketType", id: "tt-phys" });
-    expect(transitionMock).not.toHaveBeenCalled();
+    // Its first type: the shared transition claims the type seat AND the event
+    // seat, which a typeless row does not hold (holdsEventSeat; Oct 29, 2026).
+    expect(transitionMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      prev: expect.objectContaining({ ticketTypeId: null }),
+      next: expect.objectContaining({ ticketTypeId: "tt-phys" }),
+    }));
   });
 
   it("refuses a closed rate (D3) and writes nothing", async () => {
@@ -302,7 +305,7 @@ describe("POST with a rated link", () => {
 
   it("a typeless person whose type is full is a 409 (review M1 path)", async () => {
     mockDb.registration.findFirst.mockResolvedValue(registration({ ticketTypeId: null, ticketType: null, pricingTier: null, pricingTierId: null, paymentStatus: "COMPLIMENTARY" }));
-    claimSeatMock.mockResolvedValue(false);
+    transitionMock.mockRejectedValueOnce(new Error("CAPACITY_EXCEEDED"));
     const res = await post({ ticketTypeId: "tt-phys" });
     expect(res.status).toBe(409);
   });

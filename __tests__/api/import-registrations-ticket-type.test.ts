@@ -183,8 +183,9 @@ describe("CSV import — registration type resolution", () => {
     expect(createdRegistration().ticketTypeId).toBeNull();
     // No type ⇒ no ticket-type counter to claim...
     expect(mockDb.ticketType.updateMany).not.toHaveBeenCalled();
-    // ...but the person still occupies an event-wide seat.
-    expect(mockIncrementEventSeats).toHaveBeenCalledTimes(1);
+    // ...and no event seat: one is held iff a ticket seat is (holdsEventSeat,
+    // owner decision July 24, 2026). It is claimed when a type is assigned.
+    expect(mockIncrementEventSeats).not.toHaveBeenCalled();
   });
 
   it("never invents a ticket type when the event has none", async () => {

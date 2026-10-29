@@ -527,8 +527,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           const rowIsCancelled = rowRegistrationStatus === "CANCELLED";
           if (!rowIsVirtual && !rowIsCancelled) {
             // An uncategorised row has no ticket-type counter to move
-            // (`seatCounter` agrees), but it IS a real attendee, so the
-            // event-wide counter below still moves for it.
+            // (`seatCounter` agrees) and no event seat either: an event seat is
+            // held iff a ticket seat is (holdsEventSeat, owner decision July 24,
+            // 2026). It gains both when a type is assigned (Oct 29, 2026).
             if (ticketType) {
               const claimed = await tx.ticketType.updateMany({
                 where: { id: ticketType.id, soldCount: { lt: ticketType.quantity } },
@@ -541,8 +542,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             // Event-wide cap: imports BYPASS the cap (owner decision July 24,
             // 2026) — unguarded increment, warn when over, mirroring the bulk
             // oversell posture. The event counter moves with the ticket counter.
-            const eventSeat = await incrementEventSeatsOverselling(tx, eventId);
-            if (eventSeat.oversold) {
+            const eventSeat = ticketType ? await incrementEventSeatsOverselling(tx, eventId) : null;
+            if (eventSeat?.oversold) {
               apiLogger.warn({
                 msg: "import:event-oversold",
                 eventId,

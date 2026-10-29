@@ -28,8 +28,9 @@ function typeOrPriceWrites(mock: { mock: { calls: unknown[][] } }): unknown[] {
 const {
   mockTokenFindUnique, mockTokenDelete, mockRegFindFirst, mockTtFindFirst, mockTtFindMany,
   mockTransaction, mockTxTtUpdateMany, mockTxRegUpdateMany, mockTxAttendeeUpdate,
-  mockTxTokenDelete, mockTxAuditCreate,
+  mockTxTokenDelete, mockTxAuditCreate, mockTxExecuteRaw,
 } = vi.hoisted(() => ({
+  mockTxExecuteRaw: vi.fn(),
   mockTokenFindUnique: vi.fn(),
   mockTokenDelete: vi.fn(),
   mockRegFindFirst: vi.fn(),
@@ -110,6 +111,9 @@ function makeRegistration(overrides: Record<string, unknown> = {}) {
     id: "reg-1",
     serialId: 7,
     status: "CONFIRMED",
+    attendanceMode: "IN_PERSON",
+    createdSource: "CSV_IMPORT",
+    qrCode: "QR-EXISTING", // already has its entry barcode, so none is minted
     userId: null,
     attendeeId: "att-1",
     taxNumber: null,
@@ -167,8 +171,10 @@ beforeEach(() => {
   mockTxAttendeeUpdate.mockResolvedValue({});
   mockTxTokenDelete.mockResolvedValue({});
   mockTxAuditCreate.mockResolvedValue({});
+  mockTxExecuteRaw.mockResolvedValue(1); // the event-seat claim fits
   mockTransaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
     cb({
+      $executeRaw: mockTxExecuteRaw,
       ticketType: { updateMany: mockTxTtUpdateMany },
       registration: { updateMany: mockTxRegUpdateMany },
       attendee: { update: mockTxAttendeeUpdate },
@@ -230,6 +236,20 @@ describe("completion type-set — base behavior", () => {
         paymentStatus: "UNASSIGNED", // default was COMPLIMENTARY → now payable
       }),
     });
+  });
+
+  it("its first type also claims its event seat; a full event refuses (Oct 29, 2026)", async () => {
+    mockTtFindFirst.mockResolvedValue(makeChosenType());
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
+    expect(res.status).toBe(200);
+    const eventClaims = mockTxExecuteRaw.mock.calls.filter((c) => (c[0] as string[]).join("?").includes('"Event"'));
+    expect(eventClaims).toHaveLength(1);
+
+    mockTxExecuteRaw.mockResolvedValue(0); // event full
+    mockTxRegUpdateMany.mockClear();
+    const full = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
+    expect(full.status).toBe(409);
+    expect(typeOrPriceWrites(mockTxRegUpdateMany)).toEqual([]);
   });
 
   it("409s REGISTRATION_TYPE_SOLD_OUT and rolls back when the seat claim loses", async () => {

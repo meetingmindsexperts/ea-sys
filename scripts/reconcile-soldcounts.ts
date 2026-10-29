@@ -1,6 +1,7 @@
 /**
  * One-time reconciliation — recompute TicketType.soldCount AND
- * PricingTier.soldCount from row-truth and reset any that have drifted.
+ * PricingTier.soldCount AND Event.seatCount (since Oct 29, 2026) from
+ * row-truth and reset any that have drifted.
  *
  * WHY: before the ROADMAP P1.1 fix, the decrement/transition paths (cancel /
  * delete / type-change / bulk / MCP) unconditionally moved `TicketType.soldCount`
@@ -29,7 +30,8 @@
  *   npx tsx scripts/reconcile-soldcounts.ts --write --event <eventId>
  */
 import { db } from "../src/lib/db";
-import { holdsSeat, seatCounter } from "../src/lib/registration-seat";
+import { holdsEventSeat, holdsSeat, seatCounter } from "../src/lib/registration-seat";
+import { HELD_SEAT_WHERE } from "../src/lib/registration-seat-db";
 
 const write = process.argv.includes("--write");
 const eventArgIdx = process.argv.indexOf("--event");
@@ -48,7 +50,7 @@ async function main() {
 
   const events = await db.event.findMany({
     where: eventFilter ? { id: eventFilter } : {},
-    select: { id: true, name: true },
+    select: { id: true, name: true, seatCount: true },
     orderBy: { createdAt: "asc" },
   });
 
@@ -127,6 +129,26 @@ async function main() {
             countersFixed++;
           }
         }
+      }
+    }
+
+    // The event-wide counter (Event.seatCount), Oct 29, 2026: held iff a
+    // ticket/tier seat is (holdsEventSeat), so a row with no type holds none.
+    // Imports used to count those, and the completion form counted them again
+    // on getting a type. Written under the event row lock with a recount, as
+    // the event-cap PUT does, so a live registration cannot race it.
+    countersChecked++;
+    const eventComputed = regs.filter((r) => holdsEventSeat(r)).length;
+    if (eventComputed !== event.seatCount) {
+      countersDrifted++;
+      drifts.push(`  Event seats: stored ${event.seatCount} → ${eventComputed}`);
+      if (write) {
+        await db.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${event.id} FOR UPDATE`;
+          const live = await tx.registration.count({ where: { eventId: event.id, ticketTypeId: { not: null }, ...HELD_SEAT_WHERE } });
+          await tx.event.update({ where: { id: event.id }, data: { seatCount: live } });
+        });
+        countersFixed++;
       }
     }
 

@@ -215,8 +215,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           // Atomically claim a seat — the `soldCount < quantity` predicate ON
           // the update is the guard, so concurrent imports / public
           // registrations can't oversell the last seat. count 0 = full.
-          // An uncategorised row has no ticket-type counter; the event-wide
-          // counter below still moves for it.
+          // An uncategorised row has no ticket-type counter and no event seat
+          // (holdsEventSeat, owner decision July 24, 2026); it gains both when a
+          // type is assigned (Oct 29, 2026).
           if (defaultTicketType) {
             const claimed = await tx.ticketType.updateMany({
               where: { id: defaultTicketType.id, soldCount: { lt: defaultTicketType.quantity } },
@@ -228,8 +229,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           }
           // Event-wide cap: imports BYPASS the cap (owner decision July 24,
           // 2026) — unguarded increment, warn when over.
-          const eventSeat = await incrementEventSeatsOverselling(tx, eventId);
-          if (eventSeat.oversold) {
+          const eventSeat = defaultTicketType ? await incrementEventSeatsOverselling(tx, eventId) : null;
+          if (eventSeat?.oversold) {
             apiLogger.warn({
               msg: "import:event-oversold",
               eventId,

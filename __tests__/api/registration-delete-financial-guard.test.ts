@@ -22,7 +22,7 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
     registration: {
       delete: vi.fn().mockResolvedValue({}),
       count: vi.fn().mockResolvedValue(0),
-      findUniqueOrThrow: (...a: unknown[]) => registrationRead(...a),
+      findUnique: (...a: unknown[]) => registrationRead(...a),
     },
     promoCode: { update: vi.fn().mockResolvedValue({}) },
     attendee: { delete: vi.fn().mockResolvedValue({}) },
@@ -126,6 +126,16 @@ describe("registration DELETE — financial-records guard", () => {
     expect(body.code).toBe("HAS_FINANCIAL_RECORDS");
     expect(body.paymentCount).toBe(1);
     expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("a registration deleted by someone else meanwhile is a 404, not a 500 (review of 5ca4281f)", async () => {
+    // The route's first read finds it; the read under the lock does not.
+    const original = mockDb.registration.findFirst.getMockImplementation();
+    let calls = 0;
+    mockDb.registration.findFirst.mockImplementation(async (...a: unknown[]) => (calls++ === 0 ? original?.(...a) : null));
+    const res = await DELETE(delReq(), { params });
+    expect(res.status).toBe(404);
+    expect(mockDb._tx.registration.delete).not.toHaveBeenCalled();
   });
 
   it("deletes normally when there are no financial records", async () => {

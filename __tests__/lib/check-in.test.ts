@@ -253,7 +253,7 @@ describe("executeCheckIn", () => {
     // H3: the commit is a conditional claim, not an unconditional update —
     // event-bound (tenancy C1) so a foreign registrationId can't claim.
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "reg1", eventId: "ev1", checkedInAt: null } }),
+      expect.objectContaining({ where: { id: "reg1", eventId: "ev1", checkedInAt: null, status: { not: "CANCELLED" } } }),
     );
     expect(mockDb.$transaction).not.toHaveBeenCalled();
     expect(mockApplyTransition).not.toHaveBeenCalled();
@@ -404,7 +404,7 @@ describe("undoCheckIn (H2)", () => {
     });
     expect(res).toEqual({ ok: true, registration: REVERTED });
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: "reg1", eventId: "ev1", checkedInAt: { not: null } },
+      where: { id: "reg1", eventId: "ev1", checkedInAt: { not: null }, status: "CHECKED_IN" },
       data: { status: "CONFIRMED", checkedInAt: null },
     });
     expect(mockDb.auditLog.create).toHaveBeenCalledWith(

@@ -135,8 +135,11 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
       // Counters in one sorted order, releases and claims together, so two bulk
       // moves in opposite directions cannot take them in opposite orders; then
-      // the event seat, as applyRegistrationTransition does. The claim is
-      // all-or-nothing: if it can't fit, the whole move rolls back.
+      // the event seat (the phase order applyRegistrationTransition uses). Not a
+      // global order: a single edit moving A→B against a bulk B→A can still
+      // collide, which Postgres ends by aborting one (40P01), never by
+      // miscounting. The claim is all-or-nothing: if it can't fit, the whole
+      // move rolls back.
       for (const [, { counter, delta }] of [...ops].sort(([a], [b]) => a.localeCompare(b))) {
         if (delta < 0) await releaseSeats(tx, counter, -delta);
         if (delta > 0 && !(await claimSeats(tx, counter, delta))) throw new Error("CAPACITY_EXCEEDED");

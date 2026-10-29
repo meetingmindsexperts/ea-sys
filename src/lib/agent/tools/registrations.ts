@@ -764,8 +764,10 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
           }
         }
         // Counters in sorted order (review of 8740deeb, L4): seats, then the
-        // event seat, then promo usage, as applyRegistrationTransition does, so
-        // this cannot cross a single-row path or another bulk change.
+        // event seat, then promo usage, the phase order applyRegistrationTransition
+        // uses. Two bulk changes cannot cross; a single-row path still can in
+        // rare cases, which Postgres ends by aborting one (40P01), never by
+        // miscounting.
         const sorted = (m: Map<string, { counter: SeatCounter; count: number }>) =>
           [...m].sort(([x], [y]) => x.localeCompare(y)).map(([, v]) => v);
         for (const { counter, count } of sorted(toRelease)) {
