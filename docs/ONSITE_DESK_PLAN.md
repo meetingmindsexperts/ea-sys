@@ -212,6 +212,22 @@ that clears itself after a few seconds. The tablet needs no staff login.
 - Owner, Oct 29: an **Edit** on each desk row for what prints on the badge
   (title, name, position, organisation, country), through the registration
   PUT with its optimistic lock; the email stays on Change Email.
+- Review fixes (of `cf9775fd`): a row with no type that holds money, an
+  invoice, a refund, a promo code or a group gets no link (`TYPE_REQUIRED`):
+  the form would let them pick a type and leave the row priced at it, so the
+  organiser sets the type first. Reopening a waiting person's window shows
+  their link again instead of minting one (which would revoke the link they
+  are typing into); "New link" asks first. The waiting list polls one small
+  `GET .../registrations/completion-status?ids=` for everyone, chained, paused
+  while the tab is hidden, and drops people who are gone or cancelled. The
+  tablet tab opens with `noopener`, autofill is off on every field including
+  billing, a form left idle for 5 minutes is cleared, and the hand-back
+  screen blanks itself when the tab cannot close. Edit shows only with
+  `registrations.update` and reloads on a conflict.
+- The hand-back screen (owner, Oct 29) shows the event, their name, type and
+  email, says the confirmation with the entry barcode was emailed (the
+  completion route now returns `emailed`, so a failed send is never claimed),
+  and asks them to hand the tablet back, with a 20-second countdown.
 - The desk's search also matches a full name in either order
   (`matchesDeskSearch`); the Registrations page's rule is unchanged because
   its CSV export must hold exactly the rows on screen.

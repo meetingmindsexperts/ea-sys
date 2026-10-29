@@ -8,6 +8,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
 import { renderQrPng } from "@/lib/barcode";
+import { RESTAMPABLE_STATUSES } from "@/lib/registration-form-pricing";
 import { mintOnsiteCompletionLink } from "@/services/registration-form-service";
 
 /**
@@ -56,7 +57,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       const registration = await db.registration.findFirst({
         where: { id: registrationId, eventId },
-        select: { id: true, status: true, userId: true, completedAt: true },
+        select: {
+          id: true, status: true, userId: true, completedAt: true, ticketTypeId: true,
+          paymentStatus: true, refundedAmount: true, promoCodeId: true, groupId: true,
+          _count: { select: { payments: true, invoices: { where: { status: { not: "CANCELLED" } } } } },
+        },
       });
       if (!registration) {
         apiLogger.warn({ msg: "onsite-link:registration-not-found", eventId, registrationId, userId: session.user.id });
@@ -70,6 +75,19 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (registration.completedAt || registration.userId) {
         apiLogger.warn({ msg: "onsite-link:already-completed", eventId, registrationId, userId: session.user.id });
         return NextResponse.json({ error: "Their details are already complete.", code: "ALREADY_COMPLETED" }, { status: 409 });
+      }
+
+      // With no type, the form lets them pick one and stamps its price. That is
+      // safe only while nothing about the money is settled: a payment, an
+      // invoice, a refund, a promo code or a group would leave the row priced
+      // at whatever they chose (review of cf9775fd, HIGH 1). The organiser sets
+      // the type first; with a type, the details-only link keeps it.
+      if (!registration.ticketTypeId && holdsMoney(registration)) {
+        apiLogger.warn({ msg: "onsite-link:type-required", eventId, registrationId, paymentStatus: registration.paymentStatus, userId: session.user.id });
+        return NextResponse.json(
+          { error: "Set their registration type first: money is already recorded against this registration.", code: "TYPE_REQUIRED" },
+          { status: 409 },
+        );
       }
 
       const { url, expires } = await mintOnsiteCompletionLink({
@@ -104,4 +122,22 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.error({ err, msg: "onsite-link:failed", eventId, registrationId });
     return NextResponse.json({ error: "Failed to create the link" }, { status: 500 });
   }
+}
+
+/** Money, a promo or a group already attached: the same checks the emailed form makes before re-pricing. */
+function holdsMoney(reg: {
+  paymentStatus: Parameters<typeof RESTAMPABLE_STATUSES.includes>[0];
+  refundedAmount: unknown;
+  promoCodeId: string | null;
+  groupId: string | null;
+  _count: { payments: number; invoices: number };
+}): boolean {
+  return (
+    !RESTAMPABLE_STATUSES.includes(reg.paymentStatus) ||
+    Number(reg.refundedAmount) > 0 ||
+    reg._count.payments > 0 ||
+    reg._count.invoices > 0 ||
+    !!reg.promoCodeId ||
+    !!reg.groupId
+  );
 }

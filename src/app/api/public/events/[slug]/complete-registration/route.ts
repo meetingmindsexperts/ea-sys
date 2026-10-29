@@ -1158,7 +1158,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const savedBilling = (key: string): string | null =>
       key in billingWrite ? billingWrite[key] : ((registration as unknown as Record<string, string | null>)[key] ?? null);
 
-    // Send confirmation email
+    // Send confirmation email. Whether it went is returned, so the desk
+    // tablet's hand-back screen never claims an email that failed.
+    let emailed = true;
     try {
       const finalPrice = final.price;
       const finalCurrency = final.currency;
@@ -1196,6 +1198,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         taxNumber: savedBilling("taxNumber"),
       });
     } catch (emailError) {
+      emailed = false;
       apiLogger.error({ err: emailError, msg: "Failed to send confirmation email after registration completion" });
     }
 
@@ -1213,6 +1216,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketPrice: final.price,
         ticketCurrency: final.currency,
       },
+      emailed,
     });
     });
   } catch (error) {

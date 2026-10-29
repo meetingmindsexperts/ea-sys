@@ -200,7 +200,10 @@ function CompleteRegistrationContent() {
   const [supportingDoc, setSupportingDoc] = useState<UploadedDocument | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
   const [billingSame, setBillingSame] = useState(true);
-  const [handedBack, setHandedBack] = useState(false);
+  // Tablet mode: what the hand-back screen shows once the form is in.
+  const [handedBack, setHandedBack] = useState<HandBackDetails | null>(null);
+  // Tablet mode: an abandoned form is cleared, so the next person never sees it.
+  const [idledOut, setIdledOut] = useState(false);
 
   const form = useForm<CompletionForm>({
     resolver: zodResolver(completionSchema),
@@ -369,10 +372,18 @@ function CompleteRegistrationContent() {
         setSubmitting(false);
         return;
       }
-      if (tablet) {
-        // The desk opened this tab; close it once the person has read the screen.
-        setHandedBack(true);
-        setTimeout(() => window.close(), 8000);
+      if (tablet && data) {
+        const typeName =
+          data.selectableTicketTypes?.find((t) => t.id === formData.ticketTypeId)?.name ?? data.ticketType?.name ?? null;
+        setHandedBack({
+          name: [data.attendee.firstName, data.attendee.lastName].filter(Boolean).join(" "),
+          email: data.attendee.email,
+          typeName,
+          eventName: data.event.name,
+          eventDate: data.event.startDate,
+          venue: [data.event.venue, data.event.city].filter(Boolean).join(", ") || null,
+          emailed: result.emailed !== false,
+        });
         return;
       }
       const confirmParams = new URLSearchParams({
@@ -388,6 +399,23 @@ function CompleteRegistrationContent() {
     }
   }
 
+  // Tablet mode: clear a form left untouched for 5 minutes (review of
+  // cf9775fd), so an abandoned one never reaches the next person.
+  useEffect(() => {
+    if (!tablet || handedBack || idledOut) return;
+    let timer = setTimeout(() => setIdledOut(true), TABLET_IDLE_MS);
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => setIdledOut(true), TABLET_IDLE_MS);
+    };
+    const events = ["pointerdown", "keydown", "input", "scroll"] as const;
+    events.forEach((name) => window.addEventListener(name, reset, { passive: true }));
+    return () => {
+      clearTimeout(timer);
+      events.forEach((name) => window.removeEventListener(name, reset));
+    };
+  }, [tablet, handedBack, idledOut]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
@@ -399,15 +427,17 @@ function CompleteRegistrationContent() {
     );
   }
 
-  if (handedBack) {
+  if (handedBack) return <TabletHandBack details={handedBack} />;
+
+  if (idledOut) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-green-50 flex items-center justify-center">
-            <CheckCircle className="h-7 w-7 text-green-600" />
-          </div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">Thank you, your registration is complete</h2>
-          <p className="text-slate-500 text-sm">Please hand the tablet back to the registration desk.</p>
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">This form was closed</h2>
+          <p className="text-slate-500 text-sm">
+            It was left without activity for a few minutes, so it was cleared to keep the details private. Please ask the
+            registration desk for a new link.
+          </p>
         </div>
       </div>
     );
@@ -506,7 +536,7 @@ function CompleteRegistrationContent() {
 
           <div className="p-4 sm:p-6 sm:px-10">
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit, showBlockedSubmit)} className="space-y-8">
+              <form onSubmit={form.handleSubmit(onSubmit, showBlockedSubmit)} autoComplete={tablet ? "off" : undefined} className="space-y-8">
 
                 {/* Section: Registration type — only when the organizer's
                     import didn't set one. Prices shown are today's rate; the
@@ -794,7 +824,7 @@ function CompleteRegistrationContent() {
                 )}
 
                 {showBilling && (
-                  <BillingDetailsSection control={form.control} billingSame={billingSame} onBillingSameChange={setBillingSame} />
+                  <BillingDetailsSection control={form.control} billingSame={billingSame} onBillingSameChange={setBillingSame} autoCompleteOff={tablet} />
                 )}
 
                 {/* Section: Create Account (not on the desk's shared tablet) */}
@@ -896,5 +926,100 @@ export default function CompleteRegistrationPage() {
     }>
       <CompleteRegistrationContent />
     </Suspense>
+  );
+}
+
+const TABLET_IDLE_MS = 5 * 60_000;
+const HAND_BACK_SECONDS = 20;
+
+interface HandBackDetails {
+  name: string;
+  email: string;
+  typeName: string | null;
+  eventName: string;
+  eventDate: string;
+  venue: string | null;
+  /** The confirmation email went out (the route says when it did not). */
+  emailed: boolean;
+}
+
+/**
+ * The desk tablet's screen after submitting (docs/ONSITE_DESK_PLAN.md §5.3):
+ * what they registered as, where their confirmation went, and what happens
+ * next. It clears itself: the desk opened this tab, so it closes; a tab the
+ * desk typed in by hand cannot close, so it is blanked instead.
+ */
+function TabletHandBack({ details }: { details: HandBackDetails }) {
+  const [left, setLeft] = useState(HAND_BACK_SECONDS);
+  useEffect(() => {
+    const tick = setInterval(() => setLeft((n) => Math.max(0, n - 1)), 1000);
+    const close = setTimeout(() => {
+      window.close();
+      // Still here: the tab was not opened by script, so it cannot close.
+      setTimeout(() => window.location.replace("about:blank"), 500);
+    }, HAND_BACK_SECONDS * 1000);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(close);
+    };
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
+      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-lg">
+        <div className="bg-gradient-primary px-8 py-6 text-white">
+          <p className="text-xs font-medium uppercase tracking-wider opacity-90">Registration complete</p>
+          <h1 className="mt-1 text-xl font-semibold">{details.eventName}</h1>
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm opacity-90">
+            <span className="inline-flex items-center gap-1.5">
+              <Calendar className="h-4 w-4" /> {format(new Date(details.eventDate), "MMM d, yyyy")}
+            </span>
+            {details.venue && (
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="h-4 w-4" /> {details.venue}
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="space-y-6 p-8">
+          <div className="flex items-center gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-green-50">
+              <CheckCircle className="h-7 w-7 text-green-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">You&apos;re all set, {details.name}</h2>
+              <p className="text-sm text-slate-500">Thank you for completing your registration.</p>
+            </div>
+          </div>
+
+          <dl className="grid grid-cols-1 gap-3 rounded-xl bg-slate-50 p-4 text-sm sm:grid-cols-2">
+            {details.typeName && (
+              <div>
+                <dt className="text-xs uppercase tracking-wider text-slate-400">Registration type</dt>
+                <dd className="font-medium text-slate-800">{details.typeName}</dd>
+              </div>
+            )}
+            <div className="min-w-0">
+              <dt className="text-xs uppercase tracking-wider text-slate-400">Email</dt>
+              <dd className="truncate font-medium text-slate-800">{details.email}</dd>
+            </div>
+          </dl>
+
+          <div className="space-y-2 text-sm text-slate-600">
+            {details.emailed ? (
+              <p>
+                Your confirmation, with your entry barcode, has been emailed to{" "}
+                <span className="font-medium text-slate-800">{details.email}</span>. Keep it for entry to the sessions.
+              </p>
+            ) : (
+              <p>We could not email your confirmation just now. The registration desk will make sure you receive it.</p>
+            )}
+            <p className="font-medium text-slate-800">Please hand the tablet back to the registration desk; they will print your badge.</p>
+          </div>
+
+          <p className="text-center text-xs text-slate-400 tabular-nums">This screen clears in {left} s.</p>
+        </div>
+      </div>
+    </div>
   );
 }

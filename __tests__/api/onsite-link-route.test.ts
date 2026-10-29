@@ -30,12 +30,17 @@ import { POST } from "@/app/api/events/[eventId]/registrations/[registrationId]/
 const params = { params: Promise.resolve({ eventId: "evt-1", registrationId: "reg-1" }) };
 const call = () => POST(new Request("http://x/onsite-link", { method: "POST" }), params);
 const EXPIRES = new Date("2026-10-29T10:30:00Z");
+const ROW = {
+  id: "reg-1", status: "CONFIRMED", userId: null, completedAt: null, ticketTypeId: "tt-1",
+  paymentStatus: "UNASSIGNED", refundedAmount: 0, promoCodeId: null, groupId: null,
+  _count: { payments: 0, invoices: 0 },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "user-1", role: "ADMIN", organizationId: "org-1" } });
   mockDb.event.findFirst.mockResolvedValue({ id: "evt-1", slug: "gcc" });
-  mockDb.registration.findFirst.mockResolvedValue({ id: "reg-1", status: "CONFIRMED", userId: null, completedAt: null });
+  mockDb.registration.findFirst.mockResolvedValue(ROW);
   mockDb.auditLog.create.mockResolvedValue({});
   mockMint.mockResolvedValue({ url: "https://x.test/e/gcc/complete-registration?token=abc", expires: EXPIRES });
   mockQr.mockResolvedValue(Buffer.from("png"));
@@ -58,7 +63,7 @@ describe("POST onsite-link", () => {
 
   it("refuses someone already complete (completedAt or an account) or cancelled, before minting", async () => {
     for (const row of [{ completedAt: new Date() }, { userId: "u-9" }, { status: "CANCELLED" }]) {
-      mockDb.registration.findFirst.mockResolvedValueOnce({ id: "reg-1", status: "CONFIRMED", userId: null, completedAt: null, ...row });
+      mockDb.registration.findFirst.mockResolvedValueOnce({ ...ROW, ...row });
       expect((await call()).status).toBe(409);
     }
     expect(mockMint).not.toHaveBeenCalled();
@@ -72,5 +77,31 @@ describe("POST onsite-link", () => {
     mockDb.registration.findFirst.mockResolvedValueOnce(null);
     expect((await call()).status).toBe(404);
     expect(mockMint).not.toHaveBeenCalled();
+  });
+
+  it("with no type, refuses a row whose money is settled in any way, so the form cannot price it (review HIGH 1)", async () => {
+    const typeless = { ...ROW, ticketTypeId: null };
+    for (const row of [
+      { paymentStatus: "PAID" },
+      { paymentStatus: "PENDING" },
+      { refundedAmount: 10 },
+      { _count: { payments: 1, invoices: 0 } },
+      { _count: { payments: 0, invoices: 1 } },
+      { promoCodeId: "promo-1" },
+      { groupId: "grp-1" },
+    ]) {
+      mockDb.registration.findFirst.mockResolvedValueOnce({ ...typeless, ...row });
+      const res = await call();
+      expect(res.status, JSON.stringify(row)).toBe(409);
+      expect((await res.json()).code).toBe("TYPE_REQUIRED");
+    }
+    expect(mockMint).not.toHaveBeenCalled();
+  });
+
+  it("with no type and nothing settled, or with a type whatever the money, it mints", async () => {
+    mockDb.registration.findFirst.mockResolvedValueOnce({ ...ROW, ticketTypeId: null, paymentStatus: "COMPLIMENTARY" });
+    expect((await call()).status).toBe(200);
+    mockDb.registration.findFirst.mockResolvedValueOnce({ ...ROW, paymentStatus: "PAID", _count: { payments: 1, invoices: 1 } });
+    expect((await call()).status).toBe(200);
   });
 });

@@ -109,11 +109,15 @@ export function BillingDetailsSection<T extends FieldValues>({
   control,
   billingSame,
   onBillingSameChange,
+  autoCompleteOff = false,
 }: {
   control: Control<T>;
   billingSame: boolean;
   onBillingSameChange: (same: boolean) => void;
+  /** The onsite desk's shared tablet: nothing the browser remembers is offered to the next person. */
+  autoCompleteOff?: boolean;
 }) {
+  const ac = (value: string) => (autoCompleteOff ? "off" : value);
   return (
     <div className="space-y-5">
       <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Billing Details</h3>
@@ -127,14 +131,14 @@ export function BillingDetailsSection<T extends FieldValues>({
         <div className="space-y-4 pt-1">
           <BillingInput control={control} name="taxNumber" label="Tax Number / VAT ID" autoComplete="off" placeholder="e.g. AE1234567890" />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <BillingInput control={control} name="billingFirstName" label="First Name" required autoComplete="billing given-name" placeholder="Billing first name" />
-            <BillingInput control={control} name="billingLastName" label="Last Name" required autoComplete="billing family-name" placeholder="Billing last name" />
+            <BillingInput control={control} name="billingFirstName" label="First Name" required autoComplete={ac("billing given-name")} placeholder="Billing first name" />
+            <BillingInput control={control} name="billingLastName" label="Last Name" required autoComplete={ac("billing family-name")} placeholder="Billing last name" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <BillingInput control={control} name="billingEmail" label="Email" required type="email" autoComplete="billing email" placeholder="billing@company.com" />
-            <BillingInput control={control} name="billingPhone" label="Phone" required type="tel" autoComplete="billing tel" placeholder="+971..." />
+            <BillingInput control={control} name="billingEmail" label="Email" required type="email" autoComplete={ac("billing email")} placeholder="billing@company.com" />
+            <BillingInput control={control} name="billingPhone" label="Phone" required type="tel" autoComplete={ac("billing tel")} placeholder="+971..." />
           </div>
-          <BillingInput control={control} name="billingAddress" label="Address" required autoComplete="billing street-address" placeholder="Street address" />
+          <BillingInput control={control} name="billingAddress" label="Address" required autoComplete={ac("billing street-address")} placeholder="Street address" />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField
               control={control}
@@ -149,11 +153,11 @@ export function BillingDetailsSection<T extends FieldValues>({
                 </FormItem>
               )}
             />
-            <BillingInput control={control} name="billingCity" label="City" required autoComplete="billing address-level2" placeholder="City" />
+            <BillingInput control={control} name="billingCity" label="City" required autoComplete={ac("billing address-level2")} placeholder="City" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <BillingInput control={control} name="billingState" label="State / Province" required autoComplete="billing address-level1" placeholder="State" />
-            <BillingInput control={control} name="billingZipCode" label="Zip / Postal Code" required autoComplete="billing postal-code" placeholder="00000" />
+            <BillingInput control={control} name="billingState" label="State / Province" required autoComplete={ac("billing address-level1")} placeholder="State" />
+            <BillingInput control={control} name="billingZipCode" label="Zip / Postal Code" required autoComplete={ac("billing postal-code")} placeholder="00000" />
           </div>
         </div>
       )}

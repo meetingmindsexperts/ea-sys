@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -15,7 +15,8 @@ import { useTickets, queryKeys, fetchApi } from "@/hooks/use-api";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatPersonName } from "@/lib/utils";
 import { deskEnterAction, matchesDeskSearch } from "@/lib/desk-enter";
-import { CompleteOnsiteDialog, EditDetailsDialog, useWaitingList, type OnsitePerson } from "./desk-onsite";
+import { CompleteOnsiteDialog, EditDetailsDialog, useWaitingList, type OnsiteLink, type OnsitePerson } from "./desk-onsite";
+import { useCan } from "@/hooks/use-can";
 import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
@@ -172,7 +173,12 @@ function walkInTotal(price: number, currency: string, tax: DeskTax): number {
 }
 
 function personOf(r: DeskRegistration): OnsitePerson {
-  return { id: r.id, name: formatPersonName(r.attendee.title, r.attendee.firstName, r.attendee.lastName), email: r.attendee.email };
+  return {
+    id: r.id,
+    name: formatPersonName(r.attendee.title, r.attendee.firstName, r.attendee.lastName),
+    email: r.attendee.email,
+    typeName: r.ticketType?.name ?? null,
+  };
 }
 
 function isFormCompleted(r: DeskRegistration): boolean {
@@ -250,6 +256,11 @@ export function DeskPanel({
   const searchRef = useRef<HTMLInputElement>(null);
   const [onsitePerson, setOnsitePerson] = useState<OnsitePerson | null>(null);
   const [editing, setEditing] = useState<DeskRegistration | null>(null);
+  // The link each person was given at this desk, kept in memory so reopening
+  // their window shows it again instead of revoking it (review of cf9775fd).
+  const onsiteLinks = useRef(new Map<string, OnsiteLink>());
+  // Edit only for those who may (a custom role may hold check-in without it).
+  const canEdit = useCan("registrations.update", eventId) === "allowed";
 
   // One payment panel at a time, and it starts clean: a second row must not
   // inherit the first row's card digits (review of 26c17807, LOW 8).
@@ -291,6 +302,15 @@ export function DeskPanel({
   const onsiteRow = onsitePerson ? registrations.find((r) => r.id === onsitePerson.id) : undefined;
   const onsiteCompleted =
     !!onsitePerson && (!!waitingEntries.find((e) => e.id === onsitePerson.id)?.completed || (!!onsiteRow && isFormCompleted(onsiteRow)));
+
+  const addWaiting = waiting.add;
+  const onLinkCreated = useCallback(
+    (person: OnsitePerson, link: OnsiteLink) => {
+      onsiteLinks.current.set(person.id, link);
+      addWaiting(person, link.expiresAt);
+    },
+    [addWaiting],
+  );
 
   /** From the Complete onsite window, once their form is in: pay first when owed, then admit. */
   const admitOnsite = () => {
@@ -506,7 +526,7 @@ export function DeskPanel({
                   <button
                     key={entry.id}
                     type="button"
-                    onClick={() => (entry.completed ? setOnsitePerson(entry) : setQuery(entry.email))}
+                    onClick={() => setOnsitePerson(entry)}
                     className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
                       entry.completed ? "border-green-200 bg-green-50 text-green-800" : "bg-white text-slate-700"
                     }`}
@@ -552,9 +572,11 @@ export function DeskPanel({
                             <Smartphone className="h-3.5 w-3.5" /> Complete onsite
                           </Button>
                         )}
-                        <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => setEditing(r)}>
-                          <Pencil className="h-3.5 w-3.5" /> Edit
-                        </Button>
+                        {canEdit && (
+                          <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => setEditing(r)}>
+                            <Pencil className="h-3.5 w-3.5" /> Edit
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -619,7 +641,8 @@ export function DeskPanel({
         eventId={eventId}
         person={onsitePerson}
         completed={onsiteCompleted}
-        onLinkCreated={waiting.add}
+        cachedLink={onsitePerson ? onsiteLinks.current.get(onsitePerson.id) ?? null : null}
+        onLinkCreated={onLinkCreated}
         onAdmit={admitOnsite}
         onClose={() => {
           setOnsitePerson(null);

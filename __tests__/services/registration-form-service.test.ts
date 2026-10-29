@@ -18,6 +18,8 @@ const { mockDb, tx, sendEmailMock, getEventTemplateMock, transitionMock } = vi.h
       sponsor: { findFirst: vi.fn() },
       registration: { findMany: vi.fn() },
       verificationToken: { deleteMany: vi.fn(), create: vi.fn() },
+      // The onsite link revokes and creates in one batch transaction.
+      $transaction: vi.fn(async (ops: unknown[]) => Promise.all(ops)),
     },
   };
 });
@@ -247,6 +249,9 @@ describe("the onsite link (docs/ONSITE_DESK_PLAN.md §5.4)", () => {
     // The rate-less form: the completion route keeps their type and price, and
     // money already recorded does not stop them.
     expect(mockDb.verificationToken.create.mock.calls[0][0].data.identifier).toBe("reg:reg-1");
+    // Revoke and create in one transaction, so two desks leave one live link.
+    expect(mockDb.$transaction).toHaveBeenCalledTimes(1);
+    expect(mockDb.$transaction.mock.calls[0][0]).toHaveLength(2);
   });
 });
 

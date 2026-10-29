@@ -72,6 +72,7 @@ import {
   DELETE as checkInDELETE,
 } from "@/app/api/events/[eventId]/registrations/[registrationId]/check-in/route";
 import { POST as walkInPOST } from "@/app/api/events/[eventId]/registrations/walk-in/route";
+import { GET as completionStatusGET } from "@/app/api/events/[eventId]/registrations/completion-status/route";
 import { POST as onsiteLinkPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/onsite-link/route";
 import { POST as walkInDocumentPOST } from "@/app/api/events/[eventId]/registrations/walk-in/document/route";
 import { POST as paymentPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/payments/route";
@@ -156,6 +157,7 @@ const CASES: HandlerCase[] = [
     method: "POST",
     form: { file: { name: "letter.pdf", type: "application/pdf", content: "%PDF-1.4 test" } },
   },
+  { name: "GET registrations/completion-status", handler: completionStatusGET, method: "GET", query: "ids=r1" },
   { name: "POST registrations/[registrationId]/onsite-link", handler: onsiteLinkPOST, method: "POST", params: reg },
   { name: "POST registrations/[registrationId]/payments", handler: paymentPOST, method: "POST", params: reg, body: { method: "cash", cashReceivedBy: "Desk" } },
   { name: "POST registrations/[registrationId]/email", handler: emailPOST, method: "POST", params: reg, body: { type: "confirmation" } },

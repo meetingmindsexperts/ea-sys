@@ -377,16 +377,20 @@ export async function mintOnsiteCompletionLink(input: {
   minutes: number;
   appUrl: string;
 }): Promise<{ url: string; expires: Date }> {
-  await revokeRegistrationFormLinks(input.registrationId);
   const rawToken = crypto.randomBytes(32).toString("hex");
   const expires = new Date(Date.now() + input.minutes * 60_000);
-  await db.verificationToken.create({
-    data: {
-      identifier: detailsOnlyRegistrationFormIdentifier(input.registrationId),
-      token: hashVerificationToken(rawToken),
-      expires,
-    },
-  });
+  const { exact, startsWith } = registrationFormIdentifierPrefixes(input.registrationId);
+  // One transaction, so two desks minting at once leave one live link.
+  await db.$transaction([
+    db.verificationToken.deleteMany({ where: { OR: [{ identifier: exact }, { identifier: { startsWith } }] } }),
+    db.verificationToken.create({
+      data: {
+        identifier: detailsOnlyRegistrationFormIdentifier(input.registrationId),
+        token: hashVerificationToken(rawToken),
+        expires,
+      },
+    }),
+  ]);
   return { url: `${input.appUrl}/e/${input.eventSlug}/complete-registration?token=${rawToken}`, expires };
 }
 
