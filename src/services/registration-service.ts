@@ -24,6 +24,7 @@
 import type { Prisma, RegistrationCreatedSource } from "@prisma/client";
 import { AttendanceMode, PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
+import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -851,6 +852,9 @@ export async function createRegistration(
   const storedPaymentStatus = () => paymentStatusWithPromo(finalPaymentStatus, promoClaim);
   try {
     registration = await tenantTransaction(async (tx) => {
+      // Same person, same event: one at a time, so the check below sees a
+      // concurrent request's row (src/lib/registration-email-lock.ts).
+      await lockRegistrationEmails(tx, eventId, [email]);
       // Dup check excludes CANCELLED — matches REST + MCP behavior post-Phase-0
       // so a re-registration after cancellation is allowed.
       const existing = await tx.registration.findFirst({

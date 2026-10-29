@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -475,6 +476,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       try {
         const newRegId = await tenantTransaction(async (tx) => {
+          // One at a time per person (src/lib/registration-email-lock.ts).
+          await lockRegistrationEmails(tx, eventId, [email]);
           // Check for duplicate registration (same email + same event)
           const existing = await tx.registration.findFirst({
             where: { eventId, attendee: { email }, status: { notIn: ["CANCELLED"] } },

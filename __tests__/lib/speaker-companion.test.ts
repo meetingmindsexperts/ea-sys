@@ -4,6 +4,11 @@
  * (COMPLIMENTARY, no soldCount increment, Faculty badge/barcode).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// The per-person lock is an advisory lock in Postgres; a mocked transaction
+// cannot take it. Its behaviour is pinned against the real database in
+// tests/integration-db/registration-email-lock.db.test.ts.
+const { mockLockRegistrationEmails } = vi.hoisted(() => ({ mockLockRegistrationEmails: vi.fn(async () => undefined) }));
+vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: mockLockRegistrationEmails }));
 
 const ticketTypeFindFirst = vi.fn();
 const ticketTypeCreate = vi.fn();
@@ -16,10 +21,15 @@ const txAttendeeCreate = vi.fn();
 const txRegistrationCreate = vi.fn();
 // H2 (Aug 5 2026): the create-path link is a CONDITIONAL updateMany claim.
 const txSpeakerUpdateMany = vi.fn();
+// The duplicate check behind the per-person lock, inside the create transaction.
+const txRegistrationFindFirst = vi.fn();
 
 const tx = {
   attendee: { create: (...a: unknown[]) => txAttendeeCreate(...a) },
-  registration: { create: (...a: unknown[]) => txRegistrationCreate(...a) },
+  registration: {
+    create: (...a: unknown[]) => txRegistrationCreate(...a),
+    findFirst: (...a: unknown[]) => txRegistrationFindFirst(...a),
+  },
   speaker: { updateMany: (...a: unknown[]) => txSpeakerUpdateMany(...a) },
 };
 
@@ -69,8 +79,10 @@ const base = {
 beforeEach(() => {
   [
     ticketTypeFindFirst, ticketTypeCreate, registrationFindFirst, speakerUpdate,
-    speakerFindUnique, txAttendeeCreate, txRegistrationCreate, txSpeakerUpdateMany,
+    speakerFindUnique, txAttendeeCreate, txRegistrationCreate, txSpeakerUpdateMany, txRegistrationFindFirst,
   ].forEach((m) => m.mockReset());
+  // Default: nobody registered between the read and the create.
+  txRegistrationFindFirst.mockResolvedValue(null);
   txAttendeeCreate.mockResolvedValue({ id: "att_new" });
   txRegistrationCreate.mockResolvedValue({ id: "reg_new" });
   // Default: the conditional link claim succeeds (no concurrent grant).
@@ -119,6 +131,20 @@ describe("ensureSpeakerCompanionRegistration", () => {
       expect.objectContaining({ where: { id: "spk_1" }, data: { sourceRegistrationId: "reg_match" } }),
     );
     expect(txRegistrationCreate).not.toHaveBeenCalled();
+  });
+
+  it("someone registered between the read and the create: found behind the per-person lock and linked, no second registration", async () => {
+    registrationFindFirst.mockResolvedValueOnce(null);
+    ticketTypeFindFirst.mockResolvedValueOnce({ id: "ftype" });
+    txRegistrationFindFirst.mockResolvedValueOnce({ id: "reg_raced", qrCode: "QR9", attendanceMode: "IN_PERSON" });
+
+    const res = await ensureSpeakerCompanionRegistration(base);
+    expect(res).toEqual({ status: "linked-by-email", registrationId: "reg_raced" });
+    expect(mockLockRegistrationEmails).toHaveBeenCalledWith(expect.anything(), base.eventId, [base.email]);
+    expect(txRegistrationCreate).not.toHaveBeenCalled();
+    expect(speakerUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "spk_1" }, data: { sourceRegistrationId: "reg_raced" } }),
+    );
   });
 
   it("H2: a LOST link race rolls back the create and returns the winner's registration", async () => {

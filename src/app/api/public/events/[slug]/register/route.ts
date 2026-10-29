@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, tenantTransaction } from "@/lib/db";
+import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -499,6 +500,9 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Atomic transaction: attendee create + duplicate check + soldCount increment + registration create
     const result = await tenantTransaction(async (tx) => {
+      // Same person, same event: one at a time, so the check below sees a
+      // concurrent request's row (src/lib/registration-email-lock.ts).
+      await lockRegistrationEmails(tx, event.id, [email]);
       // Check if already registered (same email + same event)
       const existingRegistration = await tx.registration.findFirst({
         where: {
@@ -961,16 +965,21 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
     }
-    // Handle Prisma unique constraint on attendee email (P2002)
+    // A unique collision. There is no email unique to hit (Attendee's was
+    // dropped on Mar 30, 2026; duplicates are stopped by the per-person lock
+    // and the check behind it), so this is an entry barcode or serial number
+    // colliding, not "already registered". Nothing was saved; asking them to
+    // submit again mints fresh values (Oct 29, 2026).
     if (
       typeof error === "object" &&
       error !== null &&
       "code" in error &&
       (error as { code: string }).code === "P2002"
     ) {
+      apiLogger.error({ err: error, msg: "public/register:unique-collision", slug: slugForLog, target: (error as { meta?: { target?: unknown } }).meta?.target ?? null });
       return NextResponse.json(
-        { error: "You are already registered for this event" },
-        { status: 400 }
+        { error: "Your registration could not be saved. Please submit the form again.", code: "RETRY" },
+        { status: 409 }
       );
     }
     apiLogger.error({ err: error, msg: "Error creating public registration" });

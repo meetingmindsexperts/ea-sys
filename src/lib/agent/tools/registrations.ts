@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
+import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
@@ -1008,6 +1009,15 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
         };
 
         const result = await tenantTransaction(async (tx) => {
+          // The check above is a fast path; this one, behind the per-person
+          // lock, is the one that holds against a concurrent create
+          // (src/lib/registration-email-lock.ts).
+          await lockRegistrationEmails(tx, ctx.eventId, [email]);
+          const raced = await tx.registration.findFirst({
+            where: { eventId: ctx.eventId, status: { not: "CANCELLED" }, attendee: { email } },
+            select: { id: true },
+          });
+          if (raced) throw new BulkRowDuplicate();
           const attendee = await tx.attendee.create({
             data: {
               organizationId: ctx.organizationId,
@@ -1116,6 +1126,11 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
         }).catch((err) => apiLogger.error({ err, index: i, email }, "agent:create_registrations_bulk contact-sync-failed"));
       } catch (err) {
         const rowEmail = (items[i] as { email?: string }).email;
+        if (err instanceof BulkRowDuplicate) {
+          errors.push({ index: i, email: rowEmail, error: `Registration for ${rowEmail} already exists`, code: "ALREADY_EXISTS" });
+          apiLogger.warn({ eventId: ctx.eventId, index: i, email: rowEmail }, "agent:create_registrations_bulk row-duplicate-raced");
+          continue;
+        }
         const message = err instanceof Error ? err.message : "Unknown error";
         errors.push({ index: i, email: rowEmail, error: message, code: "ROW_FAILED" });
         apiLogger.warn(
@@ -1181,3 +1196,11 @@ export const REGISTRATION_EXECUTORS: Record<string, ToolExecutor> = {
   list_ticket_types: listTicketTypes,
   create_ticket_type: createTicketType,
 };
+
+/** A bulk row whose person was registered by a concurrent request (found behind the lock). */
+class BulkRowDuplicate extends Error {
+  constructor() {
+    super("ALREADY_EXISTS");
+    this.name = "BulkRowDuplicate";
+  }
+}

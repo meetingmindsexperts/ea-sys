@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
+import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
@@ -159,6 +160,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         await tenantTransaction(async (tx) => {
           const phone = contact.contactPhoneNumbers?.mobile || contact.workPhone || null;
 
+          // One at a time per person (src/lib/registration-email-lock.ts).
+          await lockRegistrationEmails(tx, eventId, [email]);
           // Check for duplicate registration (same email + same event)
           const existing = await tx.registration.findFirst({
             where: { eventId, attendee: { email }, status: { notIn: ["CANCELLED"] } },

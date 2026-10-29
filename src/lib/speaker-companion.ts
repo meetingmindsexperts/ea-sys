@@ -11,6 +11,7 @@
  * path and the activity timeline already use).
  */
 import { db, tenantTransaction } from "@/lib/db";
+import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
@@ -140,6 +141,17 @@ export interface CompanionSpeakerInput {
   sourceRegistrationId?: string | null;
 }
 
+/** A registration the speaker already holds, as the link step needs it. */
+type ExistingRegistration = Prisma.RegistrationGetPayload<{ select: { id: true; qrCode: true; attendanceMode: true } }>;
+
+/** The person registered while the companion was being made: link theirs instead. */
+class CompanionFoundRegistration extends Error {
+  constructor(public readonly registration: ExistingRegistration) {
+    super("COMPANION_FOUND_REGISTRATION");
+    this.name = "CompanionFoundRegistration";
+  }
+}
+
 /** Thrown inside the create tx when the conditional link claim matches 0 rows
  *  (a concurrent grant won) — rolls the whole create back. Internal. */
 class CompanionLinkRaceError extends Error {
@@ -154,6 +166,38 @@ export type CompanionResult =
   | { status: "linked-by-email"; registrationId: string }
   | { status: "created"; registrationId: string }
   | { status: "link-only-no-create"; registrationId: null };
+
+/**
+ * Link the speaker to a registration they already hold (never duplicate a real
+ * registrant). Shared by the read before the create and the re-check inside it.
+ */
+async function linkExistingRegistration(
+  speaker: CompanionSpeakerInput,
+  existing: ExistingRegistration,
+): Promise<CompanionResult> {
+  await db.speaker.update({
+    where: { id: speaker.id },
+    data: { sourceRegistrationId: existing.id },
+  });
+  // The speaker's badge and check-in use this registration's barcode. One
+  // made by a path that minted none (Import from Contacts, before Oct 19,
+  // 2026) gets one now; guarded on qrCode: null, so none is ever replaced.
+  // Failure-isolated (review of 35eb4e35, L2): the link above is already
+  // made, so a failed mint must not report the speaker as failed. The
+  // backfill script recovers it.
+  try {
+    await ensureEntryBarcode(existing, "speaker-linked");
+  } catch (err) {
+    apiLogger.error({ err, msg: "speaker-companion:barcode-mint-failed", speakerId: speaker.id, registrationId: existing.id });
+  }
+  apiLogger.info({
+    msg: "speaker-companion:linked-existing",
+    speakerId: speaker.id,
+    eventId: speaker.eventId,
+    registrationId: existing.id,
+  });
+  return { status: "linked-by-email", registrationId: existing.id };
+}
 
 /**
  * Ensure the speaker has a companion registration, idempotently:
@@ -213,30 +257,7 @@ export async function ensureSpeakerCompanionRegistration(
       select: { id: true, qrCode: true, attendanceMode: true },
       orderBy: { createdAt: "asc" },
     });
-    if (existing) {
-      await db.speaker.update({
-        where: { id: speaker.id },
-        data: { sourceRegistrationId: existing.id },
-      });
-      // The speaker's badge and check-in use this registration's barcode. One
-      // made by a path that minted none (Import from Contacts, before Oct 19,
-      // 2026) gets one now; guarded on qrCode: null, so none is ever replaced.
-      // Failure-isolated (review of 35eb4e35, L2): the link above is already
-      // made, so a failed mint must not report the speaker as failed. The
-      // backfill script recovers it.
-      try {
-        await ensureEntryBarcode(existing, "speaker-linked");
-      } catch (err) {
-        apiLogger.error({ err, msg: "speaker-companion:barcode-mint-failed", speakerId: speaker.id, registrationId: existing.id });
-      }
-      apiLogger.info({
-        msg: "speaker-companion:linked-existing",
-        speakerId: speaker.id,
-        eventId: speaker.eventId,
-        registrationId: existing.id,
-      });
-      return { status: "linked-by-email", registrationId: existing.id };
-    }
+    if (existing) return linkExistingRegistration(speaker, existing);
   }
 
   if (opts?.linkOnly) {
@@ -263,6 +284,22 @@ export async function ensureSpeakerCompanionRegistration(
   const qrCode = generateBarcode();
 
   const registrationId = await tenantTransaction(async (tx) => {
+    // The read above is a fast path; behind the per-person lock, a registration
+    // a concurrent request just made is seen and linked instead of a second
+    // one being created (src/lib/registration-email-lock.ts).
+    if (speaker.email) {
+      await lockRegistrationEmails(tx, speaker.eventId, [speaker.email]);
+      const raced = await tx.registration.findFirst({
+        where: {
+          eventId: speaker.eventId,
+          attendee: { email: { equals: speaker.email, mode: "insensitive" } },
+          status: { not: "CANCELLED" },
+        },
+        select: { id: true, qrCode: true, attendanceMode: true },
+        orderBy: { createdAt: "asc" },
+      });
+      if (raced) throw new CompanionFoundRegistration(raced);
+    }
     const serialId = await getNextSerialId(tx, speaker.eventId, organizationId);
     const attendee = await tx.attendee.create({
       data: {
@@ -325,6 +362,7 @@ export async function ensureSpeakerCompanionRegistration(
     if (claim.count === 0) throw new CompanionLinkRaceError();
     return reg.id;
   }).catch(async (err) => {
+    if (err instanceof CompanionFoundRegistration) return { kind: "found" as const, registration: err.registration };
     if (!(err instanceof CompanionLinkRaceError)) throw err;
     // Lost the race — the winner's registration is the companion now. Our
     // attendee/registration/serial all rolled back with the transaction.
@@ -339,11 +377,15 @@ export async function ensureSpeakerCompanionRegistration(
       winnerRegistrationId: current?.sourceRegistrationId ?? null,
     });
     if (!current?.sourceRegistrationId) throw err; // pointer vanished — surface it
-    return { raceLostTo: current.sourceRegistrationId };
+    return { kind: "race-lost" as const, winnerId: current.sourceRegistrationId };
   });
 
+  if (typeof registrationId === "object" && registrationId.kind === "found") {
+    apiLogger.info({ msg: "speaker-companion:found-existing-in-tx", speakerId: speaker.id, eventId: speaker.eventId, registrationId: registrationId.registration.id });
+    return linkExistingRegistration(speaker, registrationId.registration);
+  }
   if (typeof registrationId === "object") {
-    return { status: "already-linked", registrationId: registrationId.raceLostTo };
+    return { status: "already-linked", registrationId: registrationId.winnerId };
   }
 
   apiLogger.info({

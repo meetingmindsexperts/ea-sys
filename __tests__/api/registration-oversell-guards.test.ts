@@ -6,9 +6,17 @@
  * nothing), never a silent oversell.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// The per-person lock is an advisory lock in Postgres; a mocked transaction
+// cannot take it. Its behaviour is pinned against the real database in
+// tests/integration-db/registration-email-lock.db.test.ts.
+const { mockLockRegistrationEmails } = vi.hoisted(() => ({ mockLockRegistrationEmails: vi.fn(async () => undefined) }));
+vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: mockLockRegistrationEmails }));
 import { rawClaims, seatRawExecutor } from "../helpers/raw-seat-sql";
 
 const { mockDb, mockAuth } = vi.hoisted(() => {
+  // Who is already registered is read inside the transaction now (behind the
+  // per-person lock); one function serves both handles.
+  const attendeeFindMany = vi.fn();
   const tx = {
     ticketType: { update: vi.fn().mockResolvedValue({}), updateMany: vi.fn(), findUnique: vi.fn() },
     event: {
@@ -18,14 +26,14 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
     $executeRaw: vi.fn(async () => 1),
     pricingTier: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn() },
     registration: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({ id: "reg" }) },
-    attendee: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({ id: "att" }) },
+    attendee: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({ id: "att" }), findMany: attendeeFindMany },
   };
   return {
     mockDb: {
       event: { findFirst: vi.fn() },
       ticketType: { findFirst: vi.fn() },
       registration: { findMany: vi.fn() },
-      attendee: { findMany: vi.fn() },
+      attendee: { findMany: attendeeFindMany },
       contact: { findMany: vi.fn() },
       auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
       $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)),

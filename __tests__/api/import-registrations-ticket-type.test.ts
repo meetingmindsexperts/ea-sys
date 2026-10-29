@@ -12,6 +12,11 @@
  * stays null. Faculty is not reachable implicitly from either direction.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// The per-person lock is an advisory lock in Postgres; a mocked transaction
+// cannot take it. Its behaviour is pinned against the real database in
+// tests/integration-db/registration-email-lock.db.test.ts.
+const { mockLockRegistrationEmails } = vi.hoisted(() => ({ mockLockRegistrationEmails: vi.fn(async () => undefined) }));
+vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: mockLockRegistrationEmails }));
 
 const { mockDb, mockAuth, mockApiLogger, mockIncrementEventSeats, mockSerial } = vi.hoisted(() => ({
   mockDb: {

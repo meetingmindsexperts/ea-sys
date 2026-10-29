@@ -13,8 +13,16 @@
  *     stamp + name mirror onto attendee.registrationType).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// The per-person lock is an advisory lock in Postgres; a mocked transaction
+// cannot take it. Its behaviour is pinned against the real database in
+// tests/integration-db/registration-email-lock.db.test.ts.
+const { mockLockRegistrationEmails } = vi.hoisted(() => ({ mockLockRegistrationEmails: vi.fn(async () => undefined) }));
+vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: mockLockRegistrationEmails }));
 
 const { mockDb, mockAuth } = vi.hoisted(() => {
+  // Who is already registered is read inside the transaction now (behind the
+  // per-person lock); one function serves both handles.
+  const attendeeFindMany = vi.fn();
   const tx = {
     ticketType: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     event: {
@@ -22,14 +30,14 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     registration: { create: vi.fn().mockResolvedValue({ id: "reg" }) },
-    attendee: { create: vi.fn().mockResolvedValue({ id: "att" }) },
+    attendee: { create: vi.fn().mockResolvedValue({ id: "att" }), findMany: attendeeFindMany },
   };
   return {
     mockDb: {
       event: { findFirst: vi.fn() },
       ticketType: { findFirst: vi.fn() },
       pricingTier: { findFirst: vi.fn() },
-      attendee: { findMany: vi.fn() },
+      attendee: { findMany: attendeeFindMany },
       contact: { findMany: vi.fn() },
       auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
       $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)),

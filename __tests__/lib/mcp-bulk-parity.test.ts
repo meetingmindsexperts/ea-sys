@@ -12,6 +12,11 @@
  *    synchronous JSON-RPC contract ({ success, sent, failed, total, errors }).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// The per-person lock is an advisory lock in Postgres; a mocked transaction
+// cannot take it. Its behaviour is pinned against the real database in
+// tests/integration-db/registration-email-lock.db.test.ts.
+const { mockLockRegistrationEmails } = vi.hoisted(() => ({ mockLockRegistrationEmails: vi.fn(async () => undefined) }));
+vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: mockLockRegistrationEmails }));
 
 const { mockDb, mockSyncToContact, mockExecuteBulkEmail, MockBulkEmailError } = vi.hoisted(() => {
   class MockBulkEmailError extends Error {
@@ -280,6 +285,8 @@ describe("create_registrations_bulk — M8 parity", () => {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       registration: {
+        // The duplicate check behind the per-person lock: nobody raced in.
+        findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockImplementation(async (args: { data: Record<string, unknown> }) => ({
           id: "reg1", serialId: 7, qrCode: args.data.qrCode,
         })),
@@ -406,5 +413,15 @@ describe("create_registrations_bulk — M8 parity", () => {
     expect(mockSyncToContact).toHaveBeenCalledWith(
       expect.objectContaining({ organization: null, phone: null, specialty: null, title: null }),
     );
+  });
+
+  it("a person registered by a concurrent request is reported ALREADY_EXISTS, found behind the per-person lock", async () => {
+    (mockDb as MockDb)._regTx.registration.findFirst.mockResolvedValue({ id: "raced" });
+    const out = (await REGISTRATION_EXECUTORS.create_registrations_bulk({ registrations: [row()] }, ctx)) as {
+      errors: Array<{ code: string }>;
+    };
+    expect(mockLockRegistrationEmails).toHaveBeenCalledWith(expect.anything(), "ev1", ["a@b.com"]);
+    expect(out.errors).toEqual([expect.objectContaining({ code: "ALREADY_EXISTS" })]);
+    expect((mockDb as MockDb)._regTx.registration.create).not.toHaveBeenCalled();
   });
 });

@@ -6,6 +6,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// The per-person lock is an advisory lock in Postgres; a mocked transaction
+// cannot take it. Its behaviour is pinned against the real database in
+// tests/integration-db/registration-email-lock.db.test.ts.
+const { mockLockRegistrationEmails } = vi.hoisted(() => ({ mockLockRegistrationEmails: vi.fn(async () => undefined) }));
+vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: mockLockRegistrationEmails }));
 import { rawClaims, rawSeatCalls, seatRawExecutor } from "../helpers/raw-seat-sql";
 
 const {
@@ -228,6 +233,14 @@ describe("createRegistration — happy path", () => {
       expect(result.registration.id).toBe("reg-1");
       expect(result.registration.paymentStatus).toBe("UNASSIGNED");
     }
+  });
+
+  it("takes the per-person lock before the duplicate check (Oct 29, 2026)", async () => {
+    await createRegistration(BASE_INPUT);
+    expect(mockLockRegistrationEmails).toHaveBeenCalledWith(expect.anything(), "evt-1", ["john@example.com"]);
+    expect(mockLockRegistrationEmails.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDb.registration.findFirst.mock.invocationCallOrder[0],
+    );
   });
 
   it("normalizes email to lowercase + trim before lookup and create", async () => {

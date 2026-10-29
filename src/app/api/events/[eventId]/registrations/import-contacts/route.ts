@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
@@ -137,24 +138,25 @@ export async function POST(req: Request, { params }: RouteParams) {
     // until a type is assigned (bulk Change Type / completion form).
     const originalPrice = ticketType ? Number(tier ? tier.price : ticketType.price) : null;
 
-    // Find existing registrations for this event by attendee email
-    const existingAttendees = await db.attendee.findMany({
-      where: {
-        email: { in: contacts.map((c) => c.email) },
-        registrations: { some: { eventId } },
-      },
-      select: { email: true },
-    });
+    // Create attendees and registrations in a transaction.
+    // tenantTransaction (tenancy pilot): identical to db.$transaction while
+    // RLS_SET_LOCAL is off; on an RLS deployment it pins the tx to the org.
+    const createdContacts = await tenantTransaction(async (tx) => {
+        // Who is already registered is read behind the per-person locks, so a
+        // concurrent create for one of them is seen here and skipped
+        // (src/lib/registration-email-lock.ts).
+        await lockRegistrationEmails(tx, eventId, contacts.map((c) => c.email));
+        const existingAttendees = await tx.attendee.findMany({
+          where: {
+            email: { in: contacts.map((c) => c.email) },
+            registrations: { some: { eventId } },
+          },
+          select: { email: true },
+        });
+        const existingEmails = new Set(existingAttendees.map((a) => a.email));
+        const toCreate = contacts.filter((c) => !existingEmails.has(c.email));
+        if (toCreate.length === 0) return toCreate;
 
-    const existingEmails = new Set(existingAttendees.map((a) => a.email));
-    const toCreate = contacts.filter((c) => !existingEmails.has(c.email));
-    const skipped = contacts.length - toCreate.length;
-
-    if (toCreate.length > 0) {
-      // Create attendees and registrations in a transaction.
-      // tenantTransaction (tenancy pilot): identical to db.$transaction while
-      // RLS_SET_LOCAL is off; on an RLS deployment it pins the tx to the org.
-      await tenantTransaction(async (tx) => {
         for (const contact of toCreate) {
           const attendee = await tx.attendee.create({
             data: {
@@ -249,8 +251,9 @@ export async function POST(req: Request, { params }: RouteParams) {
             source: "import-contacts",
           });
         }
+        return toCreate;
       });
-    }
+    const skipped = contacts.length - createdContacts.length;
 
     recordImport(req, {
       entityType: "Registration",
@@ -259,17 +262,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       userId: session.user.id,
       role: session.user.role,
       totalProcessed: contacts.length,
-      created: toCreate.length,
+      created: createdContacts.length,
       skipped,
       format: "contacts",
     });
 
     return NextResponse.json({
-      created: toCreate.length,
+      created: createdContacts.length,
       skipped,
       // Mirrors the CSV importer's report shape: rows imported without a
       // registration type (all-or-none here — one picker covers the batch).
-      uncategorised: ticketType ? 0 : toCreate.length,
+      uncategorised: ticketType ? 0 : createdContacts.length,
     });
     });
   } catch (error) {

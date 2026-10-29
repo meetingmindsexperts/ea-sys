@@ -37,6 +37,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
+import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -711,6 +712,10 @@ export async function createGroupRegistration(
       // $queryRaw cannot deserialize (caught in the live smoke; the bare form
       // throws "Failed to deserialize column of type 'void'").
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`group-register:${eventId}:${coordinatorEmail}`}))::text`;
+      // And each member, as every single create does, so a member cannot race
+      // their own public registration past the check below. Always after the
+      // coordinator's lock, in sorted order: no deadlock.
+      await lockRegistrationEmails(tx, eventId, members.map((m) => m.attendee.email));
 
       // Existing-registration duplicate check (non-CANCELLED, this event).
       // mode:"insensitive" — legacy CSV-era attendees can carry mixed-case
@@ -1405,6 +1410,7 @@ export async function addGroupMembers(
       // double-clicking Add cannot race their own submission past the
       // read-based duplicate check below.
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`group-register:${eventId}:${group.coordinatorEmail}`}))::text`;
+      await lockRegistrationEmails(tx, eventId, members.map((m) => m.attendee.email));
 
       const existing = await tx.registration.findFirst({
         where: {
