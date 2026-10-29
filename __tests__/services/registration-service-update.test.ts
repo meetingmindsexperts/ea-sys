@@ -13,6 +13,17 @@
  *    to persist "").
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// Row locks are Postgres FOR UPDATE; a mocked transaction cannot take them.
+// Pinned against the real database in
+// tests/integration-db/registration-row-lock.db.test.ts.
+const { mockLockRegistrationRows, mockLockRegistrationIfUnchanged } = vi.hoisted(() => ({
+  mockLockRegistrationRows: vi.fn(async () => undefined),
+  mockLockRegistrationIfUnchanged: vi.fn(async (): Promise<"unchanged" | "changed" | "gone"> => "unchanged"),
+}));
+vi.mock("@/lib/registration-row-lock", () => ({
+  lockRegistrationRows: mockLockRegistrationRows,
+  lockRegistrationIfUnchanged: mockLockRegistrationIfUnchanged,
+}));
 
 const { mockDb } = vi.hoisted(() => {
   const tx = {
@@ -88,7 +99,7 @@ function existing(over: Record<string, unknown> = {}) {
     id: "reg1", eventId: "ev1", status: "CONFIRMED", paymentStatus: "UNPAID",
     sponsorId: null, ticketTypeId: "tt1", attendeeId: "att1", promoCodeId: null,
     discountAmount: null, attendanceMode: "IN_PERSON", qrCode: "QR",
-    pricingTierId: null, createdSource: null,
+    pricingTierId: null, createdSource: null, updatedAt: new Date("2026-07-13T00:00:00.000Z"),
     attendee: { id: "att1", firstName: "A", lastName: "B", email: "a@b.com", tags: [], registrationType: "Physician" },
     ...over,
   };
@@ -183,6 +194,21 @@ describe("guards + sentinels come back as result values", () => {
       ...base, notes: "x", expectedUpdatedAt: "2026-07-13T00:00:00.000Z",
     });
     expect(r).toMatchObject({ ok: false, code: "STALE_WRITE" });
+  });
+
+  it("locks the row first and refuses STALE_WRITE when it changed since it was read, even without a token (Oct 29, 2026)", async () => {
+    mockLockRegistrationIfUnchanged.mockResolvedValueOnce("changed");
+    const r = await updateRegistration({ ...base, status: "CANCELLED" });
+    expect(r).toMatchObject({ ok: false, code: "STALE_WRITE" });
+    expect(mockLockRegistrationIfUnchanged).toHaveBeenCalledWith(expect.anything(), base.registrationId, new Date("2026-07-13T00:00:00.000Z"));
+    expect(mockDb._tx.registration.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("a row deleted since it was read refuses as gone, moving nothing", async () => {
+    mockLockRegistrationIfUnchanged.mockResolvedValueOnce("gone");
+    const r = await updateRegistration({ ...base, status: "CANCELLED" });
+    expect(r).toMatchObject({ ok: false, code: "REGISTRATION_NOT_FOUND" });
+    expect(mockDb._tx.registration.updateMany).not.toHaveBeenCalled();
   });
 
   it("UNIQUE_CONSTRAINT (dtcmBarcode) surfaces the friendly message", async () => {

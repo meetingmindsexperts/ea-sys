@@ -25,6 +25,7 @@ import type { Prisma, RegistrationCreatedSource } from "@prisma/client";
 import { AttendanceMode, PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { lockRegistrationEmails } from "@/lib/registration-email-lock";
+import { lockRegistrationIfUnchanged } from "@/lib/registration-row-lock";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -1582,6 +1583,15 @@ export async function updateRegistration(
 
     // ── The transaction: seat/promo transition + lock-gated writes ───────────
     const registration = await tenantTransaction(async (tx) => {
+      // Lock order, shared with cancel and the bulk moves: the registration
+      // row first, then the seat counters. Everything below is computed from
+      // `existing`, read before the transaction; a row that changed since (a
+      // bulk type change, a cancel) refuses as STALE_WRITE instead of moving
+      // the wrong counter, with or without the caller's token (Oct 29, 2026).
+      const locked = await lockRegistrationIfUnchanged(tx, registrationId, existing.updatedAt);
+      if (locked === "gone") throw new Error("REGISTRATION_DISAPPEARED");
+      if (locked === "changed") throw new Error("STALE_WRITE");
+
       const effectiveStatus = status || existing.status;
       const seatTierId = nextTierId !== undefined ? nextTierId : existing.pricingTierId;
 

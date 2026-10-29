@@ -252,8 +252,11 @@ export async function executeCheckIn(args: ExecuteCheckInArgs) {
 
   const won = args.reactivation
     ? await tenantTransaction(async (tx) => {
+        // Also still in the state the transition was computed from (cancelled):
+        // a row reactivated meanwhile would otherwise claim its seat twice
+        // (Oct 29, 2026). Row first, then the counters, as every path does.
         const claim = await tx.registration.updateMany({
-          where: { id: args.registrationId, eventId: args.eventId, checkedInAt: null },
+          where: { id: args.registrationId, eventId: args.eventId, checkedInAt: null, status: args.reactivation!.prev.status },
           data: claimData,
         });
         if (claim.count === 0) return false;

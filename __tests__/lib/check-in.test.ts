@@ -314,6 +314,16 @@ describe("executeCheckIn", () => {
     expect(mockApplyTransition).toHaveBeenCalledWith(expect.anything(), reactivation);
   });
 
+  it("the reactivation claim also requires the row to still be cancelled, so a reactivated row is not claimed twice (Oct 29, 2026)", async () => {
+    const reactivation = {
+      prev: { status: "CANCELLED", attendanceMode: "IN_PERSON", ticketTypeId: "tt1", pricingTierId: null, createdSource: null },
+      next: { status: "CHECKED_IN", attendanceMode: "IN_PERSON", ticketTypeId: "tt1", pricingTierId: null, createdSource: null },
+      promoCodeId: null,
+    } as never;
+    await executeCheckIn({ eventId: "ev1", registrationId: "reg1", actorUserId: "u1", attendeeName: "A B", source: "mcp", reactivation });
+    expect(mockDb.registration.updateMany.mock.calls[0][0].where).toMatchObject({ id: "reg1", checkedInAt: null, status: "CANCELLED" });
+  });
+
   it("M7: a lost claim in the reactivation path does NOT run the seat/promo transition", async () => {
     mockDb.registration.updateMany.mockResolvedValue({ count: 0 }); // concurrent reactivation won
     await executeCheckIn({

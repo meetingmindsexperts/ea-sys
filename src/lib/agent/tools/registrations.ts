@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { lockRegistrationEmails } from "@/lib/registration-email-lock";
+import { lockRegistrationRows } from "@/lib/registration-row-lock";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
@@ -682,81 +683,86 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
     const cancelledIds: string[] = [];
     const cancelledEventIds = new Set<string>();
     if (status) {
-      const affected = await db.registration.findMany({
-        where: {
-          id: { in: registrationIds },
-          eventId: ctx.eventId,
-          event: { organizationId: ctx.organizationId },
-        },
-        // Seat-routing fields: release/claim the counter each reg actually holds
-        // (tier vs ticket type), and skip virtual regs (no seat) — P1.1 + hybrid.
-        select: {
-          id: true,
-          // Ids are bound to ctx.eventId, the event the permission gate judged
-          // (Phase 6 review H3, Oct 7, 2026: an org-wide contract let a
-          // webinar-scoped grant cancel conference rows). Seat deltas still
-          // group per row's own event, which is now always ctx.eventId.
-          eventId: true,
-          status: true,
-          ticketTypeId: true,
-          promoCodeId: true,
-          pricingTierId: true,
-          createdSource: true,
-          attendanceMode: true,
-        },
-      });
-      const toRelease = new Map<string, { counter: SeatCounter; count: number }>();
-      const toClaim = new Map<string, { counter: SeatCounter; count: number }>();
-      const promoRelease = new Map<string, number>(); // promoCodeId → uses released on cancel
-      const promoClaim = new Map<string, number>(); // promoCodeId → uses re-claimed on reactivation (H6 symmetry)
-      // Event-wide seat counter: rows whose "holds an event seat" boolean flips
-      // (a row holds an event seat iff it holds a seat on ANY counter).
-      // Grouped PER ROW'S EVENT — never ctx.eventId (review HIGH-1).
-      const eventSeatRelease = new Map<string, number>(); // eventId → seats released
-      const eventSeatClaim = new Map<string, number>(); // eventId → seats re-claimed
-      const bump = (m: Map<string, { counter: SeatCounter; count: number }>, c: SeatCounter) => {
-        const k = `${c.kind}:${c.id}`;
-        const e = m.get(k);
-        if (e) e.count++;
-        else m.set(k, { counter: c, count: 1 });
-      };
-      for (const r of affected) {
-        const becomingCancelled = status === "CANCELLED" && r.status !== "CANCELLED";
-        const reactivating = status !== "CANCELLED" && r.status === "CANCELLED";
-        if (becomingCancelled) {
-          cancelledIds.push(r.id);
-          cancelledEventIds.add(r.eventId);
-        }
-        // DATA-1: bulk cancel releases each consumed promo code's usage count;
-        // reactivation re-claims it (H6 symmetry, same policy as
-        // applyRegistrationTransition — without the re-claim, bulk cancel →
-        // reactivate → cancel double-released the counter).
-        if (becomingCancelled && r.promoCodeId) {
-          promoRelease.set(r.promoCodeId, (promoRelease.get(r.promoCodeId) ?? 0) + 1);
-        } else if (reactivating && r.promoCodeId) {
-          promoClaim.set(r.promoCodeId, (promoClaim.get(r.promoCodeId) ?? 0) + 1);
-        }
-        if (becomingCancelled) {
-          // Release only the seat it actually held (in-person + was non-cancelled).
-          if (holdsSeat(r.status, r.attendanceMode)) {
-            const c = seatCounter(r);
-            if (c) {
-              bump(toRelease, c);
-              eventSeatRelease.set(r.eventId, (eventSeatRelease.get(r.eventId) ?? 0) + 1);
-            }
-          }
-        } else if (reactivating) {
-          // Claim only if it will hold a seat after reactivation (in-person).
-          if (holdsSeat(status as typeof r.status, r.attendanceMode)) {
-            const c = seatCounter(r);
-            if (c) {
-              bump(toClaim, c);
-              eventSeatClaim.set(r.eventId, (eventSeatClaim.get(r.eventId) ?? 0) + 1);
-            }
-          }
-        }
-      }
       updatedCount = await tenantTransaction(async (tx) => {
+        // Decided from the rows as they stand inside the transaction, locked
+        // (review, Oct 29 2026): read before it, a cancel or edit landing in
+        // between was released or claimed twice. Lock order, shared with every
+        // single-row path: registration rows first (by id), then the counters.
+        await lockRegistrationRows(tx, ctx.eventId, registrationIds);
+        const affected = await tx.registration.findMany({
+          where: {
+            id: { in: registrationIds },
+            eventId: ctx.eventId,
+            event: { organizationId: ctx.organizationId },
+          },
+          // Seat-routing fields: release/claim the counter each reg actually holds
+          // (tier vs ticket type), and skip virtual regs (no seat) — P1.1 + hybrid.
+          select: {
+            id: true,
+            // Ids are bound to ctx.eventId, the event the permission gate judged
+            // (Phase 6 review H3, Oct 7, 2026: an org-wide contract let a
+            // webinar-scoped grant cancel conference rows). Seat deltas still
+            // group per row's own event, which is now always ctx.eventId.
+            eventId: true,
+            status: true,
+            ticketTypeId: true,
+            promoCodeId: true,
+            pricingTierId: true,
+            createdSource: true,
+            attendanceMode: true,
+          },
+        });
+        const toRelease = new Map<string, { counter: SeatCounter; count: number }>();
+        const toClaim = new Map<string, { counter: SeatCounter; count: number }>();
+        const promoRelease = new Map<string, number>(); // promoCodeId → uses released on cancel
+        const promoClaim = new Map<string, number>(); // promoCodeId → uses re-claimed on reactivation (H6 symmetry)
+        // Event-wide seat counter: rows whose "holds an event seat" boolean flips
+        // (a row holds an event seat iff it holds a seat on ANY counter).
+        // Grouped PER ROW'S EVENT — never ctx.eventId (review HIGH-1).
+        const eventSeatRelease = new Map<string, number>(); // eventId → seats released
+        const eventSeatClaim = new Map<string, number>(); // eventId → seats re-claimed
+        const bump = (m: Map<string, { counter: SeatCounter; count: number }>, c: SeatCounter) => {
+          const k = `${c.kind}:${c.id}`;
+          const e = m.get(k);
+          if (e) e.count++;
+          else m.set(k, { counter: c, count: 1 });
+        };
+        for (const r of affected) {
+          const becomingCancelled = status === "CANCELLED" && r.status !== "CANCELLED";
+          const reactivating = status !== "CANCELLED" && r.status === "CANCELLED";
+          if (becomingCancelled) {
+            cancelledIds.push(r.id);
+            cancelledEventIds.add(r.eventId);
+          }
+          // DATA-1: bulk cancel releases each consumed promo code's usage count;
+          // reactivation re-claims it (H6 symmetry, same policy as
+          // applyRegistrationTransition — without the re-claim, bulk cancel →
+          // reactivate → cancel double-released the counter).
+          if (becomingCancelled && r.promoCodeId) {
+            promoRelease.set(r.promoCodeId, (promoRelease.get(r.promoCodeId) ?? 0) + 1);
+          } else if (reactivating && r.promoCodeId) {
+            promoClaim.set(r.promoCodeId, (promoClaim.get(r.promoCodeId) ?? 0) + 1);
+          }
+          if (becomingCancelled) {
+            // Release only the seat it actually held (in-person + was non-cancelled).
+            if (holdsSeat(r.status, r.attendanceMode)) {
+              const c = seatCounter(r);
+              if (c) {
+                bump(toRelease, c);
+                eventSeatRelease.set(r.eventId, (eventSeatRelease.get(r.eventId) ?? 0) + 1);
+              }
+            }
+          } else if (reactivating) {
+            // Claim only if it will hold a seat after reactivation (in-person).
+            if (holdsSeat(status as typeof r.status, r.attendanceMode)) {
+              const c = seatCounter(r);
+              if (c) {
+                bump(toClaim, c);
+                eventSeatClaim.set(r.eventId, (eventSeatClaim.get(r.eventId) ?? 0) + 1);
+              }
+            }
+          }
+        }
         // Guarded release — never drives usedCount negative (was an unguarded
         // `promoCode.update({ decrement })` before the seat/promo consolidation).
         for (const [promoId, n] of promoRelease) {

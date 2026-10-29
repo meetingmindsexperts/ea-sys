@@ -11,6 +11,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { refreshEventStats } from "@/lib/event-stats";
 import { holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
 import { claimSeats, releaseSeats } from "@/lib/registration-seat-db";
+import { lockRegistrationRows } from "@/lib/registration-row-lock";
 
 const bulkTypeSchema = z.object({
   registrationIds: z.array(z.string()).min(1).max(500),
@@ -80,53 +81,57 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Fetch all registrations being moved (only non-cancelled, and not already
-    // this type). Need the seat-routing fields so we release the counter each
-    // reg actually holds (tier vs ticket type) rather than blindly decrementing
-    // the old ticket type (ROADMAP P1.1 fix), plus paymentStatus for the
-    // repricing split below.
-    const registrations = await db.registration.findMany({
-      where: {
-        id: { in: registrationIds },
-        eventId,
-        status: { not: "CANCELLED" },
-        ticketTypeId: { not: ticketTypeId },
-      },
-      select: {
-        id: true,
-        ticketTypeId: true,
-        attendeeId: true,
-        pricingTierId: true,
-        createdSource: true,
-        attendanceMode: true,
-        status: true,
-        paymentStatus: true,
-      },
-    });
+    // Everything below is decided from the rows as they stand INSIDE the
+    // transaction, locked (review, Oct 29 2026): read before it, a cancel or a
+    // single edit landing in between was overwritten, and a cancelled row was
+    // released a second time, then moved onto the new type holding a seat.
+    const registrations = await tenantTransaction(async (tx) => {
+      // Lock order, shared with every single-row path: the registration rows
+      // first (by id, so two bulk moves cannot cross), then the seat counters
+      // (type before tier, registration-seat-db.ts).
+      await lockRegistrationRows(tx, eventId, registrationIds);
 
-    if (registrations.length === 0) {
-      return NextResponse.json({ updated: 0 });
-    }
+      // The rows being moved: not cancelled, not already this type. A row with
+      // no type is moved too: `not` alone excludes NULL in SQL, which left
+      // every uncategorised row (Import from Contacts without a type) unmovable.
+      const moving = await tx.registration.findMany({
+        where: {
+          id: { in: registrationIds },
+          eventId,
+          status: { not: "CANCELLED" },
+          OR: [{ ticketTypeId: null }, { ticketTypeId: { not: ticketTypeId } }],
+        },
+        select: {
+          id: true,
+          ticketTypeId: true,
+          attendeeId: true,
+          pricingTierId: true,
+          createdSource: true,
+          attendanceMode: true,
+          status: true,
+          paymentStatus: true,
+        },
+      });
+      if (moving.length === 0) return moving;
 
-    // Release side: group each reg's HELD seat by its actual counter (tier or
-    // ticket type). A virtual reg holds no seat (skipped). Claim side: only
-    // in-person regs claim a seat on the new type — virtual ones just change
-    // type. After a type change the old tier is invalid, so all moved rows get
-    // pricingTierId nulled (their seat now lives on the new ticket-type counter).
-    const releaseCounts = new Map<string, { counter: SeatCounter; count: number }>();
-    let claimCount = 0;
-    for (const r of registrations) {
-      if (!holdsSeat(r.status, r.attendanceMode)) continue;
-      claimCount++;
-      const counter = seatCounter(r);
-      if (!counter) continue;
-      const key = `${counter.kind}:${counter.id}`;
-      const entry = releaseCounts.get(key);
-      if (entry) entry.count++;
-      else releaseCounts.set(key, { counter, count: 1 });
-    }
+      // Release side: group each reg's HELD seat by its actual counter (tier or
+      // ticket type); a virtual reg holds none, an uncategorised one has no
+      // counter. Claim side: only in-person regs claim a seat on the new type.
+      // After a type change the old tier is invalid, so all moved rows get
+      // pricingTierId nulled (their seat now lives on the new ticket-type counter).
+      const releaseCounts = new Map<string, { counter: SeatCounter; count: number }>();
+      let claimCount = 0;
+      for (const r of moving) {
+        if (!holdsSeat(r.status, r.attendanceMode)) continue;
+        claimCount++;
+        const counter = seatCounter(r);
+        if (!counter) continue;
+        const key = `${counter.kind}:${counter.id}`;
+        const entry = releaseCounts.get(key);
+        if (entry) entry.count++;
+        else releaseCounts.set(key, { counter, count: 1 });
+      }
 
-    await tenantTransaction(async (tx) => {
       // Release each held counter (guarded, never below 0)
       for (const { counter, count } of releaseCounts.values()) {
         await releaseSeats(tx, counter, count);
@@ -151,11 +156,12 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       // checkout, refund math). Mirrors resolveRepricing's bare-type-change
       // policy exactly: unpaid (UNASSIGNED/UNPAID/PENDING) → reprice to the
       // NEW type's base; settled rows (PAID/COMPLIMENTARY/INCLUSIVE/…) move
-      // type but keep their price — they already paid it.
-      const unpaidIds = registrations
+      // type but keep their price — they already paid it. The rows are locked,
+      // so writing by id is writing exactly what was read.
+      const unpaidIds = moving
         .filter((r) => ["UNASSIGNED", "UNPAID", "PENDING"].includes(r.paymentStatus))
         .map((r) => r.id);
-      const settledIds = registrations
+      const settledIds = moving
         .filter((r) => !["UNASSIGNED", "UNPAID", "PENDING"].includes(r.paymentStatus))
         .map((r) => r.id);
       if (unpaidIds.length > 0) {
@@ -173,10 +179,15 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
       // Sync attendee.registrationType
       await tx.attendee.updateMany({
-        where: { id: { in: registrations.map((r) => r.attendeeId) } },
+        where: { id: { in: moving.map((r) => r.attendeeId) } },
         data: { registrationType: targetType.name },
       });
+      return moving;
     });
+
+    if (registrations.length === 0) {
+      return NextResponse.json({ updated: 0 });
+    }
 
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(eventId);

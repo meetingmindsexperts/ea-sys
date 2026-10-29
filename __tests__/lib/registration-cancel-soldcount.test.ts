@@ -6,6 +6,17 @@
  * guarded so a counter can't go negative. paymentStatus-only updates skip it.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// Row locks are Postgres FOR UPDATE; a mocked transaction cannot take them.
+// Pinned against the real database in
+// tests/integration-db/registration-row-lock.db.test.ts.
+const { mockLockRegistrationRows, mockLockRegistrationIfUnchanged } = vi.hoisted(() => ({
+  mockLockRegistrationRows: vi.fn(async () => undefined),
+  mockLockRegistrationIfUnchanged: vi.fn(async (): Promise<"unchanged" | "changed" | "gone"> => "unchanged"),
+}));
+vi.mock("@/lib/registration-row-lock", () => ({
+  lockRegistrationRows: mockLockRegistrationRows,
+  lockRegistrationIfUnchanged: mockLockRegistrationIfUnchanged,
+}));
 
 const { mockDb, mockApiLogger, mockRefreshEventStats } = vi.hoisted(() => {
   const ttUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
@@ -14,6 +25,9 @@ const { mockDb, mockApiLogger, mockRefreshEventStats } = vi.hoisted(() => {
   const tierFindUnique = vi.fn();
   const regUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
   const promoUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
+  // The rows are read inside the transaction now (behind the row locks); one
+  // function serves both handles.
+  const regFindMany = vi.fn();
   const tx = {
     ticketType: { updateMany: ttUpdateMany, findUnique: ttFindUnique },
     event: {
@@ -22,11 +36,11 @@ const { mockDb, mockApiLogger, mockRefreshEventStats } = vi.hoisted(() => {
     },
     $executeRaw: vi.fn(async () => 1),
     pricingTier: { updateMany: tierUpdateMany, findUnique: tierFindUnique },
-    registration: { updateMany: regUpdateMany },
+    registration: { updateMany: regUpdateMany, findMany: regFindMany },
     promoCode: { updateMany: promoUpdateMany },
   };
   const db = {
-    registration: { findMany: vi.fn(), updateMany: regUpdateMany },
+    registration: { findMany: regFindMany, updateMany: regUpdateMany },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
     $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)),
     _tx: tx,

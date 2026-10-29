@@ -9,6 +9,17 @@
  *   - happy path → attendee patch written INSIDE the tx, contact sync after
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// Row locks are Postgres FOR UPDATE; a mocked transaction cannot take them.
+// Pinned against the real database in
+// tests/integration-db/registration-row-lock.db.test.ts.
+const { mockLockRegistrationRows, mockLockRegistrationIfUnchanged } = vi.hoisted(() => ({
+  mockLockRegistrationRows: vi.fn(async () => undefined),
+  mockLockRegistrationIfUnchanged: vi.fn(async (): Promise<"unchanged" | "changed" | "gone"> => "unchanged"),
+}));
+vi.mock("@/lib/registration-row-lock", () => ({
+  lockRegistrationRows: mockLockRegistrationRows,
+  lockRegistrationIfUnchanged: mockLockRegistrationIfUnchanged,
+}));
 
 const { mockDb, mockAuth, mockSyncToContact, txOrder } = vi.hoisted(() => {
   const txOrder: string[] = [];

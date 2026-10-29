@@ -1266,9 +1266,9 @@ export default function RegistrationsPage() {
             <DialogTitle>Change Registration Type</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
+            <DialogDescription>
               Move {selectedIds.size} selected registration{selectedIds.size !== 1 ? "s" : ""} to a new type. Cancelled registrations will be skipped.
-            </p>
+            </DialogDescription>
             <Select value={targetTypeId} onValueChange={setTargetTypeId}>
               <SelectTrigger>
                 <SelectValue placeholder="Select target type" />

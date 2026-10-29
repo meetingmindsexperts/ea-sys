@@ -6,6 +6,17 @@
  * nothing), never a silent oversell.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+// Row locks are Postgres FOR UPDATE; a mocked transaction cannot take them.
+// Pinned against the real database in
+// tests/integration-db/registration-row-lock.db.test.ts.
+const { mockLockRegistrationRows, mockLockRegistrationIfUnchanged } = vi.hoisted(() => ({
+  mockLockRegistrationRows: vi.fn(async () => undefined),
+  mockLockRegistrationIfUnchanged: vi.fn(async (): Promise<"unchanged" | "changed" | "gone"> => "unchanged"),
+}));
+vi.mock("@/lib/registration-row-lock", () => ({
+  lockRegistrationRows: mockLockRegistrationRows,
+  lockRegistrationIfUnchanged: mockLockRegistrationIfUnchanged,
+}));
 // The per-person lock is an advisory lock in Postgres; a mocked transaction
 // cannot take it. Its behaviour is pinned against the real database in
 // tests/integration-db/registration-email-lock.db.test.ts.
@@ -17,6 +28,7 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
   // Who is already registered is read inside the transaction now (behind the
   // per-person lock); one function serves both handles.
   const attendeeFindMany = vi.fn();
+  const registrationFindMany = vi.fn();
   const tx = {
     ticketType: { update: vi.fn().mockResolvedValue({}), updateMany: vi.fn(), findUnique: vi.fn() },
     event: {
@@ -25,14 +37,14 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
     },
     $executeRaw: vi.fn(async () => 1),
     pricingTier: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn() },
-    registration: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({ id: "reg" }) },
+    registration: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({ id: "reg" }), findMany: registrationFindMany },
     attendee: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({ id: "att" }), findMany: attendeeFindMany },
   };
   return {
     mockDb: {
       event: { findFirst: vi.fn() },
       ticketType: { findFirst: vi.fn() },
-      registration: { findMany: vi.fn() },
+      registration: { findMany: registrationFindMany },
       attendee: { findMany: attendeeFindMany },
       contact: { findMany: vi.fn() },
       auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
@@ -99,6 +111,14 @@ describe("bulk-type — soldCount oversell guard", () => {
     const res = await bulkType(req({ registrationIds: ["r1", "r2"], ticketTypeId: "T" }), { params });
     expect(res.status).toBeLessThan(400);
     expect(rawClaims(mockDb._tx.$executeRaw, "TicketType")).toEqual([{ id: "T", count: 2 }]);
+  });
+
+  it("locks the rows, then reads them inside the transaction, uncategorised rows included (Oct 29, 2026)", async () => {
+    await bulkType(req({ registrationIds: ["r2", "r1"], ticketTypeId: "T" }), { params });
+    expect(mockLockRegistrationRows).toHaveBeenCalledWith(expect.anything(), "ev1", ["r2", "r1"]);
+    expect(mockLockRegistrationRows.mock.invocationCallOrder[0]).toBeLessThan(mockDb.registration.findMany.mock.invocationCallOrder[0]);
+    // `not` alone drops NULL in SQL, which left rows with no type unmovable.
+    expect(mockDb.registration.findMany.mock.calls[0][0].where.OR).toEqual([{ ticketTypeId: null }, { ticketTypeId: { not: "T" } }]);
   });
 
   it("a PUBLIC+TIER reg releases its TIER counter AND the old type (the ceiling), then claims the new type (P1.1)", async () => {
