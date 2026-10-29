@@ -442,7 +442,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // A desk QR is for one rate, and the Exhibitor type or never it (§8.2).
     if (desk) {
-      const refusal = deskQrTypeRefusal(desk, ticketType.name, pricingTier?.name ?? null);
+      const refusal = deskQrTypeRefusal(desk, ticketType.name, pricingTier);
       if (refusal) {
         apiLogger.warn({ msg: "public/register:desk-qr-refused", reason: refusal, eventId: event.id, ticketTypeId, pricingTierId, deskQr: desk.jti });
         return NextResponse.json({ error: DESK_QR_REFUSAL_MESSAGE[refusal], code: refusal }, { status: 400 });

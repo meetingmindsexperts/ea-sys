@@ -9,25 +9,35 @@ import { isExhibitorBadge } from "@/lib/badge-layout";
 import { registerTierSlug } from "@/lib/main-register-tiers";
 import type { DeskQrKind } from "@/lib/desk-qr-token";
 
-export type DeskQrRefusal = "DESK_QR_WRONG_RATE" | "DESK_QR_WRONG_TYPE" | "DESK_QR_WRONG_CODE" | "DESK_QR_NOT_FREE";
+export type DeskQrRefusal =
+  | "DESK_QR_WRONG_RATE"
+  | "DESK_QR_WRONG_TYPE"
+  | "DESK_QR_NEEDS_APPROVAL"
+  | "DESK_QR_WRONG_CODE"
+  | "DESK_QR_NOT_FREE";
 
 export const DESK_QR_REFUSAL_MESSAGE: Record<DeskQrRefusal, string> = {
   DESK_QR_WRONG_RATE: "This desk QR is for another registration form. Please scan the QR at the desk again.",
   DESK_QR_WRONG_TYPE: "This registration type is not available on this desk QR.",
+  DESK_QR_NEEDS_APPROVAL: "This registration needs the organiser's approval. Please register at the desk.",
   DESK_QR_WRONG_CODE: "This desk QR is for another sponsor. Please scan the QR at the desk again.",
   DESK_QR_NOT_FREE: "This registration would need a payment. Please register at the desk.",
 };
 
-/** The type and the rate, before anything is written. */
+/**
+ * The type and the rate, before anything is written. A rate that needs the
+ * organiser's approval is refused (owner, Oct 29): the person would be left
+ * pending with a barcode the desk cannot admit.
+ */
 export function deskQrTypeRefusal(
   desk: { kind: DeskQrKind; rate: string },
   ticketTypeName: string,
-  tierName: string | null,
+  tier: { name: string; requiresApproval: boolean } | null,
 ): DeskQrRefusal | null {
-  if (!tierName || registerTierSlug(tierName) !== desk.rate) return "DESK_QR_WRONG_RATE";
+  if (!tier || registerTierSlug(tier.name) !== desk.rate) return "DESK_QR_WRONG_RATE";
   const exhibitor = isExhibitorBadge(ticketTypeName);
   if (desk.kind === "exhibitor" ? !exhibitor : exhibitor) return "DESK_QR_WRONG_TYPE";
-  return null;
+  return tier.requiresApproval ? "DESK_QR_NEEDS_APPROVAL" : null;
 }
 
 /**

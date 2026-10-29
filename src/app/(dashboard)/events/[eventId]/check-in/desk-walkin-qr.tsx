@@ -28,6 +28,7 @@ interface SponsorOption {
 
 interface Options {
   webinar: boolean;
+  registrationClosed: boolean;
   exhibitor: { rateName: string; sponsors: SponsorOption[] } | null;
   complimentary: { rateName: string } | null;
 }
@@ -113,7 +114,7 @@ export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; op
 
   // A QR for the current choice: complimentary at once, exhibitors once a sponsor is picked.
   useEffect(() => {
-    if (!open || !options) return;
+    if (!open || !options || options.registrationClosed) return;
     setShown(null);
     if (kind === "complimentary" && options.complimentary) void showQr("complimentary", "");
     if (kind === "exhibitor" && promoCodeId) void showQr("exhibitor", promoCodeId);
@@ -158,9 +159,15 @@ export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; op
           </DialogDescription>
         </DialogHeader>
 
-        {!options ? (
+        {!options && (
           <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-        ) : (
+        )}
+        {options?.registrationClosed && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            Registration is switched off for this event, so the walk-in QR is too. Turn it on in Settings → Registration.
+          </p>
+        )}
+        {options && !options.registrationClosed && (
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-1 rounded-lg border p-1">
               <Button type="button" variant={kind === "exhibitor" ? "default" : "ghost"} className="gap-1.5" onClick={() => setKind("exhibitor")}>
@@ -173,7 +180,7 @@ export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; op
 
             {kind === "exhibitor" && !exhibitor && (
               <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                This event has no Exhibitor registration type with a rate. Add one in Registration Types first.
+                This event has no Exhibitor registration type with a rate that needs no approval. Check Registration Types.
               </p>
             )}
             {kind === "exhibitor" && exhibitor && exhibitor.sponsors.length === 0 && (
@@ -198,7 +205,7 @@ export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; op
             )}
             {kind === "complimentary" && !complimentary && (
               <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                This event has no rate named Complimentary. Add one to its registration types first.
+                This event has no Complimentary rate that needs no approval. Check Registration Types.
               </p>
             )}
 

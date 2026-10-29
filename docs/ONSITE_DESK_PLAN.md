@@ -425,4 +425,7 @@ to 3, and shown in the browser before any push.
   linking to the event's Forgot password page with the email filled in.
 - An event that is COMPLETED (or not published) has no public form, so its
   desk QR opens "Event not found": desk mode does not reopen a finished event.
+- Owner, Oct 29: the desk QR follows the event's registration switch (off
+  means no QR, said on the panel), and never uses a rate that needs approval
+  (`DESK_QR_NEEDS_APPROVAL`; the panel skips such rates).
 

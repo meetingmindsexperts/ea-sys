@@ -33,7 +33,7 @@ const params = { params: Promise.resolve({ eventId: "evt-1" }) };
 const get = () => GET(new Request("http://x/desk-qr"), params);
 const post = (body: unknown) => POST(new Request("http://x/desk-qr", { method: "POST", body: JSON.stringify(body) }), params);
 
-const tier = (id: string, name: string, isActive = true) => ({ id, name, isActive });
+const tier = (id: string, name: string, isActive = true, requiresApproval = false) => ({ id, name, isActive, requiresApproval });
 const EVENT = {
   id: "evt-1",
   slug: "BHS2026",
@@ -67,6 +67,7 @@ describe("GET the options", () => {
     const res = await get();
     expect(await res.json()).toEqual({
       webinar: false,
+      registrationClosed: false,
       exhibitor: { rateName: "Inclusive", sponsors: [{ promoCodeId: "promo-csl", code: "CSL", sponsorName: "CSL", placesLeft: 7 }] },
       complimentary: { rateName: "Complimentary" },
     });
@@ -113,6 +114,26 @@ describe("POST a QR", () => {
     expect(await (await post({ kind: "exhibitor", promoCodeId: "promo-csl" })).json()).toMatchObject({ code: "NO_EXHIBITOR_RATE" });
     mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, ticketTypes: [EVENT.ticketTypes[1]] });
     expect(await (await post({ kind: "complimentary" })).json()).toMatchObject({ code: "NO_COMPLIMENTARY_RATE" });
+    expect(mockQr).not.toHaveBeenCalled();
+  });
+
+  it("never offers a rate that needs approval", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce({
+      ...EVENT,
+      ticketTypes: [
+        { id: "tt-phys", name: "Physician", pricingTiers: [tier("t3", "Complimentary", true, true)] },
+        { id: "tt-exh", name: "Exhibitor", pricingTiers: [tier("t4", "Inclusive", true, true)] },
+      ],
+    });
+    expect(await (await get()).json()).toMatchObject({ exhibitor: null, complimentary: null });
+  });
+
+  it("refuses while registration is switched off, and says so in the options", async () => {
+    const closed = { ...EVENT, settings: { ...EVENT.settings, registrationOpen: false } };
+    mockDb.event.findFirst.mockResolvedValueOnce(closed);
+    expect(await (await get()).json()).toMatchObject({ registrationClosed: true });
+    mockDb.event.findFirst.mockResolvedValueOnce(closed);
+    expect(await (await post({ kind: "complimentary" })).json()).toMatchObject({ code: "REGISTRATION_CLOSED" });
     expect(mockQr).not.toHaveBeenCalled();
   });
 

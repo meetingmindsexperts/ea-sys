@@ -46,6 +46,7 @@ interface TierRow {
   id: string;
   name: string;
   isActive: boolean;
+  requiresApproval: boolean;
 }
 interface TypeRow {
   id: string;
@@ -53,15 +54,20 @@ interface TypeRow {
   pricingTiers: TierRow[];
 }
 
+/** A rate a desk QR may use: on, not a presenter rate, and needing no approval (owner, Oct 29). */
+function deskUsable(tier: TierRow): boolean {
+  return tier.isActive && !tier.requiresApproval && !isPresenterTierName(tier.name);
+}
+
 /**
  * The Exhibitor type and its rate: the one that needs a sponsor's code when
- * there is one, else its first open rate. Null when the event has no
- * Exhibitor type or it has no rate.
+ * there is one, else its first usable rate. Null when the event has no
+ * Exhibitor type or no usable rate on it.
  */
 function exhibitorRate(types: TypeRow[], codeRequired: string[]): { typeId: string; tier: TierRow } | null {
   const type = types.find((t) => isExhibitorBadge(t.name));
   if (!type) return null;
-  const tiers = type.pricingTiers.filter((t) => t.isActive && !isPresenterTierName(t.name));
+  const tiers = type.pricingTiers.filter(deskUsable);
   const tier = tiers.find((t) => tierNeedsSponsorCode(t.name, codeRequired)) ?? tiers[0];
   return tier ? { typeId: type.id, tier } : null;
 }
@@ -70,10 +76,15 @@ function exhibitorRate(types: TypeRow[], codeRequired: string[]): { typeId: stri
 function complimentaryRate(types: TypeRow[]): TierRow | null {
   for (const type of types) {
     if (isExhibitorBadge(type.name)) continue;
-    const tier = type.pricingTiers.find((t) => t.isActive && registerTierSlug(t.name) === COMPLIMENTARY_SLUG);
+    const tier = type.pricingTiers.find((t) => deskUsable(t) && registerTierSlug(t.name) === COMPLIMENTARY_SLUG);
     if (tier) return tier;
   }
   return null;
+}
+
+/** The event's master registration switch; the public register route refuses everything while it is off. */
+function registrationClosed(settings: unknown): boolean {
+  return !!settings && typeof settings === "object" && (settings as Record<string, unknown>).registrationOpen === false;
 }
 
 async function loadEvent(eventWhere: object) {
@@ -90,7 +101,7 @@ async function loadEvent(eventWhere: object) {
         select: {
           id: true,
           name: true,
-          pricingTiers: { orderBy: { sortOrder: "asc" }, select: { id: true, name: true, isActive: true } },
+          pricingTiers: { orderBy: { sortOrder: "asc" }, select: { id: true, name: true, isActive: true, requiresApproval: true } },
         },
       },
     },
@@ -161,6 +172,8 @@ export async function GET(_req: Request, { params }: RouteParams): Promise<NextR
       const complimentary = complimentaryRate(event.ticketTypes);
       return NextResponse.json({
         webinar: event.eventType === "WEBINAR",
+        // Registration switched off: the desk QR is refused too (owner, Oct 29).
+        registrationClosed: registrationClosed(event.settings),
         exhibitor: exhibitor
           ? { rateName: exhibitor.tier.name, sponsors: await sponsorCodes(event.id, exhibitor.typeId) }
           : null,
@@ -203,6 +216,13 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
         apiLogger.warn({ msg: "desk-qr:webinar", eventId, userId });
         return NextResponse.json({ error: "A webinar has no registration desk.", code: "WEBINAR" }, { status: 400 });
       }
+      if (registrationClosed(event.settings)) {
+        apiLogger.warn({ msg: "desk-qr:registration-closed", eventId, userId });
+        return NextResponse.json(
+          { error: "Registration is switched off for this event (Settings → Registration).", code: "REGISTRATION_CLOSED" },
+          { status: 400 },
+        );
+      }
 
       let rate: string;
       let promo: { id: string; code: string } | null = null;
@@ -211,7 +231,7 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
         if (!exhibitor) {
           apiLogger.warn({ msg: "desk-qr:no-exhibitor-rate", eventId, userId });
           return NextResponse.json(
-            { error: "This event has no Exhibitor registration type with a rate.", code: "NO_EXHIBITOR_RATE" },
+            { error: "This event has no Exhibitor registration type with a rate that needs no approval.", code: "NO_EXHIBITOR_RATE" },
             { status: 400 },
           );
         }
@@ -238,7 +258,7 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
         if (!complimentary) {
           apiLogger.warn({ msg: "desk-qr:no-complimentary-rate", eventId, userId });
           return NextResponse.json(
-            { error: "This event has no rate named Complimentary.", code: "NO_COMPLIMENTARY_RATE" },
+            { error: "This event has no Complimentary rate that needs no approval.", code: "NO_COMPLIMENTARY_RATE" },
             { status: 400 },
           );
         }

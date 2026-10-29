@@ -75,6 +75,7 @@ interface PricingTierData {
   canPurchase: boolean;
   salesStarted: boolean;
   salesEnded: boolean;
+  requiresApproval?: boolean;
 }
 
 interface TicketType {
@@ -349,7 +350,8 @@ function CategoryRegistrationContent() {
           const options: RegTypeOption[] = [];
           for (const tt of data.ticketTypes) {
             const tier = tt.pricingTiers?.find((t) => toSlug(t.name) === categorySlug);
-            if (tier) {
+            // A desk QR never offers a rate that needs approval (owner, Oct 29).
+            if (tier && !(deskQr && tier.requiresApproval)) {
               options.push({
                 ticketTypeId: tt.id,
                 pricingTierId: tier.id,

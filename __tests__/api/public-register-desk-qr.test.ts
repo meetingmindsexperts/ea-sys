@@ -179,6 +179,12 @@ describe("a valid complimentary desk QR", () => {
     expect((await post({ deskToken: compToken() })).status).toBe(400);
   });
 
+  it("refuses a rate that needs approval, before anything is written", async () => {
+    on(PHYSICIAN, { ...COMP, requiresApproval: true });
+    expect((await post({ deskToken: compToken() })).json.code).toBe("DESK_QR_NEEDS_APPROVAL");
+    expect(tx.registration.create).not.toHaveBeenCalled();
+  });
+
   it("refuses another rate, the Exhibitor type, a code, or anything with a price", async () => {
     on(PHYSICIAN, STANDARD);
     expect((await post({ deskToken: compToken(), pricingTierId: "tier-std" })).json.code).toBe("DESK_QR_WRONG_RATE");

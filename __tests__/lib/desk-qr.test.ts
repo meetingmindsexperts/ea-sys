@@ -39,17 +39,24 @@ describe("the token", () => {
   });
 });
 
+const rate = (name: string, requiresApproval = false) => ({ name, requiresApproval });
+
 describe("the type and rate", () => {
   it("only the QR's rate", () => {
-    expect(deskQrTypeRefusal(COMP, "Physician", "Complimentary")).toBeNull();
-    expect(deskQrTypeRefusal(COMP, "Physician", "Standard")).toBe("DESK_QR_WRONG_RATE");
+    expect(deskQrTypeRefusal(COMP, "Physician", rate("Complimentary"))).toBeNull();
+    expect(deskQrTypeRefusal(COMP, "Physician", rate("Standard"))).toBe("DESK_QR_WRONG_RATE");
     expect(deskQrTypeRefusal(COMP, "Physician", null)).toBe("DESK_QR_WRONG_RATE");
   });
 
   it("exhibitors are always exhibitors; complimentary never is", () => {
-    expect(deskQrTypeRefusal(EXH, "Exhibitor", "Inclusive")).toBeNull();
-    expect(deskQrTypeRefusal(EXH, "Physician", "Inclusive")).toBe("DESK_QR_WRONG_TYPE");
-    expect(deskQrTypeRefusal(COMP, " exhibitor ", "Complimentary")).toBe("DESK_QR_WRONG_TYPE");
+    expect(deskQrTypeRefusal(EXH, "Exhibitor", rate("Inclusive"))).toBeNull();
+    expect(deskQrTypeRefusal(EXH, "Physician", rate("Inclusive"))).toBe("DESK_QR_WRONG_TYPE");
+    expect(deskQrTypeRefusal(COMP, " exhibitor ", rate("Complimentary"))).toBe("DESK_QR_WRONG_TYPE");
+  });
+
+  it("never a rate that needs approval (owner, Oct 29)", () => {
+    expect(deskQrTypeRefusal(COMP, "Physician", rate("Complimentary", true))).toBe("DESK_QR_NEEDS_APPROVAL");
+    expect(deskQrTypeRefusal(EXH, "Exhibitor", rate("Inclusive", true))).toBe("DESK_QR_NEEDS_APPROVAL");
   });
 });
 
