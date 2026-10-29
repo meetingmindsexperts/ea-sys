@@ -276,7 +276,8 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
       );
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
       const url = `${appUrl}/e/${event.slug}/register/${rate}?${new URLSearchParams({ desk: token }).toString()}`;
-      const qr = await renderQrPng(url, { scale: 6 });
+      // Large enough to print at poster size or download (the panel shows it smaller).
+      const qr = await renderQrPng(url, { scale: 12 });
 
       // Who showed which QR, so a registration's audit row (which names the QR's
       // id) traces back to it. Never the token: it is the key to the form.

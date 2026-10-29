@@ -718,6 +718,7 @@ export function DeskPanel({
       <EditDetailsDialog eventId={eventId} person={editing} onSaved={refresh} onClose={() => setEditing(null)} />
       <WalkInQrDialog
         eventId={eventId}
+        eventSlug={eventSlug}
         eventName={eventName}
         open={qrOpen}
         onClose={() => {

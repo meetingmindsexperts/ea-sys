@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Building2, Gift, Loader2, Printer, QrCode } from "lucide-react";
+import { Building2, Download, Gift, Loader2, Printer, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -55,6 +55,16 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c);
 }
 
+/** Saves the QR as a PNG, for a poster, a slide or a message to the sponsor. */
+function downloadQr(kind: Kind, shown: ShownQr, eventSlug: string) {
+  const link = document.createElement("a");
+  link.href = shown.qr;
+  link.download = `${eventSlug}-${kind}-qr.png`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 /** An A4 sheet with the QR, in a window of its own, printed with the browser's dialog. */
 function printSheet(kind: Kind, shown: ShownQr, eventName: string, timeZone: string) {
   const win = window.open("", "_blank", "width=800,height=1000");
@@ -97,11 +107,14 @@ function printSheet(kind: Kind, shown: ShownQr, eventName: string, timeZone: str
 
 export function WalkInQrDialog({
   eventId,
+  eventSlug,
   eventName,
   open,
   onClose,
 }: {
   eventId: string;
+  /** For the downloaded file's name. */
+  eventSlug: string;
   eventName: string;
   open: boolean;
   onClose: () => void;
@@ -242,9 +255,14 @@ export function WalkInQrDialog({
                 <img src={shown.qr} alt={`Scan to register: ${TITLE[kind]}`} className="h-64 w-64 max-w-full sm:h-72 sm:w-72" />
                 <p className="max-w-md text-sm">{INSTRUCTION[kind]}</p>
                 <p className="text-xs text-muted-foreground">Valid until {validUntilLabel(shown.expiresAt, options.timezone)}. The same QR every time, so a printed one keeps working. If you change the event&rsquo;s dates, print it again.</p>
-                <Button type="button" variant="outline" className="gap-1.5" onClick={() => printSheet(kind, shown, eventName, options.timezone)}>
-                  <Printer className="h-4 w-4" /> Print
-                </Button>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button type="button" variant="outline" className="gap-1.5" onClick={() => printSheet(kind, shown, eventName, options.timezone)}>
+                    <Printer className="h-4 w-4" /> Print
+                  </Button>
+                  <Button type="button" variant="outline" className="gap-1.5" onClick={() => downloadQr(kind, shown, eventSlug)}>
+                    <Download className="h-4 w-4" /> Download image
+                  </Button>
+                </div>
               </div>
             )}
           </div>
