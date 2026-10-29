@@ -262,7 +262,11 @@ jobs:
       # any build error before images are built or anything deploys. No Sentry
       # token here — the source-map upload lives in the PARALLEL, non-gating
       # `sourcemaps` job below.
+      # Next's TypeScript step outgrew Node's default ~4 GB heap (OOM on
+      # 055680a9 and 3584e46f, Oct 29, 2026). The runner has 16 GB.
       - name: Build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npx next build
 
   # ── Tenant-isolation harness (parallel, GATING since July 23, 2026) ──────────
@@ -511,6 +515,7 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npx next build
 
   # ── Build + push images to ECR ───────────────────────────────────────────────

@@ -35,6 +35,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_SENTRY_DSN=""
 ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 
+# The build's TypeScript step outgrew Node's default ~4 GB heap (Oct 29, 2026).
+# Builder stage only: the runner stage sets its own 2048 MB below.
+ENV NODE_OPTIONS="--max-old-space-size=6144"
 RUN npx prisma generate
 RUN npm run build
 
