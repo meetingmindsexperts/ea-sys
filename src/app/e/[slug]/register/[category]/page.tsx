@@ -814,7 +814,8 @@ function CategoryRegistrationContent() {
   const selectedSpecialty = form.watch("specialty");
   const selectedOption = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId);
   // This rate's link is a sponsor link: only a sponsor-covered code opens it.
-  const sponsorCodeRequired = (event?.codeRequiredTiers ?? []).includes(categorySlug);
+  // An exhibitor's desk QR needs a sponsor's code too: it is what credits their sponsor.
+  const sponsorCodeRequired = (event?.codeRequiredTiers ?? []).includes(categorySlug) || deskQr?.kind === "exhibitor";
   // Which evidence fields to render, from the type's switches rather than its
   // name — the same correction the supporting-document block below made.
   const evidencePolicy = readIdentityEvidencePolicy(selectedOption);
@@ -1419,15 +1420,13 @@ function CategoryRegistrationContent() {
                             {sponsorCodeRequired && (
                               <p className="text-xs text-slate-500">
                                 {deskQr?.kind === "exhibitor"
-                                  ? "Your sponsor's code is already applied."
+                                  ? "Enter the code your sponsor gave you, then press Apply."
                                   : "This registration link is for sponsored delegates. Enter the code your sponsor sent you."}
                               </p>
                             )}
                             <div className="flex gap-2">
                               <Input
                                 placeholder="Enter promo code"
-                                // An exhibitor desk QR carries its sponsor's code.
-                                readOnly={deskQr?.kind === "exhibitor"}
                                 value={promoCode}
                                 onChange={(e) => {
                                   setPromoCode(e.target.value.toUpperCase());
@@ -1438,7 +1437,7 @@ function CategoryRegistrationContent() {
                               <Button
                                 type="button"
                                 variant="outline"
-                                disabled={!promoCode.trim() || promoValidating || deskQr?.kind === "exhibitor"}
+                                disabled={!promoCode.trim() || promoValidating}
                                 onClick={() => void applyPromo(promoCode)}
                                 className="shrink-0"
                               >

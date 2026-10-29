@@ -2,34 +2,27 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Building2, Gift, Loader2, QrCode } from "lucide-react";
+import { Building2, Gift, Loader2, Printer, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCountdown } from "./desk-onsite";
 
 /**
- * The desk's Walk-in QR (docs/ONSITE_DESK_PLAN.md §8.1): a QR on the desk
- * screen that exhibitors and complimentary guests scan to register themselves.
- * Each QR works for 30 minutes and is renewed every 15 while this stays open,
- * so the one on screen always has at least 15 minutes left. Screen only:
- * printing is deferred (§8.7).
+ * The desk's Walk-in QR (docs/ONSITE_DESK_PLAN.md §8.1): exhibitors and
+ * complimentary guests scan it and register themselves on their phone. One
+ * QR per event and kind, valid to the end of the event's last day and the
+ * same every time it is shown, so it can be printed and put up (owner, Oct
+ * 29). Exhibitors type their own sponsor's code on the form.
  */
 
 type Kind = "exhibitor" | "complimentary";
 
-interface SponsorOption {
-  promoCodeId: string;
-  code: string;
-  sponsorName: string;
-  placesLeft: number | null;
-}
-
 interface Options {
   webinar: boolean;
   registrationClosed: boolean;
-  exhibitor: { rateName: string; sponsors: SponsorOption[] } | null;
+  eventEnded: boolean;
+  /** The event's timezone: the QR runs to the end of its last day there. */
+  timezone: string;
+  exhibitor: { rateName: string; validUntil: string } | null;
   complimentary: { rateName: string } | null;
 }
 
@@ -39,27 +32,111 @@ interface ShownQr {
   expiresAt: string;
 }
 
-const RENEW_AFTER_MS = 15 * 60_000;
-/** A renewal that failed (the network, say) is tried again this soon, while the old QR still works. */
-const RETRY_AFTER_MS = 30_000;
+const TITLE: Record<Kind, string> = {
+  exhibitor: "Exhibitor registration",
+  complimentary: "Complimentary registration",
+};
 
-function sponsorLabel(s: SponsorOption): string {
-  const places = s.placesLeft === null ? "" : ` · ${s.placesLeft} place${s.placesLeft === 1 ? "" : "s"} left`;
-  return `${s.sponsorName} (${s.code})${places}`;
+const INSTRUCTION: Record<Kind, string> = {
+  exhibitor: "Scan with your phone camera, fill in your details and enter the code your sponsor gave you. Show the barcode you receive at the registration desk.",
+  complimentary: "Scan with your phone camera and fill in your details. Show the barcode you receive at the registration desk.",
+};
+
+/** "the end of 1 Dec 2026": the QR runs to the end of the event's last day, in its timezone. */
+function validUntilLabel(iso: string, timeZone: string): string {
+  return `the end of ${new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium", timeZone })}`;
 }
 
-export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; open: boolean; onClose: () => void }) {
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c);
+}
+
+/** An A4 sheet with the QR, in a window of its own, printed with the browser's dialog. */
+function printSheet(kind: Kind, shown: ShownQr, eventName: string, timeZone: string) {
+  const win = window.open("", "_blank", "width=800,height=1000");
+  if (!win) {
+    toast.error("The print window was blocked. Allow pop-ups for this site and try again.");
+    return;
+  }
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(TITLE[kind])}</title>
+<style>
+  @page { size: A4; margin: 18mm; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #0f172a; text-align: center; margin: 0; }
+  .event { font-size: 16pt; color: #475569; margin: 12mm 0 4mm; }
+  h1 { font-size: 30pt; margin: 0 0 10mm; }
+  img { width: 120mm; height: 120mm; image-rendering: pixelated; }
+  p { font-size: 14pt; max-width: 150mm; margin: 8mm auto 0; line-height: 1.4; }
+  .until { font-size: 11pt; color: #64748b; margin-top: 10mm; }
+</style></head><body>
+  <div class="event">${escapeHtml(eventName)}</div>
+  <h1>${escapeHtml(TITLE[kind])}</h1>
+  <img src="${shown.qr}" alt="QR code">
+  <p>${escapeHtml(INSTRUCTION[kind])}</p>
+  <div class="until">Valid until ${escapeHtml(validUntilLabel(shown.expiresAt, timeZone))}</div>
+</body></html>`);
+  win.document.close();
+  // Print once the QR image has loaded, or the sheet prints blank.
+  const img = win.document.querySelector("img");
+  const go = () => {
+    win.focus();
+    win.print();
+  };
+  if (img && !img.complete) img.addEventListener("load", go, { once: true });
+  else go();
+}
+
+export function WalkInQrDialog({
+  eventId,
+  eventName,
+  open,
+  onClose,
+}: {
+  eventId: string;
+  eventName: string;
+  open: boolean;
+  onClose: () => void;
+}) {
   const [options, setOptions] = useState<Options | null>(null);
   const [kind, setKind] = useState<Kind>("exhibitor");
-  const [promoCodeId, setPromoCodeId] = useState<string>("");
   const [shown, setShown] = useState<ShownQr | null>(null);
   const [loading, setLoading] = useState(false);
-  // Bumped when a request fails, so the effect below tries again.
-  const [failures, setFailures] = useState(0);
-  // Only the latest request may show its QR: switching tab or sponsor quickly
-  // must not leave an older sponsor's QR on screen.
+  // Only the latest request may show its QR: switching tab quickly must not
+  // leave the other kind's QR on screen.
   const requestRef = useRef(0);
-  const countdown = useCountdown(shown?.expiresAt ?? null);
+
+  /** Loads the QR for a tab, when the event offers it. */
+  const showQr = useCallback((which: Kind, opts: Options) => {
+    if (opts.registrationClosed || opts.eventEnded || !opts[which]) return;
+    const requestId = ++requestRef.current;
+    setShown(null);
+    setLoading(true);
+    fetch(`/api/events/${eventId}/registrations/desk-qr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: which }),
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (requestId !== requestRef.current) return;
+        if (!res.ok) {
+          toast.error(data.error || "Could not make the QR");
+          return;
+        }
+        setShown(data);
+      })
+      .catch((err) => {
+        console.error("[desk] walk-in QR failed", err);
+        if (requestId === requestRef.current) toast.error("Network error: no QR was made. Choose the tab again to retry.");
+      })
+      .finally(() => {
+        if (requestId === requestRef.current) setLoading(false);
+      });
+  }, [eventId]);
+
+  const chooseTab = (which: Kind) => {
+    setKind(which);
+    if (options) showQr(which, options);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -72,8 +149,10 @@ export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; op
           toast.error(data.error || "Could not load the walk-in QR options");
           return;
         }
+        const first: Kind = data.exhibitor ? "exhibitor" : "complimentary";
         setOptions(data);
-        setKind(data.exhibitor ? "exhibitor" : "complimentary");
+        setKind(first);
+        showQr(first, data);
       })
       .catch((err) => {
         console.error("[desk] walk-in QR options failed", err);
@@ -82,70 +161,16 @@ export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; op
     return () => {
       cancelled = true;
     };
-  }, [open, eventId]);
-
-  const showQr = useCallback(async (which: Kind, codeId: string) => {
-    const requestId = ++requestRef.current;
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/events/${eventId}/registrations/desk-qr`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(which === "exhibitor" ? { kind: which, promoCodeId: codeId } : { kind: which }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (requestId !== requestRef.current) return;
-      if (!res.ok) {
-        toast.error(data.error || "Could not make the QR");
-        setShown(null);
-        return;
-      }
-      setShown(data);
-      setFailures(0);
-    } catch (err) {
-      console.error("[desk] walk-in QR failed", err);
-      if (requestId !== requestRef.current) return;
-      toast.error("Network error: trying again in 30 seconds");
-      setFailures((n) => n + 1);
-    } finally {
-      if (requestId === requestRef.current) setLoading(false);
-    }
-  }, [eventId]);
-
-  // A QR for the current choice: complimentary at once, exhibitors once a sponsor is picked.
-  useEffect(() => {
-    if (!open || !options || options.registrationClosed) return;
-    setShown(null);
-    if (kind === "complimentary" && options.complimentary) void showQr("complimentary", "");
-    if (kind === "exhibitor" && promoCodeId) void showQr("exhibitor", promoCodeId);
-  }, [open, options, kind, promoCodeId, showQr]);
-
-  // Renewed while it is on screen, so it never runs out in front of the queue;
-  // a failed attempt is retried soon rather than left to expire (review of dd77f563).
-  useEffect(() => {
-    if (!open || !shown) return;
-    const timer = setTimeout(() => void showQr(kind, promoCodeId), RENEW_AFTER_MS);
-    return () => clearTimeout(timer);
-  }, [open, shown, kind, promoCodeId, showQr]);
-  useEffect(() => {
-    if (!open || failures === 0) return;
-    const timer = setTimeout(() => void showQr(kind, promoCodeId), RETRY_AFTER_MS);
-    return () => clearTimeout(timer);
-  }, [open, failures, kind, promoCodeId, showQr]);
+  }, [open, eventId, showQr]);
 
   const close = () => {
     requestRef.current++;
     setShown(null);
-    setPromoCodeId("");
     setOptions(null);
-    setFailures(0);
     onClose();
   };
 
-  const exhibitor = options?.exhibitor ?? null;
-  const complimentary = options?.complimentary ?? null;
-  const title = kind === "exhibitor" ? "Exhibitor registration" : "Complimentary registration";
-  const sponsor = exhibitor?.sponsors.find((s) => s.promoCodeId === promoCodeId);
+  const unavailable = options && !options[kind];
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
@@ -155,7 +180,7 @@ export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; op
             <QrCode className="h-5 w-5 text-primary" /> Walk-in QR
           </DialogTitle>
           <DialogDescription>
-            Turn this screen to the queue. They scan, fill in their details on their phone and show you the barcode they get.
+            Show it on this screen or print it. They scan, fill in their details on their phone and show you the barcode they get.
           </DialogDescription>
         </DialogHeader>
 
@@ -167,61 +192,43 @@ export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; op
             Registration is switched off for this event, so the walk-in QR is too. Turn it on in Settings → Registration.
           </p>
         )}
-        {options && !options.registrationClosed && (
+        {options && !options.registrationClosed && options.eventEnded && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            This event has ended, so it has no walk-in QR.
+          </p>
+        )}
+        {options && !options.registrationClosed && !options.eventEnded && (
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-1 rounded-lg border p-1">
-              <Button type="button" variant={kind === "exhibitor" ? "default" : "ghost"} className="gap-1.5" onClick={() => setKind("exhibitor")}>
+              <Button type="button" variant={kind === "exhibitor" ? "default" : "ghost"} className="gap-1.5" onClick={() => chooseTab("exhibitor")}>
                 <Building2 className="h-4 w-4" /> Exhibitors
               </Button>
-              <Button type="button" variant={kind === "complimentary" ? "default" : "ghost"} className="gap-1.5" onClick={() => setKind("complimentary")}>
+              <Button type="button" variant={kind === "complimentary" ? "default" : "ghost"} className="gap-1.5" onClick={() => chooseTab("complimentary")}>
                 <Gift className="h-4 w-4" /> Complimentary
               </Button>
             </div>
 
-            {kind === "exhibitor" && !exhibitor && (
+            {unavailable && (
               <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                This event has no Exhibitor registration type with a rate that needs no approval. Check Registration Types.
-              </p>
-            )}
-            {kind === "exhibitor" && exhibitor && exhibitor.sponsors.length === 0 && (
-              <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                No sponsor has a code that covers the fee for exhibitors. Add one in Promo Codes, with &ldquo;Sponsor covers the fee&rdquo; on.
-              </p>
-            )}
-            {kind === "exhibitor" && exhibitor && exhibitor.sponsors.length > 0 && (
-              <div className="space-y-1.5">
-                <Label>Sponsor</Label>
-                <Select value={promoCodeId} onValueChange={(v) => v && setPromoCodeId(v)}>
-                  <SelectTrigger className="w-full"><SelectValue placeholder="Choose the sponsor" /></SelectTrigger>
-                  <SelectContent>
-                    {exhibitor.sponsors.map((s) => (
-                      <SelectItem key={s.promoCodeId} value={s.promoCodeId} disabled={s.placesLeft === 0}>
-                        {sponsorLabel(s)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {kind === "complimentary" && !complimentary && (
-              <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                This event has no Complimentary rate that needs no approval. Check Registration Types.
+                {kind === "exhibitor"
+                  ? "This event has no Exhibitor registration type with a rate that needs no approval. Check Registration Types."
+                  : "This event has no Complimentary rate that needs no approval. Check Registration Types."}
               </p>
             )}
 
             {loading && !shown && (
               <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
             )}
-            {shown && (
+            {shown && !unavailable && (
               <div className="flex flex-col items-center gap-3 rounded-xl border bg-white p-6 text-center">
-                <p className="text-xl font-semibold">{title}</p>
-                {kind === "exhibitor" && sponsor && <p className="-mt-2 text-sm text-muted-foreground">{sponsor.sponsorName}</p>}
+                <p className="text-xl font-semibold">{TITLE[kind]}</p>
                 {/* eslint-disable-next-line @next/next/no-img-element -- a data URL from the API */}
-                <img src={shown.qr} alt={`Scan to register: ${title}`} className="h-64 w-64 max-w-full sm:h-72 sm:w-72" />
-                <p className="text-sm">Point your phone camera at the code.</p>
-                <p className="text-xs text-muted-foreground">
-                  This QR works for {countdown.label} more and renews itself while this window is open.
-                </p>
+                <img src={shown.qr} alt={`Scan to register: ${TITLE[kind]}`} className="h-64 w-64 max-w-full sm:h-72 sm:w-72" />
+                <p className="max-w-md text-sm">{INSTRUCTION[kind]}</p>
+                <p className="text-xs text-muted-foreground">Valid until {validUntilLabel(shown.expiresAt, options.timezone)}. The same QR every time, so a printed one keeps working.</p>
+                <Button type="button" variant="outline" className="gap-1.5" onClick={() => printSheet(kind, shown, eventName, options.timezone)}>
+                  <Printer className="h-4 w-4" /> Print
+                </Button>
               </div>
             )}
           </div>

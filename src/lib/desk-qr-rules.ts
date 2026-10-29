@@ -13,6 +13,7 @@ export type DeskQrRefusal =
   | "DESK_QR_WRONG_RATE"
   | "DESK_QR_WRONG_TYPE"
   | "DESK_QR_NEEDS_APPROVAL"
+  | "DESK_QR_CODE_REQUIRED"
   | "DESK_QR_WRONG_CODE"
   | "DESK_QR_NOT_FREE";
 
@@ -20,7 +21,8 @@ export const DESK_QR_REFUSAL_MESSAGE: Record<DeskQrRefusal, string> = {
   DESK_QR_WRONG_RATE: "This desk QR is for another registration form. Please scan the QR at the desk again.",
   DESK_QR_WRONG_TYPE: "This registration type is not available on this desk QR.",
   DESK_QR_NEEDS_APPROVAL: "This registration needs the organiser's approval. Please register at the desk.",
-  DESK_QR_WRONG_CODE: "This desk QR is for another sponsor. Please scan the QR at the desk again.",
+  DESK_QR_CODE_REQUIRED: "Enter the code your sponsor gave you. A discount code does not apply here.",
+  DESK_QR_WRONG_CODE: "This desk QR does not take that code. Please ask at the desk.",
   DESK_QR_NOT_FREE: "This registration would need a payment. Please register at the desk.",
 };
 
@@ -41,16 +43,18 @@ export function deskQrTypeRefusal(
 }
 
 /**
- * The code and the price, once the code is claimed. An exhibitor QR needs its
- * own sponsor's code covering the fee; a complimentary one takes no code.
- * Either way nothing may be left to pay.
+ * The code and the price, once the code is claimed. An exhibitor needs a
+ * sponsor's code that covers the fee (theirs, typed on the form: the code is
+ * what credits the sponsor), and exactly that code when the QR names one; a
+ * complimentary QR takes no code. Either way nothing may be left to pay.
  */
 export function deskQrPriceRefusal(
   desk: { kind: DeskQrKind; promoCodeId: string | null },
   claimed: { promoCodeId: string | null; sponsorCovered: boolean; finalPrice: number },
 ): DeskQrRefusal | null {
-  if (desk.kind === "exhibitor" && (claimed.promoCodeId !== desk.promoCodeId || !claimed.sponsorCovered)) {
-    return "DESK_QR_WRONG_CODE";
+  if (desk.kind === "exhibitor") {
+    if (!claimed.promoCodeId || !claimed.sponsorCovered) return "DESK_QR_CODE_REQUIRED";
+    if (desk.promoCodeId && claimed.promoCodeId !== desk.promoCodeId) return "DESK_QR_WRONG_CODE";
   }
   if (desk.kind === "complimentary" && claimed.promoCodeId) return "DESK_QR_WRONG_CODE";
   return claimed.finalPrice > 0 ? "DESK_QR_NOT_FREE" : null;

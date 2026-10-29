@@ -277,11 +277,14 @@ function remember(eventId: string, value: { ticketTypeId: string; pricingTierId:
 export function DeskPanel({
   eventId,
   eventSlug,
+  eventName,
   tax,
   registrations,
 }: {
   eventId: string;
   eventSlug: string;
+  /** For the printed walk-in QR sheet. */
+  eventName: string;
   tax: DeskTax;
   registrations: DeskRegistration[];
 }) {
@@ -715,6 +718,7 @@ export function DeskPanel({
       <EditDetailsDialog eventId={eventId} person={editing} onSaved={refresh} onClose={() => setEditing(null)} />
       <WalkInQrDialog
         eventId={eventId}
+        eventName={eventName}
         open={qrOpen}
         onClose={() => {
           setQrOpen(false);

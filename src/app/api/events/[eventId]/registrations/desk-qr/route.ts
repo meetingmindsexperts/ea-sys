@@ -12,17 +12,19 @@ import { renderQrPng } from "@/lib/barcode";
 import { isExhibitorBadge } from "@/lib/badge-layout";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { registerTierSlug } from "@/lib/main-register-tiers";
-import { isSponsorCoveredCode, readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
+import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { mintDeskQrToken } from "@/lib/desk-qr-token";
+import { localDateInTz, resolveTimezone, wallTimeInTzToDate } from "@/lib/event-time";
 
 /**
  * The desk's Walk-in QR (docs/ONSITE_DESK_PLAN.md §8.1).
  *
  * GET  .../registrations/desk-qr  what the panel can offer: the Exhibitor
- *      type's rate and the sponsors' codes for it, and the Complimentary rate.
- * POST .../registrations/desk-qr  { kind, promoCodeId? } → a 30-minute link to
- *      that rate's form in desk mode, and its QR. The panel asks again every
- *      15 minutes while it is open.
+ *      type's rate and the Complimentary rate.
+ * POST .../registrations/desk-qr  { kind } → a link to that rate's form in
+ *      desk mode, and its QR: ONE QR per event and kind, valid to the end of
+ *      the event's last day, the same every time, printable (owner, Oct 29).
+ *      Exhibitors type their own sponsor's code, which credits the sponsor.
  *
  * `registrations.create`, the walk-in panel's key: showing the QR lets people
  * register themselves at the desk.
@@ -37,10 +39,13 @@ const ROUTE = "events/[eventId]/registrations/desk-qr";
 /** The rate named Complimentary (owner, Oct 29): the event's complimentary form. */
 const COMPLIMENTARY_SLUG = "complimentary";
 
-const postSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("exhibitor"), promoCodeId: z.string().min(1).max(100) }),
-  z.object({ kind: z.literal("complimentary") }),
-]);
+const postSchema = z.object({ kind: z.enum(["exhibitor", "complimentary"]) });
+
+/** The end of the event's last day, in its own timezone: when its desk QRs stop. */
+function eventEnds(endDate: Date, timezone: string | null): Date {
+  const tz = resolveTimezone(timezone);
+  return wallTimeInTzToDate(`${localDateInTz(endDate, tz)}T23:59:59`, tz);
+}
 
 interface TierRow {
   id: string;
@@ -97,6 +102,8 @@ async function loadEvent(eventWhere: object) {
       slug: true,
       eventType: true,
       settings: true,
+      endDate: true,
+      timezone: true,
       ticketTypes: {
         where: { isActive: true, isFaculty: false },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -108,41 +115,6 @@ async function loadEvent(eventWhere: object) {
       },
     },
   });
-}
-
-/** The sponsors' codes an exhibitor may use: their sponsor pays, on the Exhibitor type, still open. */
-async function sponsorCodes(eventId: string, exhibitorTypeId: string) {
-  const now = new Date();
-  const codes = await db.promoCode.findMany({
-    where: {
-      eventId,
-      isActive: true,
-      sponsorId: { not: null },
-      sponsorCoversFee: true,
-      OR: [{ validFrom: null }, { validFrom: { lte: now } }],
-      AND: [{ OR: [{ validUntil: null }, { validUntil: { gte: now } }] }],
-    },
-    orderBy: { code: "asc" },
-    select: {
-      id: true,
-      code: true,
-      maxUses: true,
-      usedCount: true,
-      sponsorId: true,
-      sponsorCoversFee: true,
-      sponsor: { select: { name: true } },
-      ticketTypes: { select: { ticketTypeId: true } },
-    },
-  });
-  return codes
-    .filter((c) => isSponsorCoveredCode(c))
-    .filter((c) => c.ticketTypes.length === 0 || c.ticketTypes.some((t) => t.ticketTypeId === exhibitorTypeId))
-    .map((c) => ({
-      promoCodeId: c.id,
-      code: c.code,
-      sponsorName: c.sponsor?.name ?? c.code,
-      placesLeft: c.maxUses === null ? null : Math.max(0, c.maxUses - c.usedCount),
-    }));
 }
 
 async function guard(eventId: string, method: "GET" | "POST") {
@@ -172,13 +144,14 @@ export async function GET(_req: Request, { params }: RouteParams): Promise<NextR
       }
       const exhibitor = exhibitorRate(event.ticketTypes, readCodeRequiredTiers(event.settings));
       const complimentary = complimentaryRate(event.ticketTypes);
+      const ends = eventEnds(event.endDate, event.timezone);
       return NextResponse.json({
         webinar: event.eventType === "WEBINAR",
         // Registration switched off: the desk QR is refused too (owner, Oct 29).
         registrationClosed: registrationClosed(event.settings),
-        exhibitor: exhibitor
-          ? { rateName: exhibitor.tier.name, sponsors: await sponsorCodes(event.id, exhibitor.typeId) }
-          : null,
+        eventEnded: ends.getTime() <= Date.now(),
+        timezone: resolveTimezone(event.timezone),
+        exhibitor: exhibitor ? { rateName: exhibitor.tier.name, validUntil: ends.toISOString() } : null,
         complimentary: complimentary ? { rateName: complimentary.name } : null,
       });
     });
@@ -226,8 +199,14 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
         );
       }
 
+      // Both QRs last to the end of the event; a finished event has none.
+      const until = eventEnds(event.endDate, event.timezone);
+      if (until.getTime() <= Date.now()) {
+        apiLogger.warn({ msg: "desk-qr:event-ended", eventId, userId });
+        return NextResponse.json({ error: "This event has ended.", code: "EVENT_ENDED" }, { status: 400 });
+      }
+
       let rate: string;
-      let promo: { id: string; code: string } | null = null;
       if (input.kind === "exhibitor") {
         const exhibitor = exhibitorRate(event.ticketTypes, readCodeRequiredTiers(event.settings));
         if (!exhibitor) {
@@ -237,24 +216,7 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
             { status: 400 },
           );
         }
-        const found = (await sponsorCodes(event.id, exhibitor.typeId)).find((c) => c.promoCodeId === input.promoCodeId);
-        if (found?.placesLeft === 0) {
-          // Every registration through it would fail on the code's limit.
-          apiLogger.warn({ msg: "desk-qr:sponsor-code-full", eventId, userId, promoCodeId: input.promoCodeId });
-          return NextResponse.json(
-            { error: "This sponsor has no places left. Raise the code's limit in Promo Codes.", code: "SPONSOR_CODE_FULL" },
-            { status: 400 },
-          );
-        }
-        if (!found) {
-          apiLogger.warn({ msg: "desk-qr:sponsor-code-not-usable", eventId, userId, promoCodeId: input.promoCodeId });
-          return NextResponse.json(
-            { error: "That sponsor's code cannot be used for exhibitors.", code: "SPONSOR_CODE_NOT_USABLE" },
-            { status: 400 },
-          );
-        }
         rate = registerTierSlug(exhibitor.tier.name);
-        promo = { id: found.promoCodeId, code: found.code };
       } else {
         const complimentary = complimentaryRate(event.ticketTypes);
         if (!complimentary) {
@@ -267,17 +229,16 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
         rate = registerTierSlug(complimentary.name);
       }
 
-      const { token, expiresAt, jti } = mintDeskQrToken({
-        eventId: event.id,
-        kind: input.kind,
-        rate,
-        promoCodeId: promo?.id ?? null,
-        issuedBy: userId,
-      });
+      // One QR per event and kind, the same every time it is shown (a printed
+      // sheet matches the screen), so it names no staff member; the audit
+      // row below does.
+      const { token, expiresAt, jti } = mintDeskQrToken(
+        { eventId: event.id, kind: input.kind, rate, promoCodeId: null, issuedBy: "desk" },
+        Date.now(),
+        until,
+      );
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-      const query = new URLSearchParams({ desk: token });
-      if (promo) query.set("promo", promo.code);
-      const url = `${appUrl}/e/${event.slug}/register/${rate}?${query.toString()}`;
+      const url = `${appUrl}/e/${event.slug}/register/${rate}?${new URLSearchParams({ desk: token }).toString()}`;
       const qr = await renderQrPng(url, { scale: 6 });
 
       // Who showed which QR, so a registration's audit row (which names the QR's
@@ -290,11 +251,11 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
             action: "DESK_QR_SHOWN",
             entityType: "Event",
             entityId: event.id,
-            changes: { kind: input.kind, deskQrId: jti, promoCodeId: promo?.id ?? null, expiresAt: expiresAt.toISOString() },
+            changes: { kind: input.kind, deskQrId: jti, expiresAt: expiresAt.toISOString() },
           },
         })
         .catch((err) => apiLogger.warn({ err, msg: "desk-qr:audit-write-failed", eventId }));
-      apiLogger.info({ msg: "desk-qr:shown", eventId, userId, kind: input.kind, promoCodeId: promo?.id ?? null, deskQrId: jti });
+      apiLogger.info({ msg: "desk-qr:shown", eventId, userId, kind: input.kind, deskQrId: jti });
       return NextResponse.json({
         url,
         qr: `data:image/png;base64,${qr.toString("base64")}`,

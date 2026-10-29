@@ -685,7 +685,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           ticketTypeId,
           email,
           originalPrice,
-          requireSponsorCover: sponsorCodeRequired,
+          // An exhibitor's desk QR takes only a sponsor's code that pays (§8.2).
+          requireSponsorCover: sponsorCodeRequired || desk?.kind === "exhibitor",
         });
         if (!claimed.ok) throw new Error(claimed.code);
         promoClaim = claimed.claim;

@@ -2,14 +2,17 @@
 // one of two free forms, exhibitors or complimentary, and the link carries
 // this token. While it is valid the public register route relaxes four things
 // for that event and that form only (§8.5); without it, or once it expires,
-// the link is the ordinary public form. Signed, never stored: the 30 minutes
-// bound a QR someone photographed. Same HMAC shape as the agent's approval
+// the link is the ordinary public form. Signed, never stored. Complimentary
+// lives 30 minutes, which bounds a QR someone photographed. Exhibitors have
+// ONE QR per event, valid to the end of the event and printable (owner, Oct
+// 29): minted with `until`, it is the same token every time it is shown, so a
+// printed sheet and the screen match. Same HMAC shape as the agent's approval
 // token (src/lib/agent/approval-token.ts), with its own purpose label so one
 // kind of token can never pass as the other.
 //
 // Server only (node:crypto).
 
-import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 
 export const DESK_QR_TTL_SECONDS = 30 * 60;
 
@@ -20,7 +23,7 @@ export interface DeskQrSubject {
   kind: DeskQrKind;
   /** The rate's slug (registerTierSlug): the only rate the form may use. */
   rate: string;
-  /** Exhibitors only: the sponsor's code the form must use. */
+  /** A sponsor's code the form must use; null lets the person enter their own sponsor's. */
   promoCodeId: string | null;
   /** The staff member who showed the QR, for the audit row. */
   issuedBy: string;
@@ -45,9 +48,21 @@ function sign(body: string): string {
   return createHmac("sha256", getSecret()).update(`${PURPOSE}.${body}`).digest("base64url");
 }
 
-export function mintDeskQrToken(subject: DeskQrSubject, now = Date.now()): { token: string; expiresAt: Date; jti: string } {
-  const exp = Math.floor(now / 1000) + DESK_QR_TTL_SECONDS;
-  const payload: DeskQrPayload = { v: 1, ...subject, exp, jti: randomBytes(8).toString("hex") };
+/**
+ * A QR good for 30 minutes from `now`, or, with `until`, one good until then
+ * whose id comes from what it is for: the same subject and `until` always give
+ * the same token.
+ */
+export function mintDeskQrToken(
+  subject: DeskQrSubject,
+  now = Date.now(),
+  until?: Date,
+): { token: string; expiresAt: Date; jti: string } {
+  const exp = until ? Math.floor(until.getTime() / 1000) : Math.floor(now / 1000) + DESK_QR_TTL_SECONDS;
+  const jti = until
+    ? createHash("sha256").update(`${subject.eventId}:${subject.kind}:${subject.rate}:${subject.promoCodeId ?? ""}:${exp}`).digest("hex").slice(0, 16)
+    : randomBytes(8).toString("hex");
+  const payload: DeskQrPayload = { v: 1, ...subject, exp, jti };
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return { token: `${body}.${sign(body)}`, expiresAt: new Date(exp * 1000), jti: payload.jti };
 }
@@ -65,7 +80,6 @@ function readPayload(body: string): DeskQrPayload | null {
     const p = JSON.parse(Buffer.from(body, "base64url").toString()) as Partial<DeskQrPayload>;
     if (p.v !== 1 || typeof p.exp !== "number" || typeof p.eventId !== "string") return null;
     if (!isKind(p.kind) || typeof p.rate !== "string" || typeof p.jti !== "string" || typeof p.issuedBy !== "string") return null;
-    if (p.kind === "exhibitor" && typeof p.promoCodeId !== "string") return null;
     return p as DeskQrPayload;
   } catch {
     return null;

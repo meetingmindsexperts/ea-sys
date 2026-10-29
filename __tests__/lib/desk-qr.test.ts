@@ -9,7 +9,7 @@ import { mintDeskQrToken, verifyDeskQrToken, DESK_QR_TTL_SECONDS, type DeskQrSub
 import { deskQrPriceRefusal, deskQrTypeRefusal, readDeskQrClaims } from "@/lib/desk-qr-rules";
 
 const COMP: DeskQrSubject = { eventId: "evt-1", kind: "complimentary", rate: "complimentary", promoCodeId: null, issuedBy: "staff-1" };
-const EXH: DeskQrSubject = { eventId: "evt-1", kind: "exhibitor", rate: "inclusive", promoCodeId: "promo-csl", issuedBy: "staff-1" };
+const EXH: DeskQrSubject = { eventId: "evt-1", kind: "exhibitor", rate: "inclusive", promoCodeId: null, issuedBy: "desk" };
 
 describe("the token", () => {
   it("verifies for 30 minutes, then is expired", () => {
@@ -34,8 +34,15 @@ describe("the token", () => {
     expect(verifyDeskQrToken("nonsense")).toEqual({ ok: false, reason: "malformed" });
   });
 
-  it("an exhibitor token without its sponsor's code is malformed", () => {
-    expect(verifyDeskQrToken(mintDeskQrToken({ ...EXH, promoCodeId: null }).token)).toEqual({ ok: false, reason: "malformed" });
+  it("with `until`: valid until then, and the same token every time (a printed sheet matches the screen)", () => {
+    const until = new Date(Date.now() + 3 * 86_400_000);
+    const a = mintDeskQrToken(EXH, Date.now(), until);
+    const b = mintDeskQrToken(EXH, Date.now() + 60_000, until);
+    expect(a.token).toBe(b.token);
+    expect(a.expiresAt.getTime()).toBe(Math.floor(until.getTime() / 1000) * 1000);
+    expect(verifyDeskQrToken(a.token, until.getTime() - 1000).ok).toBe(true);
+    expect(verifyDeskQrToken(a.token, until.getTime() + 1000)).toEqual({ ok: false, reason: "expired" });
+    expect(mintDeskQrToken({ ...EXH, kind: "complimentary", rate: "complimentary" }, Date.now(), until).token).not.toBe(a.token);
   });
 });
 
@@ -61,11 +68,16 @@ describe("the type and rate", () => {
 });
 
 describe("the code and the price", () => {
-  it("an exhibitor needs their own sponsor's code covering the fee", () => {
+  it("an exhibitor types any sponsor's code that covers the fee; it credits that sponsor", () => {
     expect(deskQrPriceRefusal(EXH, { promoCodeId: "promo-csl", sponsorCovered: true, finalPrice: 0 })).toBeNull();
-    expect(deskQrPriceRefusal(EXH, { promoCodeId: "promo-roche", sponsorCovered: true, finalPrice: 0 })).toBe("DESK_QR_WRONG_CODE");
-    expect(deskQrPriceRefusal(EXH, { promoCodeId: "promo-csl", sponsorCovered: false, finalPrice: 0 })).toBe("DESK_QR_WRONG_CODE");
-    expect(deskQrPriceRefusal(EXH, { promoCodeId: null, sponsorCovered: false, finalPrice: 0 })).toBe("DESK_QR_WRONG_CODE");
+    expect(deskQrPriceRefusal(EXH, { promoCodeId: "promo-roche", sponsorCovered: true, finalPrice: 0 })).toBeNull();
+    expect(deskQrPriceRefusal(EXH, { promoCodeId: "promo-x", sponsorCovered: false, finalPrice: 0 })).toBe("DESK_QR_CODE_REQUIRED");
+    expect(deskQrPriceRefusal(EXH, { promoCodeId: null, sponsorCovered: false, finalPrice: 0 })).toBe("DESK_QR_CODE_REQUIRED");
+  });
+
+  it("a QR that names a sponsor's code takes only that one", () => {
+    const named = { ...EXH, promoCodeId: "promo-csl" };
+    expect(deskQrPriceRefusal(named, { promoCodeId: "promo-roche", sponsorCovered: true, finalPrice: 0 })).toBe("DESK_QR_WRONG_CODE");
   });
 
   it("complimentary takes no code, and nothing may cost money", () => {

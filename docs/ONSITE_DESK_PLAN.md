@@ -428,4 +428,14 @@ to 3, and shown in the browser before any push.
 - Owner, Oct 29: the desk QR follows the event's registration switch (off
   means no QR, said on the panel), and never uses a rate that needs approval
   (`DESK_QR_NEEDS_APPROVAL`; the panel skips such rates).
+- Owner, Oct 29 (later the same day): ONE exhibitor QR and ONE complimentary
+  QR per event, each valid to the end of the event's last day (its timezone),
+  printable, and the same every time it is shown (`mintDeskQrToken` with
+  `until`: the id comes from what the QR is for). This replaces the
+  30-minute, per-sponsor, screen-only QR above and ends the printing deferral
+  in §8.7. Exhibitors type their own sponsor's code (any sponsor's code that
+  covers the fee; it credits that sponsor). The trade-off, accepted: a shared
+  complimentary QR works until the event ends; switching off the
+  Complimentary rate or registration stops it. Print opens an A4 sheet in the
+  browser's print dialog.
 

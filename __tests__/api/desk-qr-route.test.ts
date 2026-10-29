@@ -11,7 +11,6 @@ const { mockAuth, mockDb, mockQr } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
-    promoCode: { findMany: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   mockQr: vi.fn(),
@@ -34,20 +33,19 @@ const get = () => GET(new Request("http://x/desk-qr"), params);
 const post = (body: unknown) => POST(new Request("http://x/desk-qr", { method: "POST", body: JSON.stringify(body) }), params);
 
 const tier = (id: string, name: string, isActive = true, requiresApproval = false) => ({ id, name, isActive, requiresApproval });
+const END = new Date(Date.now() + 2 * 86_400_000);
 const EVENT = {
   id: "evt-1",
   slug: "BHS2026",
   eventType: "CONFERENCE",
   settings: { codeRequiredTiers: ["inclusive"] },
+  endDate: END,
+  timezone: "Asia/Dubai",
   ticketTypes: [
     { id: "tt-phys", name: "Physician", pricingTiers: [tier("t1", "Standard"), tier("t2", "Inclusive"), tier("t3", "Complimentary")] },
     { id: "tt-exh", name: "Exhibitor", pricingTiers: [tier("t4", "Inclusive")] },
   ],
 };
-const CODE = (over: Record<string, unknown> = {}) => ({
-  id: "promo-csl", code: "CSL", maxUses: 10, usedCount: 3, sponsorId: "sp-csl", sponsorCoversFee: true,
-  sponsor: { name: "CSL" }, ticketTypes: [], ...over,
-});
 
 function tokenFrom(url: string) {
   return new URL(url).searchParams.get("desk")!;
@@ -57,20 +55,23 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "user-1", role: "ADMIN", organizationId: "org-1" } });
   mockDb.event.findFirst.mockResolvedValue(EVENT);
-  mockDb.promoCode.findMany.mockResolvedValue([CODE(), CODE({ id: "promo-x", code: "X", ticketTypes: [{ ticketTypeId: "tt-phys" }] })]);
   mockDb.auditLog.create.mockResolvedValue({});
   mockQr.mockResolvedValue(Buffer.from("png"));
 });
 
 describe("GET the options", () => {
-  it("the Exhibitor rate with the sponsors' codes valid for it, and the Complimentary rate", async () => {
-    const res = await get();
-    expect(await res.json()).toEqual({
+  it("the Exhibitor rate and the Complimentary rate, valid to the end of the event", async () => {
+    const json = await (await get()).json();
+    expect(json).toMatchObject({
       webinar: false,
       registrationClosed: false,
-      exhibitor: { rateName: "Inclusive", sponsors: [{ promoCodeId: "promo-csl", code: "CSL", sponsorName: "CSL", placesLeft: 7 }] },
+      eventEnded: false,
+      timezone: "Asia/Dubai",
+      exhibitor: { rateName: "Inclusive" },
       complimentary: { rateName: "Complimentary" },
     });
+    // The end of the event's last day in Dubai: 23:59:59 local is 19:59:59Z.
+    expect(json.exhibitor.validUntil).toMatch(/T19:59:59\.000Z$/);
   });
 
   it("nothing to offer when the event has neither", async () => {
@@ -87,31 +88,30 @@ describe("GET the options", () => {
 });
 
 describe("POST a QR", () => {
-  it("complimentary: a link to that rate's form with a 30-minute token, its QR, and an audit row without the token", async () => {
-    const res = await post({ kind: "complimentary" });
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.url).toMatch(/\/e\/BHS2026\/register\/complimentary\?desk=/);
-    expect(json.qr).toBe(`data:image/png;base64,${Buffer.from("png").toString("base64")}`);
-    const verdict = verifyDeskQrToken(tokenFrom(json.url));
-    expect(verdict).toMatchObject({ ok: true, payload: { eventId: "evt-1", kind: "complimentary", rate: "complimentary", issuedBy: "user-1" } });
+  it("one QR per event and kind, valid to the end of the event, the same every time; audited without the token", async () => {
+    const first = await (await post({ kind: "complimentary" })).json();
+    const again = await (await post({ kind: "complimentary" })).json();
+    expect(first.url).toBe(again.url);
+    expect(first.url).toMatch(/\/e\/BHS2026\/register\/complimentary\?desk=/);
+    expect(first.qr).toBe(`data:image/png;base64,${Buffer.from("png").toString("base64")}`);
+    expect(first.expiresAt).toMatch(/T19:59:59\.000Z$/);
+    expect(verifyDeskQrToken(tokenFrom(first.url))).toMatchObject({ ok: true, payload: { eventId: "evt-1", kind: "complimentary", rate: "complimentary" } });
     const audit = mockDb.auditLog.create.mock.calls[0][0].data;
-    expect(audit).toMatchObject({ action: "DESK_QR_SHOWN", changes: { kind: "complimentary" } });
-    expect(JSON.stringify(audit)).not.toContain(tokenFrom(json.url));
+    expect(audit).toMatchObject({ action: "DESK_QR_SHOWN", userId: "user-1", changes: { kind: "complimentary" } });
+    expect(JSON.stringify(audit)).not.toContain(tokenFrom(first.url));
   });
 
-  it("exhibitor: the Inclusive form with the sponsor's code in the link and in the token", async () => {
-    const json = await (await post({ kind: "exhibitor", promoCodeId: "promo-csl" })).json();
-    expect(json.url).toMatch(/\/e\/BHS2026\/register\/inclusive\?desk=.+&promo=CSL$/);
-    expect(verifyDeskQrToken(tokenFrom(json.url))).toMatchObject({ ok: true, payload: { kind: "exhibitor", rate: "inclusive", promoCodeId: "promo-csl" } });
+  it("exhibitor: the Inclusive form, no sponsor named (they type their own code)", async () => {
+    const json = await (await post({ kind: "exhibitor" })).json();
+    expect(json.url).toMatch(/\/e\/BHS2026\/register\/inclusive\?desk=[^&]+$/);
+    expect(verifyDeskQrToken(tokenFrom(json.url))).toMatchObject({ ok: true, payload: { kind: "exhibitor", rate: "inclusive", promoCodeId: null } });
   });
 
-  it("refuses a code that is not a sponsor's for exhibitors, and an event with no such rate", async () => {
-    expect((await post({ kind: "exhibitor", promoCodeId: "promo-x" })).status).toBe(400);
-    mockDb.promoCode.findMany.mockResolvedValueOnce([CODE({ sponsorCoversFee: false })]);
-    expect((await post({ kind: "exhibitor", promoCodeId: "promo-csl" })).status).toBe(400);
+  it("refuses a finished event, and an event without the rate", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, endDate: new Date(Date.now() - 2 * 86_400_000) });
+    expect(await (await post({ kind: "exhibitor" })).json()).toMatchObject({ code: "EVENT_ENDED" });
     mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, ticketTypes: [EVENT.ticketTypes[0]] });
-    expect(await (await post({ kind: "exhibitor", promoCodeId: "promo-csl" })).json()).toMatchObject({ code: "NO_EXHIBITOR_RATE" });
+    expect(await (await post({ kind: "exhibitor" })).json()).toMatchObject({ code: "NO_EXHIBITOR_RATE" });
     mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, ticketTypes: [EVENT.ticketTypes[1]] });
     expect(await (await post({ kind: "complimentary" })).json()).toMatchObject({ code: "NO_COMPLIMENTARY_RATE" });
     expect(mockQr).not.toHaveBeenCalled();
@@ -145,17 +145,10 @@ describe("POST a QR", () => {
     expect(mockQr).not.toHaveBeenCalled();
   });
 
-  it("refuses a sponsor with no places left", async () => {
-    mockDb.promoCode.findMany.mockResolvedValueOnce([CODE({ usedCount: 10 })]);
-    expect(await (await post({ kind: "exhibitor", promoCodeId: "promo-csl" })).json()).toMatchObject({ code: "SPONSOR_CODE_FULL" });
-    expect(mockQr).not.toHaveBeenCalled();
-  });
-
   it("refuses a webinar and a bad body", async () => {
     mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, eventType: "WEBINAR" });
     expect((await post({ kind: "complimentary" })).status).toBe(400);
     expect((await post({ kind: "vip" })).status).toBe(400);
-    expect((await post({ kind: "exhibitor" })).status).toBe(400);
   });
 
   it("a role without registrations.create gets 403", async () => {

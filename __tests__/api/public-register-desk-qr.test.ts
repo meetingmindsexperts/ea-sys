@@ -80,7 +80,7 @@ function compToken(over: Partial<Parameters<typeof mintDeskQrToken>[0]> = {}, no
   return mintDeskQrToken({ eventId: EVENT_ID, kind: "complimentary", rate: "complimentary", promoCodeId: null, issuedBy: "staff-1", ...over }, now).token;
 }
 function exhibitorToken() {
-  return mintDeskQrToken({ eventId: EVENT_ID, kind: "exhibitor", rate: "inclusive", promoCodeId: "promo-csl", issuedBy: "staff-1" }).token;
+  return mintDeskQrToken({ eventId: EVENT_ID, kind: "exhibitor", rate: "inclusive", promoCodeId: null, issuedBy: "desk" }, Date.now(), new Date(Date.now() + 86_400_000)).token;
 }
 
 function body(extra: Record<string, unknown> = {}) {
@@ -208,9 +208,18 @@ describe("an exhibitor desk QR", () => {
     expect(tx.registration.create.mock.calls[0][0].data).toMatchObject({ paymentStatus: "INCLUSIVE", sponsorId: "sp-csl", badgeType: "Exhibitor" });
   });
 
-  it("refuses another sponsor's code, and a delegate type", async () => {
+  it("any sponsor's paying code works, and credits that sponsor", async () => {
     claimPromo.mockResolvedValueOnce({ ok: true, claim: { promo: { id: "promo-roche", code: "ROCHE", sponsorId: "sp-r", sponsor: { name: "Roche" } }, discountAmount: 0, sponsorCovered: true } });
-    expect((await post({ deskToken: exhibitorToken(), ticketTypeId: "tt-exh", pricingTierId: "tier-inc", promoCode: "ROCHE" })).json.code).toBe("DESK_QR_WRONG_CODE");
+    const r = await post({ deskToken: exhibitorToken(), ticketTypeId: "tt-exh", pricingTierId: "tier-inc", promoCode: "ROCHE" });
+    expect(r.status).toBe(201);
+    expect(tx.registration.create.mock.calls[0][0].data).toMatchObject({ sponsorId: "sp-r", paymentStatus: "INCLUSIVE" });
+    expect(claimPromo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ requireSponsorCover: true }));
+  });
+
+  it("refuses no code, a code the sponsor does not pay, and a delegate type", async () => {
+    expect((await post({ deskToken: exhibitorToken(), ticketTypeId: "tt-exh", pricingTierId: "tier-inc" })).json.code).toBe("PROMO_CODE_REQUIRED");
+    claimPromo.mockResolvedValueOnce({ ok: true, claim: { promo: { id: "promo-x", code: "X", sponsorId: null, sponsor: null }, discountAmount: 0, sponsorCovered: false } });
+    expect((await post({ deskToken: exhibitorToken(), ticketTypeId: "tt-exh", pricingTierId: "tier-inc", promoCode: "X" })).json.code).toBe("DESK_QR_CODE_REQUIRED");
     on(PHYSICIAN, INCLUSIVE);
     expect((await post({ deskToken: exhibitorToken(), pricingTierId: "tier-inc", promoCode: "CSL" })).json.code).toBe("DESK_QR_WRONG_TYPE");
   });

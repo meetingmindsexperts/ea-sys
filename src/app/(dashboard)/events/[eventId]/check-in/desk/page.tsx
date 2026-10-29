@@ -87,6 +87,7 @@ export default function DeskPage() {
           <DeskPanel
             eventId={eventId}
             eventSlug={event.slug}
+            eventName={event.name}
             tax={{ taxRate: event.taxRate == null ? null : Number(event.taxRate), taxLabel: event.taxLabel ?? null }}
             registrations={registrations}
           />
