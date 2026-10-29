@@ -12,7 +12,7 @@ import type { RegistrationFormSkipReason } from "@/lib/registration-form-link";
 
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
-async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
+export async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers);
   const activeOrgId = typeof window !== "undefined" ? localStorage.getItem("ea-sys:active-org-id") : null;
   if (activeOrgId) {

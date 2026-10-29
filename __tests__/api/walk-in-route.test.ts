@@ -27,9 +27,10 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
+const { mockRateLimit } = vi.hoisted(() => ({ mockRateLimit: vi.fn() }));
 vi.mock("@/lib/security", () => ({
   getClientIp: vi.fn(() => "127.0.0.1"),
-  checkRateLimit: vi.fn(() => ({ allowed: true })),
+  checkRateLimit: (...a: unknown[]) => mockRateLimit(...a),
 }));
 vi.mock("@/services/registration-service", () => ({ createRegistration: (...a: unknown[]) => mockCreate(...a) }));
 vi.mock("@/services/payment-service", () => ({
@@ -84,6 +85,7 @@ beforeEach(() => {
   });
   mockRecordPayment.mockResolvedValue({ ok: true, summary: { fullyPaid: true } });
   mockExecuteCheckIn.mockResolvedValue({ id: "reg-1" });
+  mockRateLimit.mockReturnValue({ allowed: true });
 });
 
 describe("POST walk-in", () => {
@@ -214,5 +216,35 @@ describe("POST walk-in", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: "FREE_RATE" });
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("the event must satisfy every key's scope: create and check-in, and payments when paid (review MED 1)", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(freshRow("PAID"));
+    await post({ ...base, payment: "complimentary" });
+    expect(mockDb.event.findFirst.mock.calls[0][0].where.AND).toHaveLength(2);
+    mockDb.event.findFirst.mockClear();
+    await post({ ...base, payment: "cash" });
+    expect(mockDb.event.findFirst.mock.calls[0][0].where.AND).toHaveLength(3);
+  });
+
+  it("an exception after the row exists still answers registered (review MED 2)", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(freshRow("COMPLIMENTARY"));
+    mockExecuteCheckIn.mockRejectedValue(new Error("db blip"));
+    const res = await post({ ...base, payment: "complimentary" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ registered: true, checkedIn: false, registrationId: "reg-1", code: "UNKNOWN" });
+  });
+
+  it("a paid walk-in spends the manual-payment bucket, refused before anything is created (review LOW 6)", async () => {
+    mockRateLimit.mockImplementation(({ key }: { key: string }) =>
+      key.startsWith("manual-payment:") ? { allowed: false, retryAfterSeconds: 60 } : { allowed: true },
+    );
+    const paidRes = await post({ ...base, payment: "cash" });
+    expect(paidRes.status).toBe(429);
+    expect(mockCreate).not.toHaveBeenCalled();
+
+    mockDb.registration.findFirst.mockResolvedValue(freshRow("COMPLIMENTARY"));
+    const compRes = await post({ ...base, payment: "complimentary" });
+    expect(compRes.status).toBe(201);
   });
 });

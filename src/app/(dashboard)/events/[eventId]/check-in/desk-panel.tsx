@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useTickets, queryKeys } from "@/hooks/use-api";
+import { useTickets, queryKeys, fetchApi } from "@/hooks/use-api";
+import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatPersonName } from "@/lib/utils";
 import { matchesRegistrationSearch } from "@/lib/registration-search";
 import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
@@ -35,9 +36,17 @@ interface DeskRegistration {
   userId: string | null;
   completedAt?: string | null;
   attendee: { title?: string | null; firstName: string; lastName: string; email: string; organization?: string | null };
-  ticketType: { name: string; price?: number | string } | null;
-  pricingTier?: { price: number | string } | null;
+  ticketType: { name: string; price?: number | string; currency?: string } | null;
+  pricingTier?: { price: number | string; currency?: string } | null;
   originalPrice?: number | string | null;
+  discountAmount?: number | string | null;
+  payments?: Array<{ amount: number | string; currency: string; status: string }>;
+}
+
+/** The event's tax, so the desk shows what to collect rather than the pre-tax price. */
+interface DeskTax {
+  taxRate: number | null;
+  taxLabel: string | null;
 }
 
 interface DeskTier {
@@ -112,8 +121,33 @@ async function printBadge(eventId: string, registrationId: string): Promise<stri
  */
 function paymentDue(r: DeskRegistration): boolean {
   if (!OUTSTANDING.has(r.paymentStatus)) return false;
-  const price = r.originalPrice ?? r.pricingTier?.price ?? r.ticketType?.price ?? 0;
-  return Number(price) > 0;
+  return readRegistrationBasePrice(r) > 0;
+}
+
+/**
+ * What is left to collect on a row, tax included and settled payments taken
+ * off: the figure the desk shows and sends as the amount, so the payment, the
+ * invoice and the receipt match the cash in hand (review of 26c17807, MED 3).
+ */
+function balanceToCollect(r: DeskRegistration, tax: DeskTax): { amount: number; currency: string } {
+  const currency = (r.pricingTier?.currency ?? r.ticketType?.currency ?? "USD").toUpperCase();
+  const totalPaid = (r.payments ?? [])
+    .filter((p) => p.status === "PAID" && p.currency.toUpperCase() === currency)
+    .reduce((sum, p) => sum + Number(p.amount), 0);
+  const fin = computeRegistrationFinancials({
+    subtotal: readRegistrationBasePrice(r),
+    discount: Number(r.discountAmount ?? 0),
+    taxRate: tax.taxRate,
+    taxLabel: tax.taxLabel,
+    currency,
+    totalPaid,
+  });
+  return { amount: fin.balanceDue, currency };
+}
+
+/** A walk-in's total to collect at a rate, tax included. */
+function walkInTotal(price: number, currency: string, tax: DeskTax): number {
+  return computeRegistrationFinancials({ subtotal: price, taxRate: tax.taxRate, taxLabel: tax.taxLabel, currency }).total;
 }
 
 function isFormCompleted(r: DeskRegistration): boolean {
@@ -129,6 +163,12 @@ function StatusChips({ r }: { r: DeskRegistration }) {
       {paymentDue(r) && <Badge variant="outline" className="text-red-700 border-red-200">Payment due</Badge>}
     </>
   );
+}
+
+/** "AED 525.00 incl. VAT": what the desk collects. */
+function collectLabel({ amount, currency }: { amount: number; currency: string }, tax: DeskTax): string {
+  const taxed = Number(tax.taxRate ?? 0) > 0;
+  return `${currency} ${amount.toFixed(2)}${taxed ? ` incl. ${tax.taxLabel || "VAT"}` : ""}`;
 }
 
 function money(amount: number | string, currency: string): string {
@@ -164,10 +204,12 @@ function remember(eventId: string, value: { ticketTypeId: string; pricingTierId:
 export function DeskPanel({
   eventId,
   eventSlug,
+  tax,
   registrations,
 }: {
   eventId: string;
   eventSlug: string;
+  tax: DeskTax;
   registrations: DeskRegistration[];
 }) {
   const queryClient = useQueryClient();
@@ -180,6 +222,14 @@ export function DeskPanel({
   const [payMethod, setPayMethod] = useState<"cash" | "card">("cash");
   const [payLast4, setPayLast4] = useState("");
 
+  // One payment panel at a time, and it starts clean: a second row must not
+  // inherit the first row's card digits (review of 26c17807, LOW 8).
+  const openPayment = (id: string | null) => {
+    setPayingId(id);
+    setPayMethod("cash");
+    setPayLast4("");
+  };
+
   const results = useMemo(() => {
     if (query.trim().length < 2) return [];
     return registrations.filter((r) => matchesRegistrationSearch(r, query)).slice(0, MAX_RESULTS);
@@ -190,9 +240,9 @@ export function DeskPanel({
   // desk just admitted is missing. Bypass the HTTP cache and write the result in.
   const refresh = async () => {
     try {
-      const res = await fetch(`/api/events/${eventId}/registrations`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      queryClient.setQueryData(queryKeys.registrations(eventId), await res.json());
+      // fetchApi, so the org header an operator switching organisations needs goes too.
+      const rows = await fetchApi<unknown[]>(`/api/events/${eventId}/registrations`, { cache: "no-store" });
+      queryClient.setQueryData(queryKeys.registrations(eventId), rows);
     } catch (err) {
       console.error("[desk] list refresh failed", err);
       await queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
@@ -210,7 +260,7 @@ export function DeskPanel({
       const res = await fetch(`/api/events/${eventId}/registrations/${r.id}/check-in`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (data.code === "PAYMENT_REQUIRED") {
-        setPayingId(r.id);
+        openPayment(r.id);
         toast.warning("Payment is due. Record it, then the badge prints.");
         return;
       }
@@ -253,7 +303,12 @@ export function DeskPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          payMethod === "card" ? { method: "card_onsite", cardLast4: payLast4 } : { method: "cash", cashReceivedBy: operatorName },
+          {
+            ...(payMethod === "card" ? { method: "card_onsite", cardLast4: payLast4 } : { method: "cash", cashReceivedBy: operatorName }),
+            // The figure the desk showed and collected; the server audits any
+            // difference from its own total.
+            ...balanceToCollect(r, tax),
+          },
         ),
       });
       const data = await res.json().catch(() => ({}));
@@ -265,8 +320,7 @@ export function DeskPanel({
         toast.warning("Recorded, but it does not cover the total. Check the registration.");
         return;
       }
-      setPayingId(null);
-      setPayLast4("");
+      openPayment(null);
     } catch (err) {
       console.error("[desk] payment failed", err);
       toast.error("Network error: the payment was NOT recorded");
@@ -318,7 +372,7 @@ export function DeskPanel({
                     r={r}
                     busy={busyId === r.id}
                     onCheckIn={() => checkInAndPrint(r)}
-                    onRecordPayment={() => setPayingId(r.id)}
+                    onRecordPayment={() => openPayment(r.id)}
                     onReprint={() => reprint(r)}
                   />
                 </div>
@@ -326,7 +380,7 @@ export function DeskPanel({
                   <div className="flex flex-wrap items-end gap-2 rounded-md bg-muted/50 p-2">
                     <div className="space-y-1">
                       <Label className="text-xs">Paid by</Label>
-                      <Select value={payMethod} onValueChange={(v) => setPayMethod(v as "cash" | "card")}>
+                      <Select value={payMethod} onValueChange={(v) => v && setPayMethod(v as "cash" | "card")}>
                         <SelectTrigger className="w-28 h-9 bg-white"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="cash">Cash</SelectItem>
@@ -347,9 +401,9 @@ export function DeskPanel({
                       </div>
                     )}
                     <Button size="sm" className="h-9" disabled={busyId === r.id} onClick={() => recordPaymentThenAdmit(r)}>
-                      Record payment, check in & print
+                      {`Record ${collectLabel(balanceToCollect(r, tax), tax)}, check in & print`}
                     </Button>
-                    <Button size="sm" variant="ghost" className="h-9" onClick={() => setPayingId(null)}>
+                    <Button size="sm" variant="ghost" className="h-9" onClick={() => openPayment(null)}>
                       Cancel
                     </Button>
                   </div>
@@ -363,6 +417,7 @@ export function DeskPanel({
       <WalkInForm
         eventId={eventId}
         eventSlug={eventSlug}
+        tax={tax}
         onRegistered={(email) => {
           setQuery(email);
           refresh();
@@ -495,12 +550,14 @@ function Field({ label, required, htmlFor, children, className }: {
 function WalkInForm({
   eventId,
   eventSlug,
+  tax,
   onRegistered,
   onDone,
 }: {
   eventId: string;
-  /** For the supporting-document upload, which goes through the public form's route. */
+  /** The upload field's public route needs it; the desk overrides it with its staff route. */
   eventSlug: string;
+  tax: DeskTax;
   /** Registered, but a later step did not finish: show them in search. */
   onRegistered: (email: string) => void;
   onDone: (registrationId: string, email: string) => Promise<void>;
@@ -722,6 +779,7 @@ function WalkInForm({
           {type?.requiresDocument && (
             <SupportingDocumentField
               slug={eventSlug}
+              uploadUrl={`/api/events/${eventId}/registrations/walk-in/document`}
               label={type.documentLabel || "Supporting document"}
               required={type.documentRequired === true}
               instructions={type.documentInstructions ?? null}
@@ -733,7 +791,12 @@ function WalkInForm({
           )}
 
           <div className="space-y-1">
-            <Label>Payment {price > 0 && <span className="font-normal text-muted-foreground">· {money(price, currency)} before tax</span>}</Label>
+            <Label>
+              Payment
+              {price > 0 && (
+                <span className="font-normal text-muted-foreground"> · collect {collectLabel({ amount: walkInTotal(price, currency, tax), currency }, tax)}</span>
+              )}
+            </Label>
             {price === 0 ? (
               <p className="text-sm text-muted-foreground">Free rate: registered as complimentary.</p>
             ) : (

@@ -331,7 +331,12 @@ export default function CheckInPage() {
         </div>
 
         {/* Scanner Area */}
-        {mode === "desk" && event && <DeskPanel eventId={eventId} eventSlug={event.slug} registrations={registrations} />}
+        {mode === "desk" && event && <DeskPanel
+            eventId={eventId}
+            eventSlug={event.slug}
+            tax={{ taxRate: event.taxRate == null ? null : Number(event.taxRate), taxLabel: event.taxLabel ?? null }}
+            registrations={registrations}
+          />}
         {mode === "camera" && <CameraScanner onScan={handleCheckIn} />}
         {mode === "manual" && (
           <Card>

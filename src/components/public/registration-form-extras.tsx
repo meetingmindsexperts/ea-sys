@@ -170,11 +170,12 @@ export interface UploadedDocument {
 
 /**
  * The supporting-document section, rendered from the type's own policy: the organiser's label and
- * instructions, required or not. Uploads to the event's public upload route; the server re-checks size,
- * type and content and is the authority.
+ * instructions, required or not. Uploads to the event's public upload route, or to `uploadUrl` (the
+ * onsite desk's staff route); the server re-checks size, type and content and is the authority.
  */
 export function SupportingDocumentField({
   slug,
+  uploadUrl,
   label,
   required,
   instructions,
@@ -185,6 +186,8 @@ export function SupportingDocumentField({
   onBeforeUpload,
 }: {
   slug: string;
+  /** Overrides the public upload route (the desk uploads through its own staff route). */
+  uploadUrl?: string;
   label: string;
   required: boolean;
   instructions: string | null;
@@ -213,7 +216,7 @@ export function SupportingDocumentField({
     try {
       const body = new FormData();
       body.append("file", file);
-      const res = await fetch(`/api/public/events/${slug}/supporting-document`, { method: "POST", body });
+      const res = await fetch(uploadUrl ?? `/api/public/events/${slug}/supporting-document`, { method: "POST", body });
       const json = await res.json().catch(() => null);
       if (!res.ok) {
         onError(json?.error || "Could not upload the file. Please try again.");

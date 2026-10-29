@@ -90,10 +90,12 @@ interface RouteParams {
 const ROUTE = "events/[eventId]/registrations/walk-in:POST";
 
 export async function POST(req: Request, { params }: RouteParams) {
+  const { eventId } = await params;
   try {
-    const [{ eventId }, session, raw] = await Promise.all([params, auth(), req.json().catch(() => null)]);
+    const [session, raw] = await Promise.all([auth(), req.json().catch(() => null)]);
 
     if (!session?.user) {
+      apiLogger.warn({ msg: "walk-in:unauthenticated", eventId });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const orgGuard = requireOrgId(session, { route: ROUTE, eventId });
@@ -112,9 +114,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     const data = parsed.data;
     const paid = data.payment !== "complimentary";
 
+    // Each key's scope lives in its own eventWhere (a custom role may hold
+    // create everywhere but check-in or payments only on assigned events), so
+    // the event must satisfy all of them (review of 26c17807, MED 1).
+    const scopes = [createGate.eventWhere, checkInPermission.eventWhere];
     if (paid) {
       const paymentPermission = requirePermission(session, "payments.record", { route: ROUTE, eventId });
       if (!paymentPermission.ok) return paymentPermission.response;
+      scopes.push(paymentPermission.eventWhere);
     }
 
     // Well above any real desk pace (a walk-in takes ~30 s); stops a stuck
@@ -123,9 +130,18 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!rateLimit.allowed) {
       return rateLimited(rateLimit, { route: ROUTE, userId: session.user.id, eventId, limit: 300, windowSeconds: 3600 });
     }
+    // A paid walk-in is also a manual payment: it spends the same bucket as the
+    // payments route (60/hr per person, review H7), checked before anything is
+    // created so a refusal never leaves a half-done row.
+    if (paid) {
+      const paymentRate = checkRateLimit({ key: `manual-payment:${session.user.id}`, limit: 60, windowMs: 60 * 60 * 1000 });
+      if (!paymentRate.allowed) {
+        return rateLimited(paymentRate, { route: ROUTE, userId: session.user.id, eventId, limit: 60, windowSeconds: 3600, message: "Too many payment recordings. Please wait before recording more." });
+      }
+    }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const event = await db.event.findFirst({ where: createGate.eventWhere, select: MANUAL_PAYMENT_EVENT_SELECT });
+      const event = await db.event.findFirst({ where: { AND: scopes }, select: MANUAL_PAYMENT_EVENT_SELECT });
       if (!event) {
         apiLogger.warn({ msg: "walk-in:event-not-found", eventId, userId: session.user.id });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -221,7 +237,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       const registration = created.registration;
       const name = `${registration.attendee.firstName} ${registration.attendee.lastName}`;
-      const summary = {
+      const summary: WalkInSummary = {
         registered: true,
         registrationId: registration.id,
         serialId: registration.serialId,
@@ -230,67 +246,108 @@ export async function POST(req: Request, { params }: RouteParams) {
         dtcm: created.dtcm,
       };
 
-      if (paid) {
-        const payment = await recordManualPayment({
-          event,
-          registrationId: registration.id,
-          method: data.payment === "card" ? "card_onsite" : "cash",
-          cardLast4: data.cardLast4,
-          cardBrand: data.cardBrand,
-          cashReceivedBy: data.payment === "cash" ? deskOperatorName(session.user) : undefined,
-          recordedByUserId: session.user.id,
-          requestIp: getClientIp(req),
-          deferDocuments: true,
-          source: "rest",
+      // Past this point the registration exists, so every answer says so, even
+      // an exception: a bare 500 would read "not registered" and the desk would
+      // take the money or register them again (review of 26c17807, MED 2).
+      try {
+        return await payAndAdmit({ req, event, data, registrationId: registration.id, name, user: session.user, summary });
+      } catch (err) {
+        apiLogger.error({ err, msg: "walk-in:failed-after-create", eventId, registrationId: registration.id, userId: session.user.id });
+        return NextResponse.json({
+          ...summary,
+          checkedIn: false,
+          step: "check-in",
+          code: "UNKNOWN",
+          error: "Registered, but the check-in did not finish. Find them in the search and check them in.",
         });
-        if (!payment.ok) {
-          apiLogger.warn({ msg: "walk-in:payment-not-recorded", eventId, registrationId: registration.id, code: payment.code });
-          return NextResponse.json({ ...summary, checkedIn: false, step: "payment", code: payment.code, error: payment.message });
-        }
       }
-
-      const fresh = await db.registration.findFirst({
-        where: { id: registration.id, eventId },
-        select: {
-          status: true,
-          paymentStatus: true,
-          checkedInAt: true,
-          originalPrice: true,
-          ticketType: { select: { price: true } },
-          pricingTier: { select: { price: true } },
-        },
-      });
-      const denial = fresh
-        ? checkInGate({
-            status: fresh.status,
-            paymentStatus: fresh.paymentStatus,
-            checkedInAt: fresh.checkedInAt,
-            ticketTypePrice: fresh.ticketType?.price,
-            pricingTierPrice: fresh.pricingTier?.price,
-            originalPrice: fresh.originalPrice,
-          })
-        : { code: "NOT_FOUND", message: "Registration not found" };
-      if (denial) {
-        apiLogger.warn({ msg: "walk-in:check-in-refused", eventId, registrationId: registration.id, code: denial.code });
-        return NextResponse.json({ ...summary, checkedIn: false, step: "check-in", code: denial.code, error: denial.message });
-      }
-
-      await executeCheckIn({
-        eventId,
-        registrationId: registration.id,
-        actorUserId: session.user.id,
-        attendeeName: name,
-        source: "rest",
-        auditExtras: { ip: getClientIp(req), deskWalkIn: true },
-      });
-
-      apiLogger.info({ msg: "walk-in:done", eventId, registrationId: registration.id, payment: data.payment, userId: session.user.id });
-      return NextResponse.json({ ...summary, checkedIn: true }, { status: 201 });
     });
   } catch (error) {
-    apiLogger.error({ err: error, msg: "walk-in:unexpected-error" });
+    apiLogger.error({ err: error, msg: "walk-in:unexpected-error", eventId });
     return NextResponse.json({ error: "Failed to register the walk-in" }, { status: 500 });
   }
+}
+
+interface WalkInSummary {
+  registered: true;
+  registrationId: string;
+  serialId: number | null;
+  name: string;
+  ticketTypeName: string | null;
+  dtcm: unknown;
+}
+
+/** Record the payment when paid, then check in through the door's own gate. */
+async function payAndAdmit(args: {
+  req: Request;
+  event: { id: string; organizationId: string; taxRate: unknown; taxLabel: string | null };
+  data: z.infer<typeof walkInSchema>;
+  registrationId: string;
+  name: string;
+  user: { id: string; firstName?: string | null; lastName?: string | null; email?: string | null };
+  summary: WalkInSummary;
+}): Promise<NextResponse> {
+  const { req, event, data, registrationId, name, user, summary } = args;
+  const eventId = event.id;
+
+  if (data.payment !== "complimentary") {
+    const payment = await recordManualPayment({
+      event,
+      registrationId,
+      method: data.payment === "card" ? "card_onsite" : "cash",
+      cardLast4: data.cardLast4,
+      cardBrand: data.cardBrand,
+      cashReceivedBy: data.payment === "cash" ? deskOperatorName(user) : undefined,
+      recordedByUserId: user.id,
+      requestIp: getClientIp(req),
+      deferDocuments: true,
+      source: "rest",
+    });
+    if (!payment.ok) {
+      const log = { msg: "walk-in:payment-not-recorded", eventId, registrationId, code: payment.code };
+      if (payment.code === "UNKNOWN") apiLogger.error(log);
+      else apiLogger.warn(log);
+      return NextResponse.json({ ...summary, checkedIn: false, step: "payment", code: payment.code, error: payment.message });
+    }
+  }
+
+  const fresh = await db.registration.findFirst({
+    where: { id: registrationId, eventId },
+    select: {
+      status: true,
+      paymentStatus: true,
+      checkedInAt: true,
+      originalPrice: true,
+      ticketType: { select: { price: true } },
+      pricingTier: { select: { price: true } },
+    },
+  });
+  const denial = fresh
+    ? checkInGate({
+        status: fresh.status,
+        paymentStatus: fresh.paymentStatus,
+        checkedInAt: fresh.checkedInAt,
+        ticketTypePrice: fresh.ticketType?.price,
+        pricingTierPrice: fresh.pricingTier?.price,
+        originalPrice: fresh.originalPrice,
+      })
+    : { code: "NOT_FOUND", message: "Registration not found" };
+  if (denial) {
+    apiLogger.warn({ msg: "walk-in:check-in-refused", eventId, registrationId, code: denial.code });
+    return NextResponse.json({ ...summary, checkedIn: false, step: "check-in", code: denial.code, error: denial.message });
+  }
+
+  await executeCheckIn({
+    eventId,
+    registrationId,
+    actorUserId: user.id,
+    attendeeName: name,
+    source: "rest",
+    auditExtras: { ip: getClientIp(req), deskWalkIn: true },
+  });
+
+  apiLogger.info({ msg: "walk-in:done", eventId, registrationId, payment: data.payment, userId: user.id });
+  return NextResponse.json({ ...summary, checkedIn: true }, { status: 201 });
 }
 
 /** Who took the cash, for the receipt's "received by" line. */

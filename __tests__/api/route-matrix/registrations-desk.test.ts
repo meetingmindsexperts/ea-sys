@@ -11,8 +11,8 @@
  * byte unchanged except where a change is intended and reviewed. See
  * ./harness.ts for what a cell means.
  *
- * Added Oct 29, 2026: the desk walk-in (docs/ONSITE_DESK_PLAN.md §4), recorded
- * new rather than re-recorded.
+ * Added Oct 29, 2026: the desk walk-in and its document upload
+ * (docs/ONSITE_DESK_PLAN.md §4), recorded new rather than re-recorded.
  *
  * Changes re-recorded on purpose (Oct 5, 2026):
  *  - the barcode image: WEBINARS reaches it on every event where it works the
@@ -46,6 +46,11 @@ vi.mock("@/lib/security", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/security")>()),
   checkRateLimit: () => ({ allowed: true, remaining: 1, retryAfterSeconds: 0 }),
 }));
+// The walk-in document upload stores a file; keep it out of public/uploads.
+vi.mock("@/lib/storage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/storage")>()),
+  uploadFile: vi.fn(async () => "/uploads/resident-letters/matrix/test.pdf"),
+}));
 vi.mock("@/lib/email", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/email")>()),
   sendEmail: vi.fn(async () => ({ success: true, messageId: "matrix" })),
@@ -66,6 +71,7 @@ import {
   DELETE as checkInDELETE,
 } from "@/app/api/events/[eventId]/registrations/[registrationId]/check-in/route";
 import { POST as walkInPOST } from "@/app/api/events/[eventId]/registrations/walk-in/route";
+import { POST as walkInDocumentPOST } from "@/app/api/events/[eventId]/registrations/walk-in/document/route";
 import { POST as paymentPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/payments/route";
 import { POST as emailPOST, PATCH as emailPATCH } from "@/app/api/events/[eventId]/registrations/[registrationId]/email/route";
 import { POST as docsResendPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/documents/resend/route";
@@ -141,6 +147,12 @@ const CASES: HandlerCase[] = [
     handler: walkInPOST,
     method: "POST",
     body: { ...walkIn, payment: "cash" },
+  },
+  {
+    name: "POST registrations/walk-in/document",
+    handler: walkInDocumentPOST,
+    method: "POST",
+    form: { file: { name: "letter.pdf", type: "application/pdf", content: "%PDF-1.4 test" } },
   },
   { name: "POST registrations/[registrationId]/payments", handler: paymentPOST, method: "POST", params: reg, body: { method: "cash", cashReceivedBy: "Desk" } },
   { name: "POST registrations/[registrationId]/email", handler: emailPOST, method: "POST", params: reg, body: { type: "confirmation" } },

@@ -30,27 +30,14 @@
  * above; the `resident-letter-prune` worker job removes unreferenced files.
  */
 import { NextResponse } from "next/server";
-import { randomUUID } from "crypto";
-import { uploadFile } from "@/lib/storage";
-import { UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { SUPPORTING_DOCUMENT_MAX_SIZE } from "@/lib/supporting-document";
+import { storeSupportingDocument } from "@/lib/supporting-document-upload";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
-}
-
-const ALLOWED: Record<string, { ext: string; magic: number[][] }> = {
-  "application/pdf": { ext: "pdf", magic: [[0x25, 0x50, 0x44, 0x46, 0x2d]] }, // %PDF-
-  "image/jpeg": { ext: "jpg", magic: [[0xff, 0xd8, 0xff]] },
-  "image/png": { ext: "png", magic: [[0x89, 0x50, 0x4e, 0x47]] },
-};
-
-function magicMatches(buf: Buffer, magics: number[][]): boolean {
-  return magics.some((magic) => buf.length >= magic.length && magic.every((b, i) => buf[i] === b));
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -83,47 +70,23 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const formData = await req.formData();
-    const file = formData.get("file") as File | null;
-    if (!file) {
-      apiLogger.warn({ msg: "public/supporting-document:no-file", slug, eventId: event.id, ip });
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    // The checks (type, size, magic bytes) and the storage path are shared with
+    // the onsite desk's upload: src/lib/supporting-document-upload.ts.
+    const stored = await storeSupportingDocument(formData.get("file") as File | null, event.id);
+    if (!stored.ok) {
+      apiLogger.warn({
+        msg: `public/supporting-document:${stored.code.toLowerCase().replace(/_/g, "-")}`,
+        slug,
+        eventId: event.id,
+        ...(stored.claimedType !== undefined && { claimedType: stored.claimedType }),
+        ...(stored.size !== undefined && { size: stored.size }),
+        ip,
+      });
+      return NextResponse.json({ error: stored.error }, { status: 400 });
     }
+    const { url, filename, size, mimeType } = stored;
 
-    const allowed = ALLOWED[file.type];
-    if (!allowed) {
-      apiLogger.warn({ msg: "public/supporting-document:invalid-mime", slug, eventId: event.id, claimedType: file.type, ip });
-      return NextResponse.json(
-        { error: "Only PDF, JPG and PNG files are accepted" },
-        { status: 400 },
-      );
-    }
-    if (file.size > SUPPORTING_DOCUMENT_MAX_SIZE) {
-      apiLogger.warn({ msg: "public/supporting-document:too-large", slug, eventId: event.id, size: file.size, ip });
-      return NextResponse.json({ error: "File must be under 5MB" }, { status: 400 });
-    }
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-    if (!magicMatches(buffer, allowed.magic)) {
-      // The declared type and the actual bytes disagree — either a renamed file
-      // or a deliberate attempt to store something else under a safe extension.
-      apiLogger.warn({ msg: "public/supporting-document:invalid-magic-bytes", slug, eventId: event.id, claimedType: file.type, ip });
-      return NextResponse.json(
-        { error: "File content does not match its declared type" },
-        { status: 400 },
-      );
-    }
-
-    // The stored name is a uuid, never the registrant's: their filename is
-    // attacker-controlled and would otherwise reach the filesystem.
-    const url = await uploadFile(
-      buffer,
-      `${randomUUID()}.${allowed.ext}`,
-      file.type,
-      `${UPLOAD_SEGMENT.supportingDocuments}/${event.id}`,
-    );
-
-    const filename = file.name.slice(0, 255);
-    apiLogger.info({ msg: "public/supporting-document:uploaded", slug, eventId: event.id, size: file.size, mimeType: file.type });
+    apiLogger.info({ msg: "public/supporting-document:uploaded", slug, eventId: event.id, size, mimeType });
     return NextResponse.json({ url, filename }, { status: 201 });
   } catch (err) {
     apiLogger.error({ err, msg: "public/supporting-document:failed", slug, ip });
