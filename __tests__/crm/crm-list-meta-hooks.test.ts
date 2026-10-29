@@ -17,10 +17,6 @@ import {
   crmKeys,
   useCrmDeals,
   useCrmDealsMeta,
-  useCrmContacts,
-  useCrmContactsMeta,
-  useCrmCompanies,
-  useCrmCompaniesMeta,
 } from "@/crm/hooks/use-crm-api";
 
 /**
@@ -97,32 +93,9 @@ describe("deals", () => {
   });
 });
 
-describe("contacts", () => {
-  it("list and meta share the cache key AND the URL", () => {
-    const filters = { q: "abbott", lifecycle: "ENGAGED" };
-    const { list, meta } = pair(() => useCrmContacts(filters), () => useCrmContactsMeta(filters));
-    expect(hash(meta.key)).toBe(hash(list.key));
-    expect(meta.url).toBe(list.url);
-  });
-});
-
-describe("companies", () => {
-  it("list and meta share the cache key AND the URL", () => {
-    const filters = { q: "abbott", needsReview: "true" };
-    const { list, meta } = pair(() => useCrmCompanies(filters), () => useCrmCompaniesMeta(filters));
-    expect(hash(meta.key)).toBe(hash(list.key));
-    expect(meta.url).toBe(list.url);
-  });
-
-  it("a DIFFERENT filter set is a different key — the pairing must not be accidental", () => {
-    // Guards the inverse: a test that passes because every key is identical
-    // would be worthless.
-    const a = pair(() => useCrmCompanies({ q: "abbott" }), () => useCrmCompaniesMeta({ q: "abbott" }));
-    captured.length = 0;
-    const b = pair(() => useCrmCompanies({ q: "pfizer" }), () => useCrmCompaniesMeta({ q: "pfizer" }));
-    expect(hash(b.list.key)).not.toBe(hash(a.list.key));
-  });
-});
+// Contacts and accounts no longer have a meta twin: since Oct 29, 2026 their
+// pages page on the server (useCrmContactsPage / useCrmCompaniesPage, pinned in
+// crm-paged-list-hooks.test.ts) and the total rides the first page.
 
 describe("crmKeys", () => {
   it("companyFacets is its own key — the aggregates must not ride a capped list read", () => {

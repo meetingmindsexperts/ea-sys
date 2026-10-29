@@ -14,6 +14,9 @@
  * Filters + sort live in the URL (useCrmFilters), same as the board/reports/tasks —
  * so a filtered, sorted account list is shareable, bookmarkable, and survives a
  * refresh or a back-button. This used to be local React state, which lost all three.
+ *
+ * Sorted and paged on the SERVER, 100 at a time (Oct 29, 2026), like the
+ * Contacts page; see src/crm/lib/crm-list-paging.ts.
  */
 import { useSession } from "next-auth/react";
 import { Suspense, useState } from "react";
@@ -31,7 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ListTruncationBanner } from "@/crm/components/list-truncation-banner";
+import { ListLoadMore } from "@/crm/components/list-load-more";
 import { CreateCompanyDialog } from "@/crm/components/create-company-dialog";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
@@ -41,15 +44,14 @@ import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  useCrmCompanies,
-  useCrmCompaniesMeta,
+  useCrmCompaniesPage,
   useCrmCompanyFacets,
   useCrmCompanyTags,
 } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
-import { formatDealValue, type CrmCompanyRow } from "@/crm/lib/crm-types";
+import { formatDealValue } from "@/crm/lib/crm-types";
 
 
 /**
@@ -105,10 +107,11 @@ function CompaniesInner() {
     archived: showArchived ? "1" : undefined,
     needsReview: onlyReview ? "true" : undefined,
   };
-  const { data: companies = [], isLoading, isError, refetch } = useCrmCompanies(companyFilters);
-  // Same cache entry as the list above — no second fetch.
-  const { data: companiesMeta } = useCrmCompaniesMeta(companyFilters);
-  const rows = sortKey ? [...companies].sort(makeComparator(sortKey, dir)) : companies;
+  const list = useCrmCompaniesPage(companyFilters, sortKey ? { sort: sortKey, dir } : {});
+  const { isLoading, isError, refetch } = list;
+  const rows = list.data?.pages.flatMap((p) => p.companies) ?? [];
+  // The total rides the first page only.
+  const total = list.data?.pages[0]?.total ?? null;
   const reviewCount = facets?.needsReviewCount ?? 0;
   const industries = facets?.industries ?? [];
 
@@ -208,11 +211,6 @@ function CompaniesInner() {
         </Button>
         <EmptyArchiveButton entity="companies" visible={showArchived} />
       </div>
-
-      {/* ABOVE the loading/empty/table branches on purpose: the empty state is
-          exactly where truncation misleads most — "no results, clear a filter"
-          while rows sit behind the cap (review H5). */}
-      <ListTruncationBanner meta={companiesMeta} shown={rows.length} noun="accounts" />
 
       {view === "loading" && (
         <CrmTableSkeleton rows={6} cols={8} />
@@ -341,24 +339,22 @@ function CompaniesInner() {
           </Table>
         </div>
       )}
+      {view === "list" && (
+        <ListLoadMore
+          shown={rows.length}
+          total={total}
+          noun="accounts"
+          hasMore={!!list.hasNextPage}
+          loading={list.isFetchingNextPage}
+          onLoadMore={() => void list.fetchNextPage()}
+        />
+      )}
 
       <CreateCompanyDialog open={createOpen} onOpenChange={setCreateOpen} />
 
       {importOpen && <FreshsalesImportDialog type="companies" open={importOpen} onOpenChange={setImportOpen} />}
     </div>
   );
-}
-
-/** Client-side comparator for the sortable columns (all unambiguous — no money). */
-function makeComparator(key: string, dir: SortDir) {
-  const mult = dir === "asc" ? 1 : -1;
-  return (a: CrmCompanyRow, b: CrmCompanyRow) => {
-    let cmp = 0;
-    if (key === "name") cmp = a.name.localeCompare(b.name);
-    else if (key === "contacts") cmp = (a._count?.contacts ?? 0) - (b._count?.contacts ?? 0);
-    else if (key === "deals") cmp = (a._count?.deals ?? 0) - (b._count?.deals ?? 0);
-    return cmp * mult;
-  };
 }
 
 type ListView = "loading" | "error" | "empty" | "list";

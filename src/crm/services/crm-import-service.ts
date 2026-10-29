@@ -25,6 +25,7 @@ import { recordCrmActivityBulk, type CrmActivityEntry } from "@/crm/lib/crm-acti
 import { crmOwnerUserWhere } from "@/crm/services/crm-owner-eligibility";
 import { companyNameKey } from "@/crm/services/company-service";
 import { contactEmailKey, normalizeContactTags } from "@/crm/services/crm-contact-service";
+import { refreshScoresForDeals } from "@/crm/services/contact-score-service";
 import { NEEDS_NAME_TAG, NOT_A_PERSON_TAG } from "@/crm/lib/contact-name";
 import {
   FRESHSALES_SOURCE,
@@ -1228,6 +1229,9 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   }
 
   if (!ctx.dryRun) void recordCrmActivityBulk(activity);
+  // An updated deal may have changed status, which moves its people's stored
+  // score (the list's Score sort). New deals have no people yet.
+  if (!ctx.dryRun) await refreshScoresForDeals(ctx.organizationId, activity.map((a) => a.entityId));
   apiLogger.info({
     msg: "crm-import:deals-done", organizationId: ctx.organizationId, dryRun: ctx.dryRun,
     total: report.total, created: report.created, updated: report.updated,

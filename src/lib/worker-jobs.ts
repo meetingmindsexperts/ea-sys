@@ -57,6 +57,7 @@ export const EXPECTED_JOBS: ExpectedJob[] = [
   { name: "approval-escalation", cadence: "every 10 min", expectedPerDay: 144 },
   { name: "agent-run-prune", cadence: "daily 04:30 UTC", expectedPerDay: 1 },
   { name: "quickbooks-health", cadence: "daily 05:10 UTC", expectedPerDay: 1 },
+  { name: "crm-contact-score", cadence: "daily 02:20 UTC", expectedPerDay: 1 },
 ];
 
 /**

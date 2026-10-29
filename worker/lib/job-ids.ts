@@ -39,6 +39,7 @@ export const JOB_IDS = {
   AGENT_RUN_PRUNE: 1022,
   QUICKBOOKS_HEALTH: 1023,
   WEBINAR_ROOM_AUTOCLOSE: 1024,
+  CRM_CONTACT_SCORE: 1025,
 } as const;
 
 export type JobId = (typeof JOB_IDS)[keyof typeof JOB_IDS];

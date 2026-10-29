@@ -1,9 +1,12 @@
 /**
  * CRM contact score — auto-computed, deals-only (owner decision, July 21 2026).
  *
- * NOT a stored column. The score is derived on read from the contact's deal
- * involvement, so it can never go stale and needs no recompute hooks. The
- * formula is deliberately pipeline-driven — notes/status don't move it:
+ * The score SHOWN is derived on read from the contact's deal involvement, so
+ * it can never go stale. Since Oct 29, 2026 a copy is also STORED
+ * (CrmContact.score) only so the paged list can sort by it on the server; the
+ * SQL twin of this formula is in contact-score-service.ts, and a real-database
+ * test holds the two together. The formula is deliberately pipeline-driven —
+ * notes/status don't move it:
  *
  *   open deals → 30 for the first, +15 each extra, capped at 60
  *   won deal   → +40 (any number of wins counts once)
@@ -26,10 +29,12 @@ export interface ContactScoreBreakdown {
   total: number;
 }
 
-const FIRST_OPEN_DEAL_POINTS = 30;
-const EXTRA_OPEN_DEAL_POINTS = 15;
-const OPEN_DEAL_CAP = 60;
-const WON_DEAL_POINTS = 40;
+// Exported for the SQL twin (contact-score-service.ts), so the numbers live once.
+export const FIRST_OPEN_DEAL_POINTS = 30;
+export const EXTRA_OPEN_DEAL_POINTS = 15;
+export const OPEN_DEAL_CAP = 60;
+export const WON_DEAL_POINTS = 40;
+export const MAX_SCORE = 100;
 
 export function computeContactScore(input: ContactScoreInput): ContactScoreBreakdown {
   // Defensive floor — a negative count is a caller bug, not a negative score.
@@ -45,7 +50,7 @@ export function computeContactScore(input: ContactScoreInput): ContactScoreBreak
   return {
     openDealPoints,
     wonDealPoints,
-    total: Math.min(100, openDealPoints + wonDealPoints),
+    total: Math.min(MAX_SCORE, openDealPoints + wonDealPoints),
   };
 }
 

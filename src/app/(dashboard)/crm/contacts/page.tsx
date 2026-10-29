@@ -13,6 +13,10 @@
  *
  * Filters + sort live in the URL (useCrmFilters), same as the board/reports/tasks,
  * so a filtered, sorted book is shareable, bookmarkable and survives refresh/back.
+ *
+ * Sorted and paged on the SERVER, 100 at a time (Oct 29, 2026): the book
+ * outgrew the 1,000-row list, and a browser-side sort only ever sorted the
+ * rows it had. See src/crm/lib/crm-list-paging.ts.
  */
 import Link from "next/link";
 import { useCan } from "@/hooks/use-can";
@@ -32,7 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ListTruncationBanner } from "@/crm/components/list-truncation-banner";
+import { ListLoadMore } from "@/crm/components/list-load-more";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
@@ -40,8 +44,7 @@ import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { SortableTh, nextSort, type SortDir } from "@/crm/components/sortable-th";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCrmCompanies, useCrmContacts,
-  useCrmContactsMeta, useCrmContactTags } from "@/crm/hooks/use-crm-api";
+import { useCrmCompanies, useCrmContactsPage, useCrmContactTags } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
@@ -52,7 +55,6 @@ import {
   CONTACT_STATUS_VALUES,
   LIFECYCLE_COLORS,
   LIFECYCLE_LABELS,
-  type CrmContactRow,
   type CrmLifecycleStage,
 } from "@/crm/lib/crm-types";
 import { contactScoreColor } from "@/crm/lib/contact-score";
@@ -94,26 +96,22 @@ function ContactsInner() {
 
   const { data: companies = [] } = useCrmCompanies();
   const { data: availableTags = [] } = useCrmContactTags();
-  const { data: contacts = [], isLoading, isError, refetch } = useCrmContacts({
-    q: q || undefined,
-    lifecycle: lifecycle || undefined,
-    status: status || undefined,
-    owner: owner || undefined,
-    companyId: companyId || undefined,
-    tags: tagFilter || undefined,
-    archived: showArchived ? "1" : undefined,
-  });
-  // Same cache entry as the list above — no second fetch.
-  const { data: contactsMeta } = useCrmContactsMeta({
-    q: q || undefined,
-    lifecycle: lifecycle || undefined,
-    status: status || undefined,
-    owner: owner || undefined,
-    companyId: companyId || undefined,
-    tags: tagFilter || undefined,
-    archived: showArchived ? "1" : undefined,
-  });
-  const rows = sortKey ? [...contacts].sort(makeComparator(sortKey, dir)) : contacts;
+  const list = useCrmContactsPage(
+    {
+      q: q || undefined,
+      lifecycle: lifecycle || undefined,
+      status: status || undefined,
+      owner: owner || undefined,
+      companyId: companyId || undefined,
+      tags: tagFilter || undefined,
+      archived: showArchived ? "1" : undefined,
+    },
+    sortKey ? { sort: sortKey, dir } : {},
+  );
+  const { isLoading, isError, refetch } = list;
+  const rows = list.data?.pages.flatMap((p) => p.contacts) ?? [];
+  // The total rides the first page only.
+  const total = list.data?.pages[0]?.total ?? null;
   const onSort = (key: string) => set(nextSort(sortKey, dir, key));
 
   const view = listView(isLoading, isError, rows.length === 0);
@@ -242,11 +240,6 @@ function ContactsInner() {
         </Button>
         <EmptyArchiveButton entity="contacts" visible={showArchived} />
       </div>
-
-      {/* ABOVE the loading/empty/table branches on purpose: the empty state is
-          exactly where truncation misleads most — "no results, clear a filter"
-          while rows sit behind the cap (review H5). */}
-      <ListTruncationBanner meta={contactsMeta} shown={rows.length} noun="contacts" />
 
       {view === "loading" && (
         <CrmTableSkeleton rows={6} cols={9} />
@@ -396,28 +389,22 @@ function ContactsInner() {
           </Table>
         </div>
       )}
+      {view === "list" && (
+        <ListLoadMore
+          shown={rows.length}
+          total={total}
+          noun="contacts"
+          hasMore={!!list.hasNextPage}
+          loading={list.isFetchingNextPage}
+          onLoadMore={() => void list.fetchNextPage()}
+        />
+      )}
 
       <CreateCrmContactDialog open={createOpen} onOpenChange={setCreateOpen} />
 
       {importOpen && <FreshsalesImportDialog type="contacts" open={importOpen} onOpenChange={setImportOpen} />}
     </div>
   );
-}
-
-/** Client-side comparator for the sortable columns (all unambiguous — no money). */
-function makeComparator(key: string, dir: SortDir) {
-  const mult = dir === "asc" ? 1 : -1;
-  return (a: CrmContactRow, b: CrmContactRow) => {
-    let cmp = 0;
-    if (key === "name") {
-      cmp = `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
-    } else if (key === "score") {
-      cmp = (a.score ?? 0) - (b.score ?? 0);
-    } else if (key === "deals") {
-      cmp = (a._count?.deals ?? 0) - (b._count?.deals ?? 0);
-    }
-    return cmp * mult;
-  };
 }
 
 type ListView = "loading" | "error" | "empty" | "list";

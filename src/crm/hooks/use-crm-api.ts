@@ -415,14 +415,17 @@ export function useCrmCompanies(arg?: string | CrmCompanyFilters) {
   });
 }
 
-/** Truncation metadata for the companies list — same cache entry, see useCrmDealsMeta. */
-export function useCrmCompaniesMeta(arg?: string | CrmCompanyFilters) {
-  const filters: CrmCompanyFilters = typeof arg === "string" ? { q: arg } : arg ?? {};
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
-  return useQuery({
-    ...companiesQueryOptions(qs.toString()),
-    select: (r): CrmListMeta => ({ total: r.total, truncated: r.truncated }),
+/** The Accounts page: sorted on the server, 100 at a time (see useCrmContactsPage). */
+export function useCrmCompaniesPage(filters: CrmCompanyFilters, sort: CrmListSort) {
+  return useInfiniteQuery({
+    queryKey: [...crmKeys.companiesPrefix, "__paged", filters, sort] as const,
+    queryFn: ({ pageParam }) =>
+      apiFetch<{ companies: CrmCompanyRow[] } & CrmListPage>(
+        `/api/crm/companies?${pagedQueryString({ ...filters }, sort, pageParam)}`,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -751,14 +754,38 @@ export function useCrmContacts(
   });
 }
 
-/** Truncation metadata for the contacts list — same cache entry, see useCrmDealsMeta. */
-export function useCrmContactsMeta(arg?: string | CrmContactFilters) {
-  const filters: CrmContactFilters = typeof arg === "string" ? { q: arg } : arg ?? {};
-  const qs = new URLSearchParams();
+/** A page of the server-sorted list (Oct 29, 2026): the total rides the first page. */
+interface CrmListPage {
+  total: number | null;
+  nextCursor: string | null;
+}
+
+export type CrmListSort = { sort?: string; dir?: "asc" | "desc" };
+
+function pagedQueryString(filters: Record<string, string | undefined>, sort: CrmListSort, cursor: string | null): string {
+  const qs = new URLSearchParams({ paged: "1" });
   for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
-  return useQuery({
-    ...contactsQueryOptions(qs.toString()),
-    select: (r): CrmListMeta => ({ total: r.total, truncated: r.truncated }),
+  if (sort.sort) qs.set("sort", sort.sort);
+  if (sort.dir) qs.set("dir", sort.dir);
+  if (cursor) qs.set("cursor", cursor);
+  return qs.toString();
+}
+
+/**
+ * The Contacts page: sorted on the server, 100 at a time ("Load more").
+ * Keyed under the contacts prefix, so every write that refreshes the contact
+ * lists refreshes this one too.
+ */
+export function useCrmContactsPage(filters: CrmContactFilters, sort: CrmListSort) {
+  return useInfiniteQuery({
+    queryKey: [...crmKeys.contactsPrefix, "__paged", filters, sort] as const,
+    queryFn: ({ pageParam }) =>
+      apiFetch<{ contacts: CrmContactRow[] } & CrmListPage>(
+        `/api/crm/contacts?${pagedQueryString({ ...filters }, sort, pageParam)}`,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    placeholderData: keepPreviousData,
   });
 }
 

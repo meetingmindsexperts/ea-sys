@@ -54,6 +54,7 @@ import * as webinarRoomAutoclose from "./jobs/webinar-room-autoclose";
 import * as oauthCleanup from "./jobs/oauth-cleanup";
 import * as invoiceReconciliation from "./jobs/invoice-reconciliation";
 import * as crmReminders from "./jobs/crm-reminders";
+import * as crmContactScore from "./jobs/crm-contact-score";
 import * as contactsCentralSync from "./jobs/contacts-central-sync";
 import * as contactsCentralReconcile from "./jobs/contacts-central-reconcile";
 import * as logArchive from "./jobs/log-archive";
@@ -101,6 +102,7 @@ const JOBS = [
   contactsCentralReconcile,
   logArchive,
   crmReminders,
+  crmContactScore,
   emailLogPrune,
   crmInboundEmail,
   loginEventPrune,

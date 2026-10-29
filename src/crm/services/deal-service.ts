@@ -37,6 +37,7 @@ import { mayOwnCrmRecords } from "@/crm/services/crm-owner-eligibility";
 // second implementation). See crm-contact-service.
 import { normalizeContactTags } from "./crm-contact-service";
 import { resolveStage } from "./pipeline-service";
+import { refreshContactScores, refreshScoresForDeal } from "./contact-score-service";
 
 /** Fields worth showing in the change log when a deal is edited. */
 const DEAL_DIFF_KEYS = ["name", "dealValue", "currency", "expectedClose", "companyId", "eventId", "ownerId", "pipeline", "dealTypeId", "tags"] as const;
@@ -596,6 +597,8 @@ export async function moveDealStage(input: MoveDealStageInput): Promise<MoveDeal
       reopened,
       source: input.source,
     });
+    // A move into or out of a terminal column changes the deal's status.
+    await refreshScoresForDeal(input.organizationId, deal.id);
     return { ok: true, deal };
   } catch (err) {
     apiLogger.error({
@@ -708,6 +711,7 @@ export async function closeDeal(input: CloseDealInput): Promise<CloseDealResult>
     });
 
     apiLogger.info({ msg: "crm-deal:closed", dealId: deal.id, status, source: input.source });
+    await refreshScoresForDeal(input.organizationId, deal.id);
     return { ok: true, deal };
   } catch (err) {
     apiLogger.error({
@@ -834,6 +838,8 @@ export async function setDealArchived(input: {
       dealId: deal.id,
       source: input.source,
     });
+    // An archived deal stops counting toward its people's scores.
+    await refreshScoresForDeal(input.organizationId, deal.id);
     return { ok: true, deal };
   } catch (err) {
     apiLogger.error({
@@ -944,6 +950,7 @@ export async function addDealContact(input: {
       crmContactId: contact.id,
       role: input.role ?? "PRIMARY",
     });
+    await refreshContactScores(input.organizationId, [contact.id]);
     return { ok: true };
   } catch (err) {
     apiLogger.error({
@@ -995,6 +1002,7 @@ export async function removeDealContact(input: {
     });
 
     apiLogger.info({ msg: "crm-deal:contact-removed", dealId: deal.id, crmContactId: input.crmContactId });
+    await refreshContactScores(input.organizationId, [input.crmContactId]);
     return { ok: true };
   } catch (err) {
     apiLogger.error({
