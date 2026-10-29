@@ -116,6 +116,12 @@ describe("POST a QR", () => {
     expect(mockQr).not.toHaveBeenCalled();
   });
 
+  it("refuses a sponsor with no places left", async () => {
+    mockDb.promoCode.findMany.mockResolvedValueOnce([CODE({ usedCount: 10 })]);
+    expect(await (await post({ kind: "exhibitor", promoCodeId: "promo-csl" })).json()).toMatchObject({ code: "SPONSOR_CODE_FULL" });
+    expect(mockQr).not.toHaveBeenCalled();
+  });
+
   it("refuses a webinar and a bad body", async () => {
     mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, eventType: "WEBINAR" });
     expect((await post({ kind: "complimentary" })).status).toBe(400);

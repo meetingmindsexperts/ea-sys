@@ -25,6 +25,9 @@ import { notifyEventAdmins } from "@/lib/notifications";
  * password nobody knows, as reviewer invites do, and the person sets their own
  * through Forgot password.
  */
+/** What happened, so the desk QR's email offers "set a password" only to an account it just made. */
+export type RegistrantAccountOutcome = "none" | "linked" | "created" | "created-without-password" | "failed";
+
 export async function ensureRegistrantAccount(args: {
   registrationId: string;
   eventId: string;
@@ -41,7 +44,7 @@ export async function ensureRegistrantAccount(args: {
   clientIp: string | null;
   /** Notification body — each caller keeps its own wording. */
   signupMessage: string;
-}): Promise<void> {
+}): Promise<RegistrantAccountOutcome> {
   const {
     registrationId,
     eventId,
@@ -56,7 +59,7 @@ export async function ensureRegistrantAccount(args: {
     withoutPassword,
   } = args;
 
-  if (!password && !withoutPassword) return;
+  if (!password && !withoutPassword) return "none";
 
   try {
     // Tenant-scoped: linking a registration to an account found by email ALONE
@@ -91,6 +94,7 @@ export async function ensureRegistrantAccount(args: {
           data: { termsAcceptedAt: new Date(), termsAcceptedIp: clientIp },
         });
       }
+      return "linked";
     } else {
       const passwordHash = await bcrypt.hash(password ?? crypto.randomBytes(32).toString("hex"), 10);
       const newUser = await db.user.create({
@@ -134,9 +138,11 @@ export async function ensureRegistrantAccount(args: {
       }).catch((err) =>
         apiLogger.warn({ err, msg: "registrant-account:notify-admins-failed", registrationId, eventId }),
       );
+      return password ? "created" : "created-without-password";
     }
   } catch (err) {
     // Account creation failure must not block the registration.
     apiLogger.error({ err, msg: "registrant-account:create-or-link-failed", registrationId, eventId });
+    return "failed";
   }
 }

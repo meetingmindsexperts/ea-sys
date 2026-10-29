@@ -131,7 +131,7 @@ describe("ensureRegistrantAccount", () => {
 
   it("failure-isolated: a DB error is logged (error) and swallowed, never thrown", async () => {
     mockDb.user.findFirst.mockRejectedValue(new Error("db down"));
-    await expect(ensureRegistrantAccount(base)).resolves.toBeUndefined();
+    await expect(ensureRegistrantAccount(base)).resolves.toBe("failed");
     expect(errorSpy).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "registrant-account:create-or-link-failed", registrationId: "reg1" }),
     );
@@ -155,8 +155,17 @@ describe("withoutPassword", () => {
     expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg1" }, data: { userId: "u-old" } });
   });
 
+  it("says what it did, so only an account it made is offered a password link", async () => {
+    expect(await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true })).toBe("created-without-password");
+    expect(await ensureRegistrantAccount(base)).toBe("created");
+    mockDb.user.findFirst.mockResolvedValueOnce({ id: "u-old", role: "REGISTRANT", termsAcceptedAt: new Date() });
+    expect(await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true })).toBe("linked");
+    mockDb.user.create.mockRejectedValueOnce(new Error("db down"));
+    expect(await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true })).toBe("failed");
+  });
+
   it("still a no-op with no password and no flag (a guest)", async () => {
-    await ensureRegistrantAccount({ ...base, password: undefined });
+    expect(await ensureRegistrantAccount({ ...base, password: undefined })).toBe("none");
     expect(mockDb.user.create).not.toHaveBeenCalled();
     expect(mockDb.registration.update).not.toHaveBeenCalled();
   });

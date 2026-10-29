@@ -173,20 +173,41 @@ export async function POST(req: Request, { params }: RouteParams) {
   try {
     const clientIp = getClientIp(req);
 
-    const [{ slug }, body] = await Promise.all([params, req.json()]);
-    slugForLog = slug;
+    // A first ceiling on every request, before the body is read or a desk QR
+    // checked, so neither junk JSON nor a forged token can be repeated freely
+    // (review of dd77f563). Above the venue queue's real pace.
+    const firstLimit = checkRateLimit({ key: `public-register:first:${clientIp}`, limit: 60, windowMs: 60 * 1000 });
+    if (!firstLimit.allowed) {
+      apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: firstLimit.retryAfterSeconds, ip: clientIp });
+      return rateLimited(firstLimit.retryAfterSeconds);
+    }
 
-    // A valid desk QR swaps the per-IP limits for a per-QR one: venue Wi-Fi
-    // puts the whole queue on one address (docs/ONSITE_DESK_PLAN.md §8.5).
+    const { slug } = await params;
+    slugForLog = slug;
+    let body: Record<string, unknown> | null;
+    try {
+      body = await req.json();
+    } catch {
+      apiLogger.warn({ msg: "public/register:invalid-json", ip: clientIp, slug });
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    }
+
+    // A valid desk QR swaps the per-IP limits for a per-QR one plus a looser
+    // per-IP one: venue Wi-Fi puts the whole queue on one address
+    // (docs/ONSITE_DESK_PLAN.md §8.5). 120 per QR bounds what a photographed
+    // QR can do in its 30 minutes.
     const deskRead = readDeskToken(typeof body?.deskToken === "string" ? body.deskToken : undefined, clientIp);
     if ("response" in deskRead) return deskRead.response;
     const { desk } = deskRead;
 
     if (desk) {
-      const deskLimit = checkRateLimit({ key: `public-register:desk:${desk.jti}`, limit: 300, windowMs: 30 * 60 * 1000 });
-      if (!deskLimit.allowed) {
-        apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: deskLimit.retryAfterSeconds, deskQr: desk.jti });
-        return rateLimited(deskLimit.retryAfterSeconds);
+      const deskLimit = checkRateLimit({ key: `public-register:desk:${desk.jti}`, limit: 120, windowMs: 30 * 60 * 1000 });
+      const deskIpLimit = deskLimit.allowed
+        ? checkRateLimit({ key: `public-register:desk-ip:${clientIp}`, limit: 30, windowMs: 60 * 1000 })
+        : deskLimit;
+      if (!deskIpLimit.allowed) {
+        apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: deskIpLimit.retryAfterSeconds, deskQr: desk.jti, ip: clientIp });
+        return rateLimited(deskIpLimit.retryAfterSeconds);
       }
     } else {
       // Burst limiter: catch bots hammering the endpoint (15 req / 60s per IP).
@@ -340,8 +361,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // any other event type silently falls back to IN_PERSON. Virtual ⇒ no
     // qrCode/badge, uncapped (skips capacity + soldCount), and priced via the
     // ticket's flat `virtualPrice` (null ⇒ in-person price).
+    // A desk QR registers someone standing at the desk: in person, always.
     const isVirtual =
-      event.eventType === "HYBRID" && attendanceModeInput === "VIRTUAL";
+      !desk && event.eventType === "HYBRID" && attendanceModeInput === "VIRTUAL";
     const attendanceMode = isVirtual ? "VIRTUAL" : "IN_PERSON";
 
     // Resolve pricing tier (new flow) or fall back to legacy ticketType fields
@@ -845,7 +867,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Account creation: create or link the REGISTRANT account + sweep any
     // sibling registrations on this email (failure-isolated — never blocks the
     // registration). No-ops when no password was supplied (guest registration).
-    await ensureRegistrantAccount({
+    const account = await ensureRegistrantAccount({
       registrationId: registration.id,
       eventId: event.id,
       organizationId: event.organizationId,
@@ -908,7 +930,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           // The sponsor pays: "covered by" note, no Payment Pending, no quote.
           coveredBySponsorName,
           // Desk QR: how to set the password their account does not have yet.
-          setPasswordUrl: desk && !password ? setPasswordLink(slug, email) : null,
+          setPasswordUrl: desk && account === "created-without-password" ? setPasswordLink(slug, email) : null,
           billingFirstName: registration.billingFirstName,
           billingLastName: registration.billingLastName,
           billingEmail: registration.billingEmail,

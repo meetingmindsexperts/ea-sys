@@ -480,9 +480,11 @@ function CategoryRegistrationContent() {
     }
     if (draft.supportingDoc) setSupportingDoc(draft.supportingDoc);
     // Step 2 only when step 1 was completed (a valid email and matching password).
-    // Desk mode has no step 1, and its form never asks for a password.
-    if (deskQr) form.setValue("deskMode", true);
-    else if (draft.step === 2 && values.email && values.password && values.password === values.confirmPassword) setStep(2);
+    // Desk mode comes from the QR on this visit, never from a draft: a draft
+    // saved at the desk must not skip the password on the ordinary form.
+    form.setValue("deskMode", !!deskQr);
+    if (deskQr) return;
+    if (draft.step === 2 && values.email && values.password && values.password === values.confirmPassword) setStep(2);
   }, [regTypeOptions, draftKey, form, deskQr]);
 
   // Resolve tier-specific content with event-level fallback
@@ -507,6 +509,25 @@ function CategoryRegistrationContent() {
     requestAnimationFrame(() =>
       document.getElementById(next === 2 ? "register-card" : "create-account")?.scrollIntoView({ block: "start" }),
     );
+  }
+
+  /** Step 1's password rules, with the messages the form shows on submit. */
+  function accountStepPasses(): boolean {
+    const password = form.getValues("password");
+    const confirm = form.getValues("confirmPassword");
+    let ok = true;
+    if (password.length < 6) {
+      form.setError("password", { message: "Password must be at least 6 characters" });
+      ok = false;
+    }
+    if (!confirm) {
+      form.setError("confirmPassword", { message: "Please confirm your password" });
+      ok = false;
+    } else if (password !== confirm) {
+      form.setError("confirmPassword", { message: "Passwords do not match" });
+      ok = false;
+    }
+    return ok;
   }
 
   function showBlockedSubmit(errors?: FieldErrors<RegistrationForm>) {
@@ -983,7 +1004,10 @@ function CategoryRegistrationContent() {
                         disabled={emailCheck.state === "checking"}
                         onClick={async () => {
                           const valid = await form.trigger(["email", "password", "confirmPassword"]);
-                          if (!valid) return;
+                          // The password rules sit on the whole form (desk mode
+                          // skips them), and zod runs those only once every field
+                          // passes, so step 1 checks them itself (review of dd77f563).
+                          if (!valid || !accountStepPasses()) return;
                           setEmailCheck({ state: "checking" });
                           try {
                             const res = await fetch(`/api/public/events/${slug}/check-email`, {
@@ -1241,7 +1265,8 @@ function CategoryRegistrationContent() {
                         In-person registration is fully booked, but you can still register to attend virtually.
                       </div>
                     )}
-                    {event?.eventType === "HYBRID" && (
+                    {/* At the desk they attend in person (the server holds the same rule). */}
+                    {event?.eventType === "HYBRID" && !deskQr && (
                       <FormField control={form.control} name="attendanceMode"
                         render={({ field }) => (
                           <FormItem>

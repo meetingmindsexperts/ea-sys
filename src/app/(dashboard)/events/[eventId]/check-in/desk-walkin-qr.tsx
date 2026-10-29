@@ -39,6 +39,8 @@ interface ShownQr {
 }
 
 const RENEW_AFTER_MS = 15 * 60_000;
+/** A renewal that failed (the network, say) is tried again this soon, while the old QR still works. */
+const RETRY_AFTER_MS = 30_000;
 
 function sponsorLabel(s: SponsorOption): string {
   const places = s.placesLeft === null ? "" : ` · ${s.placesLeft} place${s.placesLeft === 1 ? "" : "s"} left`;
@@ -51,6 +53,8 @@ export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; op
   const [promoCodeId, setPromoCodeId] = useState<string>("");
   const [shown, setShown] = useState<ShownQr | null>(null);
   const [loading, setLoading] = useState(false);
+  // Bumped when a request fails, so the effect below tries again.
+  const [failures, setFailures] = useState(0);
   // Only the latest request may show its QR: switching tab or sponsor quickly
   // must not leave an older sponsor's QR on screen.
   const requestRef = useRef(0);
@@ -96,9 +100,12 @@ export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; op
         return;
       }
       setShown(data);
+      setFailures(0);
     } catch (err) {
       console.error("[desk] walk-in QR failed", err);
-      if (requestId === requestRef.current) toast.error("Network error: no QR was made");
+      if (requestId !== requestRef.current) return;
+      toast.error("Network error: trying again in 30 seconds");
+      setFailures((n) => n + 1);
     } finally {
       if (requestId === requestRef.current) setLoading(false);
     }
@@ -112,18 +119,25 @@ export function WalkInQrDialog({ eventId, open, onClose }: { eventId: string; op
     if (kind === "exhibitor" && promoCodeId) void showQr("exhibitor", promoCodeId);
   }, [open, options, kind, promoCodeId, showQr]);
 
-  // Renewed while it is on screen, so it never runs out in front of the queue.
+  // Renewed while it is on screen, so it never runs out in front of the queue;
+  // a failed attempt is retried soon rather than left to expire (review of dd77f563).
   useEffect(() => {
     if (!open || !shown) return;
     const timer = setTimeout(() => void showQr(kind, promoCodeId), RENEW_AFTER_MS);
     return () => clearTimeout(timer);
   }, [open, shown, kind, promoCodeId, showQr]);
+  useEffect(() => {
+    if (!open || failures === 0) return;
+    const timer = setTimeout(() => void showQr(kind, promoCodeId), RETRY_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [open, failures, kind, promoCodeId, showQr]);
 
   const close = () => {
     requestRef.current++;
     setShown(null);
     setPromoCodeId("");
     setOptions(null);
+    setFailures(0);
     onClose();
   };
 

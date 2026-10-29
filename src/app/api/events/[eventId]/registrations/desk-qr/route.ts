@@ -216,6 +216,14 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
           );
         }
         const found = (await sponsorCodes(event.id, exhibitor.typeId)).find((c) => c.promoCodeId === input.promoCodeId);
+        if (found?.placesLeft === 0) {
+          // Every registration through it would fail on the code's limit.
+          apiLogger.warn({ msg: "desk-qr:sponsor-code-full", eventId, userId, promoCodeId: input.promoCodeId });
+          return NextResponse.json(
+            { error: "This sponsor has no places left. Raise the code's limit in Promo Codes.", code: "SPONSOR_CODE_FULL" },
+            { status: 400 },
+          );
+        }
         if (!found) {
           apiLogger.warn({ msg: "desk-qr:sponsor-code-not-usable", eventId, userId, promoCodeId: input.promoCodeId });
           return NextResponse.json(

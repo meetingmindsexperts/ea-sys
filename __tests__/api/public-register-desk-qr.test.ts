@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 process.env.NEXTAUTH_SECRET = "test-secret-for-desk-qr";
 
-const { mockDb, tx, mockApiLogger, rateKeys, claimPromo, ensureAccount, sendConfirmation } = vi.hoisted(() => {
+const { mockDb, tx, mockApiLogger, rateKeys, rateLimits, claimPromo, ensureAccount, sendConfirmation } = vi.hoisted(() => {
   const tx = {
     registration: { findFirst: vi.fn(), create: vi.fn() },
     attendee: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
@@ -27,6 +27,7 @@ const { mockDb, tx, mockApiLogger, rateKeys, claimPromo, ensureAccount, sendConf
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     rateKeys: [] as string[],
+    rateLimits: new Map<string, number>(),
     claimPromo: vi.fn(),
     ensureAccount: vi.fn(),
     sendConfirmation: vi.fn(),
@@ -43,8 +44,9 @@ vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => 
 vi.mock("@/lib/public-event", () => ({ publicEventWhere: vi.fn(async () => ({})) }));
 vi.mock("@/lib/security", () => ({
   getClientIp: () => "1.2.3.4",
-  checkRateLimit: ({ key }: { key: string }) => {
+  checkRateLimit: ({ key, limit }: { key: string; limit: number }) => {
     rateKeys.push(key);
+    rateLimits.set(key.split(":").slice(0, 2).join(":"), limit);
     return { allowed: true, retryAfterSeconds: 0 };
   },
 }));
@@ -114,6 +116,8 @@ function on(type: typeof PHYSICIAN, tier: Tier | null) {
 beforeEach(() => {
   vi.clearAllMocks();
   rateKeys.length = 0;
+  rateLimits.clear();
+  ensureAccount.mockResolvedValue("created-without-password");
   mockDb.event.findFirst.mockResolvedValue({
     id: EVENT_ID, name: "BHS", eventType: "CONFERENCE", organizationId: "org-1",
     settings: { codeRequiredTiers: ["inclusive"] }, maxAttendees: null, seatCount: 0,
@@ -147,11 +151,25 @@ describe("a valid complimentary desk QR", () => {
     expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ deskQr: { kind: "complimentary", issuedBy: "staff-1" } });
   });
 
-  it("swaps the per-IP limits for a per-QR one; the per-email limit stays", async () => {
+  it("swaps the per-IP limits for a per-QR one and a looser per-IP one; the first ceiling and per-email limit stay", async () => {
     await post({ deskToken: compToken() });
-    expect(rateKeys.some((k) => k.startsWith("public-register:desk:"))).toBe(true);
+    expect(rateLimits.get("public-register:desk")).toBe(120);
+    expect(rateLimits.get("public-register:desk-ip")).toBe(30);
+    expect(rateLimits.get("public-register:first")).toBe(60);
     expect(rateKeys.some((k) => k.startsWith("public-register:burst:") || k.startsWith("public-register:ip:"))).toBe(false);
     expect(rateKeys).toContain("public-register:email:hajar@example.com");
+  });
+
+  it("registers in person even when the request asks for virtual on a hybrid event", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce({ ...(await mockDb.event.findFirst()), eventType: "HYBRID" });
+    await post({ deskToken: compToken(), attendanceMode: "VIRTUAL" });
+    expect(tx.registration.create.mock.calls[0][0].data).toMatchObject({ attendanceMode: "IN_PERSON", qrCode: expect.any(String) });
+  });
+
+  it("offers to set a password only when it made the account", async () => {
+    ensureAccount.mockResolvedValueOnce("linked");
+    await post({ deskToken: compToken() });
+    expect(sendConfirmation.mock.calls[0][0].setPasswordUrl).toBeNull();
   });
 
   it("ignores a rate's sales end, not its start", async () => {
@@ -198,6 +216,15 @@ describe("a token that does not hold", () => {
     const r = await post({ deskToken: old });
     expect(r).toMatchObject({ status: 400, json: { code: "DESK_QR_EXPIRED" } });
     expect(tx.registration.create).not.toHaveBeenCalled();
+  });
+
+  it("a junk token or a body that is not JSON is refused behind the first per-IP ceiling", async () => {
+    expect((await post({ deskToken: "junk" })).json.code).toBe("DESK_QR_INVALID");
+    expect(rateKeys).toContain("public-register:first:1.2.3.4");
+    rateKeys.length = 0;
+    const res = await POST(new Request("http://t", { method: "POST", body: "{not json" }), { params });
+    expect(res.status).toBe(400);
+    expect(rateKeys).toEqual(["public-register:first:1.2.3.4"]);
   });
 
   it("tampered or for another event: refused", async () => {
