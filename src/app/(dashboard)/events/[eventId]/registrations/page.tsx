@@ -60,6 +60,7 @@ import {
   ListChecks,
   Eye,
   EyeOff,
+  ConciergeBell,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -241,6 +242,8 @@ export default function RegistrationsPage() {
   const canSendEmail = useCan("communications.send", eventId) === "allowed";
   const canImportDtcm = useCan("dtcm.import", eventId) === "allowed";
   const canUpdate = useCan("registrations.update", eventId) === "allowed";
+  // The desk admits people, so it follows the check-in key, as its routes do.
+  const canOpenDesk = useCan("registrations.checkin", eventId) === "allowed";
   const canSelect = canBulk || canSendEmail || canImport;
   // Payer column only when someone on this list actually has a third-party
   // payer. It read "-" on nearly every row, and the width is better spent on
@@ -635,6 +638,17 @@ export default function RegistrationsPage() {
                 <BadgeDialog eventId={eventId} selectedIds={selectedIds} totalCount={registrations.length} />
               )}
               {canImport && canReadContacts && <ImportContactsButton eventId={eventId} mode="registration" />}
+              {/* The onsite desk: search, admit, take payment and register
+                  walk-ins on one full-screen page (docs/ONSITE_DESK_PLAN.md §4).
+                  In-person only: a webinar has no door. */}
+              {canOpenDesk && !eventIsWebinar && (
+                <Button asChild className="bg-amber-500 text-white shadow-sm hover:bg-amber-600">
+                  <Link href={`/events/${eventId}/check-in/desk`}>
+                    <ConciergeBell className="mr-2 h-4 w-4" />
+                    Onsite desk
+                  </Link>
+                </Button>
+              )}
               <Button asChild className="btn-gradient shadow-sm">
                 <Link href={`/events/${eventId}/registrations/new`}>
                   <Plus className="mr-2 h-4 w-4" />

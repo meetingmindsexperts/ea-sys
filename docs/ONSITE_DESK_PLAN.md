@@ -128,8 +128,10 @@ As built (Oct 29, 2026):
   tier, and without one a paid walk-in would be free.
 - The desk is its own full-screen page, `/events/[id]/check-in/desk` (owner,
   Oct 29, 2026: one simple screen for temp and in-house staff): no dashboard
-  sidebar, the event and the checked-in count in a header, Exit back to
-  Check-In. Search on the left, the walk-in on the right. Enter acts on a
+  sidebar, the event and the checked-in count in a header. It opens from the
+  **Onsite desk** button on the Registrations page, beside Add Registration
+  (owner, Oct 29, 2026; it was first a button on Check-In), and Exit returns
+  there. Search on the left, the walk-in on the right. Enter acts on a
   single match; with no match, Enter treats the input as a scanned badge or
   confirmation barcode through the door's own check-in route. It sits under
   `/check-in`, so desk staff's confinement already covers it. The Check-In

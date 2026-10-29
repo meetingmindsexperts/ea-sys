@@ -12,7 +12,8 @@ import { DeskPanel } from "../desk-panel";
  * dashboard sidebar, so temp and in-house staff have one screen with two jobs,
  * find someone and admit them, or register a walk-in. Same confinement as the
  * rest of /check-in (src/lib/route-confinement.ts); every action goes through
- * the same routes as before. Exit returns to the Check-In page.
+ * the same routes as before. It opens from the Registrations page, and Exit
+ * returns there.
  */
 export default function DeskPage() {
   const eventId = useParams().eventId as string;
@@ -37,7 +38,7 @@ export default function DeskPage() {
               <span className="tabular-nums text-muted-foreground">/ {total} checked in</span>
             </div>
             <Button asChild variant="outline" size="sm" className="gap-1.5">
-              <Link href={`/events/${eventId}/check-in`}>
+              <Link href={`/events/${eventId}/registrations`}>
                 <LogOut className="h-4 w-4" /> Exit
               </Link>
             </Button>

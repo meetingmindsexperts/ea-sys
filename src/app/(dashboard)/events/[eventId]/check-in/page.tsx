@@ -20,7 +20,6 @@ import {
   Volume2,
   VolumeX,
   MonitorCheck,
-  UserPlus,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEvent, useRegistrations, queryKeys } from "@/hooks/use-api";
@@ -238,14 +237,6 @@ export default function CheckInPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* The registration desk: search, admit, take payment and register
-                walk-ins on one full-screen page (docs/ONSITE_DESK_PLAN.md §4). */}
-            <Button asChild variant="outline" size="sm" className="h-8 gap-1.5">
-              <Link href={`/events/${eventId}/check-in/desk`}>
-                <UserPlus className="h-4 w-4" />
-                Desk
-              </Link>
-            </Button>
             {/* Self-service kiosk: attendee scans their emailed barcode →
                 check-in + silent badge print (chrome --kiosk --kiosk-printing).
                 The launch dialog sets this machine's exit PIN (review H1) —
