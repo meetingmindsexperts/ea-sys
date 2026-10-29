@@ -302,6 +302,8 @@ export function DeskPanel({
   const onsiteLinks = useRef(new Map<string, OnsiteLink>());
   // Edit only for those who may (a custom role may hold check-in without it).
   const canEdit = useCan("registrations.update", eventId) === "allowed";
+  // The badges route needs its own key; without it the row offers no Print badge.
+  const canPrint = useCan("registrations.badges.print", eventId) === "allowed";
 
   // One payment panel at a time, and it starts clean: a second row must not
   // inherit the first row's card digits (review of 26c17807, LOW 8).
@@ -493,8 +495,10 @@ export function DeskPanel({
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast.success(`${formatPersonName(data.attendee?.title, data.attendee?.firstName ?? "", data.attendee?.lastName ?? "")} checked in`);
-        // Their row, with Print badge on it should they want one.
-        if (data.attendee?.email) setQuery(data.attendee.email);
+        // The box is cleared for the next badge in the queue: a scanner types
+        // onto whatever is left there (review of a9557bc9). To print, search
+        // their name; their row has Print badge.
+        setQuery("");
         await refresh();
         return;
       }
@@ -523,6 +527,9 @@ export function DeskPanel({
     } finally {
       setScanning(false);
       searchRef.current?.focus();
+      // Whatever a refusal left in the box (their email, the code) is selected
+      // once it renders, so the next scan replaces it rather than appending.
+      setTimeout(() => searchRef.current?.select(), 0);
     }
   };
 
@@ -601,7 +608,7 @@ export function DeskPanel({
                       busy={busyId === r.id}
                       onCheckIn={() => checkIn(r)}
                       onRecordPayment={() => openPayment(r.id)}
-                      onPrint={() => print(r)}
+                      onPrint={canPrint ? () => print(r) : undefined}
                     />
                     {r.status !== "CANCELLED" && (
                       <div className="flex gap-1">
@@ -703,11 +710,13 @@ function RowAction({
   busy: boolean;
   onCheckIn: () => void;
   onRecordPayment: () => void;
-  onPrint: () => void;
+  /** Absent when the person may not print badges. */
+  onPrint?: () => void;
 }) {
   if (r.status === "CANCELLED") return null;
   if (busy) return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />;
   if (r.status === "CHECKED_IN") {
+    if (!onPrint) return null;
     return (
       <Button size="sm" variant="outline" className="shrink-0 gap-1.5" onClick={onPrint}>
         <Printer className="h-4 w-4" /> {(r.badgePrintCount ?? 0) > 0 ? "Reprint badge" : "Print badge"}
