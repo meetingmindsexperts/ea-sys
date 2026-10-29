@@ -7,7 +7,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, tx, sendEmailMock, getEventTemplateMock, transitionMock } = vi.hoisted(() => {
-  const tx = { registration: { updateMany: vi.fn() }, auditLog: { create: vi.fn() } };
+  const tx = {
+    registration: { updateMany: vi.fn() },
+    auditLog: { create: vi.fn() },
+    // The onsite link checks, revokes and creates inside one tenant transaction.
+    verificationToken: { findFirst: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
+  };
   return {
     tx,
     sendEmailMock: vi.fn(),
@@ -18,8 +23,6 @@ const { mockDb, tx, sendEmailMock, getEventTemplateMock, transitionMock } = vi.h
       sponsor: { findFirst: vi.fn() },
       registration: { findMany: vi.fn() },
       verificationToken: { deleteMany: vi.fn(), create: vi.fn() },
-      // The onsite link revokes and creates in one batch transaction.
-      $transaction: vi.fn(async (ops: unknown[]) => Promise.all(ops)),
     },
   };
 });
@@ -237,21 +240,32 @@ describe("the link", () => {
 });
 
 describe("the onsite link (docs/ONSITE_DESK_PLAN.md §5.4)", () => {
-  it("is details-only, lasts 30 minutes, and revokes the person's emailed links", async () => {
-    const { url, expires } = await mintOnsiteCompletionLink({
-      registrationId: "reg-1", eventSlug: "BHS2026", minutes: 30, appUrl: "https://x.test",
-    });
-    expect(url).toMatch(/^https:\/\/x\.test\/e\/BHS2026\/complete-registration\?token=[0-9a-f]{64}$/);
-    expect(Math.round((expires.getTime() - Date.now()) / 60_000)).toBe(30);
-    expect(mockDb.verificationToken.deleteMany).toHaveBeenCalledWith({
+  const INPUT = { registrationId: "reg-1", eventSlug: "BHS2026", minutes: 30, appUrl: "https://x.test", replace: false };
+
+  it("is details-only, lasts 30 minutes, and revokes the person's emailed links, in the tenant transaction", async () => {
+    tx.verificationToken.findFirst.mockResolvedValue(null);
+    const result = await mintOnsiteCompletionLink(INPUT);
+    if (!result.ok) throw new Error("expected a link");
+    expect(result.url).toMatch(/^https:\/\/x\.test\/e\/BHS2026\/complete-registration\?token=[0-9a-f]{64}$/);
+    expect(Math.round((result.expires.getTime() - Date.now()) / 60_000)).toBe(30);
+    expect(tx.verificationToken.deleteMany).toHaveBeenCalledWith({
       where: { OR: [{ identifier: "reg:reg-1" }, { identifier: { startsWith: "regform:reg-1:" } }] },
     });
     // The rate-less form: the completion route keeps their type and price, and
     // money already recorded does not stop them.
-    expect(mockDb.verificationToken.create.mock.calls[0][0].data.identifier).toBe("reg:reg-1");
-    // Revoke and create in one transaction, so two desks leave one live link.
-    expect(mockDb.$transaction).toHaveBeenCalledTimes(1);
-    expect(mockDb.$transaction.mock.calls[0][0]).toHaveLength(2);
+    expect(tx.verificationToken.create.mock.calls[0][0].data.identifier).toBe("reg:reg-1");
+  });
+
+  it("never replaces a live onsite link unless asked: someone may be typing into it", async () => {
+    const live = new Date(Date.now() + 10 * 60_000);
+    tx.verificationToken.findFirst.mockResolvedValue({ expires: live });
+    expect(await mintOnsiteCompletionLink(INPUT)).toEqual({ ok: false, code: "LINK_ACTIVE", expires: live });
+    expect(tx.verificationToken.deleteMany).not.toHaveBeenCalled();
+    expect(tx.verificationToken.create).not.toHaveBeenCalled();
+
+    const replaced = await mintOnsiteCompletionLink({ ...INPUT, replace: true });
+    expect(replaced.ok).toBe(true);
+    expect(tx.verificationToken.deleteMany).toHaveBeenCalledTimes(1);
   });
 });
 

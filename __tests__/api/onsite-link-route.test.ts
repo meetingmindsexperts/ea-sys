@@ -28,11 +28,12 @@ vi.mock("@/services/registration-form-service", () => ({ mintOnsiteCompletionLin
 import { POST } from "@/app/api/events/[eventId]/registrations/[registrationId]/onsite-link/route";
 
 const params = { params: Promise.resolve({ eventId: "evt-1", registrationId: "reg-1" }) };
-const call = () => POST(new Request("http://x/onsite-link", { method: "POST" }), params);
+const call = (body?: unknown) =>
+  POST(new Request("http://x/onsite-link", { method: "POST", ...(body !== undefined && { body: JSON.stringify(body) }) }), params);
 const EXPIRES = new Date("2026-10-29T10:30:00Z");
 const ROW = {
   id: "reg-1", status: "CONFIRMED", userId: null, completedAt: null, ticketTypeId: "tt-1",
-  paymentStatus: "UNASSIGNED", refundedAmount: 0, promoCodeId: null, groupId: null,
+  paymentStatus: "UNASSIGNED", refundedAmount: 0, promoCodeId: null, groupId: null, sponsorId: null,
   _count: { payments: 0, invoices: 0 },
 };
 
@@ -42,7 +43,7 @@ beforeEach(() => {
   mockDb.event.findFirst.mockResolvedValue({ id: "evt-1", slug: "gcc" });
   mockDb.registration.findFirst.mockResolvedValue(ROW);
   mockDb.auditLog.create.mockResolvedValue({});
-  mockMint.mockResolvedValue({ url: "https://x.test/e/gcc/complete-registration?token=abc", expires: EXPIRES });
+  mockMint.mockResolvedValue({ ok: true, url: "https://x.test/e/gcc/complete-registration?token=abc", expires: EXPIRES });
   mockQr.mockResolvedValue(Buffer.from("png"));
 });
 
@@ -89,6 +90,8 @@ describe("POST onsite-link", () => {
       { _count: { payments: 0, invoices: 1 } },
       { promoCodeId: "promo-1" },
       { groupId: "grp-1" },
+      { paymentStatus: "INCLUSIVE" },
+      { sponsorId: "sp-1" },
     ]) {
       mockDb.registration.findFirst.mockResolvedValueOnce({ ...typeless, ...row });
       const res = await call();
@@ -103,5 +106,16 @@ describe("POST onsite-link", () => {
     expect((await call()).status).toBe(200);
     mockDb.registration.findFirst.mockResolvedValueOnce({ ...ROW, paymentStatus: "PAID", _count: { payments: 1, invoices: 1 } });
     expect((await call()).status).toBe(200);
+  });
+
+  it("a live link is not replaced unless the desk confirms (review of 055680a9, HIGH 2)", async () => {
+    mockMint.mockResolvedValueOnce({ ok: false, code: "LINK_ACTIVE", expires: EXPIRES });
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ code: "LINK_ACTIVE", expiresAt: EXPIRES.toISOString() });
+    expect(mockMint).toHaveBeenLastCalledWith(expect.objectContaining({ replace: false }));
+
+    await call({ replace: true });
+    expect(mockMint).toHaveBeenLastCalledWith(expect.objectContaining({ replace: true }));
   });
 });

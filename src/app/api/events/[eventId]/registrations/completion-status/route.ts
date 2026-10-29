@@ -34,7 +34,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: ROUTE, eventId });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const gate = requirePermission(session, "registrations.read", { route: ROUTE, eventId });
+    // The same key as making the link: whoever may start a completion may
+    // watch it finish (review of 055680a9: a role with check-in but not read
+    // made links whose poll always 403'd). It returns only id, status, completed.
+    const gate = requirePermission(session, "registrations.checkin", { route: ROUTE, eventId });
     if (!gate.ok) return gate.response;
 
     const ids = (new URL(req.url).searchParams.get("ids") ?? "").split(",").map((id) => id.trim()).filter(Boolean);

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { rateLimited } from "@/lib/api-errors";
+import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
 import { renderQrPng } from "@/lib/barcode";
 import { RESTAMPABLE_STATUSES } from "@/lib/registration-form-pricing";
@@ -27,6 +28,7 @@ interface RouteParams {
 
 const ROUTE = "events/[eventId]/registrations/[registrationId]/onsite-link:POST";
 const LINK_MINUTES = 30;
+const bodySchema = z.object({ replace: z.boolean().optional() });
 
 export async function POST(req: Request, { params }: RouteParams) {
   const { eventId, registrationId } = await params;
@@ -59,7 +61,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         where: { id: registrationId, eventId },
         select: {
           id: true, status: true, userId: true, completedAt: true, ticketTypeId: true,
-          paymentStatus: true, refundedAmount: true, promoCodeId: true, groupId: true,
+          paymentStatus: true, refundedAmount: true, promoCodeId: true, groupId: true, sponsorId: true,
           _count: { select: { payments: true, invoices: { where: { status: { not: "CANCELLED" } } } } },
         },
       });
@@ -90,12 +92,27 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
 
-      const { url, expires } = await mintOnsiteCompletionLink({
+      // `replace: true` only after staff confirmed: a live link is someone typing.
+      // An empty body is the first try.
+      const raw = await req.json().catch(() => ({}));
+      const parsed = bodySchema.safeParse(raw ?? {});
+      if (!parsed.success) {
+        return zodErrorResponse(parsed, { route: "onsite-link:POST", eventId, userId: session.user.id });
+      }
+      const minted = await mintOnsiteCompletionLink({
         registrationId,
         eventSlug: event.slug,
         minutes: LINK_MINUTES,
         appUrl: process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000",
+        replace: parsed.data.replace === true,
       });
+      if (!minted.ok) {
+        // A normal desk state, not a failure: the desk asks before replacing.
+        // No link in the answer; only the desk that made it holds that.
+        apiLogger.info({ msg: "onsite-link:link-active", eventId, registrationId, userId: session.user.id });
+        return NextResponse.json({ code: "LINK_ACTIVE", expiresAt: minted.expires.toISOString() });
+      }
+      const { url, expires } = minted;
       const qr = await renderQrPng(url, { scale: 6 });
 
       db.auditLog
@@ -130,10 +147,16 @@ function holdsMoney(reg: {
   refundedAmount: unknown;
   promoCodeId: string | null;
   groupId: string | null;
+  sponsorId: string | null;
   _count: { payments: number; invoices: number };
 }): boolean {
   return (
     !RESTAMPABLE_STATUSES.includes(reg.paymentStatus) ||
+    // Sponsor-paid: the sponsor would be billed at whatever type they pick
+    // (review of 055680a9, MED 3). INCLUSIVE is re-priceable for an emailed
+    // rate, but this link has no rate to price it at.
+    reg.paymentStatus === "INCLUSIVE" ||
+    !!reg.sponsorId ||
     Number(reg.refundedAmount) > 0 ||
     reg._count.payments > 0 ||
     reg._count.invoices > 0 ||

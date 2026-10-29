@@ -224,6 +224,15 @@ that clears itself after a few seconds. The tablet needs no staff login.
   billing, a form left idle for 5 minutes is cleared, and the hand-back
   screen blanks itself when the tab cannot close. Edit shows only with
   `registrations.update` and reloads on a conflict.
+- Second review (of `055680a9`): a live onsite link is never replaced
+  silently. The server checks for one and answers `LINK_ACTIVE` with its
+  expiry unless the desk confirms `replace`, so a reloaded desk or a second
+  desk asks first. Sponsor-paid (INCLUSIVE, or any sponsor) typeless rows
+  are refused too. The waiting-list poll needs `registrations.checkin`, the
+  same key as making the link; a late answer no longer drops someone added
+  meanwhile; it asks 50 at a time. An idle tablet form now leaves the page
+  (the token is in the URL), and the idle timer runs only on a loaded form.
+  Minting runs in `tenantTransaction`.
 - The hand-back screen (owner, Oct 29) shows the event, their name, type and
   email, says the confirmation with the entry barcode was emailed (the
   completion route now returns `emailed`, so a failed send is never claimed),

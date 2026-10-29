@@ -107,18 +107,24 @@ export function useWaitingList(eventId: string, onCompleted: () => void) {
         timer = setTimeout(poll, POLL_MS);
         return;
       }
+      // The route takes 50 at a time; a longer queue is polled in turn.
+      const requested = new Set(pending.split(",").slice(0, 50));
       try {
         const { statuses } = await fetchApi<{ statuses: Array<{ id: string; status: string; completed: boolean }> }>(
-          `/api/events/${eventId}/registrations/completion-status?ids=${encodeURIComponent(pending)}`,
+          `/api/events/${eventId}/registrations/completion-status?ids=${encodeURIComponent([...requested].join(","))}`,
           { cache: "no-store" },
         );
+        // The list changed while this was in flight: a newer poll owns it now
+        // (review of 055680a9, HIGH 1).
+        if (stopped) return;
         const byId = new Map(statuses.map((s) => [s.id, s]));
         const finished = statuses.filter((s) => s.completed).map((s) => s.id);
         update((prev) =>
           prev
             .filter((e) => e.until > Date.now())
-            // Gone from the event or cancelled: nothing left to wait for.
-            .filter((e) => e.completed || (byId.has(e.id) && byId.get(e.id)?.status !== "CANCELLED"))
+            // Asked about and gone from the event, or cancelled: nothing left to
+            // wait for. Someone this request did not ask about stays.
+            .filter((e) => e.completed || !requested.has(e.id) || (byId.has(e.id) && byId.get(e.id)?.status !== "CANCELLED"))
             .map((e) => (finished.includes(e.id) ? { ...e, completed: true } : e)),
         );
         if (finished.length > 0) onCompletedRef.current();
@@ -208,15 +214,28 @@ export function CompleteOnsiteDialog({
   const [loading, setLoading] = useState(false);
   const [where, setWhere] = useState<"phone" | "tablet">("phone");
   const [confirmReplace, setConfirmReplace] = useState(false);
+  // A link made elsewhere (another desk, or this one before a reload) is still
+  // open: its expiry, until staff choose to replace it or keep it.
+  const [openElsewhere, setOpenElsewhere] = useState<string | null>(null);
   const countdown = useCountdown(link?.expiresAt ?? null);
+  const elsewhereCountdown = useCountdown(openElsewhere);
 
-  const createLink = useCallback(async () => {
+  const createLink = useCallback(async (replace = false) => {
     if (!person) return;
     setLoading(true);
     setConfirmReplace(false);
     try {
-      const res = await fetch(`/api/events/${eventId}/registrations/${person.id}/onsite-link`, { method: "POST" });
+      const res = await fetch(`/api/events/${eventId}/registrations/${person.id}/onsite-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ replace }),
+      });
       const data = await res.json().catch(() => ({}));
+      if (data.code === "LINK_ACTIVE") {
+        setOpenElsewhere(data.expiresAt);
+        return;
+      }
+      setOpenElsewhere(null);
       if (!res.ok) {
         toast.error(data.error || "Could not create the link");
         return;
@@ -234,6 +253,7 @@ export function CompleteOnsiteDialog({
   useEffect(() => {
     setWhere("phone");
     setConfirmReplace(false);
+    setOpenElsewhere(null);
     const live = cachedLink && Date.parse(cachedLink.expiresAt) > Date.now() ? cachedLink : null;
     setLink(live);
     if (person && !completed && !live) createLink();
@@ -283,6 +303,7 @@ export function CompleteOnsiteDialog({
           </div>
         ) : (
           <div className="space-y-4">
+            {(link || loading) && (
             <div className="grid grid-cols-2 gap-1 rounded-lg border p-1">
               <Button type="button" size="sm" variant={where === "phone" ? "default" : "ghost"} className="gap-1.5" onClick={() => setWhere("phone")}>
                 <Smartphone className="h-4 w-4" /> Their phone
@@ -291,6 +312,25 @@ export function CompleteOnsiteDialog({
                 <MonitorSmartphone className="h-4 w-4" /> This tablet
               </Button>
             </div>
+            )}
+
+            {!loading && openElsewhere && !link && (
+              <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <p className="font-medium">A link for them is already open, expiring in {elsewhereCountdown.label}.</p>
+                <p>
+                  It was made at another desk, or here before the page reloaded. They may be filling it in right now; a new
+                  link would cancel it.
+                </p>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant="destructive" onClick={() => createLink(true)}>
+                    Replace it with a new link
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={onClose}>
+                    Keep it and wait
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {loading && (
               <div className="flex h-60 items-center justify-center">
@@ -336,7 +376,7 @@ export function CompleteOnsiteDialog({
                 {confirmReplace ? (
                   <span className="inline-flex items-center gap-2">
                     <span>This cancels the link they may be using.</span>
-                    <Button type="button" size="sm" variant="destructive" className="h-7 text-xs" onClick={createLink} disabled={loading}>
+                    <Button type="button" size="sm" variant="destructive" className="h-7 text-xs" onClick={() => createLink(true)} disabled={loading}>
                       Replace
                     </Button>
                     <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setConfirmReplace(false)}>
@@ -350,7 +390,7 @@ export function CompleteOnsiteDialog({
                     variant="ghost"
                     className="h-7 gap-1 text-xs"
                     // An expired link replaces nothing, so it needs no warning.
-                    onClick={() => (countdown.expired ? createLink() : setConfirmReplace(true))}
+                    onClick={() => (countdown.expired ? createLink(true) : setConfirmReplace(true))}
                     disabled={loading}
                   >
                     <RefreshCw className="h-3 w-3" /> New link
@@ -445,7 +485,7 @@ export function EditDetailsDialog({
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.status === 409) {
+      if (data.code === "STALE_WRITE") {
         // Someone saved first: reload their row so a retry starts from it,
         // rather than failing the same way every time (review of cf9775fd).
         toast.error("Someone else changed these details. The latest are loaded; check them and edit again.");

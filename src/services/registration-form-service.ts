@@ -370,28 +370,39 @@ export async function mintRegistrationFormLink(input: {
  * valid for `minutes`, single use (the completion route deletes it on
  * submit). Revokes the person's earlier links, emailed ones included, so they
  * cannot complete twice.
+ *
+ * A live details-only link (made at a desk, maybe another desk, maybe before a
+ * reload) is someone typing right now: it is replaced only when `replace` is
+ * set, so no desk cancels it unawares (review of 055680a9, HIGH 2). One
+ * tenant transaction, so two desks minting at once leave one live link.
  */
 export async function mintOnsiteCompletionLink(input: {
   registrationId: string;
   eventSlug: string;
   minutes: number;
   appUrl: string;
-}): Promise<{ url: string; expires: Date }> {
+  replace: boolean;
+}): Promise<{ ok: true; url: string; expires: Date } | { ok: false; code: "LINK_ACTIVE"; expires: Date }> {
   const rawToken = crypto.randomBytes(32).toString("hex");
   const expires = new Date(Date.now() + input.minutes * 60_000);
+  const identifier = detailsOnlyRegistrationFormIdentifier(input.registrationId);
   const { exact, startsWith } = registrationFormIdentifierPrefixes(input.registrationId);
-  // One transaction, so two desks minting at once leave one live link.
-  await db.$transaction([
-    db.verificationToken.deleteMany({ where: { OR: [{ identifier: exact }, { identifier: { startsWith } }] } }),
-    db.verificationToken.create({
-      data: {
-        identifier: detailsOnlyRegistrationFormIdentifier(input.registrationId),
-        token: hashVerificationToken(rawToken),
-        expires,
-      },
-    }),
-  ]);
-  return { url: `${input.appUrl}/e/${input.eventSlug}/complete-registration?token=${rawToken}`, expires };
+  return tenantTransaction(async (tx) => {
+    if (!input.replace) {
+      const live = await tx.verificationToken.findFirst({
+        where: { identifier, expires: { gt: new Date() } },
+        select: { expires: true },
+      });
+      if (live) return { ok: false as const, code: "LINK_ACTIVE" as const, expires: live.expires };
+    }
+    await tx.verificationToken.deleteMany({ where: { OR: [{ identifier: exact }, { identifier: { startsWith } }] } });
+    await tx.verificationToken.create({ data: { identifier, token: hashVerificationToken(rawToken), expires } });
+    return {
+      ok: true as const,
+      url: `${input.appUrl}/e/${input.eventSlug}/complete-registration?token=${rawToken}`,
+      expires,
+    };
+  });
 }
 
 /** Removes a person's links, e.g. after their email failed to send. */

@@ -402,11 +402,19 @@ function CompleteRegistrationContent() {
   // Tablet mode: clear a form left untouched for 5 minutes (review of
   // cf9775fd), so an abandoned one never reaches the next person.
   useEffect(() => {
-    if (!tablet || handedBack || idledOut) return;
-    let timer = setTimeout(() => setIdledOut(true), TABLET_IDLE_MS);
+    // Only once a form is showing: an expired or invalid link keeps its own message.
+    if (!tablet || !data || error || handedBack || idledOut) return;
+    // Leave the page, not just hide the form: the token is in the URL and still
+    // valid, so a reload would bring the form back with their details on it
+    // (review of 055680a9, MED 5).
+    const idleOut = () => {
+      setIdledOut(true);
+      setTimeout(() => window.location.replace("about:blank"), 4000);
+    };
+    let timer = setTimeout(idleOut, TABLET_IDLE_MS);
     const reset = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => setIdledOut(true), TABLET_IDLE_MS);
+      timer = setTimeout(idleOut, TABLET_IDLE_MS);
     };
     const events = ["pointerdown", "keydown", "input", "scroll"] as const;
     events.forEach((name) => window.addEventListener(name, reset, { passive: true }));
@@ -414,7 +422,7 @@ function CompleteRegistrationContent() {
       clearTimeout(timer);
       events.forEach((name) => window.removeEventListener(name, reset));
     };
-  }, [tablet, handedBack, idledOut]);
+  }, [tablet, data, error, handedBack, idledOut]);
 
   if (loading) {
     return (
@@ -435,8 +443,8 @@ function CompleteRegistrationContent() {
         <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
           <h2 className="text-lg font-semibold text-slate-900 mb-2">This form was closed</h2>
           <p className="text-slate-500 text-sm">
-            It was left without activity for a few minutes, so it was cleared to keep the details private. Please ask the
-            registration desk for a new link.
+            It was left without activity for a few minutes, so it is being closed to keep the details private. Please ask
+            the registration desk to open it again.
           </p>
         </div>
       </div>
