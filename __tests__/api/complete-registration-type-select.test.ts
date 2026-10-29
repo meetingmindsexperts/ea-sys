@@ -209,7 +209,7 @@ describe("completion type-set — base behavior", () => {
     );
   });
 
-  it("sets the type, claims the seat, stamps the tier price, and flips the default to UNASSIGNED", async () => {
+  it("sets the type, claims the seat, stamps the tier price, and leaves an owing status as it is", async () => {
     mockTtFindFirst.mockResolvedValue(
       makeChosenType({
         pricingTiers: [{
@@ -301,6 +301,16 @@ describe("M1 — explicitly-set paymentStatus survives the type-set", () => {
 
   // A typeless COMPLIMENTARY row completes free on a priced type, through the
   // link-rate path: complete-registration-link-rate.test.ts, "a link without a rate".
+
+  it("a typeless COMPLIMENTARY row the link may not reprice (a promo code) takes the open rate and becomes payable", async () => {
+    mockRegFindFirst.mockResolvedValue(makeRegistration({
+      paymentStatus: "COMPLIMENTARY", promoCodeId: "promo-1", refundedAmount: 0, _count: { payments: 0, invoices: 0 },
+    }));
+    mockTtFindFirst.mockResolvedValue(makeChosenType());
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
+    expect(res.status).toBe(200);
+    expect(mockTxRegUpdateMany.mock.calls[0][0].data).toMatchObject({ originalPrice: 100, paymentStatus: "UNASSIGNED" });
+  });
 });
 
 describe("L2 — a self-selected requiresApproval type enters the approval queue", () => {
