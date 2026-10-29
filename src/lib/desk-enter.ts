@@ -59,3 +59,15 @@ export function deskEnterAction(query: string, results: DeskEnterCandidate[]): D
   if (only.paymentDue) return { kind: "pay", id: only.id };
   return { kind: "check-in", id: only.id };
 }
+
+/**
+ * Which waiting people the desk asks about this cycle, and where the next
+ * cycle starts. The status route takes `size` ids; a longer list is asked
+ * about in turn, wrapping, so nobody past the first batch is starved.
+ */
+export function nextPollBatch(ids: string[], offset: number, size: number): { batch: string[]; offset: number } {
+  if (ids.length <= size) return { batch: ids, offset: 0 };
+  const start = offset % ids.length;
+  const batch = [...ids, ...ids].slice(start, start + size);
+  return { batch, offset: (start + size) % ids.length };
+}

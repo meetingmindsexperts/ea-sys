@@ -12,6 +12,7 @@ const { mockDb, tx, sendEmailMock, getEventTemplateMock, transitionMock } = vi.h
     auditLog: { create: vi.fn() },
     // The onsite link checks, revokes and creates inside one tenant transaction.
     verificationToken: { findFirst: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
+    $queryRaw: vi.fn(),
   };
   return {
     tx,
@@ -254,6 +255,9 @@ describe("the onsite link (docs/ONSITE_DESK_PLAN.md §5.4)", () => {
     // The rate-less form: the completion route keeps their type and price, and
     // money already recorded does not stop them.
     expect(tx.verificationToken.create.mock.calls[0][0].data.identifier).toBe("reg:reg-1");
+    // Serialised per person, so two desks cannot both see "no live link".
+    expect(String(tx.$queryRaw.mock.calls[0][0].join("?"))).toContain("pg_advisory_xact_lock");
+    expect(tx.$queryRaw.mock.calls[0][1]).toBe("onsite-link:reg-1");
   });
 
   it("never replaces a live onsite link unless asked: someone may be typing into it", async () => {

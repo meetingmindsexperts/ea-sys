@@ -118,4 +118,14 @@ describe("POST onsite-link", () => {
     await call({ replace: true });
     expect(mockMint).toHaveBeenLastCalledWith(expect.objectContaining({ replace: true }));
   });
+
+  it("a leftover sponsor alone says so, not that money is recorded (review of 44e6c9b1)", async () => {
+    mockDb.registration.findFirst.mockResolvedValueOnce({ ...ROW, ticketTypeId: null, sponsorId: "sp-1" });
+    const sponsor = await (await call()).json();
+    expect(sponsor).toMatchObject({ code: "TYPE_REQUIRED" });
+    expect(sponsor.error).toContain("a sponsor is attached");
+
+    mockDb.registration.findFirst.mockResolvedValueOnce({ ...ROW, ticketTypeId: null, paymentStatus: "PAID", sponsorId: "sp-1" });
+    expect((await (await call()).json()).error).toContain("money is already recorded");
+  });
 });

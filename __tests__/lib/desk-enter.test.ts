@@ -3,7 +3,7 @@
  * it acts on, and that a code-shaped query with no match is a scan.
  */
 import { describe, it, expect } from "vitest";
-import { deskEnterAction, matchesDeskSearch, type DeskEnterCandidate } from "@/lib/desk-enter";
+import { deskEnterAction, matchesDeskSearch, nextPollBatch, type DeskEnterCandidate } from "@/lib/desk-enter";
 
 const row = (status: string, paymentDue = false, id = "r1"): DeskEnterCandidate => ({ id, status, paymentDue });
 
@@ -43,5 +43,24 @@ describe("matchesDeskSearch", () => {
       expect(matchesDeskSearch(person, q), q).toBe(true);
     }
     expect(matchesDeskSearch(person, "Fatima Smith")).toBe(false);
+  });
+});
+
+describe("nextPollBatch", () => {
+  const ids = Array.from({ length: 120 }, (_, i) => `r${i}`);
+  it("asks about everyone in turn, wrapping, so nobody past the first batch is starved", () => {
+    const seen = new Set<string>();
+    let offset = 0;
+    for (let i = 0; i < 3; i++) {
+      const next = nextPollBatch(ids, offset, 50);
+      expect(next.batch).toHaveLength(50);
+      expect(new Set(next.batch).size).toBe(50);
+      next.batch.forEach((id) => seen.add(id));
+      offset = next.offset;
+    }
+    expect(seen.size).toBe(120);
+  });
+  it("a short list is asked about whole, every time", () => {
+    expect(nextPollBatch(["a", "b"], 7, 50)).toEqual({ batch: ["a", "b"], offset: 0 });
   });
 });

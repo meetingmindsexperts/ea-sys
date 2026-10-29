@@ -643,6 +643,7 @@ export function DeskPanel({
         completed={onsiteCompleted}
         cachedLink={onsitePerson ? onsiteLinks.current.get(onsitePerson.id) ?? null : null}
         onLinkCreated={onLinkCreated}
+        onWatch={addWaiting}
         onAdmit={admitOnsite}
         onClose={() => {
           setOnsitePerson(null);

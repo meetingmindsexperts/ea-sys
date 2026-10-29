@@ -86,10 +86,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       // the type first; with a type, the details-only link keeps it.
       if (!registration.ticketTypeId && holdsMoney(registration)) {
         apiLogger.warn({ msg: "onsite-link:type-required", eventId, registrationId, paymentStatus: registration.paymentStatus, userId: session.user.id });
-        return NextResponse.json(
-          { error: "Set their registration type first: money is already recorded against this registration.", code: "TYPE_REQUIRED" },
-          { status: 409 },
-        );
+        // A sponsor on its own may be history kept after an INCLUSIVE flip, not money.
+        const why = sponsorOnly(registration)
+          ? "a sponsor is attached to this registration"
+          : "money is already recorded against this registration";
+        return NextResponse.json({ error: `Set their registration type first: ${why}.`, code: "TYPE_REQUIRED" }, { status: 409 });
       }
 
       // `replace: true` only after staff confirmed: a live link is someone typing.
@@ -163,4 +164,9 @@ function holdsMoney(reg: {
     !!reg.promoCodeId ||
     !!reg.groupId
   );
+}
+
+/** Refused only because a sponsor is attached (the message says so rather than claiming money). */
+function sponsorOnly(reg: Parameters<typeof holdsMoney>[0]): boolean {
+  return !!reg.sponsorId && !holdsMoney({ ...reg, sponsorId: null, paymentStatus: reg.paymentStatus === "INCLUSIVE" ? "UNASSIGNED" : reg.paymentStatus });
 }

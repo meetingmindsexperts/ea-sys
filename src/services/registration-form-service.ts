@@ -388,6 +388,10 @@ export async function mintOnsiteCompletionLink(input: {
   const identifier = detailsOnlyRegistrationFormIdentifier(input.registrationId);
   const { exact, startsWith } = registrationFormIdentifierPrefixes(input.registrationId);
   return tenantTransaction(async (tx) => {
+    // Serialise mints for this person: two desks at once must not both see
+    // "no live link" and then delete each other's (review of 44e6c9b1).
+    // ::text because pg_advisory_xact_lock returns void, which $queryRaw cannot read.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`onsite-link:${input.registrationId}`}))::text`;
     if (!input.replace) {
       const live = await tx.verificationToken.findFirst({
         where: { identifier, expires: { gt: new Date() } },

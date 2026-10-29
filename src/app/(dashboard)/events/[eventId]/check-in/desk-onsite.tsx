@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { TitleSelect } from "@/components/ui/title-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { fetchApi } from "@/hooks/use-api";
+import { nextPollBatch } from "@/lib/desk-enter";
 
 /**
  * Complete onsite and Edit, for the registration desk (docs/ONSITE_DESK_PLAN.md
@@ -39,6 +40,7 @@ interface WaitingEntry extends OnsitePerson {
 }
 
 const POLL_MS = 4000;
+const POLL_BATCH = 50;
 
 function readWaiting(eventId: string): WaitingEntry[] {
   try {
@@ -100,6 +102,7 @@ export function useWaitingList(eventId: string, onCompleted: () => void) {
   useEffect(() => {
     if (!pending) return;
     let stopped = false;
+    let offset = 0;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       if (stopped) return;
@@ -107,8 +110,11 @@ export function useWaitingList(eventId: string, onCompleted: () => void) {
         timer = setTimeout(poll, POLL_MS);
         return;
       }
-      // The route takes 50 at a time; a longer queue is polled in turn.
-      const requested = new Set(pending.split(",").slice(0, 50));
+      // The route takes 50 at a time; a longer queue is polled in turn, the
+      // next 50 each cycle (review of 44e6c9b1: it used to ask the same 50).
+      const next = nextPollBatch(pending.split(","), offset, POLL_BATCH);
+      offset = next.offset;
+      const requested = new Set(next.batch);
       try {
         const { statuses } = await fetchApi<{ statuses: Array<{ id: string; status: string; completed: boolean }> }>(
           `/api/events/${eventId}/registrations/completion-status?ids=${encodeURIComponent([...requested].join(","))}`,
@@ -193,6 +199,7 @@ export function CompleteOnsiteDialog({
   completed,
   cachedLink,
   onLinkCreated,
+  onWatch,
   onAdmit,
   onClose,
 }: {
@@ -207,6 +214,8 @@ export function CompleteOnsiteDialog({
    */
   cachedLink: OnsiteLink | null;
   onLinkCreated: (person: OnsitePerson, link: OnsiteLink) => void;
+  /** Watch someone whose link was made elsewhere (no link to show here). */
+  onWatch: (person: OnsitePerson, expiresAt: string) => void;
   onAdmit: () => void;
   onClose: () => void;
 }) {
@@ -260,6 +269,17 @@ export function CompleteOnsiteDialog({
     // A new person opens the window; re-renders of the same person must not mint again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [person?.id]);
+
+  /** Keep the open link and watch for their form, as for a link made here. */
+  const keepWaiting = () => {
+    if (person && openElsewhere) onWatch(person, openElsewhere);
+    onClose();
+  };
+
+  // The other link ran out while this notice was up: nothing left to protect.
+  useEffect(() => {
+    if (openElsewhere && elsewhereCountdown.expired && !loading) createLink(false);
+  }, [openElsewhere, elsewhereCountdown.expired, loading, createLink]);
 
   const openOnTablet = () => {
     if (!link) return;
@@ -325,7 +345,7 @@ export function CompleteOnsiteDialog({
                   <Button type="button" size="sm" variant="destructive" onClick={() => createLink(true)}>
                     Replace it with a new link
                   </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={onClose}>
+                  <Button type="button" size="sm" variant="outline" onClick={keepWaiting}>
                     Keep it and wait
                   </Button>
                 </div>
