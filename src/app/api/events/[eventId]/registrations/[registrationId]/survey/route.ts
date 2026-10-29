@@ -31,6 +31,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
 import { SURVEY_COMPLETED_TAG } from "@/lib/survey/schema";
+import { touchRegistrationsOfAttendees } from "@/lib/registration-touch";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -202,6 +203,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
           where: { id: registration.attendeeId },
           data: { tags: attendee.tags.filter((t) => !isCompletedTag(t)) },
         });
+        await touchRegistrationsOfAttendees(tx, [registration.attendeeId]);
         return { tagRemoved: true };
       });
 

@@ -184,6 +184,8 @@ export async function PUT(req: Request) {
     // write never moved it, so staff silently overwrote the attendee's own
     // edit (Oct 29, 2026).
     const updatedAttendee = await tenantTransaction(async (tx) => {
+      // Rows in id order, as the bulk paths take them (review of a10e8058, L7).
+      await tx.$queryRaw`SELECT id FROM "Registration" WHERE "attendeeId" = ${registration.attendeeId} ORDER BY id FOR UPDATE`;
       await tx.registration.updateMany({
         where: { attendeeId: registration.attendeeId },
         data: { updatedAt: new Date() },

@@ -22,6 +22,7 @@
  */
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { touchRegistrationsOfAttendees } from "@/lib/registration-touch";
 
 export interface TagDelta {
   added: string[];
@@ -158,6 +159,8 @@ export async function syncSpeakerTagsToRegistrations(
     for (const [attendeeId, { original, tags }] of acc) {
       if (!sameSet(tags, original)) {
         await db.attendee.update({ where: { id: attendeeId }, data: { tags } });
+        // So a staff screen open on the registration does not revert them.
+        await touchRegistrationsOfAttendees(db, [attendeeId]);
       }
     }
   } catch (err) {

@@ -29,9 +29,9 @@
  *   npx tsx scripts/reconcile-soldcounts.ts --event <eventId>  # scope to one event
  *   npx tsx scripts/reconcile-soldcounts.ts --write --event <eventId>
  */
+import type { Prisma } from "@prisma/client";
 import { db } from "../src/lib/db";
 import { holdsEventSeat, holdsSeat, seatCounter } from "../src/lib/registration-seat";
-import { HELD_SEAT_WHERE } from "../src/lib/registration-seat-db";
 
 const write = process.argv.includes("--write");
 const eventArgIdx = process.argv.indexOf("--event");
@@ -45,12 +45,82 @@ const excludeIds = new Set(
     : [],
 );
 
+type Client = Prisma.TransactionClient | typeof db;
+type Write = (tx: Prisma.TransactionClient) => Promise<unknown>;
+
+/**
+ * Every counter for one event from row truth, with the same helpers the
+ * runtime routes by, so reconciliation and routing cannot disagree: the type
+ * and tier soldCounts and the event's seatCount (held iff a ticket seat is,
+ * holdsEventSeat; a row with no type holds none). Returns the drifts found and
+ * the writes that fix them.
+ */
+async function planEvent(client: Client, eventId: string): Promise<{ checked: number; drifts: string[]; writes: Write[] }> {
+  const [regs, ticketTypes, event] = await Promise.all([
+    client.registration.findMany({
+      where: { eventId, status: { not: "CANCELLED" } },
+      select: { status: true, attendanceMode: true, ticketTypeId: true, pricingTierId: true, createdSource: true },
+    }),
+    client.ticketType.findMany({
+      where: { eventId },
+      select: { id: true, name: true, soldCount: true, pricingTiers: { select: { id: true, name: true, soldCount: true } } },
+    }),
+    client.event.findUniqueOrThrow({ where: { id: eventId }, select: { seatCount: true } }),
+  ]);
+
+  const tierComputed = new Map<string, number>();
+  const typeComputed = new Map<string, number>();
+  const bump = (m: Map<string, number>, id: string) => m.set(id, (m.get(id) ?? 0) + 1);
+  for (const r of regs) {
+    if (!holdsSeat(r.status, r.attendanceMode)) continue;
+    const c = seatCounter(r);
+    if (!c) continue;
+    if (c.kind === "tier") {
+      bump(tierComputed, c.id);
+      // Since Sep 8, 2026 the ticket type is the ceiling over its tiers, so
+      // it counts this seat too (the appliers move both counters).
+      if (r.ticketTypeId) bump(typeComputed, r.ticketTypeId);
+    } else {
+      bump(typeComputed, c.id);
+    }
+  }
+
+  let checked = 0;
+  const drifts: string[] = [];
+  const writes: Write[] = [];
+  for (const tt of ticketTypes) {
+    checked++;
+    const computed = typeComputed.get(tt.id) ?? 0;
+    if (computed !== tt.soldCount) {
+      drifts.push(`  TicketType "${tt.name}" (${tt.id}): stored ${tt.soldCount} → ${computed}`);
+      writes.push((tx) => tx.ticketType.update({ where: { id: tt.id }, data: { soldCount: computed } }));
+    }
+    for (const tier of tt.pricingTiers) {
+      checked++;
+      const tierC = tierComputed.get(tier.id) ?? 0;
+      if (tierC !== tier.soldCount) {
+        drifts.push(`  PricingTier "${tt.name} / ${tier.name}" (${tier.id}): stored ${tier.soldCount} → ${tierC}`);
+        writes.push((tx) => tx.pricingTier.update({ where: { id: tier.id }, data: { soldCount: tierC } }));
+      }
+    }
+  }
+  // The event-wide counter (Oct 29, 2026): imports used to count rows with no
+  // type, and the completion form counted them again on getting a type.
+  checked++;
+  const eventComputed = regs.filter((r) => holdsEventSeat(r)).length;
+  if (eventComputed !== event.seatCount) {
+    drifts.push(`  Event seats: stored ${event.seatCount} → ${eventComputed}`);
+    writes.push((tx) => tx.event.update({ where: { id: eventId }, data: { seatCount: eventComputed } }));
+  }
+  return { checked, drifts, writes };
+}
+
 async function main() {
   console.log(write ? "Mode: WRITE\n" : "Mode: DRY RUN (pass --write to apply)\n");
 
   const events = await db.event.findMany({
     where: eventFilter ? { id: eventFilter } : {},
-    select: { id: true, name: true, seatCount: true },
+    select: { id: true, name: true },
     orderBy: { createdAt: "asc" },
   });
 
@@ -65,92 +135,28 @@ async function main() {
       console.log(`Event "${event.name}" (${event.id}): SKIPPED (--exclude)\n`);
       continue;
     }
-    // Re-derive both counters from row-truth via the SAME helpers the runtime
-    // uses, so reconciliation and routing can't disagree.
-    const regs = await db.registration.findMany({
-      where: { eventId: event.id, status: { not: "CANCELLED" } },
-      select: {
-        status: true,
-        attendanceMode: true,
-        ticketTypeId: true,
-        pricingTierId: true,
-        createdSource: true,
-      },
-    });
-
-    const tierComputed = new Map<string, number>();
-    const typeComputed = new Map<string, number>();
-    const bump = (m: Map<string, number>, id: string) => m.set(id, (m.get(id) ?? 0) + 1);
-    for (const r of regs) {
-      if (!holdsSeat(r.status, r.attendanceMode)) continue;
-      const c = seatCounter(r);
-      if (!c) continue;
-      if (c.kind === "tier") {
-        bump(tierComputed, c.id);
-        // Since Sep 8, 2026 the ticket type is the ceiling over its tiers, so
-        // it counts this seat too (the appliers move both counters).
-        if (r.ticketTypeId) bump(typeComputed, r.ticketTypeId);
-      } else {
-        bump(typeComputed, c.id);
-      }
-    }
-
-    const ticketTypes = await db.ticketType.findMany({
-      where: { eventId: event.id },
-      select: {
-        id: true,
-        name: true,
-        soldCount: true,
-        pricingTiers: { select: { id: true, name: true, soldCount: true } },
-      },
-    });
-
-    const drifts: string[] = [];
-
-    for (const tt of ticketTypes) {
-      countersChecked++;
-      const computed = typeComputed.get(tt.id) ?? 0;
-      if (computed !== tt.soldCount) {
-        countersDrifted++;
-        drifts.push(`  TicketType "${tt.name}" (${tt.id}): stored ${tt.soldCount} → ${computed}`);
-        if (write) {
-          await db.ticketType.update({ where: { id: tt.id }, data: { soldCount: computed } });
-          countersFixed++;
-        }
-      }
-      for (const tier of tt.pricingTiers) {
-        countersChecked++;
-        const tierC = tierComputed.get(tier.id) ?? 0;
-        if (tierC !== tier.soldCount) {
-          countersDrifted++;
-          drifts.push(`  PricingTier "${tt.name} / ${tier.name}" (${tier.id}): stored ${tier.soldCount} → ${tierC}`);
-          if (write) {
-            await db.pricingTier.update({ where: { id: tier.id }, data: { soldCount: tierC } });
-            countersFixed++;
-          }
-        }
-      }
-    }
-
-    // The event-wide counter (Event.seatCount), Oct 29, 2026: held iff a
-    // ticket/tier seat is (holdsEventSeat), so a row with no type holds none.
-    // Imports used to count those, and the completion form counted them again
-    // on getting a type. Written under the event row lock with a recount, as
-    // the event-cap PUT does, so a live registration cannot race it.
-    countersChecked++;
-    const eventComputed = regs.filter((r) => holdsEventSeat(r)).length;
-    if (eventComputed !== event.seatCount) {
-      countersDrifted++;
-      drifts.push(`  Event seats: stored ${event.seatCount} → ${eventComputed}`);
-      if (write) {
-        await db.$transaction(async (tx) => {
-          await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${event.id} FOR UPDATE`;
-          const live = await tx.registration.count({ where: { eventId: event.id, ticketTypeId: { not: null }, ...HELD_SEAT_WHERE } });
-          await tx.event.update({ where: { id: event.id }, data: { seatCount: live } });
-        });
-        countersFixed++;
-      }
-    }
+    // In --write mode each event is one transaction (review of a10e8058, M3):
+    // its type rows, then its tier rows, then the event row are locked (the
+    // order the claim paths take them), the registrations are read UNDER those
+    // locks, and only then are the counters computed and written. A plain
+    // read-then-write would drop a registration that committed in between.
+    const result = write
+      ? await db.$transaction(
+          async (tx) => {
+            await tx.$queryRaw`SELECT id FROM "TicketType" WHERE "eventId" = ${event.id} ORDER BY id FOR UPDATE`;
+            await tx.$queryRaw`SELECT pt.id FROM "PricingTier" pt JOIN "TicketType" tt ON tt.id = pt."ticketTypeId" WHERE tt."eventId" = ${event.id} ORDER BY pt.id FOR UPDATE`;
+            await tx.$queryRaw`SELECT id FROM "Event" WHERE id = ${event.id} FOR UPDATE`;
+            const plan = await planEvent(tx, event.id);
+            for (const w of plan.writes) await w(tx);
+            return plan;
+          },
+          { timeout: 60_000 },
+        )
+      : await planEvent(db, event.id);
+    countersChecked += result.checked;
+    countersDrifted += result.drifts.length;
+    if (write) countersFixed += result.writes.length;
+    const drifts = result.drifts;
 
     if (drifts.length > 0) {
       console.log(`Event "${event.name}" (${event.id}):`);

@@ -19,7 +19,8 @@ const { mockDb } = vi.hoisted(() => ({
       delete: vi.fn(),
     },
     surveyResponse: { create: vi.fn(), count: vi.fn() },
-    registration: { update: vi.fn() },
+    // updateMany: the tag write touches the attendee's registrations (registration-touch.ts).
+    registration: { update: vi.fn(), updateMany: vi.fn(async () => ({ count: 1 })) },
     attendee: { update: vi.fn() },
     verificationToken: { delete: vi.fn() },
     event: { update: vi.fn() },

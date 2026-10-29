@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockAuth, tx } = vi.hoisted(() => {
   const tx = {
+    $queryRaw: vi.fn(async () => []),
     registration: { updateMany: vi.fn() },
     attendee: { update: vi.fn() },
   };
@@ -52,6 +53,8 @@ describe("registrant self-edit", () => {
     const res = await put({ registrationId: "reg1", attendee: { firstName: "New" } });
     expect(res.status).toBe(200);
     expect(mockDb.$transaction).toHaveBeenCalledTimes(1);
+    // The rows are locked, in id order, before they are touched.
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.registration.updateMany.mock.invocationCallOrder[0]);
     expect(tx.registration.updateMany).toHaveBeenCalledWith({ where: { attendeeId: "att1" }, data: { updatedAt: expect.any(Date) } });
     expect(tx.attendee.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ firstName: "New" }) }));
   });

@@ -31,6 +31,7 @@ import { isDailyMode, responseDedupKey, type SurveyResponseModeValue } from "@/l
 import { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { touchRegistrationsOfAttendees } from "@/lib/registration-touch";
 import {
   surveyConfigSchema,
   validateAnswers,
@@ -834,6 +835,8 @@ export async function submitSurveyResponse(input: SubmitSurveyInput): Promise<Su
           where: { id: registration.attendee.id },
           data: { tags: Array.from(new Set([...(registration.attendee.tags ?? []), SURVEY_COMPLETED_TAG])) },
         });
+        // Any other registration on this attendee too, so no open staff screen reverts the tag.
+        await touchRegistrationsOfAttendees(tx, [registration.attendee.id]);
       }
       if (consumeTokenHash) {
         await tx.verificationToken.delete({ where: { token: consumeTokenHash } });

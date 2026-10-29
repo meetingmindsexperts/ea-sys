@@ -24,6 +24,8 @@ const { mockDb, mockRateLimit, mockSendEmail, mockHashToken } = vi.hoisted(() =>
       findFirst: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn(),
+      // The tag write touches the attendee's registrations (registration-touch.ts).
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     attendee: {
       update: vi.fn(),

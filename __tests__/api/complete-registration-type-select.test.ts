@@ -228,7 +228,7 @@ describe("completion type-set — base behavior", () => {
       data: { soldCount: { increment: 1 } },
     });
     expect(mockTxRegUpdateMany).toHaveBeenCalledWith({
-      where: { id: "reg-1", ticketTypeId: null }, // M3: conditional claim
+      where: { id: "reg-1", ticketTypeId: null, status: { not: "CANCELLED" } }, // M3: conditional claim, never a cancelled row
       data: expect.objectContaining({
         ticketTypeId: "tt-1",
         pricingTierId: "tier-eb",
@@ -246,10 +246,22 @@ describe("completion type-set — base behavior", () => {
     expect(eventClaims).toHaveLength(1);
 
     mockTxExecuteRaw.mockResolvedValue(0); // event full
-    mockTxRegUpdateMany.mockClear();
+    mockTxTokenDelete.mockClear();
     const full = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
     expect(full.status).toBe(409);
-    expect(typeOrPriceWrites(mockTxRegUpdateMany)).toEqual([]);
+    // Its own code: no other type would fit either (review of a10e8058, L5).
+    expect((await full.json()).code).toBe("EVENT_FULL");
+    // The transaction threw, so the row claim rolls back and the token survives.
+    expect(mockTxTokenDelete).not.toHaveBeenCalled();
+  });
+
+  it("a virtual attendee picking a type claims no seat on it, and no event seat", async () => {
+    mockRegFindFirst.mockResolvedValue(makeRegistration({ attendanceMode: "VIRTUAL" }));
+    mockTtFindFirst.mockResolvedValue(makeChosenType());
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
+    expect(res.status).toBe(200);
+    expect(mockTxTtUpdateMany).not.toHaveBeenCalled();
+    expect(mockTxExecuteRaw.mock.calls.filter((c) => (c[0] as string[]).join("?").includes('"Event"'))).toHaveLength(0);
   });
 
   it("409s REGISTRATION_TYPE_SOLD_OUT and rolls back when the seat claim loses", async () => {

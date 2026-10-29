@@ -6,7 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
-import { checkInGate, executeCheckIn, undoCheckIn } from "@/lib/check-in";
+import { checkInGate, executeCheckIn, undoCheckIn, CheckInCancelledError } from "@/lib/check-in";
 import { scannedEntryCodeCandidates } from "@/lib/barcode";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 
@@ -156,6 +156,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json(updatedRegistration);
     });
   } catch (error) {
+    if (error instanceof CheckInCancelledError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+    }
     apiLogger.error({ err: error, msg: "Error checking in registration" });
     return NextResponse.json(
       { error: "Failed to check in" },
@@ -336,6 +339,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
     return NextResponse.json(updatedRegistration);
     });
   } catch (error) {
+    if (error instanceof CheckInCancelledError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+    }
     apiLogger.error({ err: error, msg: "Error checking in by QR" });
     return NextResponse.json(
       { error: "Failed to check in" },

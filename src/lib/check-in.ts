@@ -298,6 +298,13 @@ export async function executeCheckIn(args: ExecuteCheckInArgs) {
       where: { id: args.registrationId },
       include,
     });
+    // Lost to a cancel, not to another check-in: the person was not admitted,
+    // so say so rather than return the row as if they were (review of
+    // a10e8058, L6).
+    if (existing.status === "CANCELLED") {
+      apiLogger.warn({ msg: "check-in:lost-to-cancel", eventId: args.eventId, registrationId: args.registrationId });
+      throw new CheckInCancelledError();
+    }
     apiLogger.info(
       { msg: "check-in:already-claimed-concurrent", eventId: args.eventId, registrationId: args.registrationId },
       "Concurrent check-in lost the claim; returning existing row",
@@ -436,4 +443,16 @@ export async function undoCheckIn(args: UndoCheckInArgs): Promise<UndoCheckInRes
   refreshEventStats(args.eventId);
 
   return { ok: true, registration };
+}
+
+/**
+ * The registration was cancelled between the door's gate and the check-in:
+ * nobody was admitted. Callers answer it as the gate's own CANCELLED refusal.
+ */
+export class CheckInCancelledError extends Error {
+  readonly code = "CANCELLED";
+  constructor() {
+    super("Cannot check in a cancelled registration");
+    this.name = "CheckInCancelledError";
+  }
 }

@@ -18,7 +18,7 @@ import {
   releaseSeats,
 } from "@/lib/registration-seat-db";
 import { syncToContact } from "@/lib/contact-sync";
-import { checkInGate, executeCheckIn } from "@/lib/check-in";
+import { checkInGate, executeCheckIn, CheckInCancelledError } from "@/lib/check-in";
 import { refreshEventStats } from "@/lib/event-stats";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
@@ -451,6 +451,9 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
     return { success: true, attendee: reg.attendee, checkedInAt: updated.checkedInAt };
     });
   } catch (err) {
+    if (err instanceof CheckInCancelledError) {
+      return { error: "This registration was cancelled just now; it was not checked in.", code: err.code };
+    }
     if (err instanceof Error && err.message === "CAPACITY_EXCEEDED") {
       apiLogger.warn({ msg: "agent:check-in-reactivate-capacity-exceeded", source: ctx.source });
       return {

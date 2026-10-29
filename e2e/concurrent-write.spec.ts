@@ -69,11 +69,10 @@ test.describe("optimistic locking on Registration", () => {
     expect(verifyBody.notes).toBe("concurrent-write spec — first edit");
   });
 
-  test("missing expectedUpdatedAt → legacy unconditional write succeeds", async ({ page }) => {
-    // During rollout the field is OPTIONAL; missing token falls back to
-    // the previous unconditional behaviour with a warn log so we can
-    // audit which clients haven't migrated. This pins that fallback —
-    // flipping it to "required" would silently break un-migrated callers.
+  test("missing expectedUpdatedAt → refused, nothing written (required since Oct 29, 2026)", async ({ page }) => {
+    // The rollout fallback (an unconditional write, warn-logged) is over:
+    // production logged no registration edit without the token in 90 days,
+    // and a missing token let an edit overwrite whatever landed since.
     await loginAs(page, "ADMIN");
 
     const listRes = await page.request.get(`/api/events/${EVENT_ID}/registrations`);
@@ -83,8 +82,12 @@ test.describe("optimistic locking on Registration", () => {
 
     const res = await page.request.put(`/api/events/${EVENT_ID}/registrations/${target.id}`, {
       headers: { Origin: new URL(page.url()).origin },
-      data: { notes: "legacy-path edit — no token" },
+      data: { notes: "no-token edit" },
     });
-    expect(res.status()).toBe(200);
+    expect(res.status()).toBe(400);
+    expect(((await res.json()) as { code: string }).code).toBe("EXPECTED_UPDATED_AT_REQUIRED");
+
+    const verify = await page.request.get(`/api/events/${EVENT_ID}/registrations/${target.id}`);
+    expect(((await verify.json()) as { notes: string | null }).notes).not.toBe("no-token edit");
   });
 });

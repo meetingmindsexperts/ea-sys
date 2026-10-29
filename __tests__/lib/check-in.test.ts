@@ -32,7 +32,7 @@ vi.mock("@/lib/registration-seat-db", () => ({
   applyRegistrationTransition: mockApplyTransition,
 }));
 
-import { checkInGate, executeCheckIn, isPaymentAdmissible, undoCheckIn } from "@/lib/check-in";
+import { CheckInCancelledError, checkInGate, executeCheckIn, isPaymentAdmissible, undoCheckIn } from "@/lib/check-in";
 
 const base = {
   status: "CONFIRMED",
@@ -337,6 +337,15 @@ describe("executeCheckIn", () => {
     expect(mockApplyTransition).not.toHaveBeenCalled();
     expect(mockDb.registration.updateMany.mock.calls[1][0].where).toMatchObject({ id: "reg1", checkedInAt: null, status: { not: "CANCELLED" } });
     expect(mockDb.auditLog.create).toHaveBeenCalled(); // a real check-in, audited once
+  });
+
+  it("a plain check-in that lost to a cancel refuses (CANCELLED) instead of returning the row as admitted (review of a10e8058)", async () => {
+    mockDb.registration.updateMany.mockResolvedValueOnce({ count: 0 });
+    mockDb.registration.findUniqueOrThrow.mockResolvedValueOnce({ ...UPDATED, status: "CANCELLED", checkedInAt: null });
+    await expect(
+      executeCheckIn({ eventId: "ev1", registrationId: "reg1", actorUserId: "u1", attendeeName: "A B", source: "rest" }),
+    ).rejects.toBeInstanceOf(CheckInCancelledError);
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
   });
 
   it("M7: a lost claim in the reactivation path does NOT run the seat/promo transition", async () => {

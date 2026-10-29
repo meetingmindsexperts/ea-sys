@@ -8,6 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { runWithTenant } from "@/lib/tenant-context";
 import { computeTagDelta, syncRegistrationTagsToSpeakers, type RegistrationTagChange } from "@/lib/person-tag-sync";
+import { touchRegistrationsOfAttendees } from "@/lib/registration-touch";
 
 const bulkTagsSchema = z.object({
   registrationIds: z.array(z.string()).min(1),
@@ -101,6 +102,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
           }),
         );
       }
+      // Staff screens open on these rows must see the new tags, not revert them.
+      await touchRegistrationsOfAttendees(tx, updates.map((u) => u.attendeeId));
       return rows;
     });
 
