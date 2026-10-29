@@ -1,0 +1,300 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
+import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
+import { requirePermission } from "@/lib/permissions/require-permission";
+import { getClientIp, checkRateLimit } from "@/lib/security";
+import { rateLimited } from "@/lib/api-errors";
+import { runWithTenant } from "@/lib/tenant-context";
+import { checkInGate, executeCheckIn } from "@/lib/check-in";
+import { HTTP_STATUS_FOR_REGISTRATION_ERROR } from "@/lib/registration-error-status";
+import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import {
+  IDENTITY_EVIDENCE_SELECT,
+  hasInvalidExpiryDate,
+  missingIdentityEvidence,
+  readIdentityEvidencePolicy,
+} from "@/lib/identity-evidence";
+import { SUPPORTING_DOCUMENT_POLICY_SELECT, resolveSupportingDocument } from "@/lib/supporting-document";
+import { createRegistration } from "@/services/registration-service";
+import { MANUAL_PAYMENT_EVENT_SELECT, recordManualPayment } from "@/services/payment-service";
+
+/**
+ * POST /api/events/[eventId]/registrations/walk-in
+ *
+ * The onsite desk's one step for a walk-in (docs/ONSITE_DESK_PLAN.md §4):
+ * register, record the payment when paid, and check in, in one request so the
+ * desk is done in seconds. The badge prints from the page afterwards (the
+ * owner's choice: the browser's print dialog, no kiosk printing).
+ *
+ * Each step is the shared one: `createRegistration()`, `recordManualPayment()`
+ * with the documents deferred (the invoice, receipt and email arrive after the
+ * person has left; owner, Oct 28 2026), and `checkInGate()` + `executeCheckIn()`.
+ * A step that fails after the registration exists answers 200 with
+ * `registered: true` and the reason, so the desk finds the person in search
+ * and finishes there instead of registering them twice.
+ *
+ * Permissions: `registrations.create` and `registrations.checkin`, plus
+ * `payments.record` when paid, each judged on this event.
+ */
+
+// The fields the public form requires (owner, Oct 29 2026: a walk-in gives the
+// same details as someone who registered online, so the row is complete). The
+// type's own asks (member / student ID, a supporting document) are checked
+// below against the type, as the public route does.
+const required = (max: number) => z.string().trim().min(1).max(max);
+const optional = (max: number) => z.string().trim().max(max).optional();
+
+const walkInSchema = z
+  .object({
+    title: titleEnum.refine((v) => v !== undefined, "Title is required"),
+    role: attendeeRoleEnum,
+    firstName: required(100),
+    lastName: required(100),
+    email: z.string().trim().email().max(255),
+    additionalEmail: z.string().trim().email().max(255).optional().or(z.literal("")),
+    organization: required(255),
+    jobTitle: required(255),
+    phone: required(50),
+    city: required(255),
+    country: required(255),
+    specialty: required(255),
+    customSpecialty: optional(255),
+    associationName: optional(255),
+    memberId: optional(100),
+    studentId: optional(100),
+    studentIdExpiry: optional(30),
+    supportingDocumentUrl: optional(500),
+    supportingDocumentFilename: optional(255),
+    ticketTypeId: z.string().min(1),
+    pricingTierId: z.string().min(1).optional(),
+    payment: z.enum(["complimentary", "cash", "card"]),
+    cardLast4: z.string().regex(/^\d{4}$/).optional(),
+    cardBrand: z.string().trim().max(50).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.specialty === "Others" && !data.customSpecialty) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customSpecialty"], message: "Please specify the specialty" });
+    }
+    if (data.payment === "card" && !data.cardLast4) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cardLast4"], message: "Last 4 digits of the card are required" });
+    }
+  });
+
+interface RouteParams {
+  params: Promise<{ eventId: string }>;
+}
+
+const ROUTE = "events/[eventId]/registrations/walk-in:POST";
+
+export async function POST(req: Request, { params }: RouteParams) {
+  try {
+    const [{ eventId }, session, raw] = await Promise.all([params, auth(), req.json().catch(() => null)]);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const orgGuard = requireOrgId(session, { route: ROUTE, eventId });
+    if ("error" in orgGuard) return orgGuard.error;
+
+    const createGate = requirePermission(session, "registrations.create", { route: ROUTE, eventId });
+    if (!createGate.ok) return createGate.response;
+    const checkInPermission = requirePermission(session, "registrations.checkin", { route: ROUTE, eventId });
+    if (!checkInPermission.ok) return checkInPermission.response;
+
+    const parsed = walkInSchema.safeParse(raw);
+    if (!parsed.success) {
+      apiLogger.warn({ msg: "walk-in:zod-validation-failed", eventId, userId: session.user.id, errors: parsed.error.flatten() });
+      return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
+    }
+    const data = parsed.data;
+    const paid = data.payment !== "complimentary";
+
+    if (paid) {
+      const paymentPermission = requirePermission(session, "payments.record", { route: ROUTE, eventId });
+      if (!paymentPermission.ok) return paymentPermission.response;
+    }
+
+    // Well above any real desk pace (a walk-in takes ~30 s); stops a stuck
+    // client or a script from minting registrations without bound.
+    const rateLimit = checkRateLimit({ key: `walk-in:${session.user.id}`, limit: 300, windowMs: 60 * 60 * 1000 });
+    if (!rateLimit.allowed) {
+      return rateLimited(rateLimit, { route: ROUTE, userId: session.user.id, eventId, limit: 300, windowSeconds: 3600 });
+    }
+
+    return await runWithTenant(orgGuard.orgId, async () => {
+      const event = await db.event.findFirst({ where: createGate.eventWhere, select: MANUAL_PAYMENT_EVENT_SELECT });
+      if (!event) {
+        apiLogger.warn({ msg: "walk-in:event-not-found", eventId, userId: session.user.id });
+        return NextResponse.json({ error: "Event not found" }, { status: 404 });
+      }
+
+      const ticketType = await db.ticketType.findFirst({
+        where: { id: data.ticketTypeId, eventId },
+        select: {
+          price: true,
+          pricingTiers: { where: { id: data.pricingTierId ?? "" }, select: { price: true } },
+          ...IDENTITY_EVIDENCE_SELECT,
+          ...SUPPORTING_DOCUMENT_POLICY_SELECT,
+        },
+      });
+      if (!ticketType) {
+        apiLogger.warn({ msg: "walk-in:ticket-type-not-found", eventId, ticketTypeId: data.ticketTypeId, userId: session.user.id });
+        return NextResponse.json({ error: "Registration type not found", code: "TICKET_TYPE_NOT_FOUND" }, { status: 404 });
+      }
+      // A paid walk-in on a free rate would be created and then fail at the
+      // capture (ZERO_AMOUNT), leaving a half-done row; refuse it up front.
+      const ratePrice = Number(ticketType.pricingTiers[0]?.price ?? ticketType.price ?? 0);
+      if (paid && ratePrice === 0) {
+        apiLogger.warn({ msg: "walk-in:paid-on-free-rate", eventId, ticketTypeId: data.ticketTypeId, pricingTierId: data.pricingTierId ?? null, userId: session.user.id });
+        return NextResponse.json(
+          { error: "This rate is free. Choose a rate, or register them as complimentary.", code: "FREE_RATE" },
+          { status: 400 },
+        );
+      }
+      const missing = missingIdentityEvidence(readIdentityEvidencePolicy(ticketType), data);
+      if (missing.length > 0 || hasInvalidExpiryDate(data)) {
+        apiLogger.warn({ msg: "walk-in:identity-evidence-missing", eventId, missing, userId: session.user.id });
+        const error = missing.length > 0 ? `Required for this type: ${missing.join(", ")}` : "The student ID expiry is not a valid date";
+        return NextResponse.json({ error, code: "IDENTITY_EVIDENCE_REQUIRED" }, { status: 400 });
+      }
+      const document = resolveSupportingDocument(ticketType, eventId, data.supportingDocumentUrl, data.supportingDocumentFilename);
+      if (document.dropped) {
+        apiLogger.warn({ msg: "walk-in:supporting-document-dropped", eventId, reason: document.dropped, userId: session.user.id });
+      }
+      if (document.missingRequired) {
+        apiLogger.warn({ msg: "walk-in:supporting-document-missing", eventId, userId: session.user.id });
+        return NextResponse.json(
+          { error: `${ticketType.documentLabel || "A supporting document"} is required for this type`, code: "SUPPORTING_DOCUMENT_REQUIRED" },
+          { status: 400 },
+        );
+      }
+
+      const created = await createRegistration({
+        eventId,
+        organizationId: orgGuard.orgId,
+        userId: session.user.id,
+        ticketTypeId: data.ticketTypeId,
+        pricingTierId: data.pricingTierId ?? null,
+        attendee: {
+          title: data.title ?? null,
+          role: data.role,
+          email: data.email,
+          additionalEmail: data.additionalEmail || null,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          organization: data.organization,
+          jobTitle: data.jobTitle,
+          phone: data.phone,
+          city: data.city,
+          country: data.country,
+          specialty: data.specialty,
+          customSpecialty: data.customSpecialty || null,
+          associationName: data.associationName || null,
+          memberId: data.memberId || null,
+          studentId: data.studentId || null,
+          studentIdExpiry: data.studentIdExpiry || null,
+        },
+        detailsComplete: true,
+        supportingDocument: document.url ? { url: document.url, filename: document.filename } : null,
+        // Paid: UNASSIGNED until the capture below flips it to PAID.
+        paymentStatus: paid ? undefined : "COMPLIMENTARY",
+        // On event day the public sales window has usually closed; the desk is
+        // staff. Sold-out and the event cap still apply; the service logs it.
+        overrideSalesWindow: true,
+        // The payment email (invoice + receipt) follows the capture, so the
+        // "please pay" confirmation would contradict it a minute later.
+        suppressConfirmationEmail: paid,
+        source: "rest",
+        requestIp: getClientIp(req),
+        actorFirstName: session.user.firstName ?? null,
+      });
+      if (!created.ok) {
+        const status = HTTP_STATUS_FOR_REGISTRATION_ERROR[created.code] ?? 500;
+        const log = { msg: "walk-in:create-rejected", eventId, userId: session.user.id, code: created.code, status };
+        if (created.code === "UNKNOWN") apiLogger.error(log);
+        else apiLogger.warn(log);
+        return NextResponse.json({ error: created.message, code: created.code, ...(created.meta ?? {}) }, { status });
+      }
+
+      const registration = created.registration;
+      const name = `${registration.attendee.firstName} ${registration.attendee.lastName}`;
+      const summary = {
+        registered: true,
+        registrationId: registration.id,
+        serialId: registration.serialId,
+        name,
+        ticketTypeName: registration.ticketType?.name ?? null,
+        dtcm: created.dtcm,
+      };
+
+      if (paid) {
+        const payment = await recordManualPayment({
+          event,
+          registrationId: registration.id,
+          method: data.payment === "card" ? "card_onsite" : "cash",
+          cardLast4: data.cardLast4,
+          cardBrand: data.cardBrand,
+          cashReceivedBy: data.payment === "cash" ? deskOperatorName(session.user) : undefined,
+          recordedByUserId: session.user.id,
+          requestIp: getClientIp(req),
+          deferDocuments: true,
+          source: "rest",
+        });
+        if (!payment.ok) {
+          apiLogger.warn({ msg: "walk-in:payment-not-recorded", eventId, registrationId: registration.id, code: payment.code });
+          return NextResponse.json({ ...summary, checkedIn: false, step: "payment", code: payment.code, error: payment.message });
+        }
+      }
+
+      const fresh = await db.registration.findFirst({
+        where: { id: registration.id, eventId },
+        select: {
+          status: true,
+          paymentStatus: true,
+          checkedInAt: true,
+          originalPrice: true,
+          ticketType: { select: { price: true } },
+          pricingTier: { select: { price: true } },
+        },
+      });
+      const denial = fresh
+        ? checkInGate({
+            status: fresh.status,
+            paymentStatus: fresh.paymentStatus,
+            checkedInAt: fresh.checkedInAt,
+            ticketTypePrice: fresh.ticketType?.price,
+            pricingTierPrice: fresh.pricingTier?.price,
+            originalPrice: fresh.originalPrice,
+          })
+        : { code: "NOT_FOUND", message: "Registration not found" };
+      if (denial) {
+        apiLogger.warn({ msg: "walk-in:check-in-refused", eventId, registrationId: registration.id, code: denial.code });
+        return NextResponse.json({ ...summary, checkedIn: false, step: "check-in", code: denial.code, error: denial.message });
+      }
+
+      await executeCheckIn({
+        eventId,
+        registrationId: registration.id,
+        actorUserId: session.user.id,
+        attendeeName: name,
+        source: "rest",
+        auditExtras: { ip: getClientIp(req), deskWalkIn: true },
+      });
+
+      apiLogger.info({ msg: "walk-in:done", eventId, registrationId: registration.id, payment: data.payment, userId: session.user.id });
+      return NextResponse.json({ ...summary, checkedIn: true }, { status: 201 });
+    });
+  } catch (error) {
+    apiLogger.error({ err: error, msg: "walk-in:unexpected-error" });
+    return NextResponse.json({ error: "Failed to register the walk-in" }, { status: 500 });
+  }
+}
+
+/** Who took the cash, for the receipt's "received by" line. */
+function deskOperatorName(user: { firstName?: string | null; lastName?: string | null; email?: string | null }): string {
+  const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  return name || user.email || "Registration desk";
+}

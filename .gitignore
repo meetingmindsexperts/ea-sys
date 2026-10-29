@@ -90,6 +90,8 @@ playwright-report/
 # Playwright local-verification scratch screenshots (not in repo)
 cert-*.png
 .playwright-mcp/
+# Every screenshot taken while building or verifying, kept for reference (owner, Oct 29 2026)
+screenshots/
 
 # pdfjs-dist worker — copied into public/pdfjs/ by scripts/copy-pdfjs-worker.mjs
 # (runs from postinstall). Don't commit the binary; it's regenerated on every

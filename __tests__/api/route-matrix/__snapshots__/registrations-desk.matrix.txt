@@ -230,6 +230,44 @@ DELETE registrations/[registrationId]/check-in
   API_KEY     401         401         401         401
   NONE        401         401         401         401
 
+POST registrations/walk-in (complimentary)
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 404 r       404 r       404 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       404 r       404 r       404 r       404
+  ORGANIZER   404 r       404 r       404 r       404
+  MEMBER      404 r       404 r       404 r       404
+  ONSITE      404         404 r       404         404
+  WEBINARS    404 r       404 r       404 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+POST registrations/walk-in (cash)
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 404 r       404 r       404 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       404 r       404 r       404 r       404
+  ORGANIZER   404 r       404 r       404 r       404
+  MEMBER      404 r       404 r       404 r       404
+  ONSITE      404         404 r       404         404
+  WEBINARS    404 r       404 r       404 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
 POST registrations/[registrationId]/payments
   caller      conf        assigned    webinar     foreign
   SUPER_ADMIN 404 r       404 r       404 r       404

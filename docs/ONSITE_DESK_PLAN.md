@@ -104,6 +104,33 @@ On the Check-In page, a second tab beside the scanner: **Desk**.
   assigned events, organisers everywhere).
 - The unused `add-registration-dialog.tsx` is removed.
 
+As built (Oct 29, 2026):
+
+- The capture moved out of the payments route into `recordManualPayment()` in
+  `src/services/payment-service.ts`; the route and the walk-in both call it.
+  `deferDocuments` issues the invoice, receipt and email after returning.
+- The route is `POST /api/events/[eventId]/registrations/walk-in`. It passes
+  `overrideSalesWindow` (the public window has usually closed on the day; sold
+  out and the event cap still apply) and, when paid, suppresses the "please
+  pay" confirmation, because the payment email follows. A step that fails
+  after the registration exists answers 200 with `registered: true` and the
+  reason, so the desk finishes from search instead of registering twice.
+- The walk-in form asks for every field the public form requires (owner,
+  Oct 29, 2026: title, name, email, position, organisation, mobile, country,
+  city, specialty, role; the type's member or student ID; its supporting
+  document, uploaded through the public form's route), and the route enforces
+  the same rules, so a walk-in is "Form completed" from the start
+  (`detailsComplete` on `createRegistration()`). Terms and a password are not
+  asked at the desk. This costs the desk time against the 30 to 40 second target;
+  the owner chose complete details over speed.
+- The desk picks a rate when the type has tiers (default: the one on sale now,
+  else the last), because the usual shape is a type at 0 with the price on the
+  tier, and without one a paid walk-in would be free.
+- For someone already registered, "Check in & print" asks the door's own gate;
+  when payment is due it opens Record payment (cash / card) in the row, then
+  checks in and prints. "Complete onsite" for a not-completed row is step 3;
+  until then the row shows "Form not completed" and can still be checked in.
+
 ## 5. Step 3: Complete onsite
 
 ### 5.1 At the desk
@@ -164,6 +191,6 @@ that clears itself after a few seconds. The tablet needs no staff login.
 Three steps, each built, tested, adversarially reviewed and committed on its
 own, with the touched screens shown before it is pushed:
 
-1. Foundation (§3), about a day.
-2. Walk-in panel (§4), about two days.
+1. Foundation (§3), about a day. BUILT Oct 28, 2026 (`154fba99`, fixes `de3d371c`).
+2. Walk-in panel (§4), about two days. BUILT Oct 29, 2026.
 3. Complete onsite (§5), about two days.

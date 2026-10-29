@@ -38,30 +38,8 @@ import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { getSponsorNameMap } from "@/lib/sponsors";
 import { parseSerialQuery } from "@/lib/registration-search";
 import { completionWhereFor } from "@/lib/registration-completion";
-import {
-  createRegistration,
-  type CreateRegistrationErrorCode,
-} from "@/services/registration-service";
-
-// HTTP status mapping for the service's domain error codes. Compile-time
-// exhaustive via `Record<CreateRegistrationErrorCode, number>`.
-const HTTP_STATUS_FOR_REGISTRATION_ERROR: Record<CreateRegistrationErrorCode, number> = {
-  EVENT_NOT_FOUND: 404,
-  TICKET_TYPE_NOT_FOUND: 404,
-  TICKET_TYPE_IS_FACULTY: 400,
-  SALES_NOT_STARTED: 400,
-  SALES_ENDED: 400,
-  SOLD_OUT: 400,
-  EVENT_FULL: 400,
-  PRICING_TIER_NOT_FOUND: 404,
-  ALREADY_REGISTERED: 400,
-  INVALID_PAYMENT_STATUS: 400,
-  INCLUSIVE_REQUIRES_SPONSOR: 400,
-  SPONSOR_NOT_FOUND: 400,
-  BILLING_ACCOUNT_NOT_FOUND: 404,
-  BILLING_ACCOUNT_INACTIVE: 400,
-  UNKNOWN: 500,
-};
+import { createRegistration } from "@/services/registration-service";
+import { HTTP_STATUS_FOR_REGISTRATION_ERROR } from "@/lib/registration-error-status";
 
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);

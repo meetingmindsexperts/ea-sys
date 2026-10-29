@@ -4,7 +4,7 @@ import { getStripe, toStripeAmount } from "@/lib/stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
-import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError } from "@/lib/invoice-service";
+import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError, issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
 import { applyRegistrationTransition } from "@/lib/registration-seat-db";
 import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
@@ -13,7 +13,7 @@ import { findStripeRefundForAttempt } from "@/lib/refund-reconciliation";
 
 /**
  * Payment service — the domain home for money movement on a registration:
- * refunds (full/partial), and (later) manual capture + cancellation orchestration.
+ * refunds (full/partial), manual capture, and cancellation orchestration.
  *
  * Errors-as-values (see src/services/README.md). The service owns the money
  * logic + all downstream side effects (Payment flip, event stats, admin
@@ -859,5 +859,421 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
   } catch (err) {
     apiLogger.error({ err, msg: "cancelRegistration:unknown-failure", registrationId, eventId });
     return { ok: false, code: "UNKNOWN", message: "Failed to cancel the registration" };
+  }
+}
+
+// ── recordManualPayment ──────────────────────────────────────────────────────
+
+/** The event columns the capture needs; callers load the event through their own access filter. */
+export const MANUAL_PAYMENT_EVENT_SELECT = {
+  id: true,
+  organizationId: true,
+  taxRate: true,
+  taxLabel: true,
+} as const;
+
+export type ManualPaymentMethod = "bank_transfer" | "card_onsite" | "cash";
+
+export interface RecordManualPaymentInput {
+  event: { id: string; organizationId: string; taxRate: unknown; taxLabel: string | null };
+  registrationId: string;
+  method: ManualPaymentMethod;
+  /** Omit for the full amount owed (tax-inclusive, discount-applied). */
+  amount?: number;
+  currency?: string;
+  paidAt?: string;
+  bankReference?: string;
+  proofUrl?: string;
+  cardBrand?: string;
+  cardLast4?: string;
+  cashReceivedBy?: string;
+  notes?: string;
+  recordedByUserId: string;
+  requestIp?: string;
+  /**
+   * Issue the invoice, receipt and payment email after returning instead of
+   * before (the onsite desk, docs/ONSITE_DESK_PLAN.md §4: the person is standing
+   * there and the documents may arrive later). A failure is logged at error and
+   * the invoice-reconciliation worker retries, the same as the awaited path.
+   */
+  deferDocuments?: boolean;
+  source: PaymentSource;
+}
+
+export type RecordManualPaymentErrorCode =
+  | "REGISTRATION_NOT_FOUND"
+  | "ALREADY_PAID"
+  | "ZERO_AMOUNT"
+  | "INVALID_PAID_AT"
+  | "LOST_RACE"
+  | "UNKNOWN";
+
+export interface ManualPaymentSummary {
+  payment: {
+    id: string;
+    amount: number;
+    currency: string;
+    method: string | null;
+    paidAt: Date | null;
+    cardBrand: string | null;
+    cardLast4: string | null;
+    receiptUrl: string | null;
+    metadata: unknown;
+  };
+  invoiceId: string | null;
+  fullyPaid: boolean;
+  capturedTotal: number;
+  totalDue: number;
+}
+
+export type RecordManualPaymentResult =
+  | { ok: true; summary: ManualPaymentSummary }
+  | { ok: false; code: RecordManualPaymentErrorCode; message: string };
+
+/**
+ * Record an offline payment (bank transfer, card on a desk terminal, cash) for
+ * a registration. Moved out of the payments route so the onsite desk walk-in
+ * runs the same capture (docs/ONSITE_DESK_PLAN.md §4).
+ *
+ *   1. Insert a `Payment` row with `status: "PAID"` + the captured
+ *      method-specific fields. `stripePaymentId` is left null.
+ *   2. Flip `registration.paymentStatus` to `"PAID"` ONLY when the captured
+ *      total (this capture + prior settled payments, same currency) covers
+ *      the computed amount owed. A PARTIAL capture records the Payment row
+ *      and leaves the registration unpaid (review H7, July 10 2026).
+ *   3. When (and only when) the registration becomes fully paid:
+ *      `issuePaidRegistrationDocuments(...)`, the SAME post-payment fan-out
+ *      the Stripe webhook and the reconciliation worker use (review M11).
+ *   4. Audit log (`MANUAL_PAYMENT_RECORDED`, flags amount/currency divergence
+ *      from the computed total) + admin notification.
+ *
+ * Refuses (ALREADY_PAID) when the registration is already PAID with a Payment
+ * row: refund first, then re-record. Must run inside the event's tenant.
+ */
+export async function recordManualPayment(input: RecordManualPaymentInput): Promise<RecordManualPaymentResult> {
+  const { event, registrationId, method, recordedByUserId } = input;
+  const eventId = event.id;
+
+  try {
+    const registration = await db.registration.findFirst({
+      where: { id: registrationId, eventId },
+      select: {
+        id: true,
+        paymentStatus: true,
+        originalPrice: true,
+        discountAmount: true,
+        ticketType: { select: { price: true, currency: true } },
+        pricingTier: { select: { price: true, currency: true } },
+        attendee: { select: { firstName: true, lastName: true, email: true } },
+        // We only block the 409 when there's actually a Payment row to
+        // duplicate. Admin-flipped-without-recording is a real recovery
+        // case (status PAID but no Payment row yet), let it through.
+        _count: { select: { payments: true } },
+        // Prior settled money, a partial capture accumulates toward the
+        // computed total; PAID flips only when it's covered (review H7).
+        payments: {
+          where: { status: { in: ["PAID", "REFUNDED"] } },
+          select: { amount: true, currency: true },
+        },
+      },
+    });
+    if (!registration) {
+      apiLogger.warn({ msg: "manual-payment:registration-not-found", eventId, registrationId, userId: recordedByUserId });
+      return { ok: false, code: "REGISTRATION_NOT_FOUND", message: "Registration not found" };
+    }
+
+    // Reject only when there's already a Payment row recorded, that's
+    // the duplicate case we actually need to prevent. PAID-but-no-Payment
+    // (admin hand-flipped the dropdown earlier) IS the case organizers
+    // want to recover via this endpoint, so let it through.
+    if (registration.paymentStatus === "PAID" && registration._count.payments > 0) {
+      apiLogger.warn({
+        msg: "manual-payment:already-paid-with-payment-row",
+        eventId,
+        registrationId,
+        existingPaymentCount: registration._count.payments,
+        userId: recordedByUserId,
+      });
+      return {
+        ok: false,
+        code: "ALREADY_PAID",
+        message: "Registration is already marked as paid and has a payment record. Refund first if you need to re-record.",
+      };
+    }
+
+    // Default to the FULL amount owed, tax-inclusive, discount-applied, i.e.
+    // the total the attendee actually pays onsite, NOT the bare pre-tax ticket
+    // price. Mirrors the detail-sheet Payment Summary + the generated invoice so
+    // a no-amount capture tallies the tax instead of under-recording it.
+    // Pricing-tier currency wins over ticket-type currency, as elsewhere.
+    const fallbackCurrency = (registration.pricingTier?.currency ?? registration.ticketType?.currency ?? "USD").toUpperCase();
+    const fin = computeRegistrationFinancials({
+      subtotal: readRegistrationBasePrice(registration),
+      discount: registration.discountAmount ? Number(registration.discountAmount) : 0,
+      taxRate: event.taxRate ? Number(event.taxRate) : null,
+      taxLabel: event.taxLabel,
+      currency: fallbackCurrency,
+      totalPaid: 0,
+    });
+
+    const amount = input.amount ?? fin.total;
+    const currency = (input.currency ?? fallbackCurrency).toUpperCase();
+
+    // ── Truthfulness guards (review H7) ─────────────────────────────────
+    // The amount + currency are operator-supplied. We accept them (real desks
+    // take partial deposits and odd amounts), but the CONSEQUENCES are
+    // honest: PAID + documents only when the captured total actually covers
+    // the amount owed, and any divergence is logged + audited.
+    const currencyMismatch = currency !== fallbackCurrency;
+    const amountDivergent = input.amount !== undefined && Math.abs(amount - fin.total) > 0.005;
+    if (currencyMismatch || amountDivergent) {
+      apiLogger.warn({
+        msg: "manual-payment:capture-diverges-from-computed-total",
+        eventId,
+        registrationId,
+        amount,
+        currency,
+        computedTotal: fin.total,
+        computedCurrency: fallbackCurrency,
+        userId: recordedByUserId,
+      });
+    }
+    // Prior settled money in the SAME currency. A foreign-currency capture
+    // can't be compared to the computed total, so it never counts toward
+    // "fully paid", the operator settles those by hand.
+    const priorCaptured = round2(
+      registration.payments
+        .filter((p) => p.currency.toUpperCase() === fallbackCurrency)
+        .reduce((s, p) => s + Number(p.amount), 0),
+    );
+    const capturedAfter = round2(priorCaptured + (currencyMismatch ? 0 : amount));
+    const coversTotal = !currencyMismatch && capturedAfter >= fin.total - 0.005;
+
+    if (amount <= 0) {
+      apiLogger.warn({ msg: "manual-payment:zero-amount", eventId, registrationId, amount });
+      return {
+        ok: false,
+        code: "ZERO_AMOUNT",
+        message: "Amount must be greater than zero. For complimentary registrations, set Payment Status to COMPLIMENTARY instead.",
+      };
+    }
+
+    const paidAtDate = input.paidAt ? new Date(input.paidAt) : new Date();
+    if (Number.isNaN(paidAtDate.getTime())) {
+      apiLogger.warn({ msg: "manual-payment:invalid-paidAt", eventId, registrationId });
+      return { ok: false, code: "INVALID_PAID_AT", message: "Invalid paidAt date" };
+    }
+
+    // Method-specific metadata captured into Payment.metadata so the
+    // detail sheet's Billing panel can render reconciliation context
+    // without schema bloat.
+    const metadata = {
+      recordedManually: true,
+      recordedByUserId,
+      recordedAt: new Date().toISOString(),
+      method,
+      ...(input.bankReference ? { bankReference: input.bankReference } : {}),
+      ...(input.cashReceivedBy ? { cashReceivedBy: input.cashReceivedBy } : {}),
+      ...(input.notes ? { notes: input.notes } : {}),
+    };
+
+    // Atomic transaction: flip registration status (only when the captured
+    // total covers the amount owed) + insert the Payment row. Three cases:
+    //   - not yet PAID + capture covers the total: claim with the
+    //     `paymentStatus != PAID` predicate (defends a concurrent flip).
+    //   - not yet PAID + PARTIAL capture: record the Payment row ONLY.
+    //   - status === PAID (admin previously hand-flipped + we already
+    //     verified above that no Payment row exists): skip the update
+    //     entirely, just insert the recovery Payment row.
+    const wasAlreadyPaid = registration.paymentStatus === "PAID";
+    let payment;
+    try {
+      payment = await tenantTransaction(async (tx) => {
+        if (!wasAlreadyPaid && coversTotal) {
+          const claim = await tx.registration.updateMany({
+            where: { id: registrationId, paymentStatus: { not: "PAID" } },
+            data: { paymentStatus: "PAID" },
+          });
+          if (claim.count === 0) throw new ManualPaymentRaceError();
+        } else if (wasAlreadyPaid) {
+          // Recovery path (L4, July 10 review): serialize concurrent recovery
+          // clicks with a row lock on the registration BEFORE the count:
+          // without it two simultaneous recoveries both count 0 and both
+          // insert, double-recording the payment.
+          await tx.$queryRaw`SELECT id FROM "Registration" WHERE id = ${registrationId} FOR UPDATE`;
+          const existing = await tx.payment.count({ where: { registrationId } });
+          if (existing > 0) throw new ManualPaymentRaceError();
+        }
+
+        return tx.payment.create({
+          data: {
+            organizationId: event.organizationId,
+            registrationId,
+            amount,
+            currency,
+            status: "PAID",
+            paymentMethodType: method,
+            paidAt: paidAtDate,
+            // For card_onsite the organizer types last4 + brand directly.
+            cardBrand: method === "card_onsite" ? input.cardBrand ?? null : null,
+            cardLast4: method === "card_onsite" ? input.cardLast4 ?? null : null,
+            // `receiptUrl` holds the proof artifact for a manual transfer.
+            receiptUrl: method === "bank_transfer" ? input.proofUrl ?? null : null,
+            metadata,
+          },
+        });
+      });
+    } catch (err) {
+      if (!(err instanceof ManualPaymentRaceError)) throw err;
+      apiLogger.warn({ msg: "manual-payment:race-already-paid", eventId, registrationId });
+      return { ok: false, code: "LOST_RACE", message: "Registration was paid by another action just now. Refresh and re-check." };
+    }
+
+    const fullyPaidNow = coversTotal || wasAlreadyPaid;
+    apiLogger.info({
+      msg: "manual-payment:recorded",
+      eventId,
+      registrationId,
+      paymentId: payment.id,
+      method,
+      amount,
+      currency,
+      computedTotal: fin.total,
+      capturedTotal: capturedAfter,
+      fullyPaid: fullyPaidNow,
+      partial: !fullyPaidNow,
+      userId: recordedByUserId,
+      source: input.source,
+    });
+
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: recordedByUserId,
+          action: "MANUAL_PAYMENT_RECORDED",
+          entityType: "Registration",
+          entityId: registrationId,
+          changes: {
+            source: input.source,
+            method,
+            amount,
+            currency,
+            paymentId: payment.id,
+            computedTotal: fin.total,
+            capturedTotal: capturedAfter,
+            partial: !fullyPaidNow,
+            ...(amountDivergent ? { amountDivergent: true } : {}),
+            ...(currencyMismatch ? { currencyMismatch: true, computedCurrency: fallbackCurrency } : {}),
+            ...(input.requestIp ? { ip: input.requestIp } : {}),
+          },
+        },
+      })
+      .catch((err) => apiLogger.warn({ err, msg: "manual-payment:audit-write-failed", paymentId: payment.id }));
+
+    refreshEventStats(eventId);
+
+    notifyEventAdmins(eventId, {
+      type: "PAYMENT",
+      title: fullyPaidNow ? "Manual Payment Recorded" : "Partial Payment Recorded",
+      message: `${registration.attendee.firstName} ${registration.attendee.lastName}, ${method.replace("_", " ")}, ${currency} ${amount.toFixed(2)}${fullyPaidNow ? "" : ` (partial: ${fallbackCurrency} ${capturedAfter.toFixed(2)} of ${fallbackCurrency} ${fin.total.toFixed(2)} captured, registration stays unpaid)`}`,
+      link: `/events/${eventId}/registrations`,
+    }).catch((err) => apiLogger.warn({ err, msg: "manual-payment:notification-failed", paymentId: payment.id }));
+
+    // Post-payment documents ONLY when the registration is fully paid, the
+    // PAID invoice + receipt assert the FULL computed total (review H7).
+    let invoiceId: string | null = null;
+    if (fullyPaidNow) {
+      const documents = issueManualPaymentDocuments(input, payment, paidAtDate);
+      if (input.deferDocuments) {
+        void documents;
+      } else {
+        invoiceId = await documents;
+      }
+    }
+
+    return {
+      ok: true,
+      summary: {
+        payment: {
+          id: payment.id,
+          amount: Number(payment.amount),
+          currency: payment.currency,
+          method: payment.paymentMethodType,
+          paidAt: payment.paidAt,
+          cardBrand: payment.cardBrand,
+          cardLast4: payment.cardLast4,
+          receiptUrl: payment.receiptUrl,
+          metadata: payment.metadata,
+        },
+        invoiceId,
+        fullyPaid: fullyPaidNow,
+        capturedTotal: capturedAfter,
+        totalDue: fin.total,
+      },
+    };
+  } catch (err) {
+    apiLogger.error({
+      err,
+      msg: "manual-payment:unexpected-error",
+      eventId,
+      registrationId,
+      prismaCode: (err as { code?: string })?.code ?? null,
+    });
+    return { ok: false, code: "UNKNOWN", message: "Failed to record payment" };
+  }
+}
+
+/**
+ * The PAID invoice + receipt + payment email for a manual capture. Never
+ * throws: the Payment row and the PAID flip already landed, and the
+ * invoice-reconciliation worker retries the documents within ~10 minutes.
+ * Resolves to the invoice id, or null when it failed.
+ */
+async function issueManualPaymentDocuments(
+  input: RecordManualPaymentInput,
+  payment: { id: string; amount: unknown; currency: string },
+  paidAt: Date,
+): Promise<string | null> {
+  const { event, registrationId, method } = input;
+  const paymentReference =
+    input.bankReference ||
+    (method === "card_onsite" && input.cardLast4 ? `Card ending ${input.cardLast4}` : undefined) ||
+    (method === "cash" ? `Cash, received by ${input.cashReceivedBy ?? "organizer"}` : undefined);
+  try {
+    const { invoice } = await runWithTenant(event.organizationId, () =>
+      issuePaidRegistrationDocuments({
+        registrationId,
+        eventId: event.id,
+        organizationId: event.organizationId,
+        paymentId: payment.id,
+        paymentMethod: method,
+        paymentReference,
+        paidAt,
+        amount: Number(payment.amount),
+        currency: payment.currency,
+        receiptUrl: null,
+      }),
+    );
+    return invoice.id;
+  } catch (err) {
+    apiLogger.error({
+      err,
+      msg: "manual-payment:invoice-create-failed",
+      registrationId,
+      paymentId: payment.id,
+      deferred: input.deferDocuments === true,
+      prismaCode: (err as { code?: string })?.code ?? null,
+    });
+    return null;
+  }
+}
+
+// Typed sentinel so the transaction's concurrent-flip race maps to LOST_RACE
+// rather than UNKNOWN. Same pattern as `src/services/registration-service.ts`.
+class ManualPaymentRaceError extends Error {
+  constructor() {
+    super("Registration was already paid by a concurrent action");
+    this.name = "ManualPaymentRaceError";
   }
 }

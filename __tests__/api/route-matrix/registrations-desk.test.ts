@@ -11,6 +11,9 @@
  * byte unchanged except where a change is intended and reviewed. See
  * ./harness.ts for what a cell means.
  *
+ * Added Oct 29, 2026: the desk walk-in (docs/ONSITE_DESK_PLAN.md §4), recorded
+ * new rather than re-recorded.
+ *
  * Changes re-recorded on purpose (Oct 5, 2026):
  *  - the barcode image: WEBINARS reaches it on every event where it works the
  *    desk (`registrations.read`), as its printed badges already do (owner;
@@ -62,6 +65,7 @@ import {
   PUT as checkInPUT,
   DELETE as checkInDELETE,
 } from "@/app/api/events/[eventId]/registrations/[registrationId]/check-in/route";
+import { POST as walkInPOST } from "@/app/api/events/[eventId]/registrations/walk-in/route";
 import { POST as paymentPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/payments/route";
 import { POST as emailPOST, PATCH as emailPATCH } from "@/app/api/events/[eventId]/registrations/[registrationId]/email/route";
 import { POST as docsResendPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/documents/resend/route";
@@ -81,6 +85,20 @@ import { POST as shareRegenPOST } from "@/app/api/events/[eventId]/registration-
 import { GET as onsiteGET, POST as onsitePOST, DELETE as onsiteDELETE } from "@/app/api/events/[eventId]/onsite-staff/route";
 
 const reg = { registrationId: "r1" };
+const walkIn = {
+  title: "DR",
+  role: "PHYSICIAN",
+  firstName: "Walk",
+  lastName: "In",
+  email: "walkin@test.local",
+  organization: "Hospital",
+  jobTitle: "Consultant",
+  phone: "+971500000000",
+  city: "Dubai",
+  country: "United Arab Emirates",
+  specialty: "Hematology",
+  ticketTypeId: "tt1",
+};
 const view = { viewId: "rv1" };
 const shareBody = {
   label: "Sponsor list",
@@ -112,6 +130,18 @@ const CASES: HandlerCase[] = [
   { name: "POST registrations/[registrationId]/check-in", handler: checkInPOST, method: "POST", params: reg, body: {} },
   { name: "PUT registrations/[registrationId]/check-in", handler: checkInPUT, method: "PUT", params: reg, body: { qrCode: "Q1" } },
   { name: "DELETE registrations/[registrationId]/check-in", handler: checkInDELETE, method: "DELETE", params: reg },
+  {
+    name: "POST registrations/walk-in (complimentary)",
+    handler: walkInPOST,
+    method: "POST",
+    body: { ...walkIn, payment: "complimentary" },
+  },
+  {
+    name: "POST registrations/walk-in (cash)",
+    handler: walkInPOST,
+    method: "POST",
+    body: { ...walkIn, payment: "cash" },
+  },
   { name: "POST registrations/[registrationId]/payments", handler: paymentPOST, method: "POST", params: reg, body: { method: "cash", cashReceivedBy: "Desk" } },
   { name: "POST registrations/[registrationId]/email", handler: emailPOST, method: "POST", params: reg, body: { type: "confirmation" } },
   { name: "PATCH registrations/[registrationId]/email", handler: emailPATCH, method: "PATCH", params: reg, body: { newEmail: "moved@test.local" } },

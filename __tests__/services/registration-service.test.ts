@@ -244,6 +244,24 @@ describe("createRegistration — happy path", () => {
     expect(mockDb.registration.create.mock.calls[0][0].data.badgeType).toBe("Exhibitor");
   });
 
+  it("an organiser-created row starts not completed; detailsComplete stamps it (the desk walk-in, Oct 29 2026)", async () => {
+    await createRegistration(BASE_INPUT);
+    const plain = mockDb.registration.create.mock.calls[0][0].data;
+    expect(plain.completedAt).toBeNull();
+    expect(plain).not.toHaveProperty("supportingDocumentUrl");
+
+    mockDb.registration.create.mockClear();
+    await createRegistration({
+      ...BASE_INPUT,
+      detailsComplete: true,
+      supportingDocument: { url: "/uploads/resident-letters/evt-1/a.pdf", filename: "a.pdf" },
+    });
+    const desk = mockDb.registration.create.mock.calls[0][0].data;
+    expect(desk.completedAt).toBeInstanceOf(Date);
+    expect(desk.supportingDocumentUrl).toBe("/uploads/resident-letters/evt-1/a.pdf");
+    expect(desk.supportingDocumentFilename).toBe("a.pdf");
+  });
+
   it("any other type leaves the badge type unset", async () => {
     await createRegistration(BASE_INPUT);
     expect(mockDb.registration.create.mock.calls[0][0].data).not.toHaveProperty("badgeType");

@@ -3,8 +3,9 @@ import type { Prisma, RegistrationCreatedSource } from "@prisma/client";
 /**
  * Whether a registration's own details are complete (docs/ONSITE_DESK_PLAN.md §3.1). The person
  * filled them in on a self-service path, so those rows are complete when created; rows an organiser
- * or a tool created with partial details (dashboard, CSV, EventsAir, contacts import, the agent, a desk
- * walk-in) stay incomplete until the completion form is submitted.
+ * or a tool created with partial details (dashboard, CSV, EventsAir, contacts import, the agent) stay
+ * incomplete until the completion form is submitted. The desk walk-in collects every field the public
+ * form requires, so it passes `detailsComplete` to `createRegistration()` instead.
  */
 const COMPLETE_ON_CREATE: ReadonlySet<RegistrationCreatedSource> = new Set<RegistrationCreatedSource>([
   "PUBLIC_REGISTER",

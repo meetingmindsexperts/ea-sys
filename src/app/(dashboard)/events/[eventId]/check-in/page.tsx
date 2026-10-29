@@ -20,6 +20,7 @@ import {
   Volume2,
   VolumeX,
   MonitorCheck,
+  UserPlus,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEvent, useRegistrations, queryKeys } from "@/hooks/use-api";
@@ -37,6 +38,8 @@ import {
 import { toast } from "sonner";
 
 // Lazy-load camera scanner (heavy library)
+const DeskPanel = dynamic(() => import("./desk-panel").then((m) => m.DeskPanel), { ssr: false });
+
 const CameraScanner = dynamic(() => import("./camera-scanner"), {
   ssr: false,
   loading: () => (
@@ -76,7 +79,7 @@ export default function CheckInPage() {
   const { data: event } = useEvent(eventId);
   const { data: registrations = [] } = useRegistrations(eventId);
 
-  const [mode, setMode] = useState<"camera" | "manual">("manual");
+  const [mode, setMode] = useState<"camera" | "manual" | "desk">("manual");
   const [manualInput, setManualInput] = useState("");
   const [kioskDialogOpen, setKioskDialogOpen] = useState(false);
   const [kioskPin, setKioskPin] = useState("");
@@ -314,12 +317,23 @@ export default function CheckInPage() {
             <Keyboard className="h-4 w-4" />
             Scanner / Manual
           </button>
+          <button
+            onClick={() => setMode("desk")}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-colors ${
+              mode === "desk"
+                ? "bg-primary text-white"
+                : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <UserPlus className="h-4 w-4" />
+            Desk
+          </button>
         </div>
 
         {/* Scanner Area */}
-        {mode === "camera" ? (
-          <CameraScanner onScan={handleCheckIn} />
-        ) : (
+        {mode === "desk" && event && <DeskPanel eventId={eventId} eventSlug={event.slug} registrations={registrations} />}
+        {mode === "camera" && <CameraScanner onScan={handleCheckIn} />}
+        {mode === "manual" && (
           <Card>
             <CardContent className="p-4">
               <form onSubmit={handleManualSubmit} className="flex gap-2">

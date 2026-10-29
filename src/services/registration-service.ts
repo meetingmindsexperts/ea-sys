@@ -393,6 +393,19 @@ export interface CreateRegistrationInput {
    */
   createdSource?: RegistrationCreatedSource;
 
+  /**
+   * The caller collected every field the public form requires, so the row is
+   * complete on create whatever its source (the onsite desk walk-in,
+   * docs/ONSITE_DESK_PLAN.md §4). Otherwise `completedAtOnCreate` decides.
+   */
+  detailsComplete?: boolean;
+
+  /**
+   * A supporting document already uploaded and checked by the caller with
+   * `resolveSupportingDocument()` (the type's policy and the event's folder).
+   */
+  supportingDocument?: { url: string; filename: string | null } | null;
+
   /** Caller identity — written into `AuditLog.changes.source`. */
   source: "rest" | "mcp" | "agent" | "api";
 
@@ -910,7 +923,11 @@ export async function createRegistration(
           attendeeId: attendeeRecord.id,
           serialId,
           createdSource,
-          completedAt: completedAtOnCreate(createdSource),
+          completedAt: input.detailsComplete ? new Date() : completedAtOnCreate(createdSource),
+          ...(input.supportingDocument && {
+            supportingDocumentUrl: input.supportingDocument.url,
+            supportingDocumentFilename: input.supportingDocument.filename,
+          }),
           status: finalStatus,
           paymentStatus: finalPaymentStatus,
           attendanceMode,

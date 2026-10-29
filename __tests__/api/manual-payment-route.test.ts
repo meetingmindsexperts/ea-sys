@@ -462,3 +462,46 @@ describe("POST manual-payment route — happy paths", () => {
     expect(res.status).toBe(200); // 0.0001 IS positive, accepted
   });
 });
+
+describe("recordManualPayment — deferred documents (the desk walk-in)", () => {
+  it("returns as soon as the payment lands, before the invoice and email finish", async () => {
+    const { recordManualPayment } = await import("@/services/payment-service");
+    mockDb.registration.findFirst.mockResolvedValue(baseRegistration);
+    let finishDocs: (v: unknown) => void = () => {};
+    mockIssueDocs.mockReturnValue(new Promise((resolve) => { finishDocs = resolve; }));
+
+    const result = await recordManualPayment({
+      event: { id: "evt-1", organizationId: "org-1", taxRate: null, taxLabel: null },
+      registrationId: "reg-1",
+      method: "cash",
+      cashReceivedBy: "Desk",
+      recordedByUserId: "user-1",
+      deferDocuments: true,
+      source: "rest",
+    });
+
+    expect(result).toMatchObject({ ok: true, summary: { fullyPaid: true, invoiceId: null } });
+    expect(mockIssueDocs).toHaveBeenCalledTimes(1);
+    finishDocs({ invoice: { id: "inv-1" } });
+  });
+
+  it("a deferred document failure is logged, never thrown", async () => {
+    const { recordManualPayment } = await import("@/services/payment-service");
+    const { apiLogger } = await import("@/lib/logger");
+    mockDb.registration.findFirst.mockResolvedValue(baseRegistration);
+    mockIssueDocs.mockRejectedValue(new Error("pdf failed"));
+
+    const result = await recordManualPayment({
+      event: { id: "evt-1", organizationId: "org-1", taxRate: null, taxLabel: null },
+      registrationId: "reg-1",
+      method: "cash",
+      cashReceivedBy: "Desk",
+      recordedByUserId: "user-1",
+      deferDocuments: true,
+      source: "rest",
+    });
+    expect(result.ok).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(apiLogger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "manual-payment:invoice-create-failed", deferred: true }));
+  });
+});
