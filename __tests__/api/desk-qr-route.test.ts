@@ -128,6 +128,14 @@ describe("POST a QR", () => {
     expect(await (await get()).json()).toMatchObject({ exhibitor: null, complimentary: null });
   });
 
+  it("an Exhibitor sponsor-code rate that needs approval means no QR, not another of the type's rates", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce({
+      ...EVENT,
+      ticketTypes: [{ id: "tt-exh", name: "Exhibitor", pricingTiers: [tier("t4", "Inclusive", true, true), tier("t5", "Standard")] }],
+    });
+    expect(await (await get()).json()).toMatchObject({ exhibitor: null });
+  });
+
   it("refuses while registration is switched off, and says so in the options", async () => {
     const closed = { ...EVENT, settings: { ...EVENT.settings, registrationOpen: false } };
     mockDb.event.findFirst.mockResolvedValueOnce(closed);

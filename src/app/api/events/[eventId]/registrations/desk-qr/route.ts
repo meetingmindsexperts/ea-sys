@@ -67,9 +67,11 @@ function deskUsable(tier: TierRow): boolean {
 function exhibitorRate(types: TypeRow[], codeRequired: string[]): { typeId: string; tier: TierRow } | null {
   const type = types.find((t) => isExhibitorBadge(t.name));
   if (!type) return null;
-  const tiers = type.pricingTiers.filter(deskUsable);
-  const tier = tiers.find((t) => tierNeedsSponsorCode(t.name, codeRequired)) ?? tiers[0];
-  return tier ? { typeId: type.id, tier } : null;
+  // The sponsor-code rate when the type has one; one that needs approval
+  // means no QR, never a quiet fall back to another of the type's rates.
+  const sponsorRate = type.pricingTiers.find((t) => t.isActive && tierNeedsSponsorCode(t.name, codeRequired));
+  const tier = sponsorRate ?? type.pricingTiers.find(deskUsable);
+  return tier && deskUsable(tier) ? { typeId: type.id, tier } : null;
 }
 
 /** The Complimentary rate on any type but Exhibitor. Null when the event has none. */
