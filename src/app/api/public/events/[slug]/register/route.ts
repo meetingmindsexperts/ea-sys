@@ -7,7 +7,8 @@ import { getNextSerialId } from "@/lib/registration-serial";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
-import { isSponsorCoveredCode, readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
+import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
+import { claimPromoCodeInTx, recordPromoRedemptionInTx, type PromoClaim } from "@/services/promo-code-service";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
@@ -585,96 +586,32 @@ export async function POST(req: Request, { params }: RouteParams) {
       else originalPrice = Number(ticketType.price);
       const effectiveApproval = pricingTier ? pricingTier.requiresApproval : ticketType.requiresApproval;
 
-      // Promo code validation and redemption (inside transaction for atomicity)
-      let discountAmount = 0;
-      let promoCodeRecord: {
-        id: string;
-        code: string;
-        discountType: string;
-        discountValue: unknown;
-        sponsorId: string | null;
-        sponsorCoversFee: boolean;
-        sponsor: { name: string } | null;
-      } | null = null;
-
+      // Promo code: claimed inside this transaction through the shared
+      // redemption (promo-code-service), the same one the desk walk-in uses.
+      // A sponsor link opens only to a code whose sponsor covers the fee, so a
+      // discount code cannot turn the $0 sponsor rate into a free door.
+      let promoClaim: PromoClaim | null = null;
       if (promoCode) {
-        const promo = await tx.promoCode.findUnique({
-          where: { eventId_code: { eventId: event.id, code: promoCode.toUpperCase().trim() } },
-          include: {
-            ticketTypes: { select: { ticketTypeId: true } },
-            // Named in the confirmation email when the sponsor covers the fee.
-            sponsor: { select: { name: true } },
-          },
+        const claimed = await claimPromoCodeInTx(tx, {
+          eventId: event.id,
+          code: promoCode,
+          ticketTypeId,
+          email,
+          originalPrice,
+          requireSponsorCover: sponsorCodeRequired,
         });
-
-        if (!promo || !promo.isActive) throw new Error("INVALID_PROMO_CODE");
-
-        const now2 = new Date();
-        if (promo.validFrom && now2 < promo.validFrom) throw new Error("INVALID_PROMO_CODE");
-        if (promo.validUntil && now2 > promo.validUntil) throw new Error("INVALID_PROMO_CODE");
-
-        // Ticket type applicability
-        if (promo.ticketTypes.length > 0) {
-          if (!promo.ticketTypes.some((t: { ticketTypeId: string }) => t.ticketTypeId === ticketTypeId))
-            throw new Error("PROMO_CODE_NOT_APPLICABLE");
-        }
-        // A sponsor link opens only to a code whose sponsor covers the fee, so a
-        // discount code cannot turn the $0 sponsor rate into a free door.
-        if (sponsorCodeRequired && !isSponsorCoveredCode(promo)) throw new Error("PROMO_CODE_NOT_SPONSOR");
-
-        // Serialize concurrent applies of this promo so the per-email
-        // count→insert below can't race past a maxUsesPerEmail cap (two
-        // near-simultaneous registrations on the same email + code). Tx-scoped
-        // row lock, auto-released at commit; same fix as the promo-code-service.
-        await tx.$queryRaw`SELECT id FROM "PromoCode" WHERE id = ${promo.id} FOR UPDATE`;
-
-        // Per-email limit FIRST (July-1 review LOW): checking before the
-        // usedCount increment means the counter never moves for a rejected
-        // apply. Inside this $transaction a throw rolled the increment back
-        // anyway, but the old order was one non-transactional refactor away
-        // from leaking usedCount on every EMAIL_LIMIT rejection.
-        if (promo.maxUsesPerEmail !== null) {
-          const emailUses = await tx.promoCodeRedemption.count({
-            where: { promoCodeId: promo.id, email },
-          });
-          if (emailUses >= promo.maxUsesPerEmail) throw new Error("PROMO_CODE_EMAIL_LIMIT");
-        }
-
-        // Atomic usedCount increment (same pattern as soldCount)
-        if (promo.maxUses !== null) {
-          const updated = await tx.promoCode.updateMany({
-            where: { id: promo.id, usedCount: { lt: promo.maxUses } },
-            data: { usedCount: { increment: 1 } },
-          });
-          if (updated.count === 0) throw new Error("PROMO_CODE_EXHAUSTED");
-        } else {
-          await tx.promoCode.update({
-            where: { id: promo.id },
-            data: { usedCount: { increment: 1 } },
-          });
-        }
-
-        // Calculate discount. Same defensive clamp as promo-code-service: bad
-        // stored data (negative value / percentage > 100) never yields a
-        // surcharge or a discount above the base price.
-        const promoValue = Number(promo.discountValue);
-        if (promo.discountType === "PERCENTAGE") {
-          discountAmount = originalPrice * Math.min(100, Math.max(0, promoValue)) / 100;
-        } else {
-          discountAmount = Math.min(Math.max(0, promoValue), originalPrice);
-        }
-        discountAmount = Math.round(discountAmount * 100) / 100;
-        promoCodeRecord = promo;
+        if (!claimed.ok) throw new Error(claimed.code);
+        promoClaim = claimed.claim;
       }
-
+      const promoCodeRecord = promoClaim?.promo ?? null;
+      const discountAmount = promoClaim?.discountAmount ?? 0;
       const finalPrice = Math.max(0, originalPrice - discountAmount);
 
       // A sponsor's code with "Sponsor covers the fee" (Sep 29, 2026): the
       // sponsor pays, so the registration is INCLUSIVE and attributed to them,
       // which is what the sponsor filter and export report. Only when nothing
       // is left to pay; the code's rule already requires 100% off.
-      const sponsorCovered =
-        promoCodeRecord?.sponsorCoversFee === true && !!promoCodeRecord.sponsorId && finalPrice === 0;
+      const sponsorCovered = promoClaim?.sponsorCovered === true;
 
       // Create registration. Virtual ⇒ no entry barcode (nothing to scan).
       const generatedBarcode = isVirtual ? null : generateBarcode();
@@ -726,18 +663,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         include: { attendee: true, ticketType: true, pricingTier: true },
       });
 
-      // Create promo code redemption record
-      if (promoCodeRecord && discountAmount > 0) {
-        await tx.promoCodeRedemption.create({
-          data: {
-            promoCodeId: promoCodeRecord.id,
-            organizationId: event.organizationId,
-            registrationId: registration.id,
-            email,
-            originalPrice,
-            discountAmount,
-            finalPrice,
-          },
+      if (promoClaim) {
+        await recordPromoRedemptionInTx(tx, {
+          claim: promoClaim,
+          organizationId: event.organizationId,
+          registrationId: registration.id,
+          email,
         });
       }
 

@@ -109,6 +109,17 @@ vi.mock("@/lib/utils", async () => {
   return { ...actual, generateBarcode: mockGenerateBarcode };
 });
 
+// The redemption itself is promo-code-service's (pinned there and by the
+// public route); here the contract is what createRegistration does with it.
+const { mockClaimPromo, mockRecordRedemption } = vi.hoisted(() => ({
+  mockClaimPromo: vi.fn(),
+  mockRecordRedemption: vi.fn(),
+}));
+vi.mock("@/services/promo-code-service", () => ({
+  claimPromoCodeInTx: (...a: unknown[]) => mockClaimPromo(...a),
+  recordPromoRedemptionInTx: (...a: unknown[]) => mockRecordRedemption(...a),
+}));
+
 import { createRegistration } from "@/services/registration-service";
 
 const BASE_INPUT = {
@@ -1026,5 +1037,81 @@ describe("createRegistration — attendance mode", () => {
     // PAID_TICKET has no virtualPrice → falls back to price=100.
     await createRegistration({ ...BASE_INPUT, attendanceMode: "VIRTUAL" });
     expect(mockSendConfirmation.mock.calls[0][0].ticketPrice).toBe(100);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Promo code on create (the desk walk-in, Oct 29 2026)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("createRegistration — promo code", () => {
+  const claim = (over: Record<string, unknown> = {}) => ({
+    ok: true,
+    claim: {
+      promo: { id: "promo-1", code: "SAVE20", sponsorId: null, sponsor: null },
+      originalPrice: 100,
+      discountAmount: 20,
+      finalPrice: 80,
+      sponsorCovered: false,
+      ...over,
+    },
+  });
+
+  it("a discount code is claimed in the transaction at the effective price; the row keeps its status and stores the discount", async () => {
+    mockClaimPromo.mockResolvedValue(claim());
+    const result = await createRegistration({ ...BASE_INPUT, promoCode: " save20 " });
+    expect(result.ok).toBe(true);
+    expect(mockClaimPromo).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ eventId: "evt-1", code: "save20", ticketTypeId: "tt-1", email: "john@example.com", originalPrice: 100 }),
+    );
+    const data = mockDb.registration.create.mock.calls[0][0].data;
+    expect(data).toMatchObject({ paymentStatus: "UNASSIGNED", promoCodeId: "promo-1", discountAmount: 20 });
+    expect(mockRecordRedemption).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ registrationId: "reg-1", organizationId: "org-1" }));
+    // Money is still owed after the discount, so the confirmation goes out.
+    expect(mockSendConfirmation).toHaveBeenCalled();
+  });
+
+  it("a sponsor code that covers the fee saves INCLUSIVE under the code's sponsor, and sends no payment email", async () => {
+    mockClaimPromo.mockResolvedValue(
+      claim({ promo: { id: "promo-2", code: "PFIZER", sponsorId: "sp-pfizer", sponsor: { name: "Pfizer" } }, discountAmount: 100, finalPrice: 0, sponsorCovered: true }),
+    );
+    await createRegistration({ ...BASE_INPUT, promoCode: "PFIZER", requireSponsorCode: true });
+    const data = mockDb.registration.create.mock.calls[0][0].data;
+    expect(data).toMatchObject({ paymentStatus: "INCLUSIVE", sponsorId: "sp-pfizer", promoCodeId: "promo-2" });
+    expect(mockClaimPromo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ requireSponsorCover: true }));
+    expect(mockSendConfirmation).not.toHaveBeenCalled();
+  });
+
+  it("a non-sponsor code that leaves nothing to pay saves COMPLIMENTARY", async () => {
+    mockClaimPromo.mockResolvedValue(claim({ discountAmount: 100, finalPrice: 0 }));
+    await createRegistration({ ...BASE_INPUT, promoCode: "FREE100" });
+    expect(mockDb.registration.create.mock.calls[0][0].data.paymentStatus).toBe("COMPLIMENTARY");
+  });
+
+  it("a refused code returns its code and creates nothing", async () => {
+    mockClaimPromo.mockResolvedValue({ ok: false, code: "PROMO_CODE_EXHAUSTED" });
+    const result = await createRegistration({ ...BASE_INPUT, promoCode: "SAVE20" });
+    expect(result).toMatchObject({ ok: false, code: "PROMO_CODE_EXHAUSTED" });
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+
+  it("sponsor-only: a sponsor code that does not cover the whole fee is refused, not saved INCLUSIVE owing money", async () => {
+    mockClaimPromo.mockResolvedValue(claim({ promo: { id: "promo-3", code: "HALF", sponsorId: "sp-pfizer", sponsor: null } }));
+    const result = await createRegistration({ ...BASE_INPUT, promoCode: "HALF", requireSponsorCode: true });
+    expect(result).toMatchObject({ ok: false, code: "PROMO_CODE_NOT_SPONSOR" });
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+
+  it("sponsor-only with no code is refused before anything runs", async () => {
+    const result = await createRegistration({ ...BASE_INPUT, requireSponsorCode: true });
+    expect(result).toMatchObject({ ok: false, code: "PROMO_CODE_NOT_SPONSOR" });
+    expect(mockClaimPromo).not.toHaveBeenCalled();
+  });
+
+  it("no code: nothing is claimed and the row carries no promo", async () => {
+    await createRegistration(BASE_INPUT);
+    expect(mockClaimPromo).not.toHaveBeenCalled();
+    expect(mockDb.registration.create.mock.calls[0][0].data).not.toHaveProperty("promoCodeId");
   });
 });

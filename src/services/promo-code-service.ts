@@ -5,6 +5,7 @@ import { readRegistrationBasePrice } from "@/lib/registration-financials";
 
 import { sponsorExistsOnEvent } from "@/lib/sponsors";
 import { sponsorCoverError } from "@/lib/promo-sponsor-cover";
+import { promoDiscount, promoRefusal, promoSponsorCovers, type PromoRefusal } from "@/lib/promo-redeem";
 
 /**
  * Promo-code application against an EXISTING registration.
@@ -544,4 +545,104 @@ export async function createPromoCode(input: CreatePromoCodeInput): Promise<Crea
     apiLogger.error({ err, msg: "promo:create-unknown", eventId: input.eventId });
     return { ok: false, code: "UNKNOWN", message: "Failed to create promo code" };
   }
+}
+
+// ── Redemption on a NEW registration ─────────────────────────────────────────
+
+export interface PromoClaim {
+  promo: { id: string; code: string; sponsorId: string | null; sponsor: { name: string } | null };
+  originalPrice: number;
+  discountAmount: number;
+  finalPrice: number;
+  /** The sponsor pays: save the registration INCLUSIVE under `promo.sponsorId`. */
+  sponsorCovered: boolean;
+}
+
+/**
+ * Claim a promo code for a registration being created in `tx`: the rules in
+ * promo-redeem.ts, then the per-email limit and the usage count under a row
+ * lock. Shared by the public register route and `createRegistration()` (the
+ * desk walk-in), so both doors redeem the same way. A refusal writes nothing;
+ * the caller throws to roll back anything else it did in `tx`.
+ */
+export async function claimPromoCodeInTx(
+  tx: Prisma.TransactionClient,
+  input: {
+    eventId: string;
+    code: string;
+    ticketTypeId: string;
+    email: string;
+    originalPrice: number;
+    requireSponsorCover?: boolean;
+  },
+): Promise<{ ok: true; claim: PromoClaim } | { ok: false; code: PromoRefusal }> {
+  const promo = await tx.promoCode.findUnique({
+    where: { eventId_code: { eventId: input.eventId, code: input.code.toUpperCase().trim() } },
+    include: {
+      ticketTypes: { select: { ticketTypeId: true } },
+      // Named in the confirmation email when the sponsor covers the fee.
+      sponsor: { select: { name: true } },
+    },
+  });
+  const refusal = promoRefusal(promo, {
+    now: new Date(),
+    ticketTypeId: input.ticketTypeId,
+    requireSponsorCover: input.requireSponsorCover,
+  });
+  if (refusal || !promo) return { ok: false, code: refusal ?? "INVALID_PROMO_CODE" };
+
+  // Serialize concurrent claims of this code so the per-email count below
+  // cannot race past maxUsesPerEmail. Tx-scoped row lock, released at commit.
+  await tx.$queryRaw`SELECT id FROM "PromoCode" WHERE id = ${promo.id} FOR UPDATE`;
+
+  // Per-email limit before the usage increment, so a refusal never moves the counter.
+  if (promo.maxUsesPerEmail !== null) {
+    const emailUses = await tx.promoCodeRedemption.count({
+      where: { promoCodeId: promo.id, email: input.email.toLowerCase() },
+    });
+    if (emailUses >= promo.maxUsesPerEmail) return { ok: false, code: "PROMO_CODE_EMAIL_LIMIT" };
+  }
+
+  // Atomic usedCount increment (same pattern as soldCount).
+  if (promo.maxUses !== null) {
+    const updated = await tx.promoCode.updateMany({
+      where: { id: promo.id, usedCount: { lt: promo.maxUses } },
+      data: { usedCount: { increment: 1 } },
+    });
+    if (updated.count === 0) return { ok: false, code: "PROMO_CODE_EXHAUSTED" };
+  } else {
+    await tx.promoCode.update({ where: { id: promo.id }, data: { usedCount: { increment: 1 } } });
+  }
+
+  const { discountAmount, finalPrice } = promoDiscount(promo, input.originalPrice);
+  return {
+    ok: true,
+    claim: {
+      promo: { id: promo.id, code: promo.code, sponsorId: promo.sponsorId, sponsor: promo.sponsor },
+      originalPrice: input.originalPrice,
+      discountAmount,
+      finalPrice,
+      sponsorCovered: promoSponsorCovers(promo, finalPrice),
+    },
+  };
+}
+
+/** The redemption row for a claimed code, once the registration exists. Only a real discount is recorded. */
+export async function recordPromoRedemptionInTx(
+  tx: Prisma.TransactionClient,
+  input: { claim: PromoClaim; organizationId: string; registrationId: string; email: string },
+): Promise<void> {
+  const { claim } = input;
+  if (claim.discountAmount <= 0) return;
+  await tx.promoCodeRedemption.create({
+    data: {
+      promoCodeId: claim.promo.id,
+      organizationId: input.organizationId,
+      registrationId: input.registrationId,
+      email: input.email.toLowerCase(),
+      originalPrice: claim.originalPrice,
+      discountAmount: claim.discountAmount,
+      finalPrice: claim.finalPrice,
+    },
+  });
 }

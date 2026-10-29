@@ -80,7 +80,7 @@ beforeEach(() => {
   mockDb.ticketType.findFirst.mockResolvedValue(PLAIN_TYPE);
   mockCreate.mockResolvedValue({
     ok: true,
-    registration: { id: "reg-1", serialId: 7, attendee: { firstName: "Walk", lastName: "In" }, ticketType: { name: "Physician" } },
+    registration: { id: "reg-1", serialId: 7, paymentStatus: "UNASSIGNED", attendee: { firstName: "Walk", lastName: "In" }, ticketType: { name: "Physician" } },
     dtcm: "not-applicable",
   });
   mockRecordPayment.mockResolvedValue({ ok: true, summary: { fullyPaid: true } });
@@ -246,5 +246,69 @@ describe("POST walk-in", () => {
     mockDb.registration.findFirst.mockResolvedValue(freshRow("COMPLIMENTARY"));
     const compRes = await post({ ...base, payment: "complimentary" });
     expect(compRes.status).toBe(201);
+  });
+
+  it("inclusive: the sponsor's code goes to the service as sponsor-only, and no payment is taken", async () => {
+    mockCreate.mockResolvedValue({
+      ok: true,
+      registration: { id: "reg-1", serialId: 7, paymentStatus: "INCLUSIVE", attendee: { firstName: "Walk", lastName: "In" }, ticketType: { name: "Physician" } },
+      dtcm: "not-applicable",
+    });
+    mockDb.registration.findFirst.mockResolvedValue(freshRow("INCLUSIVE"));
+    const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10" });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ checkedIn: true, paymentStatus: "INCLUSIVE" });
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ promoCode: "PFIZER10", requireSponsorCode: true, paymentStatus: undefined }));
+    expect(mockRecordPayment).not.toHaveBeenCalled();
+  });
+
+  it("inclusive works on a free rate (a sponsor's $0 rate), and needs no payment permission or bucket", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...PLAIN_TYPE, pricingTiers: [{ price: 0 }] });
+    mockDb.registration.findFirst.mockResolvedValue(freshRow("INCLUSIVE", 0));
+    const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10" });
+    expect(res.status).toBe(201);
+    expect(mockRateLimit).toHaveBeenCalledTimes(1);
+  });
+
+  it("inclusive without a code is refused before anything is created", async () => {
+    const res = await post({ ...base, payment: "inclusive" });
+    expect(res.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("a code on a complimentary walk-in is refused", async () => {
+    const res = await post({ ...base, payment: "complimentary", promoCode: "SAVE20" });
+    expect(res.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("cash with a discount code: the code goes to the service and the payment takes the discounted balance", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(freshRow("PAID"));
+    const res = await post({ ...base, payment: "cash", promoCode: "SAVE20" });
+    expect(res.status).toBe(201);
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ promoCode: "SAVE20", requireSponsorCode: false }));
+    // No amount: the service defaults to the balance, which reads the stored discount.
+    expect(mockRecordPayment).toHaveBeenCalledWith(expect.not.objectContaining({ amount: expect.anything() }));
+  });
+
+  it("cash with a code that leaves nothing to pay: no payment is recorded", async () => {
+    mockCreate.mockResolvedValue({
+      ok: true,
+      registration: { id: "reg-1", serialId: 7, paymentStatus: "COMPLIMENTARY", attendee: { firstName: "Walk", lastName: "In" }, ticketType: { name: "Physician" } },
+      dtcm: "not-applicable",
+    });
+    mockDb.registration.findFirst.mockResolvedValue(freshRow("COMPLIMENTARY"));
+    const res = await post({ ...base, payment: "cash", promoCode: "FREE100" });
+    expect(res.status).toBe(201);
+    expect(mockRecordPayment).not.toHaveBeenCalled();
+    expect(mockExecuteCheckIn).toHaveBeenCalled();
+  });
+
+  it("a refused code creates nothing and answers with the service's code", async () => {
+    mockCreate.mockResolvedValue({ ok: false, code: "PROMO_CODE_EXHAUSTED", message: "Promo code usage limit reached" });
+    const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "PROMO_CODE_EXHAUSTED" });
+    expect(mockExecuteCheckIn).not.toHaveBeenCalled();
   });
 });

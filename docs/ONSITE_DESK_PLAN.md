@@ -134,8 +134,21 @@ As built (Oct 29, 2026):
   there. Search on the left, the walk-in on the right. Enter acts on a
   single match; with no match, Enter treats the input as a scanned badge or
   confirmation barcode through the door's own check-in route. It sits under
-  `/check-in`, so desk staff's confinement already covers it. The Check-In
-  page opens it from a Desk button.
+  `/check-in`, so desk staff's confinement already covers it. It carries the
+  organisation's logo in the header and the event's banner above the desk
+  (owner, Oct 29, 2026).
+- Codes at the desk (owner, Oct 29, 2026): a fourth payment choice,
+  **Sponsor (Inclusive)**, takes a sponsor's code (one with "Sponsor covers
+  the fee") and saves the walk-in INCLUSIVE under that sponsor, using one of
+  their places; it works on a $0 sponsor rate too. Cash and card take an
+  optional discount code that lowers what is collected; a code that leaves
+  nothing to pay registers them complimentary with no payment, and a sponsor's
+  code entered under cash or card switches the choice to Inclusive. The desk
+  checks the code first (`GET .../registrations/walk-in/promo`, read-only) so
+  the operator sees the amount before taking money; the walk-in then redeems
+  it inside `createRegistration()` through `claimPromoCodeInTx`, the same
+  redemption the public form uses, with the rules in `src/lib/promo-redeem.ts`.
+  A refused code (used up, already used with that email) creates nothing.
 - For someone already registered, "Check in & print" asks the door's own gate;
   when payment is due it opens Record payment (cash / card) in the row, then
   checks in and prints. "Complete onsite" for a not-completed row is step 3;

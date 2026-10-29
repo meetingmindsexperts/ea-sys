@@ -38,7 +38,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 const sponsorExistsSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/sponsors", () => ({ sponsorExistsOnEvent: sponsorExistsSpy }));
 
-import { applyPromoCodeToRegistration, createPromoCode, removePromoCodeFromRegistration } from "@/services/promo-code-service";
+import { applyPromoCodeToRegistration, claimPromoCodeInTx, createPromoCode, recordPromoRedemptionInTx, removePromoCodeFromRegistration } from "@/services/promo-code-service";
 
 const REG = {
   id: "reg-1",
@@ -404,5 +404,77 @@ describe("createPromoCode (shared REST + MCP create path — audit-drift finding
     const r = await createPromoCode(CREATE_BASE);
     expect(r).toMatchObject({ ok: false, code: "UNKNOWN" });
     expect(mockApiLogger.error).toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// claimPromoCodeInTx: redemption on a NEW registration (public form + desk walk-in)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("claimPromoCodeInTx", () => {
+  const tx = () => ({ promoCode: mockDb.promoCode, promoCodeRedemption: mockDb.promoCodeRedemption, $queryRaw: mockDb.$queryRaw }) as never;
+  const input = { eventId: "evt-1", code: " save10 ", ticketTypeId: "tt-1", email: "Jane@Example.com", originalPrice: 100 };
+  const promo = (over: Record<string, unknown> = {}) => ({
+    ...PROMO,
+    validFrom: null,
+    validUntil: null,
+    maxUsesPerEmail: null,
+    sponsorId: null,
+    sponsorCoversFee: false,
+    ticketTypes: [],
+    sponsor: null,
+    ...over,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.promoCodeRedemption.count.mockResolvedValue(0);
+    mockDb.promoCode.updateMany.mockResolvedValue({ count: 1 });
+    mockDb.promoCode.update.mockResolvedValue({});
+  });
+
+  it("looks the code up upper-cased, locks it, counts a use and prices the discount", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue(promo());
+    const r = await claimPromoCodeInTx(tx(), input);
+    expect(mockDb.promoCode.findUnique.mock.calls[0][0].where).toEqual({ eventId_code: { eventId: "evt-1", code: "SAVE10" } });
+    expect(mockDb.$queryRaw).toHaveBeenCalled();
+    expect(mockDb.promoCode.update).toHaveBeenCalledWith({ where: { id: "promo-1" }, data: { usedCount: { increment: 1 } } });
+    expect(r).toMatchObject({ ok: true, claim: { discountAmount: 10, finalPrice: 90, sponsorCovered: false } });
+  });
+
+  it("a code past its usage limit is EXHAUSTED", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue(promo({ maxUses: 5 }));
+    mockDb.promoCode.updateMany.mockResolvedValue({ count: 0 });
+    expect(await claimPromoCodeInTx(tx(), input)).toEqual({ ok: false, code: "PROMO_CODE_EXHAUSTED" });
+  });
+
+  it("the per-email limit is checked first, so a refusal never moves the counter", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue(promo({ maxUsesPerEmail: 1, maxUses: 5 }));
+    mockDb.promoCodeRedemption.count.mockResolvedValue(1);
+    expect(await claimPromoCodeInTx(tx(), input)).toEqual({ ok: false, code: "PROMO_CODE_EMAIL_LIMIT" });
+    expect(mockDb.promoCodeRedemption.count.mock.calls[0][0].where.email).toBe("jane@example.com");
+    expect(mockDb.promoCode.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("sponsor-only refuses a discount code without touching the counter", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue(promo());
+    expect(await claimPromoCodeInTx(tx(), { ...input, requireSponsorCover: true })).toEqual({ ok: false, code: "PROMO_CODE_NOT_SPONSOR" });
+    expect(mockDb.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("a sponsor code at 100% off is sponsor-covered", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue(promo({ discountValue: 100, sponsorId: "sp-1", sponsorCoversFee: true, sponsor: { name: "Pfizer" } }));
+    const r = await claimPromoCodeInTx(tx(), { ...input, requireSponsorCover: true });
+    expect(r).toMatchObject({ ok: true, claim: { finalPrice: 0, sponsorCovered: true, promo: { sponsorId: "sp-1" } } });
+  });
+
+  it("the redemption row is written only for a real discount", async () => {
+    const claim = { promo: { id: "promo-1", code: "SAVE10", sponsorId: null, sponsor: null }, originalPrice: 100, discountAmount: 0, finalPrice: 100, sponsorCovered: false };
+    await recordPromoRedemptionInTx(tx(), { claim, organizationId: "org-1", registrationId: "reg-9", email: "A@B.com" });
+    expect(mockDb.promoCodeRedemption.create).not.toHaveBeenCalled();
+    await recordPromoRedemptionInTx(tx(), { claim: { ...claim, discountAmount: 10, finalPrice: 90 }, organizationId: "org-1", registrationId: "reg-9", email: "A@B.com" });
+    expect(mockDb.promoCodeRedemption.create).toHaveBeenCalledWith({
+      data: { promoCodeId: "promo-1", organizationId: "org-1", registrationId: "reg-9", email: "a@b.com", originalPrice: 100, discountAmount: 10, finalPrice: 90 },
+    });
   });
 });

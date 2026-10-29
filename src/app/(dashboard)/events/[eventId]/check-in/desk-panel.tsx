@@ -87,9 +87,24 @@ interface DeskTicketType {
   documentInstructions?: string | null;
 }
 
-type PaymentChoice = "complimentary" | "cash" | "card";
+type PaymentChoice = "complimentary" | "cash" | "card" | "inclusive";
 
-const PAYMENT_LABEL: Record<PaymentChoice, string> = { complimentary: "Complimentary", cash: "Cash", card: "Card" };
+const PAYMENT_LABEL: Record<PaymentChoice, string> = {
+  complimentary: "Complimentary",
+  cash: "Cash",
+  card: "Card",
+  inclusive: "Sponsor (Inclusive)",
+};
+
+/** The desk's code check (walk-in/promo route): what to collect, or which sponsor pays. */
+interface PromoPreview {
+  code: string;
+  discountType: string;
+  discountValue: number;
+  discountAmount: number;
+  finalPrice: number;
+  sponsorName: string | null;
+}
 const MAX_RESULTS = 8;
 const OUTSTANDING = new Set(["UNASSIGNED", "UNPAID", "PENDING", "FAILED"]);
 
@@ -167,9 +182,24 @@ function balanceToCollect(r: DeskRegistration, tax: DeskTax): { amount: number; 
   return { amount: fin.balanceDue, currency };
 }
 
-/** A walk-in's total to collect at a rate, tax included. */
-function walkInTotal(price: number, currency: string, tax: DeskTax): number {
-  return computeRegistrationFinancials({ subtotal: price, taxRate: tax.taxRate, taxLabel: tax.taxLabel, currency }).total;
+/** A walk-in's total to collect at a rate, after any code, tax included. */
+function walkInTotal(price: number, currency: string, tax: DeskTax, discount = 0): number {
+  return computeRegistrationFinancials({ subtotal: price, discount, taxRate: tax.taxRate, taxLabel: tax.taxLabel, currency }).total;
+}
+
+/** "20% off" or "USD 50.00 off". */
+function discountLabel(p: PromoPreview, currency: string): string {
+  return p.discountType === "PERCENTAGE" ? `${p.discountValue}% off` : `${currency} ${p.discountValue.toFixed(2)} off`;
+}
+
+/**
+ * What the walk-in route is told. A cash or card code that leaves nothing to
+ * pay goes as cash with no card: the server registers it complimentary and
+ * collects nothing.
+ */
+function submittedPayment(choice: PaymentChoice, promo: PromoPreview | null): PaymentChoice {
+  if ((choice === "cash" || choice === "card") && promo?.finalPrice === 0) return "cash";
+  return choice;
 }
 
 function personOf(r: DeskRegistration): OnsitePerson {
@@ -793,6 +823,10 @@ function WalkInForm({
   const [ticketTypeId, setTicketTypeId] = useState("");
   const [pricingTierId, setPricingTierId] = useState<string | null>(null);
   const [payment, setPayment] = useState<PaymentChoice>("complimentary");
+  const [codeInput, setCodeInput] = useState("");
+  const [promo, setPromo] = useState<PromoPreview | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [checkingCode, setCheckingCode] = useState(false);
   const [supportingDoc, setSupportingDoc] = useState<UploadedDocument | null>(null);
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -813,12 +847,23 @@ function WalkInForm({
   const tier = tiers.find((t) => t.id === pricingTierId);
   const price = Number(tier?.price ?? type?.price ?? 0);
   const currency = tier?.currency ?? type?.currency ?? "USD";
-  const effectivePayment: PaymentChoice = price === 0 ? "complimentary" : payment;
+  // A free rate takes no money, but a sponsor may still be the one paying.
+  const effectivePayment: PaymentChoice = price === 0 && payment !== "inclusive" ? "complimentary" : payment;
+  const takesCode = effectivePayment !== "complimentary";
+  const codeIsApplied = !!promo && promo.code === codeInput.trim().toUpperCase();
+  const discount = codeIsApplied ? promo.discountAmount : 0;
+  const choices: PaymentChoice[] = price === 0 ? ["complimentary", "inclusive"] : ["complimentary", "cash", "card", "inclusive"];
   const evidence = readIdentityEvidencePolicy(type);
 
   const set = (key: keyof WalkInFields) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setFields((f) => ({ ...f, [key]: e.target.value }));
   const pick = (key: keyof WalkInFields) => (value: string) => setFields((f) => ({ ...f, [key]: value }));
+
+  // A checked code belongs to a type, a rate and a choice; any change re-checks it.
+  const clearPromo = () => {
+    setPromo(null);
+    setPromoError(null);
+  };
 
   const chooseType = (id: string) => {
     const next = types.find((t) => t.id === id);
@@ -826,6 +871,40 @@ function WalkInForm({
     setPricingTierId(defaultTierId((next?.pricingTiers ?? []).filter((t) => t.isActive)));
     setSupportingDoc(null);
     setDocumentError(null);
+    clearPromo();
+  };
+
+  const choosePayment = (choice: PaymentChoice) => {
+    setPayment(choice);
+    clearPromo();
+  };
+
+  const checkCode = async () => {
+    const code = codeInput.trim();
+    if (!code || !type) return;
+    setCheckingCode(true);
+    setPromoError(null);
+    try {
+      const query = new URLSearchParams({ code, ticketTypeId: type.id });
+      if (tier) query.set("pricingTierId", tier.id);
+      if (effectivePayment === "inclusive") query.set("sponsor", "1");
+      if (fields.email.trim()) query.set("email", fields.email.trim());
+      const res = await fetch(`/api/events/${eventId}/registrations/walk-in/promo?${query}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.valid) {
+        setPromo(null);
+        setPromoError(data.error || "The code could not be checked");
+        return;
+      }
+      setPromo(data as PromoPreview);
+      // A sponsor's code on cash or card: the sponsor pays, so it is Inclusive.
+      if (data.sponsorName && effectivePayment !== "inclusive") setPayment("inclusive");
+    } catch (err) {
+      console.error("[desk] code check failed", err);
+      setPromoError("Network error: the code was not checked");
+    } finally {
+      setCheckingCode(false);
+    }
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -842,7 +921,16 @@ function WalkInForm({
       toast.error(`Still needed: ${missing.join(", ")}`);
       return;
     }
-    if (effectivePayment === "card" && !/^\d{4}$/.test(fields.cardLast4)) {
+    if (takesCode && codeInput.trim() && !codeIsApplied) {
+      toast.error("Apply the code first, to see what to collect");
+      return;
+    }
+    if (effectivePayment === "inclusive" && !codeIsApplied) {
+      toast.error("Enter and apply the sponsor's code");
+      return;
+    }
+    const sent = submittedPayment(effectivePayment, codeIsApplied ? promo : null);
+    if (sent === "card" && !/^\d{4}$/.test(fields.cardLast4)) {
       toast.error("Enter the last 4 digits of the card");
       return;
     }
@@ -858,8 +946,9 @@ function WalkInForm({
           pricingTierId: tier?.id,
           supportingDocumentUrl: supportingDoc?.url,
           supportingDocumentFilename: supportingDoc?.filename,
-          payment: effectivePayment,
-          cardLast4: effectivePayment === "card" ? cardLast4 : undefined,
+          payment: sent,
+          promoCode: takesCode && codeIsApplied ? promo.code : undefined,
+          cardLast4: sent === "card" ? cardLast4 : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -876,12 +965,14 @@ function WalkInForm({
       const email = fields.email.trim();
       setFields(EMPTY_FIELDS);
       setSupportingDoc(null);
+      setCodeInput("");
+      clearPromo();
       if (!data.checkedIn) {
         toast.warning(`${data.name} is registered but not checked in: ${data.error}`, { duration: 10000 });
         onRegistered(email);
         return;
       }
-      toast.success(`${data.name} registered and checked in`);
+      toast.success(`${data.name} registered and checked in${data.paymentStatus === "INCLUSIVE" ? " (sponsor-paid)" : ""}`);
       await onDone(data.registrationId, email);
     } catch (err) {
       console.error("[desk] walk-in failed", err);
@@ -913,7 +1004,14 @@ function WalkInForm({
             </Field>
             {tiers.length > 0 && (
               <Field label="Rate">
-                <Select value={pricingTierId ?? ""} onValueChange={(v) => v && setPricingTierId(v)}>
+                <Select
+                  value={pricingTierId ?? ""}
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    setPricingTierId(v);
+                    clearPromo();
+                  }}
+                >
                   <SelectTrigger className="w-full"><SelectValue placeholder="Choose a rate" /></SelectTrigger>
                   <SelectContent>
                     {tiers.map((t) => (
@@ -1011,39 +1109,53 @@ function WalkInForm({
             />
           )}
 
-          <div className="space-y-1">
+          <div className="space-y-2">
             <Label>
               Payment
-              {price > 0 && (
-                <span className="font-normal text-muted-foreground"> · collect {collectLabel({ amount: walkInTotal(price, currency, tax), currency }, tax)}</span>
+              {price > 0 && effectivePayment !== "inclusive" && (
+                <span className="font-normal text-muted-foreground">
+                  {" "}· collect {collectLabel({ amount: walkInTotal(price, currency, tax, discount), currency }, tax)}
+                </span>
               )}
             </Label>
-            {price === 0 ? (
-              <p className="text-sm text-muted-foreground">Free rate: registered as complimentary.</p>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                {(["complimentary", "cash", "card"] as const).map((choice) => (
-                  <Button
-                    key={choice}
-                    type="button"
-                    size="sm"
-                    variant={payment === choice ? "default" : "outline"}
-                    onClick={() => setPayment(choice)}
-                  >
-                    {PAYMENT_LABEL[choice]}
-                  </Button>
-                ))}
-                {payment === "card" && (
-                  <Input
-                    aria-label="Card last 4 digits"
-                    placeholder="Last 4"
-                    value={fields.cardLast4}
-                    onChange={(e) => setFields((f) => ({ ...f, cardLast4: e.target.value.replace(/\D/g, "").slice(0, 4) }))}
-                    inputMode="numeric"
-                    className="w-24 h-9"
-                  />
-                )}
-              </div>
+            {price === 0 && <p className="text-sm text-muted-foreground">Free rate: complimentary, or Inclusive when a sponsor brings them.</p>}
+            <div className="flex flex-wrap items-center gap-2">
+              {choices.map((choice) => (
+                <Button
+                  key={choice}
+                  type="button"
+                  size="sm"
+                  variant={effectivePayment === choice ? "default" : "outline"}
+                  onClick={() => choosePayment(choice)}
+                >
+                  {PAYMENT_LABEL[choice]}
+                </Button>
+              ))}
+              {effectivePayment === "card" && !(codeIsApplied && promo.finalPrice === 0) && (
+                <Input
+                  aria-label="Card last 4 digits"
+                  placeholder="Last 4"
+                  value={fields.cardLast4}
+                  onChange={(e) => setFields((f) => ({ ...f, cardLast4: e.target.value.replace(/\D/g, "").slice(0, 4) }))}
+                  inputMode="numeric"
+                  className="w-24 h-9"
+                />
+              )}
+            </div>
+            {takesCode && (
+              <PromoCodeField
+                sponsor={effectivePayment === "inclusive"}
+                value={codeInput}
+                onChange={(v) => {
+                  setCodeInput(v);
+                  setPromoError(null);
+                }}
+                onApply={checkCode}
+                checking={checkingCode}
+                applied={codeIsApplied ? promo : null}
+                error={promoError}
+                currency={currency}
+              />
             )}
           </div>
 
@@ -1054,5 +1166,72 @@ function WalkInForm({
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+/** The code a walk-in brings: checked before any money is taken. */
+function PromoCodeField({
+  sponsor,
+  value,
+  onChange,
+  onApply,
+  checking,
+  applied,
+  error,
+  currency,
+}: {
+  sponsor: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  onApply: () => void;
+  checking: boolean;
+  applied: PromoPreview | null;
+  error: string | null;
+  currency: string;
+}) {
+  return (
+    <div className="space-y-1.5 rounded-md border bg-muted/30 p-3">
+      <Label htmlFor="walkin-code">
+        {sponsor ? "Sponsor code" : "Promo code"}
+        {sponsor ? <span className="text-red-500"> *</span> : <span className="font-normal text-muted-foreground"> (optional)</span>}
+      </Label>
+      <div className="flex gap-2">
+        <Input
+          id="walkin-code"
+          value={value}
+          onChange={(e) => onChange(e.target.value.toUpperCase())}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            onApply();
+          }}
+          placeholder={sponsor ? "The code the sponsor gave them" : "Discount code"}
+          className="h-9 font-mono uppercase"
+          autoComplete="off"
+        />
+        <Button type="button" size="sm" variant="outline" className="h-9" onClick={onApply} disabled={checking || !value.trim()}>
+          {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
+        </Button>
+      </div>
+      {applied && <PromoResult promo={applied} currency={currency} />}
+      {error && <p className="text-sm text-red-700">{error}</p>}
+    </div>
+  );
+}
+
+function PromoResult({ promo, currency }: { promo: PromoPreview; currency: string }) {
+  if (promo.sponsorName) {
+    return (
+      <p className="flex items-center gap-1.5 text-sm text-green-800">
+        <CheckCircle2 className="h-4 w-4" /> {promo.code}: paid by {promo.sponsorName}. Nothing to collect.
+      </p>
+    );
+  }
+  const free = promo.finalPrice === 0;
+  return (
+    <p className="flex items-center gap-1.5 text-sm text-green-800">
+      <CheckCircle2 className="h-4 w-4" /> {promo.code}: {discountLabel(promo, currency)}
+      {free && ". Nothing to collect; registered as complimentary."}
+    </p>
   );
 }

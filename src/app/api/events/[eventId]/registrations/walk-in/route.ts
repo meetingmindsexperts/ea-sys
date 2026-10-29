@@ -70,13 +70,23 @@ const walkInSchema = z
     supportingDocumentFilename: optional(255),
     ticketTypeId: z.string().min(1),
     pricingTierId: z.string().min(1).optional(),
-    payment: z.enum(["complimentary", "cash", "card"]),
+    // "inclusive": a sponsor's code that covers the fee (the registration is
+    // saved INCLUSIVE under the code's sponsor). Cash and card may carry any
+    // code, which lowers what is collected.
+    payment: z.enum(["complimentary", "cash", "card", "inclusive"]),
+    promoCode: optional(50),
     cardLast4: z.string().regex(/^\d{4}$/).optional(),
     cardBrand: z.string().trim().max(50).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.specialty === "Others" && !data.customSpecialty) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customSpecialty"], message: "Please specify the specialty" });
+    }
+    if (data.payment === "inclusive" && !data.promoCode) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["promoCode"], message: "Enter the sponsor's code" });
+    }
+    if (data.payment === "complimentary" && data.promoCode) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["promoCode"], message: "A code applies to a paid or sponsor walk-in" });
     }
     if (data.payment === "card" && !data.cardLast4) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cardLast4"], message: "Last 4 digits of the card are required" });
@@ -112,7 +122,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
     const data = parsed.data;
-    const paid = data.payment !== "complimentary";
+    const paid = data.payment === "cash" || data.payment === "card";
 
     // Each key's scope lives in its own eventWhere (a custom role may hold
     // create everywhere but check-in or payments only on assigned events), so
@@ -215,8 +225,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         detailsComplete: true,
         supportingDocument: document.url ? { url: document.url, filename: document.filename } : null,
-        // Paid: UNASSIGNED until the capture below flips it to PAID.
-        paymentStatus: paid ? undefined : "COMPLIMENTARY",
+        // Paid: UNASSIGNED until the capture below flips it to PAID. A code
+        // that covers the fee makes it INCLUSIVE or COMPLIMENTARY instead.
+        paymentStatus: data.payment === "complimentary" ? "COMPLIMENTARY" : undefined,
+        promoCode: data.promoCode || null,
+        requireSponsorCode: data.payment === "inclusive",
         // On event day the public sales window has usually closed; the desk is
         // staff. Sold-out and the event cap still apply; the service logs it.
         overrideSalesWindow: true,
@@ -243,14 +256,17 @@ export async function POST(req: Request, { params }: RouteParams) {
         serialId: registration.serialId,
         name,
         ticketTypeName: registration.ticketType?.name ?? null,
+        paymentStatus: registration.paymentStatus,
         dtcm: created.dtcm,
       };
+      // A code can leave nothing to pay: then no payment is taken.
+      const collect = paid && registration.paymentStatus === "UNASSIGNED";
 
       // Past this point the registration exists, so every answer says so, even
       // an exception: a bare 500 would read "not registered" and the desk would
       // take the money or register them again (review of 26c17807, MED 2).
       try {
-        return await payAndAdmit({ req, event, data, registrationId: registration.id, name, user: session.user, summary });
+        return await payAndAdmit({ req, event, data, collect, registrationId: registration.id, name, user: session.user, summary });
       } catch (err) {
         apiLogger.error({ err, msg: "walk-in:failed-after-create", eventId, registrationId: registration.id, userId: session.user.id });
         return NextResponse.json({
@@ -274,23 +290,25 @@ interface WalkInSummary {
   serialId: number | null;
   name: string;
   ticketTypeName: string | null;
+  paymentStatus: string;
   dtcm: unknown;
 }
 
-/** Record the payment when paid, then check in through the door's own gate. */
+/** Record the payment when there is one to collect, then check in through the door's own gate. */
 async function payAndAdmit(args: {
   req: Request;
   event: { id: string; organizationId: string; taxRate: unknown; taxLabel: string | null };
   data: z.infer<typeof walkInSchema>;
+  collect: boolean;
   registrationId: string;
   name: string;
   user: { id: string; firstName?: string | null; lastName?: string | null; email?: string | null };
   summary: WalkInSummary;
 }): Promise<NextResponse> {
-  const { req, event, data, registrationId, name, user, summary } = args;
+  const { req, event, data, collect, registrationId, name, user, summary } = args;
   const eventId = event.id;
 
-  if (data.payment !== "complimentary") {
+  if (collect) {
     const payment = await recordManualPayment({
       event,
       registrationId,
@@ -346,7 +364,7 @@ async function payAndAdmit(args: {
     auditExtras: { ip: getClientIp(req), deskWalkIn: true },
   });
 
-  apiLogger.info({ msg: "walk-in:done", eventId, registrationId, payment: data.payment, userId: user.id });
+  apiLogger.info({ msg: "walk-in:done", eventId, registrationId, payment: data.payment, promoCode: data.promoCode ?? null, collected: collect, userId: user.id });
   return NextResponse.json({ ...summary, checkedIn: true }, { status: 201 });
 }
 

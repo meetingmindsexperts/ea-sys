@@ -13,7 +13,8 @@
  *
  * Added Oct 29, 2026: the desk walk-in, its document upload and the Complete
  * onsite link (docs/ONSITE_DESK_PLAN.md §4, §5), recorded new rather than
- * re-recorded.
+ * re-recorded. Then the walk-in's sponsor code and the desk's code check
+ * (same day), also recorded new.
  *
  * Changes re-recorded on purpose (Oct 5, 2026):
  *  - the barcode image: WEBINARS reaches it on every event where it works the
@@ -75,6 +76,7 @@ import { POST as walkInPOST } from "@/app/api/events/[eventId]/registrations/wal
 import { GET as completionStatusGET } from "@/app/api/events/[eventId]/registrations/completion-status/route";
 import { POST as onsiteLinkPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/onsite-link/route";
 import { POST as walkInDocumentPOST } from "@/app/api/events/[eventId]/registrations/walk-in/document/route";
+import { GET as walkInPromoGET } from "@/app/api/events/[eventId]/registrations/walk-in/promo/route";
 import { POST as paymentPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/payments/route";
 import { POST as emailPOST, PATCH as emailPATCH } from "@/app/api/events/[eventId]/registrations/[registrationId]/email/route";
 import { POST as docsResendPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/documents/resend/route";
@@ -151,6 +153,13 @@ const CASES: HandlerCase[] = [
     method: "POST",
     body: { ...walkIn, payment: "cash" },
   },
+  {
+    name: "POST registrations/walk-in (inclusive, sponsor code)",
+    handler: walkInPOST,
+    method: "POST",
+    body: { ...walkIn, payment: "inclusive", promoCode: "SPONSOR1" },
+  },
+  { name: "GET registrations/walk-in/promo", handler: walkInPromoGET, method: "GET", query: "code=SAVE10&ticketTypeId=tt1" },
   {
     name: "POST registrations/walk-in/document",
     handler: walkInDocumentPOST,

@@ -44,6 +44,8 @@ import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-ta
 import { computeDetailsDelta, syncRegistrationDetailsToSpeakers } from "@/lib/person-details-sync";
 import { getSponsors } from "@/lib/sponsors";
 import { completedAtOnCreate } from "@/lib/registration-completion";
+import { claimPromoCodeInTx, recordPromoRedemptionInTx, type PromoClaim } from "@/services/promo-code-service";
+import { PROMO_REFUSAL_MESSAGE, type PromoRefusal } from "@/lib/promo-redeem";
 // Leaf constants module (no agent machinery) — the admin-settable
 // paymentStatus policy (review H12) shared with the MCP boundary.
 import {
@@ -406,6 +408,23 @@ export interface CreateRegistrationInput {
    */
   supportingDocument?: { url: string; filename: string | null } | null;
 
+  /**
+   * A promo code to redeem on create, through the same redemption as the
+   * public form (`claimPromoCodeInTx`): applicability, the per-email limit and
+   * the usage count are decided in this transaction, so a refusal creates
+   * nothing. A sponsor code that covers the fee saves the row INCLUSIVE under
+   * the code's sponsor; any other code that leaves nothing to pay saves it
+   * COMPLIMENTARY. Otherwise the payment status stands and the discount is
+   * stored, so the balance, the invoice and the payment read it.
+   */
+  promoCode?: string | null;
+
+  /**
+   * Accept only a code whose sponsor covers the whole fee (the desk's
+   * Inclusive choice), so a discount code cannot pass as sponsor-paid.
+   */
+  requireSponsorCode?: boolean;
+
   /** Caller identity — written into `AuditLog.changes.source`. */
   source: "rest" | "mcp" | "agent" | "api";
 
@@ -435,6 +454,7 @@ export type CreateRegistrationErrorCode =
   | "SPONSOR_NOT_FOUND"
   | "BILLING_ACCOUNT_NOT_FOUND"
   | "BILLING_ACCOUNT_INACTIVE"
+  | PromoRefusal
   | "UNKNOWN";
 
 type RegistrationWithRelations = Prisma.RegistrationGetPayload<{
@@ -794,6 +814,14 @@ export async function createRegistration(
     billingAccountId = ba.id;
   }
 
+  const promoCodeInput = input.promoCode?.trim() || null;
+  if ((promoCodeInput || input.requireSponsorCode) && !ticketType) {
+    return { ok: false, code: "PROMO_CODE_NOT_APPLICABLE", message: "A promo code needs a registration type" };
+  }
+  if (input.requireSponsorCode && !promoCodeInput) {
+    return { ok: false, code: "PROMO_CODE_NOT_SPONSOR", message: "Enter the sponsor's code" };
+  }
+
   // Respect requiresApproval — if the ticket type needs approval, the
   // registration starts PENDING regardless of caller input.
   const rawStatus: ManualRegistrationStatus =
@@ -806,6 +834,11 @@ export async function createRegistration(
   // registration create, all in one transaction. Throws with sentinels
   // that are caught in the outer catch and mapped to error codes.
   let registration: RegistrationWithRelations;
+  // Set inside the transaction when a code is redeemed; read by the fan-out.
+  // Asserted wide: TypeScript cannot see the assignment inside the callback.
+  let promoClaim = null as PromoClaim | null;
+  // The status the row is saved with: the caller's, unless a code settled it.
+  const storedPaymentStatus = () => paymentStatusWithPromo(finalPaymentStatus, promoClaim);
   try {
     registration = await tenantTransaction(async (tx) => {
       // Dup check excludes CANCELLED — matches REST + MCP behavior post-Phase-0
@@ -911,9 +944,27 @@ export async function createRegistration(
       // scan at a venue, so qrCode stays null (Postgres allows many nulls in
       // the @unique index). It's minted lazily if an admin later flips the
       // registration to in-person.
+      if (promoCodeInput && ticketTypeId) {
+        const claimed = await claimPromoCodeInTx(tx, {
+          eventId,
+          code: promoCodeInput,
+          ticketTypeId,
+          email,
+          originalPrice: effectiveTicketPrice,
+          requireSponsorCover: input.requireSponsorCode,
+        });
+        if (!claimed.ok) throw new RegistrationServiceSentinel(claimed.code, {});
+        // Sponsor-paid means nothing left to pay; a legacy code that is not
+        // 100% off would leave an INCLUSIVE row owing money.
+        if (input.requireSponsorCode && !claimed.claim.sponsorCovered) {
+          throw new RegistrationServiceSentinel("PROMO_CODE_NOT_SPONSOR", {});
+        }
+        promoClaim = claimed.claim;
+      }
+
       const qrCode = isVirtual ? null : generateBarcode();
       const serialId = await getNextSerialId(tx, eventId, organizationId);
-      return tx.registration.create({
+      const created = await tx.registration.create({
         data: {
           organizationId,
           eventId,
@@ -929,9 +980,13 @@ export async function createRegistration(
             supportingDocumentFilename: input.supportingDocument.filename,
           }),
           status: finalStatus,
-          paymentStatus: finalPaymentStatus,
+          paymentStatus: storedPaymentStatus(),
           attendanceMode,
-          sponsorId,
+          sponsorId: promoClaim?.sponsorCovered ? promoClaim.promo.sponsorId : sponsorId,
+          ...(promoClaim && {
+            promoCodeId: promoClaim.promo.id,
+            discountAmount: promoClaim.discountAmount > 0 ? promoClaim.discountAmount : null,
+          }),
           billingAccountId,
           payerReference,
           attendeeIsGuarantor,
@@ -944,6 +999,10 @@ export async function createRegistration(
         },
         include: { attendee: true, ticketType: true },
       });
+      if (promoClaim) {
+        await recordPromoRedemptionInTx(tx, { claim: promoClaim, organizationId, registrationId: created.id, email });
+      }
+      return created;
     });
   } catch (err) {
     if (err instanceof RegistrationServiceSentinel) {
@@ -969,6 +1028,10 @@ export async function createRegistration(
           code: "EVENT_FULL",
           message: "This event has reached its maximum number of attendees. Raise the cap in Settings → Registration to admit more.",
         };
+      }
+      if (isPromoRefusal(err.code)) {
+        apiLogger.warn({ msg: "registration:create-promo-refused", eventId, code: err.code, source });
+        return { ok: false, code: err.code, message: PROMO_REFUSAL_MESSAGE[err.code] };
       }
     }
     apiLogger.error({ err, eventId, email }, "registration-service:create-failed");
@@ -1043,9 +1106,11 @@ export async function createRegistration(
         changes: {
           source,
           ticketTypeId: ticketType?.id ?? null,
-          paymentStatus: finalPaymentStatus,
+          paymentStatus: storedPaymentStatus(),
           status: finalStatus,
-          ...(sponsorId ? { sponsorId } : {}),
+          ...(promoClaim?.sponsorCovered ? { sponsorId: promoClaim.promo.sponsorId } : {}),
+          ...(!promoClaim?.sponsorCovered && sponsorId ? { sponsorId } : {}),
+          ...(promoClaim ? { promoCode: promoClaim.promo.code, discountAmount: promoClaim.discountAmount } : {}),
           ...(requestIp ? { ip: requestIp } : {}),
           // The entry path when a caller named it (e.g. PUBLIC_SUBMITTER), so
           // the Activity timeline can say "Presenter sign-up" for a row with
@@ -1082,8 +1147,8 @@ export async function createRegistration(
   //     PDF still attaches only if the effective (virtual) price > 0.
   // The barcode block self-skips for virtual (null qrCode); email.ts adds the
   // joining-instructions block when attendanceMode is VIRTUAL.
-  const owesMoney =
-    effectiveTicketPrice > 0 && OUTSTANDING_PAYMENT_STATUSES.has(finalPaymentStatus);
+  const priceDue = promoClaim ? promoClaim.finalPrice : effectiveTicketPrice;
+  const owesMoney = priceDue > 0 && OUTSTANDING_PAYMENT_STATUSES.has(storedPaymentStatus());
   if (ticketType && (owesMoney || isVirtual) && !input.suppressConfirmationEmail) {
     sendRegistrationConfirmationEmail({
       event,
@@ -1115,6 +1180,20 @@ export async function createRegistration(
   return { ok: true, registration, dtcm };
 }
 
+/**
+ * The payment status once a code is redeemed: the sponsor pays (INCLUSIVE), or
+ * the code leaves nothing to pay (COMPLIMENTARY), else the caller's status.
+ */
+function paymentStatusWithPromo(status: ManualPaymentStatus, claim: PromoClaim | null): ManualPaymentStatus {
+  if (!claim) return status;
+  if (claim.sponsorCovered) return PaymentStatus.INCLUSIVE;
+  return claim.finalPrice === 0 ? PaymentStatus.COMPLIMENTARY : status;
+}
+
+function isPromoRefusal(code: string): code is PromoRefusal {
+  return code in PROMO_REFUSAL_MESSAGE;
+}
+
 // ── Internal sentinel for transaction rollback ───────────────────────────────
 
 /**
@@ -1125,7 +1204,7 @@ export async function createRegistration(
  */
 class RegistrationServiceSentinel extends Error {
   constructor(
-    public readonly code: "ALREADY_REGISTERED" | "SOLD_OUT" | "EVENT_FULL",
+    public readonly code: "ALREADY_REGISTERED" | "SOLD_OUT" | "EVENT_FULL" | PromoRefusal,
     public readonly meta: Record<string, unknown>,
   ) {
     super(code);
