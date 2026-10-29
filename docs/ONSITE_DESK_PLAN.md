@@ -156,6 +156,13 @@ As built (Oct 29, 2026):
   right (review of f694a318). Known gap, as on the public form: on a $0 rate a
   sponsor's code writes no redemption row, so its per-email limit is not
   enforced there.
+- Printing is NOT the default (owner, Oct 29, 2026): the desk's actions are
+  **Check in**, **Record … & check in** and **Register & check in**, and a
+  checked-in row offers **Print badge** (then **Reprint badge**) for whoever
+  wants one (the
+  Registrations page's Badges prints in bulk). Enter on someone already in
+  says so and prints nothing. The text below describes the first build, which
+  printed on every check-in.
 - For someone already registered, "Check in & print" asks the door's own gate;
   when payment is due it opens Record payment (cash / card) in the row, then
   checks in and prints. "Complete onsite" for a not-completed row is step 3;
@@ -266,7 +273,8 @@ that clears itself after a few seconds. The tablet needs no staff login.
 ## 6. Owner decisions (Oct 28, 2026)
 
 - Paid walk-ins: the invoice, receipt and email may arrive later.
-- Printing: manual print dialog at the desk (no Chrome kiosk printing).
+- Printing: manual print dialog at the desk (no Chrome kiosk printing), and
+  only on request since Oct 29 (Print badge on a checked-in row).
 - Completing onsite: both the attendee's phone (QR) and a desk tablet.
 
 ## 7. Delivery

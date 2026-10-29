@@ -45,7 +45,7 @@ export interface DeskEnterCandidate {
 }
 
 export type DeskEnterAction =
-  | { kind: "reprint"; id: string }
+  | { kind: "checked-in"; id: string }
   | { kind: "pay"; id: string }
   | { kind: "check-in"; id: string }
   | { kind: "cancelled" }
@@ -65,7 +65,8 @@ export function deskEnterAction(query: string, results: DeskEnterCandidate[]): D
   const only = results[0];
   if (!only) return CODE_SHAPE.test(text) ? { kind: "scan", code: text } : { kind: "no-match" };
   if (only.status === "CANCELLED") return { kind: "cancelled" };
-  if (only.status === "CHECKED_IN") return { kind: "reprint", id: only.id };
+  // Already in: nothing to do (badges print only on request, owner Oct 29 2026).
+  if (only.status === "CHECKED_IN") return { kind: "checked-in", id: only.id };
   if (only.paymentDue) return { kind: "pay", id: only.id };
   return { kind: "check-in", id: only.id };
 }

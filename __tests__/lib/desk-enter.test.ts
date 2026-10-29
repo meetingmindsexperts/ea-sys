@@ -8,8 +8,8 @@ import { deskEnterAction, deskQueryIsSearchable, matchesDeskSearch, nextPollBatc
 const row = (status: string, paymentDue = false, id = "r1"): DeskEnterCandidate => ({ id, status, paymentDue });
 
 describe("deskEnterAction", () => {
-  it("one match: reprint when in, pay when owing, otherwise check in", () => {
-    expect(deskEnterAction("smith", [row("CHECKED_IN", true)])).toEqual({ kind: "reprint", id: "r1" });
+  it("one match: nothing to do when in (no print by default), pay when owing, otherwise check in", () => {
+    expect(deskEnterAction("smith", [row("CHECKED_IN", true)])).toEqual({ kind: "checked-in", id: "r1" });
     expect(deskEnterAction("smith", [row("CONFIRMED", true)])).toEqual({ kind: "pay", id: "r1" });
     expect(deskEnterAction("smith", [row("PENDING")])).toEqual({ kind: "check-in", id: "r1" });
   });

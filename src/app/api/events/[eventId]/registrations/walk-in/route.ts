@@ -26,8 +26,8 @@ import { MANUAL_PAYMENT_EVENT_SELECT, recordManualPayment } from "@/services/pay
  *
  * The onsite desk's one step for a walk-in (docs/ONSITE_DESK_PLAN.md §4):
  * register, record the payment when paid, and check in, in one request so the
- * desk is done in seconds. The badge prints from the page afterwards (the
- * owner's choice: the browser's print dialog, no kiosk printing).
+ * desk is done in seconds. The badge is not printed by default: the desk's
+ * row offers Print badge (owner, Oct 29 2026), or the Registrations page does.
  *
  * Each step is the shared one: `createRegistration()`, `recordManualPayment()`
  * with the documents deferred (the invoice, receipt and email arrive after the

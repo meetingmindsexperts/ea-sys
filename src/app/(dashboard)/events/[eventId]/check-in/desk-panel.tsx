@@ -26,8 +26,9 @@ import { SupportingDocumentField, type UploadedDocument } from "@/components/pub
 
 /**
  * The onsite desk (docs/ONSITE_DESK_PLAN.md §4): find someone and check them
- * in with their badge, or register a walk-in, take the money and print, in one
- * step. Badges print through the browser's print dialog (owner's choice).
+ * in, or register a walk-in and take the money, in one step. Badges print only
+ * when staff press Print badge (owner, Oct 29 2026: not by default), through
+ * the browser's print dialog.
  */
 
 interface DeskRegistration {
@@ -51,6 +52,8 @@ interface DeskRegistration {
   pricingTier?: { price: number | string; currency?: string } | null;
   originalPrice?: number | string | null;
   discountAmount?: number | string | null;
+  /** Badges printed so far: the row offers Print badge, then Reprint badge. */
+  badgePrintCount?: number;
   payments?: Array<{ amount: number | string; currency: string; status: string }>;
 }
 
@@ -360,22 +363,18 @@ export function DeskPanel({
       openPayment(row.id);
       return;
     }
-    checkInAndPrint(row);
+    checkIn(row);
   };
 
-  const printFor = async (r: DeskRegistration) => {
-    const refusal = await printBadge(eventId, r.id);
-    if (refusal) toast.error(`Checked in, but the badge did not print: ${refusal}`, { duration: 10000 });
-  };
-
-  const checkInAndPrint = async (r: DeskRegistration) => {
+  // Check-in does not print (owner, Oct 29 2026): the row then offers Print badge.
+  const checkIn = async (r: DeskRegistration) => {
     setBusyId(r.id);
     try {
       const res = await fetch(`/api/events/${eventId}/registrations/${r.id}/check-in`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (data.code === "PAYMENT_REQUIRED") {
         openPayment(r.id);
-        toast.warning("Payment is due. Record it, then the badge prints.");
+        toast.warning("Payment is due. Record it, then they are checked in.");
         return;
       }
       if (!res.ok && data.code !== "ALREADY_CHECKED_IN") {
@@ -383,7 +382,6 @@ export function DeskPanel({
         return;
       }
       toast.success(`${formatPersonName(r.attendee.title, r.attendee.firstName, r.attendee.lastName)} checked in`);
-      await printFor(r);
       refresh();
     } catch (err) {
       console.error("[desk] check-in failed", err);
@@ -393,13 +391,16 @@ export function DeskPanel({
     }
   };
 
-  const reprint = async (r: DeskRegistration) => {
+  /** Print or reprint the badge, only on request. */
+  const print = async (r: DeskRegistration) => {
     setBusyId(r.id);
     try {
       const refusal = await printBadge(eventId, r.id);
       if (refusal) toast.error(refusal);
+      // The count moved, so the row now reads Reprint badge.
+      else refresh();
     } catch (err) {
-      console.error("[desk] reprint failed", err);
+      console.error("[desk] badge print failed", err);
       toast.error("Network error: the badge did not print");
     } finally {
       setBusyId(null);
@@ -442,13 +443,13 @@ export function DeskPanel({
     } finally {
       setBusyId(null);
     }
-    await checkInAndPrint(r);
+    await checkIn(r);
   };
 
   /**
    * Enter in the search box (the decision is `deskEnterAction`). A ref, not
    * state, guards against a second Enter: state lags a fast repeat or a
-   * scanner's CR+LF, and a second run would print a second badge.
+   * scanner's CR+LF, and a second run would check in twice.
    */
   const enterInFlight = useRef(false);
   // And a repeat on the same person within 2 s is ignored even after the first
@@ -469,8 +470,8 @@ export function DeskPanel({
     }
     enterInFlight.current = true;
     try {
-      if (action.kind === "reprint" && row) await reprint(row);
-      else if (action.kind === "check-in" && row) await checkInAndPrint(row);
+      if (action.kind === "checked-in") toast.info("Already checked in. Print or reprint the badge from their row if they need one.");
+      else if (action.kind === "check-in" && row) await checkIn(row);
       else if (action.kind === "pay") openPayment(action.id);
       else if (action.kind === "scan") await scanCode(action.code);
       else if (action.kind === "choose") toast.info(`${action.count} people match. Choose one.`);
@@ -492,14 +493,13 @@ export function DeskPanel({
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast.success(`${formatPersonName(data.attendee?.title, data.attendee?.firstName ?? "", data.attendee?.lastName ?? "")} checked in`);
-        const refusal = await printBadge(eventId, data.id);
-        if (refusal) toast.error(`Checked in, but the badge did not print: ${refusal}`, { duration: 10000 });
-        setQuery("");
+        // Their row, with Print badge on it should they want one.
+        if (data.attendee?.email) setQuery(data.attendee.email);
         await refresh();
         return;
       }
       if (data.code === "ALREADY_CHECKED_IN" && data.registration?.attendee?.email) {
-        toast.warning("Already checked in. Reprint their badge if they need one.");
+        toast.warning("Already checked in. Print or reprint the badge from their row if they need one.");
         setQuery(data.registration.attendee.email);
         return;
       }
@@ -513,7 +513,7 @@ export function DeskPanel({
         }
         setQuery(owing.attendee.email);
         openPayment(owing.id);
-        toast.warning("Payment is due. Record it, then the badge prints.");
+        toast.warning("Payment is due. Record it, then they are checked in.");
         return;
       }
       toast.error(data.error || "No registration with that code");
@@ -599,9 +599,9 @@ export function DeskPanel({
                     <RowAction
                       r={r}
                       busy={busyId === r.id}
-                      onCheckIn={() => checkInAndPrint(r)}
+                      onCheckIn={() => checkIn(r)}
                       onRecordPayment={() => openPayment(r.id)}
-                      onReprint={() => reprint(r)}
+                      onPrint={() => print(r)}
                     />
                     {r.status !== "CANCELLED" && (
                       <div className="flex gap-1">
@@ -644,7 +644,7 @@ export function DeskPanel({
                       </div>
                     )}
                     <Button size="sm" className="h-9" disabled={busyId === r.id} onClick={() => recordPaymentThenAdmit(r)}>
-                      {`Record ${collectLabel(balanceToCollect(r, tax), tax)}, check in & print`}
+                      {`Record ${collectLabel(balanceToCollect(r, tax), tax)} & check in`}
                     </Button>
                     <Button size="sm" variant="ghost" className="h-9" onClick={() => openPayment(null)}>
                       Cancel
@@ -665,10 +665,9 @@ export function DeskPanel({
           setQuery(email);
           refresh();
         }}
-        onDone={async (registrationId, email) => {
-          const refusal = await printBadge(eventId, registrationId);
-          if (refusal) toast.error(`Checked in, but the badge did not print: ${refusal}`, { duration: 10000 });
-          // Show the new row once the list has it, so the desk sees "Checked in".
+        onDone={async (email) => {
+          // Show the new row once the list has it: "Checked in", with Print
+          // badge on it should they want one (not printed by default).
           await refresh();
           setQuery(email);
           searchRef.current?.focus();
@@ -698,20 +697,20 @@ function RowAction({
   busy,
   onCheckIn,
   onRecordPayment,
-  onReprint,
+  onPrint,
 }: {
   r: DeskRegistration;
   busy: boolean;
   onCheckIn: () => void;
   onRecordPayment: () => void;
-  onReprint: () => void;
+  onPrint: () => void;
 }) {
   if (r.status === "CANCELLED") return null;
   if (busy) return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />;
   if (r.status === "CHECKED_IN") {
     return (
-      <Button size="sm" variant="outline" className="shrink-0 gap-1.5" onClick={onReprint}>
-        <Printer className="h-4 w-4" /> Reprint badge
+      <Button size="sm" variant="outline" className="shrink-0 gap-1.5" onClick={onPrint}>
+        <Printer className="h-4 w-4" /> {(r.badgePrintCount ?? 0) > 0 ? "Reprint badge" : "Print badge"}
       </Button>
     );
   }
@@ -724,7 +723,7 @@ function RowAction({
   }
   return (
     <Button size="sm" className="shrink-0 gap-1.5" onClick={onCheckIn}>
-      <Printer className="h-4 w-4" /> Check in & print
+      <CheckCircle2 className="h-4 w-4" /> Check in
     </Button>
   );
 }
@@ -819,7 +818,7 @@ function WalkInForm({
   tax: DeskTax;
   /** Registered, but a later step did not finish: show them in search. */
   onRegistered: (email: string) => void;
-  onDone: (registrationId: string, email: string) => Promise<void>;
+  onDone: (email: string) => Promise<void>;
 }) {
   const { data: ticketTypes = [] } = useTickets(eventId);
   const types = useMemo(
@@ -991,7 +990,7 @@ function WalkInForm({
         return;
       }
       toast.success(`${data.name} registered and checked in${data.paymentStatus === "INCLUSIVE" ? " (sponsor-paid)" : ""}`);
-      await onDone(data.registrationId, email);
+      await onDone(email);
     } catch (err) {
       console.error("[desk] walk-in failed", err);
       toast.error("Network error. Search for them before trying again, in case it went through.");
@@ -1178,8 +1177,8 @@ function WalkInForm({
           </div>
 
           <Button type="submit" className="w-full h-12 btn-gradient text-base gap-2" disabled={submitting || !type}>
-            {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Printer className="h-5 w-5" />}
-            Register, check in & print
+            {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <UserPlus className="h-5 w-5" />}
+            Register & check in
           </Button>
         </form>
       </CardContent>

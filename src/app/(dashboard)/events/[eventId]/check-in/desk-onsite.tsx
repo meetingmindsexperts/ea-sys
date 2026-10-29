@@ -318,7 +318,7 @@ export function CompleteOnsiteDialog({
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-600" />
             <div className="space-y-1 text-sm">
               <p className="font-medium">Their details are complete.</p>
-              <p className="text-green-800">Submitting the form sends their confirmation email with the entry barcode. Admit them to check in and print the badge.</p>
+              <p className="text-green-800">Submitting the form sends their confirmation email with the entry barcode. Admit them to check them in; their row has Print badge if they need one.</p>
             </div>
           </div>
         ) : (
