@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { LogOut, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useEvent, useRegistrations } from "@/hooks/use-api";
+import { useEvent, useOrgBranding, useRegistrations } from "@/hooks/use-api";
 import { DeskPanel } from "../desk-panel";
 
 /**
@@ -13,12 +13,15 @@ import { DeskPanel } from "../desk-panel";
  * find someone and admit them, or register a walk-in. Same confinement as the
  * rest of /check-in (src/lib/route-confinement.ts); every action goes through
  * the same routes as before. It opens from the Registrations page, and Exit
- * returns there.
+ * returns there. Branded (owner, Oct 29 2026): the organisation's logo in the
+ * header and the event's banner above the desk, so staff and the people at the
+ * desk see whose event this is.
  */
 export default function DeskPage() {
   const eventId = useParams().eventId as string;
   const { data: event, isError } = useEvent(eventId);
   const { data: registrations = [] } = useRegistrations(eventId);
+  const { data: branding } = useOrgBranding();
 
   const checkedIn = registrations.filter((r) => r.status === "CHECKED_IN").length;
   const total = registrations.filter((r) => r.status !== "CANCELLED").length;
@@ -27,9 +30,19 @@ export default function DeskPage() {
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-50 text-slate-900">
       <header className="sticky top-0 z-10 border-b bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Registration desk</p>
-            <h1 className="truncate text-lg font-semibold">{event?.name ?? (isError ? "Event not available" : "Loading…")}</h1>
+          <div className="flex min-w-0 items-center gap-3">
+            {branding?.logo && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={branding.logo}
+                alt={branding.name || "Organisation"}
+                className="h-10 max-w-[96px] shrink-0 object-contain border-r pr-3"
+              />
+            )}
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Registration desk</p>
+              <h1 className="truncate text-lg font-semibold">{event?.name ?? (isError ? "Event not available" : "Loading…")}</h1>
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-4">
             <div className="flex items-center gap-2 text-sm" aria-label="Checked in">
@@ -46,7 +59,17 @@ export default function DeskPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-4">
+      <main className="mx-auto max-w-7xl space-y-4 px-4 py-4">
+        {event?.bannerImage && (
+          <picture>
+            {event.bannerImageMobile && <source media="(max-width: 575px)" srcSet={event.bannerImageMobile} />}
+            <img
+              src={event.bannerImage}
+              alt={event.name}
+              className="max-h-36 w-full rounded-lg object-cover shadow-sm"
+            />
+          </picture>
+        )}
         {/* An event outside the person's grant (an ONSITE user not assigned to
             it) answers 404; say so rather than "Loading…" forever. */}
         {isError && !event && (
