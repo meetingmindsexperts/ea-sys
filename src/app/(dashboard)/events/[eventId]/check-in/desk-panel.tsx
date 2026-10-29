@@ -542,148 +542,151 @@ export function DeskPanel({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <form onSubmit={handleEnter} className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              ref={searchRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Name, email, organisation, registration number or scan"
-              className="pl-10 pr-10 h-12 text-base"
-              autoComplete="off"
-              autoFocus
-              // readOnly, not disabled: a disabled input loses focus, and the
-              // next scan's keystrokes would land nowhere.
-              readOnly={scanning}
-            />
-            {scanning && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
-          </form>
-          {!deskQueryIsSearchable(query) && (
-            <p className="text-sm text-muted-foreground px-1">
-              Type two letters of a name or a registration number, or scan a badge or confirmation barcode. Enter acts on a single match.
-            </p>
-          )}
-          {deskQueryIsSearchable(query) && results.length === 0 && (
-            <p className="text-sm text-muted-foreground px-1">
-              Nobody matches. Press Enter if this is a scanned code, or register them as a walk-in.
-            </p>
-          )}
-          {waitingEntries.length > 0 && (
-            <div className="space-y-1.5 rounded-md border bg-slate-50 p-2">
-              <p className="px-1 text-xs font-medium text-muted-foreground">Waiting to complete their form</p>
-              <div className="flex flex-wrap gap-1.5">
-                {waitingEntries.map((entry) => (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    onClick={() => setOnsitePerson(entry)}
-                    className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
-                      entry.completed ? "border-green-200 bg-green-50 text-green-800" : "bg-white text-slate-700"
-                    }`}
-                  >
-                    {entry.completed ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
-                    {entry.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="space-y-2 empty:hidden">
-            {results.map((r) => (
-              <div key={r.id} className="rounded-lg border bg-white p-3 space-y-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">
-                      {formatPersonName(r.attendee.title, r.attendee.firstName, r.attendee.lastName)}
-                      {r.serialId != null && (
-                        <span className="ml-2 font-mono text-xs text-muted-foreground">{String(r.serialId).padStart(3, "0")}</span>
-                      )}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {[r.attendee.email, r.attendee.organization].filter(Boolean).join(" · ")}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {r.ticketType && <Badge variant="outline">{r.ticketType.name}</Badge>}
-                      <StatusChips r={r} />
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1.5">
-                    <RowAction
-                      r={r}
-                      busy={busyId === r.id}
-                      onCheckIn={() => checkIn(r)}
-                      onRecordPayment={() => openPayment(r.id)}
-                      onPrint={canPrint ? () => print(r) : undefined}
-                    />
-                    {r.status !== "CANCELLED" && (
-                      <div className="flex gap-1">
-                        {!isFormCompleted(r) && (
-                          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setOnsitePerson(personOf(r))}>
-                            <Smartphone className="h-3.5 w-3.5" /> Complete onsite
-                          </Button>
-                        )}
-                        {canEdit && (
-                          <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => setEditing(r)}>
-                            <Pencil className="h-3.5 w-3.5" /> Edit
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {payingId === r.id && (
-                  <div className="flex flex-wrap items-end gap-2 rounded-md bg-muted/50 p-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Paid by</Label>
-                      <Select value={payMethod} onValueChange={(v) => v && setPayMethod(v as "cash" | "card")}>
-                        <SelectTrigger className="w-28 h-9 bg-white"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="cash">Cash</SelectItem>
-                          <SelectItem value="card">Card</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {payMethod === "card" && (
-                      <div className="space-y-1">
-                        <Label className="text-xs" htmlFor={`last4-${r.id}`}>Card last 4</Label>
-                        <Input
-                          id={`last4-${r.id}`}
-                          value={payLast4}
-                          onChange={(e) => setPayLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                          inputMode="numeric"
-                          className="w-24 h-9 bg-white"
-                        />
-                      </div>
-                    )}
-                    <Button size="sm" className="h-9" disabled={busyId === r.id} onClick={() => recordPaymentThenAdmit(r)}>
-                      {`Record ${collectLabel(balanceToCollect(r, tax), tax)} & check in`}
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-9" onClick={() => openPayment(null)}>
-                      Cancel
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {canRegister && (
+      {/* Left: search, then the walk-in QR under it. Right: the walk-in form (owner, Oct 29). */}
+      <div className="space-y-4">
         <Card>
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <div>
-              <p className="flex items-center gap-2 text-sm font-semibold">
-                <QrCode className="h-4 w-4 text-primary" /> Walk-in QR
+          <CardContent className="p-4 space-y-3">
+            <form onSubmit={handleEnter} className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                ref={searchRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Name, email, organisation, registration number or scan"
+                className="pl-10 pr-10 h-12 text-base"
+                autoComplete="off"
+                autoFocus
+                // readOnly, not disabled: a disabled input loses focus, and the
+                // next scan's keystrokes would land nowhere.
+                readOnly={scanning}
+              />
+              {scanning && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
+            </form>
+            {!deskQueryIsSearchable(query) && (
+              <p className="text-sm text-muted-foreground px-1">
+                Type two letters of a name or a registration number, or scan a badge or confirmation barcode. Enter acts on a single match.
               </p>
-              <p className="text-xs text-muted-foreground">Exhibitors and complimentary guests register themselves on their phone.</p>
+            )}
+            {deskQueryIsSearchable(query) && results.length === 0 && (
+              <p className="text-sm text-muted-foreground px-1">
+                Nobody matches. Press Enter if this is a scanned code, or register them as a walk-in.
+              </p>
+            )}
+            {waitingEntries.length > 0 && (
+              <div className="space-y-1.5 rounded-md border bg-slate-50 p-2">
+                <p className="px-1 text-xs font-medium text-muted-foreground">Waiting to complete their form</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {waitingEntries.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => setOnsitePerson(entry)}
+                      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                        entry.completed ? "border-green-200 bg-green-50 text-green-800" : "bg-white text-slate-700"
+                      }`}
+                    >
+                      {entry.completed ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
+                      {entry.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="space-y-2 empty:hidden">
+              {results.map((r) => (
+                <div key={r.id} className="rounded-lg border bg-white p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">
+                        {formatPersonName(r.attendee.title, r.attendee.firstName, r.attendee.lastName)}
+                        {r.serialId != null && (
+                          <span className="ml-2 font-mono text-xs text-muted-foreground">{String(r.serialId).padStart(3, "0")}</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {[r.attendee.email, r.attendee.organization].filter(Boolean).join(" · ")}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {r.ticketType && <Badge variant="outline">{r.ticketType.name}</Badge>}
+                        <StatusChips r={r} />
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                      <RowAction
+                        r={r}
+                        busy={busyId === r.id}
+                        onCheckIn={() => checkIn(r)}
+                        onRecordPayment={() => openPayment(r.id)}
+                        onPrint={canPrint ? () => print(r) : undefined}
+                      />
+                      {r.status !== "CANCELLED" && (
+                        <div className="flex gap-1">
+                          {!isFormCompleted(r) && (
+                            <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setOnsitePerson(personOf(r))}>
+                              <Smartphone className="h-3.5 w-3.5" /> Complete onsite
+                            </Button>
+                          )}
+                          {canEdit && (
+                            <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => setEditing(r)}>
+                              <Pencil className="h-3.5 w-3.5" /> Edit
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {payingId === r.id && (
+                    <div className="flex flex-wrap items-end gap-2 rounded-md bg-muted/50 p-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Paid by</Label>
+                        <Select value={payMethod} onValueChange={(v) => v && setPayMethod(v as "cash" | "card")}>
+                          <SelectTrigger className="w-28 h-9 bg-white"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="cash">Cash</SelectItem>
+                            <SelectItem value="card">Card</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {payMethod === "card" && (
+                        <div className="space-y-1">
+                          <Label className="text-xs" htmlFor={`last4-${r.id}`}>Card last 4</Label>
+                          <Input
+                            id={`last4-${r.id}`}
+                            value={payLast4}
+                            onChange={(e) => setPayLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                            inputMode="numeric"
+                            className="w-24 h-9 bg-white"
+                          />
+                        </div>
+                      )}
+                      <Button size="sm" className="h-9" disabled={busyId === r.id} onClick={() => recordPaymentThenAdmit(r)}>
+                        {`Record ${collectLabel(balanceToCollect(r, tax), tax)} & check in`}
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-9" onClick={() => openPayment(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-            <Button type="button" variant="outline" onClick={() => setQrOpen(true)}>Show QR</Button>
           </CardContent>
         </Card>
-      )}
+
+        {canRegister && (
+          <Card>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <div>
+                <p className="flex items-center gap-2 text-sm font-semibold">
+                  <QrCode className="h-4 w-4 text-primary" /> Walk-in QR
+                </p>
+                <p className="text-xs text-muted-foreground">Exhibitors and complimentary guests register themselves on their phone.</p>
+              </div>
+              <Button type="button" variant="outline" onClick={() => setQrOpen(true)}>Show QR</Button>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       <WalkInForm
         eventId={eventId}
