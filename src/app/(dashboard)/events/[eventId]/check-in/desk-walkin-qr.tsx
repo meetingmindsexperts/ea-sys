@@ -22,7 +22,7 @@ interface Options {
   eventEnded: boolean;
   /** The event's timezone: the QR runs to the end of its last day there. */
   timezone: string;
-  exhibitor: { rateName: string; validUntil: string } | null;
+  exhibitor: { rateName: string; validUntil: string; hasSponsorCodes: boolean } | null;
   complimentary: { rateName: string } | null;
 }
 
@@ -44,7 +44,11 @@ const INSTRUCTION: Record<Kind, string> = {
 
 /** "the end of 1 Dec 2026": the QR runs to the end of the event's last day, in its timezone. */
 function validUntilLabel(iso: string, timeZone: string): string {
-  return `the end of ${new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium", timeZone })}`;
+  try {
+    return `the end of ${new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium", timeZone })}`;
+  } catch {
+    return `the end of ${new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" })}`;
+  }
 }
 
 function escapeHtml(text: string): string {
@@ -81,8 +85,14 @@ function printSheet(kind: Kind, shown: ShownQr, eventName: string, timeZone: str
     win.focus();
     win.print();
   };
-  if (img && !img.complete) img.addEventListener("load", go, { once: true });
-  else go();
+  if (img && !img.complete) {
+    img.addEventListener("load", go, { once: true });
+    // A QR that will not draw must not leave a sheet that never prints.
+    img.addEventListener("error", () => {
+      win.close();
+      toast.error("The QR could not be drawn for printing. Try Print again.");
+    }, { once: true });
+  } else go();
 }
 
 export function WalkInQrDialog({
@@ -165,6 +175,7 @@ export function WalkInQrDialog({
 
   const close = () => {
     requestRef.current++;
+    setLoading(false);
     setShown(null);
     setOptions(null);
     onClose();
@@ -208,6 +219,11 @@ export function WalkInQrDialog({
               </Button>
             </div>
 
+            {kind === "exhibitor" && options.exhibitor && !options.exhibitor.hasSponsorCodes && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                No sponsor has a code that covers the fee for exhibitors, so every scan would be refused. Add one in Promo Codes, with &ldquo;Sponsor covers the fee&rdquo; on.
+              </p>
+            )}
             {unavailable && (
               <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                 {kind === "exhibitor"
@@ -225,7 +241,7 @@ export function WalkInQrDialog({
                 {/* eslint-disable-next-line @next/next/no-img-element -- a data URL from the API */}
                 <img src={shown.qr} alt={`Scan to register: ${TITLE[kind]}`} className="h-64 w-64 max-w-full sm:h-72 sm:w-72" />
                 <p className="max-w-md text-sm">{INSTRUCTION[kind]}</p>
-                <p className="text-xs text-muted-foreground">Valid until {validUntilLabel(shown.expiresAt, options.timezone)}. The same QR every time, so a printed one keeps working.</p>
+                <p className="text-xs text-muted-foreground">Valid until {validUntilLabel(shown.expiresAt, options.timezone)}. The same QR every time, so a printed one keeps working. If you change the event&rsquo;s dates, print it again.</p>
                 <Button type="button" variant="outline" className="gap-1.5" onClick={() => printSheet(kind, shown, eventName, options.timezone)}>
                   <Printer className="h-4 w-4" /> Print
                 </Button>

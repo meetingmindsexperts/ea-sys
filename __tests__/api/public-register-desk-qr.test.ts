@@ -151,9 +151,11 @@ describe("a valid complimentary desk QR", () => {
     expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ deskQr: { kind: "complimentary", issuedBy: "staff-1" } });
   });
 
-  it("swaps the per-IP limits for a per-QR one and a looser per-IP one; the first ceiling and per-email limit stay", async () => {
+  it("swaps the per-IP limits for a looser per-IP one, checked first, and a per-QR backstop; the first ceiling and per-email limit stay", async () => {
     await post({ deskToken: compToken() });
-    expect(rateLimits.get("public-register:desk")).toBe(120);
+    // Per-IP before per-QR: one address cannot spend a printed QR's budget for everyone.
+    expect(rateKeys.findIndex((k) => k.startsWith("public-register:desk-ip:"))).toBeLessThan(rateKeys.findIndex((k) => k.startsWith("public-register:desk:")));
+    expect(rateLimits.get("public-register:desk")).toBe(600);
     expect(rateLimits.get("public-register:desk-ip")).toBe(30);
     expect(rateLimits.get("public-register:first")).toBe(60);
     expect(rateKeys.some((k) => k.startsWith("public-register:burst:") || k.startsWith("public-register:ip:"))).toBe(false);
@@ -214,6 +216,17 @@ describe("an exhibitor desk QR", () => {
     expect(r.status).toBe(201);
     expect(tx.registration.create.mock.calls[0][0].data).toMatchObject({ sponsorId: "sp-r", paymentStatus: "INCLUSIVE" });
     expect(claimPromo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ requireSponsorCover: true }));
+  });
+
+  it("on an exhibitor rate that is not a sponsor link, still demands a sponsor's paying code", async () => {
+    on(EXHIBITOR, { ...COMP, id: "tier-std-exh", name: "Inclusive", price: 200 });
+    mockDb.event.findFirst.mockResolvedValueOnce({ ...(await mockDb.event.findFirst()), settings: { codeRequiredTiers: [] } });
+    claimPromo.mockResolvedValueOnce({ ok: true, claim: { promo: { id: "promo-csl", code: "CSL", sponsorId: "sp-csl", sponsor: { name: "CSL" } }, discountAmount: 200, sponsorCovered: true } });
+    expect((await post({ deskToken: exhibitorToken(), ticketTypeId: "tt-exh", pricingTierId: "tier-std-exh", promoCode: "CSL" })).status).toBe(201);
+    expect(claimPromo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ requireSponsorCover: true }));
+
+    mockDb.event.findFirst.mockResolvedValueOnce({ ...(await mockDb.event.findFirst()), settings: { codeRequiredTiers: [] } });
+    expect((await post({ deskToken: exhibitorToken(), ticketTypeId: "tt-exh", pricingTierId: "tier-std-exh" })).json.code).toBe("DESK_QR_CODE_REQUIRED");
   });
 
   it("refuses no code, a code the sponsor does not pay, and a delegate type", async () => {

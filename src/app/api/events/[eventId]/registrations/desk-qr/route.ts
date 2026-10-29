@@ -14,7 +14,7 @@ import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { registerTierSlug } from "@/lib/main-register-tiers";
 import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { mintDeskQrToken } from "@/lib/desk-qr-token";
-import { localDateInTz, resolveTimezone, wallTimeInTzToDate } from "@/lib/event-time";
+import { DEFAULT_EVENT_TIMEZONE, localDateInTz, resolveTimezone, wallTimeInTzToDate } from "@/lib/event-time";
 
 /**
  * The desk's Walk-in QR (docs/ONSITE_DESK_PLAN.md §8.1).
@@ -41,10 +41,40 @@ const COMPLIMENTARY_SLUG = "complimentary";
 
 const postSchema = z.object({ kind: z.enum(["exhibitor", "complimentary"]) });
 
-/** The end of the event's last day, in its own timezone: when its desk QRs stop. */
-function eventEnds(endDate: Date, timezone: string | null): Date {
+/** The event's timezone, or the default when the stored one is not a real zone (it would throw). */
+function eventTimezone(timezone: string | null): string {
   const tz = resolveTimezone(timezone);
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: tz });
+    return tz;
+  } catch {
+    apiLogger.warn({ msg: "desk-qr:invalid-timezone", timezone });
+    return DEFAULT_EVENT_TIMEZONE;
+  }
+}
+
+/** The end of the event's last day, in its own timezone: when its desk QRs stop. */
+function eventEnds(endDate: Date, tz: string): Date {
   return wallTimeInTzToDate(`${localDateInTz(endDate, tz)}T23:59:59`, tz);
+}
+
+/** Whether any sponsor's code can register an exhibitor: without one, every scan of the exhibitor QR would fail. */
+async function hasExhibitorSponsorCode(eventId: string, exhibitorTypeId: string): Promise<boolean> {
+  const now = new Date();
+  const count = await db.promoCode.count({
+    where: {
+      eventId,
+      isActive: true,
+      sponsorId: { not: null },
+      sponsorCoversFee: true,
+      AND: [
+        { OR: [{ validFrom: null }, { validFrom: { lte: now } }] },
+        { OR: [{ validUntil: null }, { validUntil: { gte: now } }] },
+        { OR: [{ ticketTypes: { none: {} } }, { ticketTypes: { some: { ticketTypeId: exhibitorTypeId } } }] },
+      ],
+    },
+  });
+  return count > 0;
 }
 
 interface TierRow {
@@ -144,14 +174,21 @@ export async function GET(_req: Request, { params }: RouteParams): Promise<NextR
       }
       const exhibitor = exhibitorRate(event.ticketTypes, readCodeRequiredTiers(event.settings));
       const complimentary = complimentaryRate(event.ticketTypes);
-      const ends = eventEnds(event.endDate, event.timezone);
+      const timezone = eventTimezone(event.timezone);
+      const ends = eventEnds(event.endDate, timezone);
       return NextResponse.json({
         webinar: event.eventType === "WEBINAR",
         // Registration switched off: the desk QR is refused too (owner, Oct 29).
         registrationClosed: registrationClosed(event.settings),
         eventEnded: ends.getTime() <= Date.now(),
-        timezone: resolveTimezone(event.timezone),
-        exhibitor: exhibitor ? { rateName: exhibitor.tier.name, validUntil: ends.toISOString() } : null,
+        timezone,
+        exhibitor: exhibitor
+          ? {
+              rateName: exhibitor.tier.name,
+              validUntil: ends.toISOString(),
+              hasSponsorCodes: await hasExhibitorSponsorCode(event.id, exhibitor.typeId),
+            }
+          : null,
         complimentary: complimentary ? { rateName: complimentary.name } : null,
       });
     });
@@ -200,7 +237,7 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
       }
 
       // Both QRs last to the end of the event; a finished event has none.
-      const until = eventEnds(event.endDate, event.timezone);
+      const until = eventEnds(event.endDate, eventTimezone(event.timezone));
       if (until.getTime() <= Date.now()) {
         apiLogger.warn({ msg: "desk-qr:event-ended", eventId, userId });
         return NextResponse.json({ error: "This event has ended.", code: "EVENT_ENDED" }, { status: 400 });

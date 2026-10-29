@@ -192,22 +192,25 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    // A valid desk QR swaps the per-IP limits for a per-QR one plus a looser
-    // per-IP one: venue Wi-Fi puts the whole queue on one address
-    // (docs/ONSITE_DESK_PLAN.md §8.5). 120 per QR bounds what a photographed
-    // QR can do in its 30 minutes.
+    // A valid desk QR swaps the per-IP limits for a looser per-IP one and a
+    // per-QR one: venue Wi-Fi puts the whole queue on one address
+    // (docs/ONSITE_DESK_PLAN.md §8.5). A QR lasts the whole event and every
+    // walk-in shares it, so the per-IP check runs FIRST: one address hammering
+    // a photographed sheet is stopped before it can spend the QR's budget for
+    // everyone (review of d242eb9d). The per-QR ceiling is a backstop sized
+    // well above a real morning queue.
     const deskRead = readDeskToken(typeof body?.deskToken === "string" ? body.deskToken : undefined, clientIp);
     if ("response" in deskRead) return deskRead.response;
     const { desk } = deskRead;
 
     if (desk) {
-      const deskLimit = checkRateLimit({ key: `public-register:desk:${desk.jti}`, limit: 120, windowMs: 30 * 60 * 1000 });
-      const deskIpLimit = deskLimit.allowed
-        ? checkRateLimit({ key: `public-register:desk-ip:${clientIp}`, limit: 30, windowMs: 60 * 1000 })
-        : deskLimit;
-      if (!deskIpLimit.allowed) {
-        apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: deskIpLimit.retryAfterSeconds, deskQr: desk.jti, ip: clientIp });
-        return rateLimited(deskIpLimit.retryAfterSeconds);
+      const deskIpLimit = checkRateLimit({ key: `public-register:desk-ip:${clientIp}`, limit: 30, windowMs: 60 * 1000 });
+      const deskLimit = deskIpLimit.allowed
+        ? checkRateLimit({ key: `public-register:desk:${desk.jti}`, limit: 600, windowMs: 30 * 60 * 1000 })
+        : deskIpLimit;
+      if (!deskLimit.allowed) {
+        apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: deskLimit.retryAfterSeconds, deskQr: desk.jti, ip: clientIp });
+        return rateLimited(deskLimit.retryAfterSeconds);
       }
     } else {
       // Burst limiter: catch bots hammering the endpoint (15 req / 60s per IP).

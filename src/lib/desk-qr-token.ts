@@ -2,11 +2,11 @@
 // one of two free forms, exhibitors or complimentary, and the link carries
 // this token. While it is valid the public register route relaxes four things
 // for that event and that form only (§8.5); without it, or once it expires,
-// the link is the ordinary public form. Signed, never stored. Complimentary
-// lives 30 minutes, which bounds a QR someone photographed. Exhibitors have
-// ONE QR per event, valid to the end of the event and printable (owner, Oct
-// 29): minted with `until`, it is the same token every time it is shown, so a
-// printed sheet and the screen match. Same HMAC shape as the agent's approval
+// the link is the ordinary public form. Signed, never stored. The desk shows
+// ONE QR per event and kind, valid to the end of the event and printable
+// (owner, Oct 29): minted with `until`, it is the same token every time it is
+// shown, so a printed sheet and the screen match. Without `until` a token
+// lives 30 minutes (DESK_QR_TTL_SECONDS). Same HMAC shape as the agent's approval
 // token (src/lib/agent/approval-token.ts), with its own purpose label so one
 // kind of token can never pass as the other.
 //

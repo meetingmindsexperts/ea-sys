@@ -11,6 +11,7 @@ const { mockAuth, mockDb, mockQr } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
+    promoCode: { count: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   mockQr: vi.fn(),
@@ -56,6 +57,7 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { id: "user-1", role: "ADMIN", organizationId: "org-1" } });
   mockDb.event.findFirst.mockResolvedValue(EVENT);
   mockDb.auditLog.create.mockResolvedValue({});
+  mockDb.promoCode.count.mockResolvedValue(2);
   mockQr.mockResolvedValue(Buffer.from("png"));
 });
 
@@ -67,11 +69,25 @@ describe("GET the options", () => {
       registrationClosed: false,
       eventEnded: false,
       timezone: "Asia/Dubai",
-      exhibitor: { rateName: "Inclusive" },
+      exhibitor: { rateName: "Inclusive", hasSponsorCodes: true },
       complimentary: { rateName: "Complimentary" },
     });
     // The end of the event's last day in Dubai: 23:59:59 local is 19:59:59Z.
     expect(json.exhibitor.validUntil).toMatch(/T19:59:59\.000Z$/);
+  });
+
+  it("says when no sponsor code could register an exhibitor", async () => {
+    mockDb.promoCode.count.mockResolvedValueOnce(0);
+    expect(await (await get()).json()).toMatchObject({ exhibitor: { hasSponsorCodes: false } });
+    const where = mockDb.promoCode.count.mock.calls[0][0].where;
+    expect(where).toMatchObject({ eventId: "evt-1", isActive: true, sponsorCoversFee: true, sponsorId: { not: null } });
+  });
+
+  it("an invalid stored timezone falls back to the default instead of failing", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, timezone: "Not/AZone" });
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ timezone: "Asia/Dubai" });
   });
 
   it("nothing to offer when the event has neither", async () => {
