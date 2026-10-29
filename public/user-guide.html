@@ -996,7 +996,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <p>Got a list of registrants from a sponsor or partner? Import them in one shot. Required columns: <code>email</code>, <code>firstName</code>, <code>lastName</code>. Optional columns include <code>organization</code>, <code>jobTitle</code>, <code>phone</code>, <code>title</code>, <code>specialty</code>, <code>registrationType</code>, <code>tags</code>, plus three newer columns for finer control:</p>
         <div class="ig-3">
           <div class="ic"><div class="ic-title">registrationStatus</div><div class="ic-body">PENDING / CONFIRMED / WAITLISTED / CANCELLED. Defaults to CONFIRMED.</div></div>
-          <div class="ic gold"><div class="ic-title">paymentStatus</div><div class="ic-body">UNASSIGNED / UNPAID / PAID / COMPLIMENTARY / INCLUSIVE. Defaults match the &ldquo;Add&rdquo; form.</div></div>
+          <div class="ic gold"><div class="ic-title">paymentStatus</div><div class="ic-body">UNASSIGNED / UNPAID / PAID / COMPLIMENTARY / INCLUSIVE. Defaults match the &ldquo;Add&rdquo; form. A row with no registration type defaults to COMPLIMENTARY: set UNPAID for people who should pay.</div></div>
           <div class="ic violet"><div class="ic-title">sponsor</div><div class="ic-body">Sponsor name (matched against the event&rsquo;s sponsor list). Required when <code>paymentStatus=INCLUSIVE</code>.</div></div>
         </div>
         <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Existing templates keep working</div><div class="c-text">Templates without the three new columns continue to import &mdash; they fall back to the prior defaults (CONFIRMED status, UNASSIGNED/COMPLIMENTARY payment based on price, no sponsor).</div></div></div>
@@ -2221,6 +2221,8 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 <strong>&ldquo;This is not a sponsor code&rdquo;.</strong> Sponsor (Inclusive) accepts only a sponsor&rsquo;s code that covers the whole fee. Use Cash or Card for an ordinary discount code.<br><br>
 <strong>&ldquo;Promo code usage limit reached&rdquo;.</strong> The sponsor&rsquo;s places, or the code&rsquo;s uses, are all taken. Ask the organiser to raise the code&rsquo;s limit in Promo Codes, or register them another way.<br><br>
 <strong>How long is the Complete onsite link valid?</strong> 30 minutes, and it works once. A new link replaces the old one; the desk asks before replacing a link someone may still be using.<br><br>
+<strong>Will Complete onsite charge them?</strong> It follows what their registration says now, never what an earlier email offered. With a registration type, they keep their own type and price. With no type and Complimentary, they choose a type free and stay Complimentary. With no type and Unpaid or Unassigned, they choose a type at the rate on sale now and pay at the desk before check-in.<br><br>
+<strong>I imported people who should pay, without a registration type.</strong> An import with no type and no payment status marks them Complimentary, so Complete onsite would let them finish free. Set their payment status to Unpaid first (on their row, or a <code>paymentStatus</code> column of UNPAID in the import).<br><br>
 <strong>Is the desk different from the Check-In page?</strong> The Check-In page is the scanner for the door and the self-service kiosk. The desk is for staff serving people one by one: payments, walk-ins and unfinished forms, as well as check-in.
 </div></div></div>
     </div>
