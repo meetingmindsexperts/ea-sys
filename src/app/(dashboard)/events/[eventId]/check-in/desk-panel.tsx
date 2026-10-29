@@ -1031,7 +1031,7 @@ function WalkInForm({
         toast.error(data.error || "The walk-in was not registered");
         return;
       }
-      remember(eventId, { ticketTypeId: type.id, pricingTierId: tier?.id ?? null, payment });
+      remember(eventId, { ticketTypeId: type.id, pricingTierId: tier?.id ?? null, payment: effectivePayment });
       const email = fields.email.trim();
       setFields(EMPTY_FIELDS);
       setSupportingDoc(null);
@@ -1188,7 +1188,12 @@ function WalkInForm({
                 </span>
               )}
             </Label>
-            {price === 0 && <p className="text-sm text-muted-foreground">Free rate: complimentary, or Inclusive when a sponsor brings them.</p>}
+            {choices.length === 1 && choices[0] === "inclusive" && (
+              <p className="text-sm text-muted-foreground">Sponsor rate: enter the sponsor&rsquo;s code.</p>
+            )}
+            {choices.includes("complimentary") && (
+              <p className="text-sm text-muted-foreground">Free rate: complimentary, or Sponsor when a sponsor brings them.</p>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               {choices.map((choice) => (
                 <Button

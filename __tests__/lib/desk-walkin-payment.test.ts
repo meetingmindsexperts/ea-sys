@@ -12,10 +12,10 @@ describe("walkInPaymentChoices", () => {
     expect(walkInPaymentChoices({ name: "Early Bird", price: 65 }, LINKS)).toEqual(["cash", "card", "inclusive"]);
   });
 
-  it("the Complimentary rate, or any free rate: complimentary only", () => {
-    expect(walkInPaymentChoices({ name: "Complimentary", price: 0 }, LINKS)).toEqual(["complimentary"]);
-    expect(walkInPaymentChoices({ name: "Free", price: 0 }, LINKS)).toEqual(["complimentary"]);
-    expect(walkInPaymentChoices({ name: null, price: 0 }, LINKS)).toEqual(["complimentary"]);
+  it("the Complimentary rate, or any free rate: complimentary, or a sponsor's code (the sponsor keeps the credit)", () => {
+    expect(walkInPaymentChoices({ name: "Complimentary", price: 0 }, LINKS)).toEqual(["complimentary", "inclusive"]);
+    expect(walkInPaymentChoices({ name: "Free", price: 0 }, LINKS)).toEqual(["complimentary", "inclusive"]);
+    expect(walkInPaymentChoices({ name: null, price: 0 }, LINKS)).toEqual(["complimentary", "inclusive"]);
   });
 
   it("a sponsor-link rate: the sponsor's code only, whatever its price", () => {

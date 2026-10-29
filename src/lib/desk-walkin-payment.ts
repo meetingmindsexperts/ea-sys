@@ -8,7 +8,10 @@
  *
  * - A sponsor-link rate (one whose link needs a sponsor's code): the sponsor's
  *   code only.
- * - A free rate (the Complimentary rate, or any rate at 0): complimentary.
+ * - A free rate (the Complimentary rate, or any rate at 0): complimentary, or
+ *   a sponsor's code when a sponsor brings them, so the sponsor keeps the
+ *   credit on a $0 sponsor rate nobody marked as a link (review of 51cc3801:
+ *   production has one, and free events price their delegates at 0).
  * - A paid rate: cash or card (a 100% discount code there registers them
  *   complimentary: the desk's way to comp on a type with no Complimentary
  *   rate), or a sponsor's code for a sponsored delegate.
@@ -22,7 +25,7 @@ export function walkInPaymentChoices(
   codeRequiredSlugs: readonly string[],
 ): WalkInPaymentChoice[] {
   if (tierNeedsSponsorCode(rate.name, codeRequiredSlugs)) return ["inclusive"];
-  if (rate.price <= 0) return ["complimentary"];
+  if (rate.price <= 0) return ["complimentary", "inclusive"];
   return ["cash", "card", "inclusive"];
 }
 

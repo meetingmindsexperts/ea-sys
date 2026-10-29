@@ -63,7 +63,7 @@ const base = {
   ticketTypeId: "tt1",
   pricingTierId: "tier1",
 };
-const PLAIN_TYPE = { price: 0, pricingTiers: [{ name: "Standard", price: 100 }], requiresMemberId: false, requiresStudentId: false, requiresStudentIdExpiry: false, requiresDocument: false, documentRequired: false, documentLabel: null };
+const PLAIN_TYPE = { price: 0, pricingTiers: [{ name: "Standard", price: 100 }], _count: { pricingTiers: 2 }, requiresMemberId: false, requiresStudentId: false, requiresStudentIdExpiry: false, requiresDocument: false, documentRequired: false, documentLabel: null };
 // Complimentary is offered on a free rate only (owner, Oct 29): the Complimentary rate.
 const COMP_TYPE = { ...PLAIN_TYPE, pricingTiers: [{ name: "Complimentary", price: 0 }] };
 
@@ -215,11 +215,25 @@ describe("POST walk-in", () => {
   });
 
   it("a paid walk-in on a free rate is refused before anything is created", async () => {
-    mockDb.ticketType.findFirst.mockResolvedValue({ ...PLAIN_TYPE, pricingTiers: [] });
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...PLAIN_TYPE, pricingTiers: [], _count: { pricingTiers: 0 } });
     const res = await post({ ...base, pricingTierId: undefined, payment: "cash" });
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ code: "PAYMENT_NOT_FOR_RATE", allowed: ["complimentary"] });
+    expect(await res.json()).toMatchObject({ code: "PAYMENT_NOT_FOR_RATE", allowed: ["complimentary", "inclusive"] });
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("a type sold by rate needs its rate named", async () => {
+    const res = await post({ ...base, pricingTierId: undefined, payment: "cash" });
+    expect(await res.json()).toMatchObject({ code: "PRICING_TIER_REQUIRED" });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("a sponsor's code on a free rate nobody marked as a link keeps the sponsor's credit (review of 51cc3801)", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...PLAIN_TYPE, pricingTiers: [{ name: "Inclusive", price: 0 }] });
+    mockDb.registration.findFirst.mockResolvedValue(freshRow("INCLUSIVE", 0));
+    const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10", expectedPrice: 0 });
+    expect(res.status).toBe(201);
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ requireSponsorCode: true }));
   });
 
   it("complimentary on a paid rate is refused before anything is created (owner, Oct 29)", async () => {

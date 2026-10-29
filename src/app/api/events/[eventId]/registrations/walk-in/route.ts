@@ -174,6 +174,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         select: {
           price: true,
           pricingTiers: { where: { id: data.pricingTierId ?? "" }, select: { name: true, price: true } },
+          _count: { select: { pricingTiers: { where: { isActive: true } } } },
           ...IDENTITY_EVIDENCE_SELECT,
           ...SUPPORTING_DOCUMENT_POLICY_SELECT,
         },
@@ -181,6 +182,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (!ticketType) {
         apiLogger.warn({ msg: "walk-in:ticket-type-not-found", eventId, ticketTypeId: data.ticketTypeId, userId: session.user.id });
         return NextResponse.json({ error: "Registration type not found", code: "TICKET_TYPE_NOT_FOUND" }, { status: 404 });
+      }
+      // A type sold by rate needs its rate named: without it the price and the
+      // sponsor-link rule would read the type's own price (review of 51cc3801).
+      if (!data.pricingTierId && ticketType._count.pricingTiers > 0) {
+        apiLogger.warn({ msg: "walk-in:rate-required", eventId, ticketTypeId: data.ticketTypeId, userId: session.user.id });
+        return NextResponse.json({ error: "Choose a rate", code: "PRICING_TIER_REQUIRED" }, { status: 400 });
       }
       // The rate decides how it may be paid (src/lib/desk-walkin-payment.ts):
       // complimentary only on a free rate, never beside cash and card on a paid
