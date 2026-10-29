@@ -285,6 +285,11 @@ that clears itself after a few seconds. The tablet needs no staff login.
   only on request since Oct 29 (Print badge on a checked-in row).
 - Completing onsite: both the attendee's phone (QR) and a desk tablet.
 
+- Desk QR forms (Oct 29): two forms only, exhibitors and complimentary;
+  exhibitors are always exhibitors (the type is locked); an account is made
+  without a password and set later through Forgot password; a 30-minute
+  token on both QRs, so desk mode works only at the desk.
+
 ## 7. Delivery
 
 Three steps, each built, tested, adversarially reviewed and committed on its
@@ -294,3 +299,108 @@ own, with the touched screens shown before it is pushed:
 2. Walk-in panel (§4), about two days. BUILT Oct 29, 2026 (`26c17807`, review
    fixes `80c565f5`, then the desk page).
 3. Complete onsite (§5), about two days. BUILT Oct 29, 2026.
+
+## 8. Step 4: Desk QR forms for exhibitors and complimentary (PLANNED, Oct 29, 2026)
+
+The walk-ins that queue in numbers are exhibitors arriving for their stands
+and complimentary guests. Both are free, both already have a public rate
+form (BHS2026: the Inclusive rate, which needs a sponsor's code, and the
+Complimentary rate), and both are slowed down by the same two things: the
+password step, and staff typing. Paying walk-ins stay on the walk-in panel
+(§4), where the desk takes the money.
+
+### 8.1 At the desk
+
+1. **Walk-in QR** on the desk opens a full-screen panel with two tabs.
+2. **Exhibitors**: staff pick the sponsor (the event's sponsor codes that
+   cover the whole fee, with the places left beside each). The QR is for that
+   sponsor's exhibitors.
+3. **Complimentary**: one QR for complimentary guests.
+4. The QR sits on the desk screen facing the queue, the link in text under
+   it. It renews itself every 15 minutes while the panel is open, so any QR
+   on screen has at least 15 minutes left.
+5. They submit on their phone and show the barcode on their confirmation
+   page; staff scan it to check in, and print on request (§6).
+
+### 8.2 On their phone (desk mode)
+
+- One page: email and details, no password step.
+- **Exhibitors**: the type is Exhibitor and cannot be changed; the sponsor's
+  code is applied and cannot be removed. They type only their own details.
+  The badge prints Exhibitor (`exhibitorBadgeData`), the registration is
+  INCLUSIVE and credited to the sponsor.
+- **Complimentary**: they pick their type among the types that have the
+  event's Complimentary rate (never Exhibitor or Faculty). COMPLIMENTARY,
+  Delegate badge.
+- The same fields, documents and identity evidence as the public form.
+- An email already registered for the event is refused with "You are
+  already registered: please go to the desk", where search finds them.
+
+### 8.3 The account
+
+- Desk mode makes the registrant account without a password: a random,
+  unusable password hash, the pattern reviewer invites already use.
+  `ensureRegistrantAccount` gains that option; an existing account at the
+  email is linked, as today.
+- The confirmation email adds one line: set a password to manage your
+  registration online, linking to the event's Forgot password page with
+  their email filled in (the page reads `?email=`). No new token logic.
+
+### 8.4 The token
+
+- The QR link is the rate form with `?desk=<token>`. The token is signed by
+  the server (HMAC, a key derived from `NEXTAUTH_SECRET` for this purpose
+  only) and carries the event, the kind (exhibitor or complimentary), for
+  exhibitors the sponsor's promo code id, the staff member who made it, and
+  an expiry 30 minutes out. Nothing is stored per token.
+- Desk mode applies only while the token is valid, for that event and that
+  kind. Without one, or with an expired one, the link is the ordinary public
+  form, exactly as today: a photo of the screen shared later is dead.
+- Checked when the form loads and again on submit. Submitted after expiry:
+  "This desk QR has expired, please scan the one at the desk again", and
+  what they typed is kept (the form's draft).
+- Making a token needs `registrations.create` on the event, the walk-in
+  panel's key.
+- Rotating `NEXTAUTH_SECRET` kills open desk QRs; the panel makes a new one.
+  Closing the panel does not kill a QR already shown; 30 minutes bounds it.
+
+### 8.5 The server
+
+- No new registration path: the public register route accepts the token
+  and, while it is valid, relaxes exactly four things: the password may be
+  absent (8.3), the rate's sales end is ignored (its seat limit is not),
+  the type and code come from the token for exhibitors, and the per-IP rate
+  limits become a per-token limit (venue Wi-Fi puts the whole queue on one
+  IP; 15 a minute would stop it). The per-email limit stays.
+- Free only: a desk-mode registration that would cost anything is refused,
+  so desk mode can never take a registration that owes money.
+- Recorded as PUBLIC_REGISTER with an audit row naming the desk token's
+  kind and the staff member who made it (no new enum value, so no migration
+  and no rollback hazard).
+
+### 8.6 Edge cases
+
+- An event with no Exhibitor type, or no sponsor codes: the Exhibitors tab
+  says so and points to Registration Types / Promo Codes.
+- An event with no Complimentary rate: the tab says so.
+- A sponsor's places used up: refused with the existing "usage limit
+  reached" message; the desk raises the code's limit in Promo Codes.
+- A webinar: no desk, no QR.
+
+### 8.7 Printing (deferred, owner Oct 29)
+
+No printed QRs for now: the QR is shown on the desk screen only. A printed
+sheet would outlive a 30-minute token, so it needs a longer validity, and
+the owner will decide that later. The options discussed: an exhibitor sheet
+per sponsor valid to the end of the event (the sponsor's code, attribution
+and places limit bound it), and a complimentary sheet valid to the end of
+the day with a registration cap counted from the audit rows.
+
+### 8.8 Delivery
+
+About two days: the token and the route changes with their tests first
+(token sign and verify, each relaxation only with a valid token, free only,
+expiry on submit), then the form's desk mode, then the desk panel, then the
+user guide's Onsite desk Q&As. Built, reviewed and committed like steps 1
+to 3, and shown in the browser before any push.
+
