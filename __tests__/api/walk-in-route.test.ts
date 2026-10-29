@@ -63,7 +63,9 @@ const base = {
   ticketTypeId: "tt1",
   pricingTierId: "tier1",
 };
-const PLAIN_TYPE = { price: 0, pricingTiers: [{ price: 100 }], requiresMemberId: false, requiresStudentId: false, requiresStudentIdExpiry: false, requiresDocument: false, documentRequired: false, documentLabel: null };
+const PLAIN_TYPE = { price: 0, pricingTiers: [{ name: "Standard", price: 100 }], requiresMemberId: false, requiresStudentId: false, requiresStudentIdExpiry: false, requiresDocument: false, documentRequired: false, documentLabel: null };
+// Complimentary is offered on a free rate only (owner, Oct 29): the Complimentary rate.
+const COMP_TYPE = { ...PLAIN_TYPE, pricingTiers: [{ name: "Complimentary", price: 0 }] };
 
 const post = (body: unknown) =>
   POST(new Request("http://x/api/events/evt-1/registrations/walk-in", { method: "POST", body: JSON.stringify(body) }), params);
@@ -90,6 +92,7 @@ beforeEach(() => {
 
 describe("POST walk-in", () => {
   it("complimentary: created comp with the sales window overridden, no payment, checked in", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue(COMP_TYPE);
     mockDb.registration.findFirst.mockResolvedValue(freshRow("COMPLIMENTARY"));
     const res = await post({ ...base, payment: "complimentary" });
     expect(res.status).toBe(201);
@@ -141,6 +144,7 @@ describe("POST walk-in", () => {
   });
 
   it("already registered: the service's refusal and the existing id go back to the desk", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue(COMP_TYPE);
     mockCreate.mockResolvedValue({ ok: false, code: "ALREADY_REGISTERED", message: "Already registered", meta: { existingRegistrationId: "reg-0" } });
     const res = await post({ ...base, payment: "complimentary" });
     expect(res.status).toBe(400);
@@ -183,7 +187,7 @@ describe("POST walk-in", () => {
   });
 
   it("asks for what the type asks for: a member ID", async () => {
-    mockDb.ticketType.findFirst.mockResolvedValue({ ...PLAIN_TYPE, requiresMemberId: true });
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...COMP_TYPE, requiresMemberId: true });
     const res = await post({ ...base, payment: "complimentary" });
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: "IDENTITY_EVIDENCE_REQUIRED" });
@@ -191,7 +195,7 @@ describe("POST walk-in", () => {
   });
 
   it("a required supporting document must be this event's upload, and is stored when it is", async () => {
-    mockDb.ticketType.findFirst.mockResolvedValue({ ...PLAIN_TYPE, requiresDocument: true, documentRequired: true, documentLabel: "Resident letter" });
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...COMP_TYPE, requiresDocument: true, documentRequired: true, documentLabel: "Resident letter" });
     const missing = await post({ ...base, payment: "complimentary" });
     expect(missing.status).toBe(400);
     expect(await missing.json()).toMatchObject({ code: "SUPPORTING_DOCUMENT_REQUIRED", error: "Resident letter is required for this type" });
@@ -214,20 +218,40 @@ describe("POST walk-in", () => {
     mockDb.ticketType.findFirst.mockResolvedValue({ ...PLAIN_TYPE, pricingTiers: [] });
     const res = await post({ ...base, pricingTierId: undefined, payment: "cash" });
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ code: "FREE_RATE" });
+    expect(await res.json()).toMatchObject({ code: "PAYMENT_NOT_FOR_RATE", allowed: ["complimentary"] });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("complimentary on a paid rate is refused before anything is created (owner, Oct 29)", async () => {
+    const res = await post({ ...base, payment: "complimentary" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "PAYMENT_NOT_FOR_RATE", allowed: ["cash", "card", "inclusive"] });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("a sponsor-link rate takes only the sponsor's code", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { codeRequiredTiers: ["inclusive"] } });
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...PLAIN_TYPE, pricingTiers: [{ name: "Inclusive", price: 0 }] });
+    for (const payment of ["complimentary", "cash"]) {
+      const res = await post({ ...base, payment });
+      expect(await res.json()).toMatchObject({ code: "PAYMENT_NOT_FOR_RATE", allowed: ["inclusive"] });
+    }
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it("the event must satisfy every key's scope: create and check-in, and payments when paid (review MED 1)", async () => {
     mockDb.registration.findFirst.mockResolvedValue(freshRow("PAID"));
+    mockDb.ticketType.findFirst.mockResolvedValue(COMP_TYPE);
     await post({ ...base, payment: "complimentary" });
     expect(mockDb.event.findFirst.mock.calls[0][0].where.AND).toHaveLength(2);
     mockDb.event.findFirst.mockClear();
+    mockDb.ticketType.findFirst.mockResolvedValue(PLAIN_TYPE);
     await post({ ...base, payment: "cash" });
     expect(mockDb.event.findFirst.mock.calls[0][0].where.AND).toHaveLength(3);
   });
 
   it("an exception after the row exists still answers registered (review MED 2)", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue(COMP_TYPE);
     mockDb.registration.findFirst.mockResolvedValue(freshRow("COMPLIMENTARY"));
     mockExecuteCheckIn.mockRejectedValue(new Error("db blip"));
     const res = await post({ ...base, payment: "complimentary" });
@@ -243,6 +267,7 @@ describe("POST walk-in", () => {
     expect(paidRes.status).toBe(429);
     expect(mockCreate).not.toHaveBeenCalled();
 
+    mockDb.ticketType.findFirst.mockResolvedValue(COMP_TYPE);
     mockDb.registration.findFirst.mockResolvedValue(freshRow("COMPLIMENTARY"));
     const compRes = await post({ ...base, payment: "complimentary" });
     expect(compRes.status).toBe(201);
@@ -262,8 +287,9 @@ describe("POST walk-in", () => {
     expect(mockRecordPayment).not.toHaveBeenCalled();
   });
 
-  it("inclusive works on a free rate (a sponsor's $0 rate), and needs no payment permission or bucket", async () => {
-    mockDb.ticketType.findFirst.mockResolvedValue({ ...PLAIN_TYPE, pricingTiers: [{ price: 0 }] });
+  it("inclusive works on a sponsor's $0 link rate, and needs no payment permission or bucket", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { codeRequiredTiers: ["inclusive"] } });
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...PLAIN_TYPE, pricingTiers: [{ name: "Inclusive", price: 0 }] });
     mockDb.registration.findFirst.mockResolvedValue(freshRow("INCLUSIVE", 0));
     const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10", expectedPrice: 0 });
     expect(res.status).toBe(201);

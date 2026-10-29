@@ -17,6 +17,7 @@ import { formatPersonName } from "@/lib/utils";
 import { deskEnterAction, deskQueryIsSearchable, matchesDeskSearch } from "@/lib/desk-enter";
 import { CompleteOnsiteDialog, EditDetailsDialog, useWaitingList, type OnsiteLink, type OnsitePerson } from "./desk-onsite";
 import { WalkInQrDialog } from "./desk-walkin-qr";
+import { walkInPaymentChoices, type WalkInPaymentChoice } from "@/lib/desk-walkin-payment";
 import { useCan } from "@/hooks/use-can";
 import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
 import { TitleSelect } from "@/components/ui/title-select";
@@ -91,7 +92,7 @@ interface DeskTicketType {
   documentInstructions?: string | null;
 }
 
-type PaymentChoice = "complimentary" | "cash" | "card" | "inclusive";
+type PaymentChoice = WalkInPaymentChoice;
 /** What the walk-in route is told: a choice, or "covered" when a code leaves nothing to pay. */
 type SubmittedPayment = PaymentChoice | "covered";
 
@@ -278,11 +279,14 @@ export function DeskPanel({
   eventId,
   eventSlug,
   eventName,
+  codeRequiredTiers,
   tax,
   registrations,
 }: {
   eventId: string;
   eventSlug: string;
+  /** The event's sponsor-link rates (slugs): a walk-in there is paid by a sponsor's code. */
+  codeRequiredTiers: readonly string[];
   /** For the printed walk-in QR sheet. */
   eventName: string;
   tax: DeskTax;
@@ -691,6 +695,7 @@ export function DeskPanel({
       <WalkInForm
         eventId={eventId}
         eventSlug={eventSlug}
+        codeRequiredTiers={codeRequiredTiers}
         tax={tax}
         onRegistered={(email) => {
           setQuery(email);
@@ -853,6 +858,7 @@ function Field({ label, required, htmlFor, children, className }: {
 function WalkInForm({
   eventId,
   eventSlug,
+  codeRequiredTiers,
   tax,
   onRegistered,
   onDone,
@@ -860,6 +866,7 @@ function WalkInForm({
   eventId: string;
   /** The upload field's public route needs it; the desk overrides it with its staff route. */
   eventSlug: string;
+  codeRequiredTiers: readonly string[];
   tax: DeskTax;
   /** Registered, but a later step did not finish: show them in search. */
   onRegistered: (email: string) => void;
@@ -899,14 +906,15 @@ function WalkInForm({
   const tier = tiers.find((t) => t.id === pricingTierId);
   const price = Number(tier?.price ?? type?.price ?? 0);
   const currency = tier?.currency ?? type?.currency ?? "USD";
-  // A free rate takes no money, but a sponsor may still be the one paying.
-  const effectivePayment: PaymentChoice = price === 0 && payment !== "inclusive" ? "complimentary" : payment;
+  // The rate decides the ways to pay (desk-walkin-payment.ts, shared with the
+  // route): complimentary only on a free rate, never beside cash and card.
+  const choices = walkInPaymentChoices({ name: tier?.name ?? null, price }, codeRequiredTiers);
+  const effectivePayment: PaymentChoice = choices.includes(payment) ? payment : choices[0];
   const takesCode = effectivePayment !== "complimentary";
   // Applied only for the inputs it was checked against: a late answer for an
   // earlier type, rate or code never counts (review of f694a318, MED).
   const codeIsApplied = !!promo && !!type && promo.key === promoKey(type.id, tier?.id, codeInput);
   const discount = codeIsApplied ? promo.discountAmount : 0;
-  const choices: PaymentChoice[] = price === 0 ? ["complimentary", "inclusive"] : ["complimentary", "cash", "card", "inclusive"];
   const evidence = readIdentityEvidencePolicy(type);
 
   const set = (key: keyof WalkInFields) => (e: React.ChangeEvent<HTMLInputElement>) =>

@@ -20,6 +20,8 @@ import {
 import { SUPPORTING_DOCUMENT_POLICY_SELECT, resolveSupportingDocument } from "@/lib/supporting-document";
 import { createRegistration } from "@/services/registration-service";
 import { MANUAL_PAYMENT_EVENT_SELECT, recordManualPayment } from "@/services/payment-service";
+import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
+import { walkInPaymentAllowed, walkInPaymentChoices } from "@/lib/desk-walkin-payment";
 
 /**
  * POST /api/events/[eventId]/registrations/walk-in
@@ -161,7 +163,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const event = await db.event.findFirst({ where: { AND: scopes }, select: MANUAL_PAYMENT_EVENT_SELECT });
+      const event = await db.event.findFirst({ where: { AND: scopes }, select: { ...MANUAL_PAYMENT_EVENT_SELECT, settings: true } });
       if (!event) {
         apiLogger.warn({ msg: "walk-in:event-not-found", eventId, userId: session.user.id });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -171,7 +173,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         where: { id: data.ticketTypeId, eventId },
         select: {
           price: true,
-          pricingTiers: { where: { id: data.pricingTierId ?? "" }, select: { price: true } },
+          pricingTiers: { where: { id: data.pricingTierId ?? "" }, select: { name: true, price: true } },
           ...IDENTITY_EVIDENCE_SELECT,
           ...SUPPORTING_DOCUMENT_POLICY_SELECT,
         },
@@ -180,15 +182,22 @@ export async function POST(req: Request, { params }: RouteParams) {
         apiLogger.warn({ msg: "walk-in:ticket-type-not-found", eventId, ticketTypeId: data.ticketTypeId, userId: session.user.id });
         return NextResponse.json({ error: "Registration type not found", code: "TICKET_TYPE_NOT_FOUND" }, { status: 404 });
       }
-      // A paid walk-in on a free rate would be created and then fail at the
-      // capture (ZERO_AMOUNT), leaving a half-done row; refuse it up front.
-      const ratePrice = Number(ticketType.pricingTiers[0]?.price ?? ticketType.price ?? 0);
-      if (paid && ratePrice === 0) {
-        apiLogger.warn({ msg: "walk-in:paid-on-free-rate", eventId, ticketTypeId: data.ticketTypeId, pricingTierId: data.pricingTierId ?? null, userId: session.user.id });
-        return NextResponse.json(
-          { error: "This rate is free. Choose a rate, or register them as complimentary.", code: "FREE_RATE" },
-          { status: 400 },
-        );
+      // The rate decides how it may be paid (src/lib/desk-walkin-payment.ts):
+      // complimentary only on a free rate, never beside cash and card on a paid
+      // one, and cash or card never on a free rate (it would fail at the
+      // capture, ZERO_AMOUNT, leaving a half-done row). Refused up front.
+      const rate = {
+        name: ticketType.pricingTiers[0]?.name ?? null,
+        price: Number(ticketType.pricingTiers[0]?.price ?? ticketType.price ?? 0),
+      };
+      const codeRequired = readCodeRequiredTiers(event.settings);
+      if (!walkInPaymentAllowed(data.payment, rate, codeRequired)) {
+        apiLogger.warn({ msg: "walk-in:payment-not-for-rate", eventId, payment: data.payment, ticketTypeId: data.ticketTypeId, pricingTierId: data.pricingTierId ?? null, userId: session.user.id });
+        const choices = walkInPaymentChoices(rate, codeRequired);
+        let error = "This rate is paid: take cash or card, or a sponsor's code. To comp them, choose the Complimentary rate or apply a 100% code.";
+        if (choices[0] === "complimentary") error = "This rate is free: register them as complimentary.";
+        if (choices[0] === "inclusive") error = "This rate is for sponsored delegates: enter the sponsor's code.";
+        return NextResponse.json({ error, code: "PAYMENT_NOT_FOR_RATE", allowed: choices }, { status: 400 });
       }
       const missing = missingIdentityEvidence(readIdentityEvidencePolicy(ticketType), data);
       if (missing.length > 0 || hasInvalidExpiryDate(data)) {

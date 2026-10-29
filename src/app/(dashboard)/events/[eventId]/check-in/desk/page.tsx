@@ -7,6 +7,7 @@ import { LogOut, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEvent, useOrgBranding, useRegistrations } from "@/hooks/use-api";
 import { DeskPanel } from "../desk-panel";
+import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 
 /**
  * The onsite desk on a page of its own (owner, Oct 29 2026): full screen, no
@@ -88,6 +89,7 @@ export default function DeskPage() {
             eventId={eventId}
             eventSlug={event.slug}
             eventName={event.name}
+            codeRequiredTiers={readCodeRequiredTiers(event.settings)}
             tax={{ taxRate: event.taxRate == null ? null : Number(event.taxRate), taxLabel: event.taxLabel ?? null }}
             registrations={registrations}
           />
