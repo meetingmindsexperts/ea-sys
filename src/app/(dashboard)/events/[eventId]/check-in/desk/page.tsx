@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { LogOut, Users } from "lucide-react";
@@ -22,6 +23,8 @@ export default function DeskPage() {
   const { data: event, isError } = useEvent(eventId);
   const { data: registrations = [] } = useRegistrations(eventId);
   const { data: branding } = useOrgBranding();
+  // A banner whose file is missing is hidden rather than left as a strip of alt text.
+  const [bannerFailed, setBannerFailed] = useState(false);
 
   const checkedIn = registrations.filter((r) => r.status === "CHECKED_IN").length;
   const total = registrations.filter((r) => r.status !== "CANCELLED").length;
@@ -60,13 +63,16 @@ export default function DeskPage() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-4 px-4 py-4">
-        {event?.bannerImage && (
-          <picture>
+        {event?.bannerImage && !bannerFailed && (
+          // Up to 224px tall, centred (owner, Oct 29 2026: 144px cut the top and
+          // bottom off; the whole image is not needed, a taller band is).
+          <picture className="block">
             {event.bannerImageMobile && <source media="(max-width: 575px)" srcSet={event.bannerImageMobile} />}
             <img
               src={event.bannerImage}
               alt={event.name}
-              className="max-h-36 w-full rounded-lg object-cover shadow-sm"
+              className="block max-h-56 w-full rounded-lg object-cover object-center shadow-sm"
+              onError={() => setBannerFailed(true)}
             />
           </picture>
         )}
