@@ -29,7 +29,7 @@ export function AgentLauncher() {
             href={href}
             aria-label="Open the AI Agent"
             data-testid="agent-launcher"
-            className="fixed bottom-4 right-4 z-40 flex size-12 items-center justify-center rounded-full bg-gradient-primary text-primary-foreground shadow-lg shadow-primary/30 outline-none transition-transform focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-safe:hover:scale-105 print:hidden sm:bottom-6 sm:right-6 sm:size-14"
+            className="fixed bottom-14 right-4 z-40 flex size-12 items-center justify-center rounded-full bg-gradient-primary text-primary-foreground shadow-lg shadow-primary/30 outline-none transition-transform focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-safe:hover:scale-105 print:hidden sm:bottom-16 sm:right-6 sm:size-14"
           >
             <Bot className="size-6" aria-hidden="true" />
           </Link>
