@@ -36,6 +36,15 @@ describe("list cursors", () => {
     expect(keysetAfter(["name", "id"], ["x"], "asc")).toBeNull();
   });
 
+  it("checks each value against its column type when told the types", () => {
+    const ok = encodeListCursor({ m: "k", s: "score", d: "asc", v: [40, "Doe", "Jane", "c1"] });
+    expect(decodeListCursor(ok, "score", "asc", ["number", "string", "string", "string"])).not.toBeNull();
+    const wrongType = encodeListCursor({ m: "k", s: "score", d: "asc", v: ["40", "Doe", "Jane", "c1"] });
+    expect(decodeListCursor(wrongType, "score", "asc", ["number", "string", "string", "string"])).toBeNull();
+    const short = encodeListCursor({ m: "k", s: "score", d: "asc", v: [40, "c1"] });
+    expect(decodeListCursor(short, "score", "asc", ["number", "string", "string", "string"])).toBeNull();
+  });
+
   it("defaults the direction to ascending", () => {
     expect(parseSortDir("desc")).toBe("desc");
     expect(parseSortDir(null)).toBe("asc");

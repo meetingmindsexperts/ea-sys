@@ -9,8 +9,9 @@
  * logged at warn (the fix itself is already done).
  *
  * TENANCY. The candidate scan (which orgs have CRM contacts) runs on the
- * operator lane; each org's repair runs inside ITS OWN tenant lane on the
- * normal client, so the writes stay under RLS (the hr-year-roll pattern).
+ * operator lane; each org's repair runs inside ITS OWN tenant lane, in a
+ * tenantTransaction (the raw SQL needs it: see contact-score-service.ts), so
+ * the writes stay under RLS.
  */
 import { dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";

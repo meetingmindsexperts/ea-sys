@@ -44,6 +44,7 @@ import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
+  flattenPages,
   useCrmCompaniesPage,
   useCrmCompanyFacets,
   useCrmCompanyTags,
@@ -109,7 +110,7 @@ function CompaniesInner() {
   };
   const list = useCrmCompaniesPage(companyFilters, sortKey ? { sort: sortKey, dir } : {});
   const { isLoading, isError, refetch } = list;
-  const rows = list.data?.pages.flatMap((p) => p.companies) ?? [];
+  const rows = flattenPages(list.data?.pages.map((p) => p.companies));
   // The total rides the first page only.
   const total = list.data?.pages[0]?.total ?? null;
   const reviewCount = facets?.needsReviewCount ?? 0;
@@ -344,7 +345,8 @@ function CompaniesInner() {
           shown={rows.length}
           total={total}
           noun="accounts"
-          hasMore={!!list.hasNextPage}
+          // Not while the previous filter's rows are still on screen.
+          hasMore={!!list.hasNextPage && !list.isPlaceholderData}
           loading={list.isFetchingNextPage}
           onLoadMore={() => void list.fetchNextPage()}
         />

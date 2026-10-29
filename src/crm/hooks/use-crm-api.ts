@@ -762,6 +762,22 @@ interface CrmListPage {
 
 export type CrmListSort = { sort?: string; dir?: "asc" | "desc" };
 
+/**
+ * The loaded pages as one list. A row can repeat across a page boundary when
+ * its sort value changed between two "Load more" clicks (crm-list-paging.ts),
+ * so a repeated id is dropped: no duplicate row, no duplicate React key.
+ */
+export function flattenPages<T extends { id: string }>(pages: T[][] | undefined): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of (pages ?? []).flat()) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push(row);
+  }
+  return out;
+}
+
 function pagedQueryString(filters: Record<string, string | undefined>, sort: CrmListSort, cursor: string | null): string {
   const qs = new URLSearchParams({ paged: "1" });
   for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);

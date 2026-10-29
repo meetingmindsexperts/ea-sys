@@ -87,9 +87,9 @@ function withLiveScore(rows: ContactRow[]) {
  * offset. Every sort ends on id.
  */
 const CONTACT_SORTS = {
-  name: { keyset: ["lastName", "firstName", "id"] },
-  score: { keyset: ["score", "lastName", "firstName", "id"] },
-  deals: { keyset: null },
+  name: { keyset: ["lastName", "firstName", "id"], types: ["string", "string", "string"] },
+  score: { keyset: ["score", "lastName", "firstName", "id"], types: ["number", "string", "string", "string"] },
+  deals: { keyset: null, types: undefined },
 } as const;
 type ContactSort = keyof typeof CONTACT_SORTS;
 
@@ -114,7 +114,7 @@ async function pagedContacts(where: Prisma.CrmContactWhereInput, searchParams: U
   const sort: ContactSort = rawSort && rawSort in CONTACT_SORTS ? (rawSort as ContactSort) : "name";
   const dir = parseSortDir(searchParams.get("dir"));
   const rawCursor = searchParams.get("cursor");
-  const cursor: ListCursor | null = rawCursor ? decodeListCursor(rawCursor, sort, dir) : null;
+  const cursor: ListCursor | null = rawCursor ? decodeListCursor(rawCursor, sort, dir, CONTACT_SORTS[sort].types) : null;
   if (rawCursor && !cursor) {
     apiLogger.warn({ msg: "crm/contacts:bad-cursor", organizationId, sort, dir });
     return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });

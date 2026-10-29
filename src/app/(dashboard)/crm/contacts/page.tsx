@@ -44,7 +44,7 @@ import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { SortableTh, nextSort, type SortDir } from "@/crm/components/sortable-th";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCrmCompanies, useCrmContactsPage, useCrmContactTags } from "@/crm/hooks/use-crm-api";
+import { flattenPages, useCrmCompanies, useCrmContactsPage, useCrmContactTags } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
@@ -109,7 +109,7 @@ function ContactsInner() {
     sortKey ? { sort: sortKey, dir } : {},
   );
   const { isLoading, isError, refetch } = list;
-  const rows = list.data?.pages.flatMap((p) => p.contacts) ?? [];
+  const rows = flattenPages(list.data?.pages.map((p) => p.contacts));
   // The total rides the first page only.
   const total = list.data?.pages[0]?.total ?? null;
   const onSort = (key: string) => set(nextSort(sortKey, dir, key));
@@ -394,7 +394,8 @@ function ContactsInner() {
           shown={rows.length}
           total={total}
           noun="contacts"
-          hasMore={!!list.hasNextPage}
+          // Not while the previous filter's rows are still on screen.
+          hasMore={!!list.hasNextPage && !list.isPlaceholderData}
           loading={list.isFetchingNextPage}
           onLoadMore={() => void list.fetchNextPage()}
         />

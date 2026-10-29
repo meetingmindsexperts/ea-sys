@@ -96,6 +96,24 @@ describe("GET /api/crm/contacts?paged=1", () => {
     expect(decodeListCursor(body.nextCursor, "deals", "desc")).toEqual({ m: "o", s: "deals", d: "desc", o: 200 });
   });
 
+  it("score descending mints a keyset cursor on (score, lastName, firstName, id) from the STORED score", async () => {
+    vi.mocked(db.crmContact.findMany).mockResolvedValue(
+      Array.from({ length: CRM_LIST_PAGE_SIZE + 1 }, (_, i) => contact(i, { score: 70 })) as never,
+    );
+    vi.mocked(db.crmContact.count).mockResolvedValue(500 as never);
+    const res = await listContacts(new Request("http://x/api/crm/contacts?paged=1&sort=score&dir=desc"));
+    const body = await res.json();
+    expect(findArgs().orderBy).toEqual([{ score: "desc" }, { lastName: "desc" }, { firstName: "desc" }, { id: "desc" }]);
+    expect(decodeListCursor(body.nextCursor, "score", "desc")).toMatchObject({ v: [70, "Last0099", "Ana", "c-0099"] });
+  });
+
+  it("a tampered cursor with the wrong value type is a 400, not a database error (review LOW)", async () => {
+    const cursor = encodeListCursor({ m: "k", s: "score", d: "asc", v: ["abc", "x", "y", "id"] });
+    const res = await listContacts(new Request(`http://x/api/crm/contacts?paged=1&sort=score&cursor=${cursor}`));
+    expect(res.status).toBe(400);
+    expect(db.crmContact.findMany).not.toHaveBeenCalled();
+  });
+
   it("refuses a cursor from another sort with 400, logged", async () => {
     const cursor = encodeListCursor({ m: "k", s: "name", d: "asc", v: ["a", "b", "c"] });
     const res = await listContacts(new Request(`http://x/api/crm/contacts?paged=1&sort=score&cursor=${cursor}`));

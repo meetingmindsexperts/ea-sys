@@ -15,7 +15,14 @@
  *
  * Every sort ends on `id`, so rows that tie on the sort never repeat or go
  * missing across a page boundary. The cursor is opaque (base64url JSON) and
- * carries its own sort, so a cursor from one sort is refused under another.
+ * carries its own sort, so a cursor from one sort is refused under another,
+ * and each value must have its column's type (a string under a numeric sort
+ * is a 400, not a database error).
+ *
+ * Accepted limit: a cursor is a position, so a row whose sort value changes
+ * (a new deal moves its score) or a row added or removed between two "Load
+ * more" clicks can shift by one place across the boundary. The client drops a
+ * repeated id; a refresh puts everything back in order.
  *
  * SERVER ONLY: uses Buffer. The client passes the cursor back untouched.
  */
@@ -51,11 +58,15 @@ function isCursorValue(v: unknown): v is CursorValue {
   return typeof v === "string" || (typeof v === "number" && Number.isFinite(v));
 }
 
+/** The type of each keyset column, id last: what a cursor value must be. */
+export type KeysetTypes = ReadonlyArray<"string" | "number">;
+
 /**
- * The cursor, or null when it does not parse or was minted for another sort
- * (the caller answers 400, never a silently wrong page).
+ * The cursor, or null when it does not parse, was minted for another sort, or
+ * carries a value of the wrong type for its column (the caller answers 400,
+ * never a silently wrong page or a database error).
  */
-export function decodeListCursor(raw: string, sort: string, dir: ListSortDir): ListCursor | null {
+export function decodeListCursor(raw: string, sort: string, dir: ListSortDir, types?: KeysetTypes): ListCursor | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
@@ -66,6 +77,7 @@ export function decodeListCursor(raw: string, sort: string, dir: ListSortDir): L
   const c = parsed as Record<string, unknown>;
   if (c.s !== sort || c.d !== dir) return null;
   if (c.m === "k" && Array.isArray(c.v) && c.v.length > 0 && c.v.length <= 8 && c.v.every(isCursorValue)) {
+    if (types && (c.v.length !== types.length || c.v.some((v, i) => typeof v !== types[i]))) return null;
     return { m: "k", s: sort, d: dir, v: c.v };
   }
   if (c.m === "o" && typeof c.o === "number" && Number.isInteger(c.o) && c.o > 0 && c.o <= 1_000_000) {

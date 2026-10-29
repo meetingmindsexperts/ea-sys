@@ -31,7 +31,7 @@ vi.mock("@tanstack/react-query", async (orig) => {
   };
 });
 
-import { crmKeys, useCrmCompaniesPage, useCrmContactsPage } from "@/crm/hooks/use-crm-api";
+import { crmKeys, flattenPages, useCrmCompaniesPage, useCrmContactsPage } from "@/crm/hooks/use-crm-api";
 
 const startsWith = (key: readonly unknown[], prefix: readonly unknown[]) => prefix.every((p, i) => key[i] === p);
 
@@ -52,5 +52,12 @@ describe("paged list hooks", () => {
     expect(startsWith(key, crmKeys.companiesPrefix)).toBe(true);
     const qs = new URL(url!, "http://x").searchParams;
     expect(Object.fromEntries(qs)).toEqual({ paged: "1", needsReview: "true", cursor: "CUR" });
+  });
+});
+
+describe("flattenPages", () => {
+  it("joins pages and drops a row repeated across a boundary", () => {
+    expect(flattenPages([[{ id: "a" }, { id: "b" }], [{ id: "b" }, { id: "c" }]]).map((r) => r.id)).toEqual(["a", "b", "c"]);
+    expect(flattenPages(undefined)).toEqual([]);
   });
 });

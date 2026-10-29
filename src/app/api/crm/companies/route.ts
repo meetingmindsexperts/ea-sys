@@ -105,7 +105,9 @@ async function pagedCompanies(where: Prisma.CrmCompanyWhereInput, searchParams: 
   const sort: CompanySort = rawSort && rawSort in COMPANY_SORTS ? (rawSort as CompanySort) : "name";
   const dir = parseSortDir(searchParams.get("dir"));
   const rawCursor = searchParams.get("cursor");
-  const cursor: ListCursor | null = rawCursor ? decodeListCursor(rawCursor, sort, dir) : null;
+  const cursor: ListCursor | null = rawCursor
+    ? decodeListCursor(rawCursor, sort, dir, sort === "name" ? ["string", "string"] : undefined)
+    : null;
   const after = cursor?.m === "k" && sort === "name" ? keysetAfter(["name", "id"], cursor.v, dir) : null;
   if ((rawCursor && !cursor) || (cursor?.m === "k" && !after)) {
     apiLogger.warn({ msg: "crm/companies:bad-cursor", organizationId: ctx.organizationId, sort, dir });
