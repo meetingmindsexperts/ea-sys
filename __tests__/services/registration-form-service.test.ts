@@ -38,6 +38,7 @@ vi.mock("@/lib/email", () => ({
 }));
 
 import {
+  mintOnsiteCompletionLink,
   mintRegistrationFormLink,
   prepareRegistrationForms,
   sendRegistrationForms,
@@ -230,6 +231,22 @@ describe("the link", () => {
       where: { OR: [{ identifier: "reg:reg-1" }, { identifier: { startsWith: "regform:reg-1:" } }] },
     });
     expect(mockDb.verificationToken.create.mock.calls[0][0].data.identifier).toBe("regform:reg-1:early-bird");
+  });
+});
+
+describe("the onsite link (docs/ONSITE_DESK_PLAN.md §5.4)", () => {
+  it("is details-only, lasts 30 minutes, and revokes the person's emailed links", async () => {
+    const { url, expires } = await mintOnsiteCompletionLink({
+      registrationId: "reg-1", eventSlug: "BHS2026", minutes: 30, appUrl: "https://x.test",
+    });
+    expect(url).toMatch(/^https:\/\/x\.test\/e\/BHS2026\/complete-registration\?token=[0-9a-f]{64}$/);
+    expect(Math.round((expires.getTime() - Date.now()) / 60_000)).toBe(30);
+    expect(mockDb.verificationToken.deleteMany).toHaveBeenCalledWith({
+      where: { OR: [{ identifier: "reg:reg-1" }, { identifier: { startsWith: "regform:reg-1:" } }] },
+    });
+    // The rate-less form: the completion route keeps their type and price, and
+    // money already recorded does not stop them.
+    expect(mockDb.verificationToken.create.mock.calls[0][0].data.identifier).toBe("reg:reg-1");
   });
 });
 

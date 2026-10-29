@@ -11,6 +11,22 @@
  * 9 digits (`parseSerialQuery`).
  */
 
+import { matchesRegistrationSearch, type SearchableRegistration } from "@/lib/registration-search";
+
+/**
+ * The desk's search: the Registrations page's rule, plus the full name in
+ * either order ("john smith", "smith john"), because at a desk people say
+ * both names. The shared rule stays as it is: the Registrations page's CSV
+ * export must hold exactly the rows on its screen.
+ */
+export function matchesDeskSearch(r: SearchableRegistration, query: string): boolean {
+  if (matchesRegistrationSearch(r, query)) return true;
+  const q = query.trim().toLowerCase().replace(/\s+/g, " ");
+  const first = r.attendee.firstName.toLowerCase();
+  const last = r.attendee.lastName.toLowerCase();
+  return `${first} ${last}`.includes(q) || `${last} ${first}`.includes(q);
+}
+
 export interface DeskEnterCandidate {
   id: string;
   status: string;

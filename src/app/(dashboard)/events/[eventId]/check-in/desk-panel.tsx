@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Banknote, Loader2, Printer, Search, UserPlus } from "lucide-react";
+import { Banknote, CheckCircle2, Clock, Loader2, Pencil, Printer, Search, Smartphone, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,8 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useTickets, queryKeys, fetchApi } from "@/hooks/use-api";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatPersonName } from "@/lib/utils";
-import { matchesRegistrationSearch } from "@/lib/registration-search";
-import { deskEnterAction } from "@/lib/desk-enter";
+import { deskEnterAction, matchesDeskSearch } from "@/lib/desk-enter";
+import { CompleteOnsiteDialog, EditDetailsDialog, useWaitingList, type OnsitePerson } from "./desk-onsite";
 import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
@@ -36,7 +36,16 @@ interface DeskRegistration {
   paymentStatus: string;
   userId: string | null;
   completedAt?: string | null;
-  attendee: { title?: string | null; firstName: string; lastName: string; email: string; organization?: string | null };
+  updatedAt?: string;
+  attendee: {
+    title?: string | null;
+    firstName: string;
+    lastName: string;
+    email: string;
+    organization?: string | null;
+    jobTitle?: string | null;
+    country?: string | null;
+  };
   ticketType: { name: string; price?: number | string; currency?: string } | null;
   pricingTier?: { price: number | string; currency?: string } | null;
   originalPrice?: number | string | null;
@@ -162,6 +171,10 @@ function walkInTotal(price: number, currency: string, tax: DeskTax): number {
   return computeRegistrationFinancials({ subtotal: price, taxRate: tax.taxRate, taxLabel: tax.taxLabel, currency }).total;
 }
 
+function personOf(r: DeskRegistration): OnsitePerson {
+  return { id: r.id, name: formatPersonName(r.attendee.title, r.attendee.firstName, r.attendee.lastName), email: r.attendee.email };
+}
+
 function isFormCompleted(r: DeskRegistration): boolean {
   return Boolean(r.completedAt || r.userId);
 }
@@ -235,6 +248,8 @@ export function DeskPanel({
   const [payLast4, setPayLast4] = useState("");
   const [scanning, setScanning] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const [onsitePerson, setOnsitePerson] = useState<OnsitePerson | null>(null);
+  const [editing, setEditing] = useState<DeskRegistration | null>(null);
 
   // One payment panel at a time, and it starts clean: a second row must not
   // inherit the first row's card digits (review of 26c17807, LOW 8).
@@ -246,7 +261,7 @@ export function DeskPanel({
 
   const results = useMemo(() => {
     if (query.trim().length < 2) return [];
-    return registrations.filter((r) => matchesRegistrationSearch(r, query)).slice(0, MAX_RESULTS);
+    return registrations.filter((r) => matchesDeskSearch(r, query)).slice(0, MAX_RESULTS);
   }, [registrations, query]);
 
   // Not invalidateQueries: the list is served with stale-while-revalidate=30, so
@@ -261,6 +276,33 @@ export function DeskPanel({
       console.error("[desk] list refresh failed", err);
       await queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
     }
+  };
+
+  // People completing their form onsite, polled until they finish (§5.1).
+  const waiting = useWaitingList(eventId, refresh);
+  const { entries: waitingEntries, remove: removeWaiting } = waiting;
+  // Admitted people leave the list.
+  useEffect(() => {
+    for (const entry of waitingEntries) {
+      if (registrations.find((r) => r.id === entry.id)?.status === "CHECKED_IN") removeWaiting(entry.id);
+    }
+  }, [registrations, waitingEntries, removeWaiting]);
+
+  const onsiteRow = onsitePerson ? registrations.find((r) => r.id === onsitePerson.id) : undefined;
+  const onsiteCompleted =
+    !!onsitePerson && (!!waitingEntries.find((e) => e.id === onsitePerson.id)?.completed || (!!onsiteRow && isFormCompleted(onsiteRow)));
+
+  /** From the Complete onsite window, once their form is in: pay first when owed, then admit. */
+  const admitOnsite = () => {
+    const row = onsiteRow;
+    setOnsitePerson(null);
+    if (!row) return;
+    setQuery(row.attendee.email);
+    if (paymentDue(row)) {
+      openPayment(row.id);
+      return;
+    }
+    checkInAndPrint(row);
   };
 
   const printFor = async (r: DeskRegistration) => {
@@ -456,6 +498,26 @@ export function DeskPanel({
               Nobody matches. Press Enter if this is a scanned code, or register them as a walk-in.
             </p>
           )}
+          {waitingEntries.length > 0 && (
+            <div className="space-y-1.5 rounded-md border bg-slate-50 p-2">
+              <p className="px-1 text-xs font-medium text-muted-foreground">Waiting to complete their form</p>
+              <div className="flex flex-wrap gap-1.5">
+                {waitingEntries.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => (entry.completed ? setOnsitePerson(entry) : setQuery(entry.email))}
+                    className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                      entry.completed ? "border-green-200 bg-green-50 text-green-800" : "bg-white text-slate-700"
+                    }`}
+                  >
+                    {entry.completed ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
+                    {entry.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="space-y-2 empty:hidden">
             {results.map((r) => (
               <div key={r.id} className="rounded-lg border bg-white p-3 space-y-2">
@@ -475,13 +537,27 @@ export function DeskPanel({
                       <StatusChips r={r} />
                     </div>
                   </div>
-                  <RowAction
-                    r={r}
-                    busy={busyId === r.id}
-                    onCheckIn={() => checkInAndPrint(r)}
-                    onRecordPayment={() => openPayment(r.id)}
-                    onReprint={() => reprint(r)}
-                  />
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <RowAction
+                      r={r}
+                      busy={busyId === r.id}
+                      onCheckIn={() => checkInAndPrint(r)}
+                      onRecordPayment={() => openPayment(r.id)}
+                      onReprint={() => reprint(r)}
+                    />
+                    {r.status !== "CANCELLED" && (
+                      <div className="flex gap-1">
+                        {!isFormCompleted(r) && (
+                          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setOnsitePerson(personOf(r))}>
+                            <Smartphone className="h-3.5 w-3.5" /> Complete onsite
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => setEditing(r)}>
+                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {payingId === r.id && (
                   <div className="flex flex-wrap items-end gap-2 rounded-md bg-muted/50 p-2">
@@ -538,6 +614,19 @@ export function DeskPanel({
           searchRef.current?.focus();
         }}
       />
+
+      <CompleteOnsiteDialog
+        eventId={eventId}
+        person={onsitePerson}
+        completed={onsiteCompleted}
+        onLinkCreated={waiting.add}
+        onAdmit={admitOnsite}
+        onClose={() => {
+          setOnsitePerson(null);
+          searchRef.current?.focus();
+        }}
+      />
+      <EditDetailsDialog eventId={eventId} person={editing} onSaved={refresh} onClose={() => setEditing(null)} />
     </div>
   );
 }

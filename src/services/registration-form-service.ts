@@ -28,6 +28,7 @@ import { formatDateInTz, resolveTimezone } from "@/lib/event-time";
 import {
   registrationFormIdentifier,
   registrationFormIdentifierPrefixes,
+  detailsOnlyRegistrationFormIdentifier,
   type RegistrationFormRate,
   type RegistrationFormSkipReason,
 } from "@/lib/registration-form-link";
@@ -356,6 +357,32 @@ export async function mintRegistrationFormLink(input: {
   await db.verificationToken.create({
     data: {
       identifier: registrationFormIdentifier(input.registrationId, input.rate),
+      token: hashVerificationToken(rawToken),
+      expires,
+    },
+  });
+  return { url: `${input.appUrl}/e/${input.eventSlug}/complete-registration?token=${rawToken}`, expires };
+}
+
+/**
+ * The onsite desk's completion link (docs/ONSITE_DESK_PLAN.md §5.4): details
+ * only (no rate, so nothing is re-priced and a paid person can still complete),
+ * valid for `minutes`, single use (the completion route deletes it on
+ * submit). Revokes the person's earlier links, emailed ones included, so they
+ * cannot complete twice.
+ */
+export async function mintOnsiteCompletionLink(input: {
+  registrationId: string;
+  eventSlug: string;
+  minutes: number;
+  appUrl: string;
+}): Promise<{ url: string; expires: Date }> {
+  await revokeRegistrationFormLinks(input.registrationId);
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const expires = new Date(Date.now() + input.minutes * 60_000);
+  await db.verificationToken.create({
+    data: {
+      identifier: detailsOnlyRegistrationFormIdentifier(input.registrationId),
       token: hashVerificationToken(rawToken),
       expires,
     },

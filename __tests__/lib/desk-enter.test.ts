@@ -3,7 +3,7 @@
  * it acts on, and that a code-shaped query with no match is a scan.
  */
 import { describe, it, expect } from "vitest";
-import { deskEnterAction, type DeskEnterCandidate } from "@/lib/desk-enter";
+import { deskEnterAction, matchesDeskSearch, type DeskEnterCandidate } from "@/lib/desk-enter";
 
 const row = (status: string, paymentDue = false, id = "r1"): DeskEnterCandidate => ({ id, status, paymentDue });
 
@@ -33,5 +33,15 @@ describe("deskEnterAction", () => {
     expect(deskEnterAction("john smith", [])).toEqual({ kind: "no-match" });
     expect(deskEnterAction("   ", [])).toEqual({ kind: "none" });
     expect(deskEnterAction("someone@hospital.org", [])).toEqual({ kind: "no-match" });
+  });
+});
+
+describe("matchesDeskSearch", () => {
+  const person = { serialId: 7, attendee: { firstName: "Fatima", lastName: "Al Malallah", email: "f@x.org", organization: "Salmaniya" } };
+  it("finds a full name in either order, and everything the shared search finds", () => {
+    for (const q of ["Fatima Al Malallah", "al malallah fatima", "fatima  al", "salmaniya", "f@x.org", "007"]) {
+      expect(matchesDeskSearch(person, q), q).toBe(true);
+    }
+    expect(matchesDeskSearch(person, "Fatima Smith")).toBe(false);
   });
 });

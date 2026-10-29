@@ -1,6 +1,6 @@
 # Onsite desk: walk-ins and completing registration at the venue
 
-Status: **IN BUILD** (planned Oct 28, 2026). Owner decisions are in §6.
+Status: **BUILT** (planned Oct 28, 2026; all three steps built Oct 28 to 29, 2026). Owner decisions are in §6.
 
 ## 1. The two problems
 
@@ -188,6 +188,34 @@ that clears itself after a few seconds. The tablet needs no staff login.
 - A paid rate with nothing paid: the badge stays refused until payment is
   recorded, as today.
 
+### 5.6 As built (Oct 29, 2026)
+
+- The link is details-only: it uses the rate-less identifier
+  (`detailsOnlyRegistrationFormIdentifier`), which the completion route has
+  always read as "keep their type and price". So nothing is re-priced, and
+  someone whose payment is already recorded can still complete. Minted by
+  `mintOnsiteCompletionLink()` in registration-form-service, which revokes
+  their earlier links first; the completion route deletes it on submit.
+- `POST .../registrations/[registrationId]/onsite-link` refuses a cancelled
+  registration and one already complete (completedAt or an account), and
+  returns the URL, a QR PNG as a data URL and the expiry. The audit row
+  (`ONSITE_COMPLETION_LINK`) never holds the token.
+- Tablet mode (`&mode=tablet` on the same link): no password section,
+  autofill off on its fields, and a "please hand the tablet back" screen in
+  place of the confirmation redirect; the tab, which the desk opened, closes
+  itself after 8 seconds.
+- The waiting list is kept per desk in the browser and polls each waiting
+  person's own registration every 4 seconds (not the whole list), turns
+  green when they finish, and drops people once checked in or once their
+  link expires. Clicking a green name opens "Admit now", which records the
+  payment first when money is owed.
+- Owner, Oct 29: an **Edit** on each desk row for what prints on the badge
+  (title, name, position, organisation, country), through the registration
+  PUT with its optimistic lock; the email stays on Change Email.
+- The desk's search also matches a full name in either order
+  (`matchesDeskSearch`); the Registrations page's rule is unchanged because
+  its CSV export must hold exactly the rows on screen.
+
 ## 6. Owner decisions (Oct 28, 2026)
 
 - Paid walk-ins: the invoice, receipt and email may arrive later.
@@ -202,4 +230,4 @@ own, with the touched screens shown before it is pushed:
 1. Foundation (§3), about a day. BUILT Oct 28, 2026 (`154fba99`, fixes `de3d371c`).
 2. Walk-in panel (§4), about two days. BUILT Oct 29, 2026 (`26c17807`, review
    fixes `80c565f5`, then the desk page).
-3. Complete onsite (§5), about two days.
+3. Complete onsite (§5), about two days. BUILT Oct 29, 2026.

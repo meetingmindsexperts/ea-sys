@@ -184,6 +184,11 @@ function CompleteRegistrationContent() {
   const searchParams = useSearchParams();
   const slug = params.slug as string;
   const token = searchParams.get("token");
+  // The onsite desk's shared tablet (docs/ONSITE_DESK_PLAN.md §5.3): no password,
+  // no autofill kept between people, and a hand-back screen instead of the
+  // confirmation page.
+  const tablet = searchParams.get("mode") === "tablet";
+  const fieldAutoComplete = (value: string) => (tablet ? "off" : value);
 
   const [data, setData] = useState<PrefilledData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -195,6 +200,7 @@ function CompleteRegistrationContent() {
   const [supportingDoc, setSupportingDoc] = useState<UploadedDocument | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
   const [billingSame, setBillingSame] = useState(true);
+  const [handedBack, setHandedBack] = useState(false);
 
   const form = useForm<CompletionForm>({
     resolver: zodResolver(completionSchema),
@@ -363,6 +369,12 @@ function CompleteRegistrationContent() {
         setSubmitting(false);
         return;
       }
+      if (tablet) {
+        // The desk opened this tab; close it once the person has read the screen.
+        setHandedBack(true);
+        setTimeout(() => window.close(), 8000);
+        return;
+      }
       const confirmParams = new URLSearchParams({
         id: result.registration.id,
         name: data?.attendee.firstName || "",
@@ -382,6 +394,20 @@ function CompleteRegistrationContent() {
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
           <p className="text-slate-400 text-sm">Loading your registration...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (handedBack) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
+          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-green-50 flex items-center justify-center">
+            <CheckCircle className="h-7 w-7 text-green-600" />
+          </div>
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">Thank you, your registration is complete</h2>
+          <p className="text-slate-500 text-sm">Please hand the tablet back to the registration desk.</p>
         </div>
       </div>
     );
@@ -588,7 +614,7 @@ function CompleteRegistrationContent() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Position <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input autoComplete="organization-title" placeholder="Physician" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                          <FormControl><Input autoComplete={fieldAutoComplete("organization-title")} placeholder="Physician" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -596,7 +622,7 @@ function CompleteRegistrationContent() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Organization <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input autoComplete="organization" placeholder="Acme Inc." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                          <FormControl><Input autoComplete={fieldAutoComplete("organization")} placeholder="Acme Inc." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -607,7 +633,7 @@ function CompleteRegistrationContent() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Mobile Number <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="tel" autoComplete="tel" placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                          <FormControl><Input type="tel" autoComplete={fieldAutoComplete("tel")} placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -637,7 +663,7 @@ function CompleteRegistrationContent() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">City <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input autoComplete="address-level2" placeholder="Dubai" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                          <FormControl><Input autoComplete={fieldAutoComplete("address-level2")} placeholder="Dubai" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -771,7 +797,8 @@ function CompleteRegistrationContent() {
                   <BillingDetailsSection control={form.control} billingSame={billingSame} onBillingSameChange={setBillingSame} />
                 )}
 
-                {/* Section: Create Account */}
+                {/* Section: Create Account (not on the desk's shared tablet) */}
+                {!tablet && (
                 <div className="space-y-5">
                   <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Create Your Account</h3>
                   <p className="text-xs text-slate-500">Set a password to access your registration portal, view your details, and make payments online.</p>
@@ -795,6 +822,8 @@ function CompleteRegistrationContent() {
                       )} />
                   </div>
                 </div>
+
+                )}
 
                 {/* Section: Terms & Conditions */}
                 <div className="space-y-5">

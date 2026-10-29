@@ -31,6 +31,17 @@ export function registrationFormIdentifier(registrationId: string, rate: Registr
   return `${NEW_PREFIX}${registrationId}:${rateKey}`;
 }
 
+/**
+ * A link with no rate: the person's own type and price stay as they are (one
+ * with no type picks from the open public rates), and money already recorded
+ * does not stop them. The onsite desk's completion link (docs/ONSITE_DESK_PLAN.md
+ * §5.4), which is about details, not price. It is the older form, which the
+ * completion route has always read as details-only.
+ */
+export function detailsOnlyRegistrationFormIdentifier(registrationId: string): string {
+  return `${OLD_PREFIX}${registrationId}`;
+}
+
 /** Both identifier forms a registration's links may use, for revoking them all. */
 export function registrationFormIdentifierPrefixes(registrationId: string): { exact: string; startsWith: string } {
   return { exact: `${OLD_PREFIX}${registrationId}`, startsWith: `${NEW_PREFIX}${registrationId}:` };
