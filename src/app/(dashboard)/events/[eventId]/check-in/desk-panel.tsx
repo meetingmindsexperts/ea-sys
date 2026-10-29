@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -221,6 +221,8 @@ export function DeskPanel({
   const [payingId, setPayingId] = useState<string | null>(null);
   const [payMethod, setPayMethod] = useState<"cash" | "card">("cash");
   const [payLast4, setPayLast4] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // One payment panel at a time, and it starts clean: a second row must not
   // inherit the first row's card digits (review of 26c17807, LOW 8).
@@ -331,25 +333,94 @@ export function DeskPanel({
     await checkInAndPrint(r);
   };
 
+  /**
+   * Enter in the search box: one match is acted on (pay, admit or reprint);
+   * no match on something shaped like a code is treated as a scanned badge or
+   * confirmation barcode, through the door's own check-in route.
+   */
+  const handleEnter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const text = query.trim();
+    if (!text) return;
+    if (results.length === 1) {
+      const only = results[0];
+      if (only.status === "CANCELLED") return;
+      if (only.status === "CHECKED_IN") return reprint(only);
+      if (paymentDue(only)) return openPayment(only.id);
+      return checkInAndPrint(only);
+    }
+    if (results.length > 1) {
+      toast.info(`${results.length} people match. Choose one.`);
+      return;
+    }
+    if (/^\S{4,}$/.test(text)) await scanCode(text);
+  };
+
+  const scanCode = async (code: string) => {
+    setScanning(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/registrations/_/check-in`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ qrCode: code }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(`${formatPersonName(data.attendee?.title, data.attendee?.firstName ?? "", data.attendee?.lastName ?? "")} checked in`);
+        const refusal = await printBadge(eventId, data.id);
+        if (refusal) toast.error(`Checked in, but the badge did not print: ${refusal}`, { duration: 10000 });
+        setQuery("");
+        await refresh();
+        return;
+      }
+      if (data.code === "ALREADY_CHECKED_IN" && data.registration?.attendee?.email) {
+        toast.warning("Already checked in. Reprint their badge if they need one.");
+        setQuery(data.registration.attendee.email);
+        return;
+      }
+      if (data.code === "PAYMENT_REQUIRED") {
+        toast.warning("Payment is due. Search their name to record it.");
+        return;
+      }
+      toast.error(data.error || "No registration with that code");
+    } catch (err) {
+      console.error("[desk] scan failed", err);
+      toast.error("Network error: NOT checked in. Scan again.");
+    } finally {
+      setScanning(false);
+      searchRef.current?.focus();
+    }
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
       <Card>
         <CardContent className="p-4 space-y-3">
-          <div className="relative">
+          <form onSubmit={handleEnter} className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
+              ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Name, email, organisation or registration number"
-              className="pl-10 h-12 text-base"
+              placeholder="Name, email, organisation, registration number or scan"
+              className="pl-10 pr-10 h-12 text-base"
               autoComplete="off"
               autoFocus
+              disabled={scanning}
             />
-          </div>
-          {query.trim().length >= 2 && results.length === 0 && (
-            <p className="text-sm text-muted-foreground px-1">Nobody matches. Register them as a walk-in below.</p>
+            {scanning && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
+          </form>
+          {query.trim().length < 2 && (
+            <p className="text-sm text-muted-foreground px-1">
+              Type two letters of a name, or scan a badge or confirmation barcode. Enter acts on a single match.
+            </p>
           )}
-          <div className="space-y-2">
+          {query.trim().length >= 2 && results.length === 0 && (
+            <p className="text-sm text-muted-foreground px-1">
+              Nobody matches. Press Enter if this is a scanned code, or register them as a walk-in.
+            </p>
+          )}
+          <div className="space-y-2 empty:hidden">
             {results.map((r) => (
               <div key={r.id} className="rounded-lg border bg-white p-3 space-y-2">
                 <div className="flex items-start justify-between gap-3">
@@ -428,6 +499,7 @@ export function DeskPanel({
           // Show the new row once the list has it, so the desk sees "Checked in".
           await refresh();
           setQuery(email);
+          searchRef.current?.focus();
         }}
       />
     </div>

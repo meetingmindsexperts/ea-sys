@@ -126,6 +126,14 @@ As built (Oct 29, 2026):
 - The desk picks a rate when the type has tiers (default: the one on sale now,
   else the last), because the usual shape is a type at 0 with the price on the
   tier, and without one a paid walk-in would be free.
+- The desk is its own full-screen page, `/events/[id]/check-in/desk` (owner,
+  Oct 29, 2026: one simple screen for temp and in-house staff): no dashboard
+  sidebar, the event and the checked-in count in a header, Exit back to
+  Check-In. Search on the left, the walk-in on the right. Enter acts on a
+  single match; with no match, Enter treats the input as a scanned badge or
+  confirmation barcode through the door's own check-in route. It sits under
+  `/check-in`, so desk staff's confinement already covers it. The Check-In
+  page opens it from a Desk button.
 - For someone already registered, "Check in & print" asks the door's own gate;
   when payment is due it opens Record payment (cash / card) in the row, then
   checks in and prints. "Complete onsite" for a not-completed row is step 3;
@@ -192,5 +200,6 @@ Three steps, each built, tested, adversarially reviewed and committed on its
 own, with the touched screens shown before it is pushed:
 
 1. Foundation (§3), about a day. BUILT Oct 28, 2026 (`154fba99`, fixes `de3d371c`).
-2. Walk-in panel (§4), about two days. BUILT Oct 29, 2026.
+2. Walk-in panel (§4), about two days. BUILT Oct 29, 2026 (`26c17807`, review
+   fixes `80c565f5`, then the desk page).
 3. Complete onsite (§5), about two days.

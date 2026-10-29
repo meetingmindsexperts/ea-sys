@@ -38,8 +38,6 @@ import {
 import { toast } from "sonner";
 
 // Lazy-load camera scanner (heavy library)
-const DeskPanel = dynamic(() => import("./desk-panel").then((m) => m.DeskPanel), { ssr: false });
-
 const CameraScanner = dynamic(() => import("./camera-scanner"), {
   ssr: false,
   loading: () => (
@@ -79,7 +77,7 @@ export default function CheckInPage() {
   const { data: event } = useEvent(eventId);
   const { data: registrations = [] } = useRegistrations(eventId);
 
-  const [mode, setMode] = useState<"camera" | "manual" | "desk">("manual");
+  const [mode, setMode] = useState<"camera" | "manual">("manual");
   const [manualInput, setManualInput] = useState("");
   const [kioskDialogOpen, setKioskDialogOpen] = useState(false);
   const [kioskPin, setKioskPin] = useState("");
@@ -240,6 +238,14 @@ export default function CheckInPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* The registration desk: search, admit, take payment and register
+                walk-ins on one full-screen page (docs/ONSITE_DESK_PLAN.md §4). */}
+            <Button asChild variant="outline" size="sm" className="h-8 gap-1.5">
+              <Link href={`/events/${eventId}/check-in/desk`}>
+                <UserPlus className="h-4 w-4" />
+                Desk
+              </Link>
+            </Button>
             {/* Self-service kiosk: attendee scans their emailed barcode →
                 check-in + silent badge print (chrome --kiosk --kiosk-printing).
                 The launch dialog sets this machine's exit PIN (review H1) —
@@ -317,26 +323,9 @@ export default function CheckInPage() {
             <Keyboard className="h-4 w-4" />
             Scanner / Manual
           </button>
-          <button
-            onClick={() => setMode("desk")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-colors ${
-              mode === "desk"
-                ? "bg-primary text-white"
-                : "text-muted-foreground hover:bg-muted"
-            }`}
-          >
-            <UserPlus className="h-4 w-4" />
-            Desk
-          </button>
         </div>
 
         {/* Scanner Area */}
-        {mode === "desk" && event && <DeskPanel
-            eventId={eventId}
-            eventSlug={event.slug}
-            tax={{ taxRate: event.taxRate == null ? null : Number(event.taxRate), taxLabel: event.taxLabel ?? null }}
-            registrations={registrations}
-          />}
         {mode === "camera" && <CameraScanner onScan={handleCheckIn} />}
         {mode === "manual" && (
           <Card>
