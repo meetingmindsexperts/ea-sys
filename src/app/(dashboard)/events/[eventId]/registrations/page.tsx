@@ -642,7 +642,7 @@ export default function RegistrationsPage() {
                   walk-ins on one full-screen page (docs/ONSITE_DESK_PLAN.md §4).
                   In-person only: a webinar has no door. */}
               {canOpenDesk && !eventIsWebinar && (
-                <Button asChild className="bg-amber-500 text-white shadow-sm hover:bg-amber-600">
+                <Button asChild className="bg-amber-400 text-amber-950 shadow-sm hover:bg-amber-500">
                   <Link href={`/events/${eventId}/check-in/desk`}>
                     <ConciergeBell className="mr-2 h-4 w-4" />
                     Onsite desk
