@@ -72,9 +72,13 @@ const walkInSchema = z
     pricingTierId: z.string().min(1).optional(),
     // "inclusive": a sponsor's code that covers the fee (the registration is
     // saved INCLUSIVE under the code's sponsor). Cash and card may carry any
-    // code, which lowers what is collected.
-    payment: z.enum(["complimentary", "cash", "card", "inclusive"]),
+    // code, which lowers what is collected. "covered": a code that leaves
+    // nothing to pay, so nothing is collected and no payment right is needed.
+    payment: z.enum(["complimentary", "cash", "card", "inclusive", "covered"]),
     promoCode: optional(50),
+    // The price after the code, before tax, that the desk showed. The service
+    // refuses if its own figure differs, so the money recorded is the money asked for.
+    expectedPrice: z.number().min(0).max(10_000_000).optional(),
     cardLast4: z.string().regex(/^\d{4}$/).optional(),
     cardBrand: z.string().trim().max(50).optional(),
   })
@@ -82,8 +86,14 @@ const walkInSchema = z
     if (data.specialty === "Others" && !data.customSpecialty) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customSpecialty"], message: "Please specify the specialty" });
     }
-    if (data.payment === "inclusive" && !data.promoCode) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["promoCode"], message: "Enter the sponsor's code" });
+    if ((data.payment === "inclusive" || data.payment === "covered") && !data.promoCode) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["promoCode"], message: "Enter the code" });
+    }
+    if (data.promoCode && data.expectedPrice === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["expectedPrice"], message: "The price shown with the code is required" });
+    }
+    if (data.payment === "covered" && data.expectedPrice !== 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["expectedPrice"], message: "A covered walk-in has nothing to pay" });
     }
     if (data.payment === "complimentary" && data.promoCode) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["promoCode"], message: "A code applies to a paid or sponsor walk-in" });
@@ -230,6 +240,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         paymentStatus: data.payment === "complimentary" ? "COMPLIMENTARY" : undefined,
         promoCode: data.promoCode || null,
         requireSponsorCode: data.payment === "inclusive",
+        expectedPrice: data.expectedPrice,
         // On event day the public sales window has usually closed; the desk is
         // staff. Sold-out and the event cap still apply; the service logs it.
         overrideSalesWindow: true,

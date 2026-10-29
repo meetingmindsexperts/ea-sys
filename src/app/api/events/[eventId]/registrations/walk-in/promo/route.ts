@@ -95,8 +95,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       const priced = promo && !refusal ? promoDiscount(promo, originalPrice) : null;
       if (sponsor && priced && promo && !promoSponsorCovers(promo, priced.finalPrice)) refusal = "PROMO_CODE_NOT_SPONSOR";
       if (refusal || !promo || !priced) {
-        // A normal desk answer, not a failure: the operator reads it and asks again.
-        apiLogger.info({ msg: "walk-in-promo:refused", eventId, code: refusal, userId: session.user.id });
+        // A business rejection (warn, so repeated code guessing shows on the
+        // abuse views); the desk reads the reason and asks again.
+        apiLogger.warn({ msg: "walk-in-promo:refused", eventId, code: refusal, userId: session.user.id });
         return NextResponse.json({ valid: false, code: refusal, error: PROMO_REFUSAL_MESSAGE[refusal ?? "INVALID_PROMO_CODE"] });
       }
 

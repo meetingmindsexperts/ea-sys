@@ -1114,4 +1114,18 @@ describe("createRegistration — promo code", () => {
     expect(mockClaimPromo).not.toHaveBeenCalled();
     expect(mockDb.registration.create.mock.calls[0][0].data).not.toHaveProperty("promoCodeId");
   });
+
+  it("expectedPrice: a price other than the one the caller showed refuses with PRICE_CHANGED and creates nothing", async () => {
+    mockClaimPromo.mockResolvedValue(claim({ discountAmount: 50, finalPrice: 50 }));
+    const result = await createRegistration({ ...BASE_INPUT, promoCode: "HALF", expectedPrice: 0 });
+    expect(result).toMatchObject({ ok: false, code: "PRICE_CHANGED", meta: { expectedPrice: 0, price: 50 } });
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+
+  it("expectedPrice: the matching price after the code goes through; without a code it is the rate's price", async () => {
+    mockClaimPromo.mockResolvedValue(claim());
+    expect((await createRegistration({ ...BASE_INPUT, promoCode: "SAVE20", expectedPrice: 80 })).ok).toBe(true);
+    expect((await createRegistration({ ...BASE_INPUT, expectedPrice: 100 })).ok).toBe(true);
+    expect(await createRegistration({ ...BASE_INPUT, expectedPrice: 90 })).toMatchObject({ ok: false, code: "PRICE_CHANGED" });
+  });
 });

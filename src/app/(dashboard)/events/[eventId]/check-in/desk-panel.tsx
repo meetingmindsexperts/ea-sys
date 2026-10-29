@@ -88,6 +88,8 @@ interface DeskTicketType {
 }
 
 type PaymentChoice = "complimentary" | "cash" | "card" | "inclusive";
+/** What the walk-in route is told: a choice, or "covered" when a code leaves nothing to pay. */
+type SubmittedPayment = PaymentChoice | "covered";
 
 const PAYMENT_LABEL: Record<PaymentChoice, string> = {
   complimentary: "Complimentary",
@@ -98,6 +100,8 @@ const PAYMENT_LABEL: Record<PaymentChoice, string> = {
 
 /** The desk's code check (walk-in/promo route): what to collect, or which sponsor pays. */
 interface PromoPreview {
+  /** The type, rate and code it was checked for; any other inputs make it stale. */
+  key: string;
   code: string;
   discountType: string;
   discountValue: number;
@@ -194,12 +198,16 @@ function discountLabel(p: PromoPreview, currency: string): string {
 
 /**
  * What the walk-in route is told. A cash or card code that leaves nothing to
- * pay goes as cash with no card: the server registers it complimentary and
- * collects nothing.
+ * pay goes as "covered": nothing is collected, so no payment is recorded and
+ * no payment right is needed.
  */
-function submittedPayment(choice: PaymentChoice, promo: PromoPreview | null): PaymentChoice {
-  if ((choice === "cash" || choice === "card") && promo?.finalPrice === 0) return "cash";
+function submittedPayment(choice: PaymentChoice, promo: PromoPreview | null): SubmittedPayment {
+  if ((choice === "cash" || choice === "card") && promo?.finalPrice === 0) return "covered";
   return choice;
+}
+
+function promoKey(ticketTypeId: string, pricingTierId: string | null | undefined, code: string): string {
+  return [ticketTypeId, pricingTierId ?? "", code.trim().toUpperCase()].join("|");
 }
 
 function personOf(r: DeskRegistration): OnsitePerson {
@@ -850,7 +858,9 @@ function WalkInForm({
   // A free rate takes no money, but a sponsor may still be the one paying.
   const effectivePayment: PaymentChoice = price === 0 && payment !== "inclusive" ? "complimentary" : payment;
   const takesCode = effectivePayment !== "complimentary";
-  const codeIsApplied = !!promo && promo.code === codeInput.trim().toUpperCase();
+  // Applied only for the inputs it was checked against: a late answer for an
+  // earlier type, rate or code never counts (review of f694a318, MED).
+  const codeIsApplied = !!promo && !!type && promo.key === promoKey(type.id, tier?.id, codeInput);
   const discount = codeIsApplied ? promo.discountAmount : 0;
   const choices: PaymentChoice[] = price === 0 ? ["complimentary", "inclusive"] : ["complimentary", "cash", "card", "inclusive"];
   const evidence = readIdentityEvidencePolicy(type);
@@ -896,7 +906,7 @@ function WalkInForm({
         setPromoError(data.error || "The code could not be checked");
         return;
       }
-      setPromo(data as PromoPreview);
+      setPromo({ ...(data as Omit<PromoPreview, "key">), key: promoKey(type.id, tier?.id, code) });
       // A sponsor's code on cash or card: the sponsor pays, so it is Inclusive.
       if (data.sponsorName && effectivePayment !== "inclusive") setPayment("inclusive");
     } catch (err) {
@@ -930,6 +940,7 @@ function WalkInForm({
       return;
     }
     const sent = submittedPayment(effectivePayment, codeIsApplied ? promo : null);
+    const expectedPrice = codeIsApplied ? promo.finalPrice : price;
     if (sent === "card" && !/^\d{4}$/.test(fields.cardLast4)) {
       toast.error("Enter the last 4 digits of the card");
       return;
@@ -948,10 +959,17 @@ function WalkInForm({
           supportingDocumentFilename: supportingDoc?.filename,
           payment: sent,
           promoCode: takesCode && codeIsApplied ? promo.code : undefined,
+          // The price shown, after the code and before tax: the server refuses if its own differs.
+          expectedPrice: takesCode ? expectedPrice : undefined,
           cardLast4: sent === "card" ? cardLast4 : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (data.code === "PRICE_CHANGED") {
+        clearPromo();
+        toast.error("The price changed since it was shown. Apply the code again and check the amount.");
+        return;
+      }
       if (data.code === "ALREADY_REGISTERED") {
         toast.warning("Already registered. Find them in the search above.");
         onRegistered(fields.email.trim());

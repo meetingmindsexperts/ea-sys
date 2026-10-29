@@ -255,17 +255,17 @@ describe("POST walk-in", () => {
       dtcm: "not-applicable",
     });
     mockDb.registration.findFirst.mockResolvedValue(freshRow("INCLUSIVE"));
-    const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10" });
+    const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10", expectedPrice: 0 });
     expect(res.status).toBe(201);
     expect(await res.json()).toMatchObject({ checkedIn: true, paymentStatus: "INCLUSIVE" });
-    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ promoCode: "PFIZER10", requireSponsorCode: true, paymentStatus: undefined }));
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ promoCode: "PFIZER10", requireSponsorCode: true, paymentStatus: undefined, expectedPrice: 0 }));
     expect(mockRecordPayment).not.toHaveBeenCalled();
   });
 
   it("inclusive works on a free rate (a sponsor's $0 rate), and needs no payment permission or bucket", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue({ ...PLAIN_TYPE, pricingTiers: [{ price: 0 }] });
     mockDb.registration.findFirst.mockResolvedValue(freshRow("INCLUSIVE", 0));
-    const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10" });
+    const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10", expectedPrice: 0 });
     expect(res.status).toBe(201);
     expect(mockRateLimit).toHaveBeenCalledTimes(1);
   });
@@ -284,31 +284,48 @@ describe("POST walk-in", () => {
 
   it("cash with a discount code: the code goes to the service and the payment takes the discounted balance", async () => {
     mockDb.registration.findFirst.mockResolvedValue(freshRow("PAID"));
-    const res = await post({ ...base, payment: "cash", promoCode: "SAVE20" });
+    const res = await post({ ...base, payment: "cash", promoCode: "SAVE20", expectedPrice: 80 });
     expect(res.status).toBe(201);
-    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ promoCode: "SAVE20", requireSponsorCode: false }));
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ promoCode: "SAVE20", requireSponsorCode: false, expectedPrice: 80 }));
     // No amount: the service defaults to the balance, which reads the stored discount.
     expect(mockRecordPayment).toHaveBeenCalledWith(expect.not.objectContaining({ amount: expect.anything() }));
   });
 
-  it("cash with a code that leaves nothing to pay: no payment is recorded", async () => {
+  it("covered: a code that leaves nothing to pay records no payment and needs no payment right or bucket", async () => {
     mockCreate.mockResolvedValue({
       ok: true,
       registration: { id: "reg-1", serialId: 7, paymentStatus: "COMPLIMENTARY", attendee: { firstName: "Walk", lastName: "In" }, ticketType: { name: "Physician" } },
       dtcm: "not-applicable",
     });
     mockDb.registration.findFirst.mockResolvedValue(freshRow("COMPLIMENTARY"));
-    const res = await post({ ...base, payment: "cash", promoCode: "FREE100" });
+    const res = await post({ ...base, payment: "covered", promoCode: "FREE100", expectedPrice: 0 });
     expect(res.status).toBe(201);
     expect(mockRecordPayment).not.toHaveBeenCalled();
+    expect(mockRateLimit).toHaveBeenCalledTimes(1);
     expect(mockExecuteCheckIn).toHaveBeenCalled();
   });
 
   it("a refused code creates nothing and answers with the service's code", async () => {
     mockCreate.mockResolvedValue({ ok: false, code: "PROMO_CODE_EXHAUSTED", message: "Promo code usage limit reached" });
-    const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10" });
+    const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10", expectedPrice: 0 });
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ code: "PROMO_CODE_EXHAUSTED" });
+    expect(mockExecuteCheckIn).not.toHaveBeenCalled();
+  });
+
+  it("a code without the price the desk showed, or covered with a price, is refused before anything is created", async () => {
+    expect((await post({ ...base, payment: "cash", promoCode: "SAVE20" })).status).toBe(400);
+    expect((await post({ ...base, payment: "covered", promoCode: "FREE100", expectedPrice: 20 })).status).toBe(400);
+    expect((await post({ ...base, payment: "covered", expectedPrice: 0 })).status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("PRICE_CHANGED from the service: nothing collected, nothing checked in", async () => {
+    mockCreate.mockResolvedValue({ ok: false, code: "PRICE_CHANGED", message: "The price changed" });
+    const res = await post({ ...base, payment: "covered", promoCode: "FREE100", expectedPrice: 0 });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "PRICE_CHANGED" });
+    expect(mockRecordPayment).not.toHaveBeenCalled();
     expect(mockExecuteCheckIn).not.toHaveBeenCalled();
   });
 });

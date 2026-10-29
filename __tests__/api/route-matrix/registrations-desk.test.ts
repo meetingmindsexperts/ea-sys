@@ -157,7 +157,7 @@ const CASES: HandlerCase[] = [
     name: "POST registrations/walk-in (inclusive, sponsor code)",
     handler: walkInPOST,
     method: "POST",
-    body: { ...walkIn, payment: "inclusive", promoCode: "SPONSOR1" },
+    body: { ...walkIn, payment: "inclusive", promoCode: "SPONSOR1", expectedPrice: 0 },
   },
   { name: "GET registrations/walk-in/promo", handler: walkInPromoGET, method: "GET", query: "code=SAVE10&ticketTypeId=tt1" },
   {

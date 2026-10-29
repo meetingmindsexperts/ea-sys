@@ -149,6 +149,13 @@ As built (Oct 29, 2026):
   it inside `createRegistration()` through `claimPromoCodeInTx`, the same
   redemption the public form uses, with the rules in `src/lib/promo-redeem.ts`.
   A refused code (used up, already used with that email) creates nothing.
+  The desk sends the price it showed (after the code, before tax), and the
+  service refuses with PRICE_CHANGED inside the transaction if its own figure
+  differs, so a payment is never recorded for money nobody was asked for; a
+  code that leaves nothing to pay goes as `covered`, which takes no payment
+  right (review of f694a318). Known gap, as on the public form: on a $0 rate a
+  sponsor's code writes no redemption row, so its per-email limit is not
+  enforced there.
 - For someone already registered, "Check in & print" asks the door's own gate;
   when payment is due it opens Record payment (cash / card) in the row, then
   checks in and prints. "Complete onsite" for a not-completed row is step 3;

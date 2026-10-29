@@ -425,6 +425,15 @@ export interface CreateRegistrationInput {
    */
   requireSponsorCode?: boolean;
 
+  /**
+   * The price, after any code and before tax, that the caller showed and is
+   * acting on (the desk's collect figure). Checked inside the transaction
+   * after the code is claimed: a different price refuses with PRICE_CHANGED
+   * and creates nothing, so a payment is never recorded for an amount nobody
+   * was asked for (review of f694a318, MED).
+   */
+  expectedPrice?: number;
+
   /** Caller identity — written into `AuditLog.changes.source`. */
   source: "rest" | "mcp" | "agent" | "api";
 
@@ -455,6 +464,7 @@ export type CreateRegistrationErrorCode =
   | "BILLING_ACCOUNT_NOT_FOUND"
   | "BILLING_ACCOUNT_INACTIVE"
   | PromoRefusal
+  | "PRICE_CHANGED"
   | "UNKNOWN";
 
 type RegistrationWithRelations = Prisma.RegistrationGetPayload<{
@@ -961,6 +971,12 @@ export async function createRegistration(
         }
         promoClaim = claimed.claim;
       }
+      if (input.expectedPrice !== undefined) {
+        const price = promoClaim ? promoClaim.finalPrice : effectiveTicketPrice;
+        if (Math.abs(price - input.expectedPrice) > 0.005) {
+          throw new RegistrationServiceSentinel("PRICE_CHANGED", { expectedPrice: input.expectedPrice, price });
+        }
+      }
 
       const qrCode = isVirtual ? null : generateBarcode();
       const serialId = await getNextSerialId(tx, eventId, organizationId);
@@ -1027,6 +1043,15 @@ export async function createRegistration(
           ok: false,
           code: "EVENT_FULL",
           message: "This event has reached its maximum number of attendees. Raise the cap in Settings → Registration to admit more.",
+        };
+      }
+      if (err.code === "PRICE_CHANGED") {
+        apiLogger.warn({ msg: "registration:create-price-changed", eventId, source, ...err.meta });
+        return {
+          ok: false,
+          code: "PRICE_CHANGED",
+          message: "The price changed since it was shown. Check the rate and the code again.",
+          meta: err.meta,
         };
       }
       if (isPromoRefusal(err.code)) {
@@ -1204,7 +1229,7 @@ function isPromoRefusal(code: string): code is PromoRefusal {
  */
 class RegistrationServiceSentinel extends Error {
   constructor(
-    public readonly code: "ALREADY_REGISTERED" | "SOLD_OUT" | "EVENT_FULL" | PromoRefusal,
+    public readonly code: "ALREADY_REGISTERED" | "SOLD_OUT" | "EVENT_FULL" | "PRICE_CHANGED" | PromoRefusal,
     public readonly meta: Record<string, unknown>,
   ) {
     super(code);
