@@ -15,6 +15,7 @@ import { useTickets, queryKeys, fetchApi } from "@/hooks/use-api";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatPersonName } from "@/lib/utils";
 import { matchesRegistrationSearch } from "@/lib/registration-search";
+import { deskEnterAction } from "@/lib/desk-enter";
 import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
@@ -88,6 +89,17 @@ const OUTSTANDING = new Set(["UNASSIGNED", "UNPAID", "PENDING", "FAILED"]);
  * dialog was opened.
  */
 async function printBadge(eventId: string, registrationId: string): Promise<string | null> {
+  try {
+    return await openBadgePrint(eventId, registrationId);
+  } catch (err) {
+    // Never thrown to the caller: the check-in already landed, and a thrown
+    // error would read "NOT checked in" and invite a second check-in.
+    console.error("[desk] badge print failed", err);
+    return "network error";
+  }
+}
+
+async function openBadgePrint(eventId: string, registrationId: string): Promise<string | null> {
   const res = await fetch(`/api/events/${eventId}/registrations/badges`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -334,26 +346,39 @@ export function DeskPanel({
   };
 
   /**
-   * Enter in the search box: one match is acted on (pay, admit or reprint);
-   * no match on something shaped like a code is treated as a scanned badge or
-   * confirmation barcode, through the door's own check-in route.
+   * Enter in the search box (the decision is `deskEnterAction`). A ref, not
+   * state, guards against a second Enter: state lags a fast repeat or a
+   * scanner's CR+LF, and a second run would print a second badge.
    */
+  const enterInFlight = useRef(false);
+  // And a repeat on the same person within 2 s is ignored even after the first
+  // finished (an operator's double tap), as the Check-In scanner does for codes.
+  const lastEnter = useRef<{ id: string; at: number } | null>(null);
   const handleEnter = async (e: React.FormEvent) => {
     e.preventDefault();
-    const text = query.trim();
-    if (!text) return;
-    if (results.length === 1) {
-      const only = results[0];
-      if (only.status === "CANCELLED") return;
-      if (only.status === "CHECKED_IN") return reprint(only);
-      if (paymentDue(only)) return openPayment(only.id);
-      return checkInAndPrint(only);
+    if (enterInFlight.current) return;
+    const action = deskEnterAction(
+      query,
+      results.map((r) => ({ id: r.id, status: r.status, paymentDue: paymentDue(r) })),
+    );
+    const row = "id" in action ? results.find((r) => r.id === action.id) : undefined;
+    if (row) {
+      const last = lastEnter.current;
+      if (last && last.id === row.id && Date.now() - last.at < 2000) return;
+      lastEnter.current = { id: row.id, at: Date.now() };
     }
-    if (results.length > 1) {
-      toast.info(`${results.length} people match. Choose one.`);
-      return;
+    enterInFlight.current = true;
+    try {
+      if (action.kind === "reprint" && row) await reprint(row);
+      else if (action.kind === "check-in" && row) await checkInAndPrint(row);
+      else if (action.kind === "pay") openPayment(action.id);
+      else if (action.kind === "scan") await scanCode(action.code);
+      else if (action.kind === "choose") toast.info(`${action.count} people match. Choose one.`);
+      else if (action.kind === "cancelled") toast.info("This registration is cancelled.");
+      else if (action.kind === "no-match") toast.info("Nobody matches. Check the spelling, scan the barcode, or register them as a walk-in.");
+    } finally {
+      enterInFlight.current = false;
     }
-    if (/^\S{4,}$/.test(text)) await scanCode(text);
   };
 
   const scanCode = async (code: string) => {
@@ -379,7 +404,16 @@ export function DeskPanel({
         return;
       }
       if (data.code === "PAYMENT_REQUIRED") {
-        toast.warning("Payment is due. Search their name to record it.");
+        // The door names who it refused, so the desk can take the payment
+        // straight away instead of asking for their name.
+        const owing = registrations.find((r) => r.id === data.registrationId);
+        if (!owing) {
+          toast.warning("Payment is due. Search their name to record it.");
+          return;
+        }
+        setQuery(owing.attendee.email);
+        openPayment(owing.id);
+        toast.warning("Payment is due. Record it, then the badge prints.");
         return;
       }
       toast.error(data.error || "No registration with that code");
@@ -406,7 +440,9 @@ export function DeskPanel({
               className="pl-10 pr-10 h-12 text-base"
               autoComplete="off"
               autoFocus
-              disabled={scanning}
+              // readOnly, not disabled: a disabled input loses focus, and the
+              // next scan's keystrokes would land nowhere.
+              readOnly={scanning}
             />
             {scanning && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
           </form>

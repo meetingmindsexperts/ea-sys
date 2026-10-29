@@ -16,7 +16,7 @@ import { DeskPanel } from "../desk-panel";
  */
 export default function DeskPage() {
   const eventId = useParams().eventId as string;
-  const { data: event } = useEvent(eventId);
+  const { data: event, isError } = useEvent(eventId);
   const { data: registrations = [] } = useRegistrations(eventId);
 
   const checkedIn = registrations.filter((r) => r.status === "CHECKED_IN").length;
@@ -28,7 +28,7 @@ export default function DeskPage() {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
           <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Registration desk</p>
-            <h1 className="truncate text-lg font-semibold">{event?.name ?? "Loading…"}</h1>
+            <h1 className="truncate text-lg font-semibold">{event?.name ?? (isError ? "Event not available" : "Loading…")}</h1>
           </div>
           <div className="flex shrink-0 items-center gap-4">
             <div className="flex items-center gap-2 text-sm" aria-label="Checked in">
@@ -46,6 +46,13 @@ export default function DeskPage() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-4">
+        {/* An event outside the person's grant (an ONSITE user not assigned to
+            it) answers 404; say so rather than "Loading…" forever. */}
+        {isError && !event && (
+          <p className="rounded-lg border bg-white p-6 text-sm text-muted-foreground">
+            This event could not be opened. You may not be assigned to it; ask an organiser, or use Exit.
+          </p>
+        )}
         {event && (
           <DeskPanel
             eventId={eventId}

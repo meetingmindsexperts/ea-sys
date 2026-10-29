@@ -313,6 +313,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(gate.checkedInAt && { checkedInAt: gate.checkedInAt }),
           // The scanner UI shows who the badge belongs to on a double scan.
           ...(gate.code === "ALREADY_CHECKED_IN" && { registration }),
+          // The desk opens Record payment for the person it refused, instead
+          // of asking for their name. The id only: the caller already holds
+          // registrations.checkin on this event.
+          ...(gate.code === "PAYMENT_REQUIRED" && { registrationId: registration.id }),
         },
         { status: 400 }
       );

@@ -309,3 +309,16 @@ describe("PUT (scan check-in) — body validation", () => {
     expect((await res.json()).code).toBe("INVALID_JSON");
   });
 });
+
+describe("PUT (scan) refused for payment", () => {
+  it("names the registration it refused, so the desk can take the payment (review of 23086dc0)", async () => {
+    mockGate.mockReturnValue({ code: "PAYMENT_REQUIRED", message: "Cannot check in, payment required" });
+    const scan = new Request("http://localhost/x", { method: "PUT", body: JSON.stringify({ qrCode: "Q1" }) });
+    const res = await PUT(scan, params);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toMatchObject({ code: "PAYMENT_REQUIRED", registrationId: "reg1" });
+    expect(body).not.toHaveProperty("registration");
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+});
