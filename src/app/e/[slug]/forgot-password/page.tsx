@@ -76,7 +76,11 @@ type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
 function EventForgotPasswordInner() {
   const params = useParams();
   // Set when the reset started on the abstract / proposal signup page.
-  const from = parseSubmitterReturn(useSearchParams().get("from"));
+  const searchParams = useSearchParams();
+  const from = parseSubmitterReturn(searchParams.get("from"));
+  // The desk QR's confirmation email links here with their email filled in
+  // (docs/ONSITE_DESK_PLAN.md §8.3): their account has no password yet.
+  const emailFromLink = (searchParams.get("email") ?? "").trim().slice(0, 255);
   const slug = params.slug as string;
 
   const [event, setEvent] = useState<EventBranding | null>(null);
@@ -87,7 +91,7 @@ function EventForgotPasswordInner() {
 
   const form = useForm<ForgotPasswordFormData>({
     resolver: zodResolver(forgotPasswordSchema),
-    defaultValues: { email: "" },
+    defaultValues: { email: emailFromLink },
   });
 
   // Fetch event for branding. Same endpoint the login page hits — if

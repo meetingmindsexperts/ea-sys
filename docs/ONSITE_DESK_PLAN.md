@@ -300,7 +300,7 @@ own, with the touched screens shown before it is pushed:
    fixes `80c565f5`, then the desk page).
 3. Complete onsite (§5), about two days. BUILT Oct 29, 2026.
 
-## 8. Step 4: Desk QR forms for exhibitors and complimentary (PLANNED, Oct 29, 2026)
+## 8. Step 4: Desk QR forms for exhibitors and complimentary (BUILT, Oct 29, 2026)
 
 The walk-ins that queue in numbers are exhibitors arriving for their stands
 and complimentary guests. Both are free, both already have a public rate
@@ -403,4 +403,26 @@ About two days: the token and the route changes with their tests first
 expiry on submit), then the form's desk mode, then the desk panel, then the
 user guide's Onsite desk Q&As. Built, reviewed and committed like steps 1
 to 3, and shown in the browser before any push.
+
+### 8.9 As built (Oct 29, 2026)
+
+- `src/lib/desk-qr-token.ts` (sign and verify, server only) and
+  `src/lib/desk-qr-rules.ts` (the type, rate, code and price rules, and
+  `readDeskQrClaims` for the form's look, client-safe).
+- `GET/POST .../registrations/desk-qr`: the panel's options (the Exhibitor
+  type's sponsor-code rate, the sponsors' codes with places left, the
+  Complimentary rate) and the QR. Each QR shown writes a `DESK_QR_SHOWN`
+  audit row with its id, never the token; the registration's audit row
+  names the same id (`deskQr`).
+- The public register route reads the token before its rate limits. An
+  expired or forged token is refused with "scan again", never quietly
+  treated as the public form, so nobody is asked for a password at the desk.
+- The rate form's desk mode: one page with the email on it, the step
+  indicator and Back hidden, Exhibitor only (or never), the exhibitor's code
+  read-only, and a rate that closed online reopened while it has seats.
+- The account helper makes the account with a random password
+  (`withoutPassword`); the confirmation email adds the set-a-password line,
+  linking to the event's Forgot password page with the email filled in.
+- An event that is COMPLETED (or not published) has no public form, so its
+  desk QR opens "Event not found": desk mode does not reopen a finished event.
 

@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
@@ -19,7 +20,10 @@ import { notifyEventAdmins } from "@/lib/notifications";
  * FAILURE-ISOLATED by contract: account creation must never block the
  * registration itself, so the whole body is wrapped in try/catch and a failure
  * is logged at error level and swallowed. No-ops when `password` is absent
- * (guest registration with no account).
+ * (guest registration with no account), unless `withoutPassword` is set: the
+ * desk QR (docs/ONSITE_DESK_PLAN.md §8.3) makes the account with a random
+ * password nobody knows, as reviewer invites do, and the person sets their own
+ * through Forgot password.
  */
 export async function ensureRegistrantAccount(args: {
   registrationId: string;
@@ -31,6 +35,8 @@ export async function ensureRegistrantAccount(args: {
   lastName: string;
   /** When absent, this is a guest registration — no account is created. */
   password: string | undefined;
+  /** Make the account even with no password (the desk QR). */
+  withoutPassword?: boolean;
   specialty: string | null;
   clientIp: string | null;
   /** Notification body — each caller keeps its own wording. */
@@ -47,9 +53,10 @@ export async function ensureRegistrantAccount(args: {
     specialty,
     clientIp,
     signupMessage,
+    withoutPassword,
   } = args;
 
-  if (!password) return;
+  if (!password && !withoutPassword) return;
 
   try {
     // Tenant-scoped: linking a registration to an account found by email ALONE
@@ -85,7 +92,7 @@ export async function ensureRegistrantAccount(args: {
         });
       }
     } else {
-      const passwordHash = await bcrypt.hash(password, 10);
+      const passwordHash = await bcrypt.hash(password ?? crypto.randomBytes(32).toString("hex"), 10);
       const newUser = await db.user.create({
         data: {
           email,

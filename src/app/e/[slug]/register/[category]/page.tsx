@@ -51,6 +51,8 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
+import { isExhibitorBadge } from "@/lib/badge-layout";
+import { readDeskQrClaims } from "@/lib/desk-qr-rules";
 
 function toSlug(name: string): string {
   return name
@@ -211,12 +213,16 @@ const registrationSchema = z.object({
   billingState: z.string().optional(),
   billingZipCode: z.string().optional(),
   billingCountry: z.string().optional(),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  confirmPassword: z.string().min(1, "Please confirm your password"),
+  password: z.string(),
+  confirmPassword: z.string(),
+  // Registering by a desk QR asks for no password (docs/ONSITE_DESK_PLAN.md §8.2).
+  deskMode: z.boolean(),
   agreeTerms: z.literal(true, { message: "You must agree to the terms and conditions" }),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords do not match",
-  path: ["confirmPassword"],
+}).superRefine((data, ctx) => {
+  if (data.deskMode) return;
+  if (data.password.length < 6) ctx.addIssue({ code: "custom", path: ["password"], message: "Password must be at least 6 characters" });
+  if (!data.confirmPassword) ctx.addIssue({ code: "custom", path: ["confirmPassword"], message: "Please confirm your password" });
+  else if (data.password !== data.confirmPassword) ctx.addIssue({ code: "custom", path: ["confirmPassword"], message: "Passwords do not match" });
 }).refine(
   (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
   {
@@ -237,6 +243,15 @@ function CategoryRegistrationContent() {
   const isPresenterCategory = isPresenterTierName(categorySlug);
 
   const searchParams = useSearchParams();
+  // A desk QR for THIS form, still valid when the page opened: desk mode
+  // (docs/ONSITE_DESK_PLAN.md §8.2). Only the form's look follows it; the
+  // register route checks the token and every rule. Expired, or for another
+  // form: the ordinary public form.
+  const deskToken = searchParams.get("desk");
+  const [deskQr] = useState(() => {
+    const claims = readDeskQrClaims(deskToken);
+    return claims && claims.rate === categorySlug && claims.expiresAt > Date.now() ? claims : null;
+  });
 
   const [event, setEvent] = useState<Event | null>(null);
   const [formLabel, setFormLabel] = useState<string | null>(null);
@@ -244,7 +259,8 @@ function CategoryRegistrationContent() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<1 | 2>(1);
+  // Desk mode has no account step: straight to the details.
+  const [step, setStep] = useState<1 | 2>(deskQr ? 2 : 1);
   // Supporting document. Uploaded to its own endpoint BEFORE
   // submit (the registration POST is JSON and the body limit is 1MB, far under
   // a scanned letter), so what travels with the form is just the stored path.
@@ -290,7 +306,7 @@ function CategoryRegistrationContent() {
       associationName: "", memberId: "", studentId: "", studentIdExpiry: "",
       taxNumber: "", billingFirstName: "", billingLastName: "", billingEmail: "",
       billingPhone: "", billingAddress: "", billingCity: "", billingState: "", billingZipCode: "", billingCountry: "",
-      password: "", confirmPassword: "",
+      password: "", confirmPassword: "", deskMode: !!deskQr,
       agreeTerms: undefined as unknown as true,
     },
   });
@@ -343,7 +359,9 @@ function CategoryRegistrationContent() {
                 virtualPrice: tt.virtualPrice != null ? Number(tt.virtualPrice) : null,
                 currency: tier.currency,
                 available: tier.available,
-                canPurchase: tier.canPurchase,
+                // A rate that closed online stays open at the desk while it has
+                // seats (§8.5); one not yet on sale stays closed.
+                canPurchase: tier.canPurchase || (!!deskQr && tier.salesEnded && tier.salesStarted && !tier.soldOut),
                 hasSeatLimit: tier.seatLimited ?? tier.quantity < UNLIMITED_SENTINEL,
                 requiresDocument: tt.requiresDocument === true,
                 documentRequired: tt.documentRequired === true,
@@ -354,6 +372,13 @@ function CategoryRegistrationContent() {
                 requiresStudentIdExpiry: tt.requiresStudentIdExpiry === true,
               });
             }
+          }
+
+          // Desk mode: an exhibitor QR offers only the Exhibitor type, a
+          // complimentary one never offers it (§8.2).
+          if (deskQr) {
+            const deskOptions = options.filter((o) => (deskQr.kind === "exhibitor") === isExhibitorBadge(o.regTypeName));
+            options.splice(0, options.length, ...deskOptions);
           }
 
           if (options.length === 0) {
@@ -424,7 +449,7 @@ function CategoryRegistrationContent() {
       }
     }
     if (slug) fetchEvent();
-  }, [slug, categorySlug, form]);
+  }, [slug, categorySlug, form, deskQr]);
 
   // The draft's non-form parts, kept current for the watch callback above, and
   // saved when they change (they are not form fields, so watch never sees them).
@@ -455,8 +480,10 @@ function CategoryRegistrationContent() {
     }
     if (draft.supportingDoc) setSupportingDoc(draft.supportingDoc);
     // Step 2 only when step 1 was completed (a valid email and matching password).
-    if (draft.step === 2 && values.email && values.password && values.password === values.confirmPassword) setStep(2);
-  }, [regTypeOptions, draftKey, form]);
+    // Desk mode has no step 1, and its form never asks for a password.
+    if (deskQr) form.setValue("deskMode", true);
+    else if (draft.step === 2 && values.email && values.password && values.password === values.confirmPassword) setStep(2);
+  }, [regTypeOptions, draftKey, form, deskQr]);
 
   // Resolve tier-specific content with event-level fallback
   // Event-level content (shared across all tiers)
@@ -577,6 +604,8 @@ function CategoryRegistrationContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...data,
+          // Desk mode sends the QR's token and no password (§8.3).
+          ...(deskQr && { password: undefined, confirmPassword: undefined, deskToken }),
           supportingDocumentUrl: supportingDoc?.url,
           supportingDocumentFilename: supportingDoc?.filename,
           promoCode: promoResult?.valid ? promoResult.code : undefined,
@@ -597,7 +626,9 @@ function CategoryRegistrationContent() {
       }
       if (!res.ok) {
         console.warn("[register] Registration rejected:", res.status, result.error);
-        toast.error(result.error || "Registration failed");
+        // At the desk, staff can find someone already registered.
+        const deskDuplicate = deskQr && result.code === "ALREADY_REGISTERED";
+        toast.error(deskDuplicate ? "You are already registered. Please go to the desk." : result.error || "Registration failed");
         setSubmitting(false);
         return;
       }
@@ -831,7 +862,8 @@ function CategoryRegistrationContent() {
             <p className="text-sm text-slate-500 mt-1">
               {step === 1 ? "Create your account to get started." : "Fill in the details below to complete your registration."}
             </p>
-            {/* Step indicator */}
+            {/* Step indicator (desk mode is one step) */}
+            {!deskQr && (
             <div className="flex items-center gap-2 mt-4">
               <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold",
                 step === 1 ? "bg-primary/10 text-primary border-2 border-primary" : "bg-primary text-white"
@@ -843,6 +875,7 @@ function CategoryRegistrationContent() {
               )}>2</div>
               <span className={cn("text-sm font-medium", step === 2 ? "text-slate-800" : "text-slate-400")}>Details</span>
             </div>
+            )}
           </div>
 
           <div className="p-4 sm:p-6 sm:px-10">
@@ -994,6 +1027,18 @@ function CategoryRegistrationContent() {
                   {/* Section: Contact Details */}
                   <div className="space-y-5">
                     <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Contact Details</h3>
+
+                    {/* Desk mode has no account step, so the email is asked here. */}
+                    {deskQr && (
+                      <FormField control={form.control} name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium text-slate-600">Email Address <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input autoComplete="email" type="email" placeholder="john@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                    )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-4">
                       <FormField control={form.control} name="title"
@@ -1333,7 +1378,7 @@ function CategoryRegistrationContent() {
                     )}
 
                     {/* Promo Code */}
-                    {selectedTicketId && (event?.hasPromoCodes || sponsorCodeRequired) && (
+                    {selectedTicketId && deskQr?.kind !== "complimentary" && (event?.hasPromoCodes || sponsorCodeRequired) && (
                       <div className="mt-2">
                         {!showPromoInput && !sponsorCodeRequired ? (
                           <button type="button" onClick={() => setShowPromoInput(true)} className="text-sm text-primary hover:underline font-medium">
@@ -1346,12 +1391,16 @@ function CategoryRegistrationContent() {
                             </label>
                             {sponsorCodeRequired && (
                               <p className="text-xs text-slate-500">
-                                This registration link is for sponsored delegates. Enter the code your sponsor sent you.
+                                {deskQr?.kind === "exhibitor"
+                                  ? "Your sponsor's code is already applied."
+                                  : "This registration link is for sponsored delegates. Enter the code your sponsor sent you."}
                               </p>
                             )}
                             <div className="flex gap-2">
                               <Input
                                 placeholder="Enter promo code"
+                                // An exhibitor desk QR carries its sponsor's code.
+                                readOnly={deskQr?.kind === "exhibitor"}
                                 value={promoCode}
                                 onChange={(e) => {
                                   setPromoCode(e.target.value.toUpperCase());
@@ -1362,7 +1411,7 @@ function CategoryRegistrationContent() {
                               <Button
                                 type="button"
                                 variant="outline"
-                                disabled={!promoCode.trim() || promoValidating}
+                                disabled={!promoCode.trim() || promoValidating || deskQr?.kind === "exhibitor"}
                                 onClick={() => void applyPromo(promoCode)}
                                 className="shrink-0"
                               >
@@ -1517,9 +1566,11 @@ function CategoryRegistrationContent() {
 
                   {/* Navigation: full width on a phone, Complete first */}
                   <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between pt-2">
-                    <Button type="button" variant="outline" className="rounded-lg w-full sm:w-auto" onClick={() => goToStep(1)}>
-                      <ChevronLeft className="mr-1 h-4 w-4" /> Back
-                    </Button>
+                    {deskQr ? <span /> : (
+                      <Button type="button" variant="outline" className="rounded-lg w-full sm:w-auto" onClick={() => goToStep(1)}>
+                        <ChevronLeft className="mr-1 h-4 w-4" /> Back
+                      </Button>
+                    )}
                     <Button type="submit" disabled={submitting} className="rounded-lg font-semibold btn-gradient px-8 text-base w-full sm:w-auto h-12 sm:h-10">
                       {submitting ? (
                         <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Registering…</>

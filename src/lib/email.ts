@@ -2389,6 +2389,12 @@ export interface RegistrationConfirmationParams {
    */
   coveredBySponsorName?: string | null;
   /**
+   * Registered at the desk by QR (docs/ONSITE_DESK_PLAN.md §8.3): their account
+   * was made without a password, so the email says how to set one. The event's
+   * Forgot password page, with their email filled in.
+   */
+  setPasswordUrl?: string | null;
+  /**
    * Show the amount and attach the quote, but do NOT invite immediate payment
    * (plan D3). Distinct from `coveredByGroupPayerName`, which means somebody
    * else is paying: here the registrant DOES owe it, just not yet.
@@ -2739,6 +2745,15 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
         <p style="margin:0; font-size:14px; color:#0c4a6e;">You're registered to attend online. <strong>Joining instructions and your access link will be sent to you closer to the event.</strong></p>
       </div>`;
     virtualNoteText = `\n\nVirtual attendance: You're registered to attend online. Joining instructions and your access link will be sent to you closer to the event.`;
+  }
+
+  // A desk QR registration has an account with no password yet: say how to set one.
+  if (params.setPasswordUrl) {
+    const url = escapeHtml(params.setPasswordUrl);
+    virtualNoteBlock += `<div style="text-align:center; margin:24px 0; padding:16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+        <p style="margin:0; font-size:14px; color:#334155;">To manage your registration online, <a href="${url}" style="color:#0284c7;">set a password for your account</a>.</p>
+      </div>`;
+    virtualNoteText += `\n\nTo manage your registration online, set a password for your account: ${params.setPasswordUrl}`;
   }
 
   // Render HTML with raw paymentBlock + entryBarcode (both contain HTML),

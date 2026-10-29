@@ -149,7 +149,7 @@ export function useWaitingList(eventId: string, onCompleted: () => void) {
   return { entries, add, remove };
 }
 
-function useCountdown(expiresAt: string | null): { label: string; expired: boolean } {
+export function useCountdown(expiresAt: string | null): { label: string; expired: boolean } {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!expiresAt) return;

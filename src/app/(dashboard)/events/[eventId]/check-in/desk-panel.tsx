@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Banknote, CheckCircle2, Clock, Loader2, Pencil, Printer, Search, Smartphone, UserPlus } from "lucide-react";
+import { Banknote, CheckCircle2, Clock, Loader2, Pencil, Printer, QrCode, Search, Smartphone, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,7 @@ import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/
 import { formatPersonName } from "@/lib/utils";
 import { deskEnterAction, deskQueryIsSearchable, matchesDeskSearch } from "@/lib/desk-enter";
 import { CompleteOnsiteDialog, EditDetailsDialog, useWaitingList, type OnsiteLink, type OnsitePerson } from "./desk-onsite";
+import { WalkInQrDialog } from "./desk-walkin-qr";
 import { useCan } from "@/hooks/use-can";
 import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
 import { TitleSelect } from "@/components/ui/title-select";
@@ -304,6 +305,9 @@ export function DeskPanel({
   const canEdit = useCan("registrations.update", eventId) === "allowed";
   // The badges route needs its own key; without it the row offers no Print badge.
   const canPrint = useCan("registrations.badges.print", eventId) === "allowed";
+  // Showing the walk-in QR lets people register themselves: the walk-in's key.
+  const canRegister = useCan("registrations.create", eventId) === "allowed";
+  const [qrOpen, setQrOpen] = useState(false);
 
   // One payment panel at a time, and it starts clean: a second row must not
   // inherit the first row's card digits (review of 26c17807, LOW 8).
@@ -664,6 +668,20 @@ export function DeskPanel({
         </CardContent>
       </Card>
 
+      {canRegister && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-semibold">
+                <QrCode className="h-4 w-4 text-primary" /> Walk-in QR
+              </p>
+              <p className="text-xs text-muted-foreground">Exhibitors and complimentary guests register themselves on their phone.</p>
+            </div>
+            <Button type="button" variant="outline" onClick={() => setQrOpen(true)}>Show QR</Button>
+          </CardContent>
+        </Card>
+      )}
+
       <WalkInForm
         eventId={eventId}
         eventSlug={eventSlug}
@@ -695,6 +713,16 @@ export function DeskPanel({
         }}
       />
       <EditDetailsDialog eventId={eventId} person={editing} onSaved={refresh} onClose={() => setEditing(null)} />
+      <WalkInQrDialog
+        eventId={eventId}
+        open={qrOpen}
+        onClose={() => {
+          setQrOpen(false);
+          // Who registered meanwhile shows in search.
+          refresh();
+          searchRef.current?.focus();
+        }}
+      />
     </div>
   );
 }

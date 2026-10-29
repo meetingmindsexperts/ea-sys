@@ -137,3 +137,27 @@ describe("ensureRegistrantAccount", () => {
     );
   });
 });
+
+// The desk QR (docs/ONSITE_DESK_PLAN.md §8.3): an account with no password.
+describe("withoutPassword", () => {
+  it("makes the account with a random password nobody was given, and links the registration", async () => {
+    await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true });
+    const hashed = hashSpy.mock.calls[0][0] as string;
+    expect(hashed).toMatch(/^[0-9a-f]{64}$/);
+    expect(mockDb.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ passwordHash: "hashed-pw", role: "REGISTRANT" }) }));
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({ where: { attendee: { email: base.email }, userId: null }, data: { userId: "u-new" } });
+  });
+
+  it("an existing account is linked, as with a password", async () => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-old", role: "REGISTRANT", termsAcceptedAt: new Date() });
+    await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true });
+    expect(mockDb.user.create).not.toHaveBeenCalled();
+    expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg1" }, data: { userId: "u-old" } });
+  });
+
+  it("still a no-op with no password and no flag (a guest)", async () => {
+    await ensureRegistrantAccount({ ...base, password: undefined });
+    expect(mockDb.user.create).not.toHaveBeenCalled();
+    expect(mockDb.registration.update).not.toHaveBeenCalled();
+  });
+});

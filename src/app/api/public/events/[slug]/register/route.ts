@@ -20,6 +20,8 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
 import { claimEventSeats, claimSeats } from "@/lib/registration-seat-db";
+import { verifyDeskQrToken, type DeskQrPayload } from "@/lib/desk-qr-token";
+import { deskQrPriceRefusal, deskQrTypeRefusal, DESK_QR_REFUSAL_MESSAGE, type DeskQrRefusal } from "@/lib/desk-qr-rules";
 import type { SeatCounter } from "@/lib/registration-seat";
 import { claimSpareDtcmCode } from "@/lib/dtcm-pool";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
@@ -113,6 +115,8 @@ const registrationSchema = z.object({
   // The sibling public door already had this rule (complete-registration
   // :299) — two hand-written copies of nearly the same schema, one drifted.
   agreeTerms: z.literal(true, { message: "You must agree to the terms and conditions" }),
+  // The desk QR (docs/ONSITE_DESK_PLAN.md §8): while valid, desk mode.
+  deskToken: z.string().max(4000).optional(),
 }).refine(
   (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
   {
@@ -123,6 +127,38 @@ const registrationSchema = z.object({
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
+}
+
+/** Thrown inside the transaction when a desk QR's code or price rule refuses. */
+class DeskQrRefusedError extends Error {
+  constructor(readonly code: DeskQrRefusal) {
+    super(code);
+  }
+}
+
+/** The desk QR on the request, when there is one and it is valid; a response when it is not. */
+function readDeskToken(token: string | undefined, ip: string): { desk: DeskQrPayload | null } | { response: NextResponse } {
+  if (!token) return { desk: null };
+  const verdict = verifyDeskQrToken(token);
+  if (verdict.ok) return { desk: verdict.payload };
+  apiLogger.warn({ msg: "public/register:desk-qr-refused", reason: verdict.reason, ip });
+  const error = verdict.reason === "expired"
+    ? "This desk QR has expired. Please scan the QR at the desk again."
+    : "This desk QR is not valid. Please scan the QR at the desk again.";
+  return { response: NextResponse.json({ error, code: verdict.reason === "expired" ? "DESK_QR_EXPIRED" : "DESK_QR_INVALID" }, { status: 400 }) };
+}
+
+function rateLimited(retryAfterSeconds: number): NextResponse {
+  return NextResponse.json(
+    { error: "Too many requests. Please try again later." },
+    { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+  );
+}
+
+/** The event's Forgot password page with their email filled in (docs/ONSITE_DESK_PLAN.md §8.3). */
+function setPasswordLink(slug: string, email: string): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
+  return `${appUrl}/e/${slug}/forgot-password?email=${encodeURIComponent(email)}`;
 }
 
 function initialPaymentStatus(sponsorCovered: boolean, finalPrice: number): "INCLUSIVE" | "COMPLIMENTARY" | "UNPAID" {
@@ -137,43 +173,50 @@ export async function POST(req: Request, { params }: RouteParams) {
   try {
     const clientIp = getClientIp(req);
 
-    // Burst limiter: catch bots hammering the endpoint (15 req / 60s per IP).
-    // Raised from 3 → 15 so several genuine registrants behind one shared NAT
-    // (hospital / office / venue WiFi) submitting near-simultaneously aren't
-    // throttled, while still stopping a script hammering the endpoint.
-    const burstLimit = checkRateLimit({
-      key: `public-register:burst:${clientIp}`,
-      limit: 15,
-      windowMs: 60 * 1000,
-    });
-    if (!burstLimit.allowed) {
-      apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: burstLimit.retryAfterSeconds, ip: clientIp });
-      return NextResponse.json(
-        { error: "Too many requests. Please try again later." },
-        { status: 429, headers: { "Retry-After": String(burstLimit.retryAfterSeconds) } }
-      );
-    }
-
-    // Sustained limiter: 100 registrations per IP per 15 min. Raised from 10 so a
-    // large shared NAT (a hospital/office with many staff registering for a
-    // conference, or venue WiFi) isn't blocked; still caps runaway abuse from a
-    // single source.
-    const ipRateLimit = checkRateLimit({
-      key: `public-register:ip:${clientIp}`,
-      limit: 100,
-      windowMs: 15 * 60 * 1000,
-    });
-
-    if (!ipRateLimit.allowed) {
-      apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: ipRateLimit.retryAfterSeconds, ip: clientIp });
-      return NextResponse.json(
-        { error: "Too many requests. Please try again later." },
-        { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }
-      );
-    }
-
     const [{ slug }, body] = await Promise.all([params, req.json()]);
     slugForLog = slug;
+
+    // A valid desk QR swaps the per-IP limits for a per-QR one: venue Wi-Fi
+    // puts the whole queue on one address (docs/ONSITE_DESK_PLAN.md §8.5).
+    const deskRead = readDeskToken(typeof body?.deskToken === "string" ? body.deskToken : undefined, clientIp);
+    if ("response" in deskRead) return deskRead.response;
+    const { desk } = deskRead;
+
+    if (desk) {
+      const deskLimit = checkRateLimit({ key: `public-register:desk:${desk.jti}`, limit: 300, windowMs: 30 * 60 * 1000 });
+      if (!deskLimit.allowed) {
+        apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: deskLimit.retryAfterSeconds, deskQr: desk.jti });
+        return rateLimited(deskLimit.retryAfterSeconds);
+      }
+    } else {
+      // Burst limiter: catch bots hammering the endpoint (15 req / 60s per IP).
+      // Raised from 3 → 15 so several genuine registrants behind one shared NAT
+      // (hospital / office / venue WiFi) submitting near-simultaneously aren't
+      // throttled, while still stopping a script hammering the endpoint.
+      const burstLimit = checkRateLimit({
+        key: `public-register:burst:${clientIp}`,
+        limit: 15,
+        windowMs: 60 * 1000,
+      });
+      if (!burstLimit.allowed) {
+        apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: burstLimit.retryAfterSeconds, ip: clientIp });
+        return rateLimited(burstLimit.retryAfterSeconds);
+      }
+
+      // Sustained limiter: 100 registrations per IP per 15 min. Raised from 10 so a
+      // large shared NAT (a hospital/office with many staff registering for a
+      // conference, or venue WiFi) isn't blocked; still caps runaway abuse from a
+      // single source.
+      const ipRateLimit = checkRateLimit({
+        key: `public-register:ip:${clientIp}`,
+        limit: 100,
+        windowMs: 15 * 60 * 1000,
+      });
+      if (!ipRateLimit.allowed) {
+        apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: ipRateLimit.retryAfterSeconds, ip: clientIp });
+        return rateLimited(ipRateLimit.retryAfterSeconds);
+      }
+    }
 
     const validated = registrationSchema.safeParse(body);
 
@@ -251,6 +294,14 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    if (desk && desk.eventId !== event.id) {
+      apiLogger.warn({ msg: "public/register:desk-qr-refused", reason: "wrong-event", eventId: event.id, deskQr: desk.jti });
+      return NextResponse.json(
+        { error: "This desk QR is for another event. Please scan the QR at the desk again.", code: "DESK_QR_INVALID" },
+        { status: 400 },
+      );
     }
 
     return await runWithTenant(event.organizationId, async () => {
@@ -367,6 +418,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // A desk QR is for one rate, and the Exhibitor type or never it (§8.2).
+    if (desk) {
+      const refusal = deskQrTypeRefusal(desk, ticketType.name, pricingTier?.name ?? null);
+      if (refusal) {
+        apiLogger.warn({ msg: "public/register:desk-qr-refused", reason: refusal, eventId: event.id, ticketTypeId, pricingTierId, deskQr: desk.jti });
+        return NextResponse.json({ error: DESK_QR_REFUSAL_MESSAGE[refusal], code: refusal }, { status: 400 });
+      }
+    }
+
     // Use pricing tier for capacity/sales checks if available, otherwise fall back to ticket type
     const capacitySource = pricingTier || ticketType;
 
@@ -378,7 +438,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 }
       );
     }
-    if (capacitySource.salesEnd && new Date(capacitySource.salesEnd) < now) {
+    // A rate that closed online still works at the desk; its seat limit does not move (§8.5).
+    if (!desk && capacitySource.salesEnd && new Date(capacitySource.salesEnd) < now) {
       apiLogger.warn({ msg: "public/register:sales-ended", eventId: event.id, ticketTypeId, pricingTierId });
       return NextResponse.json(
         { error: "Registration sales have ended" },
@@ -617,6 +678,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       // is left to pay; the code's rule already requires 100% off.
       const sponsorCovered = promoClaim?.sponsorCovered === true;
 
+      // Desk mode never takes a registration that owes money, and an exhibitor
+      // QR only its own sponsor's code (§8.2). Throwing rolls the claims back.
+      if (desk) {
+        const refusal = deskQrPriceRefusal(desk, { promoCodeId: promoCodeRecord?.id ?? null, sponsorCovered, finalPrice });
+        if (refusal) throw new DeskQrRefusedError(refusal);
+      }
+
       // Create registration. Virtual ⇒ no entry barcode (nothing to scan).
       const generatedBarcode = isVirtual ? null : generateBarcode();
       const serialId = await getNextSerialId(tx, event.id, event.organizationId);
@@ -729,6 +797,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           pricingTier: pricingTier ? pricingTier.name : null,
           status: registration.status,
           ip: getClientIp(req),
+          // Registered by a desk QR: which one, and who showed it.
+          ...(desk && { deskQr: { kind: desk.kind, id: desk.jti, issuedBy: desk.issuedBy } }),
         },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log for public registration" }));
@@ -783,6 +853,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       firstName,
       lastName,
       password,
+      // The desk QR asks for no password: the account is made without one (§8.3).
+      withoutPassword: !!desk,
       specialty: specialty || null,
       clientIp: getClientIp(req),
       signupMessage: `${firstName} ${lastName} (${email}) created a registrant account`,
@@ -835,6 +907,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           promoCode: appliedPromoCode,
           // The sponsor pays: "covered by" note, no Payment Pending, no quote.
           coveredBySponsorName,
+          // Desk QR: how to set the password their account does not have yet.
+          setPasswordUrl: desk && !password ? setPasswordLink(slug, email) : null,
           billingFirstName: registration.billingFirstName,
           billingLastName: registration.billingLastName,
           billingEmail: registration.billingEmail,
@@ -899,6 +973,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
     });
   } catch (error) {
+    if (error instanceof DeskQrRefusedError) {
+      apiLogger.warn({ msg: "public/register:desk-qr-refused", reason: error.code, slug: slugForLog });
+      return NextResponse.json({ error: DESK_QR_REFUSAL_MESSAGE[error.code], code: error.code }, { status: 400 });
+    }
     if (error instanceof Error) {
       // M12: the sentinel-mapped business 400s (duplicate / sold-out / promo
       // rejections) were returned dark — log each at warn so a failed public
@@ -918,7 +996,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
       if (error.message === "ALREADY_REGISTERED") {
         return NextResponse.json(
-          { error: "You are already registered for this event" },
+          { error: "You are already registered for this event", code: "ALREADY_REGISTERED" },
           { status: 400 }
         );
       }
