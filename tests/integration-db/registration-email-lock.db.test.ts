@@ -13,7 +13,7 @@
  * Run: docker compose --profile crm-test up -d
  *      INTEGRATION_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/crm_test npm run test:integration-db
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("@/lib/email", () => ({ sendRegistrationConfirmation: vi.fn(), sendEmail: vi.fn() }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn(async () => undefined) }));
@@ -57,6 +57,22 @@ const create = (eventId: string, ticketTypeId: string, email: string) =>
 
 beforeEach(async () => {
   seed = await resetCrm();
+});
+
+// createRegistration writes its audit row after it returns (fire-and-forget).
+// The next test's reset TRUNCATEs the tables, and a truncate racing that insert
+// is a deadlock (it failed CI this way on Oct 29, 2026). Let the stragglers
+// land first: a moment for them to be sent, then until no other session on
+// this database is busy.
+afterEach(async () => {
+  await new Promise((r) => setTimeout(r, 200));
+  for (let i = 0; i < 50; i++) {
+    const [{ n }] = await db.$queryRaw<Array<{ n: bigint }>>`
+      SELECT count(*) AS n FROM pg_stat_activity
+      WHERE datname = current_database() AND pid <> pg_backend_pid() AND state = 'active'`;
+    if (Number(n) === 0) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
 });
 
 describe("one registration per person per event", () => {
