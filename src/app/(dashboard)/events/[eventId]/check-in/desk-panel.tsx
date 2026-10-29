@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useTickets, queryKeys, fetchApi } from "@/hooks/use-api";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatPersonName } from "@/lib/utils";
-import { deskEnterAction, matchesDeskSearch } from "@/lib/desk-enter";
+import { deskEnterAction, deskQueryIsSearchable, matchesDeskSearch } from "@/lib/desk-enter";
 import { CompleteOnsiteDialog, EditDetailsDialog, useWaitingList, type OnsiteLink, type OnsitePerson } from "./desk-onsite";
 import { useCan } from "@/hooks/use-can";
 import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
@@ -309,7 +309,7 @@ export function DeskPanel({
   };
 
   const results = useMemo(() => {
-    if (query.trim().length < 2) return [];
+    if (!deskQueryIsSearchable(query)) return [];
     return registrations.filter((r) => matchesDeskSearch(r, query)).slice(0, MAX_RESULTS);
   }, [registrations, query]);
 
@@ -546,12 +546,12 @@ export function DeskPanel({
             />
             {scanning && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
           </form>
-          {query.trim().length < 2 && (
+          {!deskQueryIsSearchable(query) && (
             <p className="text-sm text-muted-foreground px-1">
-              Type two letters of a name, or scan a badge or confirmation barcode. Enter acts on a single match.
+              Type two letters of a name or a registration number, or scan a badge or confirmation barcode. Enter acts on a single match.
             </p>
           )}
-          {query.trim().length >= 2 && results.length === 0 && (
+          {deskQueryIsSearchable(query) && results.length === 0 && (
             <p className="text-sm text-muted-foreground px-1">
               Nobody matches. Press Enter if this is a scanned code, or register them as a walk-in.
             </p>

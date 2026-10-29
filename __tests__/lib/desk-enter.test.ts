@@ -3,7 +3,7 @@
  * it acts on, and that a code-shaped query with no match is a scan.
  */
 import { describe, it, expect } from "vitest";
-import { deskEnterAction, matchesDeskSearch, nextPollBatch, type DeskEnterCandidate } from "@/lib/desk-enter";
+import { deskEnterAction, deskQueryIsSearchable, matchesDeskSearch, nextPollBatch, type DeskEnterCandidate } from "@/lib/desk-enter";
 
 const row = (status: string, paymentDue = false, id = "r1"): DeskEnterCandidate => ({ id, status, paymentDue });
 
@@ -43,6 +43,25 @@ describe("matchesDeskSearch", () => {
       expect(matchesDeskSearch(person, q), q).toBe(true);
     }
     expect(matchesDeskSearch(person, "Fatima Smith")).toBe(false);
+  });
+
+  it("a registration number finds that registration in any padding, and nothing else", () => {
+    for (const q of ["7", "07", "007", "#7", " 7 "]) expect(matchesDeskSearch(person, q), q).toBe(true);
+    expect(matchesDeskSearch(person, "70")).toBe(false);
+    // A number never falls through to the name match.
+    const digits = { serialId: 3, attendee: { firstName: "Room 7", lastName: "Guest", email: "g@x.org" } };
+    expect(matchesDeskSearch(digits, "7")).toBe(false);
+  });
+});
+
+describe("deskQueryIsSearchable", () => {
+  it("searches from two characters, or from one digit of a registration number (owner, Oct 29 2026)", () => {
+    expect(deskQueryIsSearchable("2")).toBe(true);
+    expect(deskQueryIsSearchable("#2")).toBe(true);
+    expect(deskQueryIsSearchable("02")).toBe(true);
+    expect(deskQueryIsSearchable("al")).toBe(true);
+    expect(deskQueryIsSearchable("a")).toBe(false);
+    expect(deskQueryIsSearchable(" ")).toBe(false);
   });
 });
 

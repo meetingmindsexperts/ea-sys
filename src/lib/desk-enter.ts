@@ -11,7 +11,7 @@
  * 9 digits (`parseSerialQuery`).
  */
 
-import { matchesRegistrationSearch, type SearchableRegistration } from "@/lib/registration-search";
+import { matchesRegistrationSearch, parseSerialQuery, type SearchableRegistration } from "@/lib/registration-search";
 
 /**
  * The desk's search: the Registrations page's rule, plus the full name in
@@ -21,10 +21,20 @@ import { matchesRegistrationSearch, type SearchableRegistration } from "@/lib/re
  */
 export function matchesDeskSearch(r: SearchableRegistration, query: string): boolean {
   if (matchesRegistrationSearch(r, query)) return true;
+  // A registration number is that registration and nothing else.
+  if (parseSerialQuery(query) !== null) return false;
   const q = query.trim().toLowerCase().replace(/\s+/g, " ");
   const first = r.attendee.firstName.toLowerCase();
   const last = r.attendee.lastName.toLowerCase();
   return `${first} ${last}`.includes(q) || `${last} ${first}`.includes(q);
+}
+
+/**
+ * Whether the desk searches yet: two characters of a name, or a registration
+ * number of any length, so "2" finds registration 002 as "02" does.
+ */
+export function deskQueryIsSearchable(query: string): boolean {
+  return query.trim().length >= 2 || parseSerialQuery(query) !== null;
 }
 
 export interface DeskEnterCandidate {
