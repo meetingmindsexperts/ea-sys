@@ -19,7 +19,7 @@ import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
 import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { parseRegistrationFormIdentifier, type RegistrationFormRate } from "@/lib/registration-form-link";
-import { linkMayReprice, priceAtLinkRate, RESTAMPABLE_STATUSES, stampedPaymentStatus, type LinkRepriceState } from "@/lib/registration-form-pricing";
+import { linkMayReprice, priceAtLinkRate, rateFromRegistration, RESTAMPABLE_STATUSES, stampedPaymentStatus, type LinkRepriceState } from "@/lib/registration-form-pricing";
 import { applyRegistrationTransition, claimEventSeats } from "@/lib/registration-seat-db";
 import { holdsEventSeat, holdsSeat, type SeatState } from "@/lib/registration-seat";
 import { registerTierSlug } from "@/lib/main-register-tiers";
@@ -413,7 +413,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     // server-side, so the client can't dictate what it pays.
     // A link with a rate lists the types at that rate, even when a type is
     // already set (the person may change it at the same rate).
-    const appliedRate = await effectiveLinkRate(registration, linkRate, eventSettings);
+    // A link without a rate takes it from the row (rateFromRegistration).
+    const appliedRate = await effectiveLinkRate(registration, linkRate ?? rateFromRegistration(registration), eventSettings);
     if (appliedRate) {
       const rated = await loadRatedTicketTypes(
         registration.event.id,
@@ -734,7 +735,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       paymentStatus: PaymentStatus | null;
     } | null = null;
 
-    const appliedRate = await effectiveLinkRate(registration, linkRate, registration.event.settings);
+    // The same rule as the GET: a link without a rate takes it from the row.
+    const appliedRate = await effectiveLinkRate(registration, linkRate ?? rateFromRegistration(registration), registration.event.settings);
     if (appliedRate) {
       const targetTypeId = chosenTicketTypeId ?? registration.ticketTypeId;
       if (!targetTypeId) {
@@ -1059,7 +1061,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             email: registration.attendee.email,
             ip: getClientIp(req),
             ...(ratedPlan && {
-              linkRate: linkRate?.kind === "rate" ? linkRate.slug : "complimentary",
+              linkRate: appliedRate?.kind === "rate" ? appliedRate.slug : "complimentary",
+              ...(!linkRate && { rateFrom: "registration" }),
               ticketTypeId: ratedPlan.type.id,
               ticketTypeName: ratedPlan.type.name,
               ...(ratedPlan.type.id !== registration.ticketTypeId && { previousTicketTypeId: registration.ticketTypeId }),

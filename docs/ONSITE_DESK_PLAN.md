@@ -266,6 +266,14 @@ that clears itself after a few seconds. The tablet needs no staff login.
   email, says the confirmation with the entry barcode was emailed (the
   completion route now returns `emailed`, so a failed send is never claimed),
   and asks them to hand the tablet back, with a 20-second countdown.
+- A typeless COMPLIMENTARY row (the CSV import default) was offered the open
+  public rate by Complete onsite, and completing it would have made the comp
+  owe (BHS2026 #78, Oct 29). Owner: the registration's own type and payment
+  status decide, never what an earlier email carried. A link without a rate
+  now completes such a row at no charge (`rateFromRegistration` in
+  registration-form-pricing.ts): its types are offered free and it stays
+  COMPLIMENTARY. A typeless row that owes keeps the open public rate; a row
+  with a type keeps its own type and price.
 - The desk's search also matches a full name in either order
   (`matchesDeskSearch`); the Registrations page's rule is unchanged because
   its CSV export must hold exactly the rows on screen.

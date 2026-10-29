@@ -139,7 +139,9 @@ function makeRegistration(overrides: Record<string, unknown> = {}) {
       },
     },
     ticketTypeId: null,
-    paymentStatus: "COMPLIMENTARY", // the typeless-import default
+    // A typeless payer. A typeless COMPLIMENTARY row (the import default) completes
+    // free instead (rateFromRegistration, complete-registration-link-rate.test.ts).
+    paymentStatus: "UNASSIGNED",
     ticketType: null,
     pricingTier: null,
     ...overrides,
@@ -233,9 +235,10 @@ describe("completion type-set — base behavior", () => {
         ticketTypeId: "tt-1",
         pricingTierId: "tier-eb",
         originalPrice: 80,
-        paymentStatus: "UNASSIGNED", // default was COMPLIMENTARY → now payable
       }),
     });
+    // Already payable: the status is left as it is.
+    expect(mockTxRegUpdateMany.mock.calls[0][0].data).not.toHaveProperty("paymentStatus");
   });
 
   it("its first type also claims its event seat; a full event refuses (Oct 29, 2026)", async () => {
@@ -296,15 +299,8 @@ describe("M1 — explicitly-set paymentStatus survives the type-set", () => {
     expect(mockTxRegUpdateMany.mock.calls[0][0].data).not.toHaveProperty("paymentStatus");
   });
 
-  it("keeps the COMPLIMENTARY default when the chosen type is free", async () => {
-    mockTtFindFirst.mockResolvedValue(makeChosenType({ price: "0" }));
-    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
-    expect(res.status).toBe(200);
-    expect(mockTxRegUpdateMany.mock.calls[0][0].data).toMatchObject({
-      paymentStatus: "COMPLIMENTARY",
-      originalPrice: 0,
-    });
-  });
+  // A typeless COMPLIMENTARY row completes free on a priced type, through the
+  // link-rate path: complete-registration-link-rate.test.ts, "a link without a rate".
 });
 
 describe("L2 — a self-selected requiresApproval type enters the approval queue", () => {

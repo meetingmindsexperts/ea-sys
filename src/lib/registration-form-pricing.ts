@@ -64,6 +64,20 @@ export function priceAtLinkRate<T extends PricingTierCandidate>(
   return { ok: true, tier, price: linkRatePrice(Number(tier.price), ctx) };
 }
 
+/**
+ * The rate a link WITHOUT one completes at (owner, Oct 29, 2026: the
+ * registration's own type and payment status decide, never what an earlier
+ * email carried). A row with no type marked COMPLIMENTARY completes free: its
+ * types are offered at no charge and it stays COMPLIMENTARY. Before this, the
+ * desk's details-only link priced such a row at the open public rate, and
+ * completing it flipped a comp to owing. Any other row: null, so its own type,
+ * or for a typeless payer the open public rate, applies as before.
+ */
+export function rateFromRegistration(reg: Pick<LinkRepriceState, "ticketTypeId" | "paymentStatus">): RegistrationFormRate | null {
+  if (reg.ticketTypeId || reg.paymentStatus !== "COMPLIMENTARY") return null;
+  return { kind: "complimentary" };
+}
+
 /** What `linkMayReprice` reads from the registration. */
 export interface LinkRepriceState {
   paymentStatus: PaymentStatus;

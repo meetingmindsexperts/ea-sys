@@ -359,3 +359,47 @@ describe("POST with a rated link", () => {
     expect(confirmationMock.mock.calls[0][0].attendanceMode).toBe("VIRTUAL");
   });
 });
+
+// The desk's details-only link (reg:<id>) carries no rate, so the row decides
+// (owner, Oct 29, 2026: BHS2026 #78, a typeless comp import, was offered
+// Standard at $350 by "Complete onsite").
+describe("a link without a rate: the registration's type and payment status decide", () => {
+  const typelessComp = () =>
+    registration({ ticketTypeId: null, ticketType: null, pricingTier: null, pricingTierId: null, paymentStatus: "COMPLIMENTARY" });
+
+  it("GET: a typeless COMPLIMENTARY row is offered its types at no charge", async () => {
+    token("reg:reg-1");
+    mockDb.registration.findFirst.mockResolvedValue(typelessComp());
+    const json = await (await get()).json();
+    expect(json.linkRate).toEqual({ name: "Complimentary", closed: false });
+    expect(json.selectableTicketTypes.map((t: { id: string; price: number }) => [t.id, t.price])).toEqual([
+      ["tt-phys", 0], ["tt-nurse", 0], ["tt-exh", 0],
+    ]);
+  });
+
+  it("POST: it picks a type and stays COMPLIMENTARY, at no charge", async () => {
+    token("reg:reg-1");
+    mockDb.registration.findFirst.mockResolvedValue(typelessComp());
+    const res = await post({ ticketTypeId: "tt-phys" });
+    expect(res.status).toBe(200);
+    expect(rowWrite().where).toMatchObject({ id: "reg-1", ticketTypeId: null });
+    expect(rowWrite().data).toMatchObject({ ticketTypeId: "tt-phys", pricingTierId: null, originalPrice: 0, paymentStatus: "COMPLIMENTARY" });
+    expect(tx.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ linkRate: "complimentary", rateFrom: "registration", price: 0 });
+  });
+
+  it("a typeless row that owes (UNASSIGNED) keeps the open public rate", async () => {
+    token("reg:reg-1");
+    mockDb.registration.findFirst.mockResolvedValue({ ...typelessComp(), paymentStatus: "UNASSIGNED" });
+    const json = await (await get()).json();
+    expect(json.linkRate).toBeNull();
+    expect(json.selectableTicketTypes.find((t: { id: string }) => t.id === "tt-phys")).toMatchObject({ price: 250 });
+  });
+
+  it("a row with a type keeps its own type and price (details only)", async () => {
+    token("reg:reg-1");
+    mockDb.registration.findFirst.mockResolvedValue(registration({ paymentStatus: "COMPLIMENTARY" }));
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(typeOrPriceWrites(tx.registration.updateMany)).toEqual([]);
+  });
+});
