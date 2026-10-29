@@ -360,7 +360,7 @@ describe("MCP create_registration — REST parity", () => {
     expect(mockDb.registration.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         eventId: "evt-1",
-        attendee: { email: "john@example.com" },
+        attendee: { email: { equals: "john@example.com", mode: "insensitive" } },
         status: { notIn: ["CANCELLED"] },
       }),
     }));

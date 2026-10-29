@@ -974,7 +974,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
         const duplicate = await db.registration.findFirst({
           // CANCELLED rows don't block a re-registration (M8 parity — the
           // single-create service excludes them from the duplicate check).
-          where: { eventId: ctx.eventId, status: { not: "CANCELLED" }, attendee: { email } },
+          where: { eventId: ctx.eventId, status: { not: "CANCELLED" }, attendee: { email: { equals: email, mode: "insensitive" } } },
           select: { id: true },
         });
         if (duplicate) {
@@ -1014,7 +1014,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
           // (src/lib/registration-email-lock.ts).
           await lockRegistrationEmails(tx, ctx.eventId, [email]);
           const raced = await tx.registration.findFirst({
-            where: { eventId: ctx.eventId, status: { not: "CANCELLED" }, attendee: { email } },
+            where: { eventId: ctx.eventId, status: { not: "CANCELLED" }, attendee: { email: { equals: email, mode: "insensitive" } } },
             select: { id: true },
           });
           if (raced) throw new BulkRowDuplicate();

@@ -250,7 +250,8 @@ describe("createRegistration — happy path", () => {
     });
     // Duplicate-check used normalized email
     const dupCall = mockDb.registration.findFirst.mock.calls[0][0];
-    expect(dupCall.where.attendee.email).toBe("john@example.com");
+    // Case-insensitive, as the per-person lock is (legacy rows can be mixed-case).
+    expect(dupCall.where.attendee.email).toEqual({ equals: "john@example.com", mode: "insensitive" });
     // Attendee create used normalized email
     const attCreate = mockDb.attendee.create.mock.calls[0][0];
     expect(attCreate.data.email).toBe("john@example.com");

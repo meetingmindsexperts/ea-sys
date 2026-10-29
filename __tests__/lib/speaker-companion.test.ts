@@ -147,6 +147,18 @@ describe("ensureSpeakerCompanionRegistration", () => {
     );
   });
 
+  it("a concurrent grant for the same speaker already made and linked it: already-linked, no second link", async () => {
+    registrationFindFirst.mockResolvedValueOnce(null);
+    ticketTypeFindFirst.mockResolvedValueOnce({ id: "ftype" });
+    txRegistrationFindFirst.mockResolvedValueOnce({ id: "reg_winner", qrCode: "QR1", attendanceMode: "IN_PERSON" });
+    speakerFindUnique.mockResolvedValue({ sourceRegistrationId: "reg_winner" });
+
+    const res = await ensureSpeakerCompanionRegistration(base);
+    expect(res).toEqual({ status: "already-linked", registrationId: "reg_winner" });
+    expect(speakerUpdate).not.toHaveBeenCalled();
+    expect(txRegistrationCreate).not.toHaveBeenCalled();
+  });
+
   it("H2: a LOST link race rolls back the create and returns the winner's registration", async () => {
     registrationFindFirst.mockResolvedValueOnce(null);
     ticketTypeFindFirst.mockResolvedValueOnce({ id: "ftype" });

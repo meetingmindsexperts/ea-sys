@@ -480,7 +480,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           await lockRegistrationEmails(tx, eventId, [email]);
           // Check for duplicate registration (same email + same event)
           const existing = await tx.registration.findFirst({
-            where: { eventId, attendee: { email }, status: { notIn: ["CANCELLED"] } },
+            where: { eventId, attendee: { email: { equals: email, mode: "insensitive" } }, status: { notIn: ["CANCELLED"] } },
             select: { id: true },
           });
           if (existing) {

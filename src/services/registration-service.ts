@@ -855,12 +855,14 @@ export async function createRegistration(
       // Same person, same event: one at a time, so the check below sees a
       // concurrent request's row (src/lib/registration-email-lock.ts).
       await lockRegistrationEmails(tx, eventId, [email]);
+      // Case-insensitive, as the lock is: legacy rows can carry a mixed-case
+      // email, and an exact match would let the same person through.
       // Dup check excludes CANCELLED — matches REST + MCP behavior post-Phase-0
       // so a re-registration after cancellation is allowed.
       const existing = await tx.registration.findFirst({
         where: {
           eventId,
-          attendee: { email },
+          attendee: { email: { equals: email, mode: "insensitive" } },
           status: { notIn: [RegistrationStatus.CANCELLED] },
         },
         select: { id: true },

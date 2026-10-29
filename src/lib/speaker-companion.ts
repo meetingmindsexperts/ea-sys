@@ -381,8 +381,14 @@ export async function ensureSpeakerCompanionRegistration(
   });
 
   if (typeof registrationId === "object" && registrationId.kind === "found") {
-    apiLogger.info({ msg: "speaker-companion:found-existing-in-tx", speakerId: speaker.id, eventId: speaker.eventId, registrationId: registrationId.registration.id });
-    return linkExistingRegistration(speaker, registrationId.registration);
+    const found = registrationId.registration;
+    apiLogger.info({ msg: "speaker-companion:found-existing-in-tx", speakerId: speaker.id, eventId: speaker.eventId, registrationId: found.id });
+    // A concurrent grant for this same speaker made it and already linked it:
+    // that is "already linked", not a second link (and a second audit row in
+    // the grant route; review of f74b2017, L3).
+    const current = await db.speaker.findUnique({ where: { id: speaker.id }, select: { sourceRegistrationId: true } });
+    if (current?.sourceRegistrationId === found.id) return { status: "already-linked", registrationId: found.id };
+    return linkExistingRegistration(speaker, found);
   }
   if (typeof registrationId === "object") {
     return { status: "already-linked", registrationId: registrationId.winnerId };

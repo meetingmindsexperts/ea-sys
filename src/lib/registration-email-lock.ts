@@ -14,7 +14,9 @@ import type { Prisma } from "@prisma/client";
  * pattern): released at commit or rollback, so it is safe behind the pooler,
  * and it only serializes requests for the same email on the same event.
  * Emails are lowercased (one person, whatever the case) and locked in sorted
- * order, so two transactions locking several emails cannot deadlock. A hash
+ * order of the lock key's hash, so two transactions locking several emails
+ * cannot deadlock. The duplicate check behind the lock must be
+ * case-insensitive too (`mode: "insensitive"`). A hash
  * collision only makes two unrelated people wait for each other briefly.
  */
 export async function lockRegistrationEmails(
@@ -31,11 +33,13 @@ export async function lockRegistrationEmails(
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${keys[0]}))::text`;
     return;
   }
-  // A batch (import, group) in one round trip: the ordered subquery feeds the
-  // keys to the lock in sorted order.
+  // A batch (import, group) in one round trip. Ordered by the HASH, which is
+  // what is actually locked: ordering by the key text would let two batches
+  // whose keys collide take the same two locks in opposite orders (review of
+  // f74b2017, L2). DISTINCT folds a collision into one lock.
   await tx.$queryRaw`
     SELECT count(*)::text FROM (
-      SELECT pg_advisory_xact_lock(hashtext(k)) FROM (SELECT unnest(${keys}::text[]) AS k ORDER BY k) ordered
+      SELECT pg_advisory_xact_lock(h) FROM (SELECT DISTINCT hashtext(k) AS h FROM unnest(${keys}::text[]) AS k ORDER BY h) ordered
     ) locked`;
 }
 

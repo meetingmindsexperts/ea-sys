@@ -72,6 +72,18 @@ describe("one registration per person per event", () => {
     expect(type.soldCount).toBe(1);
   });
 
+  it("a legacy row stored in mixed case still counts as the same person", async () => {
+    const { eventId, ticketTypeId } = await seedEvent();
+    // Written the way a pre-normalisation import left it.
+    const attendee = await db.attendee.create({
+      data: { organizationId: seed.orgId, email: "Legacy@Test.Local", firstName: "Legacy", lastName: "Row" },
+      select: { id: true },
+    });
+    await db.registration.create({ data: { organizationId: seed.orgId, eventId, attendeeId: attendee.id, ticketTypeId } });
+    const result = await create(eventId, ticketTypeId, "legacy@test.local");
+    expect(result).toMatchObject({ ok: false, code: "ALREADY_REGISTERED" });
+  });
+
   it("different people on the same event are not held up by each other's lock", async () => {
     const { eventId, ticketTypeId } = await seedEvent();
     const results = await Promise.all(["a@test.local", "b@test.local", "c@test.local"].map((e) => create(eventId, ticketTypeId, e)));

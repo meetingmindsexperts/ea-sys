@@ -507,7 +507,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const existingRegistration = await tx.registration.findFirst({
         where: {
           eventId: event.id,
-          attendee: { email },
+          attendee: { email: { equals: email, mode: "insensitive" } },
           status: { notIn: ["CANCELLED"] },
         },
         select: { id: true },
