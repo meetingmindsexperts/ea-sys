@@ -4,7 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
@@ -178,27 +178,37 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    // Update attendee fields only
-    const updatedAttendee = await db.attendee.update({
-      where: { id: registration.attendeeId },
-      data: {
-        ...(attendee.title !== undefined && { title: attendee.title || null }),
-        ...(attendee.role !== undefined && { role: attendee.role }),
-        ...(attendee.firstName && { firstName: attendee.firstName }),
-        ...(attendee.lastName && { lastName: attendee.lastName }),
-        ...(attendee.additionalEmail !== undefined && { additionalEmail: attendee.additionalEmail?.trim() || null }),
-        ...(attendee.organization !== undefined && { organization: attendee.organization || null }),
-        ...(attendee.jobTitle !== undefined && { jobTitle: attendee.jobTitle || null }),
-        ...(attendee.phone !== undefined && { phone: attendee.phone || null }),
-        ...(attendee.city !== undefined && { city: attendee.city || null }),
-        ...(attendee.country !== undefined && { country: attendee.country || null }),
-        ...(attendee.specialty !== undefined && { specialty: attendee.specialty || null }),
-        ...(attendee.dietaryReqs !== undefined && { dietaryReqs: attendee.dietaryReqs || null }),
-        ...(attendee.associationName !== undefined && { associationName: attendee.associationName || null }),
-        ...(attendee.memberId !== undefined && { memberId: attendee.memberId || null }),
-        ...(attendee.studentId !== undefined && { studentId: attendee.studentId || null }),
-        ...(attendee.studentIdExpiry !== undefined && { studentIdExpiry: attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null }),
-      },
+    // Update attendee fields only, and touch the registration(s) on this
+    // attendee so a staff screen opened earlier sees the change: staff edits
+    // carry the registration's updatedAt as their token, and an attendee-only
+    // write never moved it, so staff silently overwrote the attendee's own
+    // edit (Oct 29, 2026).
+    const updatedAttendee = await tenantTransaction(async (tx) => {
+      await tx.registration.updateMany({
+        where: { attendeeId: registration.attendeeId },
+        data: { updatedAt: new Date() },
+      });
+      return tx.attendee.update({
+        where: { id: registration.attendeeId },
+        data: {
+          ...(attendee.title !== undefined && { title: attendee.title || null }),
+          ...(attendee.role !== undefined && { role: attendee.role }),
+          ...(attendee.firstName && { firstName: attendee.firstName }),
+          ...(attendee.lastName && { lastName: attendee.lastName }),
+          ...(attendee.additionalEmail !== undefined && { additionalEmail: attendee.additionalEmail?.trim() || null }),
+          ...(attendee.organization !== undefined && { organization: attendee.organization || null }),
+          ...(attendee.jobTitle !== undefined && { jobTitle: attendee.jobTitle || null }),
+          ...(attendee.phone !== undefined && { phone: attendee.phone || null }),
+          ...(attendee.city !== undefined && { city: attendee.city || null }),
+          ...(attendee.country !== undefined && { country: attendee.country || null }),
+          ...(attendee.specialty !== undefined && { specialty: attendee.specialty || null }),
+          ...(attendee.dietaryReqs !== undefined && { dietaryReqs: attendee.dietaryReqs || null }),
+          ...(attendee.associationName !== undefined && { associationName: attendee.associationName || null }),
+          ...(attendee.memberId !== undefined && { memberId: attendee.memberId || null }),
+          ...(attendee.studentId !== undefined && { studentId: attendee.studentId || null }),
+          ...(attendee.studentIdExpiry !== undefined && { studentIdExpiry: attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null }),
+        },
+      });
     });
 
     // Sync updated attendee to org contact store

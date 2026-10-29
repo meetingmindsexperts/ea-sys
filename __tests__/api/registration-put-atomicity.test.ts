@@ -136,6 +136,16 @@ beforeEach(() => {
 });
 
 describe("registration PUT atomicity (H7)", () => {
+  it("refuses an edit without the lock token, before any write (Oct 29, 2026)", async () => {
+    const res = await PUT(
+      new Request("http://localhost/x", { method: "PUT", body: JSON.stringify({ notes: "x" }), headers: { "content-type": "application/json" } }),
+      { params },
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("EXPECTED_UPDATED_AT_REQUIRED");
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
   it("STALE_WRITE → 409 and the attendee patch is NEVER persisted (no writes, no contact sync)", async () => {
     mockDb._tx.registration.updateMany.mockResolvedValue({ count: 0 }); // lock lost
     const res = await PUT(

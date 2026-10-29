@@ -379,6 +379,22 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
+    // The "changed since you opened it" token is required here (Oct 29, 2026):
+    // without it an edit silently overwrote whatever landed since the screen
+    // loaded. Every staff screen sends it; production logged no registration
+    // edit without one in 90 days. The agent's tool keeps it optional (it reads
+    // and writes in one turn, and the service re-checks inside its transaction).
+    if (!validated.data.expectedUpdatedAt) {
+      apiLogger.warn({ msg: "registration-update:missing-lock-token", eventId, registrationId, userId: session.user.id });
+      return NextResponse.json(
+        {
+          error: "Send the registration's updatedAt as expectedUpdatedAt, from when you read it, so a change made since is not overwritten.",
+          code: "EXPECTED_UPDATED_AT_REQUIRED",
+        },
+        { status: 400 },
+      );
+    }
+
     const { expectedUpdatedAt: _lockToken, ...updateFields } = validated.data;
     void _lockToken;
 
