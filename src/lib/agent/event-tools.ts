@@ -29,6 +29,7 @@ import { PROMO_CODE_EXECUTORS } from "./tools/promo-codes";
 import { DASHBOARD_EXECUTORS } from "./tools/dashboard";
 import { CERTIFICATE_EXECUTORS } from "./tools/certificates";
 import { RSVP_EXECUTORS } from "./tools/rsvp";
+import { ENGAGEMENT_EXECUTORS } from "./tools/engagement";
 
 export type { AgentContext } from "./tools/_shared";
 
@@ -47,4 +48,5 @@ export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
   ...DASHBOARD_EXECUTORS,
   ...CERTIFICATE_EXECUTORS,
   ...RSVP_EXECUTORS,
+  ...ENGAGEMENT_EXECUTORS,
 };

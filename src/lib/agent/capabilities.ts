@@ -43,6 +43,10 @@ export const CAPABILITY_LIMITS: readonly CapabilityLimit[] = [
     contradictedBy: /^(list|create|update|delete|invite)_(user|users|team_member|role)s?$/,
   },
   {
+    text: "Launch, close or edit a live poll, or open, edit or delete a survey (polls are created as drafts and surveys closed; a person runs them from the Webinar Console and the Survey page)",
+    contradictedBy: /^(launch|close|update|delete)_live_poll|^(open|update|delete|publish)_survey/,
+  },
+  {
     text: "Upload or modify media files",
     contradictedBy: /^(upload|update|delete)_media/,
   },

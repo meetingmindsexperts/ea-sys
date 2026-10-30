@@ -122,6 +122,12 @@ export const TOOL_PERMISSIONS: Readonly<Record<string, PermissionKey>> = {
   upsert_sponsors: "sponsors.manage",
   research_sponsor: "sponsors.manage",
   list_rsvps: "rsvp.roster.read",
+  // Live polls and surveys (Oct 30, 2026): the keys their console routes ask
+  list_live_polls: "webinar.analytics.read",
+  create_live_poll: "webinar.manage",
+  list_surveys: "surveys.read",
+  get_survey_results: "surveys.read",
+  create_survey: "surveys.manage",
   // CRM
   list_crm_pipeline: "crm.read",
   list_crm_deals: "crm.read",

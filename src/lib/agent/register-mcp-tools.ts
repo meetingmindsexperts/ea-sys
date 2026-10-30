@@ -333,6 +333,11 @@ export function registerAllMcpTools(
       limit: z.number().optional(),
     }},
     { name: "list_webinar_engagement", description: "Webinar engagement: polls with per-question data + all Q&A with asker/question/answer.", params: {} },
+    { name: "list_live_polls", description: "List the webinar's live polls (newest first, up to 100) with status DRAFT/OPEN/CLOSED, votes and percentage per option, voter count, and whether live polls are switched on. Polls run on our own webinar page; Zoom's in-meeting polls are in list_webinar_engagement.", params: {} },
+    { name: "list_surveys", description: "List the event's surveys: id, name, open or closed, whether it is the certificate (CME) survey, how often one person may answer, question count and response count.", params: {} },
+    { name: "get_survey_results", description: "A survey's results: total responses, then per question the rating average and distribution, the option counts, or the free-text answers (newest 100 per question). No respondent names or emails. surveyId from list_surveys; omit it for the certificate survey.", params: {
+      surveyId: z.string().optional(),
+    }},
     { name: "list_sponsors", description: "List event sponsors grouped by tier (platinum/gold/silver/bronze/partner/exhibitor).", params: {} },
     { name: "research_sponsor", description: "Fetch a sponsor's public website and propose SponsorEntry fields (name, websiteUrl, logoUrl, description). Does NOT save — review the proposal, pick a tier, then call upsert_sponsors. Tier is never inferred. Rate limited to 30/hr/user/event.", params: {
       name: z.string().optional(),
@@ -750,6 +755,22 @@ export function registerAllMcpTools(
         specialty: z.string().optional(),
         status: z.enum(["PENDING", "CONFIRMED", "WAITLISTED"]).optional(),
       })).min(1).max(100),
+    }},
+    { name: "create_live_poll", description: "Draft a live poll on the webinar (WEBINAR events only). It is saved as a DRAFT and is NOT shown to attendees: a person launches it from the Webinar Console. You cannot launch, close or edit polls. 2 to 6 options, no two the same. Limits: 30 drafts an hour, at most 20 drafts waiting per webinar, and a question that matches a waiting draft is refused. For several polls, call once per poll.", params: {
+      question: z.string().describe("The question, 3 to 300 characters"),
+      options: z.array(z.string()).min(2).max(6).describe("The answer options, 2 to 6, each up to 120 characters"),
+      allowMultiple: z.boolean().optional().describe("Voters may pick more than one option (default false)"),
+    }},
+    { name: "create_survey", description: "Create an extra survey on the event. It is created CLOSED, so nobody can answer it until a person opens it on the Survey page; it is never the certificate (CME) survey. You cannot open, edit or delete surveys, or write their intro and thank-you text. Question types: rating_1_to_5, single_select (2 to 20 options), text. 1 to 50 questions. Limits: 5 surveys an hour, at most 10 surveys per event, and a name the event already uses is refused.", params: {
+      name: z.string().describe("Survey name, 1 to 120 characters"),
+      questions: z.array(z.object({
+        type: z.enum(["rating_1_to_5", "single_select", "text"]),
+        label: z.string().describe("The question as attendees see it, up to 500 characters"),
+        required: z.boolean().optional().describe("Default false"),
+        options: z.array(z.string()).optional().describe("single_select only: 2 to 20 options"),
+        maxLength: z.number().int().optional().describe("text only: longest answer, default 2000"),
+      })).min(1).max(50),
+      responseMode: z.enum(["ONCE", "ONCE_PER_DAY"]).optional().describe("How often one person may answer (default ONCE)"),
     }},
     { name: "create_zoom_meeting", description: "Create a Zoom meeting or webinar linked to an existing session. Requires Zoom to be configured for the organization and enabled for the event. Irreversible on the Zoom side: confirm with the person first.", params: {
       sessionId: z.string().describe("ID of the session to link the Zoom meeting to"),

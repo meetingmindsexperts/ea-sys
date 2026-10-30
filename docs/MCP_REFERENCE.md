@@ -2,7 +2,7 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** September 25, 2026. **115 tools** across 17 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
+**Last updated:** October 30, 2026. **120 tools** across 18 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
 
 ### July 29, 2026 — Optional registration type + Faculty guard (`0.4.27`)
 
@@ -124,7 +124,7 @@ Two authentication methods are supported on `/api/mcp`, checked in order:
 
 Both return the same `{ organizationId }` context, so downstream tools don't care which method authenticated the request. Tools are automatically scoped to the authenticated org.
 
-## Tools (115 total)
+## Tools (120 total)
 
 ### Organization-level (6)
 
@@ -225,7 +225,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `create_accommodation` | Book a room for a registrant or speaker — atomic overbooking guard |
 | `update_accommodation_status` | PENDING/CONFIRMED/CHECKED_IN/CHECKED_OUT/CANCELLED (releases room on cancel) |
 
-### Webinar (5)
+### Webinar (7)
 
 | Tool | Description |
 |---|---|
@@ -234,8 +234,20 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `list_webinar_engagement` | Polls with per-question data + Q&A list |
 | `list_zoom_meetings` | Sessions with a linked Zoom meeting or webinar: type, status, join URL (was in-app only until Sep 21, 2026) |
 | `create_zoom_meeting` | Create a Zoom meeting or webinar linked to a session (`sessionId`, optional `meetingType`, `passcode`, `waitingRoom`). Needs Zoom configured for the org and enabled for the event |
+| `list_live_polls` | The live polls on our own webinar page (not Zoom's), newest first, up to 100: status DRAFT/OPEN/CLOSED, votes and percent per option, voters, and whether live polls are switched on. `webinar.analytics.read` |
+| `create_live_poll` | Draft a poll: `question` (3 to 300 chars), `options` (2 to 6, no two the same), optional `allowMultiple`. **Saved as a DRAFT only**; a person launches it from the Webinar Console, and no tool launches, closes or edits a poll. Refused: 30 an hour per person per event (`RATE_LIMITED` with `retryAfterSeconds`), 20 drafts already waiting (`TOO_MANY_DRAFTS`), a question matching a waiting draft (`DUPLICATE_POLL`). `webinar.manage` |
 
 WEBINAR-type events only.
+
+### Surveys (3)
+
+| Tool | Description |
+|---|---|
+| `list_surveys` | The event's surveys: id, name, open or closed, whether it is the certificate (CME) survey, response mode, question and response counts. `surveys.read` |
+| `get_survey_results` | Optional `surveyId` (omit for the certificate survey): total responses, then per question the rating average and distribution, option counts, or the newest 100 free-text answers. **No respondent names or emails.** `surveys.read` |
+| `create_survey` | An extra survey: `name`, `questions[]` (`rating_1_to_5`, `single_select` with 2 to 20 `options`, `text` with optional `maxLength`; 1 to 50), optional `responseMode` (ONCE / ONCE_PER_DAY). **Created closed** and never the certificate survey; no intro or thank-you HTML. Refused: 5 an hour per person per event, 10 surveys on the event (`TOO_MANY_SURVEYS`), a name already used (`DUPLICATE_SURVEY`). `surveys.manage` |
+
+No tool opens, edits or deletes a survey, or submits an answer.
 
 ### Sponsors (3)
 
@@ -359,7 +371,7 @@ a request or stop asking, and neither can the next developer.
 | **Session proposals** | None | Not built, and named: `list_session_proposals` plus theme CRUD (`SESSION_PROPOSALS_PLAN.md` §6). |
 | **Travel grants** | None | Not built. A read-only `list_travel_grants` is called an obvious fast-follow in `TRAVEL_GRANT_PLAN.md` §7. |
 | **DTCM spare-code pool** | None | Not built, never proposed. Note what a tool here would hand out: door credentials in bulk. |
-| **Surveys** | None | Not built, never proposed. `surveyCompletedAt` is a certificate-issuing trigger, so a write tool here mints CME certificates as a side effect. |
+| **The CME survey and survey answers** | Reads, plus closed extra surveys | **A decision** (Oct 30, 2026). `surveyCompletedAt` is a certificate-issuing trigger, so a tool that edits the certificate survey or submits an answer would mint CME certificates as a side effect. `create_survey` can only make an extra survey (the service never sets `gatesCertificates`, and only the certificate survey sets `surveyCompletedAt`), it starts closed, and nothing opens, edits or answers one. |
 | **Sign-in activity** | None | **A decision.** `LOGIN_ACTIVITY.md` records that MCP, API-key and OAuth access are deliberately not in scope for that view; it is a web sign-in record, not an access log. |
 | **Certificate issuing** | Templates only | **A decision.** Template CRUD and CME settings are exposed; the Issue flow is not, because it carries an interactive review gate before a batch of real serialized certificates goes out. Operator-only by design. |
 | **Refunds and credit notes** | None | **A decision.** Money movement stays on the dashboard. `update_invoice_status` was deliberately narrowed to CANCELLED/OVERDUE in June 2026 so a status flip could not stand in for a refund. |

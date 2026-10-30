@@ -8,9 +8,7 @@
  * eventWhere. Every refusal logs.
  */
 import { NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requireOrgId } from "@/lib/require-org";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -18,6 +16,7 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { pollDraftSchema } from "@/lib/webinar/live-polls";
 import { listPollsWithTally, pollContextFor } from "@/lib/webinar/live-polls-server";
+import { createLivePollDraft } from "@/services/live-poll-service";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -83,19 +82,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         apiLogger.warn({ eventId }, "live-polls:no-webinar-session");
         return NextResponse.json({ error: "This event has no webinar session yet. Run the provisioner first." }, { status: 400 });
       }
-      const poll = await db.livePoll.create({
-        data: {
-          eventId: ctx.eventId,
-          organizationId: ctx.organizationId,
-          sessionId: ctx.sessionId,
-          question: parsed.data.question,
-          options: parsed.data.options.map((label) => ({ id: randomUUID().slice(0, 8), label })),
-          allowMultiple: parsed.data.allowMultiple,
-        },
-        select: { id: true },
-      });
-      apiLogger.info({ eventId, pollId: poll.id, userId: session.user.id }, "live-polls:created");
-      return NextResponse.json({ id: poll.id }, { status: 201 });
+      const created = await createLivePollDraft(
+        { eventId: ctx.eventId, organizationId: ctx.organizationId, sessionId: ctx.sessionId, userId: session.user.id, source: "rest" },
+        parsed.data,
+      );
+      return NextResponse.json({ id: created.pollId }, { status: 201 });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "live-polls:create-failed");

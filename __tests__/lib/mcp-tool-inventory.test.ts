@@ -180,7 +180,9 @@ const NO_MCP_SURFACE: Record<string, string[]> = {
   "session proposals": ["proposal"],
   "travel grants": ["travel"],
   "DTCM spare-code pool": ["dtcm"],
-  surveys: ["survey"],
+  // Surveys gained reads and closed extra surveys (Oct 30, 2026); what stays
+  // off is editing the CME survey and answering one.
+  "the CME survey and survey answers": ["certificate_survey", "submit_survey", "update_survey", "open_survey"],
   "sign-in activity": ["login", "sign_in"],
   "certificate issuing": ["issue_certificate", "certificate_issue", "revoke_certificate"],
   "refunds and credit notes": ["refund", "credit_note"],

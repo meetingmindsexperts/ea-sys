@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event Agent: drafts live polls and surveys, reads their results (October 30)
+
+- **Five new tools on both doors** (in-app agent and MCP): `list_live_polls` (the webinar page's own polls with votes per option), `create_live_poll`, `list_surveys`, `get_survey_results` and `create_survey`. Keys are the ones the console routes ask: `webinar.analytics.read` / `webinar.manage` and `surveys.read` / `surveys.manage`.
+- **The agent drafts, a person runs.** A poll it makes is a DRAFT and a survey it makes is CLOSED; there is no tool to launch, close, edit or delete a poll, or to open, edit or delete a survey, and the prompt's "Not available here" list says so. It cannot write a survey's intro or thank-you HTML (that renders on a public page).
+- **Runaway guards** (`src/lib/agent/tools/engagement.ts`): per person per event, 30 poll drafts and 5 surveys an hour (the RATE_LIMITED shape with `retryAfterSeconds`); at most 20 drafts waiting per webinar and 10 surveys per event; a question matching a waiting draft, or a survey name the event already uses, is refused. All on top of the 20 writes per request. Every refusal logs.
+- **Survey results without names**: rating and option aggregates plus the newest 100 free-text answers per question; respondents' names and emails are never read.
+- **One create path for polls**: the console's POST and the tool both call `createLivePollDraft()` (`src/services/live-poll-service.ts`), which now also writes a `LIVE_POLL_CREATED` audit row with the door (the console's creates were not audited before).
+- **API key (full)** gains `webinar.manage`, `surveys.read` and `surveys.manage`, which reach only these tools (the console routes refuse a key). MCP clients must disconnect and reconnect to see the new tools; version bumped to 0.4.49.
+
 ### Venue floor plan: trace over the venue's own drawing (October 30)
 
 Phase B of the exhibitor floor plan (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md, section 10).

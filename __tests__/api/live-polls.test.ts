@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Prisma } from "@prisma/client";
 
 const { mockDb, mockAuth, mockTx } = vi.hoisted(() => {
-  const mockTx = { livePoll: { updateMany: vi.fn(), update: vi.fn() }, $queryRaw: vi.fn() };
+  const mockTx = { livePoll: { updateMany: vi.fn(), update: vi.fn(), create: vi.fn() }, auditLog: { create: vi.fn() }, $queryRaw: vi.fn() };
   return {
     mockTx,
     mockAuth: vi.fn(),
@@ -70,7 +70,7 @@ beforeEach(() => {
   mockDb.event.findFirst.mockImplementation(async () => ({ id: "ev1", organizationId: "org1", eventType: "WEBINAR", settings }));
   mockDb.registration.findFirst.mockResolvedValue(null);
   mockDb.livePoll.findFirst.mockResolvedValue({ id: "p1", status: "OPEN", options: OPTS, allowMultiple: false, _count: { votes: 0 } });
-  mockDb.livePoll.create.mockResolvedValue({ id: "p1" });
+  mockTx.livePoll.create.mockResolvedValue({ id: "p1" });
   mockDb.livePoll.updateMany.mockResolvedValue({ count: 1 });
   mockDb.livePoll.deleteMany.mockResolvedValue({ count: 1 });
   mockDb.livePollVote.create.mockResolvedValue({});
@@ -90,10 +90,17 @@ describe("console", () => {
     mockAuth.mockResolvedValue(organizer);
     const res = await createPoll(jsonReq({ question: "Do you agree?", options: ["Yes", "No"] }), staff);
     expect(res.status).toBe(201);
-    const data = mockDb.livePoll.create.mock.calls[0][0].data;
+    const data = mockTx.livePoll.create.mock.calls[0][0].data;
     expect(data).toMatchObject({ eventId: "ev1", organizationId: "org1", sessionId: "s1", question: "Do you agree?" });
     expect(data.options.map((o: { label: string }) => o.label)).toEqual(["Yes", "No"]);
     expect(new Set(data.options.map((o: { id: string }) => o.id)).size).toBe(2);
+    // The create is audited with the door, in the same transaction.
+    expect(mockTx.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: "LIVE_POLL_CREATED",
+      entityId: "p1",
+      userId: "u9",
+      changes: { source: "rest" },
+    });
   });
 
   it("a read-only member cannot create or launch", async () => {

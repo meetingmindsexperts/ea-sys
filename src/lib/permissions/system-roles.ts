@@ -566,6 +566,10 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
         "certificates.read",
         "certificates.templates.manage",
         "webinar.analytics.read",
+        // create_live_poll (a draft only) and the survey tools (Oct 30, 2026).
+        "webinar.manage",
+        "surveys.read",
+        "surveys.manage",
         "sponsors.read",
         "sponsors.manage",
         "rsvp.roster.read",
