@@ -1,6 +1,6 @@
 # Venue floor plan editor: plan
 
-Status: IN BUILD (Oct 23, 2026). Phases 0a (PDF export), 0 (the plan model) and 1 (the editor) BUILT the same day, phase 2 (polish) Oct 24; the owner accepted F1 to F8 as recommended ("proceed, phase by phase"). Owner request: "we want to drag rooms
+Status: IN BUILD (Oct 23, 2026; the exhibitor floor plan, section 10, planned Oct 30). Phases 0a (PDF export), 0 (the plan model) and 1 (the editor) BUILT the same day, phase 2 (polish) Oct 24; the owner accepted F1 to F8 as recommended ("proceed, phase by phase"). Owner request: "we want to drag rooms
 and adjust room size and sides and so on; eventually a real floor plan image will
 be used; the 3D walkable venue takes whatever 2D plan is made", and "the 2D floor
 plan is exportable as PDF too".
@@ -226,8 +226,8 @@ automatic mode untouched.
 | 0 | Data model, `planFromLayout()`, `layoutFromPlan()`, north frame, save route + service, no UI | 1 session | A golden test: automatic layout, turned into a plan, rebuilt from the plan, gives the same layout (zones, doors, furniture, walkable) for every template. **BUILT Oct 23**: `src/lib/venue/plan.ts` (model, `planFromLayout`, `planIssues`), `plan-layout.ts` (`layoutFromPlan`, walls found from the rectangles, `buildVenueLayout`); exact round trip on all seven layout fixtures (`venue-plan.test.ts`); `PUT /venue { plan, planVersion }`, plan null resets; a room removed from the list drops its placement, a room added leaves the venue automatic until placed. The plan extent is 600 m, since the automatic layout's largest building is 388 m deep |
 | 1 | Editor: drag, resize, turn, door wall, walkways, entrance, live checks, undo, save, Reset to automatic; 3D doors on any wall, several corridors | 2 to 3 sessions | An organiser rearranges the congress template, saves, and walks it in 3D; a broken plan cannot be saved and says why. **BUILT Oct 23**: `venue-plan-editor.tsx` + `venue-plan-canvas.tsx` on the edits in `plan-edit.ts`; the browser runs the save's three checks live; placing a room added to the list (3.4) came forward from phase 2 as "Put … on the plan". 3D: desks, directory and banners read their facing from the layout; two drawn plans added to the vendor fixtures pass its walk checks. Left for phase 2: snapping to other rooms' edges, zoom and pan, Preview in 3D, keyboard nudging, unsaved changes kept in the browser, and the venue's guide phrases "off the main corridor" (social.js), which assume the template |
 | 2 | Polish: snapping to edges, zoom and pan, Preview in 3D before saving, keyboard nudging, the room list and plan kept in step (3.4) | 1 session | Field test with the events team on one real event. **BUILT Oct 24** (field test still to run): edges line up with other areas' edges within 0.75 m, with guide lines (Alt places freely); zoom 100 to 400 % by buttons or Ctrl/Cmd + wheel about the pointer, the frame scrolls, Space + drag or the middle button pans; arrow keys nudge 0.5 m, Shift 5 m; **Preview in 3D** posts the unsaved plan to `POST /e/:slug/venue/preview` (event team, same origin, checked as a save, rendered offline with a preview strip, nothing stored); unsaved changes are kept in the browser and offered back; the attendees' directions (social.js) and the AI attendees' venue description (ai-prompt.ts) name what each door opens onto, keeping the automatic plan's wording. Room list and plan in step (3.4) was done in phase 1, except the Blueprint "start from rooms" question, which has no caller yet |
-| 3 | Stands: count, drag stands, choose the sponsor per stand (replacing "nth stand to nth sponsor by tier" when set) | 1 session | Sponsors land on the stands the team chose, in 2D and 3D |
-| 4 | Underlay image: upload, scale by a known wall, opacity, trace | 1 to 2 sessions | The team traces a real hotel plan and walks it |
+| 3 | Stands: count, drag stands, choose the sponsor per stand (replacing "nth stand to nth sponsor by tier" when set) | 1 session | Sponsors land on the stands the team chose, in 2D and 3D. **Superseded Oct 30 by section 10, phase A** (placed stands of any size, editable numbers) |
+| 4 | Underlay image: upload, scale by a known wall, opacity, trace | 1 to 2 sessions | The team traces a real hotel plan and walks it. **Now section 10, phase B** |
 | 2b | The architectural 2D look (owner Oct 24: "walls and stairs and similar need better visual representations"): solid walls, heavier outside; door leaves and swings; glazing; room sizes; fixtures (stairs, lift, toilets, emergency exit, pillar, catering point) placed in the editor, drawn as plan symbols, in the PDF and its legend, and built in 3D | 1 session | **BUILT Oct 24**: `plan.fixtures` (schema default `[]`, so saved plans read unchanged), `venue-plan-drawing.tsx`, `drawFixture` / `drawDoorSwings` in the PDF, `fixture()` in world.js; a solid fixture drops the furniture it stands on and stands are numbered again |
 | 5 | Several floors (section 9) | 2 to 3 sessions | **BUILT Oct 26** (owner decisions F9 to F12, section 9): Ground and Level 1; see "What was built" in section 9 |
 | later | Angled walls and non-rectangular rooms (L-shapes) | separate plan | Only if a real venue needs it |
@@ -360,3 +360,147 @@ under it"), so a selected unmatched stair or lift offers **Put the matching stai
 floor. Three fixtures for customising rooms came with it: registration counter (staffed, badge prompt),
 photo wall (E takes a photo, hotspot `action: "photo"`) and standing banner.
 
+
+## 10. The exhibitor floor plan (planned Oct 30, 2026)
+
+Owner, Oct 30: "build a venue 2D road map from the event blueprint". The
+blueprint here is the venue's own drawing, as the team receives it from the
+hotel or draws it for exhibitors (the two examples given: the MEHFC hall, 13
+stands, and the Conrad Dubai second floor, about 40). The plan has two readers:
+
+- **Sponsors and exhibitors**, who need to see where their stand is.
+- **The team**, for whom the plan is the internal record of the venue.
+
+**Stand numbers change up to the last minute** as sponsors cancel or join.
+
+### 10.1 What the drawings need that the plan cannot hold today
+
+| In the drawings | Today |
+|---|---|
+| Stands of mixed sizes (6x3, 4x3, 3x3, 3x2), each with its own number | Every stand is 3x3, the count comes from capacity, numbers are generated (`layout.ts`, exhibition furnisher) |
+| The sponsor's name printed on its stand | Stand n carries the nth sponsor by tier |
+| Stands along a pre-function walkway (Conrad) or in the foyer (MEHFC stand 01) | Stands exist only inside an exhibition room |
+| Sponsor tables ("Gulf Rider Table") | Nothing |
+| Stage, AV console, program wall | Not fixture kinds |
+| The venue's drawing under the plan | Phase 4, not built |
+| Curved outside walls (Conrad east wall, MEHFC foyer) | Rectangles only. Traced as rectangles; the drawing under the plan shows the true shape in 2D (section 8 stays "later") |
+
+### 10.2 Owner decisions (Oct 30)
+
+| # | Question | Decision |
+|---|---|---|
+| G1 | How sponsors receive the plan | **One secret link per event for all exhibitors**; a sponsor finds their stand by searching their name. Not a link per sponsor |
+| G2 | What sponsors see | **Every stand's number, size and sponsor name**, rooms, entrances, toilets, stage. Staff notes and staff-only fixtures (AV console) never leave the staff view |
+| G3 | The first venue | **A demo event copying the Conrad second floor**, to present to the executives |
+| G4 | Where the demo runs | **The local machine**, by screen share. Nothing reaches production before the presentation |
+
+Recommended, to be confirmed while building:
+
+| # | Question | Recommendation |
+|---|---|---|
+| G5 | May one sponsor hold several stands or tables? | Yes |
+| G6 | Does the exhibitor link expire? | No by default; the team can switch it off or replace it at any time |
+| G7 | Is the venue's drawing shown on the exhibitor map? | Off by default (it is often the hotel's drawing); a tick box turns it on |
+
+### 10.3 Design
+
+**Stands become placed objects** (phase A). `plan.stands` is an array of
+`{ id, number, rect, dir, floor, sponsorId, note, kind }`:
+
+- `id` is fixed and never shown; `number` is a free label ("07", "A3"), unique
+  within the plan and editable at any time. Everything that must survive a
+  renumbering (the sponsor, the 3D visit counts, the exhibitor search) keys on
+  `id`, never on `number`. A **Renumber** action numbers the stands in reading
+  order for the team that wants a tidy sequence after changes.
+- Any size from 1 m to 20 m each way; the editor offers presets 3x2, 3x3, 4x3,
+  6x3, 6x6 and a **table** (2 x 1 m, `kind: "table"`, numbered and sponsored
+  like a stand).
+- A stand may stand in any room or walkway. The walk check keeps working as
+  it does for fixtures: every stand's front must be reachable.
+- `sponsorId` points at the event's `Sponsor` row; empty shows **Available**.
+  A sponsor deleted later reads as Available with a warning in the editor, and
+  is never an error that breaks the plan.
+- **Absent means automatic**, as today. The first stand edit converts the
+  exhibition rooms' generated grid into placed stands (through
+  `planFromLayout`), so the team starts from what it already sees. When
+  `plan.stands` exists, the "nth sponsor by tier" rule no longer applies.
+- `note` (staff only, 300 characters): "power 2 x 13 A", "rigging point above".
+
+**New fixture kinds**: stage, AV console, program wall. Every fixture gains
+`note` and `internal`; `internal` defaults by kind (the AV console is internal)
+and keeps the item off the exhibitor map and the exhibitor PDF.
+
+**The venue's drawing behind the plan** (phase B, was phase 4, 3.8) with three
+changes:
+
+- A PDF is turned into an image **in the browser** with `pdfjs-dist` (already a
+  dependency): page 1 or a chosen page, about 4000 px wide, uploaded as PNG.
+  No server-side PDF renderer.
+- **Scale by something you know**: drag a line over a wall or over a stand
+  whose size is printed on the drawing ("this stand is 6 m"). Both example
+  drawings print every stand's size, so that is the quicker way.
+- One drawing **per floor**.
+
+**The exhibitor map** (phase C):
+
+- `/e/<slug>/floor-plan/<token>`, read only, no sign-in. One link per event
+  (G1), created, switched off or replaced on the Venue tab. It reuses the
+  shared-view machinery (`share-token.ts`, `share-link-access.ts`) with a small
+  `VenueShareLink` table (additive migration, `organizationId` and an RLS policy
+  like the other share links), because a token held in `Event.settings` cannot
+  be looked up by index.
+- The page: event branding, the 2D plan with pinch zoom and pan (it will be
+  opened on phones), floor tabs, and a list of exhibitors with search.
+  Choosing "Takeda" highlights its stand and says "Stand 12, 6 x 3 m, Ground".
+  A **Download PDF** button gives the exhibitor PDF.
+- It always reads the live plan, so a renumbering shows at once; the page says
+  when the plan was last changed.
+- **One renderer**: the page draws with the same drawing code as the staff
+  plan, given an "exhibitor" filter that drops internal items and notes. The
+  PDF takes the same filter.
+- Rate-limited per IP; every refused token is logged.
+
+**The staff view** keeps everything: notes on stands and fixtures, internal
+fixtures, and a staff PDF with a notes key under the plan.
+
+### 10.4 The demo (phase D)
+
+- A local seed script (`prisma/seed-venue-demo.ts`, refusing any database
+  but the local one) creates a draft event with the Conrad second floor
+  traced, its sponsors with tiers, about 40 stands and tables with the sizes
+  and numbers from the drawing, a stage, registration and program wall, the
+  drawing itself behind the plan, and the exhibitor link.
+- Sponsor names are copied from the 2025 drawing. The event stays on the local
+  machine (G4).
+- A rehearsal script for the presentation, with screenshots in
+  `screenshots/`. It covers the staff editor, a last-minute change (a sponsor
+  cancels, their stand becomes Available, another sponsor takes it, the stands
+  are renumbered), the exhibitor link on a phone-sized screen, and both PDFs.
+
+### 10.5 Phases
+
+| Phase | What | Size |
+|---|---|---|
+| A | Placed stands and tables (any size, editable numbers, sponsor per stand, notes), stage / AV console / program wall fixtures, `internal` flag; in the editor, 2D, PDF and 3D | 2 sessions |
+| B | The venue's drawing behind the plan: upload (PDF converted in the browser), scale by a known length, opacity, per floor | 1 to 2 sessions |
+| C | The exhibitor link and map page, the exhibitor PDF | 1 to 2 sessions |
+| D | The Conrad demo event and the rehearsal | 1 session |
+
+A comes first because it is what sponsors are shown; B makes tracing a real
+venue quick; C is the sponsors' door; D only puts together what A to C built.
+
+**Later, only after A to D**: read a draft of the stands straight from a
+vector PDF's text layer (both example drawings carry "3x3" and the sponsor
+names with their positions). Offered as a draft the team checks, never applied
+on its own, like the Blueprint's rooms. A scanned drawing would not work this
+way.
+
+### 10.6 Risks
+
+- **Renumbering during a live event** moves nothing that matters, since
+  everything keys on the stand's id. That is the reason for the id.
+- **Stands in walkways narrow them.** The walk check catches a stand that
+  closes a walkway; a stand that only narrows one is the team's call.
+- **Curved walls drawn as rectangles** look blocky in 3D. The 2D plan with the
+  drawing behind it shows the true shape to the team (and to exhibitors when
+  G7 is on), so the demo leads with 2D.
