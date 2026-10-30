@@ -407,6 +407,9 @@ describe("POST /api/events/[eventId]/clone", () => {
           sessionTopic: {
             create: vi.fn().mockResolvedValue({ id: "new-topic-1" }),
           },
+          certificateTemplate: {
+            createMany: vi.fn().mockResolvedValue({ count: 0 }),
+          },
         };
 
         transactionCalls = {};
@@ -1019,6 +1022,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         sessionSpeaker: { create: next("ss") },
         sessionTopic: { create: next("top") },
         emailTemplate: { createMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        certificateTemplate: { createMany: vi.fn().mockResolvedValue({ count: 0 }) },
       };
     }
 
@@ -1113,6 +1117,66 @@ describe("POST /api/events/[eventId]/clone", () => {
         expect(include.speakers).toBe(true);
         expect(tx.speaker.create).toHaveBeenCalledTimes(2);
         expect(tx.eventSession.create).not.toHaveBeenCalled();
+      });
+
+      const certTemplates = [
+        {
+          id: "ct-1", eventId: "evt-1", organizationId: "org-1", name: "CME Attendance", category: "ATTENDANCE",
+          role: null, cmeHours: "6.0", autoIssueOnSurvey: true, autoIssueTag: "delegate",
+          backgroundPdfUrl: "/uploads/certificates/evt-1/2026/06/bg.pdf",
+          textBoxes: [{ id: "b1", text: "{{fullName}}" }], sortOrder: 0,
+          emailSubject: "old cover", emailBody: "old body",
+        },
+        {
+          id: "ct-2", eventId: "evt-1", organizationId: "org-1", name: "Speaker", category: "APPRECIATION",
+          role: "Speaker", cmeHours: null, autoIssueOnSurvey: false, autoIssueTag: null,
+          backgroundPdfUrl: null, textBoxes: [], sortOrder: 0, emailSubject: null, emailBody: null,
+        },
+      ];
+
+      it("copies certificate templates by default, sharing the background and pausing auto-issue", async () => {
+        const { res, tx, include } = await cloneWith(undefined, { certificateTemplates: certTemplates });
+        expect(res.status).toBe(201);
+        expect(include.certificateTemplates).toBeTruthy();
+
+        expect(tx.certificateTemplate.createMany).toHaveBeenCalledTimes(1);
+        const data = (tx.certificateTemplate.createMany.mock.calls[0][0] as { data: Record<string, unknown>[] }).data;
+        expect(data).toHaveLength(2);
+        expect(data[0]).toEqual({
+          eventId: "new-evt",
+          organizationId: "org-1",
+          name: "CME Attendance",
+          category: "ATTENDANCE",
+          role: null,
+          cmeHours: "6.0",
+          backgroundPdfUrl: "/uploads/certificates/evt-1/2026/06/bg.pdf",
+          textBoxes: [{ id: "b1", text: "{{fullName}}" }],
+          sortOrder: 0,
+          autoIssueTag: "delegate",
+          // Auto-issue never comes across live.
+          autoIssueOnSurvey: false,
+        });
+        expect(data[1]).toMatchObject({ name: "Speaker", category: "APPRECIATION", role: "Speaker" });
+        // No source id, and none of the unread cover columns.
+        expect(data[0]).not.toHaveProperty("id");
+        expect(data[0]).not.toHaveProperty("emailSubject");
+      });
+
+      it("skips certificate templates when includeCertificates is false", async () => {
+        const { res, tx, include } = await cloneWith({ includeCertificates: false }, { certificateTemplates: certTemplates });
+        expect(res.status).toBe(201);
+        expect(include.certificateTemplates).toBe(false);
+        expect(tx.certificateTemplate.createMany).not.toHaveBeenCalled();
+        // The rest of the clone is unaffected.
+        expect(tx.speaker.create).toHaveBeenCalledTimes(2);
+        expect(tx.eventSession.create).toHaveBeenCalledTimes(2);
+      });
+
+      it("refuses a non-boolean includeCertificates with 400", async () => {
+        mockAuth.mockResolvedValue(adminSession);
+        const res = await POST(makeRequest({ includeCertificates: "yes" }), makeParams("evt-1"));
+        expect(res.status).toBe(400);
+        expect(mockDb.$transaction).not.toHaveBeenCalled();
       });
 
       it("refuses an unreadable body with 400 and clones nothing", async () => {

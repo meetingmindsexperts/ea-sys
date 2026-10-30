@@ -35,6 +35,7 @@ export function EventActions({ eventId, eventName }: EventActionsProps) {
   const [open, setOpen] = useState(false);
   const [includeSpeakers, setIncludeSpeakers] = useState(true);
   const [includeAgenda, setIncludeAgenda] = useState(true);
+  const [includeCertificates, setIncludeCertificates] = useState(true);
 
   // Every open starts from "copy everything", so a choice made for one clone
   // is never silently reused for the next.
@@ -42,6 +43,7 @@ export function EventActions({ eventId, eventName }: EventActionsProps) {
     if (next) {
       setIncludeSpeakers(true);
       setIncludeAgenda(true);
+      setIncludeCertificates(true);
     }
     setOpen(next);
   };
@@ -50,13 +52,14 @@ export function EventActions({ eventId, eventName }: EventActionsProps) {
     "ticket types",
     ...(includeSpeakers ? ["speakers"] : []),
     ...(includeAgenda ? ["tracks", "sessions"] : []),
+    ...(includeCertificates ? ["certificate templates"] : []),
     "hotels",
   ];
   const copiedSummary = `${copiedParts.slice(0, -1).join(", ")}, and ${copiedParts[copiedParts.length - 1]}`;
 
   const handleClone = async () => {
     try {
-      const result = await cloneEvent.mutateAsync({ eventId, includeSpeakers, includeAgenda });
+      const result = await cloneEvent.mutateAsync({ eventId, includeSpeakers, includeAgenda, includeCertificates });
       setOpen(false);
       toast.success(`Event cloned as "${result.name}"`);
       router.push(`/events/${result.id}`);
@@ -132,6 +135,23 @@ export function EventActions({ eventId, eventName }: EventActionsProps) {
                       <p className="text-sm text-muted-foreground">
                         Tracks, sessions, breaks and topics, at the same dates and
                         times.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      id="clone-include-certificates"
+                      checked={includeCertificates}
+                      onCheckedChange={(v) => setIncludeCertificates(v === true)}
+                      className="mt-0.5"
+                    />
+                    <div className="space-y-0.5">
+                      <Label htmlFor="clone-include-certificates" className="cursor-pointer">
+                        Certificate templates
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Designs, CME hours and roles. Auto-issue starts off, so
+                        check the dates on each design before turning it back on.
                       </p>
                     </div>
                   </div>

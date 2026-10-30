@@ -25,6 +25,10 @@ import { Prisma } from "@prisma/client";
 const cloneOptionsSchema = z.object({
   includeSpeakers: z.boolean().default(true),
   includeAgenda: z.boolean().default(true),
+  // Certificate templates (Oct 30, 2026): designs, text boxes, role, CME hours
+  // and auto-issue tag. Default TRUE like the other two, so the next edition
+  // arrives with its CME certificate instead of an empty Certificates page.
+  includeCertificates: z.boolean().default(true),
 });
 
 export async function POST(
@@ -68,7 +72,7 @@ export async function POST(
         { status: 400 },
       );
     }
-    const { includeSpeakers, includeAgenda } = parsedOptions.data;
+    const { includeSpeakers, includeAgenda, includeCertificates } = parsedOptions.data;
 
     // Tenancy sweep: clone is a staff route, so the org comes from the session
     // (no DB lookup needed). Wrap the WHOLE clone — the source `speakers`
@@ -97,6 +101,9 @@ export async function POST(
         // release), but the survey link and builder read this table, so a
         // clone that skipped it would silently arrive with no survey.
         surveys: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
+        certificateTemplates: includeCertificates
+          ? { orderBy: [{ category: "asc" }, { sortOrder: "asc" }] }
+          : false,
         hotels: { include: { roomTypes: true } },
         eventSessions: {
           // `take: 0` rather than `includeAgenda && {...}`: the conditional
@@ -126,6 +133,7 @@ export async function POST(
     const speakersToClone = includeSpeakers ? (source.speakers ?? []) : [];
     const tracksToClone = includeAgenda ? (source.tracks ?? []) : [];
     const sessionsToClone = includeAgenda ? (source.eventSessions ?? []) : [];
+    const certificateTemplatesToClone = includeCertificates ? (source.certificateTemplates ?? []) : [];
 
     // Generate unique slug
     const baseSlug = `${source.slug}-copy`;
@@ -483,6 +491,34 @@ export async function POST(
           });
         }
 
+        // Certificate templates. The background PDF URL is SHARED, not copied:
+        // the loader reads any /uploads/certificates/ path whatever event it
+        // was uploaded under, replacing a background uploads a new file, and
+        // deleting a template never removes its file, so neither event can
+        // break the other's. Same as banners, sponsor logos and speaker photos.
+        // Never copied: issued certificates, runs, serial counters.
+        if (certificateTemplatesToClone.length > 0) {
+          await tx.certificateTemplate.createMany({
+            data: certificateTemplatesToClone.map((ct) => ({
+              eventId: event.id,
+              organizationId: event.organizationId,
+              name: ct.name,
+              category: ct.category,
+              role: ct.role,
+              cmeHours: ct.cmeHours,
+              backgroundPdfUrl: ct.backgroundPdfUrl,
+              textBoxes: ct.textBoxes as Prisma.InputJsonValue,
+              sortOrder: ct.sortOrder,
+              autoIssueTag: ct.autoIssueTag,
+              // Paused on the copy, as the template Duplicate does. Auto-issue
+              // mails a certificate with nobody clicking Issue, and a cloned
+              // design often still carries last edition's dates or venue as
+              // plain text. The organizer turns it back on after checking.
+              autoIssueOnSurvey: false,
+            })),
+          });
+        }
+
         return event;
       },
       { timeout: 30000 }
@@ -495,6 +531,9 @@ export async function POST(
       userId: session.user.id,
       includeSpeakers,
       includeAgenda,
+      includeCertificates,
+      certificateTemplatesCloned: certificateTemplatesToClone.length,
+      certificateAutoIssuePaused: certificateTemplatesToClone.filter((ct) => ct.autoIssueOnSurvey).length,
     });
 
     return NextResponse.json(

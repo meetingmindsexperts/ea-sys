@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Clone event: certificate templates come across (October 30)
+
+- **New "Certificate templates" option** in the Clone dialog, beside Speakers and Agenda, ticked by default (`includeCertificates` on `POST /api/events/[eventId]/clone`, default true). Before this a clone arrived with an empty Certificates page; the CME hours, accreditations, certificate survey and delivery email templates already came across.
+- Copies each template's name, category, role, CME hours, auto-issue tag, text boxes and background. The background PDF URL is shared, not duplicated: the loader reads any `/uploads/certificates/` path, replacing a background uploads a new file and deleting a template never removes its file, so neither event can break the other.
+- **Auto-issue starts off on the copy**, as the template Duplicate does: it sends a certificate with nobody clicking Issue, and a cloned design often still carries last edition's dates as plain text. The dialog says so. Issued certificates, runs and serial counters never copy.
+- Surveys were checked and still clone (questions, messages, open or closed, and the certificate flag; never answers or links).
+
 ### Event Agent: drafts live polls and surveys, reads their results (October 30)
 
 - **Five new tools on both doors** (in-app agent and MCP): `list_live_polls` (the webinar page's own polls with votes per option), `create_live_poll`, `list_surveys`, `get_survey_results` and `create_survey`. Keys are the ones the console routes ask: `webinar.analytics.read` / `webinar.manage` and `surveys.read` / `surveys.manage`.
