@@ -12,6 +12,7 @@ import { readVenueRooms, roomsSchema, type StoredVenueRooms } from "@/lib/venue/
 import { generateLayout } from "@/lib/venue/layout";
 import { checkLayout } from "@/lib/venue/layout-check";
 import { heldFixtures, planIssues, planSchema, readVenuePlan, type StoredVenuePlan, type VenuePlan } from "@/lib/venue/plan";
+import { drawingFolder } from "@/lib/venue/underlay";
 import { layoutFromPlan } from "@/lib/venue/plan-layout";
 
 export type SaveRoomsResult =
@@ -129,6 +130,14 @@ export async function saveVenuePlan(c: Caller, raw: unknown, version: number): P
       return { ok: false, code: "INVALID_PLAN", message: issues[0] ?? "The plan could not be saved", issues };
     }
     plan = parsed.data;
+    // A drawing is this event's own upload: a path into another event's folder would show that event's
+    // drawing through this one's (the drawing route serves only this event's folder, so it would also break).
+    const foreign = (plan.underlays ?? []).filter((u) => !u.path.startsWith(drawingFolder(c.eventId)));
+    if (foreign.length) {
+      apiLogger.warn({ msg: "venue-plan:refused", code: "INVALID_PLAN", ...ctx, reason: "foreign-drawing", paths: foreign.map((u) => u.path) });
+      const issue = "The venue drawing belongs to another event. Add it again on this one.";
+      return { ok: false, code: "INVALID_PLAN", message: issue, issues: [issue] };
+    }
   }
   class NoRooms extends Error {}
   class Invalid extends Error {

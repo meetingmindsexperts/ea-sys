@@ -482,7 +482,7 @@ fixtures, and a staff PDF with a notes key under the plan.
 | Phase | What | Size |
 |---|---|---|
 | A | Placed stands and tables (any size, editable numbers, sponsor per stand, notes), stage / AV console / program wall fixtures, `internal` flag; in the editor, 2D, PDF and 3D | 2 sessions. **BUILT Oct 30** (see "Phase A as built" below) |
-| B | The venue's drawing behind the plan: upload (PDF converted in the browser), scale by a known length, opacity, per floor | 1 to 2 sessions |
+| B | The venue's drawing behind the plan: upload (PDF converted in the browser), scale by a known length, opacity, per floor | 1 to 2 sessions. **BUILT Oct 30** (see "Phase B as built" below) |
 | C | The exhibitor link and map page, the exhibitor PDF | 1 to 2 sessions |
 | D | The Conrad demo event and the rehearsal | 1 session |
 
@@ -496,6 +496,20 @@ visit point it already had, so visits recorded before the switch stay with it. A
 gets a random id (`freshStandId`), never one a deleted stand had (review HIGH, Oct 30). The Venue GET returns the sponsors in stand order
 (`programme.standSponsors`). Notes and `internal` are stored and edited; nothing reads them for
 exhibitors until phase C.
+
+**Phase B as built (Oct 30):** `plan.underlays` holds at most one drawing per floor (`path`, `name`,
+`px`, `mpp` metres per pixel, `at` the image's top-left on the plan, `opacity`, `exhibitors` for G7);
+edited on the whole plan through `src/lib/venue/underlay.ts`, never through a floor's view. The file
+is PRIVATE (`venue-drawings/{eventId}/<uuid>.<ext>`, `UPLOAD_SEGMENT.venueDrawings`), stored and read by
+`/api/events/[eventId]/venue/drawing` (POST needs `events.update`, GET `events.read` and serves only that
+event's folder); the save refuses a drawing path from another event's folder. The browser turns a PDF
+page into a JPEG (`drawing-image.ts`, pdfjs-dist, longest side 4000 px); the server stores PNG, JPEG or
+WebP only, by their bytes. On the canvas the drawing lies over the building with a multiply blend, so
+its white vanishes and its lines show on the rooms being traced; "Set the scale" draws a line and asks
+its real length (the line's first end stays put), "Move the drawing" drags it. The drawing is not yet
+shown in the staff plan view or the PDF; phase C shows it to exhibitors when ticked. A replaced or
+removed drawing's file stays in storage (an orphan is cheap; deleting one a saved plan still names is
+not).
 
 A comes first because it is what sponsors are shown; B makes tracing a real
 venue quick; C is the sponsors' door; D only puts together what A to C built.

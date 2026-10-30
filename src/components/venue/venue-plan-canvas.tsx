@@ -14,6 +14,11 @@
  * show where; hold Alt to place freely). Ctrl or Cmd with the scroll wheel
  * zooms about the pointer; the plain wheel scrolls the frame, and Space with a
  * drag (or the middle button) pans it.
+ *
+ * Section 10, phase B: the venue's own drawing lies over the building, its
+ * white multiplied away so only its lines show, for tracing. It never takes the
+ * pointer; the "drawing" tool drags it and the "measure" tool draws the line
+ * its scale is set by.
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Rect, VenueLayout } from "@/lib/venue/layout";
@@ -24,7 +29,14 @@ import { doorsLeftShut } from "@/lib/venue/plan-layout";
 import { LayoutDrawing } from "@/components/venue/venue-plan-drawing";
 import { cn } from "@/lib/utils";
 
-export type PlanTool = "select" | "walkway";
+export type PlanTool = "select" | "walkway" | "drawing" | "measure";
+
+/** The venue's drawing as the canvas shows it: where it lies on the plan, and how see-through. */
+export interface CanvasUnderlay {
+  href: string;
+  rect: Rect;
+  opacity: number;
+}
 
 /**
  * A gesture in progress, for one pointer. `base` is read at the first move, not
@@ -36,6 +48,8 @@ type Drag = { pointer: number } & (
   | { mode: "resize"; target: PlanTarget; edges: Edges; base: VenuePlan | null; latest: VenuePlan | null }
   | { mode: "draw"; from: [number, number]; rect: Rect | null }
   | { mode: "pan"; from: [number, number]; scroll: [number, number] }
+  | { mode: "slide"; from: [number, number]; by: [number, number] }
+  | { mode: "measure"; from: [number, number]; to: [number, number] }
 );
 
 /** The zoom steps, as multiples of the frame's width. */
@@ -73,8 +87,9 @@ export interface PlanGhost {
   links: { rect: Rect; label: string }[];
 }
 
-function viewOf(plan: VenuePlan, ghost?: PlanGhost): [number, number, number, number] {
-  const rects = [...plan.rooms.map((p) => p.rect), ...plan.corridors.map((c) => c.rect), ...(ghost?.areas ?? [])];
+function viewOf(plan: VenuePlan, ghost?: PlanGhost, underlay?: CanvasUnderlay): [number, number, number, number] {
+  // The drawing counts too, so a drawing bigger than what is traced so far is all in view.
+  const rects = [...plan.rooms.map((p) => p.rect), ...plan.corridors.map((c) => c.rect), ...(ghost?.areas ?? []), ...(underlay ? [underlay.rect] : [])];
   if (!rects.length) return [-50, -50, 100, 100];
   const x0 = Math.min(...rects.map((r) => r[0])) - MARGIN;
   const z0 = Math.min(...rects.map((r) => r[1])) - MARGIN;
@@ -84,6 +99,11 @@ function viewOf(plan: VenuePlan, ghost?: PlanGhost): [number, number, number, nu
 }
 
 const sameRect = (a: Rect, b: Rect) => a.every((v, i) => v === b[i]);
+
+/** The point `to` moved onto the level or upright line through `from`, whichever it is nearer. */
+function straightened(from: [number, number], to: [number, number]): [number, number] {
+  return Math.abs(to[0] - from[0]) > Math.abs(to[1] - from[1]) ? [to[0], from[1]] : [from[0], to[1]];
+}
 
 export function VenuePlanCanvas({
   plan,
@@ -101,6 +121,9 @@ export function VenuePlanCanvas({
   onZoom,
   ghost,
   sponsors,
+  underlay,
+  onUnderlayMove,
+  onMeasured,
 }: {
   plan: VenuePlan;
   layout: VenueLayout;
@@ -120,6 +143,12 @@ export function VenuePlanCanvas({
   ghost?: PlanGhost;
   /** The event's sponsors in stand order, to name each stand. */
   sponsors: StandSponsorRef[];
+  /** The venue's drawing under this floor, when there is one. */
+  underlay?: CanvasUnderlay;
+  /** The drawing dragged by (dx, dz) metres: `done` when the pointer lifts (one undo step). */
+  onUnderlayMove: (dx: number, dz: number, done: boolean) => void;
+  /** A measuring line drawn from `a` to `b`, to set the drawing's scale by. */
+  onMeasured: (a: [number, number], b: [number, number]) => void;
 }) {
   const gridId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
@@ -143,7 +172,8 @@ export function VenuePlanCanvas({
   // The view stays put while a gesture runs, so the area under the pointer does not slide away as the building grows.
   const [frozen, setFrozen] = useState<[number, number, number, number] | null>(null);
   const [drawing, setDrawing] = useState<Rect | null>(null);
-  const view = frozen ?? viewOf(plan, ghost);
+  const [measure, setMeasure] = useState<[[number, number], [number, number]] | null>(null);
+  const view = frozen ?? viewOf(plan, ghost, underlay);
   // Handles and door dots keep their size on screen at any zoom.
   const handle = Math.max(0.6, view[2] / 110) / zoom;
   const shut = doorsLeftShut(plan, layout);
@@ -261,7 +291,17 @@ export function VenuePlanCanvas({
       return;
     }
     const at = toPlan(e);
-    if (at) begin(e, { pointer: e.pointerId, mode: "draw", from: at, rect: null });
+    if (!at) return;
+    if (tool === "drawing") {
+      if (underlay) begin(e, { pointer: e.pointerId, mode: "slide", from: at, by: [0, 0] });
+      return;
+    }
+    if (tool === "measure") {
+      begin(e, { pointer: e.pointerId, mode: "measure", from: at, to: at });
+      setMeasure([at, at]);
+      return;
+    }
+    begin(e, { pointer: e.pointerId, mode: "draw", from: at, rect: null });
   };
 
   const onMove = (e: ReactPointerEvent) => {
@@ -279,6 +319,17 @@ export function VenuePlanCanvas({
     if (d.mode === "draw") {
       d.rect = walkwayRect(d.from[0], d.from[1], at[0], at[1]);
       setDrawing(d.rect);
+      return;
+    }
+    if (d.mode === "slide") {
+      d.by = [at[0] - d.from[0], at[1] - d.from[1]];
+      onUnderlayMove(d.by[0], d.by[1], false);
+      return;
+    }
+    if (d.mode === "measure") {
+      // Shift keeps the line level or upright, for measuring along a wall.
+      d.to = e.shiftKey ? straightened(d.from, at) : at;
+      setMeasure([d.from, d.to]);
       return;
     }
     d.base ??= latestPlan.current;
@@ -311,6 +362,15 @@ export function VenuePlanCanvas({
     if (d.mode === "draw") {
       setDrawing(null);
       if (d.rect) onDrawn(d.rect);
+      return;
+    }
+    if (d.mode === "slide") {
+      onUnderlayMove(d.by[0], d.by[1], true);
+      return;
+    }
+    if (d.mode === "measure") {
+      setMeasure(null);
+      if (Math.hypot(d.to[0] - d.from[0], d.to[1] - d.from[1]) >= 0.05) onMeasured(d.from, d.to);
       return;
     }
     onLive(null);
@@ -348,7 +408,12 @@ export function VenuePlanCanvas({
         ref={svgRef}
         viewBox={view.join(" ")}
         style={{ aspectRatio: `${view[2]} / ${view[3]}`, width: `${zoom * 100}%`, minWidth: `${760 * zoom}px` }}
-        className={cn("block touch-none select-none bg-background", tool === "walkway" && "cursor-crosshair", space && "cursor-grab")}
+        className={cn(
+          "block touch-none select-none bg-background",
+          (tool === "walkway" || tool === "measure") && "cursor-crosshair",
+          tool === "drawing" && "cursor-move",
+          space && "cursor-grab",
+        )}
         role="group"
         aria-label="Floor plan editor. Drag a room or walkway to move it; drag the handles of the selected one to resize it. Everything here can also be done from the panel beside the plan and the Add a walkway button."
         onPointerDownCapture={onPanStart}
@@ -380,6 +445,20 @@ export function VenuePlanCanvas({
           </g>
         )}
         <LayoutDrawing layout={layout} sponsors={sponsors} />
+        {underlay && (
+          // Over the building, its white multiplied away, so the venue's lines show on top of the rooms being traced.
+          <image
+            href={underlay.href}
+            x={underlay.rect[0]}
+            y={underlay.rect[1]}
+            width={underlay.rect[2] - underlay.rect[0]}
+            height={underlay.rect[3] - underlay.rect[1]}
+            opacity={underlay.opacity}
+            preserveAspectRatio="none"
+            style={{ mixBlendMode: "multiply" }}
+            className="pointer-events-none"
+          />
+        )}
         {areas.map((a) => {
           const isSel = sel?.target === a.target;
           const bad = flagged.has(a.target.id);
@@ -435,6 +514,17 @@ export function VenuePlanCanvas({
         {guides.z.map((z) => (
           <line key={`gz${z}`} x1={view[0]} y1={z} x2={view[0] + view[2]} y2={z} className="pointer-events-none stroke-fuchsia-500" strokeWidth={handle / 4} strokeDasharray={`${handle} ${handle / 2}`} />
         ))}
+        {measure && (
+          <g className="pointer-events-none">
+            <line x1={measure[0][0]} y1={measure[0][1]} x2={measure[1][0]} y2={measure[1][1]} className="stroke-fuchsia-600" strokeWidth={handle / 3} />
+            {measure.map(([x, z], i) => (
+              <circle key={i} cx={x} cy={z} r={handle / 2} className="fill-fuchsia-600" />
+            ))}
+            <text x={(measure[0][0] + measure[1][0]) / 2} y={(measure[0][1] + measure[1][1]) / 2 - handle} textAnchor="middle" fontSize={handle * 1.6} className="fill-fuchsia-700 font-semibold" style={{ paintOrder: "stroke", stroke: "white", strokeWidth: handle / 3 }}>
+              {Math.hypot(measure[1][0] - measure[0][0], measure[1][1] - measure[0][1]).toFixed(1)} m now
+            </text>
+          </g>
+        )}
         {drawing && (
           <rect
             x={drawing[0]}

@@ -15,12 +15,17 @@
  * Stands (section 10): "Place stands yourself" turns the exhibition rooms'
  * automatic stands into stands on the plan, as they were; from then on each
  * stand is moved, sized, numbered and given a sponsor here.
+ *
+ * The venue's drawing (section 10, phase B): a PDF or image of the venue goes
+ * under the floor being edited, is scaled by a line drawn over a known length
+ * and moved into place, and the rooms are traced over it.
  */
-import { useCallback, useDeferredValue, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
-import { AlertCircle, Box, CheckCircle2, LayoutGrid, Loader2, MousePointer2, Plus, Redo2, RotateCw, Route, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { AlertCircle, Box, CheckCircle2, ImageUp, LayoutGrid, Loader2, Move, Ruler, MousePointer2, Plus, Redo2, RotateCw, Route, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,7 +43,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { SectionHeading } from "@/components/ui/typography";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { useSaveVenuePlan, type VenueRoomsData } from "@/hooks/use-api";
+import { useSaveVenuePlan, useUploadVenueDrawing, venueDrawingUrl, type VenueRoomsData } from "@/hooks/use-api";
+import { prepareDrawing } from "@/lib/venue/drawing-image";
+import { moveUnderlay, placeUnderlay, scaleUnderlay, underlayOf, underlayRect, withUnderlay } from "@/lib/venue/underlay";
 import { ApiError } from "@/lib/api-fetch";
 import { generateLayout, type Rect } from "@/lib/venue/layout";
 import { checkLayout } from "@/lib/venue/layout-check";
@@ -63,7 +70,7 @@ import {
   wallSpan,
   withFloor,
   type FixtureKind,
-  type PlanFixture, type PlanDoor, type PlanFloor, type PlanWall, type VenuePlan } from "@/lib/venue/plan";
+  type PlanFixture, type PlanDoor, type PlanFloor, type PlanUnderlay, type PlanWall, type VenuePlan } from "@/lib/venue/plan";
 import { doorsLeftShut, floorLayout, layoutFromPlan } from "@/lib/venue/plan-layout";
 import {
   addFixture,
@@ -373,6 +380,51 @@ export function VenuePlanEditor({
     setSelected({ kind: "fixture", id: added.id });
   };
 
+  // ── The venue's drawing under this floor ──
+  const upload = useUploadVenueDrawing(eventId);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [drawingBusy, setDrawingBusy] = useState(false);
+  // The file last chosen, so another page of the same PDF can be put under the plan without choosing it again.
+  const [source, setSource] = useState<{ file: File; pages: number; page: number } | null>(null);
+  const [measured, setMeasured] = useState<[[number, number], [number, number]] | null>(null);
+  const underlay = underlayOf(hist.plan, floor);
+  const setUnderlay = (u: PlanUnderlay | null) => {
+    push(withUnderlay(hist.committed, floor, u));
+    setServerIssues([]);
+  };
+  /** Turn the file into an image, store it, and put it under this floor: replacing the old one in place, or over the building. */
+  const putDrawing = async (file: File, page = 1) => {
+    setDrawingBusy(true);
+    try {
+      const image = await prepareDrawing(file, page);
+      const { path } = await upload.mutateAsync(image.file);
+      const placed = { path, name: image.file.name, px: image.px };
+      const old = underlayOf(hist.committed, floor);
+      // A replacement keeps the old one's place and width on the plan, so the tracing stays lined up.
+      const next: PlanUnderlay = old ? { ...old, ...placed, mpp: (old.px[0] * old.mpp) / image.px[0] } : placeUnderlay(hist.committed, floor, placed);
+      setUnderlay(next);
+      setSource({ file, pages: image.pages, page });
+      if (!old) {
+        setTool("measure");
+        toast.success("Drawing added. Now draw a line over something you know the length of, such as a wall or a stand marked 6x3, to set its scale.", { duration: 10000 });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't add the drawing");
+    } finally {
+      setDrawingBusy(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  };
+  const onUnderlayMove = (dx: number, dz: number, done: boolean) => {
+    const u = underlayOf(hist.committed, floor);
+    if (!u) return;
+    const next = withUnderlay(hist.committed, floor, moveUnderlay(u, dx, dz));
+    if (done) {
+      hist.setLive(null);
+      if (dx || dz) push(next);
+    } else hist.setLive(next);
+  };
+
   /** Switch the whole plan to placed stands, starting from what the venue shows now (both floors, one undo step). */
   const placeStands = () => {
     if (!sponsorList) return;
@@ -583,6 +635,23 @@ export function VenuePlanEditor({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/pdf,image/png,image/jpeg,image/webp"
+              className="hidden"
+              aria-label="The venue's drawing"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void putDrawing(f);
+              }}
+            />
+            {!underlay && (
+              <Button size="sm" variant="outline" onClick={() => fileInput.current?.click()} disabled={drawingBusy} title="A PDF or image of the venue's floor plan, to trace the rooms over">
+                {drawingBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ImageUp className="h-4 w-4" aria-hidden />}
+                Add the venue&apos;s drawing
+              </Button>
+            )}
             {hist.plan.standsPlaced ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -643,6 +712,26 @@ export function VenuePlanEditor({
               <ToolHint tool={tool} walkwaysFull={walkwaysFull} />
             </p>
           </div>
+          {underlay && (
+            <DrawingBar
+              underlay={underlay}
+              tool={tool}
+              busy={drawingBusy}
+              source={source}
+              onTool={(t) => {
+                setSelected(null);
+                setTool(tool === t ? "select" : t);
+              }}
+              onChange={(patch) => setUnderlay({ ...underlay, ...patch })}
+              onLiveOpacity={(opacity) => hist.setLive(opacity === null ? null : withUnderlay(hist.committed, floor, { ...underlay, opacity }))}
+              onReplace={() => fileInput.current?.click()}
+              onPage={(page) => source && void putDrawing(source.file, page)}
+              onRemove={() => {
+                setUnderlay(null);
+                setTool("select");
+              }}
+            />
+          )}
           {/* The panel sits beside the plan only where both fit with the plan at least 760 px wide; below that it drops under it. */}
           <div className="grid items-start gap-4 min-[1400px]:grid-cols-[minmax(0,1fr)_17rem]">
             <VenuePlanCanvas
@@ -661,6 +750,9 @@ export function VenuePlanEditor({
               onZoom={setZoom}
               ghost={ghost}
               sponsors={sponsors}
+              underlay={underlay && { href: venueDrawingUrl(eventId, underlay.path), rect: underlayRect(underlay), opacity: underlay.opacity }}
+              onUnderlayMove={onUnderlayMove}
+              onMeasured={(a, b) => setMeasured([a, b])}
             />
             <PlanPanel
               plan={plan}
@@ -685,6 +777,18 @@ export function VenuePlanEditor({
           <Status ok={ok} checking={checking} problems={problems} warnings={verdict.warnings} />
         </CardContent>
       </Card>
+      <ScaleDialog
+        line={measured}
+        onCancel={() => setMeasured(null)}
+        onApply={(metres) => {
+          const scaled = measured && underlay && scaleUnderlay(underlay, measured[0], measured[1], metres);
+          setMeasured(null);
+          if (!scaled) return;
+          setUnderlay(scaled);
+          setTool("select");
+          toast.success("Scale set. Drag the drawing into place with Move the drawing, then trace the rooms over it.");
+        }}
+      />
       <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -720,9 +824,161 @@ function ghostOf(plan: VenuePlan, floor: PlanFloor): PlanGhost | undefined {
 }
 
 function ToolHint({ tool, walkwaysFull }: { tool: PlanTool; walkwaysFull: boolean }) {
+  if (tool === "drawing") return <>Drag anywhere to move the drawing. Esc to stop.</>;
+  if (tool === "measure") return <>Draw a line over something whose length you know; Shift keeps it straight. Esc to stop.</>;
   if (walkwaysFull) return <>A plan has at most {PLAN_MAX_WALKWAYS} walkways. Remove one to add another.</>;
   if (tool === "walkway") return <>Drag across the floor to draw a walkway. Esc to stop.</>;
   return <>Arrows nudge, Alt places freely, Ctrl or Cmd + scroll zooms, Space + drag pans, Ctrl or Cmd + Z undoes.</>;
+}
+
+/**
+ * The drawing under the floor being edited: how see-through it is, the tools that move it and set its scale,
+ * another page of the same PDF, whether exhibitors see it (decision G7, off by default), replace and remove.
+ */
+function DrawingBar({
+  underlay,
+  tool,
+  busy,
+  source,
+  onTool,
+  onChange,
+  onLiveOpacity,
+  onReplace,
+  onPage,
+  onRemove,
+}: {
+  underlay: PlanUnderlay;
+  tool: PlanTool;
+  busy: boolean;
+  source: { pages: number; page: number } | null;
+  onTool: (t: "drawing" | "measure") => void;
+  onChange: (patch: Partial<PlanUnderlay>) => void;
+  /** The opacity while the slider moves (null when it lets go), without an undo step per notch. */
+  onLiveOpacity: (opacity: number | null) => void;
+  onReplace: () => void;
+  onPage: (page: number) => void;
+  onRemove: () => void;
+}) {
+  const [draft, setDraft] = useState<number | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    onLiveOpacity(null);
+    if (draft !== underlay.opacity) onChange({ opacity: draft });
+    setDraft(null);
+  };
+  const widthM = Math.round(underlay.px[0] * underlay.mpp);
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm" role="group" aria-label="The venue's drawing">
+      <span className="min-w-0 max-w-56 truncate font-medium" title={underlay.name}>
+        {underlay.name}
+      </span>
+      <span className="text-xs text-muted-foreground tabular-nums">{widthM} m wide</span>
+      {source && source.pages > 1 && (
+        <Select value={String(source.page)} onValueChange={(v) => onPage(Number(v))} disabled={busy}>
+          <SelectTrigger className="h-8 w-28" aria-label="Page of the PDF">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Array.from({ length: Math.min(source.pages, 30) }, (_, i) => (
+              <SelectItem key={i + 1} value={String(i + 1)}>
+                Page {i + 1}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      <Button size="sm" variant={tool === "measure" ? "default" : "outline"} aria-pressed={tool === "measure"} onClick={() => onTool("measure")}>
+        <Ruler className="h-4 w-4" aria-hidden />
+        Set the scale
+      </Button>
+      <Button size="sm" variant={tool === "drawing" ? "default" : "outline"} aria-pressed={tool === "drawing"} onClick={() => onTool("drawing")}>
+        <Move className="h-4 w-4" aria-hidden />
+        Move the drawing
+      </Button>
+      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        See-through
+        <input
+          type="range"
+          min={0.1}
+          max={1}
+          step={0.05}
+          value={draft ?? underlay.opacity}
+          aria-label="How strongly the drawing shows"
+          className="w-24 accent-primary"
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setDraft(v);
+            onLiveOpacity(v);
+          }}
+          onPointerUp={commit}
+          onKeyUp={commit}
+          onBlur={commit}
+        />
+      </label>
+      <div className="flex items-center gap-2">
+        <Checkbox id="drawing-exhibitors" checked={!!underlay.exhibitors} onCheckedChange={(v) => onChange({ exhibitors: v === true || undefined })} />
+        <Label htmlFor="drawing-exhibitors" className="text-xs font-normal">
+          Show it on the exhibitors&apos; plan
+        </Label>
+      </div>
+      <div className="ml-auto flex gap-1">
+        <Button size="sm" variant="ghost" onClick={onReplace} disabled={busy}>
+          {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+          Replace
+        </Button>
+        <Button size="sm" variant="ghost" className="text-destructive" onClick={onRemove} disabled={busy}>
+          <Trash2 className="h-4 w-4" aria-hidden />
+          Remove
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** How long the line just drawn over the drawing really is, in metres: that sets the drawing's scale. */
+function ScaleDialog({ line, onCancel, onApply }: { line: [[number, number], [number, number]] | null; onCancel: () => void; onApply: (metres: number) => void }) {
+  const [text, setText] = useState("");
+  const metres = Number(text.replace(",", "."));
+  const valid = metres > 0 && metres <= 2000;
+  return (
+    <Dialog
+      open={line !== null}
+      onOpenChange={(open) => {
+        if (open) return;
+        setText("");
+        onCancel();
+      }}
+    >
+      <DialogContent className="sm:max-w-sm">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!valid) return;
+            setText("");
+            onApply(metres);
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>How long is that line?</DialogTitle>
+            <DialogDescription>The real length of what you drew it over, such as a wall or a stand the drawing marks 6x3. The drawing is resized to match.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label htmlFor="scale-metres">Metres</Label>
+            <Input id="scale-metres" name="scale-metres" inputMode="decimal" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="6" />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!valid}>
+              Set the scale
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function Status({ ok, checking, problems, warnings }: { ok: boolean; checking: boolean; problems: string[]; warnings: string[] }) {

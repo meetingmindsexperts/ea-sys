@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue floor plan: trace over the venue's own drawing (October 30)
+
+Phase B of the exhibitor floor plan (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md, section 10).
+
+- **Add the venue's drawing** in the floor plan editor: a PDF (any page) or a PNG, JPEG or WebP, one per floor. A PDF is turned into an image in the browser; the server stores images only, checked by their bytes, 10 MB at most.
+- **Set the scale** by drawing a line over something whose length is known (a wall, or a stand the drawing marks 6x3) and typing it; **Move the drawing** drags it into place; a see-through slider; **Show it on the exhibitors' plan** (off by default, used by the exhibitor link in phase C).
+- The drawing lies over the plan with its white blended away, so the venue's lines show on the rooms being traced. It is 2D only: the 3D venue is still built from the traced rooms.
+- The file is **private** (`venue-drawings/{eventId}/`, often the hotel's own drawing), streamed only to someone who can see the event through `/api/events/[eventId]/venue/drawing`; a plan naming another event's drawing is refused on save.
+
 ### Venue floor plan: stands you place, number and give to sponsors (October 30)
 
 Phase A of the exhibitor floor plan (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md, section 10).

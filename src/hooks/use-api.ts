@@ -3295,6 +3295,20 @@ export function useSaveVenueRooms(eventId: string) {
   });
 }
 
+/** Store the venue's own drawing (an image; the editor turns a PDF into one first). The plan says where it goes when saved. */
+export function useUploadVenueDrawing(eventId: string) {
+  return useMutation({
+    mutationFn: (file: File) => {
+      const body = new FormData();
+      body.append("file", file);
+      return fetchApi<{ path: string }>(`/api/events/${eventId}/venue/drawing`, { method: "POST", body });
+    },
+  });
+}
+
+/** Where the editor and the plan view load a stored drawing from (the private file, through the event). */
+export const venueDrawingUrl = (eventId: string, path: string) => `/api/events/${eventId}/venue/drawing?path=${encodeURIComponent(path)}`;
+
 /** Save the drawn floor plan, or with `plan: null` go back to the automatic one. A refusal is an ApiError whose `data.issues` lists every reason. */
 export function useSaveVenuePlan(eventId: string) {
   const queryClient = useQueryClient();

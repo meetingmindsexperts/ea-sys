@@ -110,6 +110,27 @@ export interface PlanFixture {
   internal?: boolean;
 }
 
+/**
+ * The venue's own drawing under one floor of the plan (section 10, phase B): an image the team traces over,
+ * shown in 2D only (the 3D venue is built from the traced rooms, never from the picture). `at` is where the
+ * image's top-left corner lies on the plan, in metres; `mpp` how many metres one image pixel is.
+ */
+export interface PlanUnderlay {
+  floor?: PlanFloor;
+  /** The stored path, under the private `/uploads/venue-drawings/<eventId>/`. */
+  path: string;
+  /** What the file was called, to show the team. */
+  name: string;
+  /** The image's width and height in pixels. */
+  px: [number, number];
+  mpp: number;
+  at: [number, number];
+  /** 0.1 (faint) to 1. */
+  opacity: number;
+  /** Shown on the exhibitors' plan too (decision G7: off unless the team ticks it). */
+  exhibitors?: boolean;
+}
+
 export interface VenuePlan {
   v: 1;
   /** In drawing order; the building's zones follow it. */
@@ -124,6 +145,8 @@ export interface VenuePlan {
    * each going to the nth sponsor by tier, is no longer made. Absent is the automatic grid, as before.
    */
   standsPlaced?: boolean;
+  /** The venue's own drawing under each floor, at most one per floor. */
+  underlays?: PlanUnderlay[];
   /**
    * Editor only, on one floor's view of a plan: the ids the other floor uses, so a walkway or fixture added
    * there never repeats one. The schema drops it, so it is never saved.
@@ -193,6 +216,23 @@ export const planSchema = z.object({
     .max(PLAN_MAX_FIXTURES, `A plan has at most ${PLAN_MAX_FIXTURES} stands, stairs, lifts, counters and other fixtures, on both floors together`)
     .default([]),
   standsPlaced: z.boolean().optional(),
+  underlays: z
+    .array(
+      z.object({
+        floor: floorSchema,
+        // The upload route names every drawing <uuid>.<ext> under the event's own private folder.
+        path: z.string().regex(/^\/uploads\/venue-drawings\/[A-Za-z0-9_-]{1,40}\/[0-9a-f-]{36}\.(png|jpg|webp)$/, "The venue drawing is not one this event uploaded"),
+        name: z.string().trim().max(120),
+        px: z.tuple([z.number().int().min(1).max(20000), z.number().int().min(1).max(20000)]),
+        mpp: z.number().finite().min(0.0005).max(10),
+        at: z.tuple([coord, coord]),
+        opacity: z.number().finite().min(0.1).max(1),
+        exhibitors: z.boolean().optional(),
+      }),
+    )
+    .max(PLAN_FLOORS.length)
+    .refine((list) => new Set(list.map((u) => u.floor ?? "ground")).size === list.length, "A floor has one venue drawing at most")
+    .optional(),
 });
 
 export interface StoredVenuePlan {
@@ -345,6 +385,8 @@ export function withFloor(plan: VenuePlan, floor: PlanFloor, view: VenuePlan): V
     fixtures: mergeFloor(plan.fixtures, floor, view.fixtures),
     // Placing stands is for the whole venue: a stand added on either floor switches the automatic grid off.
     ...((plan.standsPlaced || view.standsPlaced) && { standsPlaced: true }),
+    // The drawings are edited on the whole plan (underlay.ts), never through a floor's view.
+    ...(plan.underlays && { underlays: plan.underlays }),
   };
 }
 

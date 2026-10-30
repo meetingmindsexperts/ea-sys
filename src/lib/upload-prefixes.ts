@@ -77,6 +77,13 @@ export const UPLOAD_SEGMENT = {
    * no one else.
    */
   webinarHandouts: "webinar-handouts",
+  /**
+   * The venue's own floor plan drawing, traced over in the floor plan editor
+   * (Oct 30, 2026; docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md section 10). Private:
+   * it is often the hotel's drawing. Streamed only to someone who can see the
+   * event, through the venue drawing route, from `venue-drawings/{eventId}/`.
+   */
+  venueDrawings: "venue-drawings",
 } as const;
 
 export type UploadSegment = (typeof UPLOAD_SEGMENT)[keyof typeof UPLOAD_SEGMENT];
@@ -100,6 +107,7 @@ export const UPLOAD_PREFIX = {
   supportingDocuments: uploadPrefix(UPLOAD_SEGMENT.supportingDocuments),
   procurementQuotes: uploadPrefix(UPLOAD_SEGMENT.procurementQuotes),
   webinarHandouts: uploadPrefix(UPLOAD_SEGMENT.webinarHandouts),
+  venueDrawings: uploadPrefix(UPLOAD_SEGMENT.venueDrawings),
 } as const;
 
 /**

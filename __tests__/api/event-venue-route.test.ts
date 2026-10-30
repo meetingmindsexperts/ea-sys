@@ -167,6 +167,19 @@ describe("/api/events/:eventId/venue drawn plans", () => {
     expect((got.plan as { version: number }).version).toBe(body.planVersion);
   });
 
+  it("saves the venue's drawing from this event's folder, and refuses one from another event's", async () => {
+    await savedRooms();
+    const name = "3f2b1c4e-5a6d-4e7f-8a9b-0c1d2e3f4a5b.jpg";
+    const drawing = (eventId: string) => ({ path: `/uploads/venue-drawings/${eventId}/${name}`, name: "Conrad 2F.jpg", px: [4000, 2800], mpp: 0.025, at: [0, 0], opacity: 0.7 });
+    const foreign = await put({ plan: { ...drawn(), underlays: [drawing("evt-2")] }, planVersion: 0 });
+    expect(foreign.status).toBe(400);
+    expect((await foreign.json()).issues).toEqual(["The venue drawing belongs to another event. Add it again on this one."]);
+    const own = await put({ plan: { ...drawn(), underlays: [drawing("evt-1")] }, planVersion: 0 });
+    expect(own.status).toBe(200);
+    const venue = settingsStore.current.venue as { plan: { plan: { underlays: unknown[] } } };
+    expect(venue.plan.plan.underlays).toEqual([drawing("evt-1")]);
+  });
+
   it("refuses an older version, an overlap with its reason, and anyone without events.update", async () => {
     await savedRooms();
     const first = await (await put({ plan: drawn(), planVersion: 0 })).json();
