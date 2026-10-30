@@ -15,10 +15,11 @@ export const metadata: Metadata = {
   title: "Meeting Minds Events Management Platform",
   description: "Event management platform by Meeting Minds Group for conferences, meetings, and events",
   icons: {
-    // The logo is black on transparent, so a dark browser theme gets the white copy.
+    // The logo is black on transparent, so a dark browser theme gets the white copy. Square and
+    // trimmed of its margin, or a tab shrinks the wide logo to about 60% of its height.
     icon: [
-      { url: "/mmg-logo.png", media: "(prefers-color-scheme: light)" },
-      { url: "/mmg-logo-light.png", media: "(prefers-color-scheme: dark)" },
+      { url: "/mmg-icon.png", media: "(prefers-color-scheme: light)" },
+      { url: "/mmg-icon-light.png", media: "(prefers-color-scheme: dark)" },
     ],
     apple: "/mmg-logo.png",
   },
