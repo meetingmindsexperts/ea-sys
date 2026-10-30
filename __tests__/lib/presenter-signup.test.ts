@@ -364,4 +364,25 @@ describe("presenter fee block copy follows the Pay Now toggle", () => {
     expect(r?.attachment).toBeNull();
     expect(r?.text).toContain("USD 450.00");
   });
+
+  /** A free rate has no quote attached, so nothing may say there is one, or talk about paying. */
+  it("shows a free rate as 0 with no quote or payment wording", async () => {
+    findUniqueSpy.mockResolvedValue({
+      id: "reg-1",
+      originalPrice: 0,
+      attendee: { firstName: "Hana" },
+      ticketType: { name: "Resident", price: 0, currency: "USD" },
+      pricingTier: { name: "Presenter", price: 0, currency: "USD" },
+      event: { slug: "MEHF2027", name: "MEHF", organization: {} },
+    });
+    for (const payNowEnabled of [false, true]) {
+      const r = await buildPresenterFeeEmailExtras("reg-1", { payNowEnabled });
+      expect(r?.text).toContain("USD 0.00");
+      expect(r?.text).toContain("Resident · Presenter");
+      expect(r?.text).not.toMatch(/quote|payment|pay online/i);
+      expect(r?.html).not.toMatch(/quote|Payment|Pay Now/);
+      expect(r?.attachment).toBeNull();
+    }
+    expect(quotePdfSpy).not.toHaveBeenCalled();
+  });
 });

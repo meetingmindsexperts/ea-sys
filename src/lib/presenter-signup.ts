@@ -335,6 +335,19 @@ export async function ensureSubmitterRegistration(
 }
 
 /**
+ * The fee block's closing sentence. A free rate gets no quote (the attachment
+ * is built only above 0), so it gets no sentence: the quote and paying are all
+ * the sentence is about, and only the 0 is shown.
+ */
+function feeNote(price: number, payNow: boolean): string {
+  if (price <= 0) return "";
+  if (payNow) {
+    return "A quote is attached to this email. You can pay online now, or the organizing team will confirm your fee once your submission has been reviewed.";
+  }
+  return "A quote is attached to this email. Payment is not required to submit your abstract; the organizing team will confirm your fee once your submission has been reviewed.";
+}
+
+/**
  * Build the fee block + quote attachment for the submitter-welcome email.
  *
  * Failure-isolated like everything else here: a broken PDF or a missing
@@ -404,9 +417,10 @@ export async function buildPresenterFeeEmailExtras(
           `&name=${encodeURIComponent(registration.attendee.firstName)}` +
           `&price=${price}&currency=${currency}`
         : "";
-    const note = payLink
-      ? "A quote is attached to this email. You can pay online now, or the organizing team will confirm your fee once your submission has been reviewed."
-      : "A quote is attached to this email. Payment is not required to submit your abstract; the organizing team will confirm your fee once your submission has been reviewed.";
+    const note = feeNote(price, Boolean(payLink));
+    const noteHtml = note
+      ? `\n  <p style="margin:0;color:#6b7280;font-size:14px;">${escapeHtml(note)}</p>`
+      : "";
 
     // Dynamic values are event/organizer-authored, but escape anyway: a tier
     // name is free text an organizer types, and this lands in an HTML email.
@@ -417,8 +431,7 @@ export async function buildPresenterFeeEmailExtras(
 <div style="margin:16px 0;padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
   <p style="margin:0 0 8px 0;font-weight:600;">Your presenter registration fee</p>
   <p style="margin:0 0 4px 0;font-size:20px;font-weight:700;">${escapeHtml(amount)}</p>
-  <p style="margin:0 0 8px 0;color:#6b7280;font-size:14px;">${escapeHtml(label)}</p>
-  <p style="margin:0;color:#6b7280;font-size:14px;">${escapeHtml(note)}</p>${payCta}
+  <p style="margin:0 0 8px 0;color:#6b7280;font-size:14px;">${escapeHtml(label)}</p>${noteHtml}${payCta}
 </div>`.trim();
 
     const text = [
