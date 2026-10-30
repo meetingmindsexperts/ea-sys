@@ -3,6 +3,11 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import { loginAs } from "./fixtures/login";
 import { EVENT_ID } from "./fixtures/seed-constants";
 
+// The proxy's CSRF check refuses an API write with no Origin header, and
+// page.request sends none (admin-smoke.spec.ts adds it by hand). Every write
+// here goes through page.request, so send the app's own origin with them all.
+test.use({ extraHTTPHeaders: async ({ baseURL }, provide) => provide({ Origin: new URL(baseURL!).origin }) });
+
 /**
  * Certificate system end-to-end coverage (2026-06-02).
  *

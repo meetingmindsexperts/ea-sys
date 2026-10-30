@@ -34,7 +34,9 @@ test("admin can create an event and see it in the list", async ({ page }) => {
   await pickSelect(main, /^Country/, "United Arab Emirates");
 
   await Promise.all([
-    page.waitForURL(/\/events\/[^/]+$/, { timeout: 15_000 }),
+    // Not /events/new, the page it starts on: matching that let the test leave
+    // before the create had gone out.
+    page.waitForURL(/\/events\/(?!new$)[^/]+$/, { timeout: 15_000 }),
     page.getByRole("button", { name: /create event/i }).click(),
   ]);
 

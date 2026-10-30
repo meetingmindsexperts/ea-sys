@@ -8,7 +8,7 @@ test("abstract submitter can sign up, then log in and land on events", async ({ 
 
   await page.goto(`/e/${EVENT_SLUG}/abstract/register`);
   await expect(
-    page.getByRole("heading", { name: /abstract submission — speaker registration/i })
+    page.getByRole("heading", { name: /abstract submission: presenter registration/i })
   ).toBeVisible();
 
   // ── Step 1: account ──

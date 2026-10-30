@@ -54,6 +54,8 @@ test("bulk email dialog forwards paymentStatus filter to /emails/bulk", async ({
   // recipientType=registrations. Default is "All payment statuses";
   // pick UNPAID to exercise the W2-F4 contract.
   const dialog = page.getByRole("dialog");
+  // The filters sit in a collapsed "Filter recipients" section.
+  await dialog.getByRole("button", { name: /filter recipients/i }).click();
   const paymentSelect = dialog.getByRole("combobox", { name: /payment status/i });
   await expect(paymentSelect).toBeVisible();
   await pickSelect(dialog, /payment status/i, "Unpaid");

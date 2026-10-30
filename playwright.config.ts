@@ -13,7 +13,10 @@ const testDbUrl = process.env.DATABASE_URL_TEST;
 
 export default defineConfig({
   testDir: "./e2e",
-  testIgnore: ["**/fixtures/**", "**/agent-golden/**"], // agent-golden makes real model calls; run it with playwright.golden.config.ts
+  // agent-golden makes real model calls (playwright.golden.config.ts). screenshots
+  // and tenancy-shots have their own seed and server (playwright.docs.config.ts,
+  // playwright.tenancy.config.ts on :3114); run here they only time out.
+  testIgnore: ["**/fixtures/**", "**/agent-golden/**", "**/screenshots/**", "**/tenancy-shots/**"],
   // Specs share a seeded DB; running in parallel would let workers race against
   // each other (e.g. the admin-smoke spec mutates the event list). One worker
   // keeps the suite deterministic without costing much at this size.
