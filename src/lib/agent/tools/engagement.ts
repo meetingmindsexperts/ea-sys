@@ -7,7 +7,9 @@
 // reaches an attendee on its own (owner decision, Oct 30, 2026).
 //
 // Runaway guards, on top of the tool gate's 20 writes per request:
-//   - per person per event: 30 poll drafts and 5 surveys an hour;
+//   - per person per event: 30 poll drafts and 5 surveys an hour, counted
+//     only for calls that would write (on MCP every client of the org shares
+//     the "mcp-remote" user, so there it is per org per event);
 //   - ceilings: 20 waiting drafts per webinar, 10 surveys per event;
 //   - a poll whose question matches a waiting draft, or a survey whose name
 //     the event already uses, is refused (a looping model repeats itself).
@@ -103,8 +105,6 @@ const createLivePoll: ToolExecutor = async (input, ctx) => {
     apiLogger.warn({ msg: `agent:${TOOL}:invalid`, eventId: ctx.eventId, errors: parsed.error.flatten() });
     return { error: parsed.error.issues[0]?.message ?? "Invalid poll", code: "INVALID_POLL" };
   }
-  const limited = rateLimited(ctx, TOOL, "agent-poll-create", AGENT_POLL_CREATES_PER_HOUR);
-  if (limited) return limited;
 
   try {
     return await runWithTenant(ctx.organizationId, async () => {
@@ -130,6 +130,9 @@ const createLivePoll: ToolExecutor = async (input, ctx) => {
           code: "TOO_MANY_DRAFTS",
         });
       }
+      // Last, so a refused call does not use up the hour (review L2).
+      const limited = rateLimited(ctx, TOOL, "agent-poll-create", AGENT_POLL_CREATES_PER_HOUR);
+      if (limited) return limited;
 
       const created = await createLivePollDraft(
         { eventId: poll.eventId, organizationId: poll.organizationId, sessionId, userId: ctx.userId, source: ctx.source },
@@ -191,7 +194,10 @@ const getSurveyResults: ToolExecutor = async (input, ctx) => {
       const report = await resolveReportSurvey(event, surveyId);
       if (!report) return refuse(ctx, "get_survey_results", { error: `Survey "${surveyId}" not found on this event.`, code: "SURVEY_NOT_FOUND" });
       const config = parseStoredSurveyConfig(report.rawConfig, { eventId: event.id, surveyId });
-      if (!config) return { survey: report.survey, totalResponses: 0, questions: [], message: "This survey has no questions." };
+      if (!config) {
+        const totalResponses = await db.surveyResponse.count({ where: report.where });
+        return { survey: report.survey, totalResponses, questions: [], message: "This survey has no readable questions, so its answers cannot be summarised." };
+      }
 
       // Answers only: no registration, so no respondent name or email.
       const rows = await db.surveyResponse.findMany({ where: report.where, select: { id: true, submittedAt: true, answers: true } });
@@ -243,8 +249,6 @@ const createSurveyTool: ToolExecutor = async (input, ctx) => {
     return { error: `Invalid questions: ${issue ? `${issue.path.join(".") || "questions"}: ${issue.message}` : "check the list"}`, code: "INVALID_SURVEY" };
   }
   const responseMode = input.responseMode === "ONCE_PER_DAY" ? "ONCE_PER_DAY" : "ONCE";
-  const limited = rateLimited(ctx, TOOL, "agent-survey-create", AGENT_SURVEY_CREATES_PER_HOUR);
-  if (limited) return limited;
 
   try {
     return await runWithTenant(ctx.organizationId, async () => {
@@ -263,6 +267,8 @@ const createSurveyTool: ToolExecutor = async (input, ctx) => {
           code: "TOO_MANY_SURVEYS",
         });
       }
+      const limited = rateLimited(ctx, TOOL, "agent-survey-create", AGENT_SURVEY_CREATES_PER_HOUR);
+      if (limited) return limited;
 
       const result = await createSurvey(
         { eventId: event.id, organizationId: event.organizationId, userId: ctx.userId, source: ctx.source },

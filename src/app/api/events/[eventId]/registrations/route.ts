@@ -499,8 +499,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Started here so it runs beside the credit-note read below.
     // On THIS event: a webinar-scoped surveys.read says nothing about a
     // conference's answers (Phase 6 review, Oct 7, 2026).
+    // Never for an API key (Oct 30, 2026): the key's role gained surveys.read
+    // for the agent's survey tools, and that was not meant to change this
+    // list's payload for integrations (api-key-reach.test.ts models only a
+    // route's primary key, so it cannot see this check).
     const eventFacts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
-    const canReadSurveys = eventFacts !== null && can(gate.principal, "surveys.read", { event: eventFacts });
+    const canReadSurveys =
+      !orgCtx.fromApiKey && eventFacts !== null && can(gate.principal, "surveys.read", { event: eventFacts });
     const answeredSurveysPromise = canReadSurveys ? answeredSurveysByRegistration(eventId) : null;
 
     const cancelledPaid = registrations.filter(

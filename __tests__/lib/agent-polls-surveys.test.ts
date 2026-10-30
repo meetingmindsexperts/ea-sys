@@ -132,7 +132,10 @@ describe("create_live_poll", () => {
     expect(await run("create_live_poll", POLL)).toMatchObject({ code: "TOO_MANY_DRAFTS" });
 
     mockDb.livePoll.findFirst.mockResolvedValueOnce({ id: "p-old" });
+    rateLimit.mockClear();
     expect(await run("create_live_poll", POLL)).toMatchObject({ code: "DUPLICATE_POLL", pollId: "p-old" });
+    // A refused call does not use up the hour.
+    expect(rateLimit).not.toHaveBeenCalled();
     expect(mockDb.livePoll.findFirst.mock.calls.at(-1)?.[0].where).toMatchObject({ status: "DRAFT", question: { equals: POLL.question, mode: "insensitive" } });
 
     expect(mockTx.livePoll.create).not.toHaveBeenCalled();
@@ -177,7 +180,9 @@ describe("create_survey", () => {
     expect(await run("create_survey", SURVEY)).toMatchObject({ code: "TOO_MANY_SURVEYS" });
 
     mockDb.survey.findFirst.mockResolvedValueOnce({ id: "sv-old" });
+    rateLimit.mockClear();
     expect(await run("create_survey", SURVEY)).toMatchObject({ code: "DUPLICATE_SURVEY", surveyId: "sv-old" });
+    expect(rateLimit).not.toHaveBeenCalled();
 
     expect(createSurvey).not.toHaveBeenCalled();
   });
@@ -208,6 +213,15 @@ describe("get_survey_results", () => {
     expect(answers).toHaveLength(MAX_TEXT_ANSWERS_PER_QUESTION);
     expect(answers[0].value).toBe(`comment ${rows.length - 1}`);
     expect(Object.keys(answers[0]).sort()).toEqual(["submittedAt", "value"]);
+  });
+
+  it("a survey whose questions cannot be read still reports how many answered", async () => {
+    mockDb.survey.findFirst.mockResolvedValue({
+      id: "sv1", eventId: "ev1", name: "Old", config: [{ bogus: true }], introHtml: null, thankYouHtml: null, isActive: true,
+      sortOrder: 1, gatesCertificates: false, responseMode: "ONCE", createdAt: new Date(), updatedAt: new Date(),
+    });
+    mockDb.surveyResponse.count.mockResolvedValue(7);
+    expect(await run("get_survey_results", { surveyId: "sv1" })).toMatchObject({ totalResponses: 7, questions: [] });
   });
 
   it("an unknown survey is refused", async () => {

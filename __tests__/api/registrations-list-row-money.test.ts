@@ -147,6 +147,16 @@ describe("registrations list answeredSurveyIds (several surveys, Phase 2)", () =
     });
   });
 
+  it("an API key gets no survey ids and no read happens, though its role holds surveys.read for the agent tools", async () => {
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: null, userId: null, fromApiKey: true });
+    const res = await LIST_GET(req(), params);
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body[0]).toBeDefined();
+    expect(body[0]).not.toHaveProperty("answeredSurveyIds");
+    expect(mockDb.surveyResponse.findMany).not.toHaveBeenCalled();
+  });
+
   it("a desk role without survey access gets no survey ids and no read happens", async () => {
     mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: "ONSITE", userId: "o1" });
     const res = await LIST_GET(req(), params);
