@@ -11,11 +11,16 @@
  * walkability) run here as the plan changes, so a plan that cannot be saved
  * says why before Save. A room drawn too small for its people is a warning,
  * not a refusal (decision F2).
+ *
+ * Stands (section 10): "Place stands yourself" turns the exhibition rooms'
+ * automatic stands into stands on the plan, as they were; from then on each
+ * stand is moved, sized, numbered and given a sponsor here.
  */
 import { useCallback, useDeferredValue, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
-import { AlertCircle, Box, CheckCircle2, Loader2, MousePointer2, Plus, Redo2, RotateCw, Route, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { AlertCircle, Box, CheckCircle2, LayoutGrid, Loader2, MousePointer2, Plus, Redo2, RotateCw, Route, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,7 +37,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { SectionHeading } from "@/components/ui/typography";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useSaveVenuePlan, type VenueRoomsData } from "@/hooks/use-api";
 import { ApiError } from "@/lib/api-fetch";
 import { generateLayout, type Rect } from "@/lib/venue/layout";
@@ -45,8 +50,12 @@ import {
   PLAN_FLOORS,
   PLAN_MAX_WALKWAYS,
   PLAN_WALLS,
+  STAND_PRESETS,
+  fixtureLabel,
   floorLinks,
   floorView,
+  isInternal,
+  isStand,
   planFromLayout,
   planIssues,
   planSchema,
@@ -58,6 +67,10 @@ import { doorsLeftShut, floorLayout, layoutFromPlan } from "@/lib/venue/plan-lay
 import {
   addFixture,
   addPartner,
+  addStand,
+  automaticStands,
+  placeStandsYourself,
+  renumberStands,
   canAddFixture,
   missingPartner,
   removeJoined,
@@ -84,6 +97,7 @@ import {
   type PlanTarget,
 } from "@/lib/venue/plan-edit";
 import { ROOM_KIND_INFO, type VenueRoom } from "@/lib/venue/rooms";
+import type { StandSponsorRef } from "@/lib/venue/stands";
 import { PLAN_ZOOMS, VenuePlanCanvas, stepZoom, type PlanGhost, type PlanTool } from "@/components/venue/venue-plan-canvas";
 
 const WALL_LABEL: Record<PlanWall, string> = { n: "North", e: "East", s: "South", w: "West" };
@@ -92,8 +106,11 @@ const isNS = (w: PlanWall) => w === "n" || w === "s";
 type StoredPlan = NonNullable<VenueRoomsData["plan"]>;
 
 /** What the server would say about this plan, worked out here first. */
-function judge(rooms: VenueRoom[], plan: VenuePlan): { problems: string[]; warnings: string[] } {
-  const warnings = tooSmall(plan, rooms);
+function judge(rooms: VenueRoom[], plan: VenuePlan, sponsors: StandSponsorRef[]): { problems: string[]; warnings: string[] } {
+  const known = new Set(sponsors.map((sp) => sp.id));
+  // A sponsor removed from the event since it was given a stand: the stand shows as Available (never an error).
+  const gone = plan.fixtures.filter((f) => isStand(f) && f.sponsorId && !known.has(f.sponsorId)).map((f) => `${fixtureLabel(f)}: its sponsor is no longer on the event's list, so it shows as Available`);
+  const warnings = [...tooSmall(plan, rooms), ...gone];
   // The schema first, as the server does: a limit (12 walkways, a 30 m door) must not show as walkable and then fail on save.
   const parsed = planSchema.safeParse(plan);
   if (!parsed.success) return { problems: [...new Set(parsed.error.issues.map((i) => i.message))], warnings };
@@ -196,7 +213,22 @@ function previewIn3d(slug: string, plan: VenuePlan) {
 
 const NUDGE: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
-export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eventId: string; slug: string | null; rooms: VenueRoom[]; stored: StoredPlan | null; onClose: () => void }) {
+export function VenuePlanEditor({
+  eventId,
+  slug,
+  rooms,
+  stored,
+  sponsors,
+  onClose,
+}: {
+  eventId: string;
+  slug: string | null;
+  rooms: VenueRoom[];
+  stored: StoredPlan | null;
+  /** The event's sponsors in stand order: who the automatic stands go to, and the choice for each placed stand. */
+  sponsors: StandSponsorRef[];
+  onClose: () => void;
+}) {
   const save = useSaveVenuePlan(eventId);
   const initial = useMemo(() => (stored ? keepListedRooms(stored.plan, rooms) : planFromLayout(generateLayout(rooms, { eventName: "" }))), [stored, rooms]);
   const hist = useHistory(initial);
@@ -228,7 +260,7 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
   const ghost = useMemo(() => ghostOf(hist.plan, floor), [hist.plan, floor]);
   // The walkability walk takes a few milliseconds on a large building; deferred so dragging stays smooth.
   const settled = useDeferredValue(hist.committed);
-  const verdict = useMemo(() => judge(rooms, settled), [rooms, settled]);
+  const verdict = useMemo(() => judge(rooms, settled, sponsors), [rooms, settled, sponsors]);
   const checking = settled !== hist.committed;
   const unplaced = unplacedRooms(hist.plan, rooms);
 
@@ -329,6 +361,29 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
     // In the selected room or walkway, else the foyer: somewhere the organiser is looking.
     const host = selected && selected.kind !== "fixture" ? rectOf(plan, selected) : (plan.rooms.find((p) => p.id === foyerId)?.rect ?? null);
     const added = addFixture(plan, kind, host);
+    if (!added) return;
+    change(added.plan);
+    setTool("select");
+    setSelected({ kind: "fixture", id: added.id });
+  };
+
+  /** Switch the whole plan to placed stands, starting from what the venue shows now (both floors, one undo step). */
+  const placeStands = () => {
+    push(placeStandsYourself(hist.committed, rooms, sponsors));
+    setServerIssues([]);
+    setSelected(null);
+  };
+  const wholePlan = (edit: (p: VenuePlan) => VenuePlan) => {
+    push(edit(hist.committed));
+    setServerIssues([]);
+    setSelected(null);
+  };
+  /** A stand or table, in the selected room or walkway, else the first exhibition room, else the foyer. */
+  const addStandOf = (kind: "stand" | "table", size: [number, number]) => {
+    if (!canAddFixture(hist.committed)) return;
+    const expo = plan.rooms.find((p) => rooms.find((r) => r.id === p.id)?.kind === "exhibition");
+    const host = selected && selected.kind !== "fixture" ? rectOf(plan, selected) : ((expo ?? plan.rooms.find((p) => p.id === foyerId))?.rect ?? null);
+    const added = addStand(plan, kind, size, host);
     if (!added) return;
     change(added.plan);
     setTool("select");
@@ -511,7 +566,7 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-80">
-                {FIXTURE_KINDS.map((k) => (
+                {FIXTURE_KINDS.filter((k) => k !== "stand" && k !== "table").map((k) => (
                   <DropdownMenuItem key={k} onSelect={() => addFixtureOf(k)} className="flex-col items-start gap-0.5">
                     <span className="font-medium">{FIXTURE_INFO[k].label}</span>
                     <span className="text-xs text-muted-foreground">{FIXTURE_INFO[k].help}</span>
@@ -519,6 +574,37 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            {hist.plan.standsPlaced ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline">
+                    <LayoutGrid className="h-4 w-4" aria-hidden />
+                    Stands
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-72">
+                  {STAND_PRESETS.map((p) => (
+                    <DropdownMenuItem key={`${p.kind}-${p.size.join("x")}`} disabled={!canAddFixture(hist.plan)} onSelect={() => addStandOf(p.kind, p.size)}>
+                      Add a {p.kind === "table" ? "sponsor table" : "stand"}, {p.size[0]} x {p.size[1]} m
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => wholePlan(renumberStands)} className="flex-col items-start gap-0.5">
+                    <span className="font-medium">Renumber stands</span>
+                    <span className="text-xs text-muted-foreground">Row by row from the north, west to east. Sponsors stay on their stands.</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => wholePlan(automaticStands)} className="flex-col items-start gap-0.5">
+                    <span className="font-medium">Back to automatic stands</span>
+                    <span className="text-xs text-muted-foreground">Removes the placed stands; the exhibition rooms lay out their own again, sponsors in tier order.</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button size="sm" variant="outline" onClick={placeStands} title="Turn the exhibition's stands into stands you move, size, number and give to sponsors">
+                <LayoutGrid className="h-4 w-4" aria-hidden />
+                Place stands yourself
+              </Button>
+            )}
             <span className="mx-1 h-6 w-px bg-border" aria-hidden />
             <Button size="sm" variant="ghost" onClick={() => travelHistory(-1)} disabled={!hist.canUndo} aria-label="Undo">
               <Undo2 className="h-4 w-4" aria-hidden />
@@ -559,6 +645,7 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
               zoom={zoom}
               onZoom={setZoom}
               ghost={ghost}
+              sponsors={sponsors}
             />
             <PlanPanel
               plan={plan}
@@ -576,6 +663,8 @@ export function VenuePlanEditor({ eventId, slug, rooms, stored, onClose }: { eve
               partner={partnerFloor && { floor: partnerFloor, fits: partnerFits, add: addMatching }}
               joined={selected?.kind === "fixture" && floorLinks(hist.plan).some((l) => l.lower.id === selected.id || l.upper.id === selected.id)}
               doorShut={selected?.kind === "room" && shut.has(selected.id)}
+              sponsors={sponsors}
+              allFixtures={hist.plan.fixtures}
             />
           </div>
           <Status ok={ok} checking={checking} problems={problems} warnings={verdict.warnings} />
@@ -716,6 +805,8 @@ function PlanPanel({
   partner,
   joined,
   doorShut,
+  sponsors,
+  allFixtures,
 }: {
   plan: VenuePlan;
   rooms: VenueRoom[];
@@ -738,6 +829,10 @@ function PlanPanel({
   joined: boolean;
   /** The selected room's door is left shut: it opens onto nothing, and the stairs or lift in the room are its way in. */
   doorShut: boolean;
+  /** The event's sponsors in stand order, to give out stands. */
+  sponsors: StandSponsorRef[];
+  /** Every fixture on both floors: which stands each sponsor already holds. */
+  allFixtures: PlanFixture[];
 }) {
   const rect = selected ? rectOf(plan, selected) : null;
   if (!selected || !rect) {
@@ -781,8 +876,8 @@ function PlanPanel({
           {plan.fixtures.map((f) => (
             <li key={f.id}>
               <button type="button" className="w-full rounded px-2 py-1 text-left text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary" onClick={() => onSelect({ kind: "fixture", id: f.id })}>
-                {f.name || FIXTURE_INFO[f.kind].label}
-                {f.name ? ` (${FIXTURE_INFO[f.kind].label.toLowerCase()})` : ""}
+                {fixtureLabel(f)}
+                {fixtureNote(f, sponsors)}
               </button>
             </li>
           ))}
@@ -804,7 +899,7 @@ function PlanPanel({
     <div className="space-y-4 text-sm">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-base font-semibold">{room?.name ?? corridor?.name ?? (fixture && (fixture.name || FIXTURE_INFO[fixture.kind].label))}</p>
+          <p className="text-base font-semibold">{room?.name ?? corridor?.name ?? (fixture && fixtureLabel(fixture))}</p>
           <p className="text-xs text-muted-foreground">
             <SelectedKind room={room} fixture={fixture} />
           </p>
@@ -831,6 +926,9 @@ function PlanPanel({
             }}
           />
         </div>
+      )}
+      {fixture && isStand(fixture) && (
+        <StandFields key={`${key}-${fixture.number}-${fixture.sponsorId}`} id={key} plan={plan} fixture={fixture} sponsors={sponsors} allFixtures={allFixtures} onChange={onChange} />
       )}
       {fixture && <FixtureFields key={`${key}-${fixture.name}-${fixture.dir}`} id={key} plan={plan} fixture={fixture} onChange={onChange} />}
       {fixture && partner && <PartnerField kind={fixture.kind} partner={partner} />}
@@ -888,6 +986,7 @@ function PlanPanel({
           onChange={(patch) => onChange(setDoor(plan, placed.id, patch, true))}
         />
       )}
+      {fixture && <TeamFields key={`${key}-${fixture.note ?? ""}-${String(fixture.internal)}`} id={key} plan={plan} fixture={fixture} onChange={onChange} />}
       {(corridor || fixture) && (
         <Button size="sm" variant="outline" className="text-destructive" onClick={onRemove}>
           <Trash2 className="h-4 w-4" aria-hidden />
@@ -906,7 +1005,8 @@ function doorHelp(foyer: boolean, shut: boolean): string {
 
 function removeLabel(corridor: boolean, fixture: PlanFixture | undefined, joined: boolean): string {
   if (corridor) return "Remove walkway";
-  const what = fixture ? FIXTURE_INFO[fixture.kind].label.toLowerCase() : "";
+  // "Exhibition stand" reads "exhibition stand" mid-sentence; an acronym ("AV console") keeps its capitals.
+  const what = fixture ? FIXTURE_INFO[fixture.kind].label.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase()) : "";
   return joined ? `Remove ${what} on both floors` : `Remove ${what}`;
 }
 
@@ -935,12 +1035,125 @@ function PartnerField({ kind, partner }: { kind: FixtureKind; partner: { floor: 
   );
 }
 
-/** A fixture's name (on its sign) and the way it faces. */
+/** After a fixture's label in the list: a stand's sponsor (or Available), else its kind when it has a name of its own. */
+function fixtureNote(f: PlanFixture, sponsors: StandSponsorRef[]): string {
+  if (isStand(f)) return `, ${sponsors.find((sp) => sp.id === f.sponsorId)?.name ?? "Available"}`;
+  return f.name ? ` (${FIXTURE_INFO[f.kind].label.toLowerCase()})` : "";
+}
+
+const AVAILABLE = "available";
+
+/**
+ * A stand's number and sponsor. The number is a label and can change at any time (the sponsor and the visits
+ * stay with the stand); a sponsor may hold several stands (decision G5), and the list says which they hold.
+ */
+function StandFields({
+  id,
+  plan,
+  fixture,
+  sponsors,
+  allFixtures,
+  onChange,
+}: {
+  id: string;
+  plan: VenuePlan;
+  fixture: PlanFixture;
+  sponsors: StandSponsorRef[];
+  allFixtures: PlanFixture[];
+  onChange: (p: VenuePlan) => void;
+}) {
+  const holds = (spId: string) => allFixtures.filter((f) => isStand(f) && f.id !== fixture.id && f.sponsorId === spId).map((f) => f.number ?? "?");
+  const missing = fixture.sponsorId && !sponsors.some((sp) => sp.id === fixture.sponsorId);
+  return (
+    <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-2">
+      <div className="space-y-1">
+        <Label htmlFor={`${id}-number`} className="text-xs text-muted-foreground">
+          Number
+        </Label>
+        <Input
+          id={`${id}-number`}
+          name={`${id}-number`}
+          defaultValue={fixture.number ?? ""}
+          maxLength={8}
+          className="h-8"
+          onBlur={(e) => {
+            const number = e.target.value.trim();
+            if (number !== (fixture.number ?? "")) onChange(setFixture(plan, fixture.id, { number: number || undefined }));
+          }}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor={`${id}-sponsor`} className="text-xs text-muted-foreground">
+          Sponsor
+        </Label>
+        <Select value={fixture.sponsorId && !missing ? fixture.sponsorId : AVAILABLE} onValueChange={(v) => onChange(setFixture(plan, fixture.id, { sponsorId: v === AVAILABLE ? null : v }))}>
+          <SelectTrigger id={`${id}-sponsor`} className="h-8 w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={AVAILABLE}>Available</SelectItem>
+            {sponsors.map((sp) => {
+              const held = holds(sp.id);
+              return (
+                <SelectItem key={sp.id} value={sp.id}>
+                  {sp.name}
+                  {sp.tier ? ` (${sp.tier})` : ""}
+                  {held.length ? `, also on ${held.join(", ")}` : ""}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+      </div>
+      {sponsors.length === 0 && <p className="col-span-2 text-xs text-muted-foreground">Add the event&apos;s sponsors on its Sponsors page to give out stands.</p>}
+    </div>
+  );
+}
+
+/** For the team only: a note on the fixture, and whether exhibitors see it on the plan they are sent. */
+function TeamFields({ id, plan, fixture, onChange }: { id: string; plan: VenuePlan; fixture: PlanFixture; onChange: (p: VenuePlan) => void }) {
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1">
+        <Label htmlFor={`${id}-note`} className="text-xs text-muted-foreground">
+          Note for the team (exhibitors never see it)
+        </Label>
+        <Input
+          id={`${id}-note`}
+          name={`${id}-note`}
+          defaultValue={fixture.note ?? ""}
+          placeholder={isStand(fixture) ? "Power 2 x 13 A, rigging point" : ""}
+          maxLength={300}
+          className="h-8"
+          onBlur={(e) => {
+            const note = e.target.value.trim();
+            if (note !== (fixture.note ?? "")) onChange(setFixture(plan, fixture.id, { note }));
+          }}
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <Checkbox id={`${id}-internal`} checked={isInternal(fixture)} onCheckedChange={(v) => onChange(setFixture(plan, fixture.id, { internal: v === true }))} />
+        <Label htmlFor={`${id}-internal`} className="text-xs font-normal">
+          Staff only: leave it off the exhibitors&apos; plan
+        </Label>
+      </div>
+    </div>
+  );
+}
+
+/** What the way a fixture faces is called: up a flight of stairs, a stand's open side, else its front. */
+function facingLabel(f: PlanFixture): string {
+  if (f.kind === "stairs") return "Goes up towards";
+  return isStand(f) ? "Open towards" : "Faces";
+}
+
+/** A fixture's name (on its sign) and the way it faces. A stand is named by its number, so only its facing. */
 function FixtureFields({ id, plan, fixture, onChange }: { id: string; plan: VenuePlan; fixture: PlanFixture; onChange: (p: VenuePlan) => void }) {
   const label = FIXTURE_INFO[fixture.kind].label;
+  const stand = isStand(fixture);
   return (
     <div className="grid grid-cols-2 gap-2">
-      <div className="space-y-1">
+      <div className={stand ? "hidden" : "space-y-1"}>
         <Label htmlFor={`${id}-name`} className="text-xs text-muted-foreground">
           Name on the plan
         </Label>
@@ -959,7 +1172,7 @@ function FixtureFields({ id, plan, fixture, onChange }: { id: string; plan: Venu
       </div>
       <div className="space-y-1">
         <Label htmlFor={`${id}-dir`} className="text-xs text-muted-foreground">
-          {fixture.kind === "stairs" ? "Goes up towards" : "Faces"}
+          {facingLabel(fixture)}
         </Label>
         <Select value={fixture.dir} onValueChange={(v) => onChange(setFixture(plan, fixture.id, { dir: v as PlanWall }))}>
           <SelectTrigger id={`${id}-dir`} className="h-8 w-full">

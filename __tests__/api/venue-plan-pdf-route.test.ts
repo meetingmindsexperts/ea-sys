@@ -79,9 +79,9 @@ describe("GET /api/events/:eventId/venue/plan-pdf", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/pdf");
     expect(res.headers.get("Content-Disposition")).toBe('attachment; filename="summit-27-floor-plan-A3.pdf"');
-    const input = render.mock.calls[0][0] as unknown as { paper: string; sponsorsByStand: string[]; dateLine: string; place: string };
+    const input = render.mock.calls[0][0] as unknown as { paper: string; sponsors: { id: string; name: string }[]; dateLine: string; place: string };
     expect(input.paper).toBe("A3");
-    expect(input.sponsorsByStand).toEqual(["Pfizer", "Novartis"]);
+    expect(input.sponsors.map((s) => s.name)).toEqual(["Pfizer", "Novartis"]);
     expect(input.dateLine).toBe("12 to 14 March 2027");
     expect(input.place).toBe("Atlantis, Dubai, United Arab Emirates");
   });

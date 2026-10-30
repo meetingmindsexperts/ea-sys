@@ -39,6 +39,8 @@ import {
   floorLinks,
   floorOf,
   floorView,
+  fixtureLabel,
+  isStand,
   planFloors,
   planIssues,
   type PlanDoor,
@@ -87,16 +89,19 @@ function uOf(door: FrameDoor, origin: [number, number], x: number, z: number): n
  * builds each floor on its own, then stands Level 1 beside the ground floor in the walkable venue's one flat
  * world (`FLOOR_GAP` apart, so the two never meet), joined by a "floor" hotspot at each linked stair and lift.
  */
-export function layoutFromPlan(rooms: VenueRoom[], plan: VenuePlan, opts: { eventName: string }): PlanLayoutResult {
+export function layoutFromPlan(rooms: VenueRoom[], given: VenuePlan, opts: { eventName: string }): PlanLayoutResult {
+  // A plan with any stand of its own has placed its stands, on every floor: the automatic grid never mixes in.
+  const plan = !given.standsPlaced && given.fixtures.some(isStand) ? { ...given, standsPlaced: true } : given;
   const floors = planFloors(plan);
   if (floors.length === 1) return floorLayout(rooms, floorView(plan, "ground"), opts);
   const built = floors.map((f) => ({ floor: f, ...floorLayout(rooms, floorView(plan, f), opts) }));
   const [ground, upper] = built;
   const dx = r2(ground.layout.bounds[2] + FLOOR_GAP - upper.layout.bounds[0]);
   const shift: Record<PlanFloor, number> = { ground: 0, "level-1": dx };
-  // Stands are numbered on through the floors (Level 1's go on from the ground floor's), since stand n
+  // Automatic stands are numbered on through the floors (Level 1's go on from the ground floor's), since stand n
   // carries the nth sponsor and the venue counts visits by stand: two Stand 1s would share both (review MED).
-  const groundStands = ground.layout.items.filter((it) => it.t === "stand").length;
+  // A plan that places its stands has no automatic ones, so its own numbers and visit points are never touched.
+  const groundStands = ground.layout.items.filter((it) => it.t === "stand" && !it.key).length;
   const parts = built.map((b) => ({ floor: b.floor, layout: shiftLayout(numberStandsFrom(b.layout, b.floor === "ground" ? 0 : groundStands), shift[b.floor], b.floor) }));
 
   // A stair or lift is taken from in front of it, in the area that holds it: one facing a wall would put
@@ -139,7 +144,7 @@ export function layoutFromPlan(rooms: VenueRoom[], plan: VenuePlan, opts: { even
   };
 }
 
-/** A floor's stands numbered on from `from`, with their visit points; unchanged when `from` is 0. */
+/** A floor's automatic stands numbered on from `from`, with their visit points; unchanged when `from` is 0. */
 function numberStandsFrom(l: VenueLayout, from: number): VenueLayout {
   if (!from) return l;
   const n = (k: number) => k + from;
@@ -305,6 +310,12 @@ export function floorLayout(rooms: VenueRoom[], plan: VenuePlan, opts: { eventNa
     const fd = FRAME_OF[d.wall];
     furnishZone(zn, fd, out, { lineU: foyerLineU(zn, fd, doorOf.get(zn.id)), eventName: opts.eventName });
   }
+  // Stands placed on the plan replace the exhibition rooms' automatic grid, its exhibitors and its visit points.
+  if (plan.standsPlaced) {
+    out.items = out.items.filter((it) => it.t !== "stand");
+    out.people = out.people.filter((p) => p.role !== "exhibitor");
+    out.hotspots = out.hotspots.filter((h) => h.kind !== "stand");
+  }
   for (const d of doors) out.items.push(...doorSign(zones, d));
   placeFixtures(plan, zones, out);
 
@@ -369,8 +380,11 @@ const FIXTURE_CLEARANCE = 0.3;
 /**
  * The plan's fixtures as items in the room or walkway that holds them. The
  * furnishers do not know about fixtures, so the furniture, people and stand
- * points a solid fixture stands on (or crowds) are dropped, and the stands
- * left are numbered again from 1, since stand n carries the nth sponsor.
+ * points a solid fixture stands on (or crowds) are dropped, and the automatic
+ * stands left are numbered again from 1, since stand n carries the nth
+ * sponsor. A stand placed on the plan becomes a stand with its own number and
+ * sponsor; nothing placed beside it ever clears it away, as stands in a row
+ * stand shoulder to shoulder.
  */
 function placeFixtures(plan: VenuePlan, zones: LayoutZone[], out: Out) {
   const placed: { f: PlanFixture; zone: LayoutZone }[] = [];
@@ -382,7 +396,7 @@ function placeFixtures(plan: VenuePlan, zones: LayoutZone[], out: Out) {
     const [x0, z0, x1, z1] = f.rect.map(r2);
     if (info.solid) {
       const keep: Rect = [x0 - FIXTURE_CLEARANCE, z0 - FIXTURE_CLEARANCE, x1 + FIXTURE_CLEARANCE, z1 + FIXTURE_CLEARANCE];
-      const covered = (it: LayoutItem) => it.zone === zone.id && it.t !== "fixture" && it.t !== "sign" && it.t !== "screen" && hits(boxOf(it.foot), keep);
+      const covered = (it: LayoutItem) => it.zone === zone.id && it.t !== "fixture" && it.t !== "sign" && it.t !== "screen" && !(it.t === "stand" && it.key) && hits(boxOf(it.foot), keep);
       // A registration counter put over one of the foyer's own desks takes that desk's place: its staff and its
       // prompt go with it (Oct 26). Any other fixture only clears the floor it stands on, as before.
       if (f.kind === "registration") {
@@ -398,15 +412,26 @@ function placeFixtures(plan: VenuePlan, zones: LayoutZone[], out: Out) {
       out.hotspots = out.hotspots.filter((h) => !blocked.includes(h));
       // A stand whose visit point the fixture covers goes too: it could not be visited, yet would show a sponsor.
       const lost = new Set(blocked.filter((h) => h.kind === "stand").map((h) => h.id));
-      out.items = out.items.filter((it) => it.t !== "stand" || !lost.has(`stand-${it.n}`));
+      out.items = out.items.filter((it) => it.t !== "stand" || it.key || !lost.has(`stand-${it.n}`));
+    }
+    if (isStand(f)) {
+      out.items.push({
+        t: "stand", zone: zone.id, solid: true, foot: { x0, z0, x1, z1 }, face: FACING[f.dir], label: fixtureLabel(f),
+        // The larger stands get the first tier's carpet, as the automatic grid gives its first two.
+        tier: (x1 - x0) * (z1 - z0) >= 18 ? 1 : 2, n: 0, key: f.id, number: f.number ?? "", sponsorId: f.sponsorId ?? null, ...(f.kind === "table" && { table: true }),
+      });
+      continue;
     }
     const down = f.kind === "stairs" && floorOf(f) !== "ground";
     out.items.push({ t: "fixture", zone: zone.id, solid: info.solid, foot: { x0, z0, x1, z1 }, kind: f.kind, name: f.name || info.label, yaw: FACING[f.dir], ...(down && { down }) });
   }
-  // Staff and prompts only once every fixture stands, so none lands on a fixture listed after it (review LOW).
-  const solids = placed.filter(({ f }) => FIXTURE_INFO[f.kind].solid).map(({ f }) => f.rect);
-  for (const { f, zone } of placed) serveFixture(f, f.name || FIXTURE_INFO[f.kind].label, zone.rect, solids, out);
   renumberStands(out);
+  // Placed stands are counted in plan order, for whatever still reads `n`; their number and visit point are their own.
+  let k = 0;
+  for (const it of out.items) if (it.t === "stand" && it.key) it.n = ++k;
+  // Staff, exhibitors and prompts only once every fixture stands, so none lands on a fixture listed after it (review LOW).
+  const solids = placed.filter(({ f }) => FIXTURE_INFO[f.kind].solid).map(({ f }) => f.rect);
+  for (const { f, zone } of placed) serveFixture(f, fixtureLabel(f), zone.rect, solids, out);
 }
 
 /**
@@ -414,6 +439,10 @@ function placeFixtures(plan: VenuePlan, zones: LayoutZone[], out: Out) {
  * badges, a photo wall takes a photo. Both from the side it faces (the guests' side); staff stand behind.
  */
 function serveFixture(f: PlanFixture, name: string, room: Rect, solids: Rect[], out: Out) {
+  if (isStand(f)) {
+    serveStand(f, name, room, solids, out);
+    return;
+  }
   if (f.kind !== "registration" && f.kind !== "photo-wall") return;
   const [x0, z0, x1, z1] = f.rect;
   const into = INWARD[OPPOSITE[f.dir]];
@@ -438,9 +467,29 @@ function serveFixture(f: PlanFixture, name: string, room: Rect, solids: Rect[], 
   out.hotspots.push({ id: `desk-${f.id}`, x: front[0], z: front[1], r: 3, kind: "info", prompt: "Collect your badge", title: name, body: "Delegates collect their badges here." });
 }
 
-/** Stands numbered 1, 2, 3 in order again, with their visit points, after some were dropped. */
+/**
+ * A stand's exhibitor and the spot in front of its open side where a visit counts (`stand-<fixture id>`, so a
+ * new number never moves the stand's visits). The exhibitor stands just inside a stand, and behind a table.
+ */
+function serveStand(f: PlanFixture, name: string, room: Rect, solids: Rect[], out: Out) {
+  const [x0, z0, x1, z1] = f.rect;
+  const into = INWARD[OPPOSITE[f.dir]];
+  const [cx, cz] = [(x0 + x1) / 2, (z0 + z1) / 2];
+  const half = into.dx ? (x1 - x0) / 2 : (z1 - z0) / 2;
+  const at = (d: number): [number, number] => [r2(cx + into.dx * d), r2(cz + into.dz * d)];
+  const [px, pz] = f.kind === "table" ? at(-(half + 0.6)) : at(half - 0.6);
+  const clear = !solids.some((r) => r !== f.rect && hits([px - 0.3, pz - 0.3, px + 0.3, pz + 0.3], r));
+  if (inside(room, px, pz) && clear) out.people.push({ x: px, z: pz, yaw: r2(Math.atan2(into.dx, into.dz)), pose: "stand", role: "exhibitor" });
+  const [hx, hz] = at(half + 1.6);
+  out.hotspots.push({ id: `stand-${f.id}`, x: hx, z: hz, r: 2.2, kind: "stand", prompt: `Visit ${name}`, title: name, body: "No sponsor has this stand yet." });
+}
+
+/**
+ * Automatic stands numbered 1, 2, 3 in order again, with their visit points, after some were dropped. Runs
+ * before placed stands get their visit points (serveStand), and placed stands keep their own numbers.
+ */
 function renumberStands(out: Out) {
-  const stands = out.items.filter((it): it is Extract<LayoutItem, { t: "stand" }> => it.t === "stand");
+  const stands = out.items.filter((it): it is Extract<LayoutItem, { t: "stand" }> => it.t === "stand" && !it.key);
   const kept = new Set(stands.map((s) => `stand-${s.n}`));
   out.hotspots = out.hotspots.filter((h) => h.kind !== "stand" || kept.has(h.id));
   const next = new Map(stands.map((s, i) => [s.n, i + 1]));

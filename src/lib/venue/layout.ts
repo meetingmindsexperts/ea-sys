@@ -87,7 +87,22 @@ export type LayoutItem = ItemBase &
     | { t: "row"; p0: [number, number]; p1: [number, number]; n: number; yaw: number }
     | { t: "lectern" }
     | { t: "round"; cx: number; cz: number; chairs: number }
-    | { t: "stand"; face: number; label: string; tier: number; /** 1-based; the venue gives stand n to the nth sponsor by tier. */ n: number }
+    | {
+        t: "stand";
+        face: number;
+        label: string;
+        tier: number;
+        /** 1-based; the venue gives stand n to the nth sponsor by tier, unless the stand was placed on the plan. */
+        n: number;
+        /**
+         * A stand placed on the plan (section 10): its fixture id, which names its visit point (`stand-<key>`) so
+         * renumbering moves nothing; its number as printed; its own sponsor (null is Available); a table top.
+         */
+        key?: string;
+        number?: string;
+        sponsorId?: string | null;
+        table?: boolean;
+      }
     | { t: "poster"; yaw: number }
     | { t: "sofa"; yaw: number }
     | { t: "bar"; yaw: number }

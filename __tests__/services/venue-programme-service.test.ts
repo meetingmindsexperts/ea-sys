@@ -50,8 +50,13 @@ describe("loadVenueProgramme", () => {
 });
 
 describe("loadProgrammeSummary", () => {
-  it("returns each session's title, location and track, and the sponsor count; null on failure", async () => {
-    expect(await loadProgrammeSummary(caller)).toEqual({ sessions: [{ title: "Bleeding emergencies", location: null, track: "Workshop Room" }], sponsors: 1 });
+  it("returns each session's title, location and track, the sponsor count and the sponsors in stand order; null on failure", async () => {
+    expect(await loadProgrammeSummary(caller)).toEqual({
+      sessions: [{ title: "Bleeding emergencies", location: null, track: "Workshop Room" }],
+      sponsors: 1,
+      // Id, name and the tier's name: what the Venue tab needs to give out stands, nothing more.
+      standSponsors: [{ id: "s1", name: "Gold Co", tier: "Gold" }],
+    });
     getSponsors.mockRejectedValue(new Error("db down"));
     expect(await loadProgrammeSummary(caller)).toBeNull();
     expect(logError).toHaveBeenCalledWith(expect.objectContaining({ msg: "venue:programme-summary-failed" }));

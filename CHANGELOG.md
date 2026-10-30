@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue floor plan: stands you place, number and give to sponsors (October 30)
+
+Phase A of the exhibitor floor plan (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md, section 10).
+
+- **Place stands yourself** in the floor plan editor turns the exhibition rooms' automatic stands into stands on the plan, at the same places, numbers and sponsors, so nothing visibly changes. From then on each stand or sponsor table is moved, sized (presets 3x2, 3x3, 4x3, 6x3, 6x6, table 2x1, or any size), turned, numbered and given a sponsor, in any room or walkway. **Back to automatic stands** and **Renumber stands** (row by row from the north, two digits from ten stands) are in the same menu.
+- **A stand's number is a label.** Its sponsor, its visit counts in the walkable venue (`stand-<fixture id>`) and its place never key on it, so a last-minute renumbering, cancellation or new sponsor moves nothing else. Duplicate or missing numbers block the save; a sponsor deleted since reads as Available with a warning. One sponsor may hold several stands.
+- **One sponsor rule** (`src/lib/venue/stands.ts`) for the 2D plan, the PDF and the AI attendees; world.js keeps the same rule. The 2D plan prints each stand's number and sponsor; the PDF draws Available stands open and lists them in the legend.
+- **New fixtures:** stage, AV console, program wall. Every fixture can carry a team note and a staff-only flag (the AV console is staff-only by default), stored now for the exhibitor map in phase C. The fixture limit is 200 (was 60).
+- The 3D venue builds tables, the stage, the AV console and the program wall; a new vendor walk fixture (`drawn-placed-stands`) covers them.
+
 ### Budgets: cross-organisation and lifecycle tests on a real database (October 28)
 
 - **Cross-organisation sweep** (`tests/integration-db/procurement-cross-org.db.test.ts`): an admin of another organisation calls all 46 procurement writes that take an id with this organisation's ids, including three that create rows in its own organisation pointing at this one's (a category's parent, a product's category, an approval chain's people). Every one is refused at its organisation check (each refusal's reason was read, and the seed holds a row of every kind looked up), and every procurement row, in 21 tables, is byte-identical afterwards (updatedAt included). A control proves the same call succeeds for the owner; a coverage check fails when a new write is not in the sweep. The route half (`route-org-source.test.ts`) pins that all 40 write routes take the organisation from the session, and that no request schema names an organisation, actor or decider field or lets unknown keys through (so a `...parsed.data` spread cannot override them).

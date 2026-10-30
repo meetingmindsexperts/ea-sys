@@ -4,6 +4,8 @@
  * clear spot exists, dates read in the event's time zone, and every template
  * renders, including sponsor names pdfkit's Helvetica cannot encode.
  */
+import { PLAN_FIXTURES } from "@/lib/venue/layout-fixtures";
+import { layoutFromPlan } from "@/lib/venue/plan-layout";
 import { describe, it, expect } from "vitest";
 import { generateLayout } from "@/lib/venue/layout";
 import { TEMPLATES, TEMPLATE_KEYS } from "@/lib/venue/rooms";
@@ -89,13 +91,27 @@ describe("renderFloorPlanPdf", () => {
         eventName: "Annual Summit",
         dateLine: "12 to 14 March 2027",
         place: "Dubai",
-        sponsorsByStand: ["Pfizer", null, "Novartis"],
+        sponsors: [{ id: "s1", name: "Pfizer" }, { id: "s2", name: "Novartis" }],
         paper,
         generatedAt: new Date("2026-10-23T10:00:00Z"),
       });
       expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
       expect(pdf.subarray(-6).toString()).toContain("%%EOF");
     }
+  });
+
+  it("renders placed stands, a sponsor table, an Available stand, a stage and an AV console", async () => {
+    const { rooms, plan } = PLAN_FIXTURES["drawn-placed-stands"];
+    const pdf = await renderFloorPlanPdf({
+      layout: layoutFromPlan(rooms, plan, { eventName: "x" }).layout,
+      eventName: "Exhibitor plan",
+      dateLine: null,
+      place: null,
+      sponsors: [{ id: "sp-a", name: "Takeda" }, { id: "sp-b", name: "AbbVie" }],
+      paper: "A3",
+      generatedAt: new Date(),
+    });
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
   });
 
   it("does not fail on names Helvetica cannot encode", async () => {
@@ -105,7 +121,7 @@ describe("renderFloorPlanPdf", () => {
       eventName: "مؤتمر الشرق الأوسط 🎉",
       dateLine: null,
       place: null,
-      sponsorsByStand: ["شركة الأدوية", "株式会社"],
+      sponsors: [{ id: "s1", name: "شركة الأدوية" }, { id: "s2", name: "株式会社" }],
       paper: "A3",
       generatedAt: new Date(),
     });

@@ -14,6 +14,7 @@ import type { LayoutItem, VenueLayout } from "@/lib/venue/layout";
 import { LayoutDrawing } from "@/components/venue/venue-plan-drawing";
 import { buildVenueLayout } from "@/lib/venue/plan-layout";
 import type { VenuePlan } from "@/lib/venue/plan";
+import type { StandSponsorRef } from "@/lib/venue/stands";
 import { checkLayout } from "@/lib/venue/layout-check";
 import type { VenueRoom } from "@/lib/venue/rooms";
 import { cn } from "@/lib/utils";
@@ -31,7 +32,20 @@ function planSummary(layout: VenueLayout, mode: "automatic" | "drawn", width: nu
   return `${mode === "drawn" ? "The plan drawn for this event" : "The building made from these rooms"}: ${Math.round(width)} m across and ${Math.round(depth)} m deep. North is up; the blue dashed line is the entrance.`;
 }
 
-export function VenueFloorPlan({ rooms, eventName, actions, plan = null }: { rooms: VenueRoom[]; eventName: string; actions?: ReactNode; plan?: VenuePlan | null }) {
+export function VenueFloorPlan({
+  rooms,
+  eventName,
+  actions,
+  plan = null,
+  sponsors = [],
+}: {
+  rooms: VenueRoom[];
+  eventName: string;
+  actions?: ReactNode;
+  plan?: VenuePlan | null;
+  /** The event's sponsors in stand order, to name each stand. */
+  sponsors?: StandSponsorRef[];
+}) {
   // The saved drawn plan when it still fits these rooms, else the automatic one: what the venue and the PDF use.
   const { layout, check, mode, notUsed } = useMemo(() => {
     const built = buildVenueLayout(rooms, plan, { eventName });
@@ -58,7 +72,7 @@ export function VenueFloorPlan({ rooms, eventName, actions, plan = null }: { roo
             role="img"
             aria-label={`Floor plan with ${layout.zones.length} areas`}
           >
-            <LayoutDrawing layout={layout} />
+            <LayoutDrawing layout={layout} sponsors={sponsors} />
           </svg>
           <div className="space-y-4 text-sm">
             {notUsed.length > 0 && (

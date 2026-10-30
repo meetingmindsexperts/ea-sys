@@ -14,10 +14,12 @@ import { clamp, fits, generateLayout, r2, type Rect } from "./layout";
 import {
   FIXTURE_INFO,
   FIXTURE_MIN_SIDE,
+  PLAN_FLOORS,
   floorLinks,
   floorOf,
   floorView,
   heldFixtures,
+  isStand,
   onFloor,
   planFloors,
   withFloor,
@@ -37,6 +39,8 @@ import {
   type VenuePlan,
 } from "./plan";
 import type { VenueRoom } from "./rooms";
+import { floorLayout } from "./plan-layout";
+import { layoutStands, type StandSponsorRef } from "./stands";
 
 export const PLAN_GRID = 0.5;
 export const snap = (n: number) => r2(Math.round(n / PLAN_GRID) * PLAN_GRID);
@@ -400,9 +404,121 @@ export function removeFixture(plan: VenuePlan, id: string): VenuePlan {
   return { ...plan, fixtures: plan.fixtures.filter((f) => f.id !== id) };
 }
 
-/** A fixture's name (shown on its sign; blank uses the kind's own) or the way it faces. */
-export function setFixture(plan: VenuePlan, id: string, patch: Partial<Pick<PlanFixture, "name" | "dir">>): VenuePlan {
-  return { ...plan, fixtures: plan.fixtures.map((f) => (f.id === id ? { ...f, ...patch } : f)) };
+/**
+ * A fixture's name (shown on its sign; blank uses the kind's own), the way it faces, a stand's number or
+ * sponsor, the team's note, or whether exhibitors see it. A blank note is no note.
+ */
+export function setFixture(plan: VenuePlan, id: string, patch: Partial<Pick<PlanFixture, "name" | "dir" | "number" | "sponsorId" | "note" | "internal">>): VenuePlan {
+  return {
+    ...plan,
+    fixtures: plan.fixtures.map((f) => {
+      if (f.id !== id) return f;
+      const next = { ...f, ...patch };
+      if (patch.note !== undefined && !patch.note) delete next.note;
+      return next;
+    }),
+  };
+}
+
+// ── Stands (section 10) ──────────────────────────────────────────────────────
+
+/** Every stand number on the plan, both floors (a floor's view carries the other floor's in `otherNumbers`). */
+const standNumbers = (plan: VenuePlan) => [...plan.fixtures.flatMap((f) => (f.number ? [f.number] : [])), ...(plan.otherNumbers ?? [])];
+
+/**
+ * The number a new stand takes: one more than the highest plain number on the plan, written as wide as the
+ * widest plain number already there, so a plan numbered 01 to 13 goes on with 14, and "01" stays "01".
+ */
+export function nextStandNumber(plan: VenuePlan): string {
+  const plain = standNumbers(plan).filter((n) => /^\d+$/.test(n));
+  const next = plain.length ? Math.max(...plain.map(Number)) + 1 : 1;
+  const width = Math.max(1, ...plain.map((n) => n.length));
+  return String(next).padStart(width, "0");
+}
+
+/** A fixture id not yet used on the plan or the other floor: `${kind}-${n}`. */
+function freeId(plan: VenuePlan, kind: FixtureKind): string {
+  const ids = new Set([...plan.fixtures.map((f) => f.id), ...plan.rooms.map((p) => p.id), ...plan.corridors.map((c) => c.id), ...(plan.otherIds ?? [])]);
+  let n = plan.fixtures.filter((f) => f.kind === kind).length + 1;
+  while (ids.has(`${kind}-${n}`)) n++;
+  return `${kind}-${n}`;
+}
+
+/**
+ * Add a stand or table, width by depth, in `inside` (as `addFixture` places any fixture), open to the south,
+ * with the next free number and no sponsor yet. Null when the plan holds the most fixtures it can.
+ */
+export function addStand(plan: VenuePlan, kind: "stand" | "table", size: [number, number], inside: Rect | null): { plan: VenuePlan; id: string } | null {
+  if (!canAddFixture(plan)) return null;
+  const host = inside ?? plan.rooms[0]?.rect ?? plan.corridors[0]?.rect;
+  if (!host) return null;
+  const w = Math.min(size[0], host[2] - host[0]);
+  const d = Math.min(size[1], host[3] - host[1]);
+  const [x0, z0] = freeSpot(plan, host, w, d);
+  const id = freeId(plan, kind);
+  const stand: PlanFixture = { id, kind, name: "", rect: [x0, z0, r2(x0 + w), r2(z0 + d)], dir: "s", number: nextStandNumber(plan), sponsorId: null };
+  return { plan: { ...plan, fixtures: [...plan.fixtures, stand], standsPlaced: true }, id };
+}
+
+/** The way a layout yaw looks, as a plan wall: (sin, cos) of yaw is the direction, +z south. */
+function wallOfYaw(yaw: number): PlanWall {
+  const dx = Math.round(Math.sin(yaw));
+  const dz = Math.round(Math.cos(yaw));
+  if (dz > 0) return "s";
+  if (dz < 0) return "n";
+  return dx > 0 ? "e" : "w";
+}
+
+/**
+ * Place the stands yourself, starting from exactly what the venue shows now: every stand the exhibition rooms
+ * make on their own becomes a stand on the plan, at its place and size, numbered as it was (on through the
+ * floors) and holding the sponsor it held by tier order (`ordered`). From then on the team moves, sizes,
+ * numbers and gives out each stand. The whole plan, both floors.
+ */
+export function placeStandsYourself(plan: VenuePlan, rooms: VenueRoom[], ordered: StandSponsorRef[]): VenuePlan {
+  if (plan.standsPlaced) return plan;
+  let next: VenuePlan = { ...plan, fixtures: [...plan.fixtures] };
+  let n = 0;
+  for (const floor of PLAN_FLOORS) {
+    const view = floorView(plan, floor);
+    if (!view.rooms.length) continue;
+    for (const s of layoutStands(floorLayout(rooms, view, { eventName: "" }).layout)) {
+      if (s.key || "r" in s.foot || !canAddFixture(next)) continue;
+      n += 1;
+      const id = freeId(next, "stand");
+      const stand: PlanFixture = { id, kind: "stand", name: "", rect: [s.foot.x0, s.foot.z0, s.foot.x1, s.foot.z1], dir: wallOfYaw(s.face), number: String(n), sponsorId: ordered[n - 1]?.id ?? null };
+      next = { ...next, fixtures: [...next.fixtures, onFloor(stand, floor)] };
+    }
+  }
+  return { ...next, standsPlaced: true };
+}
+
+/** Back to the exhibition rooms' own stands, each going to the nth sponsor by tier: the placed stands go. */
+export function automaticStands(plan: VenuePlan): VenuePlan {
+  const rest = { ...plan, fixtures: plan.fixtures.filter((f) => !isStand(f)) };
+  delete rest.standsPlaced;
+  return rest;
+}
+
+/**
+ * Number every stand and table again in reading order: the ground floor first, then row by row from the
+ * north (stands whose middles are within 1.5 m north to south count as one row), west to east along each.
+ * Two digits once there are ten or more ("01" to "13"), as the venues' own drawings number them.
+ */
+export function renumberStands(plan: VenuePlan): VenuePlan {
+  const stands = plan.fixtures.filter(isStand);
+  const mid = (f: PlanFixture) => [(f.rect[0] + f.rect[2]) / 2, (f.rect[1] + f.rect[3]) / 2] as const;
+  const byNorth = [...stands].sort((a, b) => PLAN_FLOORS.indexOf(floorOf(a)) - PLAN_FLOORS.indexOf(floorOf(b)) || mid(a)[1] - mid(b)[1]);
+  const rows: PlanFixture[][] = [];
+  for (const f of byNorth) {
+    const row = rows[rows.length - 1];
+    if (row && floorOf(row[0]) === floorOf(f) && mid(f)[1] - mid(row[0])[1] <= 1.5) row.push(f);
+    else rows.push([f]);
+  }
+  const order = rows.flatMap((row) => row.sort((a, b) => mid(a)[0] - mid(b)[0]));
+  const width = order.length >= 10 ? String(order.length).length : 1;
+  const numbers = new Map(order.map((f, i) => [f.id, String(i + 1).padStart(width, "0")]));
+  return { ...plan, fixtures: plan.fixtures.map((f) => (numbers.has(f.id) ? { ...f, number: numbers.get(f.id) } : f)) };
 }
 
 export function removeWalkway(plan: VenuePlan, id: string): VenuePlan {

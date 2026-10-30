@@ -5,6 +5,7 @@
  * the AI is told one day's sessions room by room.
  */
 import { describe, it, expect } from "vitest";
+import type { StandItem } from "@/lib/venue/stands";
 import { buildProgramme, matchRoom, orderSponsors, programmeDay, programmeForAi, roomOfSession, type SessionInput } from "@/lib/venue/programme";
 import type { SponsorEntry } from "@/lib/webinar";
 import { sponsorTierList } from "@/lib/sponsor-tiers";
@@ -112,8 +113,11 @@ describe("programmeDay and programmeForAi", () => {
     expect(programmeDay(p, at("2026-11-30T10:00:00Z"))).toBe("2026-10-25");
   });
 
+  /** n automatic stands, which take the sponsors in tier order. */
+  const auto = (n: number): StandItem[] => Array.from({ length: n }, (_, i) => ({ t: "stand", zone: "expo", solid: true, foot: { x0: 0, z0: 0, x1: 3, z1: 3 }, face: 0, label: `Stand ${i + 1}`, tier: 2, n: i + 1 }));
+
   it("tells the AI that day's sessions room by room, in local time, and the sponsors with stands", () => {
-    const text = programmeForAi(p, rooms, at("2026-10-01T10:00:00Z"), 12)!;
+    const text = programmeForAi(p, rooms, at("2026-10-01T10:00:00Z"), auto(12))!;
     expect(text).toContain("Saturday 24 October");
     expect(text).toContain("Plenary Hall: 09:00-10:30 Opening plenary.");
     expect(text).toContain("Hall A: 11:00-12:00 Thrombosis update (Haematology track).");
@@ -122,8 +126,14 @@ describe("programmeDay and programmeForAi", () => {
   });
 
   it("names only the sponsors that have a stand, and nothing when there is nothing to tell", () => {
-    expect(programmeForAi(p, rooms, at("2026-10-01T10:00:00Z"), 1)).toContain("exhibition: Novartis Middle East.");
-    expect(programmeForAi(p, rooms, at("2026-10-01T10:00:00Z"), 0)).not.toContain("Sponsors");
-    expect(programmeForAi(buildProgramme(rooms, [], [], tz), rooms, new Date(), 12)).toBeNull();
+    expect(programmeForAi(p, rooms, at("2026-10-01T10:00:00Z"), auto(1))).toContain("exhibition: Novartis Middle East.");
+    expect(programmeForAi(p, rooms, at("2026-10-01T10:00:00Z"), auto(0))).not.toContain("Sponsors");
+    expect(programmeForAi(buildProgramme(rooms, [], [], tz), rooms, new Date(), auto(12))).toBeNull();
+  });
+
+  it("names a placed stand's own sponsor, once however many stands it holds, and never an Available one", () => {
+    const placed = (key: string, sponsorId: string | null): StandItem => ({ ...auto(1)[0], key, number: key, sponsorId });
+    const text = programmeForAi(p, rooms, at("2026-10-01T10:00:00Z"), [placed("01", "s2"), placed("02", "s2"), placed("03", null)])!;
+    expect(text).toContain("exhibition: Pfizer MENA.");
   });
 });

@@ -104,7 +104,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         eventName: event.name,
         dateLine: planDateLine(event.startDate, event.endDate, event.timezone),
         place,
-        sponsorsByStand: programme.sponsors.map((s) => s.name),
+        sponsors: programme.sponsors,
         paper,
         generatedAt: new Date(),
       });

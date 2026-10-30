@@ -3196,6 +3196,7 @@ import type { SponsorEntry, SponsorTier } from "@/lib/webinar";
 import type { SponsorTierDef } from "@/lib/sponsor-tiers";
 import type { VenueRoom } from "@/lib/venue/rooms";
 import type { VenuePlan } from "@/lib/venue/plan";
+import type { StandSponsorRef } from "@/lib/venue/stands";
 export type { SponsorEntry, SponsorTier, SponsorTierDef };
 
 export function useSponsors(eventId: string, enabled = true) {
@@ -3260,7 +3261,7 @@ export interface VenueRoomsData {
   open?: boolean;
   slug?: string;
   /** The event's sessions and sponsor count, to show which room each lands in; null when they could not be read. */
-  programme?: { sessions: { title: string; location: string | null; track: string | null }[]; sponsors: number } | null;
+  programme?: { sessions: { title: string; location: string | null; track: string | null }[]; sponsors: number; standSponsors: StandSponsorRef[] } | null;
   /** The event's approved Blueprint, its spaces as rooms and what was changed to fit; null without one or without blueprints.view. */
   blueprint?: { id: string; title: string; ref: string | null; spaces: number; rooms: VenueRoom[]; notes: string[] } | null;
   /**

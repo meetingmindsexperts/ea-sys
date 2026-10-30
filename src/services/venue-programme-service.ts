@@ -15,7 +15,8 @@ import { getSponsorTiers, getSponsors } from "@/lib/sponsors";
 import type { SponsorTierDef } from "@/lib/sponsor-tiers";
 import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
 import type { SponsorEntry } from "@/lib/webinar";
-import { MAX_VENUE_SESSIONS, buildProgramme, type SessionInput, type VenueProgramme, type VenueRoomRef } from "@/lib/venue/programme";
+import { MAX_VENUE_SESSIONS, buildProgramme, orderSponsors, type SessionInput, type VenueProgramme, type VenueRoomRef } from "@/lib/venue/programme";
+import type { StandSponsorRef } from "@/lib/venue/stands";
 
 interface Caller {
   organizationId: string;
@@ -59,13 +60,21 @@ export async function loadVenueProgramme(caller: Caller, rooms: VenueRoomRef[], 
 
 /**
  * For the Venue tab: each session's title, location and track, so the tab can
- * show which ones name no room while the rooms are edited, and the sponsor
- * count against the stands. Null when the read fails (the tab says so).
+ * show which ones name no room while the rooms are edited, the sponsor count
+ * against the stands, and the sponsors in stand order (id, name, tier name),
+ * to give out the stands placed on the plan and print who is on each. Null
+ * when the read fails (the tab says so).
  */
-export async function loadProgrammeSummary(caller: Caller): Promise<{ sessions: { title: string; location: string | null; track: string | null }[]; sponsors: number } | null> {
+export async function loadProgrammeSummary(
+  caller: Caller,
+): Promise<{ sessions: { title: string; location: string | null; track: string | null }[]; sponsors: number; standSponsors: StandSponsorRef[] } | null> {
   try {
     const src = await readSources(caller);
-    return { sessions: src.sessions.map((s) => ({ title: s.name, location: s.location, track: s.track })), sponsors: src.sponsors.length };
+    return {
+      sessions: src.sessions.map((s) => ({ title: s.name, location: s.location, track: s.track })),
+      sponsors: src.sponsors.length,
+      standSponsors: orderSponsors(src.sponsors, src.tiers).map((s) => ({ id: s.id, name: s.name, ...(s.tier && { tier: s.tier }) })),
+    };
   } catch (err) {
     apiLogger.error({ err, msg: "venue:programme-summary-failed", eventId: caller.eventId });
     return null;

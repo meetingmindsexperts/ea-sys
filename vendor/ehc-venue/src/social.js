@@ -410,7 +410,12 @@ class Social {
   programmeAnswer(q) {
     const s = q.toLowerCase(), now = CLOCK.now();
     if (LAYOUT && PROGRAMME.sponsors.length && /exhib|booth|stand|sponsor/.test(s)) {
-      const Z = zoneOfKind('exhibition'), names = PROGRAMME.sponsors.slice(0, 3).map((x) => x.name);
+      // EA-SYS (section 10): only sponsors that have a stand, and the area the first of them stands in (stands
+      // placed on the plan can be in a walkway or the foyer, not only an exhibition room).
+      const held = LAYOUT.items.filter((it) => it.t === 'stand' && standSponsor(it));
+      const names = [...new Set(held.map((it) => standSponsor(it).name))].slice(0, 3);
+      const Z = (held[0] && ZONES.find((z) => z.id === held[0].zone)) || zoneOfKind('exhibition');
+      if (!names.length) return null;
       const list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
       if (Z) return { text: `The stands are in the ${Z.name}. ${list} ${names.length > 1 ? 'are' : 'is'} there, among others.`, go: Z.id, gesture: 'point' };
     }

@@ -14,6 +14,7 @@ import type { VenueLayout } from "./layout";
 import { checkLayout } from "./layout-check";
 import { readVenueOpen, readVenueRooms } from "./rooms";
 import { readVenuePlan } from "./plan";
+import { layoutStands, type StandItem } from "./stands";
 import { buildVenueLayout } from "./plan-layout";
 import type { VenueRoomRef } from "./programme";
 import vocab from "./persona-vocab.generated.json";
@@ -45,7 +46,7 @@ export function venueRooms(built: EventLayout): VenueRoomRef[] {
   return Object.entries(vocab.ZONE_NAMES as Record<string, string>).map(([id, name]) => ({ id, name }));
 }
 
-/** How many stands carry sponsors: a generated exhibition's stands (EHC's hand-built booths stay as they are). */
-export function sponsorStands(built: EventLayout): number {
-  return built.kind === "generated" ? built.layout.items.filter((it) => it.t === "stand").length : 0;
+/** The stands that carry sponsors: a generated venue's (EHC's hand-built booths stay as they are). */
+export function sponsorStands(built: EventLayout): StandItem[] {
+  return built.kind === "generated" ? layoutStands(built.layout) : [];
 }

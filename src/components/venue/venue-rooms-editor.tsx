@@ -114,7 +114,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
     return (
       <div className="space-y-6">
         <PageHeader icon={Building2} title="Online venue" description="Draw where each room goes. The 2D plan, the PDF and the walkable venue are all built from this plan." />
-        <VenuePlanEditor eventId={eventId} slug={data.slug ?? null} rooms={data.rooms} stored={data.plan ?? null} onClose={() => setEditingPlan(false)} />
+        <VenuePlanEditor eventId={eventId} slug={data.slug ?? null} rooms={data.rooms} stored={data.plan ?? null} sponsors={data.programme?.standSponsors ?? []} onClose={() => setEditingPlan(false)} />
       </div>
     );
   }
@@ -155,7 +155,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           {!dirty && saved && data?.slug && <OpenCard eventId={eventId} slug={data.slug} open={!!data.open} canEdit={canEdit} safetyInbox={data.safetyInbox ?? null} />}
           {issues.length === 0 && <VenueProgrammeCard rooms={rooms} programme={data?.programme} plan={data?.plan?.plan ?? null} />}
           {issues.length === 0 && (
-            <VenueFloorPlan rooms={rooms} eventName="" plan={data?.plan?.plan ?? null} actions={<PlanActions eventId={eventId} saved={!!saved && !dirty} canEdit={canEdit} onEdit={() => setEditingPlan(true)} />} />
+            <VenueFloorPlan rooms={rooms} eventName="" plan={data?.plan?.plan ?? null} sponsors={data?.programme?.standSponsors ?? []} actions={<PlanActions eventId={eventId} saved={!!saved && !dirty} canEdit={canEdit} onEdit={() => setEditingPlan(true)} />} />
           )}
         </>
       )}

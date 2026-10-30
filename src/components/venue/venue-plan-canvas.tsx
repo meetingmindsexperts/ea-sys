@@ -17,7 +17,8 @@
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Rect, VenueLayout } from "@/lib/venue/layout";
-import { FIXTURE_INFO, doorPoint, type VenuePlan } from "@/lib/venue/plan";
+import { doorPoint, fixtureLabel, type VenuePlan } from "@/lib/venue/plan";
+import type { StandSponsorRef } from "@/lib/venue/stands";
 import { moveSnapped, moveTo, rectOf, resizeSnapped, resizeTo, walkwayRect, type Edges, type PlanTarget, type SnapGuides } from "@/lib/venue/plan-edit";
 import { doorsLeftShut } from "@/lib/venue/plan-layout";
 import { LayoutDrawing } from "@/components/venue/venue-plan-drawing";
@@ -99,6 +100,7 @@ export function VenuePlanCanvas({
   zoom,
   onZoom,
   ghost,
+  sponsors,
 }: {
   plan: VenuePlan;
   layout: VenueLayout;
@@ -116,6 +118,8 @@ export function VenuePlanCanvas({
   zoom: number;
   onZoom: (zoom: number) => void;
   ghost?: PlanGhost;
+  /** The event's sponsors in stand order, to name each stand. */
+  sponsors: StandSponsorRef[];
 }) {
   const gridId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
@@ -320,7 +324,7 @@ export function VenuePlanCanvas({
     ...plan.corridors.map((c) => ({ target: { kind: "corridor", id: c.id } as PlanTarget, rect: c.rect, name: c.name })),
     ...plan.rooms.map((p) => ({ target: { kind: "room", id: p.id } as PlanTarget, rect: p.rect, name: names.get(p.id) ?? p.id })),
     // Last, so a fixture is on top of the room it stands in and takes the click.
-    ...plan.fixtures.map((f) => ({ target: { kind: "fixture", id: f.id } as PlanTarget, rect: f.rect, name: f.name || FIXTURE_INFO[f.kind].label })),
+    ...plan.fixtures.map((f) => ({ target: { kind: "fixture", id: f.id } as PlanTarget, rect: f.rect, name: fixtureLabel(f) })),
   ];
   const sel = selected ? areas.find((a) => a.target.kind === selected.kind && a.target.id === selected.id) : undefined;
   const foyer = foyerId ? plan.rooms.find((p) => p.id === foyerId) : undefined;
@@ -375,7 +379,7 @@ export function VenuePlanCanvas({
             ))}
           </g>
         )}
-        <LayoutDrawing layout={layout} />
+        <LayoutDrawing layout={layout} sponsors={sponsors} />
         {areas.map((a) => {
           const isSel = sel?.target === a.target;
           const bad = flagged.has(a.target.id);

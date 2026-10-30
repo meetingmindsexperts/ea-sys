@@ -8,7 +8,8 @@
  * at a printed scale from a list of round ratios (1 : 400, not 1 : 437); a
  * scale bar, a north arrow, a legend of the room types present and, when
  * stands carry sponsors, a key from stand number to sponsor. Stands show their
- * number on the plan: at plan scale a 3 m stand is too small for a name.
+ * number on the plan: at plan scale a 3 m stand is too small for a name. Which
+ * sponsor is on which stand is stands.ts's one rule.
  */
 import PDFDocument from "pdfkit";
 import { apiLogger } from "@/lib/logger";
@@ -16,6 +17,7 @@ import { sanitizePdfText } from "@/lib/pdf/pdf-text";
 import { formatFooterTimestamp } from "@/lib/pdf/document-layout";
 import type { LayoutItem, LayoutWall, Rect, VenueLayout, ZoneKind } from "./layout";
 import type { FixtureKind } from "./plan";
+import { layoutStands, standNumber, standSponsor, type StandSponsorRef } from "./stands";
 
 export type PlanPaper = "A3" | "A4";
 export const PLAN_PAPERS: readonly PlanPaper[] = ["A3", "A4"];
@@ -27,8 +29,8 @@ export interface FloorPlanPdfInput {
   dateLine: string | null;
   /** "Atlantis The Palm, Dubai, United Arab Emirates". */
   place: string | null;
-  /** The sponsor on each stand: index n - 1 for stand n, the venue's own rule. */
-  sponsorsByStand: (string | null)[];
+  /** The event's sponsors in the venue's stand order (programme.ts `orderSponsors`); stands.ts says who is on which stand. */
+  sponsors: StandSponsorRef[];
   paper: PlanPaper;
   generatedAt: Date;
 }
@@ -137,13 +139,16 @@ function drawPage(doc: Doc, input: FloorPlanPdfInput) {
   const pageW = doc.page.width;
   const pageH = doc.page.height;
   const kinds = [...new Set(layout.zones.map((z) => z.kind))];
-  const stands = layout.items.filter((it): it is Extract<LayoutItem, { t: "stand" }> => it.t === "stand");
-  const keyed = stands.map((s) => ({ n: s.n, name: input.sponsorsByStand[s.n - 1] ?? null })).filter((s) => s.name);
+  const stands = layoutStands(layout);
+  const keyed = stands
+    .map((s) => ({ n: standNumber(s), name: standSponsor(s, input.sponsors)?.name ?? null }))
+    .filter((s) => s.name)
+    .sort((a, b) => a.n.localeCompare(b.n, "en", { numeric: true }));
 
   // The key under the plan: the scale bar, the legend (wrapping to as many rows as it needs, so a busy plan's
   // fixtures are never cut), then the stand key in columns.
   const fixtureKinds = [...new Set(layout.items.flatMap((it) => (it.t === "fixture" ? [it.kind] : [])))];
-  const legend = legendEntries(kinds, fixtureKinds, stands.length > 0);
+  const legend = legendEntries(kinds, fixtureKinds, stands.some((s) => !s.table), stands.some((s) => s.table), stands.some((s) => s.key !== undefined && !standSponsor(s, input.sponsors)));
   const legendRows = layoutLegend(doc, legend, pageW - MARGIN * 2).rows;
   const keyCols = Math.max(1, Math.floor((pageW - MARGIN * 2) / 150));
   const keyRows = keyed.length ? Math.ceil(keyed.length / keyCols) + 1 : 0;
@@ -163,7 +168,7 @@ function drawPage(doc: Doc, input: FloorPlanPdfInput) {
   const P = (x: number, z: number): [number, number] => [ox + (x - x0) * ptPerM, oy + (z - z0) * ptPerM];
 
   drawZones(doc, layout, P, ptPerM);
-  drawItems(doc, layout.items, P, ptPerM);
+  drawItems(doc, layout.items, P, ptPerM, input.sponsors);
   drawDoorSwings(doc, layout, P, ptPerM);
   drawWalls(doc, layout, P, ptPerM);
   drawRoomLabels(doc, layout, P, ptPerM);
@@ -209,7 +214,7 @@ function drawZones(doc: Doc, layout: VenueLayout, P: Project, ptPerM: number) {
   }
 }
 
-function drawItems(doc: Doc, items: LayoutItem[], P: Project, ptPerM: number) {
+function drawItems(doc: Doc, items: LayoutItem[], P: Project, ptPerM: number, sponsors: StandSponsorRef[]) {
   for (const it of items) {
     if (it.t === "sign" || it.t === "screen") continue;
     const f = it.foot;
@@ -227,9 +232,12 @@ function drawItems(doc: Doc, items: LayoutItem[], P: Project, ptPerM: number) {
       continue;
     }
     if (it.t === "stand") {
-      doc.rect(x, y, w, h).fillAndStroke(STAND_FILL, "#3f8a5f");
-      const size = Math.max(4, Math.min(9, Math.min(w, h) * 0.5));
-      doc.font("Helvetica-Bold").fontSize(size).fillColor(INK).text(String(it.n), x, y + h / 2 - size / 2, { width: w, align: "center", lineBreak: false });
+      // A placed stand with no sponsor is Available: drawn open, so an exhibitor sees which stands are free.
+      const available = it.key !== undefined && !standSponsor(it, sponsors);
+      if (available) doc.rect(x, y, w, h).dash(1.5, { space: 1 }).lineWidth(0.6).fillAndStroke("#ffffff", "#3f8a5f").undash();
+      else doc.rect(x, y, w, h).fillAndStroke(STAND_FILL, "#3f8a5f");
+      const size = Math.max(3, Math.min(9, Math.min(w, h) * 0.5));
+      doc.font("Helvetica-Bold").fontSize(size).fillColor(INK).text(sanitizePdfText(standNumber(it)), x, y + h / 2 - size / 2, { width: w, align: "center", lineBreak: false });
       continue;
     }
     doc.rect(x, y, w, h).fill(ITEM_FILL[it.t] ?? FURNITURE);
@@ -308,12 +316,15 @@ function drawDoorSwings(doc: Doc, layout: VenueLayout, P: Project, ptPerM: numbe
 const ARROW = "#0369a1";
 const FIXTURE_FILL: Record<FixtureKind, string> = {
   stairs: "#ffffff", lift: "#e5e7eb", toilets: "#e0f2fe", exit: "#16a34a", pillar: "#374151", catering: "#fde68a",
-  registration: "#fecdd3", "photo-wall": "#1f2937", banner: "#c7d2fe",
+  registration: "#fecdd3", "photo-wall": "#1f2937", banner: "#c7d2fe", stage: "#a8a29e", "av-console": "#cbd5e1", "program-wall": "#1f2937",
+  // Stands and tables are drawn as stands (drawItems), never as fixtures; listed for the record's completeness.
+  stand: "#cfe8d6", table: "#cfe8d6",
 };
-const FIXTURE_TEXT: Partial<Record<FixtureKind, string>> = { toilets: "WC", exit: "EXIT" };
+const FIXTURE_TEXT: Partial<Record<FixtureKind, string>> = { toilets: "WC", exit: "EXIT", stage: "STAGE", "av-console": "AV" };
 const FIXTURE_LEGEND: Record<FixtureKind, string> = {
   stairs: "Stairs (arrow up)", lift: "Lift", toilets: "Toilets (WC)", exit: "Emergency exit", pillar: "Pillar", catering: "Catering point",
-  registration: "Registration counter", "photo-wall": "Photo wall", banner: "Standing banner",
+  registration: "Registration counter", "photo-wall": "Photo wall", banner: "Standing banner", stage: "Stage", "av-console": "AV console", "program-wall": "Program wall",
+  stand: "Exhibition stand (numbered)", table: "Sponsor table (numbered)",
 };
 
 /** A venue of several floors is printed side by side, each floor's name above it. */
@@ -490,9 +501,11 @@ function drawScaleBar(doc: Doc, x: number, y: number, planWidthM: number, ptPerM
 type LegendEntry = { fill: string; label: string; stroke?: string };
 
 /** What the key lists: only what is on this plan (a building without an exhibition has no stand in its key). */
-function legendEntries(kinds: ZoneKind[], fixtures: FixtureKind[], stands: boolean): LegendEntry[] {
+function legendEntries(kinds: ZoneKind[], fixtures: FixtureKind[], stands: boolean, tables: boolean, available: boolean): LegendEntry[] {
   const entries: LegendEntry[] = kinds.map((k) => ({ fill: ZONE_FILL[k], label: ZONE_LABEL[k] }));
-  if (stands) entries.push({ fill: STAND_FILL, label: "Exhibition stand (numbered)", stroke: "#3f8a5f" });
+  if (stands) entries.push({ fill: STAND_FILL, label: FIXTURE_LEGEND.stand, stroke: "#3f8a5f" });
+  if (tables) entries.push({ fill: STAND_FILL, label: FIXTURE_LEGEND.table, stroke: "#3f8a5f" });
+  if (available) entries.push({ fill: "#ffffff", label: "Available stand", stroke: "#3f8a5f" });
   for (const k of fixtures) entries.push({ fill: FIXTURE_FILL[k], label: FIXTURE_LEGEND[k], stroke: WALL });
   return entries;
 }
@@ -527,7 +540,7 @@ function drawLegend(doc: Doc, entries: LegendEntry[], x: number, y: number, widt
   });
 }
 
-function drawStandKey(doc: Doc, keyed: { n: number; name: string | null }[], x: number, y: number, cols: number, width: number) {
+function drawStandKey(doc: Doc, keyed: { n: string; name: string | null }[], x: number, y: number, cols: number, width: number) {
   const colW = width / cols;
   doc.font("Helvetica-Bold").fontSize(7.5).fillColor(INK).text("Stands", x, y + 2, { lineBreak: false });
   const widthOf = (text: string, size: number) => doc.font("Helvetica").fontSize(size).widthOfString(text);

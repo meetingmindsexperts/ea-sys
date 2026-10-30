@@ -4,10 +4,12 @@
  * door leaves with their swing; the glass entrance as a double line; room
  * names with their size; furniture drawn lightly; and the drawn plan's
  * fixtures (stairs, lift, toilets, exit, pillar, catering, registration counter,
- * photo wall, standing banner) as their usual symbols. Coordinates are metres, +x east and +z south (down the page).
- * Shared by the Venue tab's plan and the floor plan editor.
+ * photo wall, standing banner, stage, AV console, program wall) as their usual symbols; each stand with its number
+ * and, where it fits, its sponsor (section 10; an Available stand is drawn open). Coordinates are metres, +x east
+ * and +z south (down the page). Shared by the Venue tab's plan and the floor plan editor.
  */
 import type { LayoutDoor, LayoutItem, LayoutWall, LayoutZone, VenueLayout, ZoneKind } from "@/lib/venue/layout";
+import { standNumber, standSponsor, type StandItem, type StandSponsorRef } from "@/lib/venue/stands";
 
 const ZONE_FILL: Record<ZoneKind, string> = {
   foyer: "fill-amber-50 dark:fill-amber-950/60",
@@ -22,7 +24,6 @@ const ZONE_FILL: Record<ZoneKind, string> = {
 
 const ITEM_TONE: Partial<Record<LayoutItem["t"], string>> = {
   stage: "fill-stone-500 dark:fill-stone-400",
-  stand: "fill-emerald-600/60",
   row: "fill-sky-700/45 dark:fill-sky-300/40",
 };
 
@@ -32,8 +33,9 @@ const OUTSIDE_WALL = 0.5;
 const INK = "fill-stone-800 dark:fill-stone-200";
 const LINE = "stroke-stone-700 dark:stroke-stone-300";
 
-function Item({ it }: { it: LayoutItem }) {
+function Item({ it, sponsors }: { it: LayoutItem; sponsors: StandSponsorRef[] }) {
   if (it.t === "fixture") return <Fixture it={it} />;
+  if (it.t === "stand") return <Stand it={it} sponsors={sponsors} />;
   const f = it.foot;
   if (it.t === "sign" || it.t === "screen") {
     if ("r" in f) return null;
@@ -49,7 +51,40 @@ function Item({ it }: { it: LayoutItem }) {
 
 type FixtureItem = Extract<LayoutItem, { t: "fixture" }>;
 
-/** Text fitted to a box, turned to run along its longer side. */
+/**
+ * A stand from above: filled when a sponsor has it, open (white, dashed) when Available, its open side marked,
+ * its number in bold and the sponsor's name under it where the stand is big enough to read it.
+ */
+function Stand({ it, sponsors }: { it: StandItem; sponsors: StandSponsorRef[] }) {
+  if ("r" in it.foot) return null;
+  const { x0, z0, x1, z1 } = it.foot;
+  const sponsor = standSponsor(it, sponsors);
+  const taken = sponsor !== null || it.key === undefined;
+  const w = x1 - x0;
+  const d = z1 - z0;
+  const dx = Math.round(Math.sin(it.face));
+  const dz = Math.round(Math.cos(it.face));
+  const named = sponsor && Math.min(w, d) >= 1.8;
+  const half = named ? (z1 - z0) / 2 : 0;
+  return (
+    <g>
+      <rect
+        x={x0}
+        y={z0}
+        width={w}
+        height={d}
+        strokeWidth={0.08}
+        strokeDasharray={taken ? undefined : "0.3 0.2"}
+        className={taken ? "fill-emerald-600/55 stroke-emerald-800 dark:stroke-emerald-300" : "fill-white stroke-emerald-700 dark:fill-stone-900 dark:stroke-emerald-400"}
+      />
+      <FrontLine x0={x0} z0={z0} x1={x1} z1={z1} dx={dx} dz={dz} className="stroke-emerald-900 dark:stroke-emerald-200" />
+      <BoxText x0={x0} z0={z0} x1={x1} z1={named ? z0 + half : z1} text={standNumber(it)} className="fill-emerald-950 dark:fill-emerald-50" />
+      {named && <BoxText x0={x0 + 0.15} z0={z0 + half} x1={x1 - 0.15} z1={z1 - 0.2} text={sponsor.name} className="fill-emerald-950 font-medium dark:fill-emerald-50" />}
+    </g>
+  );
+}
+
+/** Text fitted to a box, turned to run along its longer side (only when clearly longer: a 3 m square stand reads level). */
 function BoxText({ x0, z0, x1, z1, text, className }: { x0: number; z0: number; x1: number; z1: number; text: string; className: string }) {
   const w = x1 - x0;
   const d = z1 - z0;
@@ -64,7 +99,7 @@ function BoxText({ x0, z0, x1, z1, text, className }: { x0: number; z0: number; 
       fontSize={size}
       textAnchor="middle"
       dominantBaseline="central"
-      transform={d > w ? `rotate(-90 ${cx} ${cz})` : undefined}
+      transform={d > w * 1.15 ? `rotate(-90 ${cx} ${cz})` : undefined}
       className={`pointer-events-none font-semibold ${className}`}
     >
       {text}
@@ -121,6 +156,31 @@ function Fixture({ it }: { it: FixtureItem }) {
       <g>
         <rect {...rect} className={it.kind === "banner" ? "fill-indigo-300 dark:fill-indigo-700" : INK} />
         <FrontLine {...box} dx={dx} dz={dz} className="stroke-amber-500" />
+      </g>
+    );
+  }
+  if (it.kind === "stage") {
+    return (
+      <g>
+        <rect {...rect} className="fill-stone-400 stroke-stone-700 dark:fill-stone-600" strokeWidth={thin} />
+        <BoxText {...box} text={it.name === "Stage" ? "STAGE" : it.name} className="fill-stone-950 dark:fill-stone-50" />
+        <FrontLine {...box} dx={dx} dz={dz} className="stroke-stone-800 dark:stroke-stone-200" />
+      </g>
+    );
+  }
+  if (it.kind === "av-console") {
+    return (
+      <g>
+        <rect {...rect} className="fill-slate-300 stroke-slate-700 dark:fill-slate-700" strokeWidth={thin} />
+        <BoxText {...box} text="AV" className="fill-slate-900 dark:fill-slate-100" />
+      </g>
+    );
+  }
+  if (it.kind === "program-wall") {
+    return (
+      <g>
+        <rect {...rect} className={INK} />
+        <FrontLine {...box} dx={dx} dz={dz} className="stroke-sky-500" />
       </g>
     );
   }
@@ -329,15 +389,15 @@ function FloorNames({ layout }: { layout: VenueLayout }) {
   );
 }
 
-/** The building drawn from above. Shared by the plan view and the editor. */
-export function LayoutDrawing({ layout }: { layout: VenueLayout }) {
+/** The building drawn from above. Shared by the plan view and the editor. `sponsors` in stand order, for the stands' names. */
+export function LayoutDrawing({ layout, sponsors = [] }: { layout: VenueLayout; sponsors?: StandSponsorRef[] }) {
   return (
     <g>
       {layout.zones.map((z) => (
         <rect key={z.id} x={z.rect[0]} y={z.rect[1]} width={z.rect[2] - z.rect[0]} height={z.rect[3] - z.rect[1]} className={ZONE_FILL[z.kind]} />
       ))}
       {layout.items.map((it, i) => (
-        <Item key={i} it={it} />
+        <Item key={i} it={it} sponsors={sponsors} />
       ))}
       <DoorSwings layout={layout} />
       <Walls layout={layout} />

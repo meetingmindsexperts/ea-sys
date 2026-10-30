@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { describeVenue } from "@/lib/venue/ai-prompt";
 import { checkLayout } from "@/lib/venue/layout-check";
-import { floorLinks, floorView, planFloors, planIssues, planSchema, withFloor, type VenuePlan } from "@/lib/venue/plan";
+import { floorLinks, floorView, planFloors, planIssues, planSchema, withFloor, type VenuePlan, PLAN_MAX_FIXTURES } from "@/lib/venue/plan";
 import { addFixture, addPartner, addWalkway, keepPairs, missingPartner, moveTo, nudge, removeJoined, setSize, turn, toFloor } from "@/lib/venue/plan-edit";
 import { PLAN_FIXTURES } from "@/lib/venue/layout-fixtures";
 import { buildVenueLayout, doorsLeftShut, floorLayout, layoutFromPlan } from "@/lib/venue/plan-layout";
@@ -292,7 +292,7 @@ describe("review fixes, Oct 26", () => {
   it("does not match stairs past the fixture limit, counted over both floors", () => {
     const p = twoFloors();
     p.fixtures.push({ id: "stairs-1", kind: "stairs", name: "", dir: "n", floor: "level-1", rect: [1.5, -9, 4.5, -3] });
-    for (let i = 0; p.fixtures.length < 60; i++) p.fixtures.push({ id: `pillar-${i}`, kind: "pillar", name: "", dir: "n", rect: [-11.5 + (i % 10), -47.5 + Math.floor(i / 10), -11.2 + (i % 10), -47.2 + Math.floor(i / 10)] });
+    for (let i = 0; p.fixtures.length < PLAN_MAX_FIXTURES; i++) p.fixtures.push({ id: `pillar-${i}`, kind: "pillar", name: "", dir: "n", rect: [-11.5 + (i % 10), -47.5 + Math.floor(i / 10), -11.2 + (i % 10), -47.2 + Math.floor(i / 10)] });
     expect(addPartner(p, "stairs-1")).toBeNull();
   });
 

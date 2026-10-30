@@ -65,7 +65,7 @@ const PROGRAMME = (() => {
     room: typeof x.room === 'string' ? x.room : null, title: str(x.title, 140), track: str(x.track, 80), where: str(x.where, 80), t0: Date.parse(x.start), t1: Date.parse(x.end),
   }).filter((x) => x && x.title && x.t0 && x.t1 >= x.t0).sort((a, b) => a.t0 - b.t0);
   const sponsors = (Array.isArray(P.sponsors) ? P.sponsors : []).map((x) => x && {
-    name: str(x.name, 80), tier: str(x.tier, 20), about: str(x.about, 400),
+    id: str(x.id, 40), name: str(x.name, 80), tier: str(x.tier, 20), about: str(x.about, 400),
     logo: /^(\/uploads\/|https:\/\/)/.test(str(x.logo, 300)) ? str(x.logo, 300) : '', website: /^https?:\/\//.test(str(x.website, 300)) ? str(x.website, 300) : '',
   }).filter((x) => x && x.name);
   let tz; try { tz = new Intl.DateTimeFormat('en-GB', { timeZone: P.tz }).resolvedOptions().timeZone; } catch (e) { tz = undefined; }
@@ -91,8 +91,15 @@ function programmeDay(now = CLOCK.now()) {
   const today = dayKey(now); if (days.includes(today)) return today;
   return today < days[0] ? days[0] : days.filter((d) => d < today).pop();
 }
-/** The sponsor on stand n (1-based), by tier order. */
-function sponsorOn(n) { return PROGRAMME.sponsors[n - 1] || null; }
+/**
+ * The sponsor on a stand (EA-SYS src/lib/venue/stands.ts keeps the same rule): a stand placed on the plan names
+ * its own (`sponsorId`, null for Available; one deleted since is Available); an automatic stand n takes the nth
+ * sponsor by tier.
+ */
+function standSponsor(it) {
+  if (it.key !== undefined) return it.sponsorId ? PROGRAMME.sponsors.find((x) => x.id === it.sponsorId) || null : null;
+  return PROGRAMME.sponsors[it.n - 1] || null;
+}
 const tierWord = (t) => (t ? t[0].toUpperCase() + t.slice(1) + ' sponsor' : 'Sponsor');
 
 // EA-SYS (floors, Oct 26): a venue of several floors stands them side by side in this one flat world; each
@@ -546,13 +553,21 @@ function buildWorld(R, Q) {
     const rectOf = (f) => ('r' in f ? [f.cx - f.r, f.cz - f.r, f.cx + f.r, f.cz + f.r] : [f.x0, f.z0, f.x1, f.z1]);
     const dirOf = (yaw) => [Math.round(Math.sin(yaw)), Math.round(Math.cos(yaw))];
     const gold = [0.82, 0.66, 0.4, 0], garnet = [0.5, 0.11, 0.17, 0], dark = [0.18, 0.18, 0.2, 0], slate = [0.28, 0.3, 0.34, 0];
-    const stand = (x0, z0, x1, z1, face, label, tier, n) => {
+    const stand = (x0, z0, x1, z1, it) => {
+      const { face, label, tier } = it;
       const [dx, dz] = dirOf(face), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-      box('carpet', x0, 0, z0, x1, 0.1, z1, tier === 1 ? [0.36, 0.3, 0.2, 0] : [0.3, 0.3, 0.33, 0], { col: true });
-      // EA-SYS: stand n carries the nth sponsor by tier; a stand with none shows its number.
-      const sp = sponsorOn(n), host = sp && sp.website ? sp.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '') : '';
+      // EA-SYS: the stand's sponsor (standSponsor); a stand with none shows its number.
+      const sp = standSponsor(it), host = sp && sp.website ? sp.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '') : '';
       const spec = sp ? { tier: tierWord(sp.tier), label: sp.name, foot: host, color: tier === 1 ? '#7a5a22' : '#3e4a56' } : { tier: 'Exhibition', label, foot: 'Available', color: '#3e4a56' };
       const key = 'stand' + tier + spec.tier + spec.label, gr = signCache[key] || (signCache[key] = DRAW.boothGraphic(A, 420, 170, spec));
+      if (it.table) { // EA-SYS (section 10): a sponsor's table top, its board behind it, facing the visitors
+        box('wood', x0, 0, z0, x1, 0.76, z1, [0.94, 0.93, 0.9, 0], { col: true });
+        const w = dz ? x1 - x0 : z1 - z0, bx = dx ? (dx > 0 ? x0 - 0.05 : x1 + 0.05) : cx, bz = dz ? (dz > 0 ? z0 - 0.05 : z1 + 0.05) : cz;
+        quad('signs', bx, 1.55, bz, Math.max(1, w - 0.2), 0.8, face, [1, 1, 1, 0], { mode: 'rect', r: gr.uv });
+        blob(cx, cz, x1 - x0 + 0.8, z1 - z0 + 0.8);
+        return;
+      }
+      box('carpet', x0, 0, z0, x1, 0.1, z1, tier === 1 ? [0.36, 0.3, 0.2, 0] : [0.3, 0.3, 0.33, 0], { col: true });
       if (dz) { // back wall along x, at the side the stand turns its back on
         const bz = dz > 0 ? z0 + 0.1 : z1 - 0.1;
         box('plain', x0, 0.1, bz - 0.1, x1, 3.2, bz + 0.1, [0.95, 0.94, 0.92, 0], { col: true });
@@ -642,6 +657,23 @@ function buildWorld(R, Q) {
       // EA-SYS (Oct 26): a registration counter like the foyer's own desks, a photo wall with the event's
       // name, and a roll-up banner showing its own name. Each faces `yaw`, towards the guests.
       if (it.kind === 'registration') { desk(x0, z0, x1, z1, it.yaw, it.name, 'Badge collection · Delegate services'); return; }
+      // EA-SYS (section 10, Oct 30): a raised stage, the AV crew's desk, a programme board.
+      if (it.kind === 'stage') {
+        box('wood', x0, 0, z0, x1, 0.6, z1, [0.22, 0.15, 0.13, 0], { col: true }); box('emis', x0 - 0.01, 0.54, z0 - 0.01, x1 + 0.01, 0.58, z1 + 0.01, [0.4, 0.8, 0.9, 0.8]);
+        blob(cx, cz, x1 - x0 + 1, z1 - z0 + 1);
+        return;
+      }
+      if (it.kind === 'av-console') {
+        box('plain', x0, 0, z0, x1, 0.95, z1, [0.16, 0.17, 0.2, 0], { col: true }); box('emis', x0 + 0.1, 0.95, z0 + 0.1, x1 - 0.1, 0.98, z1 - 0.1, [0.3, 0.5, 0.9, 0.5]);
+        blob(cx, cz, x1 - x0 + 0.8, z1 - z0 + 0.8);
+        return;
+      }
+      if (it.kind === 'program-wall') {
+        box('plain', x0, 0, z0, x1, 2.4, z1, [0.95, 0.94, 0.92, 0], { col: true });
+        front(1.4, across, 1.6, { kicker: EVENT.short, title: it.name === 'Program wall' ? 'Programme' : it.name, sub: '' });
+        blob(cx, cz, x1 - x0 + 0.8, z1 - z0 + 0.8);
+        return;
+      }
       if (it.kind === 'photo-wall') {
         box('plain', x0, 0, z0, x1, 2.7, z1, [0.14, 0.12, 0.13, 0], { col: true });
         front(1.45, across, 2.3, { kicker: EVENT.short, title: EVENT.name, sub: it.name === 'Photo wall' ? '' : it.name });
@@ -712,7 +744,7 @@ function buildWorld(R, Q) {
         for (let k = 0; k < it.chairs; k++) { const a = k / it.chairs * Math.PI * 2 + 0.3, chx = it.cx + Math.cos(a) * 1.45, chz = it.cz + Math.sin(a) * 1.45; chair(chx, chz, Math.atan2(it.cx - chx, it.cz - chz), [0.2, 0.2, 0.22, 0], [0.32, 0.3, 0.3, 0], seats); colliders.push({ c: 1, cx: chx, cz: chz, r: 0.3, y0: 0, y1: 0.95 }); }
         blob(it.cx, it.cz, 4, 4);
       }
-      else if (it.t === 'stand') stand(x0, z0, x1, z1, it.face, it.label, it.tier, it.n);
+      else if (it.t === 'stand') stand(x0, z0, x1, z1, it);
       else if (it.t === 'poster') poster(x0, z0, x1, z1);
       else if (it.t === 'sofa') sofas(x0, z0, x1, z1);
       else if (it.t === 'bar') bar(x0, z0, x1, z1, it.yaw);
@@ -723,8 +755,10 @@ function buildWorld(R, Q) {
       else if (it.t === 'sign') sign(it.x, it.y, it.z, it.w, it.hgt, it.yaw, it.kicker ? { kicker: it.kicker, title: it.title, sub: it.sub } : { title: it.title, sub: it.sub });
     }
     for (const p of L.people) people.push({ ...p });
+    // A stand's visit point is stand-<n> for an automatic stand, stand-<key> for one placed on the plan.
+    const standAt = new Map(L.items.filter((it) => it.t === 'stand').map((it) => ['stand-' + (it.key !== undefined ? it.key : it.n), it]));
     for (const h of L.hotspots) {
-      const sp = h.kind === 'stand' ? sponsorOn(+h.id.replace('stand-', '')) : null;
+      const st = h.kind === 'stand' ? standAt.get(h.id) : null, sp = st ? standSponsor(st) : null;
       if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); if (Array.isArray(h.to)) interact[interact.length - 1].to = h.to; if (h.action === 'photo') Object.assign(interact[interact.length - 1], { action: 'photo', face: h.face }); continue; }
       hit(h.id, h.x, h.z, h.r, 'Visit ' + sp.name, sp.name, sp.about || tierWord(sp.tier) + ' of ' + EVENT.short + '.', h.kind);
       interact[interact.length - 1].sponsor = sp;

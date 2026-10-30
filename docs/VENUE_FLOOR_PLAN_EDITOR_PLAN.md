@@ -481,10 +481,19 @@ fixtures, and a staff PDF with a notes key under the plan.
 
 | Phase | What | Size |
 |---|---|---|
-| A | Placed stands and tables (any size, editable numbers, sponsor per stand, notes), stage / AV console / program wall fixtures, `internal` flag; in the editor, 2D, PDF and 3D | 2 sessions |
+| A | Placed stands and tables (any size, editable numbers, sponsor per stand, notes), stage / AV console / program wall fixtures, `internal` flag; in the editor, 2D, PDF and 3D | 2 sessions. **BUILT Oct 30** (see "Phase A as built" below) |
 | B | The venue's drawing behind the plan: upload (PDF converted in the browser), scale by a known length, opacity, per floor | 1 to 2 sessions |
 | C | The exhibitor link and map page, the exhibitor PDF | 1 to 2 sessions |
 | D | The Conrad demo event and the rehearsal | 1 session |
+
+**Phase A as built (Oct 30):** stands and tables are fixture kinds (`stand`, `table`), not a separate
+list, so dragging, sizing, turning, floors and the overlap checks came for free. `plan.standsPlaced`
+switches the automatic grid off, and any stand fixture implies it (`layoutFromPlan`), so the two never
+mix. A placed stand becomes a layout stand with `key` (its fixture id; visit point `stand-<key>`),
+`number` and `sponsorId`. "Place stands yourself" (`placeStandsYourself`) copies the automatic stands
+with the sponsor each held by tier order. The Venue GET returns the sponsors in stand order
+(`programme.standSponsors`). Notes and `internal` are stored and edited; nothing reads them for
+exhibitors until phase C.
 
 A comes first because it is what sponsors are shown; B makes tracing a real
 venue quick; C is the sponsors' door; D only puts together what A to C built.

@@ -50,11 +50,19 @@ export interface PlanCorridor {
   floor?: PlanFloor;
 }
 
-/** What can stand in a room or walkway besides its own furniture (floor plan editor, owner Oct 24). */
-export const FIXTURE_KINDS = ["stairs", "lift", "toilets", "exit", "pillar", "catering", "registration", "photo-wall", "banner"] as const;
+/**
+ * What can stand in a room or walkway besides its own furniture (floor plan editor, owner Oct 24). Stands and
+ * sponsor tables are fixtures too (the exhibitor floor plan, section 10): each carries a number and a sponsor.
+ */
+export const FIXTURE_KINDS = ["stairs", "lift", "toilets", "exit", "pillar", "catering", "registration", "photo-wall", "banner", "stage", "av-console", "program-wall", "stand", "table"] as const;
 export type FixtureKind = (typeof FIXTURE_KINDS)[number];
 
-export const FIXTURE_INFO: Record<FixtureKind, { label: string; size: [number, number]; solid: boolean; help: string }> = {
+/** The fixtures that are exhibition stands: numbered, given a sponsor, and visited in the walkable venue. */
+export const STAND_KINDS: ReadonlySet<FixtureKind> = new Set(["stand", "table"]);
+export const isStand = (f: { kind: FixtureKind }) => STAND_KINDS.has(f.kind);
+
+/** `internal`: kept off what exhibitors are shown, unless the team says otherwise for one (`PlanFixture.internal`). */
+export const FIXTURE_INFO: Record<FixtureKind, { label: string; size: [number, number]; solid: boolean; help: string; internal?: boolean }> = {
   stairs: { label: "Stairs", size: [3, 6], solid: true, help: "A staircase; the arrow points up the flight." },
   lift: { label: "Lift", size: [2.6, 2.6], solid: true, help: "A lift; its doors face the arrow." },
   toilets: { label: "Toilets", size: [5, 6], solid: true, help: "Washrooms, as a block with a sign; their entrance faces the arrow." },
@@ -65,7 +73,23 @@ export const FIXTURE_INFO: Record<FixtureKind, { label: string; size: [number, n
   registration: { label: "Registration counter", size: [6, 1.2], solid: true, help: "An extra staffed counter where delegates collect badges; guests come from the arrow's side." },
   "photo-wall": { label: "Photo wall", size: [4, 0.4], solid: true, help: "A backdrop with the event's name for photos; people pose on the arrow's side." },
   banner: { label: "Standing banner", size: [1, 0.4], solid: true, help: "A roll-up banner showing its name; it faces the arrow." },
+  // The exhibitor floor plan (section 10, Oct 30): what the venues' own drawings show.
+  stage: { label: "Stage", size: [10, 3], solid: true, help: "A raised stage; the audience is on the arrow's side." },
+  "av-console": { label: "AV console", size: [3, 1.5], solid: true, internal: true, help: "The sound and vision desk; the crew face the arrow. Staff only by default." },
+  "program-wall": { label: "Program wall", size: [6, 0.4], solid: true, help: "A board with the day's programme, read from the arrow's side." },
+  stand: { label: "Exhibition stand", size: [3, 3], solid: true, help: "A sponsor's stand, open on the arrow's side, where visitors come in." },
+  table: { label: "Sponsor table", size: [2, 1], solid: true, help: "A sponsor's table top; visitors come from the arrow's side." },
 };
+
+/** The stand sizes the venues' drawings use, width by depth in metres; any other size can be typed. */
+export const STAND_PRESETS: { kind: "stand" | "table"; size: [number, number] }[] = [
+  { kind: "stand", size: [3, 2] },
+  { kind: "stand", size: [3, 3] },
+  { kind: "stand", size: [4, 3] },
+  { kind: "stand", size: [6, 3] },
+  { kind: "stand", size: [6, 6] },
+  { kind: "table", size: [2, 1] },
+];
 
 export interface PlanFixture {
   id: string;
@@ -76,6 +100,14 @@ export interface PlanFixture {
   /** The way it faces: where its front, door or arrow points. */
   dir: PlanWall;
   floor?: PlanFloor;
+  /** A stand's or table's number, as printed for exhibitors ("07", "A3"); unique on the plan, changed freely. */
+  number?: string;
+  /** The event's Sponsor on a stand or table; null or absent is Available. A sponsor deleted since reads as Available. */
+  sponsorId?: string | null;
+  /** For the event team only: "power 2 x 13 A", "rigging point above". Never shown to exhibitors. */
+  note?: string;
+  /** Kept off what exhibitors are shown; absent follows the kind (an AV console is internal). */
+  internal?: boolean;
 }
 
 export interface VenuePlan {
@@ -88,10 +120,17 @@ export interface VenuePlan {
   /** Stairs, lifts, toilets, exits, pillars and catering points, each inside a room or walkway. */
   fixtures: PlanFixture[];
   /**
+   * The stands are the ones placed on the plan (section 10): the exhibition rooms' automatic grid of stands,
+   * each going to the nth sponsor by tier, is no longer made. Absent is the automatic grid, as before.
+   */
+  standsPlaced?: boolean;
+  /**
    * Editor only, on one floor's view of a plan: the ids the other floor uses, so a walkway or fixture added
    * there never repeats one. The schema drops it, so it is never saved.
    */
   otherIds?: string[];
+  /** Editor only, like `otherIds`: the stand numbers the other floor uses, so a stand added here takes a free one. */
+  otherNumbers?: string[];
 }
 
 /**
@@ -117,8 +156,10 @@ const doorSchema = z.object({
 });
 /** The most walkways a plan holds. */
 export const PLAN_MAX_WALKWAYS = 12;
-/** The most fixtures a plan holds. */
-export const PLAN_MAX_FIXTURES = 60;
+/** The most fixtures a plan holds, stands included (the Conrad's second floor has about 40 stands and tables). */
+export const PLAN_MAX_FIXTURES = 200;
+/** A stand's number: letters, digits, and a dot, slash or dash inside ("07", "A3", "12-B"). */
+export const STAND_NUMBER = /^[A-Za-z0-9](?:[A-Za-z0-9./-]{0,6}[A-Za-z0-9])?$/;
 /** A fixture's smallest side: a pillar can be thin, an exit sign thinner. */
 export const FIXTURE_MIN_SIDE = 0.3;
 const floorSchema = z.enum(PLAN_FLOORS).optional();
@@ -135,9 +176,23 @@ export const planSchema = z.object({
   entrance: doorSchema,
   // Plans saved before fixtures existed have none.
   fixtures: z
-    .array(z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), kind: z.enum(FIXTURE_KINDS), name: z.string().trim().max(60), rect: fixtureRect, dir: z.enum(PLAN_WALLS), floor: floorSchema }))
-    .max(PLAN_MAX_FIXTURES, `A plan has at most ${PLAN_MAX_FIXTURES} stairs, lifts, counters and other fixtures, on both floors together`)
+    .array(
+      z.object({
+        id: z.string().regex(/^[a-z0-9-]{1,40}$/),
+        kind: z.enum(FIXTURE_KINDS),
+        name: z.string().trim().max(60),
+        rect: fixtureRect,
+        dir: z.enum(PLAN_WALLS),
+        floor: floorSchema,
+        number: z.string().trim().regex(STAND_NUMBER, "A stand number is up to 8 letters and digits, such as 07 or A3").optional(),
+        sponsorId: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/).nullable().optional(),
+        note: z.string().trim().max(300).optional(),
+        internal: z.boolean().optional(),
+      }),
+    )
+    .max(PLAN_MAX_FIXTURES, `A plan has at most ${PLAN_MAX_FIXTURES} stands, stairs, lifts, counters and other fixtures, on both floors together`)
     .default([]),
+  standsPlaced: z.boolean().optional(),
 });
 
 export interface StoredVenuePlan {
@@ -254,7 +309,9 @@ export function floorView(plan: VenuePlan, floor: PlanFloor): VenuePlan {
     corridors: plan.corridors.filter(on),
     entrance: plan.entrance,
     fixtures: plan.fixtures.filter(on),
+    ...(plan.standsPlaced && { standsPlaced: true }),
     otherIds: [...plan.rooms.filter(off), ...plan.corridors.filter(off), ...plan.fixtures.filter(off)].map((a) => a.id),
+    otherNumbers: plan.fixtures.filter(off).flatMap((f) => (f.number ? [f.number] : [])),
   };
 }
 
@@ -286,6 +343,8 @@ export function withFloor(plan: VenuePlan, floor: PlanFloor, view: VenuePlan): V
     corridors: mergeFloor(plan.corridors, floor, view.corridors),
     entrance: view.entrance,
     fixtures: mergeFloor(plan.fixtures, floor, view.fixtures),
+    // Placing stands is for the whole venue: a stand added on either floor switches the automatic grid off.
+    ...((plan.standsPlaced || view.standsPlaced) && { standsPlaced: true }),
   };
 }
 
@@ -309,6 +368,15 @@ export function floorLinks(plan: VenuePlan): { lower: PlanFixture; upper: PlanFi
   }
   return links;
 }
+
+/** How a fixture is named on the plan and in messages: a stand by its number, anything else by its name or kind. */
+export function fixtureLabel(f: Pick<PlanFixture, "kind" | "name" | "number">): string {
+  if (isStand(f)) return `${f.kind === "table" ? "Table" : "Stand"} ${f.number ?? "?"}`;
+  return f.name || FIXTURE_INFO[f.kind].label;
+}
+
+/** Whether a fixture is kept off what exhibitors are shown: its own choice, else its kind's. */
+export const isInternal = (f: Pick<PlanFixture, "kind" | "internal">) => f.internal ?? FIXTURE_INFO[f.kind].internal ?? false;
 
 /** The two ends of a joined stair or lift stand exactly over each other. */
 export const lineUp = (a: PlanFixture, b: PlanFixture) => a.rect.every((v, i) => Math.abs(v - b.rect[i]) <= EPS);
@@ -369,26 +437,33 @@ export function planIssues(rooms: VenueRoom[], plan: VenuePlan): string[] {
 
   // Each fixture stands wholly inside one room or walkway on its floor, and fixtures do not overlap each other.
   const fixtureIds = new Set<string>();
-  const labelOf = (f: PlanFixture) => f.name || FIXTURE_INFO[f.kind].label;
   for (const f of plan.fixtures) {
-    if (fixtureIds.has(f.id) || names.has(f.id) || ids.has(f.id)) issues.push(`${labelOf(f)} shares its id with another part of the plan`);
+    if (fixtureIds.has(f.id) || names.has(f.id) || ids.has(f.id)) issues.push(`${fixtureLabel(f)} shares its id with another part of the plan`);
     fixtureIds.add(f.id);
-    if (!areas.some((a) => a.floor === floorOf(f) && within(f.rect, a.rect))) issues.push(`${labelOf(f)} is not inside a room or walkway`);
+    if (!areas.some((a) => a.floor === floorOf(f) && within(f.rect, a.rect))) issues.push(`${fixtureLabel(f)} is not inside a room or walkway`);
   }
   for (let i = 0; i < plan.fixtures.length; i++) {
     for (let j = i + 1; j < plan.fixtures.length; j++) {
       const a = plan.fixtures[i];
       const b = plan.fixtures[j];
-      if (floorOf(a) === floorOf(b) && overlapArea(a.rect, b.rect) > EPS) issues.push(`${labelOf(a)} and ${labelOf(b)} overlap`);
+      if (floorOf(a) === floorOf(b) && overlapArea(a.rect, b.rect) > EPS) issues.push(`${fixtureLabel(a)} and ${fixtureLabel(b)} overlap`);
     }
   }
 
-  // A counter or photo wall is used from the side it faces, so that side must open into the room (review MED).
+  // Every stand and table has its own number, so an exhibitor is never told "Stand 7" for two places.
+  const numbers = new Map<string, number>();
+  for (const f of plan.fixtures.filter(isStand)) {
+    if (!f.number) issues.push(`A ${FIXTURE_INFO[f.kind].label.toLowerCase()} has no number. Give it one.`);
+    else numbers.set(f.number.toUpperCase(), (numbers.get(f.number.toUpperCase()) ?? 0) + 1);
+  }
+  for (const [n, count] of numbers) if (count > 1) issues.push(`${count} stands share the number ${n}. Give each its own, or click Renumber stands.`);
+
+  // A counter, photo wall or stand is used from the side it faces, so that side must open into the room (review MED).
   for (const f of plan.fixtures) {
-    if (f.kind !== "registration" && f.kind !== "photo-wall") continue;
+    if (f.kind !== "registration" && f.kind !== "photo-wall" && !isStand(f)) continue;
     const host = areas.find((a) => a.floor === floorOf(f) && within(f.rect, a.rect));
     const [x, z] = frontOf(f, 1.5);
-    if (host && !(x > host.rect[0] && x < host.rect[2] && z > host.rect[1] && z < host.rect[3])) issues.push(`${labelOf(f)} faces a wall. Turn it so its arrow points into the room.`);
+    if (host && !(x > host.rect[0] && x < host.rect[2] && z > host.rect[1] && z < host.rect[3])) issues.push(`${fixtureLabel(f)} faces a wall. Turn it so its arrow points into the room.`);
   }
 
   const foyer = rooms.find((r) => r.kind === "foyer");
@@ -412,13 +487,13 @@ export function planIssues(rooms: VenueRoom[], plan: VenuePlan): string[] {
       const fix = below
         ? `Select it and click "Put the matching ${kind} on Ground".`
         : `Nothing on the ground floor stands under that spot, so move it over a ground floor room or walkway, then select it and click "Put the matching ${kind} on Ground".`;
-      issues.push(`${labelOf(f)} on Level 1 has no ${kind} under it on the ground floor. ${fix}`);
+      issues.push(`${fixtureLabel(f)} on Level 1 has no ${kind} under it on the ground floor. ${fix}`);
     }
     // Joined, but only partly over each other: the end that could not follow a move (review MED, Oct 27).
     for (const { lower, upper } of links) {
       if (lineUp(lower, upper)) continue;
       const kind = FIXTURE_INFO[upper.kind].label.toLowerCase();
-      issues.push(`${labelOf(upper)} on Level 1 is not exactly over the ${kind} under it. Move one back over the other; while both fit, moving one moves the other.`);
+      issues.push(`${fixtureLabel(upper)} on Level 1 is not exactly over the ${kind} under it. Move one back over the other; while both fit, moving one moves the other.`);
     }
     if (!plan.fixtures.some((f) => floorOf(f) === "level-1" && LINKING.has(f.kind))) issues.push("Level 1 needs stairs or a lift, drawn in the same place on both floors");
   }

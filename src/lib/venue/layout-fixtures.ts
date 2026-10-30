@@ -5,6 +5,7 @@
  */
 import { generateLayout } from "./layout";
 import { planFromLayout, type VenuePlan } from "./plan";
+import { addFixture, addStand, placeStandsYourself, setFixture } from "./plan-edit";
 import { TEMPLATES, type VenueRoom } from "./rooms";
 
 const room = (kind: VenueRoom["kind"], capacity: number, i = 0): VenueRoom => ({ id: `${kind}-${i}`, name: `${kind[0].toUpperCase()}${kind.slice(1)} ${i + 1}`, kind, capacity });
@@ -103,5 +104,25 @@ export const PLAN_FIXTURES: Record<string, { rooms: VenueRoom[]; plan: VenuePlan
     const plan = planFromLayout(generateLayout(rooms, { eventName: "" }));
     const foyer = plan.rooms.find((p) => p.id === "foyer")!;
     return { rooms, plan: { ...plan, entrance: { wall: "w", at: (foyer.rect[1] + foyer.rect[3]) / 2, width: 8 } } };
+  })(),
+  // The exhibitor floor plan (section 10): the stands placed on the plan, a sponsor table and a stand in the
+  // foyer, an Available stand, a stage, an AV console and a program wall.
+  "drawn-placed-stands": (() => {
+    const rooms = TEMPLATES.congress.rooms;
+    const sponsors = ["sp-a", "sp-b", "sp-c"].map((id) => ({ id, name: id }));
+    let plan = placeStandsYourself(planFromLayout(generateLayout(rooms, { eventName: "" })), rooms, sponsors);
+    const area = (kind: VenueRoom["kind"]) => plan.rooms.find((p) => rooms.find((r) => r.id === p.id)?.kind === kind)!.rect;
+    const add = (r: { plan: VenuePlan; id: string } | null) => {
+      plan = r!.plan;
+      return r!.id;
+    };
+    add(addStand(plan, "table", [2, 1], area("foyer")));
+    add(addStand(plan, "stand", [6, 3], area("foyer")));
+    plan = setFixture(plan, "stand-2", { sponsorId: null });
+    add(addFixture(plan, "stage", area("lounge")));
+    const av = add(addFixture(plan, "av-console", area("lounge")));
+    plan = setFixture(plan, av, { dir: "n" });
+    add(addFixture(plan, "program-wall", area("foyer")));
+    return { rooms, plan };
   })(),
 };

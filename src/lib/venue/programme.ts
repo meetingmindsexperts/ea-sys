@@ -11,6 +11,7 @@
  */
 import type { SponsorEntry } from "@/lib/webinar";
 import { sponsorTierLabel, sponsorTierList, sponsorTierRank, type SponsorTierDef } from "@/lib/sponsor-tiers";
+import { sponsorsWithStands, type StandItem } from "./stands";
 
 export const MAX_VENUE_SESSIONS = 400;
 export const MAX_VENUE_SPONSORS = 60;
@@ -38,7 +39,8 @@ export interface VenueSession {
   where?: string;
 }
 
-export interface VenueSponsor { name: string; tier?: string; logo?: string; website?: string; about?: string }
+/** `id` is the Sponsor row's, so a stand placed on the plan can name its own sponsor (stands.ts). */
+export interface VenueSponsor { id: string; name: string; tier?: string; logo?: string; website?: string; about?: string }
 
 export interface VenueProgramme { v: 1; tz: string; sessions: VenueSession[]; sponsors: VenueSponsor[] }
 
@@ -81,6 +83,7 @@ export function orderSponsors(list: SponsorEntry[], tiers: SponsorTierDef[] = sp
     .sort((a, b) => sponsorTierRank(a.s.tier, tiers) - sponsorTierRank(b.s.tier, tiers) || a.i - b.i)
     .slice(0, MAX_VENUE_SPONSORS)
     .map(({ s }) => ({
+      id: s.id,
       name: s.name.trim().slice(0, 80),
       ...(s.tier && { tier: sponsorTierLabel(s.tier, tiers) }),
       ...(safeLogo(s.logoUrl) && { logo: safeLogo(s.logoUrl) }),
@@ -137,10 +140,10 @@ export function programmeDay(p: VenueProgramme, now: Date): string | null {
  * sponsors with stands. Only text the event team entered, clipped; null when
  * there is nothing to tell (the AI then says it has no programme).
  */
-export function programmeForAi(p: VenueProgramme, rooms: VenueRoomRef[], now: Date, stands: number): string | null {
+export function programmeForAi(p: VenueProgramme, rooms: VenueRoomRef[], now: Date, stands: StandItem[]): string | null {
   const day = programmeDay(p, now);
   const todays = day ? p.sessions.filter((s) => s.room && dayIn(p.tz, new Date(s.start)) === day).slice(0, MAX_AI_SESSIONS) : [];
-  const withStands = p.sponsors.slice(0, stands);
+  const withStands = sponsorsWithStands(stands, p.sponsors);
   if (!todays.length && !withStands.length) return null;
   const lines: string[] = [];
   if (todays.length) {
