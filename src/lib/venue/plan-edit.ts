@@ -436,12 +436,18 @@ export function nextStandNumber(plan: VenuePlan): string {
   return String(next).padStart(width, "0");
 }
 
-/** A fixture id not yet used on the plan or the other floor: `${kind}-${n}`. */
-function freeId(plan: VenuePlan, kind: FixtureKind): string {
-  const ids = new Set([...plan.fixtures.map((f) => f.id), ...plan.rooms.map((p) => p.id), ...plan.corridors.map((c) => c.id), ...(plan.otherIds ?? [])]);
-  let n = plan.fixtures.filter((f) => f.kind === kind).length + 1;
-  while (ids.has(`${kind}-${n}`)) n++;
-  return `${kind}-${n}`;
+/**
+ * A new stand's id, never one a stand has had before (review HIGH, Oct 30): the id is the stand's visit point in
+ * the walkable venue, so a stand deleted and another added must not share one, or the old sponsor's visits would
+ * show under the new one. A random suffix after an "n", checked against the plan; `stand-<n>` is kept for converted stands.
+ */
+export function freshStandId(plan: VenuePlan, kind: "stand" | "table", random: () => number = Math.random): string {
+  const ids = new Set([...plan.fixtures, ...plan.rooms, ...plan.corridors].map((a) => a.id).concat(plan.otherIds ?? []));
+  for (;;) {
+    // The "n" keeps it from ever reading as a converted stand's `stand-<n>`, whatever the random digits are.
+    const id = `${kind}-n${Math.floor(random() * 36 ** 6).toString(36).padStart(6, "0")}`;
+    if (!ids.has(id)) return id;
+  }
 }
 
 /**
@@ -455,7 +461,7 @@ export function addStand(plan: VenuePlan, kind: "stand" | "table", size: [number
   const w = Math.min(size[0], host[2] - host[0]);
   const d = Math.min(size[1], host[3] - host[1]);
   const [x0, z0] = freeSpot(plan, host, w, d);
-  const id = freeId(plan, kind);
+  const id = freshStandId(plan, kind);
   const stand: PlanFixture = { id, kind, name: "", rect: [x0, z0, r2(x0 + w), r2(z0 + d)], dir: "s", number: nextStandNumber(plan), sponsorId: null };
   return { plan: { ...plan, fixtures: [...plan.fixtures, stand], standsPlaced: true }, id };
 }
@@ -474,23 +480,33 @@ function wallOfYaw(yaw: number): PlanWall {
  * make on their own becomes a stand on the plan, at its place and size, numbered as it was (on through the
  * floors) and holding the sponsor it held by tier order (`ordered`). From then on the team moves, sizes,
  * numbers and gives out each stand. The whole plan, both floors.
+ *
+ * Automatic stand n becomes fixture `stand-<n>`, whose visit point is `stand-<n>`, the one it already had, so
+ * the visits recorded before the switch stay with their stand (review MED). `skipped` counts the stands the
+ * plan had no room for under its fixture limit, so the editor can say so rather than drop them unseen.
  */
-export function placeStandsYourself(plan: VenuePlan, rooms: VenueRoom[], ordered: StandSponsorRef[]): VenuePlan {
-  if (plan.standsPlaced) return plan;
+export function placeStandsYourself(plan: VenuePlan, rooms: VenueRoom[], ordered: StandSponsorRef[]): { plan: VenuePlan; skipped: number } {
+  if (plan.standsPlaced) return { plan, skipped: 0 };
+  // A plan given stands of its own without the switch (written by hand): those are its stands already.
+  if (plan.fixtures.some(isStand)) return { plan: { ...plan, standsPlaced: true }, skipped: 0 };
   let next: VenuePlan = { ...plan, fixtures: [...plan.fixtures] };
   let n = 0;
+  let skipped = 0;
   for (const floor of PLAN_FLOORS) {
     const view = floorView(plan, floor);
     if (!view.rooms.length) continue;
     for (const s of layoutStands(floorLayout(rooms, view, { eventName: "" }).layout)) {
-      if (s.key || "r" in s.foot || !canAddFixture(next)) continue;
+      if (s.key || "r" in s.foot) continue;
       n += 1;
-      const id = freeId(next, "stand");
-      const stand: PlanFixture = { id, kind: "stand", name: "", rect: [s.foot.x0, s.foot.z0, s.foot.x1, s.foot.z1], dir: wallOfYaw(s.face), number: String(n), sponsorId: ordered[n - 1]?.id ?? null };
+      if (!canAddFixture(next)) {
+        skipped += 1;
+        continue;
+      }
+      const stand: PlanFixture = { id: `stand-${n}`, kind: "stand", name: "", rect: [s.foot.x0, s.foot.z0, s.foot.x1, s.foot.z1], dir: wallOfYaw(s.face), number: String(n), sponsorId: ordered[n - 1]?.id ?? null };
       next = { ...next, fixtures: [...next.fixtures, onFloor(stand, floor)] };
     }
   }
-  return { ...next, standsPlaced: true };
+  return { plan: { ...next, standsPlaced: true }, skipped };
 }
 
 /** Back to the exhibition rooms' own stands, each going to the nth sponsor by tier: the placed stands go. */

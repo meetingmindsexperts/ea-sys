@@ -11,7 +11,7 @@ import { AlertCircle, CalendarDays } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionHeading } from "@/components/ui/typography";
 import { buildVenueLayout } from "@/lib/venue/plan-layout";
-import type { VenuePlan } from "@/lib/venue/plan";
+import { isStand, type VenuePlan } from "@/lib/venue/plan";
 import { roomOfSession } from "@/lib/venue/programme";
 import type { VenueRoom } from "@/lib/venue/rooms";
 import type { VenueRoomsData } from "@/hooks/use-api";
@@ -19,7 +19,9 @@ import type { VenueRoomsData } from "@/hooks/use-api";
 const SHOWN_UNPLACED = 8;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-function sponsorLine(sponsors: number, stands: number): string {
+function sponsorLine(sponsors: number, stands: number, placed: boolean): string {
+  // Stands placed on the plan are given out one by one in the floor plan editor, not by tier order.
+  if (placed) return sponsors ? `${plural(sponsors, "sponsor")}; each stand's sponsor is chosen in the floor plan editor.` : "No sponsors on this event yet, so every stand shows as Available.";
   if (!sponsors) return stands ? `No sponsors on this event yet, so the ${plural(stands, "stand")} show plain stand numbers.` : "No sponsors on this event yet.";
   if (!stands) return `${plural(sponsors, "sponsor")}, but these rooms have no exhibition hall, so none of them gets a stand.`;
   if (sponsors > stands) return `${plural(sponsors, "sponsor")} for ${plural(stands, "stand")}: the first ${stands} by tier get one. Raise the exhibition hall's people to add stands.`;
@@ -92,7 +94,7 @@ export function VenueProgrammeCard({ rooms, programme, plan = null }: { rooms: V
                   </div>
                 </div>
               )}
-              <p className="text-muted-foreground">{sponsorLine(programme.sponsors, placed.stands)}</p>
+              <p className="text-muted-foreground">{sponsorLine(programme.sponsors, placed.stands, !!plan?.standsPlaced || !!plan?.fixtures.some(isStand))}</p>
             </>
           )}
         </CardContent>

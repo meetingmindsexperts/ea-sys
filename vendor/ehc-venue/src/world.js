@@ -755,8 +755,8 @@ function buildWorld(R, Q) {
       else if (it.t === 'sign') sign(it.x, it.y, it.z, it.w, it.hgt, it.yaw, it.kicker ? { kicker: it.kicker, title: it.title, sub: it.sub } : { title: it.title, sub: it.sub });
     }
     for (const p of L.people) people.push({ ...p });
-    // A stand's visit point is stand-<n> for an automatic stand, stand-<key> for one placed on the plan.
-    const standAt = new Map(L.items.filter((it) => it.t === 'stand').map((it) => ['stand-' + (it.key !== undefined ? it.key : it.n), it]));
+    // A stand's visit point is stand-<n> for an automatic stand, and its own key for one placed on the plan.
+    const standAt = new Map(L.items.filter((it) => it.t === 'stand').map((it) => [it.key !== undefined ? it.key : 'stand-' + it.n, it]));
     for (const h of L.hotspots) {
       const st = h.kind === 'stand' ? standAt.get(h.id) : null, sp = st ? standSponsor(st) : null;
       if (!sp) { hit(h.id, h.x, h.z, h.r, h.prompt, h.title, h.body, h.kind); if (Array.isArray(h.to)) interact[interact.length - 1].to = h.to; if (h.action === 'photo') Object.assign(interact[interact.length - 1], { action: 'photo', face: h.face }); continue; }

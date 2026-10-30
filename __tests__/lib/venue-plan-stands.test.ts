@@ -9,9 +9,9 @@ import { describe, it, expect } from "vitest";
 import { generateLayout } from "@/lib/venue/layout";
 import { checkLayout } from "@/lib/venue/layout-check";
 import { LAYOUT_FIXTURES, PLAN_FIXTURES } from "@/lib/venue/layout-fixtures";
-import { planFromLayout, planIssues, planSchema, isInternal, fixtureLabel, type PlanFixture, type VenuePlan } from "@/lib/venue/plan";
+import { PLAN_MAX_FIXTURES, planFromLayout, planIssues, planSchema, isInternal, fixtureLabel, type PlanFixture, type VenuePlan } from "@/lib/venue/plan";
 import { buildVenueLayout, layoutFromPlan } from "@/lib/venue/plan-layout";
-import { addStand, automaticStands, nextStandNumber, placeStandsYourself, renumberStands, setFixture } from "@/lib/venue/plan-edit";
+import { addStand, automaticStands, freshStandId, removeFixture, nextStandNumber, placeStandsYourself, renumberStands, setFixture } from "@/lib/venue/plan-edit";
 import { layoutStands, sponsorsWithStands, standNumber, standSponsor } from "@/lib/venue/stands";
 
 const rooms = LAYOUT_FIXTURES.congress;
@@ -23,13 +23,14 @@ const built = (plan: VenuePlan) => {
   expect(b.mode).toBe("drawn");
   return b.layout;
 };
+const placeAll = () => placeStandsYourself(auto(), rooms, sponsors).plan;
 const stands = (plan: VenuePlan) => plan.fixtures.filter((f) => f.kind === "stand" || f.kind === "table");
 
 describe("placing the stands yourself", () => {
   it("starts from exactly the stands, numbers and sponsors the venue showed", () => {
     const before = layoutStands(generateLayout(rooms, { eventName: "" }));
     expect(before.length).toBeGreaterThan(4);
-    const plan = placeStandsYourself(auto(), rooms, sponsors);
+    const plan = placeAll();
     expect(plan.standsPlaced).toBe(true);
     const after = layoutStands(built(plan));
     expect(after).toHaveLength(before.length);
@@ -40,8 +41,8 @@ describe("placing the stands yourself", () => {
   });
 
   it("is a no-op the second time, and going back to automatic gives the automatic stands again", () => {
-    const plan = placeStandsYourself(auto(), rooms, sponsors);
-    expect(placeStandsYourself(plan, rooms, sponsors)).toBe(plan);
+    const plan = placeAll();
+    expect(placeStandsYourself(plan, rooms, sponsors)).toEqual({ plan, skipped: 0 });
     const back = automaticStands(plan);
     expect(back.standsPlaced).toBeUndefined();
     expect(stands(back)).toEqual([]);
@@ -49,22 +50,22 @@ describe("placing the stands yourself", () => {
   });
 
   it("saves through the schema with its numbers, sponsors and notes", () => {
-    const plan = setFixture(placeStandsYourself(auto(), rooms, sponsors), "stand-1", { note: "Power 2 x 13 A", number: "A3" });
+    const plan = setFixture(placeAll(), "stand-1", { note: "Power 2 x 13 A", number: "A3" });
     const parsed = planSchema.parse(plan);
     expect(parsed.standsPlaced).toBe(true);
     expect(parsed.fixtures.find((f) => f.id === "stand-1")).toMatchObject({ number: "A3", sponsorId: "sp1", note: "Power 2 x 13 A" });
   });
 
   it("refuses a stand number that is not a short label", () => {
-    const plan = setFixture(placeStandsYourself(auto(), rooms, sponsors), "stand-1", { number: "Stand <b>7</b>" });
+    const plan = setFixture(placeAll(), "stand-1", { number: "Stand <b>7</b>" });
     expect(planSchema.safeParse(plan).success).toBe(false);
   });
 });
 
 describe("a last-minute change", () => {
   it("renumbering moves neither the sponsor nor the visit point", () => {
-    const plan = placeStandsYourself(auto(), rooms, sponsors);
-    const spot = (l: ReturnType<typeof built>, id: string) => l.hotspots.find((h) => h.id === `stand-${id}`);
+    const plan = placeAll();
+    const spot = (l: ReturnType<typeof built>, id: string) => l.hotspots.find((h) => h.id === id);
     const was = built(plan);
     const swapped = setFixture(setFixture(plan, "stand-1", { number: "99" }), "stand-2", { number: "1" });
     const now = built(swapped);
@@ -74,7 +75,7 @@ describe("a last-minute change", () => {
   });
 
   it("a sponsor who cancels leaves the stand Available, and another can take it", () => {
-    const plan = placeStandsYourself(auto(), rooms, sponsors);
+    const plan = placeAll();
     const s1 = () => layoutStands(built(cancelled)).find((s) => s.key === "stand-1")!;
     let cancelled = setFixture(plan, "stand-1", { sponsorId: null });
     expect(standSponsor(s1(), sponsors)).toBeNull();
@@ -83,13 +84,13 @@ describe("a last-minute change", () => {
   });
 
   it("a sponsor deleted since reads as Available, never as an error", () => {
-    const plan = setFixture(placeStandsYourself(auto(), rooms, sponsors), "stand-1", { sponsorId: "gone" });
+    const plan = setFixture(placeAll(), "stand-1", { sponsorId: "gone" });
     expect(standSponsor(layoutStands(built(plan)).find((s) => s.key === "stand-1")!, sponsors)).toBeNull();
   });
 });
 
 describe("the plan's checks", () => {
-  const placed = () => placeStandsYourself(auto(), rooms, sponsors);
+  const placed = () => placeAll();
 
   it("refuses two stands with one number, and a stand with none", () => {
     expect(planIssues(rooms, setFixture(placed(), "stand-2", { number: "1" }))).toContain("2 stands share the number 1. Give each its own, or click Renumber stands.");
@@ -109,7 +110,7 @@ describe("the plan's checks", () => {
 
 describe("stands of any size, anywhere", () => {
   it("stands two shoulder to shoulder, with no gap, and keeps both", () => {
-    let plan = placeStandsYourself(auto(), rooms, sponsors);
+    let plan = placeAll();
     plan = { ...plan, fixtures: plan.fixtures.filter((f) => f.kind !== "stand") };
     const hall = plan.rooms[0];
     const corridor = plan.corridors[0];
@@ -121,12 +122,12 @@ describe("stands of any size, anywhere", () => {
     expect(hall).toBeTruthy();
     const l = built(plan);
     expect(layoutStands(l).map((s) => s.key)).toEqual(["stand-a", "stand-b"]);
-    expect(l.hotspots.filter((h) => h.kind === "stand").map((h) => h.id)).toEqual(["stand-stand-a", "stand-stand-b"]);
+    expect(l.hotspots.filter((h) => h.kind === "stand").map((h) => h.id)).toEqual(["stand-a", "stand-b"]);
     expect(checkLayout(l).ok).toBe(true);
   });
 
   it("a table is a numbered stand with its exhibitor behind it", () => {
-    const plan = placeStandsYourself(auto(), rooms, sponsors);
+    const plan = placeAll();
     const foyer = plan.rooms.find((r) => rooms.find((x) => x.id === r.id)?.kind === "foyer")!;
     const added = addStand(plan, "table", [2, 1], foyer.rect)!;
     const t = added.plan.fixtures.find((f) => f.id === added.id)!;
@@ -135,7 +136,7 @@ describe("stands of any size, anywhere", () => {
     const item = layoutStands(l).find((s) => s.key === added.id)!;
     expect(item.table).toBe(true);
     expect(standNumber(item)).toBe(t.number);
-    expect(l.hotspots.some((h) => h.id === `stand-${added.id}`)).toBe(true);
+    expect(l.hotspots.some((h) => h.id === added.id)).toBe(true);
   });
 
   it("keeps placed stands' numbers and visit points on Level 1, while automatic ones number on through the floors", () => {
@@ -148,21 +149,21 @@ describe("stands of any size, anywhere", () => {
     expect(l.issues).toEqual([]);
     const s = layoutStands(l.layout);
     expect(s.map((x) => [x.key, standNumber(x)])).toEqual([["stand-up", "L1-01"]]);
-    expect(l.layout.hotspots.some((h) => h.id === "stand-stand-up" && h.title === "Stand L1-01")).toBe(true);
+    expect(l.layout.hotspots.some((h) => h.id === "stand-up" && h.title === "Stand L1-01")).toBe(true);
     expect(checkLayout(l.layout).ok).toBe(true);
   });
 });
 
 describe("numbers", () => {
   it("the next number follows the plan's own style", () => {
-    const plan = placeStandsYourself(auto(), rooms, sponsors);
+    const plan = placeAll();
     expect(nextStandNumber(plan)).toBe(String(stands(plan).length + 1));
     expect(nextStandNumber(renumberStands(plan))).toBe(String(stands(plan).length + 1).padStart(2, "0"));
     expect(nextStandNumber({ ...plan, fixtures: [], otherNumbers: ["07"] })).toBe("08");
   });
 
   it("renumbers in reading order, row by row from the north, two digits from ten stands", () => {
-    const plan = renumberStands(placeStandsYourself(auto(), rooms, sponsors));
+    const plan = renumberStands(placeAll());
     const list = stands(plan).map((f) => ({ n: f.number!, x: (f.rect[0] + f.rect[2]) / 2, z: (f.rect[1] + f.rect[3]) / 2 }));
     const sorted = [...list].sort((a, b) => a.n.localeCompare(b.n));
     expect(sorted[0].n).toBe(list.length >= 10 ? "01" : "1");
@@ -177,7 +178,7 @@ describe("the one sponsor rule", () => {
   it("an automatic stand takes the nth sponsor; a placed one its own; each sponsor named once", () => {
     const a = layoutStands(generateLayout(rooms, { eventName: "" }));
     expect(standSponsor(a[2], sponsors)?.id).toBe("sp3");
-    const placed = layoutStands(built(setFixture(setFixture(placeStandsYourself(auto(), rooms, sponsors), "stand-1", { sponsorId: "sp5" }), "stand-2", { sponsorId: "sp5" })));
+    const placed = layoutStands(built(setFixture(setFixture(placeAll(), "stand-1", { sponsorId: "sp5" }), "stand-2", { sponsorId: "sp5" })));
     expect(sponsorsWithStands(placed, sponsors).filter((s) => s.id === "sp5")).toHaveLength(1);
   });
 });
@@ -193,7 +194,7 @@ describe("new fixtures", () => {
 
 describe("a plan written without the switch", () => {
   it("any stand of its own turns the automatic grid off, so the two never mix", () => {
-    const plan = placeStandsYourself(auto(), rooms, sponsors);
+    const plan = placeAll();
     // Stand 1 taken away: an automatic stand must not come back in its place.
     const unflagged = { ...plan, standsPlaced: undefined, fixtures: plan.fixtures.filter((f) => f.id !== "stand-1") };
     expect(layoutStands(layoutFromPlan(rooms, unflagged, { eventName: "" }).layout).every((s) => s.key)).toBe(true);
@@ -209,5 +210,42 @@ describe("the vendor's walk fixture", () => {
     expect(checkLayout(l.layout).issues).toEqual([]);
     expect(new Set(plan.fixtures.map((f) => f.kind))).toEqual(new Set(["stand", "table", "stage", "av-console", "program-wall"]));
     expect(plan.fixtures.some((f) => f.kind === "stand" && f.sponsorId === null)).toBe(true);
+  });
+});
+
+describe("review fixes, Oct 30", () => {
+  it("a stand deleted and another added never share an id, so old visits never land on the new stand", () => {
+    const plan = placeAll();
+    const first = addStand(plan, "stand", [3, 3], plan.corridors[0].rect)!;
+    const gone = removeFixture(first.plan, first.id);
+    const second = addStand(gone, "stand", [3, 3], plan.corridors[0].rect)!;
+    expect(second.id).not.toBe(first.id);
+    expect(second.id).not.toMatch(/^stand-\d+$/);
+    // Even when the random source repeats, an id already on the plan is never handed out.
+    let k = 0;
+    const repeat = () => [0.5, 0.5, 0.25][Math.min(k++, 2)];
+    const taken = { ...plan, fixtures: [...plan.fixtures, { ...plan.fixtures[0], id: freshStandId(plan, "stand", () => 0.5) }] };
+    expect(freshStandId(taken, "stand", repeat)).toBe(freshStandId(plan, "stand", () => 0.25));
+  });
+
+  it("placing the stands keeps the visits they had: each keeps the automatic stand's visit point", () => {
+    const autoSpots = generateLayout(rooms, { eventName: "" }).hotspots.filter((h) => h.kind === "stand").map((h) => [h.id, h.x, h.z]);
+    const placedSpots = built(placeAll()).hotspots.filter((h) => h.kind === "stand").map((h) => [h.id, h.x, h.z]);
+    expect(placedSpots).toEqual(autoSpots);
+  });
+
+  it("says how many stands did not fit under the fixture limit, never dropping them unseen", () => {
+    const base = auto();
+    const pillars = Array.from({ length: PLAN_MAX_FIXTURES - 3 }, (_, i): PlanFixture => ({ id: `pillar-${i}`, kind: "pillar", name: "", rect: [0, 0, 0.5, 0.5], dir: "n" }));
+    const { plan, skipped } = placeStandsYourself({ ...base, fixtures: pillars }, rooms, sponsors);
+    expect(stands(plan)).toHaveLength(3);
+    expect(skipped).toBe(layoutStands(generateLayout(rooms, { eventName: "" })).length - 3);
+  });
+
+  it("a plan that already has stands of its own only gets the switch, never a second set", () => {
+    const plan = { ...placeAll(), standsPlaced: undefined };
+    const again = placeStandsYourself(plan, rooms, sponsors);
+    expect(again.plan.fixtures).toEqual(plan.fixtures);
+    expect(again.plan.standsPlaced).toBe(true);
   });
 });

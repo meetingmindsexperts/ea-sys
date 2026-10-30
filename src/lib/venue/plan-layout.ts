@@ -468,8 +468,9 @@ function serveFixture(f: PlanFixture, name: string, room: Rect, solids: Rect[], 
 }
 
 /**
- * A stand's exhibitor and the spot in front of its open side where a visit counts (`stand-<fixture id>`, so a
- * new number never moves the stand's visits). The exhibitor stands just inside a stand, and behind a table.
+ * A stand's exhibitor and the spot in front of its open side where a visit counts. The spot's id is the
+ * fixture's own id, so a new number never moves the stand's visits, and a stand converted from automatic stand n
+ * (`stand-<n>`) keeps the visits it had. The exhibitor stands just inside a stand, and behind a table.
  */
 function serveStand(f: PlanFixture, name: string, room: Rect, solids: Rect[], out: Out) {
   const [x0, z0, x1, z1] = f.rect;
@@ -481,7 +482,7 @@ function serveStand(f: PlanFixture, name: string, room: Rect, solids: Rect[], ou
   const clear = !solids.some((r) => r !== f.rect && hits([px - 0.3, pz - 0.3, px + 0.3, pz + 0.3], r));
   if (inside(room, px, pz) && clear) out.people.push({ x: px, z: pz, yaw: r2(Math.atan2(into.dx, into.dz)), pose: "stand", role: "exhibitor" });
   const [hx, hz] = at(half + 1.6);
-  out.hotspots.push({ id: `stand-${f.id}`, x: hx, z: hz, r: 2.2, kind: "stand", prompt: `Visit ${name}`, title: name, body: "No sponsor has this stand yet." });
+  out.hotspots.push({ id: f.id, x: hx, z: hz, r: 2.2, kind: "stand", prompt: `Visit ${name}`, title: name, body: "No sponsor has this stand yet." });
 }
 
 /**

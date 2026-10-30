@@ -110,14 +110,19 @@ export const PLAN_FIXTURES: Record<string, { rooms: VenueRoom[]; plan: VenuePlan
   "drawn-placed-stands": (() => {
     const rooms = TEMPLATES.congress.rooms;
     const sponsors = ["sp-a", "sp-b", "sp-c"].map((id) => ({ id, name: id }));
-    let plan = placeStandsYourself(planFromLayout(generateLayout(rooms, { eventName: "" })), rooms, sponsors);
+    let plan = placeStandsYourself(planFromLayout(generateLayout(rooms, { eventName: "" })), rooms, sponsors).plan;
     const area = (kind: VenueRoom["kind"]) => plan.rooms.find((p) => rooms.find((r) => r.id === p.id)?.kind === kind)!.rect;
     const add = (r: { plan: VenuePlan; id: string } | null) => {
       plan = r!.plan;
       return r!.id;
     };
-    add(addStand(plan, "table", [2, 1], area("foyer")));
-    add(addStand(plan, "stand", [6, 3], area("foyer")));
+    // A new stand's id is random (never reused); the fixture file must be the same on every run, so these get fixed ones.
+    const named = (r: { plan: VenuePlan; id: string } | null, id: string) => {
+      const added = add(r);
+      plan = { ...plan, fixtures: plan.fixtures.map((f) => (f.id === added ? { ...f, id } : f)) };
+    };
+    named(addStand(plan, "table", [2, 1], area("foyer")), "table-n000001");
+    named(addStand(plan, "stand", [6, 3], area("foyer")), "stand-n000002");
     plan = setFixture(plan, "stand-2", { sponsorId: null });
     add(addFixture(plan, "stage", area("lounge")));
     const av = add(addFixture(plan, "av-console", area("lounge")));

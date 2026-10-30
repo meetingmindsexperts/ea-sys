@@ -95,8 +95,9 @@ export type LayoutItem = ItemBase &
         /** 1-based; the venue gives stand n to the nth sponsor by tier, unless the stand was placed on the plan. */
         n: number;
         /**
-         * A stand placed on the plan (section 10): its fixture id, which names its visit point (`stand-<key>`) so
-         * renumbering moves nothing; its number as printed; its own sponsor (null is Available); a table top.
+         * A stand placed on the plan (section 10): its fixture id, which is also its visit point's id, so
+         * renumbering moves nothing (a converted automatic stand n is `stand-<n>`, the visit point it always had);
+         * its number as printed; its own sponsor (null is Available); a table top.
          */
         key?: string;
         number?: string;

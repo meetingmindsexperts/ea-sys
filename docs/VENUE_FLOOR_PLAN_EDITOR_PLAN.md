@@ -489,9 +489,11 @@ fixtures, and a staff PDF with a notes key under the plan.
 **Phase A as built (Oct 30):** stands and tables are fixture kinds (`stand`, `table`), not a separate
 list, so dragging, sizing, turning, floors and the overlap checks came for free. `plan.standsPlaced`
 switches the automatic grid off, and any stand fixture implies it (`layoutFromPlan`), so the two never
-mix. A placed stand becomes a layout stand with `key` (its fixture id; visit point `stand-<key>`),
-`number` and `sponsorId`. "Place stands yourself" (`placeStandsYourself`) copies the automatic stands
-with the sponsor each held by tier order. The Venue GET returns the sponsors in stand order
+mix. A placed stand becomes a layout stand with `key` (its fixture id, which is also its visit point's
+id), `number` and `sponsorId`. "Place stands yourself" (`placeStandsYourself`) copies the automatic
+stands with the sponsor each held by tier order; automatic stand n becomes fixture `stand-<n>`, the
+visit point it already had, so visits recorded before the switch stay with it. A stand added later
+gets a random id (`freshStandId`), never one a deleted stand had (review HIGH, Oct 30). The Venue GET returns the sponsors in stand order
 (`programme.standSponsors`). Notes and `internal` are stored and edited; nothing reads them for
 exhibitors until phase C.
 

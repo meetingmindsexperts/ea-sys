@@ -48,6 +48,7 @@ import {
   FIXTURE_MIN_SIDE,
   FLOOR_NAME,
   PLAN_FLOORS,
+  PLAN_MAX_FIXTURES,
   PLAN_MAX_WALKWAYS,
   PLAN_WALLS,
   STAND_PRESETS,
@@ -204,7 +205,8 @@ function previewIn3d(slug: string, plan: VenuePlan) {
   const field = document.createElement("input");
   field.type = "hidden";
   field.name = "plan";
-  field.value = JSON.stringify(plan);
+  // The team's notes are not built in 3D; left out, a plan full of notes stays under the preview's size limit (review LOW).
+  field.value = JSON.stringify({ ...plan, fixtures: plan.fixtures.map((f) => ({ ...f, note: undefined })) });
   form.appendChild(field);
   document.body.appendChild(form);
   form.submit();
@@ -218,18 +220,22 @@ export function VenuePlanEditor({
   slug,
   rooms,
   stored,
-  sponsors,
+  sponsors: sponsorList,
   onClose,
 }: {
   eventId: string;
   slug: string | null;
   rooms: VenueRoom[];
   stored: StoredPlan | null;
-  /** The event's sponsors in stand order: who the automatic stands go to, and the choice for each placed stand. */
-  sponsors: StandSponsorRef[];
+  /**
+   * The event's sponsors in stand order: who the automatic stands go to, and the choice for each placed stand.
+   * Null when they could not be read: placing the stands then waits, or every stand would lose its sponsor.
+   */
+  sponsors: StandSponsorRef[] | null;
   onClose: () => void;
 }) {
   const save = useSaveVenuePlan(eventId);
+  const sponsors = useMemo(() => sponsorList ?? [], [sponsorList]);
   const initial = useMemo(() => (stored ? keepListedRooms(stored.plan, rooms) : planFromLayout(generateLayout(rooms, { eventName: "" }))), [stored, rooms]);
   const hist = useHistory(initial);
   // The version as opened. The page re-reads the plan when the window regains focus, and saving with that
@@ -369,9 +375,12 @@ export function VenuePlanEditor({
 
   /** Switch the whole plan to placed stands, starting from what the venue shows now (both floors, one undo step). */
   const placeStands = () => {
-    push(placeStandsYourself(hist.committed, rooms, sponsors));
+    if (!sponsorList) return;
+    const { plan: placed, skipped } = placeStandsYourself(hist.committed, rooms, sponsorList);
+    push(placed);
     setServerIssues([]);
     setSelected(null);
+    if (skipped) toast.warning(`${skipped} of the automatic stands did not fit under the plan's limit of ${PLAN_MAX_FIXTURES} stands and fixtures, so they were left out. Remove some fixtures, then add stands.`);
   };
   const wholePlan = (edit: (p: VenuePlan) => VenuePlan) => {
     push(edit(hist.committed));
@@ -600,7 +609,13 @@ export function VenuePlanEditor({
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Button size="sm" variant="outline" onClick={placeStands} title="Turn the exhibition's stands into stands you move, size, number and give to sponsors">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={placeStands}
+                disabled={!sponsorList}
+                title={sponsorList ? "Turn the exhibition's stands into stands you move, size, number and give to sponsors" : "The event's sponsors could not be read, so the stands would lose them. Reload the page and try again."}
+              >
                 <LayoutGrid className="h-4 w-4" aria-hidden />
                 Place stands yourself
               </Button>
