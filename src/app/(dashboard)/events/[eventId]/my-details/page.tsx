@@ -421,7 +421,7 @@ export default function SubmitterProfilePage() {
               {profile.bio && (
                 <div>
                   <div className="text-xs text-muted-foreground mb-1">Bio</div>
-                  <p className="text-sm whitespace-pre-wrap">{profile.bio}</p>
+                  <p className="text-sm whitespace-pre-wrap wrap-anywhere">{profile.bio}</p>
                 </div>
               )}
               <div className="text-xs text-muted-foreground pt-1">

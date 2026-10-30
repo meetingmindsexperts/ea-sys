@@ -1015,7 +1015,7 @@ export default function SpeakerDetailPage() {
                   {speaker.bio && (
                     <div className="col-span-2 mt-2">
                       <div className="text-xs text-muted-foreground mb-1">Bio</div>
-                      <div className="text-sm whitespace-pre-wrap">{speaker.bio}</div>
+                      <div className="text-sm whitespace-pre-wrap wrap-anywhere">{speaker.bio}</div>
                     </div>
                   )}
                   {speaker.tags && speaker.tags.length > 0 && (

@@ -891,7 +891,7 @@ export function SpeakerDetailSheet({
                       {speaker.bio && (
                         <div className="col-span-2">
                           <div className="text-xs text-muted-foreground">Bio</div>
-                          <div className="text-sm whitespace-pre-wrap">{speaker.bio}</div>
+                          <div className="text-sm whitespace-pre-wrap wrap-anywhere">{speaker.bio}</div>
                         </div>
                       )}
                       {speaker.tags && speaker.tags.length > 0 && (

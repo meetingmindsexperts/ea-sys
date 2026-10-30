@@ -549,7 +549,7 @@ export function ContactDetailSheet({
                 {contact.bio && (
                   <div className="col-span-2">
                     <div className="text-xs text-muted-foreground">Bio</div>
-                    <div className="text-sm whitespace-pre-wrap">{contact.bio}</div>
+                    <div className="text-sm whitespace-pre-wrap wrap-anywhere">{contact.bio}</div>
                   </div>
                 )}
                 {contact.notes && (

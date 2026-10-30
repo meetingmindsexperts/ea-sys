@@ -1550,7 +1550,7 @@ export function RegistrationDetailSheet({
                     {selectedRegistration.attendee.bio && (
                       <div className="col-span-2">
                         <div className="text-xs text-muted-foreground">Bio</div>
-                        <div className="text-sm whitespace-pre-wrap">{selectedRegistration.attendee.bio}</div>
+                        <div className="text-sm whitespace-pre-wrap wrap-anywhere">{selectedRegistration.attendee.bio}</div>
                       </div>
                     )}
                     {(selectedRegistration.attendee.associationName || selectedRegistration.attendee.memberId) && (

@@ -314,7 +314,7 @@ export default async function ContactDetailPage({
                 <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
                   Bio
                 </div>
-                <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg px-4 py-3">
+                <p className="text-sm text-gray-700 whitespace-pre-wrap wrap-anywhere leading-relaxed bg-gray-50 rounded-lg px-4 py-3">
                   {contact.bio}
                 </p>
               </div>
@@ -325,7 +325,7 @@ export default async function ContactDetailPage({
                 <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
                   Notes
                 </div>
-                <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg px-4 py-3">
+                <p className="text-sm text-gray-700 whitespace-pre-wrap wrap-anywhere leading-relaxed bg-gray-50 rounded-lg px-4 py-3">
                   {contact.notes}
                 </p>
               </div>

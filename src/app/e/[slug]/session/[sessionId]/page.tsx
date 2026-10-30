@@ -1225,7 +1225,7 @@ export default function PublicSessionPage() {
                           </p>
                         )}
                         {speaker.bio && (
-                          <p className="text-xs text-muted-foreground mt-2 line-clamp-4">
+                          <p className="text-xs text-muted-foreground mt-2 line-clamp-4 wrap-anywhere">
                             {speaker.bio}
                           </p>
                         )}
