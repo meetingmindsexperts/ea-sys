@@ -104,3 +104,23 @@ describe("what the upload accepts", () => {
     expect(sniffDrawing(new TextEncoder().encode("<svg onload=alert(1)>"))).toBeNull();
   });
 });
+
+describe("review fixes, Oct 30", () => {
+  it("clips a long file name to what the plan saves, keeping its extension", async () => {
+    const { drawingName } = await import("@/lib/venue/drawing-image");
+    const long = `${"Conrad Dubai second floor exhibition layout ".repeat(4)}final v2.png`;
+    const name = drawingName(long);
+    expect(name.length).toBeLessThanOrEqual(120);
+    expect(name.endsWith(".png")).toBe(true);
+    expect(drawingName("Conrad 2F.png")).toBe("Conrad 2F.png");
+    const u = { ...placeUnderlay(plan, "ground", file), name };
+    expect(planSchema.safeParse(withUnderlay(plan, "ground", u)).success).toBe(true);
+  });
+
+  it("keeps a replacement's scale inside what the plan saves, however different its size", async () => {
+    const { clampMpp } = await import("@/lib/venue/underlay");
+    expect(clampMpp(50)).toBe(10);
+    expect(clampMpp(0)).toBe(0.0005);
+    expect(clampMpp(0.02)).toBe(0.02);
+  });
+});

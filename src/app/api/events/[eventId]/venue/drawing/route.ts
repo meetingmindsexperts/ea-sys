@@ -81,6 +81,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "The drawing must be a PDF, PNG, JPEG or WebP file.", code: "UNSUPPORTED_TYPE" }, { status: 400 });
       }
       const path = await uploadFile(buffer, `${randomUUID()}.${type.ext}`, type.contentType, `${UPLOAD_SEGMENT.venueDrawings}/${event.id}`);
+      // The local and S3 stores keep the private path; a store that hands back a public address instead (Supabase,
+      // a public bucket) would publish the hotel's drawing, so it is refused, not saved (review LOW).
+      if (!path.startsWith(drawingFolder(event.id))) {
+        apiLogger.error({ eventId, path }, "venue-drawing:storage-not-private");
+        return NextResponse.json({ error: "This server's file storage cannot keep venue drawings private" }, { status: 500 });
+      }
       apiLogger.info({ eventId, userId: session.user.id, path, bytes: buffer.length }, "venue-drawing:uploaded");
       return NextResponse.json({ path });
     });

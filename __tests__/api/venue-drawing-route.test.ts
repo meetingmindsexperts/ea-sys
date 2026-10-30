@@ -101,6 +101,23 @@ describe("POST: storing a drawing", () => {
     expect(upload).not.toHaveBeenCalled();
   });
 
+  it("refuses a store that hands back a public address instead of the private path", async () => {
+    as("ADMIN");
+    upload.mockResolvedValueOnce("https://bucket.example.com/venue-drawings/evt-1/x.jpg");
+    const res = await post(JPEG);
+    expect(res.status).toBe(500);
+    expect((await res.json!()).error).toMatch(/private/);
+  });
+
+  it("a file just under nginx's 10 MB ceiling gets this route's own message", async () => {
+    as("ADMIN");
+    const big = new Uint8Array(9.75 * 1024 * 1024);
+    big.set(JPEG);
+    const res = await post(big);
+    expect(res.status).toBe(400);
+    expect((await res.json!()).code).toBe("TOO_LARGE");
+  });
+
   it("429 past the hourly limit", async () => {
     as("ADMIN");
     rateLimit.mockReturnValueOnce({ allowed: false, retryAfterSeconds: 60 });

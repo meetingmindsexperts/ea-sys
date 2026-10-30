@@ -17,8 +17,11 @@ import { UPLOAD_PREFIX } from "../upload-prefixes";
 /** Where an event's drawings are stored: the only folder the drawing route reads from. */
 export const drawingFolder = (eventId: string) => `${UPLOAD_PREFIX.venueDrawings}${eventId}/`;
 
-/** The largest drawing file, after a PDF is turned into an image (nginx's ceiling is 10 MB). */
-export const MAX_DRAWING_BYTES = 10 * 1024 * 1024;
+/**
+ * The largest drawing file, after a PDF is turned into an image. Under nginx's 10 MB ceiling, which counts the
+ * whole multipart body, so a file just under the limit gets this route's own message, not nginx's bare 413.
+ */
+export const MAX_DRAWING_BYTES = 9.5 * 1024 * 1024;
 /** The longest side, in pixels, a PDF page is drawn at: sharp at 400 % zoom on a 100 m building, small enough to upload. */
 export const DRAWING_LONG_SIDE = 4000;
 /** A drawing starts this see-through: lines readable, the rooms still visible through it. */
@@ -68,7 +71,8 @@ export function placeUnderlay(plan: VenuePlan, floor: PlanFloor, file: { path: s
   return { path: file.path, name: file.name, px: file.px, mpp: clampMpp(width / file.px[0]), at: [r2(x0), r2(z0)], opacity: DRAWING_OPACITY };
 }
 
-const clampMpp = (m: number) => Math.min(10, Math.max(0.0005, m));
+/** Metres per pixel within what the plan's schema accepts. */
+export const clampMpp = (m: number) => Math.min(10, Math.max(0.0005, m));
 const clampAt = (n: number) => r2(Math.min(PLAN_EXTENT, Math.max(-PLAN_EXTENT, n)));
 
 /** The drawing moved by (dx, dz) metres. */

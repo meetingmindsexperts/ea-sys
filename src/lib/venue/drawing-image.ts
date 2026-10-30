@@ -18,6 +18,13 @@ export interface DrawingImage {
 
 const isPdf = (f: File) => f.type === "application/pdf" || /\.pdf$/i.test(f.name);
 
+/** A file name short enough for the plan (120 characters), its extension kept (review MED: a longer one made the plan unsaveable). */
+export function drawingName(name: string): string {
+  if (name.length <= 120) return name;
+  const ext = /\.[A-Za-z0-9]{1,5}$/.exec(name)?.[0] ?? "";
+  return name.slice(0, 120 - ext.length) + ext;
+}
+
 /** The file name with a new extension: "Conrad 2F.pdf" page 2 becomes "Conrad 2F, page 2.jpg". */
 function renamed(name: string, ext: string, page?: number): string {
   const base = name.replace(/\.[^.]+$/, "").slice(0, 100) || "Venue drawing";

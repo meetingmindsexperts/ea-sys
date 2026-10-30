@@ -44,8 +44,8 @@ import {
 import { SectionHeading } from "@/components/ui/typography";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useSaveVenuePlan, useUploadVenueDrawing, venueDrawingUrl, type VenueRoomsData } from "@/hooks/use-api";
-import { prepareDrawing } from "@/lib/venue/drawing-image";
-import { moveUnderlay, placeUnderlay, scaleUnderlay, underlayOf, underlayRect, withUnderlay } from "@/lib/venue/underlay";
+import { drawingName, prepareDrawing } from "@/lib/venue/drawing-image";
+import { clampMpp, moveUnderlay, placeUnderlay, scaleUnderlay, underlayOf, underlayRect, withUnderlay } from "@/lib/venue/underlay";
 import { ApiError } from "@/lib/api-fetch";
 import { generateLayout, type Rect } from "@/lib/venue/layout";
 import { checkLayout } from "@/lib/venue/layout-check";
@@ -301,7 +301,9 @@ export function VenuePlanEditor({
       if (!next) return;
       const mine = selected && targetFloor(next, selected);
       if (selected && !mine) setSelected(null);
-      const changed = PLAN_FLOORS.filter((f) => JSON.stringify(floorView(hist.committed, f)) !== JSON.stringify(floorView(next, f)));
+      // A floor's drawing counts as part of it, so undoing a drawing step taken upstairs shows upstairs (review LOW).
+      const floorOfPlan = (p: VenuePlan, f: PlanFloor) => JSON.stringify([floorView(p, f), underlayOf(p, f) ?? null]);
+      const changed = PLAN_FLOORS.filter((f) => floorOfPlan(hist.committed, f) !== floorOfPlan(next, f));
       const show = mine || (changed.includes(floor) ? floor : changed[0]);
       if (show) setFloor(show);
       if (dir < 0) hist.undo();
@@ -384,27 +386,43 @@ export function VenuePlanEditor({
   const upload = useUploadVenueDrawing(eventId);
   const fileInput = useRef<HTMLInputElement>(null);
   const [drawingBusy, setDrawingBusy] = useState(false);
-  // The file last chosen, so another page of the same PDF can be put under the plan without choosing it again.
-  const [source, setSource] = useState<{ file: File; pages: number; page: number } | null>(null);
+  // The file last chosen for each floor, so another page of the same PDF can go under it without choosing it again.
+  const [sources, setSources] = useState<Partial<Record<PlanFloor, { file: File; pages: number; page: number }>>>({});
   const [measured, setMeasured] = useState<[[number, number], [number, number]] | null>(null);
+  // What the canvas shows (a drag or the slider in progress included), and what is saved: the bar compares with
+  // the saved one, or a slider change it already shows live would look like no change at all (review HIGH).
   const underlay = underlayOf(hist.plan, floor);
+  const savedUnderlay = underlayOf(hist.committed, floor);
   const setUnderlay = (u: PlanUnderlay | null) => {
     push(withUnderlay(hist.committed, floor, u));
     setServerIssues([]);
   };
-  /** Turn the file into an image, store it, and put it under this floor: replacing the old one in place, or over the building. */
+  // The plan and floor as they are now: an upload takes seconds, and the team may edit meanwhile (review MED).
+  const latest = useRef({ committed: hist.committed, floor });
+  useEffect(() => {
+    latest.current = { committed: hist.committed, floor };
+  }, [hist.committed, floor]);
+  /**
+   * Turn the file into an image, store it, and put it under the floor it was chosen for: replacing the old one in
+   * place, or over the building. Applied to the plan as it is when the upload finishes, never as it was when it
+   * began, so a room moved meanwhile stays moved.
+   */
   const putDrawing = async (file: File, page = 1) => {
+    const forFloor = floor;
     setDrawingBusy(true);
     try {
       const image = await prepareDrawing(file, page);
       const { path } = await upload.mutateAsync(image.file);
-      const placed = { path, name: image.file.name, px: image.px };
-      const old = underlayOf(hist.committed, floor);
+      const placed = { path, name: drawingName(image.file.name), px: image.px };
+      const now = latest.current.committed;
+      const old = underlayOf(now, forFloor);
       // A replacement keeps the old one's place and width on the plan, so the tracing stays lined up.
-      const next: PlanUnderlay = old ? { ...old, ...placed, mpp: (old.px[0] * old.mpp) / image.px[0] } : placeUnderlay(hist.committed, floor, placed);
-      setUnderlay(next);
-      setSource({ file, pages: image.pages, page });
-      if (!old) {
+      const next: PlanUnderlay = old ? { ...old, ...placed, mpp: clampMpp((old.px[0] * old.mpp) / image.px[0]) } : placeUnderlay(now, forFloor, placed);
+      push(withUnderlay(now, forFloor, next));
+      setServerIssues([]);
+      setSources((s) => ({ ...s, [forFloor]: { file, pages: image.pages, page } }));
+      // Straight on to setting its scale, unless the team has gone to the other floor meanwhile.
+      if (!old && latest.current.floor === forFloor) {
         setTool("measure");
         toast.success("Drawing added. Now draw a line over something you know the length of, such as a wall or a stand marked 6x3, to set its scale.", { duration: 10000 });
       }
@@ -714,18 +732,21 @@ export function VenuePlanEditor({
           </div>
           {underlay && (
             <DrawingBar
-              underlay={underlay}
+              underlay={savedUnderlay ?? underlay}
               tool={tool}
               busy={drawingBusy}
-              source={source}
+              source={sources[floor] ?? null}
               onTool={(t) => {
                 setSelected(null);
                 setTool(tool === t ? "select" : t);
               }}
-              onChange={(patch) => setUnderlay({ ...underlay, ...patch })}
-              onLiveOpacity={(opacity) => hist.setLive(opacity === null ? null : withUnderlay(hist.committed, floor, { ...underlay, opacity }))}
+              onChange={(patch) => setUnderlay({ ...(savedUnderlay ?? underlay), ...patch })}
+              onLiveOpacity={(opacity) => hist.setLive(opacity === null ? null : withUnderlay(hist.committed, floor, { ...(savedUnderlay ?? underlay), opacity }))}
               onReplace={() => fileInput.current?.click()}
-              onPage={(page) => source && void putDrawing(source.file, page)}
+              onPage={(page) => {
+                const src = sources[floor];
+                if (src) void putDrawing(src.file, page);
+              }}
               onRemove={() => {
                 setUnderlay(null);
                 setTool("select");
