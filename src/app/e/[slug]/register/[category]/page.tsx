@@ -278,6 +278,9 @@ function CategoryRegistrationContent() {
     | { state: "idle" }
     | { state: "checking" }
     | { state: "conflict"; reason: "already_registered" }
+    // The email already has an account (from any event): the password typed
+    // here will not replace theirs, so say so once; Continue again carries on.
+    | { state: "has-account"; email: string }
   >({ state: "idle" });
 
   // Capture referral tracking on first load
@@ -1003,6 +1006,27 @@ function CategoryRegistrationContent() {
                         </div>
                       )}
 
+                      {/* Only for the email it was checked for: editing the email hides it. */}
+                      {emailCheck.state === "has-account" && emailCheck.email === form.watch("email").trim().toLowerCase() && (
+                        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm text-slate-700">
+                          You already have an account with this email. Sign in with your existing password to manage
+                          your registration later; the password typed here won&apos;t change it.{" "}
+                          <a
+                            href={`/e/${slug}/login?redirect=registration&email=${encodeURIComponent(emailCheck.email)}`}
+                            className="text-primary hover:underline font-medium"
+                          >
+                            Sign in instead
+                          </a>
+                          {" · "}
+                          <a
+                            href={`/e/${slug}/forgot-password?email=${encodeURIComponent(emailCheck.email)}`}
+                            className="text-primary hover:underline font-medium"
+                          >
+                            Forgotten it? Reset
+                          </a>
+                        </div>
+                      )}
+
                       <Button type="button" className="w-full rounded-lg font-semibold btn-gradient py-3 text-base"
                         disabled={emailCheck.state === "checking"}
                         onClick={async () => {
@@ -1011,7 +1035,8 @@ function CategoryRegistrationContent() {
                           // skips them), and zod runs those only once every field
                           // passes, so step 1 checks them itself (review of dd77f563).
                           if (!valid || !accountStepPasses()) return;
-                          setEmailCheck({ state: "checking" });
+                          const email = form.getValues("email").trim().toLowerCase();
+                          setEmailCheck((prev) => (prev.state === "has-account" && prev.email === email ? prev : { state: "checking" }));
                           try {
                             const res = await fetch(`/api/public/events/${slug}/check-email`, {
                               method: "POST",
@@ -1022,6 +1047,11 @@ function CategoryRegistrationContent() {
                               const data = await res.json();
                               if (data.exists && data.reason === "already_registered") {
                                 setEmailCheck({ state: "conflict", reason: "already_registered" });
+                                return;
+                              }
+                              // Shown once per email: pressing Continue again goes on as before.
+                              if (data.hasAccount && !(emailCheck.state === "has-account" && emailCheck.email === email)) {
+                                setEmailCheck({ state: "has-account", email });
                                 return;
                               }
                             }
