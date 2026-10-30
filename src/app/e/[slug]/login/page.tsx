@@ -93,6 +93,25 @@ function EventLoginForm() {
     if (slug) fetchEvent();
   }, [slug]);
 
+  /**
+   * Where a signed-in submitter lands: My Details when the account is on this
+   * event, else `registerHref` to join it. The event GET answers a submitter
+   * only for an event they are linked to (buildEventAccessWhere), so it is the
+   * one place that rule lives. Any other answer, or a failed request, sends
+   * them to register, which recognises an existing account.
+   */
+  async function submitterHome(registerHref: string): Promise<string> {
+    if (!event?.id) return registerHref;
+    try {
+      const res = await fetch(`/api/events/${event.id}`);
+      if (res.ok) return `/events/${event.id}/my-details`;
+      console.info("[event-login] submitter not on this event, sending to register", { status: res.status });
+    } catch (err) {
+      console.error("[event-login] could not check the submitter's event", err);
+    }
+    return registerHref;
+  }
+
   async function onSubmit(data: LoginFormData) {
     setIsSubmitting(true);
     try {
@@ -142,8 +161,12 @@ function EventLoginForm() {
         const role = await getSession().then((s) => s?.user?.role).catch(() => undefined);
         if (role === "SUBMITTER") {
           // Land the submitter on their details/profile page (their abstract
-          // "home": profile + registration + their abstracts + a submit CTA).
-          router.push(event?.id ? `/events/${event.id}/my-details` : "/events");
+          // "home": profile + registration + their abstracts + a submit CTA),
+          // but only when this account is on THIS event. A submitter from
+          // another event is sent to register here first (Oct 30, 2026), where
+          // the same account signs in and is added, instead of a "no access"
+          // panel written for staff.
+          router.push(await submitterHome(`/e/${slug}/abstract/register`));
         } else if (role && role !== "REGISTRANT") {
           router.push("/events");
         } else {
@@ -158,7 +181,7 @@ function EventLoginForm() {
         // /my-registration).
         const role = await getSession().then((s) => s?.user?.role).catch(() => undefined);
         if (role === "SUBMITTER") {
-          router.push(event?.id ? `/events/${event.id}/my-details` : "/events");
+          router.push(await submitterHome(`/e/${slug}/proposal/register`));
         } else if (role && role !== "REGISTRANT") {
           router.push("/events");
         } else {

@@ -8,7 +8,7 @@ import { eventFactsOf } from "@/hooks/use-can";
 import { httpStatusOf } from "@/lib/session-expiry";
 import { can, principalFromUser } from "@/lib/permissions/can";
 import { EVENT_PAGE_KEYS, eventPageSegment } from "@/lib/permissions/event-page-keys";
-import { NoAccess } from "./no-access";
+import { NoAccess, NotOnThisEvent } from "./no-access";
 import { isTeamRole } from "@/lib/team-roles";
 
 /**
@@ -30,7 +30,12 @@ export function EventAccessGate({ children }: { children: React.ReactNode }) {
   const event = useEvent(eventId);
 
   const code = event.error ? httpStatusOf(event.error) : undefined;
-  if (code === 403 || code === 404) return <NoAccess what="this event" />;
+  if (code === 403 || code === 404) {
+    const role = session?.user?.role;
+    // An outside identity reaches an event by registering or being added, not by an admin changing its access.
+    if (role && !isTeamRole(role)) return <NotOnThisEvent role={role} />;
+    return <NoAccess what="this event" />;
+  }
 
   const key = EVENT_PAGE_KEYS[eventPageSegment(pathname)];
   if (!key || !session?.user) return <>{children}</>;
