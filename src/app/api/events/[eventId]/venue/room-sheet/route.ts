@@ -19,7 +19,8 @@ import { checkRateLimit } from "@/lib/security";
 import { isVenueModuleEnabled } from "@/lib/module-flags";
 import { readVenuePlan } from "@/lib/venue/plan";
 import { buildVenueLayout } from "@/lib/venue/plan-layout";
-import { ROOM_ID, readVenueRooms } from "@/lib/venue/rooms";
+import { ROOM_ID, SEATED_KINDS, readVenueRooms } from "@/lib/venue/rooms";
+import { checkLayout } from "@/lib/venue/layout-check";
 import { planDateLine } from "@/lib/venue/floor-plan-pdf";
 import { renderRoomSheetPdf, roomFilePart } from "@/lib/venue/room-sheet-pdf";
 
@@ -79,8 +80,18 @@ export async function GET(req: Request, { params }: RouteParams) {
         apiLogger.warn({ msg: `${ROUTE}:room-not-found`, eventId, userId: session.user.id, roomId });
         return fail("That room is not in the saved rooms. Save the rooms and try again.", 404, "ROOM_NOT_FOUND");
       }
+      // A setup sheet is for a room people sit in, as the menu offers (review of f10bdb84).
+      if (!SEATED_KINDS.includes(room.kind)) {
+        apiLogger.warn({ msg: `${ROUTE}:room-not-seated`, eventId, userId: session.user.id, roomId, kind: room.kind });
+        return fail("A setup sheet is for a room people sit in: the plenary, a hall or a workshop.", 400, "ROOM_NOT_SEATED");
+      }
       const built = buildVenueLayout(saved.rooms, readVenuePlan(event.settings)?.plan ?? null, { eventName: event.name });
       if (built.planIssues.length) apiLogger.warn({ msg: `${ROUTE}:plan-not-used`, eventId, issues: built.planIssues });
+      const check = checkLayout(built.layout);
+      if (!check.ok) {
+        apiLogger.error({ msg: `${ROUTE}:layout-not-walkable`, eventId, issues: check.issues });
+        return fail("The saved rooms no longer make a walkable plan. Open the Venue tab and save the rooms again.", 409, "LAYOUT_BROKEN");
+      }
       const place = [event.venue, event.city].map((p) => p?.trim()).filter(Boolean).join(", ") || null;
       const pdf = await renderRoomSheetPdf({
         layout: built.layout,

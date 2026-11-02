@@ -58,7 +58,7 @@ export function roomSheetFacts(layout: VenueLayout, zoneId: string) {
   if (!zone) return null;
   const items = layout.items.filter((it) => it.zone === zoneId);
   const seats = items.reduce((n, it) => n + seatsOf(it), 0);
-  return { zone, items, seats, gap: stageGap(items) };
+  return { zone, items, seats, gap: stageGap(items, zone.rect) };
 }
 
 const boxOf = (it: LayoutItem): Rect => {
@@ -70,22 +70,39 @@ const boxOf = (it: LayoutItem): Rect => {
  * The clear gap from the stage's front to the nearest seats, measured across the stage's long side, with where to
  * draw it: the number a hotel puts on its plan (2.55 m on the Al Wasl Ballroom's). Null with no stage or seats.
  */
-export function stageGap(items: LayoutItem[]): { metres: number; from: [number, number]; to: [number, number] } | null {
+export function stageGap(items: LayoutItem[], room: Rect): { metres: number; from: [number, number]; to: [number, number] } | null {
   const stage = items.find((it) => it.t === "stage");
   const seating = items.filter((it) => seatsOf(it) > 0);
   if (!stage || !seating.length) return null;
   const [sx0, sz0, sx1, sz1] = boxOf(stage);
-  const alongX = sx1 - sx0 >= sz1 - sz0;
+  const back = stageBack(boxOf(stage), room);
+  // Measured towards the door, to the seats in front of the stage only (review of f10bdb84: a stage deeper than
+  // it is wide was read as facing sideways, and the gap was measured to a block of tables beside it).
+  const towardsZ = back === "n" || back === "s";
+  const [lo, hi] = towardsZ ? [sx0, sx1] : [sz0, sz1];
+  const mid = (lo + hi) / 2;
   let best: { metres: number; from: [number, number]; to: [number, number] } | null = null;
   for (const it of seating) {
     const [x0, z0, x1, z1] = boxOf(it);
-    const mid = alongX ? (sx0 + sx1) / 2 : (sz0 + sz1) / 2;
-    const gaps: [number, [number, number], [number, number]][] = alongX
-      ? [[z0 - sz1, [mid, sz1], [mid, z0]], [sz0 - z1, [mid, sz0], [mid, z1]]]
-      : [[x0 - sx1, [sx1, mid], [x0, mid]], [sx0 - x1, [sx0, mid], [x1, mid]]];
-    for (const [g, from, to] of gaps) if (g >= 0 && (!best || g < best.metres)) best = { metres: Math.round(g * 100) / 100, from, to };
+    const [a, b] = towardsZ ? [x0, x1] : [z0, z1];
+    if (Math.min(b, hi) - Math.max(a, lo) <= 0) continue;
+    // Each wall the stage can stand against: the gap from its front to this item, and where to draw it.
+    const towards: Record<typeof back, [number, [number, number], [number, number]]> = {
+      n: [z0 - sz1, [mid, sz1], [mid, z0]],
+      s: [sz0 - z1, [mid, sz0], [mid, z1]],
+      w: [x0 - sx1, [sx1, mid], [x0, mid]],
+      e: [sx0 - x1, [sx0, mid], [x1, mid]],
+    };
+    const [g, from, to] = towards[back];
+    if (g >= 0 && (!best || g < best.metres)) best = { metres: Math.round(g * 100) / 100, from, to };
   }
   return best;
+}
+
+/** The wall the stage stands against (its back), the one it is nearest: a room faces away from it. */
+export function stageBack([x0, z0, x1, z1]: Rect, [rx0, rz0, rx1, rz1]: Rect): "n" | "s" | "e" | "w" {
+  const d = { n: z0 - rz0, s: rz1 - z1, w: x0 - rx0, e: rx1 - x1 } as const;
+  return (Object.keys(d) as (keyof typeof d)[]).reduce((a, b) => (d[b] < d[a] ? b : a));
 }
 
 export async function renderRoomSheetPdf(input: RoomSheetInput): Promise<Buffer> {
@@ -146,14 +163,16 @@ function drawSheet(doc: Doc, input: RoomSheetInput, facts: NonNullable<ReturnTyp
 
   const footY = pageH - MARGIN - 10;
   const setup = zone.setup ? SETUP_INFO[zone.setup].label : null;
-  const bits = [`Scale 1:${ratio} on A4`, `${seats.toLocaleString("en-GB")} seats drawn${setup ? ` (${setup.toLowerCase()})` : ""}`, "North is up", `Made ${formatFooterTimestamp(input.generatedAt)}`];
+  // A very large room is drawn with up to 420 seats (layout.ts); say so rather than pass the drawing off as all of them.
+  const drawn = seats < zone.capacity ? `${seats.toLocaleString("en-GB")} of ${zone.capacity.toLocaleString("en-GB")} seats drawn` : `${seats.toLocaleString("en-GB")} seats drawn`;
+  const bits = [`Scale 1:${ratio} on A4`, `${drawn}${setup ? ` (${setup.toLowerCase()})` : ""}`, "North is up", `Made ${formatFooterTimestamp(input.generatedAt)}`];
   doc.font("Helvetica").fontSize(7.5).fillColor(MUTED).text(sanitizePdfText(bits.join("  ·  ")), MARGIN, footY, { width: pageW - 2 * MARGIN, align: "center", lineBreak: false });
 }
 
 function drawHeader(doc: Doc, input: RoomSheetInput, zone: LayoutZone, pageW: number) {
   const width = pageW - 2 * MARGIN;
   const widthOf = (font: string) => (text: string, size: number) => doc.font(font).fontSize(size).widthOfString(text);
-  doc.font("Helvetica").fontSize(9).fillColor(MUTED).text(sanitizePdfText([input.eventName, input.dateLine, input.place].filter(Boolean).join("  ·  ")), MARGIN, MARGIN, { width, lineBreak: false });
+  doc.font("Helvetica").fontSize(9).fillColor(MUTED).text(sanitizePdfText([input.eventName, input.dateLine, input.place].filter(Boolean).join("  ·  ")), MARGIN, MARGIN, { width, lineBreak: false, ellipsis: true });
   const title = fitLabel(widthOf("Helvetica-Bold"), sanitizePdfText(zone.name), width * 0.6, 22, 12);
   doc.font("Helvetica-Bold").fontSize(title.size).fillColor(INK).text(title.text, MARGIN, MARGIN + 16, { lineBreak: false });
   const setup = zone.setup ? `, ${SETUP_INFO[zone.setup].label.toLowerCase()}` : "";
@@ -170,9 +189,11 @@ function drawItem(doc: Doc, it: LayoutItem, P: Project, ptPerM: number, facts?: 
   if (it.t === "stage") {
     doc.rect(x, y, w, h).fill(STAGE);
     doc.rect(x, y, w, h).lineWidth(0.8).strokeColor("#a08660").stroke();
-    // Width across the room by depth into it, whichever way the room faces.
-    const across = Math.max(bx1 - bx0, bz1 - bz0);
-    const deep = Math.min(bx1 - bx0, bz1 - bz0);
+    // Width along the wall it stands against by depth into the room, from the room's axes, not its shape.
+    const back = facts ? stageBack([bx0, bz0, bx1, bz1], facts.zone.rect) : "n";
+    const ns = back === "n" || back === "s";
+    const across = ns ? bx1 - bx0 : bz1 - bz0;
+    const deep = ns ? bz1 - bz0 : bx1 - bx0;
     centredLabel(doc, `Stage ${across.toFixed(2)} x ${deep.toFixed(2)} m`, x, y, w, h, 9);
     return;
   }

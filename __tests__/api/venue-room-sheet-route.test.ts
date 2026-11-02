@@ -12,7 +12,7 @@ import { renderRoomSheetPdf, roomFilePart, roomSheetFacts } from "@/lib/venue/ro
 const { mockAuth, mockDb, rateLimit } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: { event: { findFirst: vi.fn() } },
-  rateLimit: vi.fn((_o: { key: string }) => ({ allowed: true, retryAfterSeconds: 0 })),
+  rateLimit: vi.fn((o: { key: string }) => ({ allowed: !!o, retryAfterSeconds: 0 })),
 }));
 
 vi.mock("next/server", () => {
@@ -117,6 +117,24 @@ describe("the sheet", () => {
       expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
     }
     expect(roomSheetFacts(layout, "corridor")).toBeNull();
+  });
+
+  it("review of f10bdb84: a stage deeper than it is wide still faces the room; the gap is to the seats in front", async () => {
+    const { generateLayout: gen } = await import("@/lib/venue/layout");
+    const { TEMPLATES } = await import("@/lib/venue/rooms");
+    for (const setup of ["theatre", "classroom"] as const) {
+      const rooms = TEMPLATES.congress.rooms.map((r) => (r.id === "hall-a" ? { ...r, setup, stage: { w: 3, d: 5 } } : r));
+      const facts = roomSheetFacts(gen(rooms, { eventName: "x" }), "hall-a")!;
+      expect(facts.gap).not.toBeNull();
+      expect(facts.gap!.metres).toBe(setup === "theatre" ? 1.52 : 2.5);
+    }
+  });
+
+  it("refuses a room nobody sits in", async () => {
+    as("ADMIN");
+    const res = await get("?room=foyer-0");
+    expect(res.status).toBe(400);
+    expect((await res.json!()).code).toBe("ROOM_NOT_SEATED");
   });
 
   it("names the file part from the room's name", () => {
