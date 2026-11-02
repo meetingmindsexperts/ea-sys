@@ -100,6 +100,10 @@ import {
   targetFloor,
   toFloor,
   tooSmall,
+  adjacentRooms,
+  isMovable,
+  movableWallIssues,
+  setMovableWall,
   turn,
   unplacedRooms,
   type PlanTarget,
@@ -118,7 +122,7 @@ function judge(rooms: VenueRoom[], plan: VenuePlan, sponsors: StandSponsorRef[])
   const known = new Set(sponsors.map((sp) => sp.id));
   // A sponsor removed from the event since it was given a stand: the stand shows as Available (never an error).
   const gone = plan.fixtures.filter((f) => isStand(f) && f.sponsorId && !known.has(f.sponsorId)).map((f) => `${fixtureLabel(f)}: its sponsor is no longer on the event's list, so it shows as Available`);
-  const warnings = [...tooSmall(plan, rooms), ...gone];
+  const warnings = [...tooSmall(plan, rooms), ...movableWallIssues(plan, rooms), ...gone];
   // The schema first, as the server does: a limit (12 walkways, a 30 m door) must not show as walkable and then fail on save.
   const parsed = planSchema.safeParse(plan);
   if (!parsed.success) return { problems: [...new Set(parsed.error.issues.map((i) => i.message))], warnings };
@@ -1254,6 +1258,7 @@ function PlanPanel({
           )}
         </div>
       )}
+      {placed && <MovableWalls id={key} plan={plan} roomId={placed.id} rooms={rooms} onChange={onChange} />}
       <Button size="sm" variant="outline" onClick={() => onChange(turn(plan, selected, foyerId))}>
         <RotateCw className="h-4 w-4" aria-hidden />
         Turn a quarter
@@ -1535,3 +1540,30 @@ function DoorFields({
   );
 }
 
+
+/**
+ * The walls this room shares with its neighbours, each one solid or a movable wall (section 11, step 4): a hotel
+ * ballroom divided into sections, each section its own room with its own setup.
+ */
+function MovableWalls({ id, plan, roomId, rooms, onChange }: { id: string; plan: VenuePlan; roomId: string; rooms: VenueRoom[]; onChange: (p: VenuePlan) => void }) {
+  const next = adjacentRooms(plan, roomId);
+  if (!next.length) return null;
+  const name = (rid: string) => rooms.find((r) => r.id === rid)?.name ?? rid;
+  return (
+    <fieldset className="space-y-2">
+      <legend className="mb-1 text-xs font-medium">Movable walls</legend>
+      <p className="text-xs text-muted-foreground">A ballroom divided into sections: tick the wall it shares with the next section. Each section keeps its own setup.</p>
+      {next.map((other) => {
+        const cid = `${id}-movable-${other}`;
+        return (
+          <div key={other} className="flex items-center gap-2">
+            <Checkbox id={cid} checked={isMovable(plan, roomId, other)} onCheckedChange={(on) => onChange(setMovableWall(plan, roomId, other, on === true))} />
+            <Label htmlFor={cid} className="text-sm font-normal">
+              Wall with {name(other)} is movable
+            </Label>
+          </div>
+        );
+      })}
+    </fieldset>
+  );
+}

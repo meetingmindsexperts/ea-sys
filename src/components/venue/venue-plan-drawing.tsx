@@ -259,6 +259,16 @@ function Walls({ layout }: { layout: VenueLayout }) {
     <g>
       {layout.walls.map((w, i) => {
         const t = isOutside(layout.zones, w) ? OUTSIDE_WALL : WALL;
+        if (w.movable) {
+          // A movable wall between sections of one ballroom: dashed, as a hotel's plans draw it.
+          return solidPieces(w).map(([a, b], j) =>
+            w.axis === "x" ? (
+              <line key={`${i}-${j}`} x1={a} y1={w.k} x2={b} y2={w.k} className="stroke-slate-700 dark:stroke-slate-300" strokeWidth={t * 0.7} strokeDasharray="0.6 0.4" />
+            ) : (
+              <line key={`${i}-${j}`} x1={w.k} y1={a} x2={w.k} y2={b} className="stroke-slate-700 dark:stroke-slate-300" strokeWidth={t * 0.7} strokeDasharray="0.6 0.4" />
+            ),
+          );
+        }
         return solidPieces(w).map(([a, b], j) => {
           // Grown by half the thickness only at the wall's own ends, to close the corners; never into a doorway.
           const s = a <= w.a0 + 0.01 ? a - t / 2 : a;

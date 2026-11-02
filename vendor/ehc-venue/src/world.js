@@ -188,7 +188,14 @@ function buildWorld(R, Q) {
       if (axis === 'x') box(mat, p0, y0, k - thick / 2, p1, y1, k + thick / 2, col, { col: collide });
       else box(mat, k - thick / 2, y0, p0, k + thick / 2, y1, p1, col, { col: collide });
     };
-    for (const [p0, p1] of segs) { mk(p0, p1, 0, h, 'wall', true); mk(p0, p1, 0, 0.14, 'wood', false, WT + 0.06, [0.45, 0.32, 0.24, 0]); }
+    if (o.movable) {
+      // A movable wall (section 11, step 4): panels 1.2 m wide hung from a ceiling track, lighter than a fixed wall.
+      for (const [p0, p1] of segs) {
+        mk(p0, p1, 0, h, 'plain', true, 0.16, [0.84, 0.82, 0.78, 0]);
+        for (let p = p0 + 1.2; p < p1 - 0.1; p += 1.2) mk(p - 0.02, p + 0.02, 0.05, h - 0.2, 'metal', false, 0.2, [0.55, 0.53, 0.5, 0]);
+        mk(p0, p1, h - 0.2, h, 'metal', false, 0.24, [0.4, 0.39, 0.37, 0]);
+      }
+    } else for (const [p0, p1] of segs) { mk(p0, p1, 0, h, 'wall', true); mk(p0, p1, 0, 0.14, 'wood', false, WT + 0.06, [0.45, 0.32, 0.24, 0]); }
     for (const op of opens) {
       const y0 = op.y0 || 0, y1 = op.y1 || 3.6;
       if (y0 > 0) mk(op.a, op.b, 0, y0, 'wall', true);
@@ -549,7 +556,7 @@ function buildWorld(R, Q) {
   // facings (yaw looks along (sin, cos)) and footprints come from EA-SYS, already checked walkable.
   function buildLayout() {
     const L = LAYOUT, [bx0, , bx1, bz1] = L.bounds;
-    for (const w of L.walls) wall(w.axis, w.k, w.a0, w.a1, w.h, w.opens || []);
+    for (const w of L.walls) wall(w.axis, w.k, w.a0, w.a1, w.h, w.opens || [], { movable: !!w.movable });
     quad('sky', (bx0 + bx1) / 2, 16, bz1 + 32, Math.max(230, (bx1 - bx0) * 4), 58, Math.PI, [1, 1, 1, 0], { mode: 'mesh' });
     const zoneOf = (id) => ZONES.find((z) => z.id === id) || {};
     const rectOf = (f) => ('r' in f ? [f.cx - f.r, f.cz - f.r, f.cx + f.r, f.cz + f.r] : [f.x0, f.z0, f.x1, f.z1]);

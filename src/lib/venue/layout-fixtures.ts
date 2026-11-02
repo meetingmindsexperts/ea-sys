@@ -143,3 +143,10 @@ export const PLAN_FIXTURES: Record<string, { rooms: VenueRoom[]; plan: VenuePlan
     return { rooms, plan };
   })(),
 };
+
+// One ballroom in two sections (section 11, step 4): a movable wall between them, each section its own setup.
+const SECTIONS: Record<string, Partial<VenueRoom>> = { "breakout-1": { name: "Ballroom R1", setup: "classroom" }, "breakout-2": { name: "Ballroom R2" } };
+PLAN_FIXTURES["drawn-ballroom-sections"] = {
+  rooms: PLAN_FIXTURES["drawn-sideways"].rooms.map((r) => ({ ...r, ...SECTIONS[r.id] })),
+  plan: { ...PLAN_FIXTURES["drawn-sideways"].plan, movableWalls: [["breakout-1", "breakout-2"]] },
+};

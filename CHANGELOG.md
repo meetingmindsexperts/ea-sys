@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: a ballroom divided into sections (November 2)
+
+- **"Movable walls" in the floor plan editor**: select a room and tick the wall it shares with a neighbouring room (at least 2 m of shared wall, same floor). That is how a hotel ballroom split into sections is drawn (the Al Wasl Ballroom plan's dashed line, "R2"): each section stays its own room with its own setup, capacity, door and sessions.
+- **Drawn as a partition everywhere**: dashed on the 2D plan, the floor plan PDF and both sections' setup sheets ("Movable wall"), and in the 3D walk as light panels on a ceiling track. Only the stretch the two rooms share is movable; the rest of their walls stay solid.
+- Stored as `movableWalls` (room id pairs) on the saved plan, at most 20, no migration. A pair goes with a room taken off the list, and the editor warns when the two rooms no longer share a wall.
+
 ### Venue: a one-page setup sheet for each room (November 2)
 
 - **Download PDF on the Venue tab now lists "Room setup sheet (A4)"** with every seated room. Each sheet is what a hotel's banqueting team works from (the Al Wasl Ballroom plan): the room to scale with its walls and doors, the stage and screen with their sizes, every table, row and chair as the venue lays them out, fixtures such as the AV console by name, the room's width and depth, the clear gap from the stage to the first seats, and the headcount with its setup ("PAX 112, classroom").

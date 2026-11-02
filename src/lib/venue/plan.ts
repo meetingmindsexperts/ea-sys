@@ -148,6 +148,12 @@ export interface VenuePlan {
   /** The venue's own drawing under each floor, at most one per floor. */
   underlays?: PlanUnderlay[];
   /**
+   * Pairs of rooms whose shared wall is a movable wall (section 11, step 4): one hotel ballroom divided into sections
+   * (the Al Wasl Ballroom's dashed line, "R2"). Each section stays its own room with its own setup; the wall between
+   * them is drawn as a partition. Room ids, each pair in either order.
+   */
+  movableWalls?: [string, string][];
+  /**
    * Editor only, on one floor's view of a plan: the ids the other floor uses, so a walkway or fixture added
    * there never repeats one. The schema drops it, so it is never saved.
    */
@@ -181,6 +187,11 @@ const doorSchema = z.object({
 export const PLAN_MAX_WALKWAYS = 12;
 /** The most fixtures a plan holds, stands included (the Conrad's second floor has about 40 stands and tables). */
 export const PLAN_MAX_FIXTURES = 200;
+/** The most movable walls a plan holds. */
+export const PLAN_MAX_MOVABLE_WALLS = 20;
+
+/** One key for a pair of rooms, whichever comes first. */
+export const wallKey = ([a, b]: [string, string]) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 /** A stand's number: letters, digits, and a dot, slash or dash inside ("07", "A3", "12-B"). */
 export const STAND_NUMBER = /^[A-Za-z0-9](?:[A-Za-z0-9./-]{0,6}[A-Za-z0-9])?$/;
 /** A fixture's smallest side: a pillar can be thin, an exit sign thinner. */
@@ -233,7 +244,13 @@ export const planSchema = z.object({
     .max(PLAN_FLOORS.length)
     .refine((list) => new Set(list.map((u) => u.floor ?? "ground")).size === list.length, "A floor has one venue drawing at most")
     .optional(),
+  movableWalls: z
+    .array(z.tuple([z.string().regex(/^[a-z0-9-]{1,40}$/), z.string().regex(/^[a-z0-9-]{1,40}$/)]).refine(([a, b]) => a !== b, "A movable wall is between two rooms"))
+    .max(PLAN_MAX_MOVABLE_WALLS, `A plan has at most ${PLAN_MAX_MOVABLE_WALLS} movable walls`)
+    .refine((list) => new Set(list.map(wallKey)).size === list.length, "The same movable wall is listed twice")
+    .optional(),
 });
+
 
 export interface StoredVenuePlan {
   plan: VenuePlan;
@@ -350,6 +367,8 @@ export function floorView(plan: VenuePlan, floor: PlanFloor): VenuePlan {
     entrance: plan.entrance,
     fixtures: plan.fixtures.filter(on),
     ...(plan.standsPlaced && { standsPlaced: true }),
+    // For the whole plan, like the drawings: a pair is only ever two rooms on one floor, and the view edits them.
+    ...(plan.movableWalls && { movableWalls: plan.movableWalls }),
     otherIds: [...plan.rooms.filter(off), ...plan.corridors.filter(off), ...plan.fixtures.filter(off)].map((a) => a.id),
     otherNumbers: plan.fixtures.filter(off).flatMap((f) => (f.number ? [f.number] : [])),
   };
@@ -387,8 +406,12 @@ export function withFloor(plan: VenuePlan, floor: PlanFloor, view: VenuePlan): V
     ...((plan.standsPlaced || view.standsPlaced) && { standsPlaced: true }),
     // The drawings are edited on the whole plan (underlay.ts), never through a floor's view.
     ...(plan.underlays && { underlays: plan.underlays }),
+    // The view's list when it has one (an empty list is "none left"), else the plan's.
+    ...movableOf(view.movableWalls ?? plan.movableWalls),
   };
 }
+
+const movableOf = (list: [string, string][] | undefined) => (list && list.length ? { movableWalls: list } : {});
 
 /** Kinds that join floors: a lift serves every floor it is drawn on, stairs the floors either side (decision F10). */
 const LINKING: ReadonlySet<FixtureKind> = new Set(["stairs", "lift"]);

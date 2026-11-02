@@ -542,7 +542,7 @@ dashed movable wall). The owner asked for the four steps one after another (Nov 
 | 1 | A setup per seated room (theatre, classroom, cabaret, banquet, boardroom, U-shape), laid out in 2D, PDF and 3D | BUILT Nov 2 |
 | 2 | Real stage and screen sizes per room, today's estimates as the fallback | BUILT Nov 2 |
 | 3 | A one-page room setup sheet (PDF) like the hotel's | BUILT Nov 2 |
-| 4 | Divisible ballrooms (sections along a movable wall) | planned |
+| 4 | Divisible ballrooms (sections along a movable wall) | BUILT Nov 2 |
 
 Step 1 as built: `rooms.ts` `ROOM_SETUPS` / `SETUP_INFO` / `setupOf` / `chosenSetup`; the zone carries `setup`;
 `layout.ts` `furnishSeated` dispatches to `furnishClassroom`, `furnishRounds`, `furnishBoardroom`, `furnishUShape`
@@ -559,3 +559,9 @@ The editor's ruler button edits them per seated room.
 Step 3 as built: `room-sheet-pdf.ts` (`renderRoomSheetPdf`, `roomSheetFacts`, `stageGap`, `seatsOf`) and
 `GET .../venue/room-sheet?room=` (the floor plan PDF's gate and rate bucket). A4, turned to suit the room; labels
 on tall boxes read upwards; measurements avoid the walls with doors; a side-wall screen's label sits past its end.
+
+Step 4 as built: `VenuePlan.movableWalls` (room id pairs, `wallKey`), kept through `floorView`/`withFloor` (an empty
+list in the view clears it); `findWalls` flags the shared stretch `movable`; `plan-edit.ts` `sharedEdge`,
+`adjacentRooms` (2 m or more, same floor), `setMovableWall`, `isMovable`, `movableWallIssues`; `keepListedRooms`
+drops pairs. Deliberately NOT built: opening the wall to combine the sections into one room with one setup (that
+would need a combined room on the list); each section is laid out on its own. Fixture `drawn-ballroom-sections`.

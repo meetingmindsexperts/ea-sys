@@ -277,7 +277,9 @@ function drawWalls(doc: Doc, layout: VenueLayout, P: Project, ptPerM: number) {
       const s = a <= w.a0 + 0.01 ? a - t / 2 : a;
       const e = b >= w.a1 - 0.01 ? b + t / 2 : b;
       const [p, q] = w.axis === "x" ? [P(s, w.k), P(e, w.k)] : [P(w.k, s), P(w.k, e)];
-      doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(thick).strokeColor(WALL).stroke();
+      // A movable wall between sections of one ballroom is dashed, as a hotel's plans draw it.
+      if (w.movable) doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(Math.max(0.8, thick * 0.6)).dash(4, { space: 3 }).strokeColor(WALL).stroke().undash();
+      else doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(thick).strokeColor(WALL).stroke();
     }
     for (const o of w.opens.filter((x) => x.glass)) {
       const [p, q] = w.axis === "x" ? [P(o.a, w.k), P(o.b, w.k)] : [P(w.k, o.a), P(w.k, o.b)];

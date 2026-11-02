@@ -65,6 +65,8 @@ export interface LayoutWall {
   a1: number;
   h: number;
   opens: WallOpening[];
+  /** A movable wall between two sections of one ballroom (plan.ts `movableWalls`): drawn as a partition. */
+  movable?: boolean;
 }
 
 export interface LayoutDoor {

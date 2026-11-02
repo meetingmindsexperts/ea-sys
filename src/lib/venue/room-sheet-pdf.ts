@@ -148,6 +148,7 @@ function drawSheet(doc: Doc, input: RoomSheetInput, facts: NonNullable<ReturnTyp
   doc.rect(rx, ry, rw, rh).fill(FLOOR);
   for (const it of items) drawItem(doc, it, P, ptPerM, facts);
   doc.rect(rx, ry, rw, rh).lineWidth(2.2).strokeColor(WALL).stroke();
+  drawMovableWalls(doc, input.layout, zone, P);
   drawDoors(doc, input.layout, zone, P);
   // Each measurement goes on a wall without a door, so the "Door" label never sits under it.
   const walls = doorWalls(input.layout, zone);
@@ -282,6 +283,28 @@ function round(doc: Doc, it: Extract<LayoutItem, { t: "round" }>, P: Project, pt
   for (let k = 0; k < it.chairs; k++) {
     const a = openA === null ? (k / it.chairs) * Math.PI * 2 + 0.3 : openA + Math.PI / 3 + ((k + 0.5) / it.chairs) * ((Math.PI * 4) / 3);
     chair(doc, P(it.cx + Math.cos(a) * 1.45, it.cz + Math.sin(a) * 1.45), ptPerM);
+  }
+}
+
+/** A movable wall on the room's edge (one section of a divided ballroom): dashed over the outline, and named. */
+function drawMovableWalls(doc: Doc, layout: VenueLayout, zone: LayoutZone, P: Project) {
+  const [x0, z0, x1, z1] = zone.rect;
+  const EPS = 0.05;
+  for (const w of layout.walls.filter((q) => q.movable)) {
+    const onEdge = w.axis === "x" ? Math.abs(w.k - z0) < EPS || Math.abs(w.k - z1) < EPS : Math.abs(w.k - x0) < EPS || Math.abs(w.k - x1) < EPS;
+    const [lo, hi] = w.axis === "x" ? [x0, x1] : [z0, z1];
+    const a = Math.max(w.a0, lo);
+    const b = Math.min(w.a1, hi);
+    if (!onEdge || b - a < 0.5) continue;
+    const [p, q] = w.axis === "x" ? [P(a, w.k), P(b, w.k)] : [P(w.k, a), P(w.k, b)];
+    doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(3).strokeColor(FLOOR).stroke();
+    doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(1.6).dash(4, { space: 3 }).strokeColor(WALL).stroke().undash();
+    const label = "Movable wall";
+    doc.font("Helvetica").fontSize(6.5).fillColor(MUTED);
+    const tw = doc.widthOfString(label);
+    const [mx, my] = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+    if (w.axis === "x") doc.text(label, mx - tw / 2, my + 4, { lineBreak: false });
+    else doc.save().translate(mx + 4, my + tw / 2).rotate(-90).text(label, 0, 0, { lineBreak: false }).restore();
   }
 }
 

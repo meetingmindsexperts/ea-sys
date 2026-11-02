@@ -43,6 +43,7 @@ import {
   isStand,
   planFloors,
   planIssues,
+  wallKey,
   type PlanDoor,
   type PlanFixture,
   type PlanFloor,
@@ -278,7 +279,7 @@ export function floorLayout(rooms: VenueRoom[], plan: VenuePlan, opts: { eventNa
   }
 
   // ── Walls: wherever two different areas meet, or an area meets the outside ──
-  const walls = findWalls(zones);
+  const walls = findWalls(zones, plan.movableWalls);
   for (const d of doors) {
     const along = d.axis === "x" ? d.x : d.z;
     const k = d.axis === "x" ? d.z : d.x;
@@ -581,15 +582,16 @@ function doorSign(zones: LayoutZone[], d: LayoutDoor): LayoutItem[] {
  * on its two sides differ (or one side is outside) and they are not both
  * walkways. Consecutive wall pieces join into one wall.
  */
-export function findWalls(zones: LayoutZone[]): LayoutWall[] {
+export function findWalls(zones: LayoutZone[], movableWalls: [string, string][] = []): LayoutWall[] {
+  const movable = new Set(movableWalls.map(wallKey));
   const xs = [...new Set(zones.flatMap((z) => [z.rect[0], z.rect[2]]))].sort((a, b) => a - b);
   const zs = [...new Set(zones.flatMap((z) => [z.rect[1], z.rect[3]]))].sort((a, b) => a - b);
   const at = (x: number, z: number) => zones.find((zn) => inside(zn.rect, x, z));
   const walls: LayoutWall[] = [];
   const scan = (axis: "x" | "z", k: number, cuts: number[]) => {
-    let run: { a0: number; a1: number; h: number } | null = null;
+    let run: { a0: number; a1: number; h: number; mov: boolean } | null = null;
     const flush = () => {
-      if (run) walls.push({ axis, k: r2(k), a0: r2(run.a0), a1: r2(run.a1), h: run.h, opens: [] });
+      if (run) walls.push({ axis, k: r2(k), a0: r2(run.a0), a1: r2(run.a1), h: run.h, opens: [], ...(run.mov && { movable: true }) });
       run = null;
     };
     for (let i = 0; i + 1 < cuts.length; i++) {
@@ -601,10 +603,13 @@ export function findWalls(zones: LayoutZone[]): LayoutWall[] {
         continue;
       }
       const h = !a || !b ? EXTERIOR_H : Math.max(a.ceil, b.ceil);
+      // A movable stretch is its own wall, so it can be drawn as a partition and the rest stays solid.
+      const mov = !!a && !!b && movable.has(wallKey([a.id, b.id]));
+      if (run && run.mov !== mov) flush();
       if (run) {
         run.a1 = cuts[i + 1];
         run.h = Math.max(run.h, h);
-      } else run = { a0: cuts[i], a1: cuts[i + 1], h };
+      } else run = { a0: cuts[i], a1: cuts[i + 1], h, mov };
     }
     flush();
   };

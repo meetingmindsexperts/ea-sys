@@ -23,6 +23,8 @@ import {
   onFloor,
   planFloors,
   withFloor,
+  wallKey,
+  PLAN_MAX_MOVABLE_WALLS,
   PLAN_DOOR_MAX,
   PLAN_DOOR_MIN,
   PLAN_EXTENT,
@@ -690,8 +692,11 @@ export const unplacedRooms = (plan: VenuePlan, rooms: VenueRoom[]) => rooms.filt
 /** A plan with only the rooms still on the list (a room removed from the list since drops out). */
 export function keepListedRooms(plan: VenuePlan, rooms: VenueRoom[]): VenuePlan {
   const kept = { ...plan, rooms: plan.rooms.filter((p) => rooms.some((r) => r.id === p.id)) };
-  // The fixtures that stood in a dropped room go with it.
-  return { ...kept, fixtures: heldFixtures(kept) };
+  // The fixtures that stood in a dropped room go with it, and so does a movable wall beside it.
+  const walls = (plan.movableWalls ?? []).filter(([a, b]) => kept.rooms.some((p) => p.id === a) && kept.rooms.some((p) => p.id === b));
+  const { movableWalls: _drop, ...rest } = kept;
+  void _drop;
+  return { ...rest, fixtures: heldFixtures(kept), ...(walls.length && { movableWalls: walls }) };
 }
 
 /**
@@ -732,4 +737,50 @@ export function overlapping(plan: VenuePlan): Set<string> {
   const holds = (r: Rect, o: Rect) => r[0] >= o[0] - 0.01 && r[1] >= o[1] - 0.01 && r[2] <= o[2] + 0.01 && r[3] <= o[3] + 0.01;
   for (const f of plan.fixtures) if (!areas.some((a) => holds(f.rect, a.r))) hit.add(f.id);
   return hit;
+}
+
+
+// ── Movable walls (section 11, step 4): one ballroom divided into sections ──
+
+/** How much of an edge two rooms share, in metres (0 when they do not touch). */
+export function sharedEdge(a: Rect, b: Rect): number {
+  const EPS = 0.01;
+  const overlap = (lo1: number, hi1: number, lo2: number, hi2: number) => Math.max(0, Math.min(hi1, hi2) - Math.max(lo1, lo2));
+  if (Math.abs(a[2] - b[0]) < EPS || Math.abs(b[2] - a[0]) < EPS) return overlap(a[1], a[3], b[1], b[3]);
+  if (Math.abs(a[3] - b[1]) < EPS || Math.abs(b[3] - a[1]) < EPS) return overlap(a[0], a[2], b[0], b[2]);
+  return 0;
+}
+
+/** A movable wall needs at least this much shared wall, as a door does. */
+const MOVABLE_MIN = 2;
+
+/** The rooms on the same floor that share a wall with this one, the ones a movable wall could stand between. */
+export function adjacentRooms(plan: VenuePlan, id: string): string[] {
+  const me = plan.rooms.find((p) => p.id === id);
+  if (!me) return [];
+  return plan.rooms.filter((p) => p.id !== id && floorOf(p) === floorOf(me) && sharedEdge(me.rect, p.rect) >= MOVABLE_MIN).map((p) => p.id);
+}
+
+/** Whether the wall between two rooms is marked movable. */
+export const isMovable = (plan: VenuePlan, a: string, b: string) => (plan.movableWalls ?? []).some((w) => wallKey(w) === wallKey([a, b]));
+
+/** Mark the wall between two rooms movable or solid. An empty list (not absent) says none are left, for withFloor. */
+export function setMovableWall(plan: VenuePlan, a: string, b: string, on: boolean): VenuePlan {
+  const rest = (plan.movableWalls ?? []).filter((w) => wallKey(w) !== wallKey([a, b]));
+  if (!on) return { ...plan, movableWalls: rest };
+  if (rest.length >= PLAN_MAX_MOVABLE_WALLS) return plan;
+  return { ...plan, movableWalls: [...rest, [a, b]] };
+}
+
+/** Movable walls the plan no longer draws, because their rooms moved apart or to different floors. */
+export function movableWallIssues(plan: VenuePlan, rooms: VenueRoom[]): string[] {
+  const name = (id: string) => rooms.find((r) => r.id === id)?.name ?? id;
+  const out: string[] = [];
+  for (const [a, b] of plan.movableWalls ?? []) {
+    const pa = plan.rooms.find((p) => p.id === a);
+    const pb = plan.rooms.find((p) => p.id === b);
+    if (!pa || !pb) continue;
+    if (floorOf(pa) !== floorOf(pb) || sharedEdge(pa.rect, pb.rect) < MOVABLE_MIN) out.push(`${name(a)} and ${name(b)} no longer share a wall, so the movable wall between them is not drawn`);
+  }
+  return out;
 }
