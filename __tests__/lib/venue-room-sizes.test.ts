@@ -88,7 +88,40 @@ describe("what the room list accepts", () => {
     const lounge = roomsSchema.safeParse(patch("lounge", { screen: { w: 4, h: 2 } }));
     expect(lounge.success).toBe(false);
     expect(JSON.stringify(lounge.error?.issues)).toMatch(/only a room people sit in has a stage or a screen/);
-    expect(roomsSchema.safeParse(patch("plenary", { stage: { w: 0.5, d: 3 } })).success).toBe(false);
+    const thin = roomsSchema.safeParse(patch("plenary", { stage: { w: 1.5, d: 3 } }));
+    expect(thin.success).toBe(false);
+    // Named, so several rooms' mistakes can be told apart (review of 05371679).
+    expect(JSON.stringify(thin.error?.issues)).toMatch(/Meeting Room: a stage is 2 to 40 m wide/);
+    expect(roomsSchema.safeParse(patch("plenary", { stage: { w: 4, d: 0.5 } })).success).toBe(false);
     expect(roomsSchema.safeParse(patch("plenary", { screen: { w: 10, h: 20 } })).success).toBe(false);
+    expect(roomsSchema.safeParse(patch("plenary", { screen: { w: Number.NaN, h: 2 } })).success).toBe(false);
+  });
+});
+
+describe("review of 05371679", () => {
+  const one = (stage: VenueRoom["stage"], screen?: VenueRoom["screen"]): VenueRoom[] => [
+    { id: "foyer", name: "Foyer", kind: "foyer", capacity: 100 },
+    { id: "hall", name: "Hall", kind: "hall", capacity: 60, stage, ...(screen && { screen }) },
+  ];
+
+  it("on the smallest stage the lectern and the speaker stay on it", () => {
+    const l = generateLayout(one({ w: 2, d: 1 }), { eventName: "x" });
+    const stage = l.items.find((it) => it.zone === "hall" && it.t === "stage")!.foot as { x0: number; z0: number; x1: number; z1: number };
+    const lectern = l.items.find((it) => it.zone === "hall" && it.t === "lectern")!.foot as { x0: number; z0: number; x1: number; z1: number };
+    const speaker = l.people.find((p) => p.role === "speaker" && p.x >= stage.x0 - 5 && p.x <= stage.x1 + 5 && p.z >= stage.z0 - 5 && p.z <= stage.z1 + 5)!;
+    for (const [lo, hi, a, b] of [[stage.x0, stage.x1, lectern.x0, lectern.x1], [stage.z0, stage.z1, lectern.z0, lectern.z1]]) {
+      expect(a).toBeGreaterThanOrEqual(lo - 1e-9);
+      expect(b).toBeLessThanOrEqual(hi + 1e-9);
+    }
+    expect(speaker.x).toBeGreaterThanOrEqual(stage.x0);
+    expect(speaker.x).toBeLessThanOrEqual(stage.x1);
+    expect(speaker.z).toBeGreaterThanOrEqual(stage.z0);
+    expect(speaker.z).toBeLessThanOrEqual(stage.z1);
+  });
+
+  it("a 2.3 m screen is drawn 2.3 m high, not 2 cm short", () => {
+    const l = generateLayout(one(undefined, { w: 6, h: 2.3 }), { eventName: "x" });
+    const screen = l.items.find((it): it is Extract<LayoutItem, { t: "screen" }> => it.zone === "hall" && it.t === "screen")!;
+    expect(screen.hgt).toBe(2.3);
   });
 });

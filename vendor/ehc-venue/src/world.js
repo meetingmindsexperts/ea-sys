@@ -166,7 +166,9 @@ function buildWorld(R, Q) {
     if (seatList) seatList.push({ x, z, yaw });
   }
   function screen(cx, cy, cz, w, h, ry, spec) {
-    const cv = mkCanvas(1024, Math.round(1024 * h / w)); drawScreen(cv, 0, spec);
+    // A thin, tall real screen would ask for a huge canvas: keep its longer side at 2048, the shape unchanged.
+    const k = Math.min(1, 2048 / Math.max(1024, 1024 * h / w));
+    const cv = mkCanvas(Math.round(1024 * k), Math.round(1024 * h / w * k)); drawScreen(cv, 0, spec);
     const tex = R.texFromCanvas(cv, { clamp: true, nomip: true });
     const b = new Batch('screen', { unlit: 1 }); b.add(MESH.plane, M4.trs(cx, cy, cz, ry, w, h, 1), [1, 1, 1, 0]);
     // bezel

@@ -118,19 +118,28 @@ const roomSchema = z.object({
   kind: z.enum(ROOM_KINDS),
   capacity: z.number({ message: "Enter how many people each room holds" }).int("Room sizes are whole numbers of people").min(1).max(3000),
   setup: z.enum(ROOM_SETUPS).optional(),
-  stage: z
-    .object({
-      w: z.number().min(1, "A stage is at least 1 m wide").max(40, "A stage is at most 40 m wide"),
-      d: z.number().min(0.5, "A stage is at least 0.5 m deep").max(15, "A stage is at most 15 m deep"),
-    })
-    .optional(),
-  screen: z
-    .object({
-      w: z.number().min(0.5, "A screen is at least 0.5 m wide").max(30, "A screen is at most 30 m wide"),
-      h: z.number().min(0.3, "A screen is at least 0.3 m high").max(12, "A screen is at most 12 m high"),
-    })
-    .optional(),
+  // Bounds are checked per room below, so a message names the room it is about.
+  stage: z.object({ w: z.number().finite(), d: z.number().finite() }).optional(),
+  screen: z.object({ w: z.number().finite(), h: z.number().finite() }).optional(),
 });
+
+/** What a stage and a screen may measure, in metres. A stage under 2 x 1 m has no room for the lectern and speaker. */
+export const SIZE_LIMITS = {
+  stage: { w: [2, 40], d: [1, 15] },
+  screen: { w: [0.5, 30], h: [0.3, 12] },
+} as const;
+
+function sizeIssue(name: string, what: "stage" | "screen", v: { w: number; d?: number; h?: number }): string | null {
+  const lim = SIZE_LIMITS[what];
+  const second = what === "stage" ? "d" : "h";
+  const word = what === "stage" ? "deep" : "high";
+  const [w0, w1] = lim.w;
+  const [s0, s1] = what === "stage" ? SIZE_LIMITS.stage.d : SIZE_LIMITS.screen.h;
+  const sv = v[second] as number;
+  if (v.w < w0 || v.w > w1) return `${name}: a ${what} is ${w0} to ${w1} m wide`;
+  if (sv < s0 || sv > s1) return `${name}: a ${what} is ${s0} to ${s1} m ${word}`;
+  return null;
+}
 
 /** The room list as saved: refuses what the floor plan cannot lay out, with a reason a person can act on. */
 export const roomsSchema = z
@@ -149,6 +158,10 @@ export const roomsSchema = z
       const { min, max } = ROOM_KIND_INFO[r.kind].capacity;
       if (r.capacity < min || r.capacity > max) issue(`${r.name}: a ${ROOM_KIND_INFO[r.kind].label.toLowerCase()} holds ${min} to ${max} people`);
       if ((r.stage || r.screen) && !SEATED_KINDS.includes(r.kind)) issue(`${r.name}: only a room people sit in has a stage or a screen`);
+      const badStage = r.stage && sizeIssue(r.name, "stage", r.stage);
+      if (badStage) issue(badStage);
+      const badScreen = r.screen && sizeIssue(r.name, "screen", r.screen);
+      if (badScreen) issue(badScreen);
       if (!r.setup) continue;
       if (!SEATED_KINDS.includes(r.kind)) issue(`${r.name}: only a room people sit in has a setup`);
       const most = SETUP_INFO[r.setup].maxCapacity;

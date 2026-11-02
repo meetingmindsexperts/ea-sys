@@ -497,7 +497,8 @@ function furnishStage(f: Frame, out: Out): { sv0: number; big: boolean } {
     id: big ? "plenary-main" : `${id}-screen`, x: sx, y: scr.y, z: sz, w: r2(scr.w), hgt: r2(scr.h), yaw: f.yaw + Math.PI,
     kicker: `${f.zone.name} · ${big ? "Main stage" : "Parallel session"}`, title: big ? "Plenary session" : "Session to be announced", sub: "The agenda names this room's sessions",
   });
-  const lu = halfStage * 0.6;
+  // On a small real stage the lectern and the speaker beside it stay on the stage (review of 05371679).
+  const lu = Math.min(halfStage * 0.6, halfStage - 0.5);
   out.items.push({ t: "lectern", zone: id, solid: true, foot: f.box(lu - 0.4, sv0 + stageD / 2 - 0.3, lu + 0.4, sv0 + stageD / 2 + 0.3) });
   const [px, pz] = f.at(lu - 0.9, sv0 + stageD / 2);
   out.people.push({ x: px, z: pz, y: big ? 0.9 : 0.45, yaw: r2(f.yaw + Math.PI), pose: "present", role: "speaker" });
@@ -538,7 +539,7 @@ function screenSize(f: Frame, ownW: number, bottom: number, ownY: number): { w: 
   if (!f.zone.screen) return { w: ownW, h: ownW * 0.55, y: ownY };
   const w = Math.min(f.zone.screen[0], f.W - 1);
   // In 2 cm steps, so half of it is whole centimetres and rounding the centre cannot lift the top past the ceiling.
-  const h = Math.max(0.3, Math.floor(Math.min(f.zone.screen[1], f.zone.ceil - bottom - 0.3) * 50) / 50);
+  const h = Math.max(0.3, Math.floor(Math.min(f.zone.screen[1], f.zone.ceil - bottom - 0.3) * 50 + 1e-9) / 50);
   return { w, h, y: r2(bottom + h / 2) };
 }
 

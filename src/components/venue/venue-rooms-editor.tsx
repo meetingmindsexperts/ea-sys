@@ -27,7 +27,7 @@ import { VenuePlanPdfButton } from "@/components/venue/venue-plan-pdf-button";
 import { VenuePlanEditor } from "@/components/venue/venue-plan-editor";
 import { VenueProgrammeCard } from "@/components/venue/venue-programme-card";
 import { BlueprintNotes, BlueprintReplaceRow, BlueprintStartCard } from "@/components/venue/venue-blueprint-start";
-import { ROOM_KINDS, ROOM_KIND_INFO, ROOM_SETUPS, SEATED_KINDS, SETUP_INFO, hasStage, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type RoomSetup, type VenueRoom } from "@/lib/venue/rooms";
+import { ROOM_KINDS, ROOM_KIND_INFO, ROOM_SETUPS, SEATED_KINDS, SETUP_INFO, SIZE_LIMITS, hasStage, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type RoomSetup, type VenueRoom } from "@/lib/venue/rooms";
 
 const SEATED: RoomKind[] = ["plenary", "hall", "workshop"];
 
@@ -344,7 +344,7 @@ function RoomRow({
   return (
     <div className="grid gap-2 px-5 py-3 md:grid-cols-[minmax(0,1fr)_13rem_11rem_8rem_5rem] md:items-center md:gap-3">
       <Input id={`room-${room.id}-name`} name={`room-${room.id}-name`} aria-label="Room name" value={room.name} maxLength={60} onChange={(e) => onUpdate({ name: e.target.value })} />
-      <Select value={room.kind} onValueChange={(v) => onUpdate({ kind: v as RoomKind, ...(!SEATED_KINDS.includes(v as RoomKind) && { setup: undefined }) })} disabled={isFoyer}>
+      <Select value={room.kind} onValueChange={(v) => onUpdate({ kind: v as RoomKind, ...(!SEATED_KINDS.includes(v as RoomKind) && { setup: undefined, stage: undefined, screen: undefined }) })} disabled={isFoyer}>
         <SelectTrigger id={`room-${room.id}-kind`} aria-label="What the room is for" className="w-full">
           <SelectValue />
         </SelectTrigger>
@@ -463,6 +463,14 @@ type Pair = { a: string; b: string };
 const pairOf = (v: { w: number; d: number } | { w: number; h: number } | undefined, second: "d" | "h"): Pair =>
   v ? { a: String(v.w), b: String((v as Record<string, number>)[second]) } : { a: "", b: "" };
 
+/** Whether the fields already read as this saved size (or both empty for none). */
+function samePair(p: Pair, v: { w: number; d: number } | { w: number; h: number } | undefined, second: "d" | "h"): boolean {
+  const r = readPair(p);
+  if (!r.ok) return false;
+  if (!v) return r.value === null;
+  return r.value !== null && r.value[0] === v.w && r.value[1] === (v as Record<string, number>)[second];
+}
+
 /** Both numbers, both empty (no size: the venue sizes it), or neither yet (still typing). */
 function readPair(p: Pair): { ok: true; value: [number, number] | null } | { ok: false } {
   if (p.a.trim() === "" && p.b.trim() === "") return { ok: true, value: null };
@@ -479,6 +487,20 @@ function readPair(p: Pair): { ok: true; value: [number, number] | null } | { ok:
 function SizesButton({ room, onUpdate }: { room: VenueRoom; onUpdate: (patch: Partial<VenueRoom>) => void }) {
   const [stage, setStage] = useState<Pair>(() => pairOf(room.stage, "d"));
   const [screen, setScreen] = useState<Pair>(() => pairOf(room.screen, "h"));
+  // When the saved sizes change from outside the fields (Discard, a Blueprint, a reload), show them, unless the
+  // fields already say the same (review of 05371679: a stale field could save a size nobody entered).
+  const [seen, setSeen] = useState({ stage: room.stage, screen: room.screen });
+  if (seen.stage !== room.stage || seen.screen !== room.screen) {
+    setSeen({ stage: room.stage, screen: room.screen });
+    if (!samePair(stage, room.stage, "d")) setStage(pairOf(room.stage, "d"));
+    if (!samePair(screen, room.screen, "h")) setScreen(pairOf(room.screen, "h"));
+  }
+  // Closing with a half-typed size goes back to what is saved, so what the fields show is what Save sends.
+  const onOpenChange = (open: boolean) => {
+    if (open) return;
+    setStage(pairOf(room.stage, "d"));
+    setScreen(pairOf(room.screen, "h"));
+  };
   if (!SEATED_KINDS.includes(room.kind)) return <span className="h-9 w-9" aria-hidden />;
   const withStage = hasStage(room);
   const set = !!room.screen || (withStage && !!room.stage);
@@ -492,14 +514,14 @@ function SizesButton({ room, onUpdate }: { room: VenueRoom; onUpdate: (patch: Pa
     const r = readPair(p);
     if (r.ok) onUpdate({ screen: r.value ? { w: r.value[0], h: r.value[1] } : undefined });
   };
-  const field = (id: string, label: string, value: string, onChange: (v: string) => void) => (
+  const field = (id: string, label: string, [min, max]: readonly [number, number], value: string, onChange: (v: string) => void) => (
     <label htmlFor={id} className="grid gap-1 text-xs font-medium text-muted-foreground">
       {label}
-      <Input id={id} name={id} type="number" inputMode="decimal" step="0.01" min="0" value={value} onChange={(e) => onChange(e.target.value)} className="tabular-nums" />
+      <Input id={id} name={id} type="number" inputMode="decimal" step="0.01" min={min} max={max} value={value} onChange={(e) => onChange(e.target.value)} className="tabular-nums" />
     </label>
   );
   return (
-    <Popover>
+    <Popover onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" aria-label={`Stage and screen sizes for ${room.name}`} className={set ? "text-primary" : undefined}>
           <Ruler className="h-4 w-4" aria-hidden />
@@ -513,18 +535,18 @@ function SizesButton({ room, onUpdate }: { room: VenueRoom; onUpdate: (patch: Pa
         {withStage ? (
           <fieldset className="grid grid-cols-2 gap-3">
             <legend className="sr-only">Stage</legend>
-            {field(`room-${room.id}-stage-w`, "Stage width", stage.a, (v) => commitStage({ ...stage, a: v }))}
-            {field(`room-${room.id}-stage-d`, "Stage depth", stage.b, (v) => commitStage({ ...stage, b: v }))}
+            {field(`room-${room.id}-stage-w`, "Stage width", SIZE_LIMITS.stage.w, stage.a, (v) => commitStage({ ...stage, a: v }))}
+            {field(`room-${room.id}-stage-d`, "Stage depth", SIZE_LIMITS.stage.d, stage.b, (v) => commitStage({ ...stage, b: v }))}
           </fieldset>
         ) : (
           <p className="text-xs text-muted-foreground">A {setupLabel(room).toLowerCase()} setup has no stage, only a screen.</p>
         )}
         <fieldset className="grid grid-cols-2 gap-3">
           <legend className="sr-only">Screen</legend>
-          {field(`room-${room.id}-screen-w`, "Screen width", screen.a, (v) => commitScreen({ ...screen, a: v }))}
-          {field(`room-${room.id}-screen-h`, "Screen height", screen.b, (v) => commitScreen({ ...screen, b: v }))}
+          {field(`room-${room.id}-screen-w`, "Screen width", SIZE_LIMITS.screen.w, screen.a, (v) => commitScreen({ ...screen, a: v }))}
+          {field(`room-${room.id}-screen-h`, "Screen height", SIZE_LIMITS.screen.h, screen.b, (v) => commitScreen({ ...screen, b: v }))}
         </fieldset>
-        {(!readPair(stage).ok || !readPair(screen).ok) && <p className="text-xs text-amber-700 dark:text-amber-400">Enter both numbers of a size, or leave both empty.</p>}
+        {(!readPair(stage).ok || !readPair(screen).ok) && <p className="text-xs text-amber-700 dark:text-amber-400">Enter both numbers of a size, or leave both empty. Closing keeps the size saved before.</p>}
       </PopoverContent>
     </Popover>
   );
