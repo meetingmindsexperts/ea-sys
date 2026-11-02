@@ -101,6 +101,8 @@ describe("POST walk-in", () => {
       expect.objectContaining({
         paymentStatus: "COMPLIMENTARY",
         overrideSalesWindow: true,
+        // The desk's own source, so its day can be listed and reconciled (Nov 2, 2026).
+        createdSource: "ONSITE_DESK",
         suppressConfirmationEmail: false,
         pricingTierId: "tier1",
         detailsComplete: true,

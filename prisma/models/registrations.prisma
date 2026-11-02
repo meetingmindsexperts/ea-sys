@@ -423,6 +423,11 @@ enum RegistrationCreatedSource {
   /// The company payer covers the money (billingAccountId + groupId set);
   /// members are never dunned individually.
   GROUP_REGISTER
+  /// A walk-in registered at the onsite desk (`POST .../registrations/walk-in`,
+  /// docs/ONSITE_DESK_PLAN.md). Seats sit on the ticket-type counter, as for
+  /// the dashboard. A desk QR sign-up on a phone stays PUBLIC_REGISTER: the
+  /// person filled the public form, and the tier counter follows that source.
+  ONSITE_DESK
   /// Catch-all for legacy paths or paths we haven't tagged yet.
   /// Rows landing here are a signal to extend coverage.
   OTHER

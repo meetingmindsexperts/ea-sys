@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Onsite desk: free rates and the day summary (November 2)
+
+- **"Free" on the walk-in form**: a rate at 0 that is not the Complimentary rate (Standard on a free event) now reads "Free" instead of "Complimentary". Label only; both are still saved as Complimentary.
+- **Walk-ins are marked as desk walk-ins**: new registration source `ONSITE_DESK` (additive migration `20261102120000_add_onsite_desk_source`), shown on the registration as "Onsite desk walk-in". Desk QR sign-ups on a phone are unchanged.
+- **Day summary on the desk**: walk-ins that day by type and rate (Free, Comp, Sponsor, Paid, Not paid) and the cash and card each desk user took, with totals and a print sheet, in the event's timezone. Managers see every desk user; desk staff see only their own. `GET /api/events/[eventId]/registrations/desk-summary` (`payments.record`). docs/ONSITE_DESK_PLAN.md section 9.
+
 ### Help Assistant: answers worded for people outside the team (November 2)
 
 - **Abstract authors, reviewers and attendees get their own instructions** (`EXTERNAL_INSTRUCTIONS` in `src/lib/help-chat/system-prompt.ts`): plain language, page names instead of paths, no internal role names or status codes, never "the user guide", "the event team" instead of "the organizer", no AI Agent, and nothing about how staff set things up. Same knowledge base (the staff guide) and the same safety rules. Staff answers are unchanged.

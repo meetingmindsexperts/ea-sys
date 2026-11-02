@@ -260,6 +260,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         // On event day the public sales window has usually closed; the desk is
         // staff. Sold-out and the event cap still apply; the service logs it.
         overrideSalesWindow: true,
+        createdSource: "ONSITE_DESK",
         // The payment email (invoice + receipt) follows the capture, so the
         // "please pay" confirmation would contradict it a minute later.
         suppressConfirmationEmail: paid,

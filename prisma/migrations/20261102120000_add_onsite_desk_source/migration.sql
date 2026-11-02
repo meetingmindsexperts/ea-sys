@@ -1,0 +1,14 @@
+-- Add the ONSITE_DESK registration source: a walk-in registered at the onsite
+-- desk, so the desk's day can be listed and reconciled on its own
+-- (docs/ONSITE_DESK_PLAN.md).
+--
+-- ADDITIVE + IDEMPOTENT. `ADD VALUE IF NOT EXISTS` is blue-green safe: the
+-- still-running old container never meets the value until a walk-in is
+-- registered on the new one, and a re-run is a no-op. This is the ONLY
+-- statement in the file, so the value is never used in the same transaction
+-- that creates it (a Postgres restriction on new enum values). Precedent:
+-- 20261023120000_add_base_role.
+--
+-- Rollback hazard: an image older than this migration cannot read a
+-- registration carrying the value (docs/ROLLBACK.md). Never delete it.
+ALTER TYPE "RegistrationCreatedSource" ADD VALUE IF NOT EXISTS 'ONSITE_DESK';

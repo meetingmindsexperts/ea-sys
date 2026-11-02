@@ -163,6 +163,15 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   `SELECT email FROM "User" WHERE role = 'BASE';`. Never delete the enum value; retire it
   through `RETIRED_ROLES`.
 
+- **The onsite desk source (`ONSITE_DESK`, Nov 2, 2026; migration
+  `20261102120000_add_onsite_desk_source`).** Once the desk has registered a walk-in, an image
+  older than this release cannot read that registration: its Prisma client throws on the
+  unknown enum value, and the registrations list, check-in and exports for that event go with
+  it. Before rolling back past it, set those rows to `ADMIN_DASHBOARD` (what walk-ins were
+  saved as before) and set them back after rolling forward. Read-only check:
+  `SELECT id, "eventId" FROM "Registration" WHERE "createdSource" = 'ONSITE_DESK';`.
+  Never delete the enum value.
+
 - **Bind mounts are untouched**: `public/uploads/`, `logs/`, and `.env` live on the host
   and survive any image swap. (The DB is untouched too — a code rollback never touches data.)
 

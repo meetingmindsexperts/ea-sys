@@ -17,7 +17,7 @@ import { formatPersonName } from "@/lib/utils";
 import { deskEnterAction, deskQueryIsSearchable, matchesDeskSearch } from "@/lib/desk-enter";
 import { CompleteOnsiteDialog, EditDetailsDialog, useWaitingList, type OnsiteLink, type OnsitePerson } from "./desk-onsite";
 import { WalkInQrDialog } from "./desk-walkin-qr";
-import { walkInPaymentChoices, type WalkInPaymentChoice } from "@/lib/desk-walkin-payment";
+import { isComplimentaryRate, walkInPaymentChoices, walkInPaymentLabel, type WalkInPaymentChoice } from "@/lib/desk-walkin-payment";
 import { useCan } from "@/hooks/use-can";
 import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
 import { TitleSelect } from "@/components/ui/title-select";
@@ -95,13 +95,6 @@ interface DeskTicketType {
 type PaymentChoice = WalkInPaymentChoice;
 /** What the walk-in route is told: a choice, or "covered" when a code leaves nothing to pay. */
 type SubmittedPayment = PaymentChoice | "covered";
-
-const PAYMENT_LABEL: Record<PaymentChoice, string> = {
-  complimentary: "Complimentary",
-  cash: "Cash",
-  card: "Card",
-  inclusive: "Sponsor (Inclusive)",
-};
 
 /** The desk's code check (walk-in/promo route): what to collect, or which sponsor pays. */
 interface PromoPreview {
@@ -1192,7 +1185,9 @@ function WalkInForm({
               <p className="text-sm text-muted-foreground">Sponsor rate: enter the sponsor&rsquo;s code.</p>
             )}
             {choices.includes("complimentary") && (
-              <p className="text-sm text-muted-foreground">Free rate: complimentary, or Sponsor when a sponsor brings them.</p>
+              <p className="text-sm text-muted-foreground">
+                {isComplimentaryRate(tier?.name ?? null) ? "Complimentary rate" : "Free rate"}: nothing to collect, or Sponsor when a sponsor brings them.
+              </p>
             )}
             <div className="flex flex-wrap items-center gap-2">
               {choices.map((choice) => (
@@ -1203,7 +1198,7 @@ function WalkInForm({
                   variant={effectivePayment === choice ? "default" : "outline"}
                   onClick={() => choosePayment(choice)}
                 >
-                  {PAYMENT_LABEL[choice]}
+                  {walkInPaymentLabel(choice, tier?.name ?? null)}
                 </Button>
               ))}
               {effectivePayment === "card" && !(codeIsApplied && promo.finalPrice === 0) && (

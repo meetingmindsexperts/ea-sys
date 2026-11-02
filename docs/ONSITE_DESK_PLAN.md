@@ -439,3 +439,40 @@ to 3, and shown in the browser before any push.
   Complimentary rate or registration stops it. Print opens an A4 sheet in the
   browser's print dialog.
 
+
+## 9. Step 5: Free rates and the desk day summary (BUILT, Nov 2, 2026)
+
+Owner question: on an event whose Standard rate is free and that has no
+Complimentary rate, how does the desk reconcile? Nothing is collected on a
+free rate, so the drawer is unaffected; the gap was that "free" and "comp"
+read the same. Owner decisions, Nov 2:
+
+1. **"Free" on the button.** A rate at 0 that is not the Complimentary rate
+   (`isComplimentaryRate`, the same slug the desk QR uses) reads "Free" on
+   the walk-in form; the Complimentary rate keeps "Complimentary". Label
+   only: both are still saved as `COMPLIMENTARY`, and the registrations list
+   shows "Complimentary" for both.
+2. **A desk source, not a tag.** Walk-ins are saved with
+   `createdSource = ONSITE_DESK` (additive migration
+   `20261102120000_add_onsite_desk_source`; rollback note in
+   docs/ROLLBACK.md). Seats stay on the ticket-type counter, as before. A
+   desk QR sign-up on a phone stays `PUBLIC_REGISTER`, because the person
+   filled the public form and the tier counter follows that source.
+3. **The day summary.** "Day summary" on the desk header, for whoever holds
+   `payments.record`: walk-ins that day by type and rate in five columns
+   (Free, Comp, Sponsor, Paid, Not paid), and the cash and onsite card
+   recorded that day per desk user, with totals and a print sheet. The day
+   is a calendar day in the event's timezone. A manager (holds
+   `payments.refund` on the event) sees every desk user; anyone else sees
+   only the walk-ins they registered and the money they took. The money is
+   every desk payment of the day, walk-ins or not, so it matches the drawer,
+   counted on the day it was recorded. Free vs Comp is read from the rate:
+   Comp is the Complimentary rate or a 100% code on a paid rate.
+4. **No separate FREE status** (declined): it would touch every check that
+   reads `COMPLIMENTARY`.
+
+As built: `src/lib/desk-day-summary.ts` (pure counting and the day bounds),
+`GET .../registrations/desk-summary?date=YYYY-MM-DD`,
+`check-in/desk-day-summary-dialog.tsx`. Known limit: the walk-in's creator
+comes from its CREATE audit row, so a walk-in whose audit write failed is
+missing from that desk user's own view (managers still see it).

@@ -17,8 +17,30 @@
  *   rate), or a sponsor's code for a sponsored delegate.
  */
 import { tierNeedsSponsorCode } from "@/lib/code-required-tiers";
+import { registerTierSlug } from "@/lib/main-register-tiers";
 
 export type WalkInPaymentChoice = "complimentary" | "cash" | "card" | "inclusive";
+
+/**
+ * The event's Complimentary rate (owner, Oct 29): the rate whose slug is
+ * "complimentary". The one rule: the desk QR's complimentary form, the
+ * walk-in's button label and the day summary's Free/Comp split all ask here.
+ */
+export function isComplimentaryRate(rateName: string | null): boolean {
+  return !!rateName && registerTierSlug(rateName) === "complimentary";
+}
+
+/**
+ * The button's word for a choice (owner, Nov 2, 2026). A rate that simply
+ * costs nothing (Standard at 0 on a free event) reads "Free", so the desk does
+ * not appear to waive a fee; only the Complimentary rate reads "Complimentary".
+ * The label only: both are still saved as COMPLIMENTARY.
+ */
+export function walkInPaymentLabel(choice: WalkInPaymentChoice, rateName: string | null): string {
+  if (choice === "complimentary") return isComplimentaryRate(rateName) ? "Complimentary" : "Free";
+  if (choice === "inclusive") return "Sponsor (Inclusive)";
+  return choice === "cash" ? "Cash" : "Card";
+}
 
 export function walkInPaymentChoices(
   rate: { name: string | null; price: number },

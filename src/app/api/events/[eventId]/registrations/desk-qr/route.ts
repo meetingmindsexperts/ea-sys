@@ -14,6 +14,7 @@ import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { registerTierSlug } from "@/lib/main-register-tiers";
 import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { mintDeskQrToken } from "@/lib/desk-qr-token";
+import { isComplimentaryRate } from "@/lib/desk-walkin-payment";
 import { DEFAULT_EVENT_TIMEZONE, localDateInTz, resolveTimezone, wallTimeInTzToDate } from "@/lib/event-time";
 
 /**
@@ -35,9 +36,6 @@ interface RouteParams {
 }
 
 const ROUTE = "events/[eventId]/registrations/desk-qr";
-
-/** The rate named Complimentary (owner, Oct 29): the event's complimentary form. */
-const COMPLIMENTARY_SLUG = "complimentary";
 
 const postSchema = z.object({ kind: z.enum(["exhibitor", "complimentary"]) });
 
@@ -113,7 +111,7 @@ function exhibitorRate(types: TypeRow[], codeRequired: string[]): { typeId: stri
 function complimentaryRate(types: TypeRow[]): TierRow | null {
   for (const type of types) {
     if (isExhibitorBadge(type.name)) continue;
-    const tier = type.pricingTiers.find((t) => deskUsable(t) && registerTierSlug(t.name) === COMPLIMENTARY_SLUG);
+    const tier = type.pricingTiers.find((t) => deskUsable(t) && isComplimentaryRate(t.name));
     if (tier) return tier;
   }
   return null;

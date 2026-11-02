@@ -16,6 +16,8 @@
  * re-recorded. Then the walk-in's sponsor code and the desk's code check
  * (same day), also recorded new.
  *
+ * Added Nov 2, 2026: the desk day summary (`payments.record`), recorded new.
+ *
  * Changes re-recorded on purpose (Oct 5, 2026):
  *  - the barcode image: WEBINARS reaches it on every event where it works the
  *    desk (`registrations.read`), as its printed badges already do (owner;
@@ -74,6 +76,7 @@ import {
 } from "@/app/api/events/[eventId]/registrations/[registrationId]/check-in/route";
 import { POST as walkInPOST } from "@/app/api/events/[eventId]/registrations/walk-in/route";
 import { GET as completionStatusGET } from "@/app/api/events/[eventId]/registrations/completion-status/route";
+import { GET as deskSummaryGET } from "@/app/api/events/[eventId]/registrations/desk-summary/route";
 import { POST as onsiteLinkPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/onsite-link/route";
 import { POST as walkInDocumentPOST } from "@/app/api/events/[eventId]/registrations/walk-in/document/route";
 import { GET as walkInPromoGET } from "@/app/api/events/[eventId]/registrations/walk-in/promo/route";
@@ -167,6 +170,7 @@ const CASES: HandlerCase[] = [
     form: { file: { name: "letter.pdf", type: "application/pdf", content: "%PDF-1.4 test" } },
   },
   { name: "GET registrations/completion-status", handler: completionStatusGET, method: "GET", query: "ids=r1" },
+  { name: "GET registrations/desk-summary", handler: deskSummaryGET, method: "GET", query: "date=2026-11-02" },
   { name: "POST registrations/[registrationId]/onsite-link", handler: onsiteLinkPOST, method: "POST", params: reg },
   { name: "POST registrations/[registrationId]/payments", handler: paymentPOST, method: "POST", params: reg, body: { method: "cash", cashReceivedBy: "Desk" } },
   { name: "POST registrations/[registrationId]/email", handler: emailPOST, method: "POST", params: reg, body: { type: "confirmation" } },

@@ -177,6 +177,8 @@ function formatCreatedSource(source: string): string {
       return "CSV import";
     case "MCP_AGENT":
       return "AI agent (MCP)";
+    case "ONSITE_DESK":
+      return "Onsite desk walk-in";
     case "OTHER":
       return "Other";
     default:

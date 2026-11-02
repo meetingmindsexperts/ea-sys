@@ -7,6 +7,7 @@ import { LogOut, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEvent, useOrgBranding, useRegistrations } from "@/hooks/use-api";
 import { DeskPanel } from "../desk-panel";
+import { DeskDaySummaryDialog } from "../desk-day-summary-dialog";
 import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 
 /**
@@ -54,6 +55,7 @@ export default function DeskPage() {
               <span className="font-semibold tabular-nums text-primary">{checkedIn}</span>
               <span className="tabular-nums text-muted-foreground">/ {total} checked in</span>
             </div>
+            {event && <DeskDaySummaryDialog eventId={eventId} eventName={event.name} timezone={event.timezone ?? null} />}
             <Button asChild variant="outline" size="sm" className="gap-1.5">
               <Link href={`/events/${eventId}/registrations`}>
                 <LogOut className="h-4 w-4" /> Exit

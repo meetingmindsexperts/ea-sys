@@ -9,6 +9,7 @@ import { ApiError, errorMessageFor } from "@/lib/api-fetch";
 import type { WebinarHandout } from "@/lib/webinar/handouts";
 import type { LivePollOption, PollTally } from "@/lib/webinar/live-polls";
 import type { RegistrationFormSkipReason } from "@/lib/registration-form-link";
+import type { DeskDaySummary } from "@/lib/desk-day-summary";
 
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
@@ -76,6 +77,8 @@ export const queryKeys = {
   event: (eventId: string) => ["events", eventId] as const,
   tickets: (eventId: string) => ["events", eventId, "tickets"] as const,
   registrations: (eventId: string) => ["events", eventId, "registrations"] as const,
+  // Under registrations, so a walk-in's invalidation refreshes it too.
+  deskSummary: (eventId: string, date: string) => ["events", eventId, "registrations", "desk-summary", date] as const,
   speakers: (eventId: string) => ["events", eventId, "speakers"] as const,
   sessions: (eventId: string) => ["events", eventId, "sessions"] as const,
   tracks: (eventId: string) => ["events", eventId, "tracks"] as const,
@@ -394,6 +397,24 @@ export function useEventTags(eventId: string, enabled = true) {
     queryKey: queryKeys.eventTags(eventId),
     queryFn: () => fetchApi(`/api/events/${eventId}/tags`),
     enabled: !!eventId && enabled,
+  });
+}
+
+/** The desk's day summary (desk-summary route): walk-ins by rate and cash and card per desk user. */
+export type DeskSummaryResponse = DeskDaySummary & {
+  date: string;
+  timezone: string;
+  scope: "all" | "own";
+  userNames: Record<string, string>;
+};
+
+/** A cash-up reads fresh every time it opens: never served from a five-minute-old cache. */
+export function useDeskSummary(eventId: string, date: string, enabled: boolean) {
+  return useQuery<DeskSummaryResponse>({
+    queryKey: queryKeys.deskSummary(eventId, date),
+    queryFn: () => fetchApi(`/api/events/${eventId}/registrations/desk-summary?date=${encodeURIComponent(date)}`),
+    enabled: !!eventId && !!date && enabled,
+    staleTime: 0,
   });
 }
 
