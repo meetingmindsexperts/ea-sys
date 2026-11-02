@@ -22,7 +22,11 @@ export function exhibitorPlan(plan: VenuePlan): VenuePlan {
     void _internal;
     return f;
   });
-  const underlays = (plan.underlays ?? []).filter((u) => u.exhibitors);
+  // The drawing's text labels are for drafting stands, so they stay with the team.
+  const underlays = (plan.underlays ?? []).filter((u) => u.exhibitors).map(({ labels: _labels, ...u }) => {
+    void _labels;
+    return u;
+  });
   const { underlays: _all, ...rest } = plan;
   void _all;
   return { ...rest, fixtures, ...(underlays.length && { underlays }) };

@@ -514,7 +514,7 @@ not).
 A comes first because it is what sponsors are shown; B makes tracing a real
 venue quick; C is the sponsors' door; D only puts together what A to C built.
 
-**Later, only after A to D**: read a draft of the stands straight from a
+**Later, only after A to D** (BUILT Nov 2, see 10c): read a draft of the stands straight from a
 vector PDF's text layer (both example drawings carry "3x3" and the sponsor
 names with their positions). Offered as a draft the team checks, never applied
 on its own, like the Blueprint's rooms. A scanned drawing would not work this
@@ -602,3 +602,21 @@ dark otherwise). Suggested order, about ten minutes:
 5. Walk the venue in 3D: the ballroom in classroom, the stands with their sponsors.
 
 Rehearsal screenshots (Nov 2): `screenshots/2026-11-02_conrad-demo/`.
+
+## 10c. Stands drafted from the drawing, as built (Nov 2, 2026)
+
+`src/lib/venue/drawing-labels.ts`, pure. `labelsFromText` joins pdfjs text pieces along their line ("6" + "x3");
+`pageBoxes` follows the page's transforms and forms to every single-rectangle path; `withBoxes` gives each size
+label and "Table" the smallest box around it with the size's shape. `drawing-image.ts` runs them when a PDF page is
+drawn, and the labels go into `PlanUnderlay.labels` (in the drawing's pixels, so they follow its scale and place;
+at most 2000; stripped by `exhibitorPlan`). `draftStands(view, underlay, sponsors, …)` turns them into stands for
+one floor: in the middle of the drawn box (or around the label, or between the size and a name on the stand when
+there is no box), number from the drawing when free else row by row (tables T1 on), sponsor by `matchSponsor`
+(company words left out, a unique prefix, never ambiguous), moved into the room or walkway its middle is in, pushed
+off a neighbour it only just overlaps, opened away from the wall behind it. `boxScale` reports when the drawn boxes
+are not their printed size at the drawing's scale. The editor's "Draft stands" (drawing bar, after Place stands
+yourself) shows the result in a dialog: replace the floor's stands, rescale the drawing first, then one undo step.
+
+Checked on the Conrad PDF: 30 stands, 5 tables and all 21 printed sponsor names found, each centred in its drawn
+box; at the demo seed's scale the boxes measure 1.33 times their printed size, which the dialog reports.
+

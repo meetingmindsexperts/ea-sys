@@ -101,6 +101,31 @@ const PLATINUM = new Set(["Takeda", "AbbVie", "Lilly", "J&J"]);
 const GOLD = new Set(["Sanofi", "Amgen", "Ferring", "Ipsen", "Olympus", "Novo Nordisk"]);
 const tierOf = (name: string) => (PLATINUM.has(name) ? "platinum" : GOLD.has(name) ? "gold" : "exhibitor");
 
+/**
+ * The PDF's labels at the drawing's size, read as the editor reads them when a PDF is added (drawing-image.ts), so
+ * "Draft stands" works on the demo's drawing. None when the PDF is not there.
+ */
+async function drawingLabels(longSide: number) {
+  const pdfPath = path.resolve(process.cwd(), "screenshots/venue-demo/conrad-second-floor.pdf");
+  if (!existsSync(pdfPath)) return [];
+  const { getDocument, OPS, Util } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const { labelsFromText, pageBoxes, withBoxes } = await import("../src/lib/venue/drawing-labels");
+  const pdf = await getDocument({ data: new Uint8Array(readFileSync(pdfPath)) }).promise;
+  try {
+    const page = await pdf.getPage(1);
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: longSide / Math.max(base.width, base.height) });
+    const { items } = await page.getTextContent();
+    const pieces = (items as { str?: string; transform?: number[]; width?: number }[]).flatMap((it) =>
+      it.str?.trim() && it.transform ? [{ s: it.str, m: Util.transform(viewport.transform, it.transform), w: (it.width ?? 0) * viewport.scale }] : [],
+    );
+    const list = await page.getOperatorList();
+    return withBoxes(labelsFromText(pieces), pageBoxes(list.fnArray, list.argsArray, OPS, viewport.transform));
+  } finally {
+    await pdf.destroy();
+  }
+}
+
 async function main() {
   const { db } = await import("../src/lib/db");
   const { planSchema } = await import("../src/lib/venue/plan");
@@ -207,7 +232,9 @@ async function main() {
       const bytes = readFileSync(DRAWING);
       const stored = await uploadFile(bytes, `${randomUUID()}.jpg`, "image/jpeg", `venue-drawings/${event.id}`);
       const pxWide = 4000;
-      underlays = [{ path: stored, name: "Conrad second floor.jpg", px: [pxWide, 2827], mpp: (0.1 * READ_WIDTH) / pxWide, at: [-30, -14], opacity: 0.55, exhibitors: true }];
+      const labels = await drawingLabels(pxWide);
+      underlays = [{ path: stored, name: "Conrad second floor.jpg", px: [pxWide, 2827], mpp: (0.1 * READ_WIDTH) / pxWide, at: [-30, -14], opacity: 0.55, exhibitors: true, ...(labels.length && { labels }) }];
+      console.log(`${labels.length} labels read from the PDF, ${labels.filter((l) => l.b).length} in a drawn box (for Draft stands)`);
       console.log(`drawing stored at ${stored}`);
     } else {
       console.warn(`no drawing at ${DRAWING}; the plan is seeded without it`);

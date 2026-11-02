@@ -23,7 +23,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
-import { AlertCircle, Box, CheckCircle2, ImageUp, LayoutGrid, Loader2, Move, Ruler, MousePointer2, Plus, Redo2, RotateCw, Route, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { AlertCircle, Box, CheckCircle2, ImageUp, ScanText, LayoutGrid, Loader2, Move, Ruler, MousePointer2, Plus, Redo2, RotateCw, Route, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,7 @@ import { SectionHeading } from "@/components/ui/typography";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useSaveVenuePlan, useUploadVenueDrawing, venueDrawingUrl, type VenueRoomsData } from "@/hooks/use-api";
 import { drawingName, prepareDrawing } from "@/lib/venue/drawing-image";
+import { draftStands, type StandDraft } from "@/lib/venue/drawing-labels";
 import { clampMpp, moveUnderlay, placeUnderlay, scaleUnderlay, underlayOf, underlayRect, withUnderlay } from "@/lib/venue/underlay";
 import { ApiError } from "@/lib/api-fetch";
 import { generateLayout, type Rect } from "@/lib/venue/layout";
@@ -393,6 +394,7 @@ export function VenuePlanEditor({
   // The file last chosen for each floor, so another page of the same PDF can go under it without choosing it again.
   const [sources, setSources] = useState<Partial<Record<PlanFloor, { file: File; pages: number; page: number }>>>({});
   const [measured, setMeasured] = useState<[[number, number], [number, number]] | null>(null);
+  const [drafting, setDrafting] = useState(false);
   // What the canvas shows (a drag or the slider in progress included), and what is saved: the bar compares with
   // the saved one, or a slider change it already shows live would look like no change at all (review HIGH).
   const underlay = underlayOf(hist.plan, floor);
@@ -420,8 +422,10 @@ export function VenuePlanEditor({
       const placed = { path, name: drawingName(image.file.name), px: image.px };
       const now = latest.current.committed;
       const old = underlayOf(now, forFloor);
-      // A replacement keeps the old one's place and width on the plan, so the tracing stays lined up.
-      const next: PlanUnderlay = old ? { ...old, ...placed, mpp: clampMpp((old.px[0] * old.mpp) / image.px[0]) } : placeUnderlay(now, forFloor, placed);
+      // A replacement keeps the old one's place and width on the plan, so the tracing stays lined up; never the old one's labels.
+      const kept = old && { ...old, ...placed, mpp: clampMpp((old.px[0] * old.mpp) / image.px[0]) };
+      if (kept) delete kept.labels;
+      const next: PlanUnderlay = { ...(kept ?? placeUnderlay(now, forFloor, placed)), ...(image.labels.length && { labels: image.labels }) };
       push(withUnderlay(now, forFloor, next));
       setServerIssues([]);
       setSources((s) => ({ ...s, [forFloor]: { file, pages: image.pages, page } }));
@@ -455,6 +459,17 @@ export function VenuePlanEditor({
     setServerIssues([]);
     setSelected(null);
     if (skipped) toast.warning(`${skipped} of the automatic stands did not fit under the plan's limit of ${PLAN_MAX_FIXTURES} stands and fixtures, so they were left out. Remove some fixtures, then add stands.`);
+  };
+  /** The drafted stands onto this floor, and the drawing rescaled with them when asked: one undo step. */
+  const applyDraft = (draft: StandDraft, rescaled: PlanUnderlay | null) => {
+    setDrafting(false);
+    if (!draft.added.length) return;
+    const onFloor = withFloor(hist.committed, floor, draft.plan);
+    push(keepPairs(hist.committed, rescaled ? withUnderlay(onFloor, floor, rescaled) : onFloor));
+    setServerIssues([]);
+    setSelected(null);
+    setTool("select");
+    toast.success(`${draft.added.length} stands drafted from the drawing. Check each one, then save the plan. Undo takes them all back.`, { duration: 8000 });
   };
   const wholePlan = (edit: (p: VenuePlan) => VenuePlan) => {
     push(edit(hist.committed));
@@ -747,6 +762,12 @@ export function VenuePlanEditor({
               onChange={(patch) => setUnderlay({ ...(savedUnderlay ?? underlay), ...patch })}
               onLiveOpacity={(opacity) => hist.setLive(opacity === null ? null : withUnderlay(hist.committed, floor, { ...(savedUnderlay ?? underlay), opacity }))}
               onReplace={() => fileInput.current?.click()}
+              onDraft={() => {
+                setSelected(null);
+                setTool("select");
+                setDrafting(true);
+              }}
+              standsPlaced={!!hist.plan.standsPlaced}
               onPage={(page) => {
                 const src = sources[floor];
                 if (src) void putDrawing(src.file, page);
@@ -802,6 +823,16 @@ export function VenuePlanEditor({
           <Status ok={ok} checking={checking} problems={problems} warnings={verdict.warnings} />
         </CardContent>
       </Card>
+      {drafting && savedUnderlay && (
+        <DraftStandsDialog
+          view={floorView(hist.committed, floor)}
+          underlay={savedUnderlay}
+          sponsors={sponsors}
+          otherFixtures={hist.committed.fixtures.length - floorView(hist.committed, floor).fixtures.length}
+          onCancel={() => setDrafting(false)}
+          onApply={applyDraft}
+        />
+      )}
       <ScaleDialog
         line={measured}
         onCancel={() => setMeasured(null)}
@@ -869,6 +900,8 @@ function DrawingBar({
   onChange,
   onLiveOpacity,
   onReplace,
+  onDraft,
+  standsPlaced,
   onPage,
   onRemove,
 }: {
@@ -881,6 +914,9 @@ function DrawingBar({
   /** The opacity while the slider moves (null when it lets go), without an undo step per notch. */
   onLiveOpacity: (opacity: number | null) => void;
   onReplace: () => void;
+  /** Draft the floor's stands from the drawing's labels (drawing-labels.ts). */
+  onDraft: () => void;
+  standsPlaced: boolean;
   onPage: (page: number) => void;
   onRemove: () => void;
 }) {
@@ -920,6 +956,16 @@ function DrawingBar({
         <Move className="h-4 w-4" aria-hidden />
         Move the drawing
       </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={onDraft}
+        disabled={!underlay.labels?.length || !standsPlaced}
+        title={draftHint(!!underlay.labels?.length, standsPlaced)}
+      >
+        <ScanText className="h-4 w-4" aria-hidden />
+        Draft stands
+      </Button>
       <label className="flex items-center gap-2 text-xs text-muted-foreground">
         See-through
         <input
@@ -957,6 +1003,107 @@ function DrawingBar({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** What the draft comes to; when every stand lands on one already there, the way to replace them. */
+function draftHeadline(draft: StandDraft, canReplace: boolean): string {
+  if (draft.added.length) return `${draft.stands} ${draft.stands === 1 ? "stand" : "stands"} and ${draft.tables} sponsor ${draft.tables === 1 ? "table" : "tables"}`;
+  if (canReplace && draft.overlapping) return "No stands to add: each lands on a stand already on this floor. Tick Remove below to replace them with the draft.";
+  return "No stands to add";
+}
+
+function draftHint(hasLabels: boolean, standsPlaced: boolean): string {
+  if (!hasLabels) return "This drawing has no text to read stands from. A PDF exported from the venue's drawing program has; a scan or an image does not, so add its stands by hand.";
+  if (!standsPlaced) return "Choose Place stands yourself first, then draft the stands from the drawing.";
+  return "Add a stand for each size marked on the drawing (3x3, 6x3, Table), with the sponsor named beside it. You check them before saving.";
+}
+
+/**
+ * The stands the drawing's labels give this floor, shown before they are added: how many, which sponsors, what was
+ * left out and why. The team may remove the floor's own stands first, and rescale the drawing when its stand boxes
+ * are not their labelled size at the scale set now.
+ */
+function DraftStandsDialog({
+  view,
+  underlay,
+  sponsors,
+  otherFixtures,
+  onCancel,
+  onApply,
+}: {
+  view: VenuePlan;
+  underlay: PlanUnderlay;
+  sponsors: StandSponsorRef[];
+  otherFixtures: number;
+  onCancel: () => void;
+  onApply: (draft: StandDraft, rescaled: PlanUnderlay | null) => void;
+}) {
+  const own = view.fixtures.filter(isStand).length;
+  const [replace, setReplace] = useState(false);
+  const [rescale, setRescale] = useState(false);
+  const first = useMemo(() => draftStands(view, underlay, sponsors, { replace, otherFixtures, maxFixtures: PLAN_MAX_FIXTURES }), [view, underlay, sponsors, replace, otherFixtures]);
+  const rescaled = useMemo(() => (rescale && first.boxScale ? { ...underlay, mpp: clampMpp(underlay.mpp / first.boxScale) } : null), [rescale, first.boxScale, underlay]);
+  const draft = useMemo(() => (rescaled ? draftStands(view, rescaled, sponsors, { replace, otherFixtures, maxFixtures: PLAN_MAX_FIXTURES }) : first), [rescaled, first, view, sponsors, replace, otherFixtures]);
+  const count = draft.added.length;
+  const notes = [
+    draft.withSponsor > 0 && `${draft.withSponsor} given to a sponsor by the name beside them on the drawing.`,
+    draft.unmatched.length > 0 && `Names on the drawing that match none of this event's sponsors: ${draft.unmatched.join(", ")}. Add them on the Sponsors page and draft again, or give those stands out yourself.`,
+    draft.outside > 0 && `${draft.outside} left out because they are not inside a room or walkway on this floor. Trace the rooms, or move the drawing into place, first.`,
+    draft.overlapping > 0 && `${draft.overlapping} left out because they lie on top of something already on the plan.`,
+    draft.overLimit > 0 && `${draft.overLimit} left out because the plan holds at most ${PLAN_MAX_FIXTURES} stands and fixtures.`,
+  ].filter((n): n is string => !!n);
+  return (
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Draft stands from the drawing</DialogTitle>
+          <DialogDescription>
+            Read from the sizes and names printed on {underlay.name}. Stands land where the drawing lies, so set its scale and move it into place first. Nothing is saved until you
+            save the plan, and Undo takes the whole draft back.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 text-sm">
+          <p className="font-medium">
+            {draftHeadline(draft, own > 0 && !replace)}
+          </p>
+          {notes.length > 0 && (
+            <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+              {notes.map((n) => (
+                <li key={n} className="wrap-anywhere">
+                  {n}
+                </li>
+              ))}
+            </ul>
+          )}
+          {first.boxScale !== null && (
+            <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-3">
+              <Checkbox id="draft-rescale" checked={rescale} onCheckedChange={(v) => setRescale(v === true)} className="mt-0.5" />
+              <Label htmlFor="draft-rescale" className="text-sm font-normal leading-snug">
+                Rescale the drawing first. At the scale set now, its stands measure {first.boxScale} times the size printed on them. Its top-left corner stays put, so rooms already
+                traced over it may need moving.
+              </Label>
+            </div>
+          )}
+          {own > 0 && (
+            <div className="flex items-start gap-2">
+              <Checkbox id="draft-replace" checked={replace} onCheckedChange={(v) => setReplace(v === true)} className="mt-0.5" />
+              <Label htmlFor="draft-replace" className="text-sm font-normal leading-snug">
+                Remove the {own} {own === 1 ? "stand" : "stands"} already on this floor first
+              </Label>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button onClick={() => onApply(draft, rescaled)} disabled={count === 0}>
+            Add {count} {count === 1 ? "stand" : "stands"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

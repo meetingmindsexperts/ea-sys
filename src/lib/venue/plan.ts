@@ -110,6 +110,22 @@ export interface PlanFixture {
   internal?: boolean;
 }
 
+/** One label on a venue drawing exported as a vector PDF: its text, its centre and height in the drawing's pixels, and whether it reads upwards (drawing-labels.ts). */
+export interface DrawingLabel {
+  t: string;
+  x: number;
+  y: number;
+  h: number;
+  v?: true;
+  /** For a stand's size label or "Table": the box drawn around it, [x0, y0, x1, y1] in the drawing's pixels. */
+  b?: [number, number, number, number];
+}
+
+/** The most labels kept with one drawing; a CAD export can carry thousands of dimension figures. */
+export const MAX_DRAWING_LABELS = 2000;
+/** The longest label kept: a stand size, a number or a company name. */
+export const MAX_LABEL_LENGTH = 40;
+
 /**
  * The venue's own drawing under one floor of the plan (section 10, phase B): an image the team traces over,
  * shown in 2D only (the 3D venue is built from the traced rooms, never from the picture). `at` is where the
@@ -129,6 +145,8 @@ export interface PlanUnderlay {
   opacity: number;
   /** Shown on the exhibitors' plan too (decision G7: off unless the team ticks it). */
   exhibitors?: boolean;
+  /** The PDF's own labels ("3x3", sponsor names), to draft stands from; absent for an image or a scan. Staff only. */
+  labels?: DrawingLabel[];
 }
 
 export interface VenuePlan {
@@ -239,6 +257,19 @@ export const planSchema = z.object({
         at: z.tuple([coord, coord]),
         opacity: z.number().finite().min(0.1).max(1),
         exhibitors: z.boolean().optional(),
+        labels: z
+          .array(
+            z.object({
+              t: z.string().min(1).max(MAX_LABEL_LENGTH),
+              x: z.number().finite().min(-1).max(20001),
+              y: z.number().finite().min(-1).max(20001),
+              h: z.number().finite().min(0).max(5000),
+              v: z.literal(true).optional(),
+              b: z.tuple([z.number().finite(), z.number().finite(), z.number().finite(), z.number().finite()]).optional(),
+            }),
+          )
+          .max(MAX_DRAWING_LABELS)
+          .optional(),
       }),
     )
     .max(PLAN_FLOORS.length)

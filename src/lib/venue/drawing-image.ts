@@ -8,12 +8,16 @@
  * editor's bundle does not carry it until a PDF is chosen.
  */
 import { DRAWING_LONG_SIDE, MAX_DRAWING_BYTES } from "./underlay";
+import { labelsFromText, pageBoxes, withBoxes, type PdfOps, type TextPiece } from "./drawing-labels";
+import type { DrawingLabel } from "./plan";
 
 export interface DrawingImage {
   file: File;
   px: [number, number];
   /** Pages in the PDF (1 for an image), so the editor can offer another page. */
   pages: number;
+  /** A vector PDF's text labels in the image's pixels, to draft stands from; empty for an image or a scan. */
+  labels: DrawingLabel[];
 }
 
 const isPdf = (f: File) => f.type === "application/pdf" || /\.pdf$/i.test(f.name);
@@ -59,6 +63,34 @@ function whiteCanvas(w: number, h: number): { canvas: HTMLCanvasElement; ctx: Ca
   return { canvas, ctx };
 }
 
+type PdfPage = {
+  getTextContent: () => Promise<{ items: unknown[] }>;
+  getOperatorList: () => Promise<{ fnArray: number[]; argsArray: unknown[] }>;
+};
+type Viewport = { transform: number[]; scale: number };
+
+/**
+ * The page's text as labels in the drawn image's pixels, each stand's size label with the box drawn around it. A
+ * drawing whose text cannot be read gives none: the drawing itself still goes up, and the team places the stands by hand.
+ */
+async function pageLabels(p: PdfPage, viewport: Viewport, multiply: (a: number[], b: number[]) => number[], ops: PdfOps): Promise<DrawingLabel[]> {
+  try {
+    const { items } = await p.getTextContent();
+    const pieces: TextPiece[] = [];
+    for (const it of items as { str?: string; transform?: number[]; width?: number }[]) {
+      if (!it.str?.trim() || !it.transform) continue;
+      pieces.push({ s: it.str, m: multiply(viewport.transform, it.transform), w: (it.width ?? 0) * viewport.scale });
+    }
+    const labels = labelsFromText(pieces);
+    if (!labels.length) return labels;
+    const list = await p.getOperatorList();
+    return withBoxes(labels, pageBoxes(list.fnArray, list.argsArray, ops, viewport.transform));
+  } catch (err) {
+    console.warn("[venue] the drawing's text could not be read", err);
+    return [];
+  }
+}
+
 /** Page `page` of a PDF (1-based), drawn so its longest side is DRAWING_LONG_SIDE pixels. */
 async function fromPdf(file: File, page: number): Promise<DrawingImage> {
   const pdfjs = await import("pdfjs-dist");
@@ -71,7 +103,8 @@ async function fromPdf(file: File, page: number): Promise<DrawingImage> {
     const { canvas, ctx } = whiteCanvas(Math.round(viewport.width), Math.round(viewport.height));
     await p.render({ canvasContext: ctx, viewport }).promise;
     const blob = await fitBlob(canvas);
-    return { file: new File([blob], renamed(file.name, "jpg", page), { type: "image/jpeg" }), px: [canvas.width, canvas.height], pages: pdf.numPages };
+    const labels = await pageLabels(p, viewport, pdfjs.Util.transform, pdfjs.OPS);
+    return { file: new File([blob], renamed(file.name, "jpg", page), { type: "image/jpeg" }), px: [canvas.width, canvas.height], pages: pdf.numPages, labels };
   } finally {
     await pdf.destroy();
   }
@@ -83,13 +116,13 @@ async function fromImage(file: File): Promise<DrawingImage> {
   try {
     const long = Math.max(bitmap.width, bitmap.height);
     if (long <= DRAWING_LONG_SIDE * 1.5 && file.size <= MAX_DRAWING_BYTES && /^image\/(png|jpeg|webp)$/.test(file.type)) {
-      return { file, px: [bitmap.width, bitmap.height], pages: 1 };
+      return { file, px: [bitmap.width, bitmap.height], pages: 1, labels: [] };
     }
     const k = Math.min(1, DRAWING_LONG_SIDE / long);
     const { canvas, ctx } = whiteCanvas(Math.round(bitmap.width * k), Math.round(bitmap.height * k));
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     const blob = await fitBlob(canvas);
-    return { file: new File([blob], renamed(file.name, "jpg"), { type: "image/jpeg" }), px: [canvas.width, canvas.height], pages: 1 };
+    return { file: new File([blob], renamed(file.name, "jpg"), { type: "image/jpeg" }), px: [canvas.width, canvas.height], pages: 1, labels: [] };
   } finally {
     bitmap.close();
   }

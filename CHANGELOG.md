@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: stands drafted from the venue's drawing (November 2)
+
+- **Draft stands** on the drawing bar of the floor plan editor: when the drawing came from a vector PDF, its labels ("3x3", "6x3", "Table") and the sponsor names beside them become stands on the floor, shown in a review dialog first (how many, which sponsors, names with no sponsor, what was left out and why). Nothing is applied on its own; one Undo takes the draft back.
+- **Each stand sits in the box the drawing draws around its label**, turned the way the box is long; a label with no box is drafted around the label. Numbers printed beside a stand are kept when free; otherwise stands are numbered row by row and tables T1 on. Sponsors match by name with company words left out ("Takeda" for "Takeda Pharmaceuticals"), never when two sponsors could be meant.
+- **The scale check**: when the drawing's stand boxes are not their printed size at the scale set (more than 8% off), the dialog says by how much and offers to rescale the drawing first.
+- The labels are read in the browser when a PDF is added (`drawing-image.ts`, pdfjs text and drawn rectangles) and kept with the drawing (`PlanUnderlay.labels`, at most 2000, staff only: stripped from the exhibitors' plan). A scan or an image has none, and the button says so. Pure logic in `src/lib/venue/drawing-labels.ts`; the Conrad PDF's labels are pinned in `__tests__/lib/venue-conrad-drawing-labels.json` (30 stands, 5 tables, 21 sponsors found). The demo seed stores them, so the demo can show it.
+- **Demo seed review fixes**: it refuses a non-local storage provider, replaces only this organisation's draft demo event, and says when the venue module flag is off.
+
 ### Onsite desk: free rates and the day summary (November 2)
 
 - **"Free" on the walk-in form**: a rate at 0 that is not the Complimentary rate (Standard on a free event) now reads "Free" instead of "Complimentary". Label only; both are still saved as Complimentary.
