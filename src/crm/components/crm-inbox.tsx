@@ -27,6 +27,7 @@ import {
   Inbox,
   Loader2,
   MailWarning,
+  MoreHorizontal,
   PenSquare,
   Paperclip,
   Reply,
@@ -47,6 +48,7 @@ import {
   type CrmInboxFilters,
 } from "@/crm/hooks/use-crm-api";
 import type { CrmInboxMessageRow, CrmInboxThreadRow } from "@/crm/lib/crm-types";
+import { collapseLongText, linkifyEmailText, splitQuotedHistory, tidyEmailText } from "@/crm/lib/inbox-message-text";
 
 function threadTitle(t: CrmInboxThreadRow): string {
   if (t.crmContact) return `${t.crmContact.firstName} ${t.crmContact.lastName}`.trim();
@@ -59,8 +61,72 @@ function messageSender(message: CrmInboxMessageRow, inbound: boolean): string {
   return message.fromName || "You";
 }
 
+/** Plain text with its links clickable, a long link shown as its host. */
+function LinkedText({ text }: { text: string }) {
+  return (
+    <>
+      {linkifyEmailText(text).map((part, i) =>
+        part.kind === "text" ? (
+          part.text
+        ) : (
+          <a
+            key={i}
+            href={part.href}
+            title={part.href}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            className="text-sky-700 underline-offset-2 hover:underline"
+          >
+            {part.label}
+          </a>
+        ),
+      )}
+    </>
+  );
+}
+
+/** A text body, tidied, cut after about 20 lines, its quoted history folded away. */
+function PlainTextBody({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [showQuoted, setShowQuoted] = useState(false);
+  const { body, quoted } = useMemo(() => splitQuotedHistory(tidyEmailText(text)), [text]);
+  const collapsed = useMemo(() => collapseLongText(body), [body]);
+  const shown = expanded ? body : collapsed.shown;
+
+  return (
+    <div className="space-y-1.5">
+      <p className="whitespace-pre-wrap break-words">
+        <LinkedText text={shown} />
+        {collapsed.truncated && !expanded && "…"}
+      </p>
+      {collapsed.truncated && (
+        <button type="button" onClick={() => setExpanded((v) => !v)} className="text-xs font-medium text-sky-700 hover:underline">
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+      {quoted && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowQuoted((v) => !v)}
+            className="inline-flex items-center gap-1 rounded border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
+          >
+            <MoreHorizontal className="h-3 w-3" />
+            {showQuoted ? "Hide earlier messages" : "Show earlier messages"}
+          </button>
+          {showQuoted && (
+            <p className="mt-1.5 whitespace-pre-wrap break-words border-l-2 pl-2 text-xs text-muted-foreground">
+              <LinkedText text={quoted} />
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MessageBody({ message }: { message: CrmInboxMessageRow }) {
-  if (message.textBody) return <p className="whitespace-pre-wrap break-words">{message.textBody}</p>;
+  if (message.textBody) return <PlainTextBody text={message.textBody} />;
   if (message.htmlBody) {
     return (
       // Sender-authored HTML — sandboxed: no scripts, no same-origin access.
@@ -283,6 +349,7 @@ export function CrmInbox() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search subject, person, email or deal…"
+              name="inbox-search"
               aria-label="Search conversations"
               className="h-9 pl-8"
             />
