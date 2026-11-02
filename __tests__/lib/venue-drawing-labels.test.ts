@@ -5,9 +5,9 @@
  * drawing (screenshots/venue-demo) is pinned as read from its PDF.
  */
 import { describe, it, expect } from "vitest";
-import { draftStands, labelsFromText, matchSponsor, pageBoxes, sponsorKey, withBoxes, type PdfOps, type TextPiece } from "@/lib/venue/drawing-labels";
+import { KEPT_LABELS, draftStands, labelsFromText, matchSponsor, pageBoxes, sponsorKey, usefulLabels, withBoxes, type PdfOps, type TextPiece } from "@/lib/venue/drawing-labels";
 import { PLAN_FIXTURES } from "@/lib/venue/layout-fixtures";
-import { MAX_DRAWING_LABELS, PLAN_MAX_FIXTURES, floorView, planIssues, planSchema, withFloor, type DrawingLabel, type PlanUnderlay, type VenuePlan } from "@/lib/venue/plan";
+import { PLAN_MAX_FIXTURES, floorView, planIssues, planSchema, withFloor, type DrawingLabel, type PlanUnderlay, type VenuePlan } from "@/lib/venue/plan";
 import { exhibitorPlan } from "@/lib/venue/exhibitor-view";
 import conrad from "./venue-conrad-drawing-labels.json";
 
@@ -31,10 +31,40 @@ describe("joining the PDF's text pieces into labels", () => {
     expect(up.y).toBe(190);
   });
 
-  it("drops empty, punctuation-only and over-long labels, and keeps at most the limit", () => {
+  it("drops empty, punctuation-only and over-long labels", () => {
     expect(labelsFromText([piece("  ", 0, 0, 5), piece("--", 50, 0, 5), piece("x".repeat(41), 100, 0, 200)])).toEqual([]);
-    const many = Array.from({ length: MAX_DRAWING_LABELS + 5 }, (_, i) => piece("3x3", 0, i * 40, 20));
-    expect(labelsFromText(many)).toHaveLength(MAX_DRAWING_LABELS);
+  });
+
+  it("drops text off the page, so a CAD export's stray text never makes the plan unsaveable (review H1)", () => {
+    const labels = labelsFromText([piece("Layer 0", -50, 20, 30), piece("3x3", 100, 50, 20), piece("note", 990, 2000, 20)], [1000, 1000]);
+    expect(labels.map((l) => l.t)).toEqual(["3x3"]);
+  });
+
+  it("joins text split into pieces in reading order whichever way it reads, and across a hair's difference in line (review M1, M2)", () => {
+    expect(labelsFromText([upwards("6", 100, 200, 6), upwards("x3", 100, 194, 12)]).map((l) => l.t)).toEqual(["6x3"]);
+    const flipped = (s: string, x: number, w: number): TextPiece => ({ s, m: [-10, 0, 0, 10, x, 50], w });
+    expect(labelsFromText([flipped("6", 200, 6), flipped("x3", 194, 12)]).map((l) => l.t)).toEqual(["6x3"]);
+    expect(labelsFromText([piece("6", 100, 50.0001, 6), piece("x3", 106, 50, 12)]).map((l) => l.t)).toEqual(["6x3"]);
+  });
+
+  it("joins a page of tens of thousands of pieces quickly (review L4)", () => {
+    const many = Array.from({ length: 40000 }, (_, i) => piece("ab", (i % 200) * 50, Math.floor(i / 200) * 20, 10));
+    const t0 = performance.now();
+    expect(labelsFromText(many)).toHaveLength(40000);
+    expect(performance.now() - t0).toBeLessThan(3000);
+  });
+
+  it("keeps only labels a draft can use: sizes first, then what is near one, at most the limit (review L3, L7)", () => {
+    const labels: DrawingLabel[] = [
+      { t: "Ballroom", x: 5000, y: 5000, h: 10 },
+      { t: "Takeda", x: 120, y: 50, h: 10 },
+      { t: "3x3", x: 100, y: 50, h: 10 },
+    ];
+    expect(usefulLabels(labels).map((l) => l.t)).toEqual(["3x3", "Takeda"]);
+    const crowd = Array.from({ length: KEPT_LABELS + 50 }, (_, i): DrawingLabel => ({ t: i % 2 ? "3x3" : "word", x: i, y: 0, h: 10 }));
+    const kept = usefulLabels(crowd);
+    expect(kept).toHaveLength(KEPT_LABELS);
+    expect(kept.filter((l) => l.t === "3x3")).toHaveLength((KEPT_LABELS + 50) / 2);
   });
 });
 
@@ -69,6 +99,8 @@ describe("the boxes the drawing draws", () => {
     expect(withBoxes([label], boxes)[0].b).toEqual([10, 0, 130, 60]);
     expect(withBoxes([{ ...label, t: "Takeda" }], boxes)[0].b).toBeUndefined();
     expect(withBoxes([label], [[0, 0, 30, 30]])[0].b).toBeUndefined();
+    // A frame tight around the label's own text, 2 to 1 like the size, is not the stand (review L2).
+    expect(withBoxes([label], [[38, 14, 62, 26], [10, 0, 130, 60]])[0].b).toEqual([10, 0, 130, 60]);
   });
 });
 
@@ -84,6 +116,11 @@ describe("which sponsor a name means", () => {
     expect(matchSponsor("Abbott", sponsors)).toBeNull();
     expect(matchSponsor("Pfizer", sponsors)).toBeNull();
     expect(matchSponsor("AB", sponsors)).toBeNull();
+    // Never a sponsor whose name merely starts with the drawing's (review M6).
+    const more = [...sponsors, { id: "m", name: "Menarini" }, { id: "g", name: "Gulf Healthcare International" }, { id: "d", name: "Gulf Drug" }];
+    expect(matchSponsor("Mena Pharma", more)).toBeNull();
+    expect(matchSponsor("Gulf", more)).toBeNull();
+    expect(matchSponsor("Gulf DrugCook", more)?.id).toBe("d");
   });
 });
 
@@ -155,6 +192,35 @@ describe("drafting a floor's stands", () => {
     expect(again.plan.fixtures.filter((f) => f.kind === "stand")).toHaveLength(1);
     const full = draftStands(view, drawing([{ t: "3x3", ...at(30, 20) }, { t: "3x3", ...at(40, 20) }]), [], { otherFixtures: PLAN_MAX_FIXTURES - view.fixtures.length - 1, maxFixtures: PLAN_MAX_FIXTURES });
     expect([full.stands, full.overLimit]).toEqual([1, 1]);
+  });
+
+  it("opens a stand toward the room, never toward a wall the save would refuse (review M3)", () => {
+    // 1.3 m off the plenary's south wall at z = 30.
+    const d = draftStands(view, drawing([{ t: "3x3", ...at(35, 27.2) }]), [], { maxFixtures: PLAN_MAX_FIXTURES });
+    const [stand] = d.plan.fixtures.filter((f) => f.kind === "stand");
+    expect(stand.dir).toBe("n");
+    expect(planIssues(PLAN_FIXTURES["drawn-sideways"].rooms, withFloor(PLAN_FIXTURES["drawn-sideways"].plan, "ground", d.plan))).toEqual([]);
+  });
+
+  it("gives a name inside a stand's drawn box to that stand, not a nearer unsold one (review M5)", () => {
+    const d = draftStands(
+      view,
+      drawing([
+        { t: "3x3", ...at(31.5, 20), b: [300, 185, 330, 215] },
+        { t: "6x3", ...at(36, 20), b: [330, 185, 390, 215] },
+        { t: "Takeda", ...at(33.4, 20) },
+      ]),
+      sponsors,
+      { maxFixtures: PLAN_MAX_FIXTURES },
+    );
+    const byWidth = Object.fromEntries(d.plan.fixtures.filter((f) => f.kind === "stand").map((f) => [f.rect[2] - f.rect[0], f.sponsorId]));
+    expect(byWidth).toEqual({ 3: null, 6: "sp-t" });
+  });
+
+  it("treats a3 and A3 as one number, as the save does (review L1)", () => {
+    const d = draftStands(view, drawing([{ t: "3x3", ...at(30, 20) }, { t: "A3", ...at(30, 19) }, { t: "3x3", ...at(40, 20) }, { t: "a3", ...at(40, 19) }]), [], { maxFixtures: PLAN_MAX_FIXTURES });
+    const numbers = d.plan.fixtures.filter((f) => f.kind === "stand").map((f) => f.number!.toUpperCase());
+    expect(new Set(numbers).size).toBe(2);
   });
 
   it("says when the drawing's stand boxes are not their labelled size at its scale", () => {

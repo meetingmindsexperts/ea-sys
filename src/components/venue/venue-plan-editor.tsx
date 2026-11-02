@@ -824,14 +824,7 @@ export function VenuePlanEditor({
         </CardContent>
       </Card>
       {drafting && savedUnderlay && (
-        <DraftStandsDialog
-          view={floorView(hist.committed, floor)}
-          underlay={savedUnderlay}
-          sponsors={sponsors}
-          otherFixtures={hist.committed.fixtures.length - floorView(hist.committed, floor).fixtures.length}
-          onCancel={() => setDrafting(false)}
-          onApply={applyDraft}
-        />
+        <DraftStandsDialog whole={hist.committed} floor={floor} rooms={rooms} underlay={savedUnderlay} sponsors={sponsors} onCancel={() => setDrafting(false)} onApply={applyDraft} />
       )}
       <ScaleDialog
         line={measured}
@@ -1025,20 +1018,25 @@ function draftHint(hasLabels: boolean, standsPlaced: boolean): string {
  * are not their labelled size at the scale set now.
  */
 function DraftStandsDialog({
-  view,
+  whole,
+  floor,
+  rooms,
   underlay,
   sponsors,
-  otherFixtures,
   onCancel,
   onApply,
 }: {
-  view: VenuePlan;
+  /** The whole plan as last committed; the draft is for `floor`. */
+  whole: VenuePlan;
+  floor: PlanFloor;
+  rooms: VenueRoom[];
   underlay: PlanUnderlay;
   sponsors: StandSponsorRef[];
-  otherFixtures: number;
   onCancel: () => void;
   onApply: (draft: StandDraft, rescaled: PlanUnderlay | null) => void;
 }) {
+  const view = useMemo(() => floorView(whole, floor), [whole, floor]);
+  const otherFixtures = whole.fixtures.length - view.fixtures.length;
   const own = view.fixtures.filter(isStand).length;
   const [replace, setReplace] = useState(false);
   const [rescale, setRescale] = useState(false);
@@ -1046,6 +1044,17 @@ function DraftStandsDialog({
   const rescaled = useMemo(() => (rescale && first.boxScale ? { ...underlay, mpp: clampMpp(underlay.mpp / first.boxScale) } : null), [rescale, first.boxScale, underlay]);
   const draft = useMemo(() => (rescaled ? draftStands(view, rescaled, sponsors, { replace, otherFixtures, maxFixtures: PLAN_MAX_FIXTURES }) : first), [rescaled, first, view, sponsors, replace, otherFixtures]);
   const count = draft.added.length;
+  // What the save would refuse once the draft is in, beyond what it refuses already (review of 156505ac).
+  const newIssues = useMemo(() => {
+    if (!count) return [];
+    const before = new Set(planIssues(rooms, whole));
+    return planIssues(rooms, withFloor(whole, floor, draft.plan)).filter((i) => !before.has(i));
+  }, [count, rooms, whole, floor, draft.plan]);
+  const given = useMemo(() => {
+    const names = new Map(sponsors.map((sp) => [sp.id, sp.name]));
+    const added = new Set(draft.added);
+    return draft.plan.fixtures.flatMap((f) => (added.has(f.id) && f.sponsorId ? [`${f.kind === "table" ? "Table" : "Stand"} ${f.number}: ${names.get(f.sponsorId)}`] : []));
+  }, [draft, sponsors]);
   const notes = [
     draft.withSponsor > 0 && `${draft.withSponsor} given to a sponsor by the name beside them on the drawing.`,
     draft.unmatched.length > 0 && `Names on the drawing that match none of this event's sponsors: ${draft.unmatched.join(", ")}. Add them on the Sponsors page and draft again, or give those stands out yourself.`,
@@ -1075,6 +1084,31 @@ function DraftStandsDialog({
                 </li>
               ))}
             </ul>
+          )}
+          {given.length > 0 && (
+            <details className="rounded-md border px-3 py-2">
+              <summary className="cursor-pointer text-sm">Which sponsor each stand goes to</summary>
+              <ul className="mt-2 max-h-40 space-y-0.5 overflow-y-auto text-xs text-muted-foreground">
+                {given.map((g) => (
+                  <li key={g} className="wrap-anywhere">
+                    {g}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {newIssues.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" role="status">
+              <p className="font-medium">The plan will not save as drafted until these are fixed:</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
+                {newIssues.slice(0, 5).map((i) => (
+                  <li key={i} className="wrap-anywhere">
+                    {i}
+                  </li>
+                ))}
+              </ul>
+              {newIssues.length > 5 && <p className="mt-1 text-xs">and {newIssues.length - 5} more.</p>}
+            </div>
           )}
           {first.boxScale !== null && (
             <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-3">

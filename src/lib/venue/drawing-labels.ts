@@ -31,7 +31,10 @@ export interface TextPiece {
 
 interface Run {
   t: string;
-  /** Start and end along the reading direction, and the line's position across it. */
+  /** Which way it reads, to the nearest quarter turn (0 to 3); only runs reading the same way join. */
+  dir: number;
+  /** Start and end along the reading direction, and the line's position across it (review of 156505ac: measured
+   * along the direction itself, so text reading upwards or upside down joins in reading order). */
   start: number;
   end: number;
   across: number;
@@ -58,20 +61,19 @@ function runOf(p: TextPiece): Run | null {
   if (!t || !(h > 0) || !(len > 0) || ![a, b, c, d, e, f, p.w].every(Number.isFinite)) return null;
   const dx = a / len;
   const dy = b / len;
-  const v = Math.abs(dy) > Math.abs(dx);
-  const ex = e + dx * p.w;
-  const ey = f + dy * p.w;
+  const start = e * dx + f * dy;
   return {
     t,
-    v,
+    dir: (((Math.round(Math.atan2(dy, dx) / (Math.PI / 2)) % 4) + 4) % 4),
+    v: Math.abs(dy) > Math.abs(dx),
     h,
-    start: v ? Math.min(f, ey) : Math.min(e, ex),
-    end: v ? Math.max(f, ey) : Math.max(e, ex),
-    across: v ? e : f,
+    start,
+    end: start + Math.max(0, p.w),
+    across: f * dx - e * dy,
     ox: e,
     oy: f,
-    ex,
-    ey,
+    ex: e + dx * p.w,
+    ey: f + dy * p.w,
     ux: c,
     uy: d,
   };
@@ -79,7 +81,7 @@ function runOf(p: TextPiece): Run | null {
 
 /** Joins `b` onto `a` when it carries on the same line: "6" + "x3", "0" + "2", "Program" + "Wall". */
 function carriesOn(a: Run, b: Run): boolean {
-  if (a.v !== b.v) return false;
+  if (a.dir !== b.dir) return false;
   const h = Math.max(a.h, b.h);
   if (Math.min(a.h, b.h) / h < 0.7) return false;
   if (Math.abs(a.across - b.across) > 0.35 * h) return false;
@@ -87,19 +89,31 @@ function carriesOn(a: Run, b: Run): boolean {
   return gap > -0.3 * h && gap < 0.6 * h;
 }
 
+/** Lines are looked up in bands this many pixels across, so joining stays quick on a page of thousands of pieces. */
+const BAND = 8;
+
 /**
- * The page's text pieces joined into labels, at most MAX_DRAWING_LABELS of them, in the drawing's pixels. A piece
- * that carries on the line of the one before it is joined to it, with a space when there is a word's gap between.
+ * The page's text pieces joined into labels, in the drawing's pixels. A piece that carries on the line of the one
+ * before it is joined to it, with a space when there is a word's gap between. `size` is the drawing's width and
+ * height: a label whose middle is off it (text a CAD export leaves outside the page) is dropped.
  */
-export function labelsFromText(pieces: TextPiece[]): DrawingLabel[] {
+export function labelsFromText(pieces: TextPiece[], size?: [number, number]): DrawingLabel[] {
   const runs = pieces.map(runOf).filter((r): r is Run => r !== null);
-  // Line by line, then along it, so each piece meets the one before it on its line.
-  runs.sort((p, q) => Number(p.v) - Number(q.v) || p.across - q.across || p.start - q.start);
+  // Along each reading direction in order, so a piece always meets the one before it, whatever the line's tilt.
+  runs.sort((p, q) => p.dir - q.dir || p.start - q.start);
   const joined: Run[] = [];
+  const bands = new Map<string, Run[]>();
   for (const r of runs) {
-    const prev = [...joined].reverse().find((j) => j.v === r.v && carriesOn(j, r));
+    let prev: Run | undefined;
+    for (let k = Math.floor((r.across - 0.35 * r.h) / BAND); k <= Math.floor((r.across + 0.35 * r.h) / BAND) && !prev; k++) {
+      const band = bands.get(`${r.dir}:${k}`) ?? [];
+      for (let i = band.length - 1; i >= 0 && !prev; i--) if (carriesOn(band[i], r)) prev = band[i];
+    }
     if (!prev) {
-      joined.push({ ...r });
+      const run = { ...r };
+      joined.push(run);
+      const key = `${r.dir}:${Math.floor(r.across / BAND)}`;
+      bands.set(key, [...(bands.get(key) ?? []), run]);
       continue;
     }
     const gap = r.start - prev.end;
@@ -112,11 +126,31 @@ export function labelsFromText(pieces: TextPiece[]): DrawingLabel[] {
   for (const r of joined) {
     if (r.t.length > MAX_LABEL_LENGTH || !/[A-Za-z0-9]/.test(r.t)) continue;
     const label: DrawingLabel = { t: r.t, x: round1((r.ox + r.ex) / 2 + r.ux / 2), y: round1((r.oy + r.ey) / 2 + r.uy / 2), h: round1(r.h) };
+    if (size && !(label.x >= 0 && label.y >= 0 && label.x <= size[0] && label.y <= size[1])) continue;
     if (r.v) label.v = true;
     out.push(label);
-    if (out.length >= MAX_DRAWING_LABELS) break;
   }
   return out;
+}
+
+/** The most labels kept with one drawing (under the schema's MAX_DRAWING_LABELS): they ride in the event's settings. */
+export const KEPT_LABELS = 1000;
+
+/**
+ * Only the labels a draft can use, at most KEPT_LABELS: every stand size and "Table" first, then the numbers and
+ * names near one (within 30 times its letter height), nearest first. A CAD sheet's room names, dimensions and
+ * notes far from any stand are left out, so the plan stays small (review of 156505ac).
+ */
+export function usefulLabels(labels: DrawingLabel[]): DrawingLabel[] {
+  const stands = labels.filter((l) => sizeOf(l.t));
+  const near = (l: DrawingLabel) => Math.min(Infinity, ...stands.map((s) => Math.hypot(s.x - l.x, s.y - l.y) / (30 * Math.max(s.h, l.h))));
+  const rest = labels
+    .filter((l) => !sizeOf(l.t))
+    .map((l) => ({ l, k: near(l) }))
+    .filter((x) => x.k <= 1)
+    .sort((a, b) => a.k - b.k)
+    .map((x) => x.l);
+  return [...stands, ...rest].slice(0, Math.min(KEPT_LABELS, MAX_DRAWING_LABELS));
 }
 
 // ── The drawn boxes ──────────────────────────────────────────────────────────
@@ -193,7 +227,9 @@ export function withBoxes(labels: DrawingLabel[], boxes: Rect[]): DrawingLabel[]
     for (const b of boxes) {
       const w = b[2] - b[0];
       const h = b[3] - b[1];
-      if (w < l.h || h < l.h || !inside(l.x, l.y, b)) continue;
+      // A frame drawn tight around the label's own text is not the stand (review of 156505ac): a stand, even a
+      // sponsor table, is at least two letters deep.
+      if (Math.min(w, h) < 2 * l.h || !inside(l.x, l.y, b)) continue;
       const shape = Math.max(w, h) / Math.min(w, h);
       if (Math.abs(shape - want) / want > 0.3) continue;
       if (!best || w * h < (best[2] - best[0]) * (best[3] - best[1])) best = b;
@@ -237,6 +273,8 @@ interface Candidate {
   d: number;
   /** For a stand drawn as a box: how many times its labelled size the box measures at the drawing's scale. */
   boxed?: number;
+  /** For a stand drawn as a box: the box on the plan, metres. Names and numbers inside it are this stand's. */
+  box?: Rect;
 }
 
 interface Point {
@@ -257,20 +295,33 @@ export function sponsorKey(name: string): string {
   return stripped || plain.replace(/[^a-z0-9]/g, "");
 }
 
+const isOnlyCompanyWords = (name: string) => !name.toLowerCase().replace(/&/g, " and ").replace(SPONSOR_SUFFIX, " ").replace(/[^a-z0-9]/g, "");
+
+const wordsOf = (name: string) => name.normalize("NFKD").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+
+/** The drawing's name is the sponsor's first whole words, at least half of them ("Al Naghi" for "Al Naghi Medical"; never "Gulf" for "Gulf Healthcare International"). */
+function shortFor(drawn: string, sponsor: string): boolean {
+  const a = wordsOf(drawn);
+  const b = wordsOf(sponsor);
+  return a.length > 0 && a.length * 2 >= b.length && a.every((w, i) => b[i] === w);
+}
+
 /**
  * The event's sponsor a name on the drawing means: the same name once company words are left out ("Takeda" for
- * "Takeda Pharmaceuticals"), else the one sponsor whose name starts with it or that it starts with (four letters
- * at least). Null when none does, or when two sponsors could be meant.
+ * "Takeda Pharmaceuticals"), else the one sponsor whose name the drawing's starts with ("Gulf DrugCook" for "Gulf
+ * Drug", four letters at least), or whose first whole words it is (`shortFor`). Never a sponsor whose name merely
+ * starts with the drawing's letters ("Mena" is not "Menarini"; review of 156505ac). Null when none matches, or when two sponsors could be meant.
  */
 export function matchSponsor<T extends StandSponsorRef>(name: string, sponsors: T[]): T | null {
   const key = sponsorKey(name);
   if (key.length < 2) return null;
   const exact = sponsors.filter((sp) => sponsorKey(sp.name) === key);
   if (exact.length) return exact.length === 1 ? exact[0] : null;
-  if (key.length < 4) return null;
+  // A name of company words only ("Gulf", "Pharma") says nothing on its own: an exact match or none.
+  if (key.length < 4 || isOnlyCompanyWords(name)) return null;
   const near = sponsors.filter((sp) => {
     const k = sponsorKey(sp.name);
-    return k.length >= 4 && (k.startsWith(key) || key.startsWith(k));
+    return k.length >= 4 && (key.startsWith(k) || shortFor(name, sp.name));
   });
   return near.length === 1 ? near[0] : null;
 }
@@ -303,10 +354,13 @@ function stackNames(words: Point[]): Point[] {
 /** Pairs each point with at most one candidate and back, nearest pairs first, each within the candidate's reach. */
 function pairUp(cands: Candidate[], points: Point[], reach: (c: Candidate) => number): Map<number, Point> {
   const pairs: { i: number; j: number; dist: number }[] = [];
+  const boxes = cands.flatMap((c) => (c.box ? [c.box] : []));
+  // A name or number inside a stand's drawn box belongs to that stand alone, however near another stand's middle it is.
+  const mayPair = (c: Candidate, p: Point) => (c.box ? inside(p.cx, p.cz, c.box) : !boxes.some((b) => inside(p.cx, p.cz, b)));
   cands.forEach((c, i) =>
     points.forEach((p, j) => {
       const dist = Math.hypot(p.cx - c.cx, p.cz - c.cz);
-      if (dist <= reach(c)) pairs.push({ i, j, dist });
+      if (dist <= reach(c) && mayPair(c, p)) pairs.push({ i, j, dist });
     }),
   );
   pairs.sort((a, b) => a.dist - b.dist);
@@ -354,16 +408,38 @@ function pushOut(r: Rect, other: Rect): Rect | null {
   return [r[0], r2(r[1] + dz), r[2], r2(r[3] + dz)];
 }
 
-/** Open away from the wall the stand's back is against (within a metre); south when it stands free. */
-function facing(r: Rect, host: Rect): PlanWall {
-  const gaps: [PlanWall, number][] = [
-    ["s", r[1] - host[1]],
-    ["n", host[3] - r[3]],
-    ["e", r[0] - host[0]],
-    ["w", host[2] - r[2]],
+/** Where a stand opening `dir` sends its visitors: the point the save checks, 1.5 m in front (plan.ts `frontOf`). */
+function frontPoint(r: Rect, dir: PlanWall): [number, number] {
+  const cx = (r[0] + r[2]) / 2;
+  const cz = (r[1] + r[3]) / 2;
+  if (dir === "n") return [cx, r[1] - 1.5];
+  if (dir === "s") return [cx, r[3] + 1.5];
+  if (dir === "w") return [r[0] - 1.5, cz];
+  return [r[2] + 1.5, cz];
+}
+
+/**
+ * Open away from the wall the stand's back is against, else to the side with the most room; always a side with
+ * room in front, as the save requires (review of 156505ac: a stand 1.3 m off a wall was turned to face it). Null
+ * when no side has 1.5 m of room, so the stand is left out.
+ */
+function facing(r: Rect, host: Rect): PlanWall | null {
+  const room: [PlanWall, number][] = [
+    ["s", host[3] - r[3]],
+    ["n", r[1] - host[1]],
+    ["e", host[2] - r[2]],
+    ["w", r[0] - host[0]],
   ];
-  const [best] = gaps.sort((a, b) => a[1] - b[1]);
-  return best[1] <= 1 ? best[0] : "s";
+  const opposite: Record<PlanWall, PlanWall> = { n: "s", s: "n", e: "w", w: "e" };
+  const [tightest] = [...room].sort((a, b) => a[1] - b[1]);
+  const order = [...room].sort((a, b) => b[1] - a[1]).map(([w]) => w);
+  const prefer = tightest[1] <= 1 ? [opposite[tightest[0]], ...order] : ["s" as PlanWall, ...order];
+  return (
+    prefer.find((w) => {
+      const [x, z] = frontPoint(r, w);
+      return x > host[0] && x < host[2] && z > host[1] && z < host[3];
+    }) ?? null
+  );
 }
 
 /**
@@ -384,6 +460,7 @@ function candidateOf(l: DrawingLabel, [a, b]: [number, number], kind: Kind, u: P
       w: wide ? long : short,
       d: wide ? short : long,
       boxed: Math.max(box.w, box.d) / long,
+      box: [u.at[0] + l.b[0] * u.mpp, u.at[1] + l.b[1] * u.mpp, u.at[0] + l.b[2] * u.mpp, u.at[1] + l.b[3] * u.mpp],
     };
   }
   return { kind, cx: u.at[0] + l.x * u.mpp, cz: u.at[1] + l.y * u.mpp, w: l.v ? b : a, d: l.v ? a : b };
@@ -409,7 +486,7 @@ export interface StandDraft {
   withSponsor: number;
   /** Names beside a stand that match none of the event's sponsors (or more than one), to add on the Sponsors page. */
   unmatched: string[];
-  /** Left out: not inside a room or walkway, or too big for it. */
+  /** Left out: not inside a room or walkway, too big for it, or with no room in front of it to open onto. */
   outside: number;
   /** Left out: on top of a stand or fixture already there, or of another drafted one. */
   overlapping: number;
@@ -482,7 +559,8 @@ export function draftStands(
   const report = { stands: 0, tables: 0, withSponsor: 0, outside: 0, overlapping: 0, overLimit: 0 };
   const unmatched = new Set<string>();
   const added: PlanFixture[] = [];
-  const taken = new Set([...plan.fixtures.flatMap((f) => (f.number ? [f.number] : [])), ...(plan.otherNumbers ?? [])]);
+  // Upper case, as the save compares them: "a3" and "A3" are the same number.
+  const taken = new Set([...plan.fixtures.flatMap((f) => (f.number ? [f.number] : [])), ...(plan.otherNumbers ?? [])].map((n) => n.toUpperCase()));
 
   // Row by row from the north, west to east, so the numbers the draft gives out read in order.
   const order = cands.map((c, i) => i).sort((a, b) => Math.round(cands[a].cz) - Math.round(cands[b].cz) || cands[a].cx - cands[b].cx);
@@ -504,6 +582,10 @@ export function draftStands(
       report.overlapping += 1;
       continue;
     }
+    if (!facing(rect, host)) {
+      report.outside += 1;
+      continue;
+    }
     placed.push({ i, rect, host });
   }
 
@@ -518,9 +600,9 @@ export function draftStands(
     const sponsor = name ? matchSponsor(name, sponsors) : null;
     if (name && !sponsor) unmatched.add(name);
     const current: VenuePlan = { ...plan, fixtures: [...plan.fixtures, ...added] };
-    const number = drawn && !taken.has(drawn) ? drawn : nextNumber(c.kind, current, taken);
-    taken.add(number);
-    added.push({ id: freshStandId(current, c.kind), kind: c.kind, name: "", rect, dir: facing(rect, host), number, sponsorId: sponsor?.id ?? null });
+    const number = drawn && !taken.has(drawn.toUpperCase()) ? drawn : nextNumber(c.kind, current, taken);
+    taken.add(number.toUpperCase());
+    added.push({ id: freshStandId(current, c.kind), kind: c.kind, name: "", rect, dir: facing(rect, host) ?? "s", number, sponsorId: sponsor?.id ?? null });
     report[c.kind === "table" ? "tables" : "stands"] += 1;
     if (sponsor) report.withSponsor += 1;
   }

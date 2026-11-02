@@ -109,7 +109,7 @@ async function drawingLabels(longSide: number) {
   const pdfPath = path.resolve(process.cwd(), "screenshots/venue-demo/conrad-second-floor.pdf");
   if (!existsSync(pdfPath)) return [];
   const { getDocument, OPS, Util } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const { labelsFromText, pageBoxes, withBoxes } = await import("../src/lib/venue/drawing-labels");
+  const { labelsFromText, pageBoxes, usefulLabels, withBoxes } = await import("../src/lib/venue/drawing-labels");
   const pdf = await getDocument({ data: new Uint8Array(readFileSync(pdfPath)) }).promise;
   try {
     const page = await pdf.getPage(1);
@@ -120,7 +120,8 @@ async function drawingLabels(longSide: number) {
       it.str?.trim() && it.transform ? [{ s: it.str, m: Util.transform(viewport.transform, it.transform), w: (it.width ?? 0) * viewport.scale }] : [],
     );
     const list = await page.getOperatorList();
-    return withBoxes(labelsFromText(pieces), pageBoxes(list.fnArray, list.argsArray, OPS, viewport.transform));
+    const size: [number, number] = [Math.round(viewport.width), Math.round(viewport.height)];
+    return usefulLabels(withBoxes(labelsFromText(pieces, size), pageBoxes(list.fnArray, list.argsArray, OPS, viewport.transform)));
   } finally {
     await pdf.destroy();
   }

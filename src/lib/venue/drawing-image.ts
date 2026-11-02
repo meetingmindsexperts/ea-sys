@@ -8,7 +8,7 @@
  * editor's bundle does not carry it until a PDF is chosen.
  */
 import { DRAWING_LONG_SIDE, MAX_DRAWING_BYTES } from "./underlay";
-import { labelsFromText, pageBoxes, withBoxes, type PdfOps, type TextPiece } from "./drawing-labels";
+import { labelsFromText, pageBoxes, usefulLabels, withBoxes, type PdfOps, type TextPiece } from "./drawing-labels";
 import type { DrawingLabel } from "./plan";
 
 export interface DrawingImage {
@@ -73,7 +73,7 @@ type Viewport = { transform: number[]; scale: number };
  * The page's text as labels in the drawn image's pixels, each stand's size label with the box drawn around it. A
  * drawing whose text cannot be read gives none: the drawing itself still goes up, and the team places the stands by hand.
  */
-async function pageLabels(p: PdfPage, viewport: Viewport, multiply: (a: number[], b: number[]) => number[], ops: PdfOps): Promise<DrawingLabel[]> {
+async function pageLabels(p: PdfPage, viewport: Viewport, size: [number, number], multiply: (a: number[], b: number[]) => number[], ops: PdfOps): Promise<DrawingLabel[]> {
   try {
     const { items } = await p.getTextContent();
     const pieces: TextPiece[] = [];
@@ -81,10 +81,10 @@ async function pageLabels(p: PdfPage, viewport: Viewport, multiply: (a: number[]
       if (!it.str?.trim() || !it.transform) continue;
       pieces.push({ s: it.str, m: multiply(viewport.transform, it.transform), w: (it.width ?? 0) * viewport.scale });
     }
-    const labels = labelsFromText(pieces);
+    const labels = labelsFromText(pieces, size);
     if (!labels.length) return labels;
     const list = await p.getOperatorList();
-    return withBoxes(labels, pageBoxes(list.fnArray, list.argsArray, ops, viewport.transform));
+    return usefulLabels(withBoxes(labels, pageBoxes(list.fnArray, list.argsArray, ops, viewport.transform)));
   } catch (err) {
     console.warn("[venue] the drawing's text could not be read", err);
     return [];
@@ -103,7 +103,7 @@ async function fromPdf(file: File, page: number): Promise<DrawingImage> {
     const { canvas, ctx } = whiteCanvas(Math.round(viewport.width), Math.round(viewport.height));
     await p.render({ canvasContext: ctx, viewport }).promise;
     const blob = await fitBlob(canvas);
-    const labels = await pageLabels(p, viewport, pdfjs.Util.transform, pdfjs.OPS);
+    const labels = await pageLabels(p, viewport, [canvas.width, canvas.height], pdfjs.Util.transform, pdfjs.OPS);
     return { file: new File([blob], renamed(file.name, "jpg", page), { type: "image/jpeg" }), px: [canvas.width, canvas.height], pages: pdf.numPages, labels };
   } finally {
     await pdf.destroy();
