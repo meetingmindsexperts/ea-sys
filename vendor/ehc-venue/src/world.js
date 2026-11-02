@@ -741,8 +741,30 @@ function buildWorld(R, Q) {
       else if (it.t === 'lectern') { const y = big ? 0.9 : 0.45; box('wood', x0, y, z0, x1, y + 1.1, z1, [0.35, 0.22, 0.18, 0], { col: true }); }
       else if (it.t === 'round') {
         cyl('plain', it.cx, 0, it.cz, 0.95, 0.74, [0.96, 0.95, 0.93, 0], { col: true }); cyl('carpet', it.cx, 0, it.cz, 0.97, 0.7, [0.45, 0.12, 0.18, 0]);
-        for (let k = 0; k < it.chairs; k++) { const a = k / it.chairs * Math.PI * 2 + 0.3, chx = it.cx + Math.cos(a) * 1.45, chz = it.cz + Math.sin(a) * 1.45; chair(chx, chz, Math.atan2(it.cx - chx, it.cz - chz), [0.2, 0.2, 0.22, 0], [0.32, 0.3, 0.3, 0], seats); colliders.push({ c: 1, cx: chx, cz: chz, r: 0.3, y0: 0, y1: 0.95 }); }
+        // A cabaret table leaves the third of its edge facing the stage (`open`, a yaw) without chairs.
+        const openA = it.open === undefined ? null : Math.atan2(Math.cos(it.open), Math.sin(it.open));
+        for (let k = 0; k < it.chairs; k++) {
+          const a = openA === null ? k / it.chairs * Math.PI * 2 + 0.3 : openA + Math.PI / 3 + (k + 0.5) / it.chairs * (Math.PI * 4 / 3);
+          const chx = it.cx + Math.cos(a) * 1.45, chz = it.cz + Math.sin(a) * 1.45;
+          chair(chx, chz, Math.atan2(it.cx - chx, it.cz - chz), [0.2, 0.2, 0.22, 0], [0.32, 0.3, 0.3, 0], seats); colliders.push({ c: 1, cx: chx, cz: chz, r: 0.3, y0: 0, y1: 0.95 });
+        }
         blob(it.cx, it.cz, 4, 4);
+      }
+      else if (it.t === 'longTable') {
+        // The table along p0-p1, d deep; chairs behind it facing yaw, and facing back from the far side when `both`.
+        const [ax, az] = it.p0, [ex, ez] = it.p1, fx = Math.sin(it.yaw), fz = Math.cos(it.yaw), hd = it.d / 2;
+        const tx0 = Math.min(ax, ex) - Math.abs(fx) * hd, tx1 = Math.max(ax, ex) + Math.abs(fx) * hd;
+        const tz0 = Math.min(az, ez) - Math.abs(fz) * hd, tz1 = Math.max(az, ez) + Math.abs(fz) * hd;
+        box('plain', tx0, 0.7, tz0, tx1, 0.75, tz1, [0.96, 0.95, 0.93, 0], {});
+        box('carpet', tx0 + 0.02, 0, tz0 + 0.02, tx1 - 0.02, 0.7, tz1 - 0.02, [0.45, 0.12, 0.18, 0]);
+        const back = hd + 0.4;
+        for (let i = 0; i < it.n; i++) {
+          const t = (i + 0.5) / it.n, px = ax + (ex - ax) * t, pz = az + (ez - az) * t;
+          chair(px - fx * back, pz - fz * back, it.yaw, [0.2, 0.2, 0.22, 0], [0.32, 0.3, 0.3, 0], seats);
+          if (it.both) chair(px + fx * back, pz + fz * back, it.yaw + Math.PI, [0.2, 0.2, 0.22, 0], [0.32, 0.3, 0.3, 0], seats);
+        }
+        colliders.push({ x0, y0: 0, z0, x1, y1: 0.98, z1 });
+        blob(cx, cz, x1 - x0 + 0.6, z1 - z0 + 0.6);
       }
       else if (it.t === 'stand') stand(x0, z0, x1, z1, it);
       else if (it.t === 'poster') poster(x0, z0, x1, z1);

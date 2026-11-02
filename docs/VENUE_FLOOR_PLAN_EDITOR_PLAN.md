@@ -529,3 +529,24 @@ way.
 - **Curved walls drawn as rectangles** look blocky in 3D. The 2D plan with the
   drawing behind it shows the true shape to the team (and to exhibitors when
   G7 is on), so the demo leads with 2D.
+
+
+## 11. Inside a room: setups, real stage sizes, a room sheet, divisible ballrooms (Nov 2, 2026)
+
+Prompted by a hotel's room plan for the Al Wasl Ballroom (112 people in classroom: 28 tables of three plus two
+rows of fourteen; a 10.98 x 3.66 m stage, a 10 x 3 m LED screen, a 7.32 m AV console at the back, 13.6 m wide, a
+dashed movable wall). The owner asked for the four steps one after another (Nov 2).
+
+| Step | What | Status |
+| --- | --- | --- |
+| 1 | A setup per seated room (theatre, classroom, cabaret, banquet, boardroom, U-shape), laid out in 2D, PDF and 3D | BUILT Nov 2 |
+| 2 | Real stage and screen sizes per room, today's estimates as the fallback | planned |
+| 3 | A one-page room setup sheet (PDF) like the hotel's | planned |
+| 4 | Divisible ballrooms (sections along a movable wall) | planned |
+
+Step 1 as built: `rooms.ts` `ROOM_SETUPS` / `SETUP_INFO` / `setupOf` / `chosenSetup`; the zone carries `setup`;
+`layout.ts` `furnishSeated` dispatches to `furnishClassroom`, `furnishRounds`, `furnishBoardroom`, `furnishUShape`
+(theatre and the workshop's rounds are unchanged); `fits()` and the template's room area follow the setup; a
+`longTable` item; cabaret rounds carry `open`. Spacing: classroom tables 1.8 m of three, 0.6 m apart, a row every
+1.5 m, first table 2.5 m from the stage (the hotel's 2.55 m); rounds 1.8 m with chairs at 1.45 m, cabaret 3.8 m and
+banquet 4 m apart; boardroom and U 0.75 m a chair. Fixture `setups` walks every setup.

@@ -10,7 +10,7 @@
  * each kind can lay out) and every change is noted, so nothing is dropped or
  * altered without the organiser being told.
  */
-import { MAX_ROOMS, ROOM_KINDS, ROOM_KIND_INFO, roomIdFor, type RoomKind, type VenueRoom } from "./rooms";
+import { MAX_ROOMS, ROOM_KINDS, ROOM_KIND_INFO, SEATED_KINDS, SETUP_INFO, roomIdFor, type RoomKind, type RoomSetup, type VenueRoom } from "./rooms";
 
 export interface BlueprintSpace {
   name: string;
@@ -55,6 +55,15 @@ const LAYOUT_KIND: Record<string, RoomKind> = {
   "Standing crowd": "hall",
 };
 
+// The Blueprint's layouts as setups, for the seated rooms they become; theatre is a seated room's own setup.
+const LAYOUT_SETUP: Record<string, RoomSetup> = {
+  Classroom: "classroom",
+  "U-shape": "ushape",
+  Boardroom: "boardroom",
+  "Banquet rounds": "banquet",
+  Cabaret: "cabaret",
+};
+
 // Accents stripped first: `\b` does not count "é" as a letter, so "Café" would never match.
 const plain = (text: string) => text.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 const wordKind = (text: string): RoomKind | null => KIND_WORDS.find(([, re]) => re.test(plain(text)))?.[0] ?? null;
@@ -79,7 +88,7 @@ export interface BlueprintRooms {
 
 export function roomsFromBlueprint(spaces: BlueprintSpace[], attendance: string): BlueprintRooms {
   const notes: string[] = [];
-  type Draft = { name: string; kind: RoomKind; capacity: number; from: string };
+  type Draft = { name: string; kind: RoomKind; capacity: number; from: string; layout?: string };
   let list: Draft[] = [];
   for (const s of spaces) {
     const kind = kindOfSpace(s);
@@ -87,7 +96,7 @@ export function roomsFromBlueprint(spaces: BlueprintSpace[], attendance: string)
       notes.push(`${s.name} is online only, so it has no room in the venue.`);
       continue;
     }
-    list.push({ name: s.name, kind, capacity: firstNumber(s.cap) ?? 0, from: s.name });
+    list.push({ name: s.name, kind, capacity: firstNumber(s.cap) ?? 0, from: s.name, layout: s.layout });
   }
 
   // One of each single kind: the largest keeps it; an extra plenary becomes a hall, any other extra is left out.
@@ -160,7 +169,19 @@ export function roomsFromBlueprint(spaces: BlueprintSpace[], attendance: string)
     names.add(name.toLowerCase());
     const id = roomIdFor(name, ids);
     ids.push(id);
-    return { id, name, kind: r.kind, capacity: r.capacity };
+    const setup = setupFromLayout(r);
+    return { id, name, kind: r.kind, capacity: r.capacity, ...(setup && { setup }) };
   });
   return { rooms, notes };
+}
+
+/**
+ * The setup a Blueprint space's layout gives the room it became: only for a seated room, and only one that seats
+ * its people (a 120-person "Boardroom" stays in the kind's own setup rather than failing the room list).
+ */
+function setupFromLayout(r: { kind: RoomKind; capacity: number; layout?: string }): RoomSetup | undefined {
+  const setup = r.layout ? LAYOUT_SETUP[r.layout] : undefined;
+  if (!setup || !SEATED_KINDS.includes(r.kind)) return undefined;
+  const most = SETUP_INFO[setup].maxCapacity;
+  return most && r.capacity > most ? undefined : setup;
 }

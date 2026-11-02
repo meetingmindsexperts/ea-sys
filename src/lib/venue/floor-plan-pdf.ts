@@ -18,6 +18,7 @@ import { formatFooterTimestamp } from "@/lib/pdf/document-layout";
 import type { LayoutItem, LayoutWall, Rect, VenueLayout, ZoneKind } from "./layout";
 import type { FixtureKind } from "./plan";
 import { layoutStands, standNumber, standSponsor, type StandSponsorRef } from "./stands";
+import { SETUP_INFO } from "./rooms";
 
 export type PlanPaper = "A3" | "A4";
 export const PLAN_PAPERS: readonly PlanPaper[] = ["A3", "A4"];
@@ -440,7 +441,9 @@ function drawRoomLabels(doc: Doc, layout: VenueLayout, P: Project, ptPerM: numbe
       continue;
     }
     const title = fitLabel(widthOf("Helvetica-Bold"), name, w - 6, 10, 5);
-    const sub = z.capacity > 0 ? fitLabel(widthOf("Helvetica"), `${z.capacity.toLocaleString("en-GB")} people`, w - 6, 7.5, 4) : null;
+    // "112 people, classroom": a hotel's room plans give the headcount with the setup it is for.
+    const setupWord = z.setup ? `, ${SETUP_INFO[z.setup].label.toLowerCase()}` : "";
+    const sub = z.capacity > 0 ? fitLabel(widthOf("Helvetica"), `${z.capacity.toLocaleString("en-GB")} people${setupWord}`, w - 6, 7.5, 4) : null;
     const blockH = title.size + (sub ? sub.size + 2 : 0);
     const bandW = Math.min(w - 2, Math.max(doc.font("Helvetica-Bold").fontSize(title.size).widthOfString(title.text), sub ? doc.font("Helvetica").fontSize(sub.size).widthOfString(sub.text) : 0) + 6);
     const at = placeLabel([x, y, w, h], { w: bandW, h: blockH + 4 }, obstacles);

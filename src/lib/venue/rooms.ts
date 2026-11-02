@@ -36,11 +36,48 @@ export const ROOM_KIND_INFO: Record<RoomKind, KindInfo> = {
 
 export const MAX_ROOMS = 14;
 
+/**
+ * How a seated room is set up, in the words a hotel's banqueting team uses on its room plans (the Al Wasl
+ * Ballroom plan, Oct 30, 2026: "PAX 112", classroom). The same room seats a different number of people in
+ * each, so the setup is part of what the room holds, not decoration.
+ */
+export const ROOM_SETUPS = ["theatre", "classroom", "cabaret", "banquet", "boardroom", "ushape"] as const;
+export type RoomSetup = (typeof ROOM_SETUPS)[number];
+
+export const SETUP_INFO: Record<RoomSetup, { label: string; help: string; maxCapacity?: number }> = {
+  theatre: { label: "Theatre", help: "Rows of chairs facing the stage." },
+  classroom: { label: "Classroom", help: "Rows of tables, three chairs to a table, facing the stage." },
+  cabaret: { label: "Cabaret", help: "Round tables with the side facing the stage left open." },
+  banquet: { label: "Banquet", help: "Round tables of ten, for meals and gala dinners." },
+  boardroom: { label: "Boardroom", help: "One long table with chairs down both sides.", maxCapacity: 40 },
+  ushape: { label: "U-shape", help: "Tables in a U, open towards the screen.", maxCapacity: 60 },
+};
+
+/** The rooms people sit in, the only ones a setup applies to. */
+export const SEATED_KINDS: readonly RoomKind[] = ["plenary", "hall", "workshop"];
+
 export interface VenueRoom {
   id: string;
   name: string;
   kind: RoomKind;
   capacity: number;
+  /**
+   * A seated room's setup. Absent means the kind's own: theatre rows for a plenary or a hall, round tables of six
+   * for a workshop, exactly as before setups existed, so a saved venue looks the same until someone chooses one.
+   */
+  setup?: RoomSetup;
+}
+
+/** The setup someone chose for the room, when it is one a setup applies to; what a layout zone carries. */
+export function chosenSetup(room: Pick<VenueRoom, "kind" | "setup">): RoomSetup | undefined {
+  return room.setup && SEATED_KINDS.includes(room.kind) ? room.setup : undefined;
+}
+
+/** The setup a room is laid out in, or null for the "round tables of six" a workshop has when none is chosen. */
+export function setupOf(room: Pick<VenueRoom, "kind" | "setup">): RoomSetup | null {
+  if (!SEATED_KINDS.includes(room.kind)) return null;
+  if (room.setup) return room.setup;
+  return room.kind === "workshop" ? null : "theatre";
 }
 
 export const ROOM_ID = /^[a-z0-9-]{1,40}$/;
@@ -50,6 +87,7 @@ const roomSchema = z.object({
   name: z.string().trim().min(1, "Give every room a name").max(60),
   kind: z.enum(ROOM_KINDS),
   capacity: z.number({ message: "Enter how many people each room holds" }).int("Room sizes are whole numbers of people").min(1).max(3000),
+  setup: z.enum(ROOM_SETUPS).optional(),
 });
 
 /** The room list as saved: refuses what the floor plan cannot lay out, with a reason a person can act on. */
@@ -68,6 +106,10 @@ export const roomsSchema = z
     for (const r of rooms) {
       const { min, max } = ROOM_KIND_INFO[r.kind].capacity;
       if (r.capacity < min || r.capacity > max) issue(`${r.name}: a ${ROOM_KIND_INFO[r.kind].label.toLowerCase()} holds ${min} to ${max} people`);
+      if (!r.setup) continue;
+      if (!SEATED_KINDS.includes(r.kind)) issue(`${r.name}: only a room people sit in has a setup`);
+      const most = SETUP_INFO[r.setup].maxCapacity;
+      if (most && r.capacity > most) issue(`${r.name}: a ${SETUP_INFO[r.setup].label.toLowerCase()} setup seats at most ${most}; choose another setup or fewer people`);
     }
     const names = new Set<string>();
     const ids = new Set<string>();

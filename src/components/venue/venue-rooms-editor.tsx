@@ -26,7 +26,7 @@ import { VenuePlanPdfButton } from "@/components/venue/venue-plan-pdf-button";
 import { VenuePlanEditor } from "@/components/venue/venue-plan-editor";
 import { VenueProgrammeCard } from "@/components/venue/venue-programme-card";
 import { BlueprintNotes, BlueprintReplaceRow, BlueprintStartCard } from "@/components/venue/venue-blueprint-start";
-import { ROOM_KINDS, ROOM_KIND_INFO, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type VenueRoom } from "@/lib/venue/rooms";
+import { ROOM_KINDS, ROOM_KIND_INFO, ROOM_SETUPS, SEATED_KINDS, SETUP_INFO, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type RoomSetup, type VenueRoom } from "@/lib/venue/rooms";
 
 const SEATED: RoomKind[] = ["plenary", "hall", "workshop"];
 
@@ -299,9 +299,10 @@ function RoomList({
       />
       <Card>
         <CardContent className="divide-y p-0">
-          <div className="hidden grid-cols-[minmax(0,1fr)_14rem_9rem_2.5rem] gap-3 px-5 py-2.5 text-xs font-medium text-muted-foreground md:grid">
+          <div className="hidden grid-cols-[minmax(0,1fr)_13rem_11rem_8rem_2.5rem] gap-3 px-5 py-2.5 text-xs font-medium text-muted-foreground md:grid">
             <span>Name</span>
             <span>What it is for</span>
+            <span>Setup</span>
             <span>People it holds</span>
             <span className="sr-only">Remove</span>
           </div>
@@ -330,18 +331,19 @@ function RoomRow({
   const info = ROOM_KIND_INFO[room.kind];
   if (!canEdit) {
     return (
-      <div className="grid gap-1 px-5 py-3 text-sm md:grid-cols-[minmax(0,1fr)_14rem_9rem_2.5rem] md:items-center md:gap-3">
+      <div className="grid gap-1 px-5 py-3 text-sm md:grid-cols-[minmax(0,1fr)_13rem_11rem_8rem_2.5rem] md:items-center md:gap-3">
         <span className="font-medium">{room.name}</span>
         <span className="text-muted-foreground">{info.label}</span>
+        <span className="text-muted-foreground">{setupLabel(room)}</span>
         <span className="tabular-nums">{room.capacity.toLocaleString("en-GB")} people</span>
       </div>
     );
   }
   const isFoyer = room.kind === "foyer";
   return (
-    <div className="grid gap-2 px-5 py-3 md:grid-cols-[minmax(0,1fr)_14rem_9rem_2.5rem] md:items-center md:gap-3">
+    <div className="grid gap-2 px-5 py-3 md:grid-cols-[minmax(0,1fr)_13rem_11rem_8rem_2.5rem] md:items-center md:gap-3">
       <Input id={`room-${room.id}-name`} name={`room-${room.id}-name`} aria-label="Room name" value={room.name} maxLength={60} onChange={(e) => onUpdate({ name: e.target.value })} />
-      <Select value={room.kind} onValueChange={(v) => onUpdate({ kind: v as RoomKind })} disabled={isFoyer}>
+      <Select value={room.kind} onValueChange={(v) => onUpdate({ kind: v as RoomKind, ...(!SEATED_KINDS.includes(v as RoomKind) && { setup: undefined }) })} disabled={isFoyer}>
         <SelectTrigger id={`room-${room.id}-kind`} aria-label="What the room is for" className="w-full">
           <SelectValue />
         </SelectTrigger>
@@ -354,6 +356,7 @@ function RoomRow({
           {isFoyer && <SelectItem value="foyer">{ROOM_KIND_INFO.foyer.label}</SelectItem>}
         </SelectContent>
       </Select>
+      <SetupSelect room={room} onUpdate={onUpdate} />
       <Input
         id={`room-${room.id}-capacity`}
         name={`room-${room.id}-capacity`}
@@ -404,5 +407,50 @@ function PlanActions({ eventId, saved, canEdit, onEdit }: { eventId: string; sav
       )}
       <VenuePlanPdfButton eventId={eventId} />
     </div>
+  );
+}
+
+/** What a workshop with no setup chosen has: round tables of six, as before setups existed. */
+const WORKSHOP_ROUNDS = "rounds";
+
+/** A seated room's setup in words; "Not seated" for a room people do not sit in. */
+function setupLabel(room: VenueRoom): string {
+  if (!SEATED_KINDS.includes(room.kind)) return "Not seated";
+  if (room.setup) return SETUP_INFO[room.setup].label;
+  return room.kind === "workshop" ? "Round tables of six" : SETUP_INFO.theatre.label;
+}
+
+/**
+ * How a seated room is set up (rooms.ts ROOM_SETUPS). The kind's own setup is saved as no setup at all, so a
+ * venue saved before setups existed, and one that never changes it, stay exactly as they were.
+ */
+function SetupSelect({ room, onUpdate }: { room: VenueRoom; onUpdate: (patch: Partial<VenueRoom>) => void }) {
+  if (!SEATED_KINDS.includes(room.kind)) return <span className="hidden text-sm text-muted-foreground md:block">Not seated</span>;
+  const workshop = room.kind === "workshop";
+  const value = room.setup ?? (workshop ? WORKSHOP_ROUNDS : "theatre");
+  const choose = (v: string) => {
+    const own = v === WORKSHOP_ROUNDS || (v === "theatre" && !workshop);
+    onUpdate({ setup: own ? undefined : (v as RoomSetup) });
+  };
+  return (
+    <Select value={value} onValueChange={choose}>
+      <SelectTrigger id={`room-${room.id}-setup`} aria-label="How the room is set up" className="w-full">
+        {/* The name alone: the list's "(up to 40)" only matters while choosing. */}
+        <SelectValue>{setupLabel(room)}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {workshop && <SelectItem value={WORKSHOP_ROUNDS}>Round tables of six</SelectItem>}
+        {ROOM_SETUPS.map((s) => {
+          const most = SETUP_INFO[s].maxCapacity;
+          const tooMany = !!most && Number.isFinite(room.capacity) && room.capacity > most;
+          return (
+            <SelectItem key={s} value={s} disabled={tooMany}>
+              {SETUP_INFO[s].label}
+              {most ? ` (up to ${most})` : ""}
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
   );
 }

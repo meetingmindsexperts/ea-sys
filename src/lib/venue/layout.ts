@@ -24,7 +24,7 @@
  * the room, v from the door (0) to the far wall (D), so one furnisher serves a
  * room on either side.
  */
-import type { RoomKind, VenueRoom } from "./rooms";
+import { chosenSetup, setupOf, SETUP_INFO, type RoomKind, type RoomSetup, type VenueRoom } from "./rooms";
 import type { FixtureKind } from "./plan";
 
 export type Rect = [number, number, number, number];
@@ -41,6 +41,8 @@ export interface LayoutZone {
   floor: "marble" | "carpetG" | "carpet" | "wood";
   tint?: [number, number, number];
   capacity: number;
+  /** A seated room's chosen setup (rooms.ts); absent for the kind's own, which every venue had before setups. */
+  setup?: RoomSetup;
   /** The floor it is on, in a venue of several floors (`VenueLayout.levels`); absent in a one-floor venue. */
   level?: string;
 }
@@ -86,7 +88,14 @@ export type LayoutItem = ItemBase &
     | { t: "screen"; id: string; x: number; y: number; z: number; w: number; hgt: number; yaw: number; kicker: string; title: string; sub: string }
     | { t: "row"; p0: [number, number]; p1: [number, number]; n: number; yaw: number }
     | { t: "lectern" }
-    | { t: "round"; cx: number; cz: number; chairs: number }
+    /** Cabaret: no chairs on the side facing `open` (a yaw), so everyone at the table sees the stage. */
+    | { t: "round"; cx: number; cz: number; chairs: number; open?: number }
+    /**
+     * A straight table with chairs: classroom rows, a boardroom table, the arms of a U. `p0`-`p1` run along its
+     * centre line, `d` deep; its `n` chairs sit behind it, facing `yaw`, and as many again on the far side facing
+     * back when `both` (a boardroom).
+     */
+    | { t: "longTable"; p0: [number, number]; p1: [number, number]; d: number; yaw: number; n: number; both?: boolean }
     | {
         t: "stand";
         face: number;
@@ -194,7 +203,13 @@ const BUILDING_MIN = 24;
 export const DOOR = 2.6;
 export const r2 = (n: number) => Math.round(n * 100) / 100;
 export const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
-const areaOf = (room: VenueRoom) => Math.max(SPACE[room.kind].min, SPACE[room.kind].base + room.capacity * SPACE[room.kind].perPerson);
+/** Floor area per person in a setup other than theatre (m2), the usual banqueting figures; theatre keeps the kind's own. */
+const SETUP_SPACE: Record<Exclude<RoomSetup, "theatre">, number> = { classroom: 2.0, cabaret: 2.6, banquet: 2.1, boardroom: 3.0, ushape: 3.5 };
+const perPersonOf = (room: VenueRoom) => {
+  const setup = setupOf(room);
+  return setup && setup !== "theatre" ? SETUP_SPACE[setup] : SPACE[room.kind].perPerson;
+};
+const areaOf = (room: VenueRoom) => Math.max(SPACE[room.kind].min, SPACE[room.kind].base + room.capacity * perPersonOf(room));
 
 const WEST_KINDS: RoomKind[] = ["hall", "workshop", "posters"];
 const EAST_KINDS: RoomKind[] = ["exhibition", "lounge"];
@@ -253,6 +268,7 @@ function planZones(rooms: VenueRoom[]) {
     spawn: spawn.map(r2) as [number, number, number],
     floor: FLOOR[room.kind],
     capacity: room.capacity,
+    ...(chosenSetup(room) && { setup: chosenSetup(room) }),
     ...(tint && { tint }),
   });
   const ccx = (cx0 + cx1) / 2;
@@ -282,16 +298,67 @@ const theatreRows = (D: number, big: boolean) => {
   return sv0 - 1.8 >= 2.6 ? Math.floor((sv0 - 1.8 - 2.6) / 1.15) + 1 : 0;
 };
 const theatreSeats = (W: number, D: number, big: boolean) => theatreRows(D, big) * 2 * Math.max(0, Math.floor((W / 2 - 1.4 - 1.2) / 0.62));
+// Classroom (the Al Wasl Ballroom plan): 1.8 m tables of three, 0.6 m apart in a block, a row every 1.5 m,
+// the first table 2.5 m from the stage; the chairs behind a table reach 0.95 m back from its centre line.
+const CLASS_SEATS = 3;
+const CLASS_TABLE = 1.8;
+const CLASS_GAP = 0.6;
+const CLASS_PITCH = 1.5;
+const classroomRows = (sv0: number) => (sv0 - 2.75 >= 3.25 ? Math.floor((sv0 - 2.75 - 3.25) / CLASS_PITCH) + 1 : 0);
+const classroomTables = (W: number) => {
+  const bw = W / 2 - 1.4 - 1.2;
+  return bw >= CLASS_TABLE ? Math.floor((bw + CLASS_GAP) / (CLASS_TABLE + CLASS_GAP)) : 0;
+};
+// Round tables reach 1.75 m from the centre with their chairs (furnishWorkshop); cabaret leaves the stage side open.
+const ROUNDS = { cabaret: { step: 3.8, chairs: 6 }, banquet: { step: 4, chairs: 10 } } as const;
+const roundCols = (W: number, step: number) => (W - 6.3 >= 0 ? Math.floor((W - 6.3) / step) + 1 : 0);
+const roundRows = (sv0: number, step: number) => (sv0 - 4.25 >= 4.35 ? Math.floor((sv0 - 4.25 - 4.35) / step) + 1 : 0);
+// Boardroom and U-shape: 0.75 m a chair along a table; a boardroom table starts 2.6 m in and stops 2.4 m short of the screen.
+const SEAT_W = 0.75;
+const BOARD_NEAR = 2.6;
+const BOARD_FAR = 2.4;
+/** A U open towards the screen: its base across the door end, its arms up the room, chairs outside facing in. */
+function uShape(W: number, D: number, capacity: number) {
+  const a = Math.min(W / 2 - 1.7, 5);
+  if (a < 1.5) return null;
+  const base = Math.min(Math.floor((2 * a) / SEAT_W), capacity);
+  const vb = 3.4;
+  const vs0 = vb + 0.3;
+  const room = Math.max(0, Math.floor((D - 3 - vs0) / SEAT_W));
+  const side = Math.min(Math.ceil(Math.max(0, capacity - base) / 2), room);
+  return { a, base, side, vb, vs0 };
+}
 const workshopTables = (W: number, D: number) => (W >= 5.2 && D >= 7 ? (Math.floor((W - 5.2) / 5) + 1) * (Math.floor((D - 7) / 5) + 1) : 0);
 const posterBoards = (W: number, D: number) => Math.max(1, Math.floor((W - 4) / 4.2)) * (D >= 5.4 ? Math.floor((D - 5.4) / 3) + 1 : 0);
 const posterBoardsWanted = (capacity: number) => clamp(Math.round(capacity / 5), 6, 40);
 
+/** How many people a W by D room seats in a setup, by the setup furnishers' own spacing (below). */
+function setupSeats(setup: RoomSetup, W: number, D: number, big: boolean, capacity: number): number {
+  const sv0 = D - 0.4 - (big ? 5 : 3.2);
+  switch (setup) {
+    case "theatre":
+      return theatreSeats(W, D, big);
+    case "classroom":
+      return classroomRows(sv0) * 2 * classroomTables(W) * CLASS_SEATS;
+    case "cabaret":
+    case "banquet": {
+      const { step, chairs } = ROUNDS[setup];
+      return roundCols(W, step) * roundRows(sv0, step) * chairs;
+    }
+    case "boardroom":
+      return W >= 5 ? Math.max(0, Math.floor((D - BOARD_FAR - BOARD_NEAR) / SEAT_W)) * 2 : 0;
+    case "ushape": {
+      const u = uShape(W, D, capacity);
+      return u ? u.base + 2 * u.side : 0;
+    }
+  }
+}
+
 /** Does a W (across) by D (door to far wall) room hold this room's people? */
 export function fits(room: VenueRoom, W: number, D: number): boolean {
+  const setup = setupOf(room);
+  if (setup) return setupSeats(setup, W, D, room.kind === "plenary", room.capacity) >= Math.min(room.capacity, MAX_SEATS_DRAWN);
   switch (room.kind) {
-    case "plenary":
-    case "hall":
-      return theatreSeats(W, D, room.kind === "plenary") >= Math.min(room.capacity, MAX_SEATS_DRAWN);
     case "workshop":
       return workshopTables(W, D) * 6 >= room.capacity;
     case "posters":
@@ -358,6 +425,28 @@ export interface Out {
 
 /** Stage, screen, lectern and rows of seats facing them: the plenary and the parallel halls. */
 function furnishTheatre(f: Frame, out: Out) {
+  const { sv0, big } = furnishStage(f, out);
+  // Two blocks of rows with a centre aisle and side aisles, filled from the front until the room's capacity.
+  const blocks: [number, number][] = [[-f.W / 2 + 1.4, -1.2], [1.2, f.W / 2 - 1.4]];
+  let left = Math.min(f.zone.capacity, MAX_SEATS_DRAWN);
+  for (let v = sv0 - 1.8; v >= 2.6 && left > 0; v -= 1.15) {
+    for (const [b0, b1] of blocks) {
+      const n = Math.min(Math.floor((b1 - b0) / 0.62), left);
+      if (n < 1) continue;
+      left -= n;
+      const p0 = f.at(b0 + 0.31, v);
+      const p1 = f.at(b0 + 0.31 + (n - 1) * 0.62, v);
+      out.items.push({ t: "row", zone: f.zone.id, solid: true, p0, p1, n, yaw: f.yaw, foot: f.box(b0, v - 0.3, b0 + n * 0.62, v + 0.28) });
+    }
+  }
+  finishStageRoom(f, out, sv0, big);
+}
+
+/**
+ * The stage end of a room: stage, screen, lectern and the speaker at it, in that order (a theatre's
+ * items came out in this order before setups, and the walk fixtures pin it). Returns where the stage starts.
+ */
+function furnishStage(f: Frame, out: Out): { sv0: number; big: boolean } {
   const id = f.zone.id;
   const big = f.zone.kind === "plenary";
   const stageD = big ? 5 : 3.2;
@@ -375,19 +464,12 @@ function furnishTheatre(f: Frame, out: Out) {
   out.items.push({ t: "lectern", zone: id, solid: true, foot: f.box(lu - 0.4, sv0 + stageD / 2 - 0.3, lu + 0.4, sv0 + stageD / 2 + 0.3) });
   const [px, pz] = f.at(lu - 0.9, sv0 + stageD / 2);
   out.people.push({ x: px, z: pz, y: big ? 0.9 : 0.45, yaw: r2(f.yaw + Math.PI), pose: "present", role: "speaker" });
-  // Two blocks of rows with a centre aisle and side aisles, filled from the front until the room's capacity.
-  const blocks: [number, number][] = [[-f.W / 2 + 1.4, -1.2], [1.2, f.W / 2 - 1.4]];
-  let left = Math.min(f.zone.capacity, MAX_SEATS_DRAWN);
-  for (let v = sv0 - 1.8; v >= 2.6 && left > 0; v -= 1.15) {
-    for (const [b0, b1] of blocks) {
-      const n = Math.min(Math.floor((b1 - b0) / 0.62), left);
-      if (n < 1) continue;
-      left -= n;
-      const p0 = f.at(b0 + 0.31, v);
-      const p1 = f.at(b0 + 0.31 + (n - 1) * 0.62, v);
-      out.items.push({ t: "row", zone: id, solid: true, p0, p1, n, yaw: f.yaw, foot: f.box(b0, v - 0.3, b0 + n * 0.62, v + 0.28) });
-    }
-  }
+  return { sv0, big };
+}
+
+/** After the seats: the plenary's technician, and the point where a visitor watches the room's sessions. */
+function finishStageRoom(f: Frame, out: Out, sv0: number, big: boolean) {
+  const id = f.zone.id;
   if (big) {
     const [tx, tz] = f.at(-f.W / 2 + 2.5, 1.6);
     out.people.push({ x: tx, z: tz, yaw: f.yaw, pose: "stand", role: "tech" });
@@ -400,14 +482,107 @@ function furnishTheatre(f: Frame, out: Out) {
   });
 }
 
-function furnishWorkshop(f: Frame, out: Out) {
+/** A screen on the far wall, for a room without a stage (a workshop, a boardroom, a U). */
+function farScreen(f: Frame, out: Out, title: string, sub: string) {
   const id = f.zone.id;
   const sw = Math.min(7, f.W - 4);
   const [sx, sz] = f.at(0, f.D - 0.25);
   out.items.push({
     t: "screen", zone: id, solid: false, foot: f.box(-sw / 2, f.D - 0.35, sw / 2, f.D - 0.15), id: `${id}-screen`, x: sx, y: 3, z: sz, w: r2(sw), hgt: r2(sw * 0.55),
-    yaw: f.yaw + Math.PI, kicker: f.zone.name, title: "Hands-on workshop", sub: "Workshop titles come from the agenda",
+    yaw: f.yaw + Math.PI, kicker: f.zone.name, title, sub,
   });
+}
+
+/** The yaw of a direction in the room's own terms (+u across, +v towards the far wall), as items carry it. */
+function yawOf(f: Frame, du: number, dv: number): number {
+  const [ax, az] = f.at(0, 0);
+  const [bx, bz] = f.at(du, dv);
+  return r2(Math.atan2(bx - ax, bz - az));
+}
+
+/** Classroom: rows of tables of three behind one another, in the theatre's two blocks, facing the stage. */
+function furnishClassroom(f: Frame, out: Out) {
+  const { sv0, big } = furnishStage(f, out);
+  const blocks = [-f.W / 2 + 1.4, 1.2];
+  const per = classroomTables(f.W);
+  let left = Math.min(f.zone.capacity, MAX_SEATS_DRAWN);
+  for (let v = sv0 - 2.75; v >= 3.25 && left > 0; v -= CLASS_PITCH) {
+    for (const b0 of blocks) {
+      for (let i = 0; i < per && left > 0; i++) {
+        const ua = b0 + i * (CLASS_TABLE + CLASS_GAP);
+        const ub = ua + CLASS_TABLE;
+        const n = Math.min(CLASS_SEATS, left);
+        left -= n;
+        out.items.push({ t: "longTable", zone: f.zone.id, solid: true, p0: f.at(ua, v), p1: f.at(ub, v), d: 0.5, yaw: f.yaw, n, foot: f.box(ua, v - 0.95, ub, v + 0.25) });
+      }
+    }
+  }
+  finishStageRoom(f, out, sv0, big);
+}
+
+/** Cabaret and banquet: round tables in a grid in front of the stage; cabaret's open towards it. */
+function furnishRounds(f: Frame, out: Out, setup: "cabaret" | "banquet") {
+  const { sv0, big } = furnishStage(f, out);
+  const { step, chairs } = ROUNDS[setup];
+  let left = Math.ceil(Math.min(f.zone.capacity, MAX_SEATS_DRAWN) / chairs);
+  for (let v = sv0 - 4.25; v >= 4.35 && left > 0; v -= step) {
+    for (let u = -f.W / 2 + 3.15; u <= f.W / 2 - 3.15 + 1e-6 && left > 0; u += step) {
+      const [cx, cz] = f.at(u, v);
+      out.items.push({ t: "round", zone: f.zone.id, solid: true, cx, cz, chairs, ...(setup === "cabaret" && { open: r2(f.yaw) }), foot: { cx, cz, r: 1.75 } });
+      left--;
+    }
+  }
+  finishStageRoom(f, out, sv0, big);
+}
+
+/** Boardroom: one table up the middle of the room, towards the screen, chairs down both sides. */
+function furnishBoardroom(f: Frame, out: Out) {
+  farScreen(f, out, f.zone.name, "Boardroom");
+  const per = Math.min(Math.ceil(Math.min(f.zone.capacity, MAX_SEATS_DRAWN) / 2), Math.max(0, Math.floor((f.D - BOARD_FAR - BOARD_NEAR) / SEAT_W)));
+  if (per > 0 && f.W >= 5) {
+    const v1 = BOARD_NEAR + per * SEAT_W;
+    out.items.push({ t: "longTable", zone: f.zone.id, solid: true, p0: f.at(0, BOARD_NEAR), p1: f.at(0, v1), d: 1.2, yaw: yawOf(f, 1, 0), n: per, both: true, foot: f.box(-1.45, BOARD_NEAR, 1.45, v1) });
+  }
+  seatedRoomInfo(f, out, "boardroom");
+}
+
+/** U-shape: a table across the door end and one up each side, chairs outside facing in, open towards the screen. */
+function furnishUShape(f: Frame, out: Out) {
+  farScreen(f, out, f.zone.name, "U-shape");
+  const u = uShape(f.W, f.D, Math.min(f.zone.capacity, MAX_SEATS_DRAWN));
+  if (u) {
+    const id = f.zone.id;
+    out.items.push({ t: "longTable", zone: id, solid: true, p0: f.at(-u.a, u.vb), p1: f.at(u.a, u.vb), d: 0.6, yaw: f.yaw, n: u.base, foot: f.box(-u.a, u.vb - 1, u.a, u.vb + 0.3) });
+    if (u.side > 0) {
+      const vs1 = u.vs0 + u.side * SEAT_W;
+      const inward = yawOf(f, 1, 0);
+      out.items.push({ t: "longTable", zone: id, solid: true, p0: f.at(-u.a, u.vs0), p1: f.at(-u.a, vs1), d: 0.6, yaw: inward, n: u.side, foot: f.box(-u.a - 1, u.vs0, -u.a + 0.3, vs1) });
+      out.items.push({ t: "longTable", zone: id, solid: true, p0: f.at(u.a, u.vs0), p1: f.at(u.a, vs1), d: 0.6, yaw: r2(inward + Math.PI), n: u.side, foot: f.box(u.a - 0.3, u.vs0, u.a + 1, vs1) });
+    }
+  }
+  seatedRoomInfo(f, out, "ushape");
+}
+
+/** The point inside a boardroom or a U where a visitor learns what the room is. */
+function seatedRoomInfo(f: Frame, out: Out, setup: RoomSetup) {
+  const [hx, hz] = f.at(f.W / 2 - 1.2, 1.8);
+  out.hotspots.push({ id: f.zone.id, x: hx, z: hz, r: 4, kind: "info", prompt: "About this room", title: f.zone.name, body: `${SETUP_INFO[setup].help} Its sessions come from the event's agenda.` });
+}
+
+/** A room people sit in: laid out in its setup, or as the kind always was when none is chosen. */
+function furnishSeated(f: Frame, out: Out) {
+  const setup = setupOf({ kind: f.zone.kind as RoomKind, setup: f.zone.setup });
+  if (setup === null) furnishWorkshop(f, out);
+  else if (setup === "theatre") furnishTheatre(f, out);
+  else if (setup === "classroom") furnishClassroom(f, out);
+  else if (setup === "cabaret" || setup === "banquet") furnishRounds(f, out, setup);
+  else if (setup === "boardroom") furnishBoardroom(f, out);
+  else furnishUShape(f, out);
+}
+
+function furnishWorkshop(f: Frame, out: Out) {
+  const id = f.zone.id;
+  farScreen(f, out, "Hands-on workshop", "Workshop titles come from the agenda");
   // Tables with their chairs reach 1.75 m from the centre; 5 m apart leaves a 1.5 m aisle between them.
   let left = Math.ceil(f.zone.capacity / 6);
   for (let v = 3.6; v <= f.D - 3.4 && left > 0; v += 5) {
@@ -544,8 +719,7 @@ function furnishFoyer(f: Frame, lineU: number, out: Out, eventName: string) {
 export function furnishZone(z: LayoutZone, door: FrameDoor, out: Out, foyer: { lineU: number; eventName: string }) {
   const f = frame(z, door);
   if (z.kind === "foyer") furnishFoyer(f, foyer.lineU, out, foyer.eventName);
-  else if (z.kind === "plenary" || z.kind === "hall") furnishTheatre(f, out);
-  else if (z.kind === "workshop") furnishWorkshop(f, out);
+  else if (z.kind === "plenary" || z.kind === "hall" || z.kind === "workshop") furnishSeated(f, out);
   else if (z.kind === "posters") furnishPosters(f, out);
   else if (z.kind === "exhibition") furnishExhibition(f, out);
   else if (z.kind === "lounge") furnishLounge(f, out);

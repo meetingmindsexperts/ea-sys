@@ -26,6 +26,18 @@ export const LAYOUT_FIXTURES: Record<string, VenueRoom[]> = {
   "edge-one-side": [room("foyer", 1581), room("hall", 118, 0), room("hall", 800, 1), room("hall", 757, 2)],
   // The smallest venue the rules allow.
   "edge-foyer-only": [room("foyer", 20)],
+  // Every setup (rooms.ts ROOM_SETUPS): the Al Wasl Ballroom's 112 in classroom as the plenary, then each other one.
+  setups: [
+    room("foyer", 400),
+    { ...room("plenary", 112), setup: "classroom" },
+    { ...room("hall", 120, 0), setup: "cabaret" },
+    { ...room("hall", 150, 1), setup: "banquet" },
+    { ...room("hall", 90, 2) },
+    { ...room("workshop", 18, 0), setup: "boardroom" },
+    { ...room("workshop", 30, 1), setup: "ushape" },
+    { ...room("workshop", 36, 2) },
+    room("lounge", 80),
+  ],
 };
 
 /**

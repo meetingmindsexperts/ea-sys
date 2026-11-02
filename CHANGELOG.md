@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: choose how each room is set up (November 2)
+
+- **A Setup column on the Venue tab** for the plenary, halls and workshops: Theatre, Classroom, Cabaret, Banquet, Boardroom (up to 40) and U-shape (up to 60), the words a hotel's banqueting team uses on its room plans (prompted by the Al Wasl Ballroom plan, "PAX 112" in classroom). Stored as an optional `setup` on each room in `Event.settings.venue.rooms`; no migration.
+- **The venue is laid out in it**: the 2D plan, the PDF and the 3D walk. Classroom is rows of 1.8 m tables of three with the first 2.5 m from the stage; cabaret leaves the stage side of each round table open; banquet seats ten a table; boardroom is one long table seated down both sides; U-shape is open towards the screen. A new `longTable` layout item draws the straight tables.
+- **What a room needs follows the setup**: an automatic venue sizes rooms by each setup's floor area per person, and the plan editor's "drawn too small" warning uses the setup's own spacing. The PDF labels a room "112 people, classroom".
+- **Nothing changes until someone chooses**: a room with no setup (theatre for halls, round tables of six for workshops) lays out byte-for-byte as before, which the unchanged walk fixtures pin. A Blueprint's Classroom, Cabaret, Banquet rounds, Boardroom and U-shape layouts carry across to the seated rooms they become.
+
 ### Clone event: certificate templates come across (October 30)
 
 - **New "Certificate templates" option** in the Clone dialog, beside Speakers and Agenda, ticked by default (`includeCertificates` on `POST /api/events/[eventId]/clone`, default true). Before this a clone arrived with an empty Certificates page; the CME hours, accreditations, certificate survey and delivery email templates already came across.
