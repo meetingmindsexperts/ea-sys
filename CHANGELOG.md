@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: a one-page setup sheet for each room (November 2)
+
+- **Download PDF on the Venue tab now lists "Room setup sheet (A4)"** with every seated room. Each sheet is what a hotel's banqueting team works from (the Al Wasl Ballroom plan): the room to scale with its walls and doors, the stage and screen with their sizes, every table, row and chair as the venue lays them out, fixtures such as the AV console by name, the room's width and depth, the clear gap from the stage to the first seats, and the headcount with its setup ("PAX 112, classroom").
+- `GET /api/events/[eventId]/venue/room-sheet?room=<id>` (`events.read`, dark while `VENUE_MODULE_ENABLED` is off), drawn from the saved rooms and the same layout as the walkable venue and the floor plan PDF, and sharing that PDF's 30 downloads an hour. The drawing is `src/lib/venue/room-sheet-pdf.ts`.
+
 ### Venue: a room's real stage and screen (November 2)
 
 - **A ruler button beside each seated room** on the Venue tab opens "Stage and screen": the stage's width and depth and the screen's width and height in metres, from the hotel's room plan (the Al Wasl Ballroom's 10.98 x 3.66 m stage and 10 x 3 m LED screen). Empty fields keep today's sizing from the room. Stored as optional `stage` / `screen` on each room; no migration.

@@ -541,7 +541,7 @@ dashed movable wall). The owner asked for the four steps one after another (Nov 
 | --- | --- | --- |
 | 1 | A setup per seated room (theatre, classroom, cabaret, banquet, boardroom, U-shape), laid out in 2D, PDF and 3D | BUILT Nov 2 |
 | 2 | Real stage and screen sizes per room, today's estimates as the fallback | BUILT Nov 2 |
-| 3 | A one-page room setup sheet (PDF) like the hotel's | planned |
+| 3 | A one-page room setup sheet (PDF) like the hotel's | BUILT Nov 2 |
 | 4 | Divisible ballrooms (sections along a movable wall) | planned |
 
 Step 1 as built: `rooms.ts` `ROOM_SETUPS` / `SETUP_INFO` / `setupOf` / `chosenSetup`; the zone carries `setup`;
@@ -555,3 +555,7 @@ Step 2 as built: `VenueRoom.stage {w,d}` / `screen {w,h}` (rooms.ts, with `hasSt
 the zone carries `stage` / `screen`; `stageDepth()` is shared by the furnisher and `fits` (a real stage at most two
 fifths of the room deep), `screenSize()` keeps a real screen within the wall and under the ceiling (2 cm steps).
 The editor's ruler button edits them per seated room.
+
+Step 3 as built: `room-sheet-pdf.ts` (`renderRoomSheetPdf`, `roomSheetFacts`, `stageGap`, `seatsOf`) and
+`GET .../venue/room-sheet?room=` (the floor plan PDF's gate and rate bucket). A4, turned to suit the room; labels
+on tall boxes read upwards; measurements avoid the walls with doors; a side-wall screen's label sits past its end.

@@ -156,7 +156,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           {!dirty && saved && data?.slug && <OpenCard eventId={eventId} slug={data.slug} open={!!data.open} canEdit={canEdit} safetyInbox={data.safetyInbox ?? null} />}
           {issues.length === 0 && <VenueProgrammeCard rooms={rooms} programme={data?.programme} plan={data?.plan?.plan ?? null} />}
           {issues.length === 0 && (
-            <VenueFloorPlan rooms={rooms} eventName="" plan={data?.plan?.plan ?? null} sponsors={data?.programme?.standSponsors ?? []} actions={<PlanActions eventId={eventId} saved={!!saved && !dirty} canEdit={canEdit} onEdit={() => setEditingPlan(true)} />} />
+            <VenueFloorPlan rooms={rooms} eventName="" plan={data?.plan?.plan ?? null} sponsors={data?.programme?.standSponsors ?? []} actions={<PlanActions eventId={eventId} rooms={(saved ?? []).filter((r) => SEATED_KINDS.includes(r.kind))} saved={!!saved && !dirty} canEdit={canEdit} onEdit={() => setEditingPlan(true)} />} />
           )}
         </>
       )}
@@ -396,7 +396,7 @@ function Summary({ rooms }: { rooms: VenueRoom[] }) {
  * offered only when what is on screen is saved. Editing is for a computer
  * (decision F5): on a phone the plan stays viewable.
  */
-function PlanActions({ eventId, saved, canEdit, onEdit }: { eventId: string; saved: boolean; canEdit: boolean; onEdit: () => void }) {
+function PlanActions({ eventId, rooms, saved, canEdit, onEdit }: { eventId: string; rooms: VenueRoom[]; saved: boolean; canEdit: boolean; onEdit: () => void }) {
   if (!saved) return <p className="text-xs text-muted-foreground">Save the rooms to edit the plan or download it as a PDF.</p>;
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -409,7 +409,7 @@ function PlanActions({ eventId, saved, canEdit, onEdit }: { eventId: string; sav
           <p className="text-xs text-muted-foreground lg:hidden">Open this page on a computer to edit the plan.</p>
         </>
       )}
-      <VenuePlanPdfButton eventId={eventId} />
+      <VenuePlanPdfButton eventId={eventId} rooms={rooms.map((r) => ({ id: r.id, name: r.name }))} />
     </div>
   );
 }
