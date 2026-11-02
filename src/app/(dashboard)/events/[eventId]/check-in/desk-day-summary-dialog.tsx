@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDeskSummary, type DeskSummaryResponse } from "@/hooks/use-api";
 import { useCan } from "@/hooks/use-can";
-import { localDateInTz, resolveTimezone } from "@/lib/event-time";
+import { DEFAULT_EVENT_TIMEZONE, knownTimezone, localDateInTz } from "@/lib/event-time";
 import { WALK_IN_BUCKETS, type WalkInBucket } from "@/lib/desk-day-summary";
 
 const BUCKET_LABEL: Record<WalkInBucket, string> = {
@@ -17,6 +17,7 @@ const BUCKET_LABEL: Record<WalkInBucket, string> = {
   comp: "Comp",
   sponsor: "Sponsor",
   paid: "Paid",
+  refunded: "Refunded",
   unpaid: "Not paid",
 };
 
@@ -30,16 +31,23 @@ const METHOD_LABEL = { cash: "Cash", card_onsite: "Card" } as const;
  */
 export function DeskDaySummaryDialog({ eventId, eventName, timezone }: { eventId: string; eventName: string; timezone: string | null }) {
   const allowed = useCan("payments.record", eventId) === "allowed";
-  const tz = resolveTimezone(timezone);
+  // An unknown stored zone would throw in render and take the desk down; the route logs it.
+  const tz = knownTimezone(timezone) ?? DEFAULT_EVENT_TIMEZONE;
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState(() => localDateInTz(new Date(), tz));
+  // Each opening starts on today: a desk tablet left open overnight must not
+  // open yesterday's cash-up (review of 9c1ecc06).
+  const openSummary = (next: boolean) => {
+    if (next) setDate(localDateInTz(new Date(), tz));
+    setOpen(next);
+  };
   const { data, isLoading, isError } = useDeskSummary(eventId, date, open);
   const sheet = useRef<HTMLDivElement>(null);
 
   if (!allowed) return null;
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={openSummary}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="gap-1.5">
           <ClipboardList className="h-4 w-4" /> Day summary
@@ -116,6 +124,11 @@ function WalkIns({ data }: { data: DeskSummaryResponse }) {
           </tbody>
         </table>
       )}
+      {walkIns.cancelled > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {walkIns.cancelled} walk-in{walkIns.cancelled === 1 ? "" : "s"} registered on this day and cancelled since; not counted above.
+        </p>
+      )}
       {walkIns.totals.unpaid > 0 && (
         <p className="text-sm text-amber-700">
           {walkIns.totals.unpaid} walk-in{walkIns.totals.unpaid === 1 ? "" : "s"} registered without the payment recording. Find them in the search and record it.
@@ -130,7 +143,10 @@ function Money({ data }: { data: DeskSummaryResponse }) {
   return (
     <section className="mt-5 space-y-2">
       <h3 className="text-sm font-semibold">Cash and card taken</h3>
-      <p className="text-xs text-muted-foreground">Every desk payment recorded on this day, walk-ins and people who registered before.</p>
+      <p className="text-xs text-muted-foreground">
+        Every desk payment recorded on this day, walk-ins and people who registered before. &ldquo;Since refunded&rdquo; is what has been
+        returned from these payments up to now, on whatever day it was refunded.
+      </p>
       {money.totals.length === 0 ? (
         <p className="text-sm text-muted-foreground">No cash or card recorded on this day.</p>
       ) : (
@@ -141,7 +157,7 @@ function Money({ data }: { data: DeskSummaryResponse }) {
               <th className="px-2 py-1.5 font-medium">Method</th>
               <th className="px-2 py-1.5 text-right font-medium">Payments</th>
               <th className="px-2 py-1.5 text-right font-medium">Amount</th>
-              <th className="px-2 py-1.5 text-right font-medium">Refunded</th>
+              <th className="px-2 py-1.5 text-right font-medium">Since refunded</th>
             </tr>
           </thead>
           <tbody>

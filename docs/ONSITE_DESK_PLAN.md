@@ -459,15 +459,19 @@ read the same. Owner decisions, Nov 2:
    desk QR sign-up on a phone stays `PUBLIC_REGISTER`, because the person
    filled the public form and the tier counter follows that source.
 3. **The day summary.** "Day summary" on the desk header, for whoever holds
-   `payments.record`: walk-ins that day by type and rate in five columns
-   (Free, Comp, Sponsor, Paid, Not paid), and the cash and onsite card
+   `payments.record`: walk-ins that day by type and rate in six columns
+   (Free, Comp, Sponsor, Paid, Refunded, Not paid; a walk-in cancelled since
+   is counted on its own, in no column), and the cash and onsite card
    recorded that day per desk user, with totals and a print sheet. The day
    is a calendar day in the event's timezone. A manager (holds
    `payments.refund` on the event) sees every desk user; anyone else sees
    only the walk-ins they registered and the money they took. The money is
    every desk payment of the day, walk-ins or not, so it matches the drawer,
-   counted on the day it was recorded. Free vs Comp is read from the rate:
-   Comp is the Complimentary rate or a 100% code on a paid rate.
+   counted on the day it was recorded; "Since refunded" is what those
+   payments have returned up to now, whatever day the refund was. Free vs
+   Comp is read from the price stamped at registration (`originalPrice`),
+   not the rate's price today: Comp is the Complimentary rate or a 100% code
+   on a paid rate.
 4. **No separate FREE status** (declined): it would touch every check that
    reads `COMPLIMENTARY`.
 

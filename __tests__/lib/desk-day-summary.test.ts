@@ -22,16 +22,20 @@ describe("walkInBucket", () => {
     expect(walkInBucket({ paymentStatus: "PAID", rateName: "Standard", ratePrice: 250 })).toBe("paid");
     expect(walkInBucket({ paymentStatus: "UNASSIGNED", rateName: "Standard", ratePrice: 250 })).toBe("unpaid");
   });
+
+  it("a refunded walk-in is Refunded, never 'not paid' (review of 9c1ecc06)", () => {
+    expect(walkInBucket({ paymentStatus: "REFUNDED", rateName: "Standard", ratePrice: 250 })).toBe("refunded");
+  });
 });
 
 describe("summariseDeskDay", () => {
   it("counts walk-ins per type and rate, and money per user, method and currency", () => {
     const s = summariseDeskDay(
       [
-        { paymentStatus: "COMPLIMENTARY", ticketTypeName: "Delegate", rateName: "Standard", ratePrice: 0 },
-        { paymentStatus: "COMPLIMENTARY", ticketTypeName: "Delegate", rateName: "Standard", ratePrice: 0 },
-        { paymentStatus: "COMPLIMENTARY", ticketTypeName: "Delegate", rateName: "Complimentary", ratePrice: 0 },
-        { paymentStatus: "PAID", ticketTypeName: "Workshop", rateName: null, ratePrice: 100 },
+        { status: "CHECKED_IN", paymentStatus: "COMPLIMENTARY", ticketTypeName: "Delegate", rateName: "Standard", ratePrice: 0 },
+        { status: "CHECKED_IN", paymentStatus: "COMPLIMENTARY", ticketTypeName: "Delegate", rateName: "Standard", ratePrice: 0 },
+        { status: "CHECKED_IN", paymentStatus: "COMPLIMENTARY", ticketTypeName: "Delegate", rateName: "Complimentary", ratePrice: 0 },
+        { status: "CHECKED_IN", paymentStatus: "PAID", ticketTypeName: "Workshop", rateName: null, ratePrice: 100 },
       ],
       [
         { method: "cash", currency: "usd", amount: 100, refunded: 0, recordedByUserId: "u1" },
@@ -40,7 +44,7 @@ describe("summariseDeskDay", () => {
       ],
     );
     expect(s.walkIns.total).toBe(4);
-    expect(s.walkIns.totals).toEqual({ free: 2, comp: 1, sponsor: 0, paid: 1, unpaid: 0 });
+    expect(s.walkIns.totals).toEqual({ free: 2, comp: 1, sponsor: 0, paid: 1, refunded: 0, unpaid: 0 });
     expect(s.walkIns.byRate.map((r) => [r.ticketTypeName, r.rateName])).toEqual([
       ["Delegate", "Complimentary"],
       ["Delegate", "Standard"],
@@ -54,6 +58,21 @@ describe("summariseDeskDay", () => {
       { method: "cash", currency: "USD", count: 2, amount: 150.1, refunded: 10 },
       { method: "card_onsite", currency: "USD", count: 1, amount: 75, refunded: 0 },
     ]);
+  });
+});
+
+describe("cancelled walk-ins", () => {
+  it("are left out of every column and counted on their own", () => {
+    const s = summariseDeskDay(
+      [
+        { status: "CANCELLED", paymentStatus: "COMPLIMENTARY", ticketTypeName: "Delegate", rateName: "Standard", ratePrice: 0 },
+        { status: "CHECKED_IN", paymentStatus: "COMPLIMENTARY", ticketTypeName: "Delegate", rateName: "Standard", ratePrice: 0 },
+      ],
+      [],
+    );
+    expect(s.walkIns.total).toBe(1);
+    expect(s.walkIns.cancelled).toBe(1);
+    expect(s.walkIns.totals.free).toBe(1);
   });
 });
 

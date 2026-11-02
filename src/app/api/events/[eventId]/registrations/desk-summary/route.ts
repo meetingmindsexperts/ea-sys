@@ -6,7 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { eventWhereFor } from "@/lib/permissions/can";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
-import { localDateInTz, resolveTimezone } from "@/lib/event-time";
+import { DEFAULT_EVENT_TIMEZONE, knownTimezone, localDateInTz } from "@/lib/event-time";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
 import {
   DESK_PAYMENT_METHODS,
@@ -68,7 +68,11 @@ export async function GET(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
       }
 
-      const timezone = resolveTimezone(event.timezone);
+      let timezone = knownTimezone(event.timezone);
+      if (!timezone) {
+        apiLogger.warn({ msg: "desk-summary:invalid-timezone", eventId, timezone: event.timezone });
+        timezone = DEFAULT_EVENT_TIMEZONE;
+      }
       const date = requested ?? localDateInTz(new Date(), timezone);
       const { start, end } = deskDayBounds(date, timezone);
       const seesAll = managed > 0;
@@ -79,6 +83,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           where: { eventId, createdSource: "ONSITE_DESK", createdAt: { gte: start, lt: end } },
           select: {
             id: true,
+            status: true,
             paymentStatus: true,
             originalPrice: true,
             ticketType: { select: { name: true, price: true } },
@@ -98,6 +103,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       ]);
 
       // Who registered each walk-in: its CREATE audit row (the registration has no creator column).
+      // That row is written fire-and-forget by the service; if it ever failed (logged at error),
+      // the walk-in is missing from its creator's own view, never from a manager's.
       const creators = walkIns.length
         ? await db.auditLog.findMany({
             where: { entityType: "Registration", action: "CREATE", entityId: { in: walkIns.map((w) => w.id) } },
@@ -116,12 +123,16 @@ export async function GET(req: Request, { params }: RouteParams) {
       }));
       const summary = summariseDeskDay(
         visibleWalkIns.map((w) => ({
+          status: w.status,
           paymentStatus: w.paymentStatus,
           ticketTypeName: w.ticketType?.name ?? null,
           rateName: w.pricingTier?.name ?? null,
-          // The price stamped at registration, as every money screen reads it, so
-          // a rate repriced later does not turn yesterday's Free into Comp.
-          ratePrice: readRegistrationBasePrice(w),
+          // The price stamped at registration (the service stamps the rate's price
+          // then), so a rate repriced later does not turn yesterday's Free into Comp.
+          // Read directly: readRegistrationBasePrice's legacy guard would prefer the
+          // tier's new price over a stamped 0 (review of 9c1ecc06). Unstamped rows
+          // fall back to it.
+          ratePrice: w.originalPrice != null ? Number(w.originalPrice) : readRegistrationBasePrice(w),
         })),
         paymentRows,
       );

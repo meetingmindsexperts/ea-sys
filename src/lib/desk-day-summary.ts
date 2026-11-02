@@ -12,15 +12,17 @@
 import { isComplimentaryRate } from "@/lib/desk-walkin-payment";
 import { wallTimeInTzToDate } from "@/lib/event-time";
 
-export type WalkInBucket = "free" | "comp" | "sponsor" | "paid" | "unpaid";
+export type WalkInBucket = "free" | "comp" | "sponsor" | "paid" | "refunded" | "unpaid";
 
-export const WALK_IN_BUCKETS: readonly WalkInBucket[] = ["free", "comp", "sponsor", "paid", "unpaid"];
+export const WALK_IN_BUCKETS: readonly WalkInBucket[] = ["free", "comp", "sponsor", "paid", "refunded", "unpaid"];
 
 /** The cash and onsite card a desk takes. A bank transfer never passes through the drawer. */
 export const DESK_PAYMENT_METHODS = ["cash", "card_onsite"] as const;
 export type DeskPaymentMethod = (typeof DESK_PAYMENT_METHODS)[number];
 
 export interface WalkInRow {
+  /** The registration's status: a cancelled walk-in (entered twice, say) is not counted. */
+  status: string;
   paymentStatus: string;
   ticketTypeName: string | null;
   rateName: string | null;
@@ -51,7 +53,8 @@ export interface MoneyLine {
 }
 
 export interface DeskDaySummary {
-  walkIns: { total: number; totals: Record<WalkInBucket, number>; byRate: RateLine[] };
+  /** `total` counts the walk-ins still standing; `cancelled` the ones cancelled since, left out of every column. */
+  walkIns: { total: number; cancelled: number; totals: Record<WalkInBucket, number>; byRate: RateLine[] };
   money: { byUser: MoneyLine[]; totals: Omit<MoneyLine, "userId">[] };
 }
 
@@ -68,21 +71,27 @@ export function deskDayBounds(date: string, timeZone: string): { start: Date; en
   return { start: wallTimeInTzToDate(`${date}T00:00`, timeZone), end: wallTimeInTzToDate(`${next}T00:00`, timeZone) };
 }
 
-/** Which column a walk-in counts in. A walk-in left unpaid is one whose desk payment did not record. */
+/**
+ * Which column a walk-in counts in. "unpaid" is only money still owed (the desk
+ * payment did not record), never a refund: that one is "refunded", so the sheet
+ * does not tell the desk to collect from someone it paid back (review of 9c1ecc06).
+ */
 export function walkInBucket(row: Pick<WalkInRow, "paymentStatus" | "rateName" | "ratePrice">): WalkInBucket {
   if (row.paymentStatus === "INCLUSIVE") return "sponsor";
   if (row.paymentStatus === "PAID") return "paid";
+  if (row.paymentStatus === "REFUNDED") return "refunded";
   if (row.paymentStatus !== "COMPLIMENTARY") return "unpaid";
   return row.ratePrice <= 0 && !isComplimentaryRate(row.rateName) ? "free" : "comp";
 }
 
-const emptyCounts = (): Record<WalkInBucket, number> => ({ free: 0, comp: 0, sponsor: 0, paid: 0, unpaid: 0 });
+const emptyCounts = (): Record<WalkInBucket, number> => ({ free: 0, comp: 0, sponsor: 0, paid: 0, refunded: 0, unpaid: 0 });
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export function summariseDeskDay(walkIns: readonly WalkInRow[], payments: readonly DeskPaymentRow[]): DeskDaySummary {
   const totals = emptyCounts();
   const rates = new Map<string, RateLine>();
-  for (const w of walkIns) {
+  const standing = walkIns.filter((w) => w.status !== "CANCELLED");
+  for (const w of standing) {
     const bucket = walkInBucket(w);
     totals[bucket] += 1;
     const ticketTypeName = w.ticketTypeName ?? "No type";
@@ -114,7 +123,7 @@ export function summariseDeskDay(walkIns: readonly WalkInRow[], payments: readon
   const byName = (a: RateLine, b: RateLine) =>
     a.ticketTypeName.localeCompare(b.ticketTypeName) || (a.rateName ?? "").localeCompare(b.rateName ?? "");
   return {
-    walkIns: { total: walkIns.length, totals, byRate: [...rates.values()].sort(byName) },
+    walkIns: { total: standing.length, cancelled: walkIns.length - standing.length, totals, byRate: [...rates.values()].sort(byName) },
     money: { byUser: [...byUser.values()], totals: [...byMethod.values()] },
   };
 }

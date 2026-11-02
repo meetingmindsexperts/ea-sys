@@ -15,7 +15,7 @@ import { registerTierSlug } from "@/lib/main-register-tiers";
 import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { mintDeskQrToken } from "@/lib/desk-qr-token";
 import { isComplimentaryRate } from "@/lib/desk-walkin-payment";
-import { DEFAULT_EVENT_TIMEZONE, localDateInTz, resolveTimezone, wallTimeInTzToDate } from "@/lib/event-time";
+import { DEFAULT_EVENT_TIMEZONE, knownTimezone, localDateInTz, wallTimeInTzToDate } from "@/lib/event-time";
 
 /**
  * The desk's Walk-in QR (docs/ONSITE_DESK_PLAN.md §8.1).
@@ -41,14 +41,10 @@ const postSchema = z.object({ kind: z.enum(["exhibitor", "complimentary"]) });
 
 /** The event's timezone, or the default when the stored one is not a real zone (it would throw). */
 function eventTimezone(timezone: string | null): string {
-  const tz = resolveTimezone(timezone);
-  try {
-    new Intl.DateTimeFormat("en", { timeZone: tz });
-    return tz;
-  } catch {
-    apiLogger.warn({ msg: "desk-qr:invalid-timezone", timezone });
-    return DEFAULT_EVENT_TIMEZONE;
-  }
+  const tz = knownTimezone(timezone);
+  if (tz) return tz;
+  apiLogger.warn({ msg: "desk-qr:invalid-timezone", timezone });
+  return DEFAULT_EVENT_TIMEZONE;
 }
 
 /** The end of the event's last day, in its own timezone: when its desk QRs stop. */

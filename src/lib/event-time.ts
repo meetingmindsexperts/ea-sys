@@ -20,6 +20,22 @@ export function resolveTimezone(tz: string | null | undefined): string {
 }
 
 /**
+ * The stored zone when `Intl` knows it, else null. An event's timezone column
+ * takes any string (the API and MCP accept one), and an unknown zone makes
+ * every `Intl` call throw a RangeError; callers fall back to the default and
+ * log, rather than take a page down (review of 9c1ecc06).
+ */
+export function knownTimezone(tz: string | null | undefined): string | null {
+  const zone = resolveTimezone(tz);
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: zone });
+    return zone;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The local calendar date (YYYY-MM-DD) of `date` in `timeZone`.
  *
  * CONTRACT: the output is always zero-padded `YYYY-MM-DD` (pinned by the
