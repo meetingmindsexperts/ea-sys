@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: a room's real stage and screen (November 2)
+
+- **A ruler button beside each seated room** on the Venue tab opens "Stage and screen": the stage's width and depth and the screen's width and height in metres, from the hotel's room plan (the Al Wasl Ballroom's 10.98 x 3.66 m stage and 10 x 3 m LED screen). Empty fields keep today's sizing from the room. Stored as optional `stage` / `screen` on each room; no migration.
+- **The layout draws them at their size**: the stage half a metre clear of each side wall at most and no deeper than two fifths of the room, the screen half a metre above the stage and under the ceiling, and the first row or table measured from the real stage's front. The too-small check and an automatic venue's room sizes follow the real stage depth.
+- **Only where it applies**: a boardroom, a U-shape or a workshop's round tables have no stage, so a stage size is kept but unused until the setup changes back; a room people do not sit in refuses both.
+
 ### Venue: choose how each room is set up (November 2)
 
 - **A Setup column on the Venue tab** for the plenary, halls and workshops: Theatre, Classroom, Cabaret, Banquet, Boardroom (up to 40) and U-shape (up to 60), the words a hotel's banqueting team uses on its room plans (prompted by the Al Wasl Ballroom plan, "PAX 112" in classroom). Stored as an optional `setup` on each room in `Event.settings.venue.rooms`; no migration.

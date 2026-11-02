@@ -66,6 +66,36 @@ export interface VenueRoom {
    * for a workshop, exactly as before setups existed, so a saved venue looks the same until someone chooses one.
    */
   setup?: RoomSetup;
+  /**
+   * The hotel's real stage, width by depth in metres (the Al Wasl Ballroom's 10.98 x 3.66). Absent: the venue sizes
+   * it from the room. Used only in a setup with a stage (theatre, classroom, cabaret, banquet); kept, unused,
+   * while another setup is chosen, so trying a boardroom and going back does not lose it.
+   */
+  stage?: { w: number; d: number };
+  /** The real screen, width by height in metres (the ballroom's 10 x 3 m LED wall). Absent: sized from the room. */
+  screen?: { w: number; h: number };
+}
+
+/** The setups with a stage at the front; the others have only a screen on the far wall. */
+export const STAGE_SETUPS: readonly RoomSetup[] = ["theatre", "classroom", "cabaret", "banquet"];
+
+/** Whether the room is laid out with a stage, so its stage size is used. */
+export function hasStage(room: Pick<VenueRoom, "kind" | "setup">): boolean {
+  const setup = setupOf(room);
+  return setup !== null && STAGE_SETUPS.includes(setup);
+}
+
+/**
+ * What a layout zone carries of a room's own sizes: the screen in any seated room, the stage only where the setup has
+ * one. Metres, rounded to the centimetre.
+ */
+export function roomSizes(room: Pick<VenueRoom, "kind" | "setup" | "stage" | "screen">): { stage?: [number, number]; screen?: [number, number] } {
+  if (!SEATED_KINDS.includes(room.kind)) return {};
+  const cm = (n: number) => Math.round(n * 100) / 100;
+  return {
+    ...(room.stage && hasStage(room) && { stage: [cm(room.stage.w), cm(room.stage.d)] as [number, number] }),
+    ...(room.screen && { screen: [cm(room.screen.w), cm(room.screen.h)] as [number, number] }),
+  };
 }
 
 /** The setup someone chose for the room, when it is one a setup applies to; what a layout zone carries. */
@@ -88,6 +118,18 @@ const roomSchema = z.object({
   kind: z.enum(ROOM_KINDS),
   capacity: z.number({ message: "Enter how many people each room holds" }).int("Room sizes are whole numbers of people").min(1).max(3000),
   setup: z.enum(ROOM_SETUPS).optional(),
+  stage: z
+    .object({
+      w: z.number().min(1, "A stage is at least 1 m wide").max(40, "A stage is at most 40 m wide"),
+      d: z.number().min(0.5, "A stage is at least 0.5 m deep").max(15, "A stage is at most 15 m deep"),
+    })
+    .optional(),
+  screen: z
+    .object({
+      w: z.number().min(0.5, "A screen is at least 0.5 m wide").max(30, "A screen is at most 30 m wide"),
+      h: z.number().min(0.3, "A screen is at least 0.3 m high").max(12, "A screen is at most 12 m high"),
+    })
+    .optional(),
 });
 
 /** The room list as saved: refuses what the floor plan cannot lay out, with a reason a person can act on. */
@@ -106,6 +148,7 @@ export const roomsSchema = z
     for (const r of rooms) {
       const { min, max } = ROOM_KIND_INFO[r.kind].capacity;
       if (r.capacity < min || r.capacity > max) issue(`${r.name}: a ${ROOM_KIND_INFO[r.kind].label.toLowerCase()} holds ${min} to ${max} people`);
+      if ((r.stage || r.screen) && !SEATED_KINDS.includes(r.kind)) issue(`${r.name}: only a room people sit in has a stage or a screen`);
       if (!r.setup) continue;
       if (!SEATED_KINDS.includes(r.kind)) issue(`${r.name}: only a room people sit in has a setup`);
       const most = SETUP_INFO[r.setup].maxCapacity;

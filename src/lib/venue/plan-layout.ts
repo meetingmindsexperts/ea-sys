@@ -49,7 +49,7 @@ import {
   type PlanWall,
   type VenuePlan,
 } from "./plan";
-import { chosenSetup, type VenueRoom } from "./rooms";
+import { chosenSetup, roomSizes, type VenueRoom } from "./rooms";
 
 const EPS = 0.01;
 const PROBE = 0.05;
@@ -234,7 +234,7 @@ export function floorLayout(rooms: VenueRoom[], plan: VenuePlan, opts: { eventNa
     return {
       id, name: room.name, sub: SUB[room.kind], kind: room.kind, rect: rect.map(r2) as Rect, ceil: CEIL[room.kind],
       spawn: spawn.map(r2) as [number, number, number], floor: FLOOR[room.kind], capacity: room.capacity,
-      ...(chosenSetup(room) && { setup: chosenSetup(room) }), ...(tint && { tint }),
+      ...(chosenSetup(room) && { setup: chosenSetup(room) }), ...roomSizes(room), ...(tint && { tint }),
     };
   };
   if (foyerP) zones.push(roomZone(foyerP.id, foyerP.rect, foyerSpawn(foyerP.rect, foyerP.door, plan.entrance)));

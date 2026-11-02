@@ -24,7 +24,7 @@
  * the room, v from the door (0) to the far wall (D), so one furnisher serves a
  * room on either side.
  */
-import { chosenSetup, setupOf, SETUP_INFO, type RoomKind, type RoomSetup, type VenueRoom } from "./rooms";
+import { chosenSetup, roomSizes, setupOf, SETUP_INFO, type RoomKind, type RoomSetup, type VenueRoom } from "./rooms";
 import type { FixtureKind } from "./plan";
 
 export type Rect = [number, number, number, number];
@@ -43,6 +43,9 @@ export interface LayoutZone {
   capacity: number;
   /** A seated room's chosen setup (rooms.ts); absent for the kind's own, which every venue had before setups. */
   setup?: RoomSetup;
+  /** The room's real stage (width, depth) and screen (width, height) in metres, when the hotel gave them (rooms.ts). */
+  stage?: [number, number];
+  screen?: [number, number];
   /** The floor it is on, in a venue of several floors (`VenueLayout.levels`); absent in a one-floor venue. */
   level?: string;
 }
@@ -269,6 +272,7 @@ function planZones(rooms: VenueRoom[]) {
     floor: FLOOR[room.kind],
     capacity: room.capacity,
     ...(chosenSetup(room) && { setup: chosenSetup(room) }),
+    ...roomSizes(room),
     ...(tint && { tint }),
   });
   const ccx = (cx0 + cx1) / 2;
@@ -293,11 +297,19 @@ function planZones(rooms: VenueRoom[]) {
 
 // ── What fits: how much of a room's furniture a W x D room holds, by the furnishers' own spacing ──
 
-const theatreRows = (D: number, big: boolean) => {
-  const sv0 = D - 0.4 - (big ? 5 : 3.2);
+/**
+ * How deep the stage is: the room's real one when given, kept to two fifths of the room so seats remain, else the
+ * venue's own (5 m in a plenary, 3.2 m in a hall). The furnisher and `fits` both use it, so they always agree.
+ */
+function stageDepth(big: boolean, D: number, stage?: [number, number]): number {
+  if (stage) return Math.min(stage[1], D * 0.4);
+  return big ? 5 : 3.2;
+}
+const theatreRows = (D: number, stageD: number) => {
+  const sv0 = D - 0.4 - stageD;
   return sv0 - 1.8 >= 2.6 ? Math.floor((sv0 - 1.8 - 2.6) / 1.15) + 1 : 0;
 };
-const theatreSeats = (W: number, D: number, big: boolean) => theatreRows(D, big) * 2 * Math.max(0, Math.floor((W / 2 - 1.4 - 1.2) / 0.62));
+const theatreSeats = (W: number, D: number, stageD: number) => theatreRows(D, stageD) * 2 * Math.max(0, Math.floor((W / 2 - 1.4 - 1.2) / 0.62));
 // Classroom (the Al Wasl Ballroom plan): 1.8 m tables of three, 0.6 m apart in a block, a row every 1.5 m,
 // the first table 2.5 m from the stage; the chairs behind a table reach 0.95 m back from its centre line.
 const CLASS_SEATS = 3;
@@ -333,11 +345,11 @@ const posterBoards = (W: number, D: number) => Math.max(1, Math.floor((W - 4) / 
 const posterBoardsWanted = (capacity: number) => clamp(Math.round(capacity / 5), 6, 40);
 
 /** How many people a W by D room seats in a setup, by the setup furnishers' own spacing (below). */
-function setupSeats(setup: RoomSetup, W: number, D: number, big: boolean, capacity: number): number {
-  const sv0 = D - 0.4 - (big ? 5 : 3.2);
+function setupSeats(setup: RoomSetup, W: number, D: number, stageD: number, capacity: number): number {
+  const sv0 = D - 0.4 - stageD;
   switch (setup) {
     case "theatre":
-      return theatreSeats(W, D, big);
+      return theatreSeats(W, D, stageD);
     case "classroom":
       return classroomRows(sv0) * 2 * classroomTables(W) * CLASS_SEATS;
     case "cabaret":
@@ -357,7 +369,10 @@ function setupSeats(setup: RoomSetup, W: number, D: number, big: boolean, capaci
 /** Does a W (across) by D (door to far wall) room hold this room's people? */
 export function fits(room: VenueRoom, W: number, D: number): boolean {
   const setup = setupOf(room);
-  if (setup) return setupSeats(setup, W, D, room.kind === "plenary", room.capacity) >= Math.min(room.capacity, MAX_SEATS_DRAWN);
+  if (setup) {
+    const stageD = stageDepth(room.kind === "plenary", D, roomSizes(room).stage);
+    return setupSeats(setup, W, D, stageD, room.capacity) >= Math.min(room.capacity, MAX_SEATS_DRAWN);
+  }
   switch (room.kind) {
     case "workshop":
       return workshopTables(W, D) * 6 >= room.capacity;
@@ -449,15 +464,17 @@ function furnishTheatre(f: Frame, out: Out) {
 function furnishStage(f: Frame, out: Out): { sv0: number; big: boolean } {
   const id = f.zone.id;
   const big = f.zone.kind === "plenary";
-  const stageD = big ? 5 : 3.2;
+  const stageD = stageDepth(big, f.D, f.zone.stage);
   const sv0 = f.D - 0.4 - stageD;
-  const halfStage = Math.min(f.W / 2 - 1.5, big ? Math.max(8, f.W * 0.35) : f.W / 2 - 1.5);
-  out.items.push({ t: "stage", zone: id, solid: true, h: big ? 0.9 : 0.45, foot: f.box(-halfStage, sv0, halfStage, f.D - 0.4) });
-  const sw = big ? Math.min(14, f.W * 0.45) : Math.min(8, f.W - 4);
+  const stageH = big ? 0.9 : 0.45;
+  // A real stage keeps half a metre clear of each side wall; the venue's own leaves 1.5 m.
+  const halfStage = f.zone.stage ? Math.min(f.W / 2 - 0.5, f.zone.stage[0] / 2) : Math.min(f.W / 2 - 1.5, big ? Math.max(8, f.W * 0.35) : f.W / 2 - 1.5);
+  out.items.push({ t: "stage", zone: id, solid: true, h: stageH, foot: f.box(-halfStage, sv0, halfStage, f.D - 0.4) });
+  const scr = screenSize(f, big ? Math.min(14, f.W * 0.45) : Math.min(8, f.W - 4), stageH + 0.5, big ? 4.6 : 3.3);
   const [sx, sz] = f.at(0, f.D - 0.25);
   out.items.push({
-    t: "screen", zone: id, solid: false, foot: f.box(-sw / 2, f.D - 0.35, sw / 2, f.D - 0.15),
-    id: big ? "plenary-main" : `${id}-screen`, x: sx, y: big ? 4.6 : 3.3, z: sz, w: r2(sw), hgt: r2(sw * 0.55), yaw: f.yaw + Math.PI,
+    t: "screen", zone: id, solid: false, foot: f.box(-scr.w / 2, f.D - 0.35, scr.w / 2, f.D - 0.15),
+    id: big ? "plenary-main" : `${id}-screen`, x: sx, y: scr.y, z: sz, w: r2(scr.w), hgt: r2(scr.h), yaw: f.yaw + Math.PI,
     kicker: `${f.zone.name} · ${big ? "Main stage" : "Parallel session"}`, title: big ? "Plenary session" : "Session to be announced", sub: "The agenda names this room's sessions",
   });
   const lu = halfStage * 0.6;
@@ -485,12 +502,24 @@ function finishStageRoom(f: Frame, out: Out, sv0: number, big: boolean) {
 /** A screen on the far wall, for a room without a stage (a workshop, a boardroom, a U). */
 function farScreen(f: Frame, out: Out, title: string, sub: string) {
   const id = f.zone.id;
-  const sw = Math.min(7, f.W - 4);
+  const scr = screenSize(f, Math.min(7, f.W - 4), 1, 3);
   const [sx, sz] = f.at(0, f.D - 0.25);
   out.items.push({
-    t: "screen", zone: id, solid: false, foot: f.box(-sw / 2, f.D - 0.35, sw / 2, f.D - 0.15), id: `${id}-screen`, x: sx, y: 3, z: sz, w: r2(sw), hgt: r2(sw * 0.55),
+    t: "screen", zone: id, solid: false, foot: f.box(-scr.w / 2, f.D - 0.35, scr.w / 2, f.D - 0.15), id: `${id}-screen`, x: sx, y: scr.y, z: sz, w: r2(scr.w), hgt: r2(scr.h),
     yaw: f.yaw + Math.PI, kicker: f.zone.name, title, sub,
   });
+}
+
+/**
+ * The screen's width, height and centre height: the room's real screen when given (no wider than the wall, its
+ * bottom `bottom` m up and its top 0.3 m under the ceiling), else the venue's own, as wide as `ownW` and 0.55 as high.
+ */
+function screenSize(f: Frame, ownW: number, bottom: number, ownY: number): { w: number; h: number; y: number } {
+  if (!f.zone.screen) return { w: ownW, h: ownW * 0.55, y: ownY };
+  const w = Math.min(f.zone.screen[0], f.W - 1);
+  // In 2 cm steps, so half of it is whole centimetres and rounding the centre cannot lift the top past the ceiling.
+  const h = Math.max(0.3, Math.floor(Math.min(f.zone.screen[1], f.zone.ceil - bottom - 0.3) * 50) / 50);
+  return { w, h, y: r2(bottom + h / 2) };
 }
 
 /** The yaw of a direction in the room's own terms (+u across, +v towards the far wall), as items carry it. */

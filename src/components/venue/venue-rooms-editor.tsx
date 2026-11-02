@@ -10,12 +10,13 @@
  */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AlertCircle, Building2, ExternalLink, Loader2, PencilRuler, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Building2, ExternalLink, Loader2, PencilRuler, Plus, Ruler, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PageHeader, SectionHeading } from "@/components/ui/typography";
 import { useCan } from "@/hooks/use-can";
@@ -26,7 +27,7 @@ import { VenuePlanPdfButton } from "@/components/venue/venue-plan-pdf-button";
 import { VenuePlanEditor } from "@/components/venue/venue-plan-editor";
 import { VenueProgrammeCard } from "@/components/venue/venue-programme-card";
 import { BlueprintNotes, BlueprintReplaceRow, BlueprintStartCard } from "@/components/venue/venue-blueprint-start";
-import { ROOM_KINDS, ROOM_KIND_INFO, ROOM_SETUPS, SEATED_KINDS, SETUP_INFO, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type RoomSetup, type VenueRoom } from "@/lib/venue/rooms";
+import { ROOM_KINDS, ROOM_KIND_INFO, ROOM_SETUPS, SEATED_KINDS, SETUP_INFO, hasStage, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type RoomSetup, type VenueRoom } from "@/lib/venue/rooms";
 
 const SEATED: RoomKind[] = ["plenary", "hall", "workshop"];
 
@@ -299,12 +300,12 @@ function RoomList({
       />
       <Card>
         <CardContent className="divide-y p-0">
-          <div className="hidden grid-cols-[minmax(0,1fr)_13rem_11rem_8rem_2.5rem] gap-3 px-5 py-2.5 text-xs font-medium text-muted-foreground md:grid">
+          <div className="hidden grid-cols-[minmax(0,1fr)_13rem_11rem_8rem_5rem] gap-3 px-5 py-2.5 text-xs font-medium text-muted-foreground md:grid">
             <span>Name</span>
             <span>What it is for</span>
             <span>Setup</span>
             <span>People it holds</span>
-            <span className="sr-only">Remove</span>
+            <span className="sr-only">Sizes and remove</span>
           </div>
           {rooms.map((room, i) => (
             <RoomRow key={room.id} room={room} canEdit={canEdit} onUpdate={(p) => onUpdate(i, p)} onRemove={() => onRemove(i)} kindFull={(k) => k !== room.kind && count(k) >= ROOM_KIND_INFO[k].max} />
@@ -331,7 +332,7 @@ function RoomRow({
   const info = ROOM_KIND_INFO[room.kind];
   if (!canEdit) {
     return (
-      <div className="grid gap-1 px-5 py-3 text-sm md:grid-cols-[minmax(0,1fr)_13rem_11rem_8rem_2.5rem] md:items-center md:gap-3">
+      <div className="grid gap-1 px-5 py-3 text-sm md:grid-cols-[minmax(0,1fr)_13rem_11rem_8rem_5rem] md:items-center md:gap-3">
         <span className="font-medium">{room.name}</span>
         <span className="text-muted-foreground">{info.label}</span>
         <span className="text-muted-foreground">{setupLabel(room)}</span>
@@ -341,7 +342,7 @@ function RoomRow({
   }
   const isFoyer = room.kind === "foyer";
   return (
-    <div className="grid gap-2 px-5 py-3 md:grid-cols-[minmax(0,1fr)_13rem_11rem_8rem_2.5rem] md:items-center md:gap-3">
+    <div className="grid gap-2 px-5 py-3 md:grid-cols-[minmax(0,1fr)_13rem_11rem_8rem_5rem] md:items-center md:gap-3">
       <Input id={`room-${room.id}-name`} name={`room-${room.id}-name`} aria-label="Room name" value={room.name} maxLength={60} onChange={(e) => onUpdate({ name: e.target.value })} />
       <Select value={room.kind} onValueChange={(v) => onUpdate({ kind: v as RoomKind, ...(!SEATED_KINDS.includes(v as RoomKind) && { setup: undefined }) })} disabled={isFoyer}>
         <SelectTrigger id={`room-${room.id}-kind`} aria-label="What the room is for" className="w-full">
@@ -369,9 +370,12 @@ function RoomRow({
         onChange={(e) => onUpdate({ capacity: e.target.value === "" ? Number.NaN : Math.round(Number(e.target.value)) })}
         className="tabular-nums"
       />
-      <Button variant="ghost" size="icon" aria-label={isFoyer ? "The foyer cannot be removed" : `Remove ${room.name}`} disabled={isFoyer} onClick={onRemove}>
-        <Trash2 className="h-4 w-4" aria-hidden />
-      </Button>
+      <div className="flex items-center gap-1">
+        <SizesButton room={room} onUpdate={onUpdate} />
+        <Button variant="ghost" size="icon" aria-label={isFoyer ? "The foyer cannot be removed" : `Remove ${room.name}`} disabled={isFoyer} onClick={onRemove}>
+          <Trash2 className="h-4 w-4" aria-hidden />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -452,5 +456,76 @@ function SetupSelect({ room, onUpdate }: { room: VenueRoom; onUpdate: (patch: Pa
         })}
       </SelectContent>
     </Select>
+  );
+}
+
+type Pair = { a: string; b: string };
+const pairOf = (v: { w: number; d: number } | { w: number; h: number } | undefined, second: "d" | "h"): Pair =>
+  v ? { a: String(v.w), b: String((v as Record<string, number>)[second]) } : { a: "", b: "" };
+
+/** Both numbers, both empty (no size: the venue sizes it), or neither yet (still typing). */
+function readPair(p: Pair): { ok: true; value: [number, number] | null } | { ok: false } {
+  if (p.a.trim() === "" && p.b.trim() === "") return { ok: true, value: null };
+  const a = Number(p.a);
+  const b = Number(p.b);
+  return p.a.trim() !== "" && p.b.trim() !== "" && Number.isFinite(a) && Number.isFinite(b) ? { ok: true, value: [a, b] } : { ok: false };
+}
+
+/**
+ * The room's real stage and screen, from the hotel's room plan (rooms.ts). Empty fields let the venue size them
+ * from the room. The stage only shows for a setup that has one; a size typed for it is kept while another setup is
+ * tried.
+ */
+function SizesButton({ room, onUpdate }: { room: VenueRoom; onUpdate: (patch: Partial<VenueRoom>) => void }) {
+  const [stage, setStage] = useState<Pair>(() => pairOf(room.stage, "d"));
+  const [screen, setScreen] = useState<Pair>(() => pairOf(room.screen, "h"));
+  if (!SEATED_KINDS.includes(room.kind)) return <span className="h-9 w-9" aria-hidden />;
+  const withStage = hasStage(room);
+  const set = !!room.screen || (withStage && !!room.stage);
+  const commitStage = (p: Pair) => {
+    setStage(p);
+    const r = readPair(p);
+    if (r.ok) onUpdate({ stage: r.value ? { w: r.value[0], d: r.value[1] } : undefined });
+  };
+  const commitScreen = (p: Pair) => {
+    setScreen(p);
+    const r = readPair(p);
+    if (r.ok) onUpdate({ screen: r.value ? { w: r.value[0], h: r.value[1] } : undefined });
+  };
+  const field = (id: string, label: string, value: string, onChange: (v: string) => void) => (
+    <label htmlFor={id} className="grid gap-1 text-xs font-medium text-muted-foreground">
+      {label}
+      <Input id={id} name={id} type="number" inputMode="decimal" step="0.01" min="0" value={value} onChange={(e) => onChange(e.target.value)} className="tabular-nums" />
+    </label>
+  );
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label={`Stage and screen sizes for ${room.name}`} className={set ? "text-primary" : undefined}>
+          <Ruler className="h-4 w-4" aria-hidden />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 space-y-4">
+        <div className="space-y-1">
+          <p className="text-sm font-semibold">Stage and screen</p>
+          <p className="text-xs text-muted-foreground">In metres, from the hotel&apos;s room plan. Leave both empty and the venue sizes them from the room.</p>
+        </div>
+        {withStage ? (
+          <fieldset className="grid grid-cols-2 gap-3">
+            <legend className="sr-only">Stage</legend>
+            {field(`room-${room.id}-stage-w`, "Stage width", stage.a, (v) => commitStage({ ...stage, a: v }))}
+            {field(`room-${room.id}-stage-d`, "Stage depth", stage.b, (v) => commitStage({ ...stage, b: v }))}
+          </fieldset>
+        ) : (
+          <p className="text-xs text-muted-foreground">A {setupLabel(room).toLowerCase()} setup has no stage, only a screen.</p>
+        )}
+        <fieldset className="grid grid-cols-2 gap-3">
+          <legend className="sr-only">Screen</legend>
+          {field(`room-${room.id}-screen-w`, "Screen width", screen.a, (v) => commitScreen({ ...screen, a: v }))}
+          {field(`room-${room.id}-screen-h`, "Screen height", screen.b, (v) => commitScreen({ ...screen, b: v }))}
+        </fieldset>
+        {(!readPair(stage).ok || !readPair(screen).ok) && <p className="text-xs text-amber-700 dark:text-amber-400">Enter both numbers of a size, or leave both empty.</p>}
+      </PopoverContent>
+    </Popover>
   );
 }

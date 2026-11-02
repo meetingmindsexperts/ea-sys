@@ -29,7 +29,7 @@ export const LAYOUT_FIXTURES: Record<string, VenueRoom[]> = {
   // Every setup (rooms.ts ROOM_SETUPS): the Al Wasl Ballroom's 112 in classroom as the plenary, then each other one.
   setups: [
     room("foyer", 400),
-    { ...room("plenary", 112), setup: "classroom" },
+    { ...room("plenary", 112), setup: "classroom", stage: { w: 10.98, d: 3.66 }, screen: { w: 10, h: 3 } },
     { ...room("hall", 120, 0), setup: "cabaret" },
     { ...room("hall", 150, 1), setup: "banquet" },
     { ...room("hall", 90, 2) },

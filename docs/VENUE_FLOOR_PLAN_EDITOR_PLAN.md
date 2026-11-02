@@ -540,7 +540,7 @@ dashed movable wall). The owner asked for the four steps one after another (Nov 
 | Step | What | Status |
 | --- | --- | --- |
 | 1 | A setup per seated room (theatre, classroom, cabaret, banquet, boardroom, U-shape), laid out in 2D, PDF and 3D | BUILT Nov 2 |
-| 2 | Real stage and screen sizes per room, today's estimates as the fallback | planned |
+| 2 | Real stage and screen sizes per room, today's estimates as the fallback | BUILT Nov 2 |
 | 3 | A one-page room setup sheet (PDF) like the hotel's | planned |
 | 4 | Divisible ballrooms (sections along a movable wall) | planned |
 
@@ -550,3 +550,8 @@ Step 1 as built: `rooms.ts` `ROOM_SETUPS` / `SETUP_INFO` / `setupOf` / `chosenSe
 `longTable` item; cabaret rounds carry `open`. Spacing: classroom tables 1.8 m of three, 0.6 m apart, a row every
 1.5 m, first table 2.5 m from the stage (the hotel's 2.55 m); rounds 1.8 m with chairs at 1.45 m, cabaret 3.8 m and
 banquet 4 m apart; boardroom and U 0.75 m a chair. Fixture `setups` walks every setup.
+
+Step 2 as built: `VenueRoom.stage {w,d}` / `screen {w,h}` (rooms.ts, with `hasStage`, `STAGE_SETUPS`, `roomSizes`);
+the zone carries `stage` / `screen`; `stageDepth()` is shared by the furnisher and `fits` (a real stage at most two
+fifths of the room deep), `screenSize()` keeps a real screen within the wall and under the ceiling (2 cm steps).
+The editor's ruler button edits them per seated room.
