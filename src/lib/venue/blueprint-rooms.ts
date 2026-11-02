@@ -170,6 +170,9 @@ export function roomsFromBlueprint(spaces: BlueprintSpace[], attendance: string)
     const id = roomIdFor(name, ids);
     ids.push(id);
     const setup = setupFromLayout(r);
+    const asked = r.layout ? LAYOUT_SETUP[r.layout] : undefined;
+    // A layout the venue could not use is said, as every other change is (review of 3db1d071).
+    if (asked && !setup) notes.push(setupDroppedNote(name, r, asked));
     return { id, name, kind: r.kind, capacity: r.capacity, ...(setup && { setup }) };
   });
   return { rooms, notes };
@@ -184,4 +187,10 @@ function setupFromLayout(r: { kind: RoomKind; capacity: number; layout?: string 
   if (!setup || !SEATED_KINDS.includes(r.kind)) return undefined;
   const most = SETUP_INFO[setup].maxCapacity;
   return most && r.capacity > most ? undefined : setup;
+}
+
+function setupDroppedNote(name: string, r: { kind: RoomKind; capacity: number }, asked: RoomSetup): string {
+  const label = SETUP_INFO[asked].label.toLowerCase();
+  if (!SEATED_KINDS.includes(r.kind)) return `${name} is a ${ROOM_KIND_INFO[r.kind].label.toLowerCase()}, which has no seating setup, so its ${label} layout is not used.`;
+  return `${name} keeps the usual setup: a ${label} seats at most ${SETUP_INFO[asked].maxCapacity}, not ${r.capacity}.`;
 }

@@ -138,3 +138,34 @@ describe("a Blueprint's layouts become setups", () => {
     expect(roomsSchema.safeParse(rooms).success).toBe(true);
   });
 });
+
+describe("review of 3db1d071: a setup alone on a narrow side still seats its people", () => {
+  const small = (room: VenueRoom): VenueRoom[] => [
+    { id: "foyer", name: "Foyer", kind: "foyer", capacity: 100 },
+    room,
+    { id: "other", name: "Other", kind: "workshop", capacity: 20 },
+  ];
+  it.each([
+    { id: "r", name: "Board", kind: "workshop", capacity: 40, setup: "boardroom" },
+    { id: "r", name: "Board hall", kind: "hall", capacity: 30, setup: "boardroom" },
+    { id: "r", name: "U", kind: "workshop", capacity: 60, setup: "ushape" },
+    { id: "r", name: "Cabaret", kind: "hall", capacity: 60, setup: "cabaret" },
+    { id: "r", name: "Banquet", kind: "workshop", capacity: 10, setup: "banquet" },
+  ] as VenueRoom[])("$name ($setup, $capacity)", (room) => {
+    const l = generateLayout(small(room), { eventName: "x" });
+    const z = l.zones.find((q) => q.id === "r")!;
+    const seats = l.items.filter((it) => it.zone === "r").reduce((n, it) => n + (it.t === "longTable" ? it.n * (it.both ? 2 : 1) : it.t === "round" ? it.chairs : 0), 0);
+    expect(seats).toBeGreaterThanOrEqual(room.capacity);
+    expect(Math.max(z.rect[2] - z.rect[0], z.rect[3] - z.rect[1])).toBeLessThan(70);
+    expect(checkLayout(l).ok).toBe(true);
+  });
+
+  it("a Blueprint layout the venue cannot use is noted", () => {
+    const { notes } = roomsFromBlueprint(
+      [{ name: "Room 5", layout: "Boardroom", cap: "120", purpose: "" }, { name: "Gala Dinner", layout: "Banquet rounds", cap: "200", purpose: "" }],
+      "300",
+    );
+    expect(notes.join(" ")).toMatch(/Room 5 keeps the usual setup: a boardroom seats at most 40, not 120/);
+    expect(notes.join(" ")).toMatch(/Gala Dinner is a networking lounge, which has no seating setup/);
+  });
+});

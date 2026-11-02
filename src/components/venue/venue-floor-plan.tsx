@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 function seatsOf(it: LayoutItem): number {
   if (it.t === "row") return it.n;
   if (it.t === "round") return it.chairs;
+  if (it.t === "longTable") return it.n * (it.both ? 2 : 1);
   return 0;
 }
 

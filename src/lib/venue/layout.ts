@@ -234,7 +234,27 @@ function sides(rooms: VenueRoom[], width: (side: VenueRoom[]) => number) {
   return { west, east };
 }
 
-const sideWidth = (side: VenueRoom[]) => (side.length ? clamp(Math.round(Math.sqrt(Math.max(...side.map(areaOf))) * 0.95), 12, 34) : 0);
+/**
+ * How deep (door to far wall) a room must be for its setup to seat anyone, or its people at all, when only its
+ * length can grow: one row of round tables, a boardroom's whole table, a U's arms. Zero for the setups whose rows
+ * run across the room (theatre, classroom) and for a room with none chosen, so a template's venue is unchanged.
+ * Review of 3db1d071: without it a side room grew to 70 m long and seated few or none.
+ */
+function minDepthOf(room: VenueRoom): number {
+  const setup = setupOf(room);
+  if (!setup || setup === "theatre" || setup === "classroom") return 0;
+  const people = Math.min(room.capacity, MAX_SEATS_DRAWN);
+  if (setup === "boardroom") return BOARD_NEAR + BOARD_FAR + SEAT_W * Math.ceil(people / 2);
+  if (setup === "ushape") {
+    const base = Math.min(Math.floor((2 * 5) / SEAT_W), people);
+    return 3 + 3.7 + SEAT_W * Math.ceil(Math.max(0, people - base) / 2);
+  }
+  // Rounds: the first table's centre 4.25 m from the stage and at least 4.35 m from the door.
+  return 0.4 + stageDepth(room.kind === "plenary", 1e9, roomSizes(room).stage) + 4.25 + 4.35;
+}
+
+const sideWidth = (side: VenueRoom[]) =>
+  side.length ? clamp(Math.ceil(Math.max(Math.round(Math.sqrt(Math.max(...side.map(areaOf))) * 0.95), ...side.map(minDepthOf))), 12, 34) : 0;
 
 /** The building: every zone's rectangle, with the plenary and foyer across its full width. */
 function planZones(rooms: VenueRoom[]) {

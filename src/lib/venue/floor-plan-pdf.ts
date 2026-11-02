@@ -423,7 +423,8 @@ export function placeLabel(room: Box, label: { w: number; h: number }, obstacles
 function drawRoomLabels(doc: Doc, layout: VenueLayout, P: Project, ptPerM: number) {
   const widthOf = (font: string) => (text: string, size: number) => doc.font(font).fontSize(size).widthOfString(text);
   const obstacles = layout.items
-    .filter((it) => it.t === "stand" || (it.solid && it.t !== "row"))
+    // Seating (rows, classroom tables) is what a room's label band sits over, so only furniture moves it.
+    .filter((it) => it.t === "stand" || (it.solid && it.t !== "row" && it.t !== "longTable"))
     .map((it) => {
       const f = it.foot;
       const r: Rect = "r" in f ? [f.cx - f.r, f.cz - f.r, f.cx + f.r, f.cz + f.r] : [f.x0, f.z0, f.x1, f.z1];
