@@ -127,3 +127,64 @@ describe("linkifyEmailText", () => {
     ]);
   });
 });
+
+describe("review fixes (b63127f0)", () => {
+  it("keeps a sponsor's sentence containing 'wrote:' in the body", () => {
+    const text = "Hi Anna,\n\nOn the budget, here is what my CFO wrote: we can do 5k.\nWe also want the gold booth.\n\nThanks\nBob";
+    expect(splitQuotedHistory(text)).toEqual({ body: text, quoted: null });
+  });
+
+  it("keeps an inline reply (answers between quoted lines) visible", () => {
+    const text = "Hi\n\nOn Mon, 1 Nov 2026, Anna <a@x.com> wrote:\n> Can you do 5k?\nYes, 5k works.\n> Gold booth?\nNo, silver.";
+    expect(splitQuotedHistory(text)).toEqual({ body: text, quoted: null });
+  });
+
+  it("keeps a 'From: / Date:' travel note in the body", () => {
+    const text = "Hi, our travel plan:\nFrom: Dubai\nDate: 3 Dec\nFlight EK1\nThanks";
+    expect(splitQuotedHistory(text)).toEqual({ body: text, quoted: null });
+  });
+
+  it("stays fast on a long run of dots inside a link", () => {
+    const t0 = performance.now();
+    linkifyEmailText(`http://a${".".repeat(200_000)}b`);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
+  it("stays fast on many quoted lines followed by an unquoted one", () => {
+    const t0 = performance.now();
+    splitQuotedHistory(`hi\n${">\n".repeat(100_000)}x`);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
+  it("does not eat a '>' that has no opening bracket", () => {
+    const parts = linkifyEmailText("go https://x.com/a>b");
+    expect(parts.map((p) => (p.kind === "link" ? p.href : p.text)).join("")).toBe("go https://x.com/a>b");
+  });
+
+  it("takes a bracketed link whole, punctuation and all", () => {
+    expect(linkifyEmailText("Link<https://x.com.> done")).toEqual([
+      { kind: "text", text: "Link " },
+      { kind: "link", href: "https://x.com.", label: "https://x.com." },
+      { kind: "text", text: " done" },
+    ]);
+  });
+
+  it("keeps a closing paren that belongs to the link", () => {
+    const parts = linkifyEmailText("(see https://en.wikipedia.org/wiki/Foo_(bar))");
+    expect(parts[1]).toMatchObject({ kind: "link", href: "https://en.wikipedia.org/wiki/Foo_(bar)" });
+    expect(parts[2]).toEqual({ kind: "text", text: ")" });
+  });
+
+  it("never cuts a long message inside a link", () => {
+    const href = `https://x.com/${"a".repeat(1600)}`;
+    const { shown, truncated } = collapseLongText(`${"b".repeat(900)}${href}`);
+    expect(truncated).toBe(true);
+    expect(shown).toBe("b".repeat(900));
+  });
+
+  it("never splits an emoji at the cut", () => {
+    const { shown } = collapseLongText(`${"a".repeat(COLLAPSED_CHARS - 1)}😀${"b".repeat(100)}`);
+    expect(shown.endsWith("a")).toBe(true);
+  });
+});
+

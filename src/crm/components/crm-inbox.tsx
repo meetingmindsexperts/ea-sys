@@ -148,7 +148,7 @@ function MessageBubble({ message }: { message: CrmInboxMessageRow }) {
   return (
     <div className={`flex ${inbound ? "justify-start" : "justify-end"}`}>
       <div
-        className={`max-w-[85%] rounded-lg border px-3 py-2 text-sm ${
+        className={`w-full max-w-[95%] rounded-lg border px-3 py-2 text-sm ${
           inbound ? "bg-muted/40" : "border-sky-200 bg-sky-50/60"
         }`}
       >

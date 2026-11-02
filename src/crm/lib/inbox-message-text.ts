@@ -42,32 +42,55 @@ export function tidyEmailText(text: string): string {
 const OUTLOOK_SEPARATOR = /^_{10,}$/;
 const ORIGINAL_MESSAGE = /^-{2,}\s*Original Message\s*-{2,}$/i;
 
-/** "On <date>, <person> wrote:", which Gmail and Apple Mail wrap over up to 3 lines. */
+/**
+ * "On <date>, <person> wrote:", which Gmail and Apple Mail wrap over up to 3
+ * lines, followed only by ">" lines. "wrote:" must END a line, or a sponsor's
+ * "On the budget, my CFO wrote: we can do 5k" would fold their own reply. And
+ * an unquoted line after the marker means an inline reply (answers between
+ * the quoted lines), which is new text and must stay visible.
+ */
 function isOnWroteAt(lines: string[], i: number): boolean {
   if (!/^On\s/.test(lines[i]!)) return false;
-  const joined = lines.slice(i, i + 3).join(" ");
-  return /^On\s.{5,300}?\swrote:$/.test(joined.slice(0, joined.indexOf("wrote:") + "wrote:".length));
+  const last = lines.slice(i, i + 3).findIndex((l) => /\swrote:$/.test(l));
+  if (last === -1) return false;
+  if (!/^On\s.{5,300}\swrote:$/.test(lines.slice(i, i + last + 1).join(" "))) return false;
+  return lines.slice(i + last + 1).every((l) => l === "" || l.startsWith(">"));
 }
 
-/** Outlook's header block: "From: ..." with "Sent:" or "Date:" within the next lines. */
+/**
+ * Outlook's header block: "From: ..." with "Sent:" or "Date:" AND "To:" or
+ * "Subject:" in the next lines. Asking for both keeps an ordinary "From: Dubai
+ * / Date: 3 Dec" travel note in the body.
+ */
 function isOutlookHeaderAt(lines: string[], i: number): boolean {
   if (!/^From:\s?\S/.test(lines[i]!)) return false;
-  return lines.slice(i + 1, i + 4).some((l) => /^(Sent|Date):\s?\S/.test(l));
+  const next = lines.slice(i + 1, i + 6);
+  return next.some((l) => /^(Sent|Date):\s?\S/.test(l)) && next.some((l) => /^(To|Subject):\s?\S/.test(l));
 }
 
-/** Gmail-style quoting: every remaining non-blank line starts with ">". */
-function isQuotedTailAt(lines: string[], i: number): boolean {
-  if (!lines[i]!.startsWith(">")) return false;
-  return lines.slice(i).every((l) => l === "" || l.startsWith(">"));
+/**
+ * The first line of a trailing all-">" block (blank lines allowed), or -1.
+ * Found in one backward walk: checking "is everything after here quoted" from
+ * every ">" line was quadratic, and the text is any sender's.
+ */
+function quotedTailStart(lines: string[]): number {
+  let start = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!;
+    if (line.startsWith(">")) start = i;
+    else if (line !== "") break;
+  }
+  return start;
 }
 
 /** Index of the line where the earlier conversation starts, or -1. */
 function quoteStart(lines: string[]): number {
+  const tail = quotedTailStart(lines);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    if (ORIGINAL_MESSAGE.test(line)) return i;
+    if (i === tail || ORIGINAL_MESSAGE.test(line)) return i;
     if (OUTLOOK_SEPARATOR.test(line) && isOutlookHeaderAt(lines, i + 1)) return i;
-    if (isOutlookHeaderAt(lines, i) || isOnWroteAt(lines, i) || isQuotedTailAt(lines, i)) return i;
+    if (isOutlookHeaderAt(lines, i) || isOnWroteAt(lines, i)) return i;
   }
   return -1;
 }
@@ -98,18 +121,33 @@ export function splitQuotedHistory(text: string): SplitEmailText {
 export function collapseLongText(text: string): { shown: string; truncated: boolean } {
   const lines = text.split("\n");
   let shown = lines.length > COLLAPSED_LINES ? lines.slice(0, COLLAPSED_LINES).join("\n") : text;
-  if (shown.length > COLLAPSED_CHARS) {
-    const cut = shown.lastIndexOf(" ", COLLAPSED_CHARS);
-    shown = shown.slice(0, cut > COLLAPSED_CHARS / 2 ? cut : COLLAPSED_CHARS);
-  }
+  if (shown.length > COLLAPSED_CHARS) shown = shown.slice(0, safeCut(shown));
   return shown.length < text.length ? { shown: shown.trimEnd(), truncated: true } : { shown: text, truncated: false };
+}
+
+/**
+ * Where to cut a text that is over the character cap: at a space when one is
+ * near, never inside a link (a cut link would still be clickable, to the
+ * wrong address), never between the two halves of an emoji.
+ */
+function safeCut(text: string): number {
+  const space = text.lastIndexOf(" ", COLLAPSED_CHARS);
+  let cut = space > COLLAPSED_CHARS / 2 ? space : COLLAPSED_CHARS;
+  for (const m of text.matchAll(URL_PATTERN)) {
+    if (m.index! >= cut) break;
+    if (m.index! + m[0].length > cut) cut = m.index!;
+  }
+  const code = text.charCodeAt(cut - 1);
+  if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
+  return cut;
 }
 
 export type TextPart = { kind: "text"; text: string } | { kind: "link"; href: string; label: string };
 
 /** Links longer than this show as their host instead. */
 const LONG_LINK = 60;
-const URL_PATTERN = /<?(https?:\/\/[^\s<>"]+)>?/g;
+/** Outlook's optional brackets, the URL (capped, so a crafted body stays cheap), the closing bracket. */
+const URL_PATTERN = /(<)?(https?:\/\/[^\s<>"]{1,2048})(>)?/g;
 
 function linkLabel(href: string): string {
   if (href.length <= LONG_LINK) return href;
@@ -120,25 +158,47 @@ function linkLabel(href: string): string {
   }
 }
 
+const count = (s: string, ch: string) => s.split(ch).length - 1;
+
+/**
+ * Drop the sentence punctuation that follows a bare link ("see https://x.com.").
+ * A loop, not a regex: `[.,]+$` rescans a long run from every start, which a
+ * sender could use to freeze the tab. A ")" stays when it closes one inside
+ * the link, as in Wikipedia's `Foo_(bar)`.
+ */
+function trimTrailingPunctuation(href: string): string {
+  let end = href.length;
+  while (end > 0) {
+    const ch = href[end - 1]!;
+    if (".,;:!?]".includes(ch)) end -= 1;
+    else if (ch === ")" && count(href.slice(0, end), ")") > count(href.slice(0, end), "(")) end -= 1;
+    else break;
+  }
+  return href.slice(0, end);
+}
+
 /**
  * Split text into plain runs and http(s) links, a long link labelled by its
- * host. Outlook writes a link as `text<https://...>`, so the angle brackets
- * go with it. Only http and https become links: the text is the sender's.
+ * host. Outlook writes a link as `text<https://...>`: inside the brackets the
+ * whole thing is the link and the brackets go; a bare link loses trailing
+ * punctuation, which stays as text. Only http and https become links: the
+ * text is the sender's.
  */
 export function linkifyEmailText(text: string): TextPart[] {
   const parts: TextPart[] = [];
   let last = 0;
   for (const match of text.matchAll(URL_PATTERN)) {
-    const href = match[1]!.replace(/[.,;:!?)\]]+$/, "");
-    const at = match.index!;
-    const end = at + match[0].indexOf(match[1]!) + href.length;
-    const consumed = match[0].endsWith(">") && href === match[1] ? at + match[0].length : end;
+    const bracketed = Boolean(match[1] && match[3]);
+    const url = match[2]!;
+    const href = bracketed ? url : trimTrailingPunctuation(url);
+    if (!/^https?:\/\/[^/]/.test(href)) continue;
+    const at = bracketed ? match.index! : match.index! + (match[1]?.length ?? 0);
     // `text<https://...>` loses its brackets, so keep the two words apart.
-    const glued = match[0].startsWith("<") && at > 0 && /\S/.test(text[at - 1]!);
+    const glued = bracketed && at > 0 && /\S/.test(text[at - 1]!);
     const before = text.slice(last, at) + (glued ? " " : "");
     if (before) parts.push({ kind: "text", text: before });
     parts.push({ kind: "link", href, label: linkLabel(href) });
-    last = consumed;
+    last = bracketed ? match.index! + match[0].length : at + href.length;
   }
   if (last < text.length) parts.push({ kind: "text", text: text.slice(last) });
   return parts;
