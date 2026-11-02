@@ -32,6 +32,10 @@ const parsed = (() => {
 if (!parsed || !["localhost", "127.0.0.1"].includes(parsed.hostname) || !/local/i.test(parsed.pathname)) {
   throw new Error(`[seed-venue-demo] Refusing to run: DATABASE_URL is not a local database (got ${parsed ? `${parsed.hostname}${parsed.pathname}` : "an unreadable URL"}).`);
 }
+// The drawing is stored through the app's storage, so a shell set up for S3 would put it in the live bucket.
+if ((process.env.STORAGE_PROVIDER ?? "local") !== "local") {
+  throw new Error(`[seed-venue-demo] Refusing to run: STORAGE_PROVIDER is "${process.env.STORAGE_PROVIDER}", not local.`);
+}
 
 const SLUG = "conrad-demo-2027";
 const DRAWING = path.resolve(process.cwd(), "screenshots/venue-demo/conrad-second-floor.jpg");
@@ -112,7 +116,12 @@ async function main() {
   if (!org || !owner) throw new Error("[seed-venue-demo] No organisation with a super admin in this database.");
 
   await runWithTenant(org.id, async () => {
-    const old = await db.event.findFirst({ where: { slug: SLUG }, select: { id: true } });
+    // Only this organisation's draft demo: a real event that happens to share the slug is never deleted.
+    // (A budget attached to the demo event blocks the delete; remove the budget first.)
+    const old = await db.event.findFirst({ where: { organizationId: org.id, slug: SLUG }, select: { id: true, status: true, name: true } });
+    if (old && (old.status !== "DRAFT" || !old.name.startsWith("Conrad Demo"))) {
+      throw new Error(`[seed-venue-demo] Refusing to replace event ${old.id}: it uses the slug ${SLUG} but is not the draft demo.`);
+    }
     if (old) {
       await db.event.delete({ where: { id: old.id } });
       console.log(`removed the previous demo event ${old.id}`);
@@ -226,6 +235,7 @@ async function main() {
     console.log(`\nConrad demo ready (${STANDS.length} stands, ${TABLES.length} tables, ${names.length} sponsors) in ${org.name}.`);
     console.log(`  Venue tab:      ${appUrl}/events/${event.id}/venue`);
     console.log(`  Exhibitor link: ${appUrl}/e/${SLUG}/floor-plan/${link.token}`);
+    if (process.env.VENUE_MODULE_ENABLED !== "true") console.log("  Note: VENUE_MODULE_ENABLED is not true here, so both pages 404 until it is set in .env.local.");
   });
   await db.$disconnect();
 }
