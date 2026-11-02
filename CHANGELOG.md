@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: the Conrad demo for the presentation (November 2)
+
+- `npx tsx prisma/seed-venue-demo.ts` makes a local, draft demo event laid out as the Conrad Dubai's second floor: the hotel's 30 stands and 5 tables with 30 sponsors, its drawing traced underneath, a classroom ballroom with its real stage and screen, and the exhibitor link. Local only: it refuses any database that is not localhost with "local" in its name. The running order for the presentation is in docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md section 10b.
+
 ### Venue: the exhibitor floor plan link (November 2)
 
 - **One secret link per event for every sponsor and exhibitor** (G1, G6): created on the Venue tab ("Exhibitor floor plan link"), copied and sent by the team, switched off or replaced at any time (replacing stops the old link at once). No expiry, no sign-in.

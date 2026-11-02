@@ -575,3 +575,30 @@ also drops the 3D people and visit points and places each drawing on its floor).
 is the one check shared by the three public doors (map, PDF, drawing). The page is
 `src/app/e/[slug]/floor-plan/[token]` with `src/components/public/exhibitor-floor-plan.tsx`; the Venue tab card is
 `venue-exhibitor-link-card.tsx`. Room names on the exhibitor map are faint so a zoomed-in name never covers a stand.
+
+## 10b. Phase D as built: the Conrad demo (Nov 2, 2026)
+
+`prisma/seed-venue-demo.ts` (`npx tsx prisma/seed-venue-demo.ts`) makes a DRAFT event, "Conrad Demo: Gulf Medical
+Congress 2027" (slug `conrad-demo-2027`), in the local database only (it refuses a DATABASE_URL that is not
+localhost with "local" in the database name; G4). Re-running replaces it. It holds:
+
+- the Conrad Dubai's second floor as drawn by the hotel: the ballroom (classroom, a real 12 x 4 m stage and 10 x 3 m
+  screen), the exhibition gallery, the west foyer and the pre-function as walkways, the registration foyer;
+- 30 stands and 5 tables placed where the hotel's plan has them, numbered 01 to 30 and T1 to T5, with 30 sponsors
+  (platinum, gold, exhibitor) and 5 left Available; a program wall; a staff-only AV console (hidden from exhibitors);
+- the hotel's drawing (`screenshots/venue-demo/conrad-second-floor.jpg`, made from the PDF with Quick Look at
+  4000 px) traced under the plan and ticked for exhibitors;
+- the exhibitor link, printed at the end with the Venue tab's address.
+
+**Running the demo on this machine**: `.env.local` needs `VENUE_MODULE_ENABLED=true` for `npm run dev` (the venue is
+dark otherwise). Suggested order, about ten minutes:
+
+1. The Venue tab: the rooms with their setups, the floor plan with every stand, sponsor and number.
+2. Edit the floor plan: the hotel's drawing under our plan; move a stand, renumber, give a stand to a new sponsor and
+   save (the last-minute change the team asked for).
+3. The exhibitor link on a phone: search "Takeda", the plan moves to stand 23 and rings it; then on a laptop. Show
+   the change from step 2 arriving within a minute.
+4. Download PDF: the floor plan (A3) and the ballroom's setup sheet ("PAX 500, classroom").
+5. Walk the venue in 3D: the ballroom in classroom, the stands with their sponsors.
+
+Rehearsal screenshots (Nov 2): `screenshots/2026-11-02_conrad-demo/`.
