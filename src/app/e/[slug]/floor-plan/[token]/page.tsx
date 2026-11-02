@@ -15,6 +15,9 @@ import { ExhibitorFloorPlan, type FloorPlanPayload } from "@/components/public/e
 
 const REFRESH_MS = 60_000;
 
+/** The server's "too many requests": the next poll tries again, never an immediate retry. */
+class RateLimited extends Error {}
+
 const MESSAGES = {
   "not-ready": { title: "The floor plan is not ready yet", body: "The organiser is still preparing it. Please check this link again later." },
   inactive: { title: "This link is no longer active", body: "Ask the organiser for the current floor plan link." },
@@ -29,6 +32,7 @@ export default function ExhibitorFloorPlanPage() {
       const res = await fetch(`/api/public/events/${encodeURIComponent(slug)}/floor-plan/${encodeURIComponent(token)}`, { cache: "no-store" });
       if (res.status === 404) return "inactive";
       if (res.status === 409) return "not-ready";
+      if (res.status === 429) throw new RateLimited();
       if (!res.ok) {
         console.warn("public-floor-plan:load-failed", res.status);
         throw new Error(`Load failed (${res.status})`);
@@ -38,7 +42,8 @@ export default function ExhibitorFloorPlanPage() {
     refetchInterval: REFRESH_MS,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
-    retry: 1,
+    // A refusal is not retried straight away; anything else once.
+    retry: (count, err) => !(err instanceof RateLimited) && count < 1,
   });
 
   if (result.isLoading) {
@@ -48,6 +53,9 @@ export default function ExhibitorFloorPlanPage() {
       </main>
     );
   }
+  // A refresh that fails keeps the map already on screen (review of 6e482da2); only a first load shows the error.
+  const kept = result.data && result.data !== "inactive" && result.data !== "not-ready" ? result.data : null;
+  if (kept) return <ExhibitorFloorPlan data={kept} pdfBase={`/api/public/events/${encodeURIComponent(slug)}/floor-plan/${encodeURIComponent(token)}/pdf`} />;
   if (result.data === "inactive" || result.data === "not-ready" || result.isError || !result.data) {
     const message = MESSAGES[result.data === "not-ready" || result.data === "inactive" ? result.data : "failed"];
     return (
@@ -60,5 +68,5 @@ export default function ExhibitorFloorPlanPage() {
       </main>
     );
   }
-  return <ExhibitorFloorPlan data={result.data} pdfBase={`/api/public/events/${encodeURIComponent(slug)}/floor-plan/${encodeURIComponent(token)}/pdf`} />;
+  return null;
 }

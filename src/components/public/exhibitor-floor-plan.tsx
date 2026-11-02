@@ -5,7 +5,7 @@
  * the plan moves to their stand and rings it. Built for a phone first: the search sits above the plan, the plan
  * pans with a finger and zooms with two (or the buttons), and every stand keeps the number the team gave it.
  */
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { FileDown, Minus, Plus, RotateCcw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -260,7 +260,22 @@ function PlanViewer({ view, onView, home, children }: { view: View; onView: (v: 
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
   };
-  const onWheel = (e: ReactWheelEvent<SVGSVGElement>) => zoom(e.deltaY > 0 ? 1.15 : 1 / 1.15, toPlan(e.clientX, e.clientY));
+  // The wheel zooms the plan, not the page: React's wheel listener is passive and cannot stop the page scrolling, so
+  // a native one is attached (review of 6e482da2). It reads the latest zoom through a ref.
+  const wheel = useRef<(e: WheelEvent) => void>(() => {});
+  useEffect(() => {
+    wheel.current = (e: WheelEvent) => {
+      e.preventDefault();
+      zoom(e.deltaY > 0 ? 1.15 : 1 / 1.15, toPlan(e.clientX, e.clientY));
+    };
+  });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const on = (e: WheelEvent) => wheel.current(e);
+    el.addEventListener("wheel", on, { passive: false });
+    return () => el.removeEventListener("wheel", on);
+  }, []);
 
   return (
     <div className="relative overflow-hidden rounded-lg border bg-white">
@@ -274,7 +289,6 @@ function PlanViewer({ view, onView, home, children }: { view: View; onView: (v: 
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={onUp}
-        onWheel={onWheel}
       >
         {children}
       </svg>

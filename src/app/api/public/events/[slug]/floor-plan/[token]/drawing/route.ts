@@ -26,7 +26,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: `${ROUTE}:invalid-floor`, slug });
       return NextResponse.json({ error: "Not found" }, { status: 404, headers: FLOOR_PLAN_HEADERS });
     }
-    return await withFloorPlanLink(req, slug, token, { route: ROUTE, bucket: "public-floor-plan", limit: 120, windowMs: 60_000 }, async ({ event, plan }) => {
+    return await withFloorPlanLink(req, slug, token, { route: ROUTE, bucket: "public-floor-plan-drawing", limit: 300, windowMs: 60_000 }, async ({ event, plan }) => {
       const shown = plan ? exhibitorPlan(plan.plan).underlays ?? [] : [];
       const u = shown.find((d) => (d.floor ?? "ground") === floor);
       const folder = drawingFolder(event.id);
@@ -35,9 +35,11 @@ export async function GET(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "Not found" }, { status: 404, headers: FLOOR_PLAN_HEADERS });
       }
       const ext = u.path.slice(u.path.lastIndexOf(".") + 1);
-      const bytes = await readStoredFile(u.path, folder);
-      if (!bytes) {
-        apiLogger.error({ msg: `${ROUTE}:file-missing`, slug, eventId: event.id, floor });
+      let bytes: Buffer;
+      try {
+        bytes = await readStoredFile(u.path, folder);
+      } catch (err) {
+        apiLogger.error({ err, msg: `${ROUTE}:file-missing`, slug, eventId: event.id, floor });
         return NextResponse.json({ error: "Not found" }, { status: 404, headers: FLOOR_PLAN_HEADERS });
       }
       return new NextResponse(new Uint8Array(bytes), {

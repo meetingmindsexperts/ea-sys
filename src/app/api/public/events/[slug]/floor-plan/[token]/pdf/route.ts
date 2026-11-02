@@ -4,7 +4,8 @@
  *
  *   GET /api/public/events/[slug]/floor-plan/[token]/pdf?paper=A3 (default) | A4
  *
- * No sign-in; the checks are exhibitor-link.ts. 20 PDFs an hour per IP: pdfkit runs on the box that serves the door.
+ * No sign-in; the checks are exhibitor-link.ts. 60 PDFs an hour per IP (exhibitors at a venue share one Wi-Fi
+ * address): pdfkit runs on the box that serves the door.
  */
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
@@ -25,7 +26,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Paper must be A3 or A4", code: "INVALID_PAPER" }, { status: 400, headers: FLOOR_PLAN_HEADERS });
     }
     const paper = paperParam as PlanPaper;
-    return await withFloorPlanLink(req, slug, token, { route: ROUTE, bucket: "public-floor-plan-pdf", limit: 20, windowMs: 60 * 60 * 1000 }, async ({ event, rooms, plan }) => {
+    return await withFloorPlanLink(req, slug, token, { route: ROUTE, bucket: "public-floor-plan-pdf", limit: 60, windowMs: 60 * 60 * 1000 }, async ({ event, rooms, plan }) => {
       const { layout } = exhibitorLayout(rooms.rooms, plan?.plan ?? null, event.name);
       const zones = layout.zones.filter((z) => z.kind !== "corridor").map((z) => ({ id: z.id, name: z.name }));
       const programme = await loadVenueProgramme({ organizationId: event.organizationId, eventId: event.id }, zones, event.timezone);

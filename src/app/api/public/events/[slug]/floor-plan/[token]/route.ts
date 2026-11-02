@@ -20,7 +20,7 @@ const ROUTE = "public-floor-plan";
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const { slug, token } = await params;
-    return await withFloorPlanLink(req, slug, token, { route: ROUTE, bucket: "public-floor-plan", limit: 120, windowMs: 60_000 }, async ({ event, rooms, plan }) => {
+    return await withFloorPlanLink(req, slug, token, { route: ROUTE, bucket: "public-floor-plan", limit: 300, windowMs: 60_000 }, async ({ event, rooms, plan }) => {
       const map = exhibitorMap(rooms.rooms, plan?.plan ?? null, event.name);
       const zones = map.layout.zones.filter((z) => z.kind !== "corridor").map((z) => ({ id: z.id, name: z.name }));
       const programme = await loadVenueProgramme({ organizationId: event.organizationId, eventId: event.id }, zones, event.timezone);

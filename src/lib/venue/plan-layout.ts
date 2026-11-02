@@ -433,7 +433,7 @@ function placeFixtures(plan: VenuePlan, zones: LayoutZone[], out: Out) {
       continue;
     }
     const down = f.kind === "stairs" && floorOf(f) !== "ground";
-    out.items.push({ t: "fixture", zone: zone.id, solid: info.solid, foot: { x0, z0, x1, z1 }, kind: f.kind, name: f.name || info.label, yaw: FACING[f.dir], ...(down && { down }) });
+    out.items.push({ t: "fixture", zone: zone.id, solid: info.solid, foot: { x0, z0, x1, z1 }, kind: f.kind, name: f.name || info.label, yaw: FACING[f.dir], ...(down && { down }), key: f.id });
   }
   renumberStands(out);
   // Placed stands are counted in plan order, for whatever still reads `n`; their number and visit point are their own.

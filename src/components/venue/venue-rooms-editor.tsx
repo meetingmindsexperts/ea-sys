@@ -155,7 +155,8 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           <Summary rooms={rooms} />
           {dirty && <p className="text-sm text-muted-foreground">Not saved yet.</p>}
           {!dirty && saved && data?.slug && <OpenCard eventId={eventId} slug={data.slug} open={!!data.open} canEdit={canEdit} safetyInbox={data.safetyInbox ?? null} />}
-          {!dirty && saved && <VenueExhibitorLinkCard eventId={eventId} canEdit={canEdit} />}
+          {/* Seeing the link is holding the secret, so it is for those who may change the venue. */}
+          {!dirty && saved && canEdit && <VenueExhibitorLinkCard eventId={eventId} canEdit={canEdit} />}
           {issues.length === 0 && <VenueProgrammeCard rooms={rooms} programme={data?.programme} plan={data?.plan?.plan ?? null} />}
           {issues.length === 0 && (
             <VenueFloorPlan rooms={rooms} eventName="" plan={data?.plan?.plan ?? null} sponsors={data?.programme?.standSponsors ?? []} actions={<PlanActions eventId={eventId} rooms={(saved ?? []).filter((r) => SEATED_KINDS.includes(r.kind))} saved={!!saved && !dirty} canEdit={canEdit} onEdit={() => setEditingPlan(true)} />} />

@@ -82,6 +82,22 @@ describe("what the exhibitor map leaves out", () => {
     expect("people" in map.layout).toBe(false);
   });
 
+  it("numbers the stands exactly as staff see them, though a staff-only fixture stood on some (review of 6e482da2)", async () => {
+    const { buildVenueLayout } = await import("@/lib/venue/plan-layout");
+    const { standNumber, standSponsor } = await import("@/lib/venue/stands");
+    const base = PLAN_FIXTURES["drawn-congress-west-entrance"];
+    const auto = buildVenueLayout(base.rooms, base.plan, { eventName: "x" }).layout;
+    const over = auto.items.find((it) => it.t === "stand")!.foot as { x0: number; z0: number; x1: number; z1: number };
+    const withAv: VenuePlan = { ...base.plan, fixtures: [...base.plan.fixtures, { id: "av-1", kind: "av-console", rect: [over.x0, over.z0, over.x1, over.z1], dir: "n", name: "AV" }] };
+    const sponsors = Array.from({ length: 30 }, (_, i) => ({ id: `s${i}`, name: `Sponsor ${i + 1}` }));
+    const read = (items: { t: string }[]) =>
+      items.filter((it): it is import("@/lib/venue/stands").StandItem => it.t === "stand").map((s) => `${standNumber(s)}:${standSponsor(s, sponsors)?.name}@${JSON.stringify(s.foot)}`);
+    const staff = buildVenueLayout(base.rooms, withAv, { eventName: "x" }).layout;
+    const shown = exhibitorMap(base.rooms, withAv, "x").layout;
+    expect(read(shown.items)).toEqual(read(staff.items));
+    expect(shown.items.some((it) => it.t === "fixture" && it.kind === "av-console")).toBe(false);
+  });
+
   it("the link's path", () => {
     expect(floorPlanSharePath("conrad-demo", "abc")).toBe("/e/conrad-demo/floor-plan/abc");
   });
@@ -99,7 +115,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("the organiser's route", () => {
-  const row = (over: Partial<{ token: string; enabled: boolean }> = {}) => ({ token: TOKEN, enabled: true, updatedAt: new Date(0), updatedById: "u-ADMIN", ...over });
+  const row = (over: Partial<{ token: string; enabled: boolean }> = {}) => ({ id: "link-1", token: TOKEN, enabled: true, updatedAt: new Date(0), updatedById: "u-ADMIN", ...over });
 
   it("404 while the module is off; 401 signed out; 403 to change it without events.update", async () => {
     vi.stubEnv("VENUE_MODULE_ENABLED", "");
@@ -113,12 +129,23 @@ describe("the organiser's route", () => {
     expect(mockDb.venueShareLink.create).not.toHaveBeenCalled();
   });
 
-  it("a member sees the link; there is none yet", async () => {
+  it("seeing the link is holding the secret: an organiser may, a read-only member may not", async () => {
     as("MEMBER");
+    expect(((await staffGET(new Request("http://x"), staffParams)) as Res).status).toBe(403);
+    as("ORGANIZER");
     mockDb.venueShareLink.findUnique.mockResolvedValueOnce(null);
     const res = (await staffGET(new Request("http://x"), staffParams)) as Res;
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ link: null });
+  });
+
+  it("two Create clicks at once: the second returns the first's link, not an error", async () => {
+    as("ADMIN");
+    mockDb.venueShareLink.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(row());
+    mockDb.venueShareLink.create.mockRejectedValueOnce(Object.assign(new Error("unique"), { code: "P2002" }));
+    const res = await post("create");
+    expect(res.status).toBe(200);
+    expect(((await res.json()).link as { path: string }).path).toContain(TOKEN);
   });
 
   it("creates the link once, stamped with the event's organisation", async () => {
@@ -137,6 +164,8 @@ describe("the organiser's route", () => {
     mockDb.venueShareLink.update.mockResolvedValue(row({ token: "n".repeat(43) }));
     await post("replace");
     expect(mockDb.venueShareLink.update.mock.calls[0][0].data.token).not.toBe(TOKEN);
+    // On or off as it was: a link switched off before launch stays off.
+    expect("enabled" in mockDb.venueShareLink.update.mock.calls[0][0].data).toBe(false);
     mockDb.venueShareLink.update.mockResolvedValue(row({ enabled: false }));
     await post("disable");
     expect(mockDb.venueShareLink.update.mock.calls[1][0].data).toEqual({ enabled: false, updatedById: "u-ADMIN" });

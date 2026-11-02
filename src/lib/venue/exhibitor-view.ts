@@ -53,10 +53,18 @@ function placeDrawings(layout: VenueLayout, plan: VenuePlan | null, underlays: P
   });
 }
 
-/** The whole layout an exhibitor may see (the exhibitor PDF draws it), with the drawings ticked for exhibitors. */
+/**
+ * The whole layout an exhibitor may see (the exhibitor PDF draws it), with the drawings ticked for exhibitors.
+ *
+ * Built from the FULL plan, then the staff-only fixtures' items are taken out (review of 6e482da2): a solid fixture
+ * clears the automatic stands under it and the rest are renumbered, so building without it would number the stands
+ * differently from what staff, the 3D venue and the staff PDF show, and send an exhibitor to the wrong stand.
+ */
 export function exhibitorLayout(rooms: VenueRoom[], plan: VenuePlan | null, eventName: string): { layout: VenueLayout; underlays: PlanUnderlay[] } {
-  const shown = plan ? exhibitorPlan(plan) : null;
-  return { layout: buildVenueLayout(rooms, shown, { eventName }).layout, underlays: shown?.underlays ?? [] };
+  const { layout } = buildVenueLayout(rooms, plan, { eventName });
+  const hidden = new Set((plan?.fixtures ?? []).filter((f) => isInternal(f)).map((f) => f.id));
+  const items = layout.items.filter((it) => !(it.t === "fixture" && it.key && hidden.has(it.key)));
+  return { layout: { ...layout, items }, underlays: plan ? exhibitorPlan(plan).underlays ?? [] : [] };
 }
 
 /** The exhibitor's map: the saved rooms and plan, filtered; the automatic venue when there is no drawn plan. */

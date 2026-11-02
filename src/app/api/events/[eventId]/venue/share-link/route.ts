@@ -8,7 +8,8 @@
  *          replace: a new token, so the old link stops working at once;
  *          enable / disable: switch it on or off without changing the token.
  *
- * ACCESS: `events.read` to see it, `events.update` to change it; the event lookup is `gate.eventWhere`. 404 while
+ * ACCESS: `events.update` both to see and to change it, since seeing it is holding the secret (review of 6e482da2:
+ * read-only desk staff could otherwise pass it on); the event lookup is `gate.eventWhere`. 404 while
  * VENUE_MODULE_ENABLED is off. 30 changes an hour per person.
  */
 import { NextResponse } from "next/server";
@@ -42,7 +43,7 @@ async function view(link: LinkRow | null, slug: string) {
   };
 }
 
-const LINK_SELECT = { token: true, enabled: true, updatedAt: true, updatedById: true } as const;
+const LINK_SELECT = { id: true, token: true, enabled: true, updatedAt: true, updatedById: true } as const;
 
 export async function GET(_req: Request, { params }: RouteParams) {
   try {
@@ -55,7 +56,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: `${ROUTE}:GET:unauthorized`, eventId });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const gate = requirePermission(session, "events.read", { route: `${ROUTE}:GET`, eventId });
+    const gate = requirePermission(session, "events.update", { route: `${ROUTE}:GET`, eventId });
     if (!gate.ok) return gate.response;
     const found = await resolveShareEvent(session, `${ROUTE}:GET`, eventId, gate.eventWhere);
     if ("error" in found) return found.error;
@@ -110,21 +111,33 @@ export async function POST(req: Request, { params }: RouteParams) {
         apiLogger.warn({ msg: `${ROUTE}:POST:no-link`, eventId, userId, action });
         return NextResponse.json({ error: "Create the exhibitor link first.", code: "NO_LINK" }, { status: 409 });
       }
-      let link: LinkRow | null = cur;
+      let link: (LinkRow & { id: string }) | null = cur;
+      // "create" with a link already there changes nothing, and says so in the audit row.
+      const noop = action === "create" && !!cur;
       if (!cur) {
-        link = await db.venueShareLink.create({
-          data: { eventId: event.id, organizationId: event.organizationId, token: newShareToken(), createdById: userId, updatedById: userId },
-          select: LINK_SELECT,
-        });
+        try {
+          link = await db.venueShareLink.create({
+            data: { eventId: event.id, organizationId: event.organizationId, token: newShareToken(), createdById: userId, updatedById: userId },
+            select: LINK_SELECT,
+          });
+        } catch (err) {
+          // Two Create clicks at once: the second finds the first's row (review of 6e482da2).
+          if ((err as { code?: string }).code !== "P2002") throw err;
+          apiLogger.warn({ msg: `${ROUTE}:POST:create-race`, eventId, userId });
+          link = await db.venueShareLink.findUnique({ where: { eventId: event.id }, select: LINK_SELECT });
+        }
       } else if (action === "replace") {
-        link = await db.venueShareLink.update({ where: { eventId: event.id }, data: { token: newShareToken(), enabled: true, updatedById: userId }, select: LINK_SELECT });
+        // A new token; on or off as it was, so a link switched off before launch stays off (review of 6e482da2).
+        link = await db.venueShareLink.update({ where: { eventId: event.id }, data: { token: newShareToken(), updatedById: userId }, select: LINK_SELECT });
       } else if (action === "enable" || action === "disable") {
         link = await db.venueShareLink.update({ where: { eventId: event.id }, data: { enabled: action === "enable", updatedById: userId }, select: LINK_SELECT });
       }
       await db.auditLog
-        .create({ data: { eventId: event.id, userId, action: "UPDATE", entityType: "VenueShareLink", entityId: event.id, changes: { action, source: "rest" } } })
+        .create({
+          data: { eventId: event.id, userId, action: !cur ? "CREATE" : "UPDATE", entityType: "VenueShareLink", entityId: link?.id ?? event.id, changes: { action, source: "rest", ...(noop && { noop: true }) } },
+        })
         .catch((err: unknown) => apiLogger.error({ err, msg: `${ROUTE}:POST:audit-failed`, eventId }));
-      apiLogger.info({ msg: `${ROUTE}:POST:${action}`, eventId, userId, enabled: link?.enabled });
+      apiLogger.info({ msg: `${ROUTE}:POST:${action}`, eventId, userId, enabled: link?.enabled, ...(noop && { noop: true }) });
       return NextResponse.json(await view(link, event.slug));
     });
   } catch (err) {
