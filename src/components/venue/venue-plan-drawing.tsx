@@ -406,7 +406,11 @@ function FloorNames({ layout }: { layout: VenueLayout }) {
 }
 
 /** The building drawn from above. Shared by the plan view and the editor. `sponsors` in stand order, for the stands' names. */
-export function LayoutDrawing({ layout, sponsors = [] }: { layout: VenueLayout; sponsors?: StandSponsorRef[] }) {
+/**
+ * `faintLabels`: the room names stay in the background (the exhibitor map, where the stands are what people read,
+ * and a zoomed-in room name would sit on top of them).
+ */
+export function LayoutDrawing({ layout, sponsors = [], faintLabels = false }: { layout: VenueLayout; sponsors?: StandSponsorRef[]; faintLabels?: boolean }) {
   return (
     <g>
       {layout.zones.map((z) => (
@@ -418,7 +422,9 @@ export function LayoutDrawing({ layout, sponsors = [] }: { layout: VenueLayout; 
       <DoorSwings layout={layout} />
       <Walls layout={layout} />
       <Glazing layout={layout} />
-      <Labels layout={layout} />
+      <g opacity={faintLabels ? 0.28 : 1}>
+        <Labels layout={layout} />
+      </g>
       <FloorNames layout={layout} />
     </g>
   );

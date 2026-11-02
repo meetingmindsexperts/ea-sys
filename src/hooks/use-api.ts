@@ -129,6 +129,7 @@ export const queryKeys = {
   sponsors: (eventId: string) => ["events", eventId, "sponsors"] as const,
   sponsorTiers: ["organization", "sponsor-tiers"] as const,
   venueRooms: (eventId: string) => ["events", eventId, "venue-rooms"] as const,
+  venueShareLink: (eventId: string) => ["events", eventId, "venue-share-link"] as const,
   eventTags: (eventId: string) => ["events", eventId, "tags"] as const,
   rsvpCampaigns: (eventId: string) => ["events", eventId, "rsvp-campaigns"] as const,
   dtcmPool: (eventId: string) => ["events", eventId, "dtcm-pool"] as const,
@@ -3336,6 +3337,32 @@ export function useSetVenueOpen(eventId: string) {
         headers: { "Content-Type": "application/json" },
       }),
     onSuccess: ({ open }) => queryClient.setQueryData<VenueRoomsData>(queryKeys.venueRooms(eventId), (cur) => (cur ? { ...cur, open } : cur)),
+  });
+}
+
+/** The exhibitor floor plan link (docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md section 10): one per event, or none yet. */
+export interface VenueShareLinkData {
+  link: { path: string; enabled: boolean; updatedAt: string; updatedBy: string | null } | null;
+}
+
+export function useVenueShareLink(eventId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.venueShareLink(eventId),
+    queryFn: () => fetchApi<VenueShareLinkData>(`/api/events/${eventId}/venue/share-link`),
+    enabled: !!eventId && enabled,
+  });
+}
+
+export function useChangeVenueShareLink(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (action: "create" | "replace" | "enable" | "disable") =>
+      fetchApi<VenueShareLinkData>(`/api/events/${eventId}/venue/share-link`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: (data) => queryClient.setQueryData(queryKeys.venueShareLink(eventId), data),
   });
 }
 

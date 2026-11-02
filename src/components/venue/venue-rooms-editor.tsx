@@ -26,6 +26,7 @@ import { VenueFloorPlan } from "@/components/venue/venue-floor-plan";
 import { VenuePlanPdfButton } from "@/components/venue/venue-plan-pdf-button";
 import { VenuePlanEditor } from "@/components/venue/venue-plan-editor";
 import { VenueProgrammeCard } from "@/components/venue/venue-programme-card";
+import { VenueExhibitorLinkCard } from "@/components/venue/venue-exhibitor-link-card";
 import { BlueprintNotes, BlueprintReplaceRow, BlueprintStartCard } from "@/components/venue/venue-blueprint-start";
 import { ROOM_KINDS, ROOM_KIND_INFO, ROOM_SETUPS, SEATED_KINDS, SETUP_INFO, SIZE_LIMITS, hasStage, TEMPLATES, TEMPLATE_KEYS, roomIdFor, roomsSchema, type RoomKind, type RoomSetup, type VenueRoom } from "@/lib/venue/rooms";
 
@@ -154,6 +155,7 @@ export function VenueRoomsEditor({ eventId }: { eventId: string }) {
           <Summary rooms={rooms} />
           {dirty && <p className="text-sm text-muted-foreground">Not saved yet.</p>}
           {!dirty && saved && data?.slug && <OpenCard eventId={eventId} slug={data.slug} open={!!data.open} canEdit={canEdit} safetyInbox={data.safetyInbox ?? null} />}
+          {!dirty && saved && <VenueExhibitorLinkCard eventId={eventId} canEdit={canEdit} />}
           {issues.length === 0 && <VenueProgrammeCard rooms={rooms} programme={data?.programme} plan={data?.plan?.plan ?? null} />}
           {issues.length === 0 && (
             <VenueFloorPlan rooms={rooms} eventName="" plan={data?.plan?.plan ?? null} sponsors={data?.programme?.standSponsors ?? []} actions={<PlanActions eventId={eventId} rooms={(saved ?? []).filter((r) => SEATED_KINDS.includes(r.kind))} saved={!!saved && !dirty} canEdit={canEdit} onEdit={() => setEditingPlan(true)} />} />

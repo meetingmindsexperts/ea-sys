@@ -20,3 +20,13 @@ CREATE POLICY registrationsharelink_tenant_isolation ON "RegistrationShareLink"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- VenueShareLink (Nov 2, 2026; docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md section 10):
+-- the exhibitor floor plan link. Same flat policy; the public route opens the
+-- lane from the event's org before reading the row.
+ALTER TABLE "VenueShareLink" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS venuesharelink_tenant_isolation ON "VenueShareLink";
+CREATE POLICY venuesharelink_tenant_isolation ON "VenueShareLink"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

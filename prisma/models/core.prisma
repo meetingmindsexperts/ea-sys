@@ -549,6 +549,7 @@ model Event {
   sessionProposalThemes SessionProposalTheme[]
   submissionShareLinks  SubmissionShareLink[]
   registrationShareLinks RegistrationShareLink[]
+  venueShareLink         VenueShareLink?
 
   importLogs                   ImportLog[]
   emailTemplates               EmailTemplate[]

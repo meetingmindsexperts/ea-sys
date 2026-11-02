@@ -1201,3 +1201,24 @@ enum SubmissionShareKind {
   ABSTRACTS
   SESSION_PROPOSALS
 }
+
+/// The exhibitor floor plan link (Nov 2, 2026; docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md section 10, G1 and G6): one
+/// secret, read-only link per event for every sponsor and exhibitor to find their stand. No expiry; the team
+/// switches it off or replaces the token. A table, not Event.settings, so the public route finds the event by
+/// token under a unique index and the row carries the tenant key for RLS like the other share links.
+model VenueShareLink {
+  id             String   @id @default(cuid())
+  eventId        String   @unique
+  // Tenant key, stamped from the Event at create; flat RLS policy.
+  organizationId String?
+  token          String   @unique
+  enabled        Boolean  @default(true)
+  createdById    String
+  updatedById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}

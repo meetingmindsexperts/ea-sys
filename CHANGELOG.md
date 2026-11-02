@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Venue: the exhibitor floor plan link (November 2)
+
+- **One secret link per event for every sponsor and exhibitor** (G1, G6): created on the Venue tab ("Exhibitor floor plan link"), copied and sent by the team, switched off or replaced at any time (replacing stops the old link at once). No expiry, no sign-in.
+- **The page** `/e/<slug>/floor-plan/<token>`: the event's banner, a search for the company or stand number, and the plan, which moves to the chosen stand and rings it; floor tabs on a venue of several floors; drag to pan, pinch, wheel or buttons to zoom; an "Updated" stamp, and it refetches every minute because stand numbers can change at the last minute. A PDF (A4 or A3) of the same plan.
+- **Nothing private reaches the browser** (G2, G7): the map is built on the server from the saved rooms and plan with staff-only fixtures (the AV console, anything ticked Staff only) and every staff note removed, and a venue drawing appears only where the team ticked it for exhibitors (served by token from the event's private folder). An unknown, replaced, switched-off or another event's token all answer the same 404; every refusal is logged; rate-limited per IP.
+- New table `VenueShareLink` (additive migration `20261102100000_venue_share_link`, one row per event, `organizationId` with the share-link RLS policy in `prisma/rls/submissionshare.sql`). Routes: `GET`/`POST /api/events/[eventId]/venue/share-link` (`events.read` / `events.update`), and `GET /api/public/events/[slug]/floor-plan/[token]` with `/pdf` and `/drawing`. All dark while `VENUE_MODULE_ENABLED` is off.
+
 ### Venue: a ballroom divided into sections (November 2)
 
 - **"Movable walls" in the floor plan editor**: select a room and tick the wall it shares with a neighbouring room (at least 2 m of shared wall, same floor). That is how a hotel ballroom split into sections is drawn (the Al Wasl Ballroom plan's dashed line, "R2"): each section stays its own room with its own setup, capacity, door and sessions.

@@ -565,3 +565,13 @@ list in the view clears it); `findWalls` flags the shared stretch `movable`; `pl
 `adjacentRooms` (2 m or more, same floor), `setMovableWall`, `isMovable`, `movableWallIssues`; `keepListedRooms`
 drops pairs. Deliberately NOT built: opening the wall to combine the sections into one room with one setup (that
 would need a combined room on the list); each section is laid out on its own. Fixture `drawn-ballroom-sections`.
+
+## 10a. Phase C as built (Nov 2, 2026)
+
+The exhibitor link and map page. `VenueShareLink` (one per event; migration `20261102100000_venue_share_link`;
+RLS beside the other share links). `src/lib/venue/exhibitor-view.ts` builds what an exhibitor may see
+(`exhibitorPlan` drops staff-only fixtures and notes and keeps only drawings ticked for exhibitors; `exhibitorMap`
+also drops the 3D people and visit points and places each drawing on its floor). `src/lib/venue/exhibitor-link.ts`
+is the one check shared by the three public doors (map, PDF, drawing). The page is
+`src/app/e/[slug]/floor-plan/[token]` with `src/components/public/exhibitor-floor-plan.tsx`; the Venue tab card is
+`venue-exhibitor-link-card.tsx`. Room names on the exhibitor map are faint so a zoomed-in name never covers a stand.
