@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 import { useHelpChat, type ChatMessage } from "./use-help-chat";
 import { canViewProcurement } from "@/lib/procurement-visibility";
 import { can, principalFromUser } from "@/lib/permissions/can";
+import { isExternalHelpRole } from "@/lib/help-chat/audience";
 
 interface HelpChatSheetProps {
   open: boolean;
@@ -93,14 +94,15 @@ const STARTERS_BY_ROLE: Record<string, string[]> = {
     "How do I export contacts?",
     "What does my access allow me to do?",
   ],
+  // Plain words for people outside the team: no status codes (Nov 2, 2026).
   REVIEWER: [
     "Where do I review abstracts?",
     "How is the abstract score calculated?",
-    "What does NEEDS_UPDATE mean?",
+    "What does \"Needs update\" mean on my review?",
   ],
   SUBMITTER: [
     "How do I edit my abstract?",
-    "What does REVISION_REQUESTED mean?",
+    "What does \"revision requested\" mean?",
     "When can I no longer change my submission?",
   ],
   REGISTRANT: [
@@ -132,6 +134,9 @@ export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
   const userId = session?.user?.id;
 
   const { messages, isStreaming, error, send, clear } = useHelpChat(userId);
+  // Abstract authors, reviewers and attendees: no staff manual link and no
+  // AI Agent pointer, which are the organising team's tools.
+  const external = isExternalHelpRole(session?.user?.role);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -189,21 +194,23 @@ export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
                   survive — opening in-place would unmount the drawer
                   and clear localStorage-cached messages from the
                   user's perspective. */}
-              <Button
-                asChild
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs text-muted-foreground"
-              >
-                <a
-                  href={USER_GUIDE_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
+              {!external && (
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs text-muted-foreground"
                 >
-                  <BookOpen className="h-3.5 w-3.5 mr-1" />
-                  Open guide
-                </a>
-              </Button>
+                  <a
+                    href={USER_GUIDE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <BookOpen className="h-3.5 w-3.5 mr-1" />
+                    Open guide
+                  </a>
+                </Button>
+              )}
               {messages.length > 0 && (
                 <Button
                   type="button"
@@ -220,8 +227,9 @@ export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
           </div>
           <SheetDescription asChild>
             <span className="text-xs text-muted-foreground block">
-              Ask anything about EA-SYS. Answers come from the user guide.
-              For doing things on an event, use the AI Agent in Tools.
+              {external
+                ? "Ask how to do something here. For anything about your event itself, the assistant will point you to the event team."
+                : "Ask anything about EA-SYS. Answers come from the user guide. For doing things on an event, use the AI Agent in Tools."}
             </span>
           </SheetDescription>
         </SheetHeader>
@@ -262,18 +270,20 @@ export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
                   visible in the empty state; once a conversation
                   starts, the header link in the top-right is the way
                   in (same destination). */}
-              <div className="pt-4 mt-4 border-t border-border w-full">
-                <a
-                  href={USER_GUIDE_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <BookOpen className="h-3.5 w-3.5" />
-                  Or browse the full guide
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              </div>
+              {!external && (
+                <div className="pt-4 mt-4 border-t border-border w-full">
+                  <a
+                    href={USER_GUIDE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <BookOpen className="h-3.5 w-3.5" />
+                    Or browse the full guide
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              )}
             </div>
           ) : (
             messages.map((m, i) => (

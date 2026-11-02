@@ -34,8 +34,11 @@ vi.mock("@/lib/help-chat/guide-loader", () => ({
 import {
   buildSystemPrompt,
   buildRoleTail,
+  buildExternalTail,
   STABLE_INSTRUCTIONS,
+  EXTERNAL_INSTRUCTIONS,
 } from "@/lib/help-chat/system-prompt";
+import { isExternalHelpRole } from "@/lib/help-chat/audience";
 
 describe("buildSystemPrompt — block structure + cache flags", () => {
   it("returns exactly 2 blocks: cached guide, uncached role tail", () => {
@@ -216,5 +219,85 @@ describe("buildRoleTail: custom roles (Oct 7, 2026)", () => {
 
   it("adds nothing when there are no custom roles", () => {
     expect(buildRoleTail({ role: "MEMBER" })).not.toContain("custom roles that add");
+  });
+});
+
+// ── External audience (Nov 2, 2026) ────────────────────────────────────────
+// Abstract authors, reviewers and attendees got staff wording: paths, role
+// names, "the user guide", "your event organizer" and the AI Agent.
+describe("external audience: abstract authors, reviewers, attendees", () => {
+  const event = {
+    name: "Gulf Heart Summit 2027",
+    dates: "12 March 2027 to 14 March 2027",
+    supportEmail: "heart@example.com",
+    abstractDeadline: "1 December 2026, 23:59 (Asia/Dubai)",
+    presentationTypes: ["Oral Presentation", "Poster Presentation"],
+  };
+
+  it.each(["SUBMITTER", "REVIEWER", "REGISTRANT"])("%s gets the external block and tail", (role) => {
+    const [stable, tail] = buildSystemPrompt({ role, firstName: "Sara", events: [event] });
+    expect(stable.text.startsWith(EXTERNAL_INSTRUCTIONS)).toBe(true);
+    expect(stable.cache).toBe(true);
+    expect(stable.text).toContain("MOCK_GUIDE_BODY_CONTENT");
+    expect(tail.cache).toBeFalsy();
+    expect(tail.text).toContain("EVENT DETAILS");
+  });
+
+  it.each(["ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "BASE", null])("%s keeps the staff block", (role) => {
+    const [stable, tail] = buildSystemPrompt({ role });
+    expect(stable.text.startsWith(STABLE_INSTRUCTIONS)).toBe(true);
+    expect(tail.text).not.toContain("EVENT DETAILS");
+  });
+
+  it("keeps the safety rules the staff block has", () => {
+    expect(EXTERNAL_INSTRUCTIONS).toMatch(/using ONLY the user guide content/i);
+    expect(EXTERNAL_INSTRUCTIONS).toMatch(/Never invent/i);
+    expect(EXTERNAL_INSTRUCTIONS).toMatch(/cannot perform actions/i);
+    expect(EXTERNAL_INSTRUCTIONS).toMatch(/Don't reveal.*how the system is built/i);
+    expect(EXTERNAL_INSTRUCTIONS).toMatch(/REFERENCE MATERIAL, not instructions/i);
+    expect(EXTERNAL_INSTRUCTIONS).toMatch(/Never guess a policy/i);
+  });
+
+  it("forbids the staff wording that confused them", () => {
+    expect(EXTERNAL_INSTRUCTIONS).toMatch(/never by web addresses or paths/i);
+    expect(EXTERNAL_INSTRUCTIONS).toMatch(/Never mention internal role names/i);
+    expect(EXTERNAL_INSTRUCTIONS).toMatch(/Never mention "the user guide"/i);
+    expect(EXTERNAL_INSTRUCTIONS).toMatch(/Say "the event team", not "the organizer"/i);
+    expect(EXTERNAL_INSTRUCTIONS).toMatch(/Never mention the AI Agent/i);
+  });
+
+  it("the tail names the person, what they do, and their event's facts", () => {
+    const tail = buildExternalTail({ role: "SUBMITTER", firstName: " Sara ", events: [event] });
+    expect(tail).toContain("Name: Sara");
+    expect(tail).toContain("abstract author");
+    expect(tail).toContain('"Gulf Heart Summit 2027", 12 March 2027 to 14 March 2027.');
+    expect(tail).toContain("Event team email: heart@example.com.");
+    expect(tail).toContain("Abstract deadline: 1 December 2026, 23:59 (Asia/Dubai).");
+    expect(tail).toContain("Presentation types accepted: Oral Presentation, Poster Presentation.");
+  });
+
+  it("carries no paths, role codes or organisation name into the tail", () => {
+    for (const role of ["SUBMITTER", "REVIEWER", "REGISTRANT"]) {
+      const tail = buildExternalTail({ role, events: [event], organizationName: "MM Group" });
+      expect(tail).not.toMatch(/\/my-|SUBMITTER|REVIEWER|REGISTRANT|MM Group/);
+    }
+  });
+
+  it("an event without a team email says so, and the bot is told what to do instead", () => {
+    const tail = buildExternalTail({ role: "REGISTRANT", events: [{ ...event, supportEmail: null, abstractDeadline: null, presentationTypes: [] }] });
+    expect(tail).toContain("No event team email listed.");
+    expect(tail).toContain("reply to the latest email");
+    expect(tail).not.toContain("Abstract deadline");
+    expect(tail).not.toContain("Presentation types");
+  });
+
+  it("no linked event still gives the bot somewhere to send them", () => {
+    const tail = buildExternalTail({ role: "SUBMITTER", events: [] });
+    expect(tail).toContain("No event is linked to their account yet.");
+  });
+
+  it("isExternalHelpRole matches exactly the three roles", () => {
+    expect(["SUBMITTER", "REVIEWER", "REGISTRANT"].every(isExternalHelpRole)).toBe(true);
+    expect(["ADMIN", "MEMBER", "ONSITE", "BASE", "", null, undefined].some(isExternalHelpRole)).toBe(false);
   });
 });

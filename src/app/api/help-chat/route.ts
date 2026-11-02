@@ -44,6 +44,8 @@ import { getAiProvider } from "@/lib/ai";
 import { aiConfigFromSettings } from "@/lib/ai/credentials";
 import { getModelConfig } from "@/lib/ai/config";
 import { buildSystemPrompt } from "@/lib/help-chat/system-prompt";
+import { isExternalHelpRole } from "@/lib/help-chat/audience";
+import { loadExternalHelpEvents } from "@/lib/help-chat/event-facts";
 
 const HELP_CHAT_RATE_LIMIT = 50;
 const HELP_CHAT_RATE_WINDOW_MS = 60 * 60 * 1000;
@@ -201,12 +203,17 @@ export async function POST(req: NextRequest) {
     aiKeySource: aiConfig.source,
   });
 
+  // Abstract authors, reviewers and attendees get answers worded for someone
+  // outside the team, with facts from their own events (Nov 2, 2026).
+  const events = isExternalHelpRole(role) ? await loadExternalHelpEvents({ id: userId, role: role ?? "" }) : undefined;
+
   const config = getModelConfig("helpChat", aiConfig.provider);
   const system = buildSystemPrompt({
     role,
     extraPermissions: customPermissionLabels(session.user.procurementPermissions),
     organizationName,
     firstName: session.user.firstName ?? null,
+    events,
   });
   const provider = getAiProvider(aiConfig.provider);
 

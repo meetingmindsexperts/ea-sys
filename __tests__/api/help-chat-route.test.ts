@@ -10,7 +10,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockAuth, mockStreamChat, mockCheckRateLimit, mockApiLogger, mockDb } = vi.hoisted(() => ({
+const { mockAuth, mockStreamChat, mockCheckRateLimit, mockApiLogger, mockDb, mockLoadEvents, mockBuildPrompt } = vi.hoisted(() => ({
+  mockLoadEvents: vi.fn(),
+  mockBuildPrompt: vi.fn(() => [{ text: "sys" }]),
   mockAuth: vi.fn(),
   mockStreamChat: vi.fn(),
   mockCheckRateLimit: vi.fn(() => ({ allowed: true, retryAfterSeconds: 0 })),
@@ -26,7 +28,8 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/security", () => ({ checkRateLimit: mockCheckRateLimit }));
-vi.mock("@/lib/help-chat/system-prompt", () => ({ buildSystemPrompt: () => [{ text: "sys" }] }));
+vi.mock("@/lib/help-chat/system-prompt", () => ({ buildSystemPrompt: mockBuildPrompt }));
+vi.mock("@/lib/help-chat/event-facts", () => ({ loadExternalHelpEvents: mockLoadEvents }));
 vi.mock("@/lib/ai", () => ({
   getAiProvider: () => ({ streamChat: mockStreamChat }),
 }));
@@ -54,6 +57,7 @@ async function drain(res: Response) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockCheckRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
+  mockLoadEvents.mockResolvedValue([]);
   mockAuth.mockResolvedValue({
     user: { id: "u1", role: "REGISTRANT", organizationId: null, email: "u@t.co", firstName: "U", lastName: "One" },
   });
@@ -124,5 +128,25 @@ describe("POST /api/help-chat — empty-message filtering", () => {
     const res = await POST(makeReq([{ role: "user", content: "hello" }]));
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+  });
+});
+
+describe("POST /api/help-chat: external audience (Nov 2, 2026)", () => {
+  const facts = [{ name: "E", dates: "1 May 2027", supportEmail: "e@x.co", abstractDeadline: null, presentationTypes: [] }];
+
+  it("loads the asker's event facts and hands them to the prompt", async () => {
+    mockLoadEvents.mockResolvedValue(facts);
+    const res = await POST(makeReq([{ role: "user", content: "who do I contact?" }]));
+    await drain(res);
+    expect(mockLoadEvents).toHaveBeenCalledWith({ id: "u1", role: "REGISTRANT" });
+    expect(mockBuildPrompt).toHaveBeenCalledWith(expect.objectContaining({ role: "REGISTRANT", events: facts }));
+  });
+
+  it("never loads event facts for staff", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "s1", role: "ADMIN", organizationId: "org-1", firstName: "A" } });
+    const res = await POST(makeReq([{ role: "user", content: "how do I add a registration?" }]));
+    await drain(res);
+    expect(mockLoadEvents).not.toHaveBeenCalled();
+    expect(mockBuildPrompt).toHaveBeenCalledWith(expect.objectContaining({ role: "ADMIN", events: undefined }));
   });
 });

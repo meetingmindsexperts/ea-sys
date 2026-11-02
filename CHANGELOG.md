@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Help Assistant: answers worded for people outside the team (November 2)
+
+- **Abstract authors, reviewers and attendees get their own instructions** (`EXTERNAL_INSTRUCTIONS` in `src/lib/help-chat/system-prompt.ts`): plain language, page names instead of paths, no internal role names or status codes, never "the user guide", "the event team" instead of "the organizer", no AI Agent, and nothing about how staff set things up. Same knowledge base (the staff guide) and the same safety rules. Staff answers are unchanged.
+- **The bot knows their events** (`src/lib/help-chat/event-facts.ts`): name, dates and the event team's support email, plus for authors and reviewers the abstract deadline (marked when it has passed) and the presentation types that event offers. "Who is the organizer?" now gets the team's email instead of "I wouldn't know"; "can I submit a case study?" gets that event's real options.
+- **The panel** hides the staff manual link and the AI Agent line for them, and its suggested questions no longer use status codes ("revision requested", not REVISION_REQUESTED).
+- Registrants have no Help button yet (they have no sidebar); the prompt already handles them.
+
 ### Venue: the Conrad demo for the presentation (November 2)
 
 - `npx tsx prisma/seed-venue-demo.ts` makes a local, draft demo event laid out as the Conrad Dubai's second floor: the hotel's 30 stands and 5 tables with 30 sponsors, its drawing traced underneath, a classroom ballroom with its real stage and screen, and the exhibitor link. Local only: it refuses any database that is not localhost with "local" in its name. The running order for the presentation is in docs/VENUE_FLOOR_PLAN_EDITOR_PLAN.md section 10b.
