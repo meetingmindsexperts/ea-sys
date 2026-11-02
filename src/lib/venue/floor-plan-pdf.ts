@@ -267,6 +267,11 @@ function outsideWall(layout: VenueLayout, w: LayoutWall): boolean {
   return !inZone(layout, w.k - 0.3, m) || !inZone(layout, w.k + 0.3, m);
 }
 
+/** Whether a movable wall carries on from this end of a wall, on the same line. */
+function movableAt(layout: VenueLayout, w: LayoutWall, at: number): boolean {
+  return layout.walls.some((o) => o !== w && o.movable && o.axis === w.axis && Math.abs(o.k - w.k) < 0.01 && (Math.abs(o.a0 - at) < 0.01 || Math.abs(o.a1 - at) < 0.01));
+}
+
 function drawWalls(doc: Doc, layout: VenueLayout, P: Project, ptPerM: number) {
   doc.lineCap("butt");
   for (const w of layout.walls) {
@@ -274,8 +279,9 @@ function drawWalls(doc: Doc, layout: VenueLayout, P: Project, ptPerM: number) {
     const thick = Math.max(0.8, t * ptPerM);
     for (const [a, b] of wallSegments(w)) {
       // Grown by half the thickness only at the wall's own ends, to close the corners; never into a doorway.
-      const s = a <= w.a0 + 0.01 ? a - t / 2 : a;
-      const e = b >= w.a1 - 0.01 ? b + t / 2 : b;
+      // Not grown at all for a movable wall, nor into one carrying on from a wall's end (review of dd903533).
+      const s = a <= w.a0 + 0.01 && !w.movable && !movableAt(layout, w, w.a0) ? a - t / 2 : a;
+      const e = b >= w.a1 - 0.01 && !w.movable && !movableAt(layout, w, w.a1) ? b + t / 2 : b;
       const [p, q] = w.axis === "x" ? [P(s, w.k), P(e, w.k)] : [P(w.k, s), P(w.k, e)];
       // A movable wall between sections of one ballroom is dashed, as a hotel's plans draw it.
       if (w.movable) doc.moveTo(p[0], p[1]).lineTo(q[0], q[1]).lineWidth(Math.max(0.8, thick * 0.6)).dash(4, { space: 3 }).strokeColor(WALL).stroke().undash();

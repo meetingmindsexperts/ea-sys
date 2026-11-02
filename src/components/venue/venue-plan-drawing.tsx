@@ -270,9 +270,10 @@ function Walls({ layout }: { layout: VenueLayout }) {
           );
         }
         return solidPieces(w).map(([a, b], j) => {
-          // Grown by half the thickness only at the wall's own ends, to close the corners; never into a doorway.
-          const s = a <= w.a0 + 0.01 ? a - t / 2 : a;
-          const e = b >= w.a1 - 0.01 ? b + t / 2 : b;
+          // Grown by half the thickness only at the wall's own ends, to close the corners; never into a doorway,
+          // and never over a movable wall carrying on from that end (review of dd903533).
+          const s = a <= w.a0 + 0.01 && !movableAt(layout, w, w.a0) ? a - t / 2 : a;
+          const e = b >= w.a1 - 0.01 && !movableAt(layout, w, w.a1) ? b + t / 2 : b;
           return w.axis === "x" ? (
             <rect key={`${i}-${j}`} x={s} y={w.k - t / 2} width={e - s} height={t} className={INK} />
           ) : (
@@ -282,6 +283,11 @@ function Walls({ layout }: { layout: VenueLayout }) {
       })}
     </g>
   );
+}
+
+/** Whether a movable wall carries on from this end of a wall, on the same line. */
+function movableAt(layout: VenueLayout, w: VenueLayout["walls"][number], at: number): boolean {
+  return layout.walls.some((o) => o !== w && o.movable && o.axis === w.axis && Math.abs(o.k - w.k) < 0.01 && (Math.abs(o.a0 - at) < 0.01 || Math.abs(o.a1 - at) < 0.01));
 }
 
 /** The glass entrance: two thin lines across the opening, as glazing is drawn. */

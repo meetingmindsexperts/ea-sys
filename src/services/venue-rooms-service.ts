@@ -96,14 +96,19 @@ export async function setVenueOpen(c: Caller, open: boolean): Promise<OpenVenueR
  * was drawn has no placement yet, so the venue stays automatic until the plan
  * places it (the Venue tab says so).
  */
-function prunedPlan(cur: Record<string, unknown>, rooms: { id: string }[]): { plan?: unknown } {
+export function prunedPlan(cur: Record<string, unknown>, rooms: { id: string }[]): { plan?: unknown } {
   const stored = readVenuePlan(cur);
   if (!stored) return {};
   const keep = new Set(rooms.map((r) => r.id));
   const placed = stored.plan.rooms.filter((p) => keep.has(p.id));
   if (placed.length === stored.plan.rooms.length) return {};
   const fixtures = heldFixtures({ ...stored.plan, rooms: placed });
-  return { plan: { plan: { ...stored.plan, rooms: placed, fixtures }, updatedAt: stored.updatedAt, updatedBy: stored.updatedBy } };
+  // A movable wall beside a removed room goes with it, as in keepListedRooms (review of dd903533).
+  const walls = (stored.plan.movableWalls ?? []).filter(([a, b]) => keep.has(a) && keep.has(b));
+  const { movableWalls: _old, ...rest } = stored.plan;
+  void _old;
+  const plan = { ...rest, rooms: placed, fixtures, ...(walls.length && { movableWalls: walls }) };
+  return { plan: { plan, updatedAt: stored.updatedAt, updatedBy: stored.updatedBy } };
 }
 
 export type SavePlanResult =

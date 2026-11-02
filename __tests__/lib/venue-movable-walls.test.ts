@@ -11,6 +11,10 @@ import { floorView, planSchema, withFloor, type VenuePlan } from "@/lib/venue/pl
 import { adjacentRooms, isMovable, keepListedRooms, movableWallIssues, setMovableWall, sharedEdge } from "@/lib/venue/plan-edit";
 import { renderFloorPlanPdf } from "@/lib/venue/floor-plan-pdf";
 import { renderRoomSheetPdf } from "@/lib/venue/room-sheet-pdf";
+import { floorLayout } from "@/lib/venue/plan-layout";
+import { planIssues } from "@/lib/venue/plan";
+import { prunedPlan } from "@/services/venue-rooms-service";
+import type { VenueRoom } from "@/lib/venue/rooms";
 
 const { rooms, plan } = PLAN_FIXTURES["drawn-ballroom-sections"];
 const built = buildVenueLayout(rooms, plan, { eventName: "x" });
@@ -75,5 +79,47 @@ describe("what the plan accepts", () => {
     expect(planSchema.safeParse(plan).success).toBe(true);
     expect(planSchema.safeParse({ ...plan, movableWalls: [["breakout-1", "breakout-1"]] }).success).toBe(false);
     expect(planSchema.safeParse({ ...plan, movableWalls: [["breakout-1", "breakout-2"], ["breakout-2", "breakout-1"]] }).success).toBe(false);
+  });
+});
+
+describe("review of dd903533", () => {
+  // A foyer above two rooms side by side; its door straddles the join between them, the foyer|R1 wall movable.
+  const three: VenueRoom[] = [
+    { id: "foyer", name: "Foyer", kind: "foyer", capacity: 100 },
+    { id: "r1", name: "R1", kind: "hall", capacity: 30 },
+    { id: "r2", name: "R2", kind: "hall", capacity: 30 },
+  ];
+  const straddle: VenuePlan = {
+    v: 1,
+    rooms: [
+      { id: "foyer", rect: [0, 0, 20, 10], door: { wall: "s", at: 9.5, width: 3 } },
+      { id: "r1", rect: [0, 10, 10, 22], door: { wall: "n", at: 5, width: 2.6 } },
+      { id: "r2", rect: [10, 10, 20, 22], door: { wall: "n", at: 15, width: 2.6 } },
+    ],
+    corridors: [],
+    entrance: { wall: "n", at: 10, width: 6 },
+    fixtures: [],
+    movableWalls: [["foyer", "r1"]],
+  };
+
+  it("a door across the join of a movable and a solid wall opens both", () => {
+    const { layout } = floorLayout(three, straddle, { eventName: "x" });
+    const line = layout.walls.filter((w) => w.axis === "x" && w.k === 10);
+    const movable = line.find((w) => w.movable)!;
+    const solid = line.find((w) => !w.movable && w.a0 <= 10.5 && w.a1 >= 10.5)!;
+    expect(movable.opens.some((o) => o.a <= 8.01 && o.b >= 9.99)).toBe(true);
+    expect(solid.opens.some((o) => o.a <= 10.01 && o.b >= 10.99)).toBe(true);
+  });
+
+  it("a movable wall naming a room not on the plan is an issue; one on another floor's view is not", () => {
+    expect(planIssues(three, { ...straddle, movableWalls: [["foyer", "ghost"]] })).toContain("A movable wall names a room that is not on the plan (ghost)");
+    expect(planIssues(three, { ...straddle, otherIds: ["ghost"], movableWalls: [["foyer", "ghost"]] }).some((i) => i.includes("movable"))).toBe(false);
+  });
+
+  it("saving a room list without a room drops the movable walls beside it, server side", () => {
+    const cur = { venue: { plan: { plan, updatedAt: 1, updatedBy: "u" } } };
+    const out = prunedPlan(cur, rooms.filter((r) => r.id !== "breakout-2")) as { plan?: { plan: VenuePlan } };
+    expect(out.plan?.plan.movableWalls).toBeUndefined();
+    expect(out.plan?.plan.rooms.some((p) => p.id === "breakout-2")).toBe(false);
   });
 });

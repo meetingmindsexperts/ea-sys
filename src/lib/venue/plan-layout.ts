@@ -288,7 +288,15 @@ export function floorLayout(rooms: VenueRoom[], plan: VenuePlan, opts: { eventNa
       issues.push(`The door between ${nameOf(zones, d.between[0])} and ${nameOf(zones, d.between[1])} is not in a wall`);
       continue;
     }
-    w.opens.push(opening(along, d.width, d.width > 4 ? LINTEL : undefined));
+    // Cut into every wall on the line it reaches, each clipped to its own length: a movable stretch ends where
+    // the solid wall beside it begins, and a door across the join must open both (review of dd903533).
+    const full = opening(along, d.width, d.width > 4 ? LINTEL : undefined);
+    for (const wl of walls) {
+      if (wl.axis !== d.axis || Math.abs(wl.k - k) >= EPS) continue;
+      const a = Math.max(full.a, wl.a0);
+      const b = Math.min(full.b, wl.a1);
+      if (b - a > EPS) wl.opens.push({ ...full, a: r2(a), b: r2(b) });
+    }
   }
   if (foyerP) {
     const [ex, ez] = doorPoint(foyerP.rect, plan.entrance);

@@ -474,6 +474,11 @@ export function planIssues(rooms: VenueRoom[], plan: VenuePlan): string[] {
   for (const r of rooms) if (!placed.has(r.id)) issues.push(`${r.name} is not on the plan yet`);
   for (const p of plan.rooms) if (!names.has(p.id)) issues.push(`The plan has a room that is not on the room list (${p.id})`);
   if (placed.size !== plan.rooms.length) issues.push("A room is on the plan twice");
+  // A movable wall names two rooms the plan places (on this floor or, in a floor's view, another one).
+  const known = new Set([...plan.rooms.map((p) => p.id), ...(plan.otherIds ?? [])]);
+  for (const [a, b] of plan.movableWalls ?? []) {
+    if (!known.has(a) || !known.has(b)) issues.push(`A movable wall names a room that is not on the plan (${known.has(a) ? b : a})`);
+  }
 
   const ids = new Set<string>();
   for (const c of plan.corridors) {
