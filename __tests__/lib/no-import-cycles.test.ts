@@ -13,32 +13,45 @@
  * neither, never by an exemption.
  *
  * What counts: `import … from`, `export … from` and side-effect `import "…"`
- * of a `@/` or relative path. What does not: `import type`, an import whose
- * every name is `type`-marked (both erased at compile), and `await import()`
- * (resolved at call time, after both modules have loaded). Each rule has a
- * probe below.
+ * of a `@/` or relative path, read with the TypeScript parser (a regex lost
+ * value imports after an `export type { … };`, review of 0a833c46). What does
+ * not: `import type`, an import whose every name is `type`-marked (both erased
+ * at compile), and `await import()` (resolved at call time, after both modules
+ * have loaded). An unmarked import used only as a type still counts: it fails
+ * safe, as a cycle the test reports and the bundler would have erased. Each
+ * rule has a probe below.
  */
 import { describe, it, expect } from "vitest";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 
 const ROOT = path.resolve(__dirname, "../..");
 const SRC = path.join(ROOT, "src");
 
-const STATIC_FROM = /(?:^|\n)[ \t]*(?:import|export)[ \t]+(type[ \t]+)?([\s\S]*?)[ \t]+from[ \t]+["']([^"']+)["']/g;
-const SIDE_EFFECT = /(?:^|\n)[ \t]*import[ \t]+["']([^"']+)["']/g;
+/** Every named binding is `type`-marked, and nothing else is imported. */
+function allTypeOnly(elements: ts.NodeArray<ts.ImportSpecifier | ts.ExportSpecifier>): boolean {
+  return elements.length > 0 && elements.every((e) => e.isTypeOnly);
+}
 
 /** The specifiers a module needs at runtime. */
-function runtimeSpecifiers(source: string): string[] {
+function runtimeSpecifiers(source: string, fileName = "probe.ts"): string[] {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, false, fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const out: string[] = [];
-  for (const m of source.matchAll(STATIC_FROM)) {
-    if (m[1]) continue;
-    const named = m[2].trim().match(/^\{([\s\S]*)\}$/);
-    const names = named?.[1].split(",").map((n) => n.trim()).filter(Boolean);
-    if (names && names.length > 0 && names.every((n) => n.startsWith("type "))) continue;
-    out.push(m[3]);
+  for (const stmt of sf.statements) {
+    if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
+      const clause = stmt.importClause;
+      if (clause?.isTypeOnly) continue;
+      const named = clause?.namedBindings;
+      if (clause && !clause.name && named && ts.isNamedImports(named) && allTypeOnly(named.elements)) continue;
+      out.push(stmt.moduleSpecifier.text);
+    } else if (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier && ts.isStringLiteral(stmt.moduleSpecifier)) {
+      if (stmt.isTypeOnly) continue;
+      const clause = stmt.exportClause;
+      if (clause && ts.isNamedExports(clause) && allTypeOnly(clause.elements)) continue;
+      out.push(stmt.moduleSpecifier.text);
+    }
   }
-  for (const m of source.matchAll(SIDE_EFFECT)) out.push(m[1]);
   return out;
 }
 
@@ -109,8 +122,10 @@ describe("the scanner", () => {
       `export * from "@/lib/d";`,
       `import "@/lib/e";`,
       `import {\n  f,\n  g,\n} from "@/lib/f";`,
+      // The regex lost this one: a lazy match from the `export type` ran on to it.
+      `export type { G };\nimport { h } from "./h";`,
     ].join("\n");
-    expect(runtimeSpecifiers(src)).toEqual(["@/lib/a", "./b", "../c", "@/lib/d", "@/lib/f", "@/lib/e"]);
+    expect(runtimeSpecifiers(src)).toEqual(["@/lib/a", "./b", "../c", "@/lib/d", "@/lib/e", "@/lib/f", "./h"]);
   });
 
   it("skips what compiles away and what loads late", () => {
@@ -120,6 +135,7 @@ describe("the scanner", () => {
       `export type { D } from "@/lib/d";`,
       `const e = await import("@/lib/e");`,
       `// import { f } from "@/lib/f";`,
+      `/* import { g } from "@/lib/g"; */`,
     ].join("\n");
     expect(runtimeSpecifiers(src)).toEqual([]);
   });
@@ -143,7 +159,7 @@ describe("src/ and worker/", () => {
     const files = [...sourceFiles(SRC), ...sourceFiles(path.join(ROOT, "worker"))];
     const graph = new Map<string, string[]>();
     for (const file of files) {
-      const deps = runtimeSpecifiers(readFileSync(file, "utf8"))
+      const deps = runtimeSpecifiers(readFileSync(file, "utf8"), file)
         .map((spec) => resolveSpecifier(spec, file))
         .filter((p): p is string => p !== null);
       graph.set(file, [...new Set(deps)]);

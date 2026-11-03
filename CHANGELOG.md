@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations and payments: the dependency audit's seams (November 3)
+
+- **A refund issued from the Stripe Dashboard always reaches the registration** (audit P1): `charge.refunded` recorded the refund on the payment, then on the registration, in separate statements. A failure between them left the registration short for good, because Stripe's retry saw the payment already reconciled and skipped. Both now commit in one transaction, as the refund button's path already did.
+- **The registration and group-registration services no longer import each other** (R1, P2): the group-invoice drift flag moved to `src/lib/group-invoice-drift.ts`. `no-import-cycles.test.ts` fails on any runtime import cycle in `src/` or `worker/`, read with the TypeScript parser; the tree has none.
+- **One list of the payment statuses a person may set by hand** (R3): `src/lib/registration-payment-policy.ts`. It was written out seven times (the service, the agent tools, the dashboard, the registration PUT route and three MCP tool schemas). Values and order are unchanged, so MCP clients need no reconnect.
+- **Every seat claim goes through `claimSeat`** (R2): the completion form, the CSV and EventsAir imports, import-contacts and the agent's bulk create had their own inline `soldCount` claim against a quantity read earlier in the request. `seat-counter-single-writer.test.ts` fails on any inline `soldCount` or `seatCount` claim or release outside `registration-seat-db.ts`.
+- Not done: a refund issued from the refund button can be counted twice on the registration, with a second credit note, when Stripe's `charge.refunded` arrives before the button's path records it on the payment, or when that record fails (found reviewing the above; open, waiting on a decision). The real-Postgres integration suite was not run locally; CI runs it.
+
 ### Blueprint: saves and approvals check the version in the write (November 3)
 
 - **Two saves on the same version no longer overwrite each other** (dependency audit BP-1): `saveBlueprint()` compared the version and then updated by id, so two saves that both passed the comparison both succeeded and the later one silently replaced the earlier. The version is now part of the update's own where (`updatedAt`), and a save that loses the race gets `STALE_VERSION`. Reproduced on a real database: on the old code both raced saves returned success and the second won; now one succeeds and the other is refused.
