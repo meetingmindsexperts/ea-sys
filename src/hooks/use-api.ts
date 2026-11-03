@@ -122,7 +122,10 @@ export const queryKeys = {
   quickbooksChart: ["quickbooks", "chart"] as const,
   stripeCredentials: ["stripe", "credentials"] as const,
   dtcmEticketCredentials: ["dtcm-eticket", "credentials"] as const,
-  dtcmEventSections: (eventId: string) => ["events", eventId, "dtcm-eticket"] as const,
+  // Deliberately NOT under ["events", id]: the settings page invalidates that
+  // on every save, and each refetch here is a DET call that could unmount an
+  // unsaved mapping on a transient DET error.
+  dtcmEventSections: (eventId: string) => ["dtcm-eticket", "event", eventId] as const,
   aiCredentials: ["ai", "credentials"] as const,
   zoomSettings: (eventId: string) => ["zoom", "settings", eventId] as const,
   zoomMeeting: (sessionId: string) => ["zoom", "meeting", sessionId] as const,

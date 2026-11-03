@@ -45,6 +45,22 @@ export function readDtcmEventSettings(eventSettings: unknown): StoredDtcmEventSe
   return { ...stored, sections };
 }
 
+/**
+ * Whether a stored mapping describes what a purchase would use NOW: checked
+ * against the same DET environment and the same performance code. Anything
+ * that buys (the desk, the bulk run) refuses a mapping for which this is
+ * false; the card offers to check it again. Section codes like SVIP2 exist in
+ * both environments, so a sandbox-checked mapping must never silently drive a
+ * production purchase.
+ */
+export function isMappingCurrent(
+  stored: StoredDtcmEventSettings,
+  activeEnvironment: DetEnvironment,
+  performanceCode: string | null,
+): boolean {
+  return Boolean(stored.checkedAt) && stored.environment === activeEnvironment && stored.performanceCode === performanceCode;
+}
+
 /** For each section, the price types DET will sell in it (same price category), with their prices. */
 export function sectionOptions(performance: DetPerformanceSummary) {
   return performance.sections.map((section) => ({

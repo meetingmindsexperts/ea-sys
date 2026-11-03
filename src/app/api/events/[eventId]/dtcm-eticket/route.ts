@@ -115,9 +115,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
           select: { id: true, name: true, isFaculty: true, isActive: true },
           orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
         }),
+        // Who would still need a code bought: in person, not cancelled or
+        // waitlisted, and not already holding one (from the CSV or the pool).
         db.registration.groupBy({
           by: ["ticketTypeId"],
-          where: { eventId, status: { not: "CANCELLED" }, attendanceMode: "IN_PERSON" },
+          where: { eventId, status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] }, attendanceMode: "IN_PERSON", dtcmBarcode: null },
           _count: { _all: true },
         }),
       ]);
@@ -217,10 +219,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
         performanceCode: event.dtcmPerformanceCode,
         checkedAt: new Date().toISOString(),
       };
-      const before = readDtcmEventSettings(event.settings);
+      // Read under the same row lock as the write, so the audit's "before" is
+      // what this save actually replaced.
+      let before: StoredDtcmEventSettings = {};
       await updateEventSettings(
         eventId,
-        (current) => ({ ...current, [DTCM_EVENT_SETTINGS_KEY]: next as unknown as Prisma.JsonObject }),
+        (current) => {
+          before = readDtcmEventSettings(current);
+          return { ...current, [DTCM_EVENT_SETTINGS_KEY]: next as unknown as Prisma.JsonObject };
+        },
         { organizationId: event.organizationId },
       );
 

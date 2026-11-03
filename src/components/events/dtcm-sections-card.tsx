@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDtcmEventSections, useSaveDtcmEventSections, type DtcmEventSectionsResponse } from "@/hooks/use-api";
-import { sectionHeadroom, sectionOptions, type DtcmSectionMapping } from "@/lib/dtcm-eticket/sections";
+import { mappingProblem, sectionHeadroom, sectionOptions, type DtcmSectionMapping } from "@/lib/dtcm-eticket/sections";
 import type { DetEnvironment, DetPerformanceSummary } from "@/lib/dtcm-eticket/types";
 
 const ENV_LABEL: Record<DetEnvironment, string> = { staging: "Sandbox (UAT)", production: "Production" };
@@ -129,6 +129,8 @@ function MappingEditor({
 
   const unmapped = data.ticketTypes.filter((t) => t.isActive && !draft[t.id]);
   const warnings = staleWarnings(data, environment);
+  // A stale mapping must be savable unchanged: saving IS the re-check.
+  const canSave = dirty || warnings.length > 0;
 
   return (
     <div className="space-y-4 rounded-lg border border-slate-200 p-4">
@@ -169,7 +171,9 @@ function MappingEditor({
           <thead className="text-left text-xs text-muted-foreground">
             <tr>
               <th className="py-1.5 pr-3 font-medium">Registration type</th>
-              <th className="py-1.5 pr-3 text-right font-medium">In person</th>
+              <th className="py-1.5 pr-3 text-right font-medium" title="In person, not cancelled or waitlisted, no DTCM barcode yet">
+                Need a code
+              </th>
               <th className="py-1.5 pr-3 font-medium">Section</th>
               <th className="py-1.5 font-medium">Price type</th>
             </tr>
@@ -178,6 +182,8 @@ function MappingEditor({
             {data.ticketTypes.map((t) => {
               const m = draft[t.id];
               const priceTypes = options.find((s) => s.code === m?.area)?.priceTypes ?? [];
+              // A saved row DET no longer sells (a section or price type removed under the same code).
+              const gone = m ? mappingProblem(m, performance) : null;
               return (
                 <tr key={t.id} className="border-t align-middle">
                   <td className="py-2 pr-3">
@@ -194,8 +200,9 @@ function MappingEditor({
                       <SelectContent>
                         <SelectItem value={UNMAPPED}>Not mapped</SelectItem>
                         {options.map((s) => (
-                          <SelectItem key={s.code} value={s.code}>
+                          <SelectItem key={s.code} value={s.code} disabled={s.priceTypes.length === 0}>
                             {s.code} · {s.name}
+                            {s.priceTypes.length === 0 && " (no price types)"}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -216,6 +223,7 @@ function MappingEditor({
                         </SelectContent>
                       </Select>
                     )}
+                    {gone && <p className="mt-1 text-xs text-red-600">{gone}. Choose again.</p>}
                   </td>
                 </tr>
               );
@@ -233,9 +241,9 @@ function MappingEditor({
       <SectionUsage data={data} draft={draft} performance={performance} />
 
       <div className="flex items-center gap-3">
-        <Button type="button" onClick={handleSave} disabled={!dirty || save.isPending}>
+        <Button type="button" onClick={handleSave} disabled={!canSave || save.isPending}>
           {save.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-          Save DET sections
+          {dirty ? "Save DET sections" : "Check with DET and save"}
         </Button>
         {data.mapping.checkedAt && (
           <span className="text-xs text-muted-foreground">
@@ -272,7 +280,7 @@ function SectionUsage({
             <th className="py-1 pr-3 font-medium">Name</th>
             <th className="py-1 pr-3 text-right font-medium">Capacity</th>
             <th className="py-1 pr-3 text-right font-medium">Holds</th>
-            <th className="py-1 text-right font-medium">Mapped registrations</th>
+            <th className="py-1 text-right font-medium">Need a code here</th>
           </tr>
         </thead>
         <tbody>

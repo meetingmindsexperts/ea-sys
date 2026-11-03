@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mappingProblem, readDtcmEventSettings, sectionHeadroom, sectionOptions } from "@/lib/dtcm-eticket/sections";
+import { isMappingCurrent, mappingProblem, readDtcmEventSettings, sectionHeadroom, sectionOptions } from "@/lib/dtcm-eticket/sections";
 import type { DetPerformanceSummary } from "@/lib/dtcm-eticket/types";
 
 /** The UAT performance's shape (Nov 3, 2026), trimmed. */
@@ -51,6 +51,18 @@ describe("readDtcmEventSettings", () => {
     });
     expect(read.sections).toEqual({ t1: { area: "SVIP2", priceTypeCode: "C" } });
     expect(read.environment).toBe("staging");
+  });
+});
+
+describe("isMappingCurrent: a mapping is only used where it was checked", () => {
+  const stored = { sections: {}, environment: "staging" as const, performanceCode: "P1", checkedAt: "2026-11-03T12:00:00Z" };
+  it("is current for the same environment and code", () => {
+    expect(isMappingCurrent(stored, "staging", "P1")).toBe(true);
+  });
+  it("is stale after a switch to production, or a new performance code, or when never checked", () => {
+    expect(isMappingCurrent(stored, "production", "P1")).toBe(false);
+    expect(isMappingCurrent(stored, "staging", "P2")).toBe(false);
+    expect(isMappingCurrent({ ...stored, checkedAt: undefined }, "staging", "P1")).toBe(false);
   });
 });
 

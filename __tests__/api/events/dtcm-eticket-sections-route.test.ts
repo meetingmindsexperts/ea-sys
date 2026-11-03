@@ -97,7 +97,11 @@ describe("GET", () => {
       { id: "tt-faculty", name: "Faculty", isFaculty: true, isActive: true, registrations: 0 },
     ]);
     expect(body.mapping.sections).toEqual({ "tt-delegate": { area: "SVIP2", priceTypeCode: "C" } });
-    expect(mockDb.registration.groupBy.mock.calls[0][0].where).toMatchObject({ status: { not: "CANCELLED" }, attendanceMode: "IN_PERSON" });
+    expect(mockDb.registration.groupBy.mock.calls[0][0].where).toMatchObject({
+      status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
+      attendanceMode: "IN_PERSON",
+      dtcmBarcode: null,
+    });
   });
 
   it("reports a DET failure as part of the answer, not a 5xx", async () => {
@@ -148,11 +152,9 @@ describe("PUT", () => {
     expect(opts).toEqual({ organizationId: "org1" });
     const written = patch({ registrationOpen: true });
     expect(written.registrationOpen).toBe(true);
-    expect(written.dtcm).toMatchObject({
-      sections: { "tt-delegate": { area: "SVIP2", priceTypeCode: "C" } },
-      environment: "staging",
-      performanceCode: "PDUB01DEC2023B",
-    });
+    // toEqual, not toMatchObject: the null (unmapped) entry must be dropped, not stored.
+    expect(written.dtcm.sections).toEqual({ "tt-delegate": { area: "SVIP2", priceTypeCode: "C" } });
+    expect(written.dtcm).toMatchObject({ environment: "staging", performanceCode: "PDUB01DEC2023B" });
     expect(written.dtcm.checkedAt).toEqual(expect.any(String));
     expect(mockDb.auditLog.create).toHaveBeenCalled();
   });
