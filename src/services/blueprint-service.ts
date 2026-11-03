@@ -226,15 +226,29 @@ export async function saveTemplate(caller: Caller, id: string, raw: unknown): Pr
 /**
  * Uploading or removing a file is an edit: anyone but the owner is recorded
  * for approval's separation of duties (review H1/L12). Returns the version the
- * page must name on its next save.
+ * page must name on its next save, or null when nothing was written, so the
+ * page keeps the version it has.
+ *
+ * Null matters (review of 7a5b9e90). This used to read the row's CURRENT
+ * version whether or not it had written anything, and the page adopts what it
+ * is given, so an owner uploading a file after a colleague had saved took on
+ * the colleague's version and their next save overwrote the colleague's work
+ * with no warning: the lost update BP-1 closed, through a side door. The
+ * write and the version it returns are now one statement.
  */
 async function recordFileEdit(caller: Caller, blueprintId: string): Promise<number | null> {
-  await db.blueprint.updateMany({
-    where: { id: blueprintId, organizationId: caller.organizationId, NOT: [{ ownerId: caller.userId }, { editorIds: { has: caller.userId } }] },
-    data: { editorIds: { push: caller.userId } },
-  });
-  const row = await db.blueprint.findFirst({ where: { id: blueprintId, organizationId: caller.organizationId }, select: { updatedAt: true } });
-  return row ? row.updatedAt.getTime() : null;
+  try {
+    const row = await db.blueprint.update({
+      where: { id: blueprintId, organizationId: caller.organizationId, NOT: [{ ownerId: caller.userId }, { editorIds: { has: caller.userId } }] },
+      data: { editorIds: { push: caller.userId } },
+      select: { updatedAt: true },
+    });
+    return row.updatedAt.getTime();
+  } catch (err) {
+    // No row matched: the owner, or someone already recorded. Nothing changed.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") return null;
+    throw err;
+  }
 }
 
 type StoredFile = { id: string; url: string; sizeBytes: number; contentType: string; serverVersion: number | null };

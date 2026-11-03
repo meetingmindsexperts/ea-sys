@@ -141,7 +141,7 @@ describe("files (each belongs to one blueprint, review L12)", () => {
 
   beforeEach(() => {
     mockDb.blueprint.findFirst.mockResolvedValue({ id: ID, updatedAt: new Date(7000) });
-    mockDb.blueprint.updateMany.mockResolvedValue({ count: 1 });
+    mockDb.blueprint.update.mockResolvedValue({ updatedAt: new Date(7000) });
     mockStorage.uploadFile.mockResolvedValue("/uploads/blueprints/org-1/abc.png");
     mockDb.blueprintFile.create.mockResolvedValue({ id: "f1" });
   });
@@ -150,10 +150,22 @@ describe("files (each belongs to one blueprint, review L12)", () => {
     const res = await upload();
     expect(res).toEqual({ ok: true, file: { id: "f1", url: "/api/blueprint/files/f1", sizeBytes: png.length, contentType: "image/png", serverVersion: 7000 } });
     expect(mockDb.blueprintFile.create.mock.calls[0][0].data).toMatchObject({ blueprintId: ID, organizationId: "org-1" });
-    expect(mockDb.blueprint.updateMany.mock.calls[0][0]).toMatchObject({
+    expect(mockDb.blueprint.update.mock.calls[0][0]).toMatchObject({
       where: { id: ID, NOT: [{ ownerId: "u-1" }, { editorIds: { has: "u-1" } }] },
       data: { editorIds: { push: "u-1" } },
+      select: { updatedAt: true },
     });
+  });
+
+  /**
+   * Review of 7a5b9e90: the owner's upload writes nothing to the blueprint, so
+   * it must not hand the page a version. It used to return the row's current
+   * one, which after a colleague's save let the owner's next save overwrite it.
+   */
+  it("an upload that records nobody returns no version, so the page keeps its own", async () => {
+    mockDb.blueprint.update.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("no row", { code: "P2025", clientVersion: "t" }));
+    const res = await upload();
+    expect(res).toMatchObject({ ok: true, file: { serverVersion: null } });
   });
 
   it("refuses a blueprint that is not saved, or is another organisation's, before storing anything", async () => {
