@@ -13,10 +13,11 @@
  */
 
 import type { LeaveCategory } from "@prisma/client";
-import { type CalendarDate, daysBetween, isWithin } from "./hr-date";
+import { type CalendarDate, addDays, dayOfWeek, isWithin } from "./hr-date";
 import {
   HR_ANNUAL_ENTITLEMENT_DAYS,
   HR_CARRYOVER_CAP_DAYS,
+  HR_DEFAULT_WEEKEND_DAYS,
   HR_SICK_TIER_DAYS,
 } from "./hr-constants";
 import {
@@ -79,6 +80,8 @@ export interface BalanceInput {
    */
   carriedInDays?: number;
   weekendDays?: readonly number[];
+  /** Public holidays. Only used to join a leave spell across a holiday break. */
+  holidays?: ReadonlySet<CalendarDate>;
 }
 
 export interface SickTier {
@@ -137,27 +140,35 @@ export interface LeaveSpell {
 }
 
 /**
- * The widest gap between two recorded days that still belongs to one spell.
+ * Group one category's recorded days into spells. Exported for tests.
  *
- * Maternity is recorded on WORKING days only (`rangeCoversCalendarDays`), so a
- * spell running Thursday to Monday holds no rows for the weekend. Four days
- * spans a weekend plus a public holiday; a real return to work leaves a longer
- * gap than that.
+ * Maternity is recorded on WORKING days only (`rangeCoversCalendarDays`, and a
+ * holiday outranks a standing rule), so a spell holds no rows for weekends or
+ * public holidays. Two recorded days belong to one spell when every day between
+ * them is one of those. A fixed day-count gap was the first version and split
+ * every spell at Eid (a five-weekday holiday is a ten-day gap).
  */
-const SPELL_GAP_DAYS = 4;
-
-/** Group one category's recorded days into spells. Exported for tests. */
 export function leaveSpells(
   entries: readonly BalanceEntry[],
   category: LeaveCategory,
+  nonWorking: { weekendDays?: readonly number[]; holidays?: ReadonlySet<CalendarDate> } = {},
 ): LeaveSpell[] {
+  const weekendDays = nonWorking.weekendDays ?? HR_DEFAULT_WEEKEND_DAYS;
+  const offWork = (d: CalendarDate) =>
+    weekendDays.includes(dayOfWeek(d)) || (nonWorking.holidays?.has(d) ?? false);
+  const onlyOffWorkBetween = (a: CalendarDate, b: CalendarDate) => {
+    for (let d = addDays(a, 1); d < b; d = addDays(d, 1)) {
+      if (!offWork(d)) return false;
+    }
+    return true;
+  };
   const days = entries
     .filter((e) => e.category === category)
     .sort((a, b) => (a.date < b.date ? -1 : 1));
   const spells: LeaveSpell[] = [];
   for (const e of days) {
     const last = spells[spells.length - 1];
-    if (last && daysBetween(last.to, e.date) <= SPELL_GAP_DAYS) {
+    if (last && onlyOffWorkBetween(last.to, e.date)) {
       last.to = e.date;
       last.days = roundDays(last.days + e.dayWeight);
       continue;
@@ -300,7 +311,8 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
   // the leave year's end), so a spell running into next year ends 31 December.
   const employedEntries = entries.filter((e) => isWithin(e.date, compFrom, compTo));
   const maternityNow =
-    leaveSpells(employedEntries, "MATERNITY").find((s) => s.from <= asOf && asOf <= s.to) ?? null;
+    leaveSpells(employedEntries, "MATERNITY", input).find((s) => s.from <= asOf && asOf <= s.to) ??
+    null;
 
   return {
     leaveYear,

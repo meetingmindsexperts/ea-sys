@@ -632,6 +632,26 @@ describe("maternity leave", () => {
     ]);
   });
 
+  /** Review of 0f8ecd59: a fixed 4-day gap split the spell at every Eid. */
+  it("stays one spell across a week-long public holiday", () => {
+    const eid = new Set(["2026-05-25", "2026-05-26", "2026-05-27", "2026-05-28", "2026-05-29"]);
+    const b = balanceFor({
+      entries: [...maternityWeekdays("2026-05-18", 1), ...maternityWeekdays("2026-06-01", 1)],
+      holidays: eid,
+      asOf: "2026-05-27" as CalendarDate,
+    });
+    expect(b.maternity.current).toEqual({ from: "2026-05-18", to: "2026-06-05", days: 10 });
+  });
+
+  it("does not bridge a working day nobody recorded as maternity", () => {
+    // Fri 22 May, then Tue 26 May: Monday 25 is a working day without Eid.
+    const spells = leaveSpells(
+      [...maternityWeekdays("2026-05-18", 1), ...maternityWeekdays("2026-05-26", 1)],
+      "MATERNITY",
+    );
+    expect(spells).toHaveLength(2);
+  });
+
   it("counts only this year's days, but a December spell is still current in January", () => {
     const b = computeLeaveBalance({
       employee: { joiningDate: "2010-01-04", carryoverDays: 0, openingSickUsed: 0, openingCompOff: 0 },

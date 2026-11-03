@@ -209,6 +209,7 @@ export async function getLeaveBalance(params: {
     entries: [...explicit, ...fromRules],
     carriedInDays: carriedIn.get(employee.id),
     weekendDays: params.weekendDays,
+    holidays: ruleCtx.holidays,
   });
 
   return { employee, balance };
@@ -311,6 +312,7 @@ export async function getOrgLeaveSummary(params: {
         entries: [...explicit, ...fromRules],
         carriedInDays: carriedIn.get(row.id),
         weekendDays: params.weekendDays,
+        holidays: ruleCtx.holidays,
       }),
     };
   });
