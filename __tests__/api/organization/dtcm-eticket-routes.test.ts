@@ -110,12 +110,36 @@ describe("credentials", () => {
     const before = det().staging;
     await PUT(json("PUT", { environment: "production", clientId: "AMMEE1", clientSecret: "prod-s", apiKey: "prod-k" }));
     expect(det().staging).toEqual(before);
-    expect(det().activeEnvironment).toBe("production");
 
     await PUT(json("PUT", { environment: "staging", clientId: "AMMEE2" }));
     const staging = det().staging as Record<string, string>;
     expect(staging.clientId).toBe("AMMEE2");
     expect(decryptSecret(staging.clientSecretEncrypted)).toBe("old");
+  });
+
+  it("never switches the environment in use on a plain save (review MED 4)", async () => {
+    await PUT(json("PUT", { environment: "production", clientId: "AMMEE1", clientSecret: "p", apiKey: "pk" }));
+    expect(det().activeEnvironment).toBe("production"); // the first save sets it
+    await PUT(json("PUT", { environment: "staging", clientId: "AMMEE1", clientSecret: "s", apiKey: "sk" }));
+    expect(det().activeEnvironment).toBe("production");
+  });
+
+  it("switches only on activate, audited as its own action", async () => {
+    const { db } = await import("@/lib/db");
+    await PUT(json("PUT", { environment: "staging", clientId: "AMMEE1", clientSecret: "s", apiKey: "sk" }));
+    await PUT(json("PUT", { environment: "production", clientId: "AMMEE1", clientSecret: "p", apiKey: "pk" }));
+    expect(det().activeEnvironment).toBe("staging");
+    await PUT(json("PUT", { environment: "production", clientId: "AMMEE1", activate: true }));
+    expect(det().activeEnvironment).toBe("production");
+    const actions = vi.mocked(db.auditLog.create).mock.calls.map(([arg]) => (arg as { data: { action: string } }).data.action);
+    expect(actions.at(-1)).toBe("SWITCH_DTCM_ETICKET_ENVIRONMENT");
+    expect(actions.slice(0, -1).every((a) => a === "UPDATE_DTCM_ETICKET_CREDENTIALS")).toBe(true);
+  });
+
+  it("refuses to activate an environment that was never set up", async () => {
+    await PUT(json("PUT", { environment: "staging", clientId: "AMMEE1", clientSecret: "s", apiKey: "sk" }));
+    const res = await PUT(json("PUT", { environment: "production", clientId: "AMMEE1", activate: true }));
+    expect(res.status).toBe(400);
     expect(det().activeEnvironment).toBe("staging");
   });
 

@@ -38,6 +38,8 @@ export class DetApiError extends Error {
     readonly detCode: string | null = null,
     /** DET's `reference`, which their support asks for. */
     readonly detReference: string | null = null,
+    /** A 2xx whose body was cut off, unreadable, or missing the field that proves the outcome. */
+    readonly bodyLost = false,
   ) {
     super(message);
     this.name = "DetApiError";
@@ -47,14 +49,30 @@ export class DetApiError extends Error {
   get isNoResponse(): boolean {
     return this.httpStatus === null;
   }
+
+  /**
+   * Whether DET may have done the thing despite this error: no answer, a 5xx
+   * (a gateway 502/504, or a 500 after the commit), or a success whose body
+   * was lost. A caller that buys or reverses MUST branch on this, never on
+   * isNoResponse alone, or a lost answer reads as a clean failure and the
+   * retry buys a second ticket (review HIGH 1 and 2, Nov 3 2026).
+   */
+  get outcomeUnknown(): boolean {
+    return this.httpStatus === null || this.httpStatus >= 500 || this.bodyLost;
+  }
 }
 
 // ── Token cache ────────────────────────────────────────────────────
 
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
+/**
+ * Includes when the credentials were saved, so a rotated secret stops riding
+ * on the old token in EVERY process (worker, the other blue/green container),
+ * not only the one that served the save.
+ */
 function tokenCacheKey(creds: DetCredentials): string {
-  return `${creds.organizationId}:${creds.environment}:${creds.clientId}`;
+  return `${creds.organizationId}:${creds.environment}:${creds.clientId}:${creds.version}`;
 }
 
 /** Test seam: forget every cached token. */
@@ -70,20 +88,25 @@ function url(creds: DetCredentials, path: string): string {
   return `${DET_BASE_URLS[creds.environment]}${path}?api_key=${encodeURIComponent(creds.apiKey)}`;
 }
 
+/** Never let a credential into a message that reaches logs or the browser, even if DET echoes one. */
+function redact(creds: DetCredentials, text: string): string {
+  return [creds.apiKey, creds.clientSecret].filter((v) => v.length >= 4).reduce((t, v) => t.replaceAll(v, "***"), text);
+}
+
 /** DET's error body is `{ code, httpStatusCode, message, reference }`; anything else is kept short. */
-function errorFromBody(stage: DetStage, status: number, text: string): DetApiError {
+function errorFromBody(creds: DetCredentials, stage: DetStage, status: number, text: string): DetApiError {
   let parsed: Json | null = null;
   try {
     parsed = JSON.parse(text) as Json;
   } catch {
     // Not JSON: an HTML gateway page ("Developer Inactive"), handled below.
   }
-  const detCode = parsed && typeof parsed.code === "string" ? parsed.code : null;
+  const detCode = str(parsed?.code);
   const reference = parsed && typeof parsed.reference === "string" ? parsed.reference : null;
   const detMessage =
     parsed && typeof parsed.message === "string" ? parsed.message : text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   return new DetApiError(
-    `DET ${stage} failed (HTTP ${status}${detCode ? `, code ${detCode}` : ""}): ${detMessage.slice(0, 300) || "no message"}`,
+    redact(creds, `DET ${stage} failed (HTTP ${status}${detCode ? `, code ${detCode}` : ""}): ${detMessage.slice(0, 300) || "no message"}`),
     stage,
     status,
     detCode,
@@ -124,16 +147,24 @@ async function send(
   const ms = Date.now() - started;
   if (ms > SLOW_CALL_MS) apiLogger.warn({ msg: "dtcm-eticket:slow-call", stage, environment: creds.environment, ms });
 
-  const text = await res.text().catch(() => "");
+  let text: string;
+  try {
+    text = await res.text();
+  } catch {
+    // The status arrived but the body did not (timeout or reset mid-body):
+    // on a 2xx, DET may well have done it.
+    apiLogger.warn({ msg: "dtcm-eticket:body-lost", stage, environment: creds.environment, status: res.status });
+    throw new DetApiError(`DET ${stage} answered ${res.status} but the body was lost`, stage, res.status, null, null, res.ok);
+  }
   if (!res.ok) {
     if (res.status === 401) tokenCache.delete(tokenCacheKey(creds));
-    throw errorFromBody(stage, res.status, text);
+    throw errorFromBody(creds, stage, res.status, text);
   }
   if (text.trim() === "") return { status: res.status, data: null };
   try {
     return { status: res.status, data: JSON.parse(text) as Json };
   } catch {
-    throw new DetApiError(`DET ${stage} answered ${res.status} with a body that is not JSON`, stage, res.status);
+    throw new DetApiError(`DET ${stage} answered ${res.status} with a body that is not JSON`, stage, res.status, null, null, true);
   }
 }
 
@@ -141,7 +172,8 @@ function requireString(stage: DetStage, data: Json | null, field: string): strin
   const value = data?.[field];
   if (typeof value === "string" && value !== "") return value;
   if (typeof value === "number") return String(value);
-  throw new DetApiError(`DET ${stage} answered without ${field}`, stage, 200);
+  // A success without the field that proves the outcome is not a clean failure.
+  throw new DetApiError(`DET ${stage} answered without ${field}`, stage, 200, null, null, true);
 }
 
 // ── Calls ──────────────────────────────────────────────────────────
@@ -309,15 +341,18 @@ export async function getDetOrder(creds: DetCredentials, orderId: string): Promi
 }
 
 /**
- * Reverses (refunds) an order, releasing its seat. Answers "already-reversed"
- * on `4001`, which UAT returns for a second reverse, so the action is safe to
- * repeat. The refund amount mirrors the purchase amount.
+ * Reverses (refunds) an order, releasing its seat. The refund amount mirrors
+ * the purchase amount. Answers "not-found" on `4001`, which UAT returns for a
+ * second reverse, but DET returns the same for an order it never had, e.g.
+ * one looked up in the wrong environment. So "not-found" is NOT proof of a
+ * reversal: the caller passes the order's own environment explicitly (never
+ * the org's active one) and decides what the answer means.
  */
 export async function reverseDetOrder(
   creds: DetCredentials,
   orderId: string,
   amount: number,
-): Promise<"reversed" | "already-reversed"> {
+): Promise<"reversed" | "not-found"> {
   try {
     await send(creds, "reverseOrder", "POST", `/orders/${encodeURIComponent(orderId)}/reverse`, {
       Seller: creds.clientId,
@@ -325,7 +360,7 @@ export async function reverseDetOrder(
     });
     return "reversed";
   } catch (err) {
-    if (err instanceof DetApiError && err.detCode === DET_CODES.ORDER_NOT_FOUND) return "already-reversed";
+    if (err instanceof DetApiError && err.detCode === DET_CODES.ORDER_NOT_FOUND) return "not-found";
     throw err;
   }
 }

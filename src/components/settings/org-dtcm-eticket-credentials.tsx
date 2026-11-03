@@ -24,7 +24,8 @@ const ENV_LABEL: Record<DetEnvironment, string> = { staging: "Sandbox (UAT)", pr
  * docs/DTCM_ETICKET_PLAN.md step 1). Modelled on OrgStripeCredentials: secrets
  * live in empty local state with a "(saved)" placeholder, so ciphertext never
  * reaches the browser and a blank field keeps the stored value. One
- * environment is edited at a time; saving it makes it the active one.
+ * environment is edited at a time. Saving never changes which environment is
+ * in use (except the very first save); switching is its own confirmed button.
  */
 export function OrgDtcmEticketCredentials() {
   const { data: config, isLoading } = useDtcmEticketCredentials();
@@ -69,11 +70,25 @@ function CredentialsForm({ config }: { config: DetCredentialsStatus }) {
         ...(clientSecret.trim() && { clientSecret: clientSecret.trim() }),
         ...(apiKey.trim() && { apiKey: apiKey.trim() }),
       });
-      toast.success(`${ENV_LABEL[environment]} credentials saved and active`);
+      toast.success(`${ENV_LABEL[environment]} credentials saved`);
       setClientSecret("");
       setApiKey("");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save credentials");
+    }
+  };
+
+  const handleActivate = async () => {
+    const consequence =
+      environment === "production"
+        ? "From now on DTCM barcodes are REAL tickets, issued against each event's permit."
+        : "From now on DTCM barcodes are TEST tickets from DET's sandbox, which do not count at the door.";
+    if (!window.confirm(`Use ${ENV_LABEL[environment]} for DTCM? ${consequence}`)) return;
+    try {
+      await save.mutateAsync({ environment, clientId: saved.clientId ?? clientId.trim(), activate: true });
+      toast.success(`DTCM now uses ${ENV_LABEL[environment]}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to switch environment");
     }
   };
 
@@ -93,6 +108,9 @@ function CredentialsForm({ config }: { config: DetCredentialsStatus }) {
     try {
       await remove.mutateAsync();
       toast.success("DET credentials removed");
+      setClientId("");
+      setClientSecret("");
+      setApiKey("");
       setResult(null);
     } catch {
       toast.error("Failed to remove credentials");
@@ -133,25 +151,26 @@ function CredentialsForm({ config }: { config: DetCredentialsStatus }) {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSave} className="space-y-5">
-          <div className="inline-flex rounded-lg border p-1" role="tablist" aria-label="DET environment">
+          {/* Native radios: arrow keys and the right semantics for free. */}
+          <fieldset className="inline-flex rounded-lg border p-1">
+            <legend className="sr-only">DET environment to edit</legend>
             {(["staging", "production"] as const).map((env) => (
-              <button
-                key={env}
-                type="button"
-                role="tab"
-                aria-selected={environment === env}
-                onClick={() => switchEnvironment(env)}
-                className={
-                  environment === env
-                    ? "rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
-                    : "rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-                }
-              >
-                {ENV_LABEL[env]}
-                {config[env].configured && <CheckCircle2 className="ml-1.5 inline h-3.5 w-3.5" aria-label="saved" />}
-              </button>
+              <label key={env} className="cursor-pointer">
+                <input
+                  type="radio"
+                  name="det-environment"
+                  value={env}
+                  checked={environment === env}
+                  onChange={() => switchEnvironment(env)}
+                  className="peer sr-only"
+                />
+                <span className="inline-flex items-center rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground peer-checked:bg-primary peer-checked:font-medium peer-checked:text-primary-foreground peer-focus-visible:ring-2 peer-focus-visible:ring-ring">
+                  {ENV_LABEL[env]}
+                  {config[env].configured && <CheckCircle2 className="ml-1.5 h-3.5 w-3.5" aria-label="saved" />}
+                </span>
+              </label>
             ))}
-          </div>
+          </fieldset>
 
           {environment === "production" && (
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
@@ -198,8 +217,13 @@ function CredentialsForm({ config }: { config: DetCredentialsStatus }) {
           <div className="flex flex-wrap items-end gap-3 border-t pt-4">
             <Button type="submit" disabled={save.isPending}>
               {save.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              Save and use {ENV_LABEL[environment]}
+              Save {ENV_LABEL[environment]}
             </Button>
+            {saved.configured && config.activeEnvironment !== environment && (
+              <Button type="button" variant="outline" onClick={handleActivate} disabled={save.isPending}>
+                Use {ENV_LABEL[environment]} for DTCM
+              </Button>
+            )}
             <div className="space-y-1">
               <Label htmlFor="det-test-performance" className="text-xs text-muted-foreground">
                 Performance code to check (optional)

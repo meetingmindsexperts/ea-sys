@@ -75,10 +75,15 @@ export function isDetEnvironment(value: unknown): value is DetEnvironment {
 }
 
 /**
- * Decrypted credentials for one environment (default: the active one), or
- * null when that environment is not fully set up or cannot be decrypted. A
+ * Decrypted credentials for one environment, or null when that environment
+ * is not fully set up or cannot be decrypted. A
  * decryption failure is logged: it means NEXTAUTH_SECRET rotated without the
  * fallback (see the EC2 deploy notes), not that DTCM is unconfigured.
+ *
+ * Omitting `environment` means the ACTIVE one, which is right only for
+ * starting new work. Anything acting on an existing order or basket must pass
+ * the environment recorded with it: the active one can change in between,
+ * and DET answers "not found" for another environment's order.
  */
 export async function getDetCredentials(
   organizationId: string,
@@ -97,6 +102,7 @@ export async function getDetCredentials(
       clientId: block.clientId,
       clientSecret: decryptSecret(block.clientSecretEncrypted),
       apiKey: decryptSecret(block.apiKeyEncrypted),
+      version: block.configuredAt ?? "",
     };
   } catch (err) {
     apiLogger.error({ err, organizationId, environment: env, msg: "dtcm-eticket:credentials-decrypt-failed" });

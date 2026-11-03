@@ -28,6 +28,7 @@ const creds: DetCredentials = {
   clientId: "AMMEE1",
   clientSecret: "s3cret-value",
   apiKey: "apikey123secret",
+  version: "2026-11-03T12:00:00.000Z",
 };
 
 const fetchMock = vi.fn();
@@ -113,6 +114,59 @@ describe("errors", () => {
   });
 });
 
+describe("outcome unknown: the errors a purchase may NOT be retried after (review HIGH 1, 2)", () => {
+  const customer = { id: "c1", account: "0", aFile: "tel" };
+  const purchase = () => purchaseDetBasket(creds, "b1", customer, 0).catch((e) => e);
+
+  it("a gateway 504 on purchase", async () => {
+    script([504, "<html>Gateway Time-out</html>"]);
+    expect(await purchase()).toMatchObject({ httpStatus: 504, outcomeUnknown: true, isNoResponse: false });
+  });
+
+  it("a 200 whose body is cut off mid-read", async () => {
+    script();
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(new Response(new ReadableStream({ start: (c) => c.error(new Error("socket reset")) }), { status: 200 })),
+    );
+    expect(await purchase()).toMatchObject({ httpStatus: 200, bodyLost: true, outcomeUnknown: true });
+  });
+
+  it("a 200 that is not JSON, and a 200 without the order id", async () => {
+    script([200, "<html>ok</html>"]);
+    expect(await purchase()).toMatchObject({ outcomeUnknown: true });
+    fetchMock.mockImplementationOnce(() => reply(200, { status: "done" }));
+    expect(await purchase()).toMatchObject({ outcomeUnknown: true });
+  });
+
+  it("but a 400 from DET is a definite refusal", async () => {
+    script([400, detError("5005", "Section soldout")]);
+    expect(await purchase()).toMatchObject({ httpStatus: 400, outcomeUnknown: false });
+  });
+});
+
+describe("hardening (review LOW 5, 6, 7)", () => {
+  it("strips the API key and secret from a message, even when DET echoes them", async () => {
+    script([502, "<p>Bad gateway for /baskets?api_key=apikey123secret (client_secret=s3cret-value)</p>"]);
+    const err = await createDetBasket(creds, { performanceCode: "P1", area: "A", priceTypeCode: "C" }).catch((e) => e);
+    expect(err.message).not.toContain("apikey123secret");
+    expect(err.message).not.toContain("s3cret-value");
+    expect(err.message).toContain("***");
+  });
+
+  it("reads a numeric DET code as a code", async () => {
+    script([400, { code: 5001, message: "Basket is not found." }]);
+    expect(await detBasketExists(creds, "b1")).toBe(false);
+  });
+
+  it("fetches a new token after a rotation (a new save time), in any process", async () => {
+    script();
+    await getDetAccessToken(creds);
+    fetchMock.mockImplementationOnce(() => reply(200, { access_token: "tok-2", expires_in: 3600 }));
+    expect(await getDetAccessToken({ ...creds, clientSecret: "rotated", version: "2026-11-04T09:00:00.000Z" })).toBe("tok-2");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("calls", () => {
   it("creates a basket as the seller, one seat, and returns its id", async () => {
     script([200, { id: "5094379", offers: [] }]);
@@ -178,7 +232,7 @@ describe("calls", () => {
     expect(await getDetOrder(creds, "68163")).toBeNull();
   });
 
-  it("treats a second reverse (4001) as already reversed", async () => {
+  it("answers 'not-found' for 4001 on reverse, never claiming it was reversed", async () => {
     script([204, ""]);
     expect(await reverseDetOrder(creds, "68163", 0)).toBe("reversed");
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
@@ -186,7 +240,8 @@ describe("calls", () => {
       refunds: [{ Amount: "0", MeansOfPayment: "EXTERNAL" }],
     });
     fetchMock.mockImplementationOnce(() => reply(400, detError("4001", "Order not found")));
-    expect(await reverseDetOrder(creds, "68163", 0)).toBe("already-reversed");
+    // DET says the same for a second reverse and for an order it never had (wrong environment).
+    expect(await reverseDetOrder(creds, "68163", 0)).toBe("not-found");
   });
 
   it("summarises a performance map, naming each price type", async () => {

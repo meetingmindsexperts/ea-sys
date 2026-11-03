@@ -20,6 +20,8 @@ export interface DetCredentials {
   clientId: string;
   clientSecret: string;
   apiKey: string;
+  /** When these were saved; part of the token cache key, so a rotation retires old tokens everywhere. */
+  version: string;
 }
 
 /** What GET returns per environment: never a secret, only whether one is saved. */

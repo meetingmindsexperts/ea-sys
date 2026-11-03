@@ -19,8 +19,12 @@ import {
 
 /**
  * The organisation's DET eTicketing credentials (docs/DTCM_ETICKET_PLAN.md §4.1),
- * one set per environment. A save writes ONE environment and makes it the
- * active one. Secrets are optional on update: blank keeps the stored value.
+ * one set per environment. A save writes ONE environment. It switches the
+ * ACTIVE environment only when asked (`activate`), or when none is active yet:
+ * correcting the sandbox client id during a live event must not move every
+ * later purchase onto test tickets (review MED 4, Nov 3 2026). A switch is
+ * audited as its own action. Secrets are optional on update: blank keeps the
+ * stored value.
  * Values are trimmed, as for Zoom: a pasted secret with a trailing newline
  * fails every token request with nothing to say why.
  */
@@ -29,6 +33,8 @@ const credentialsSchema = z.object({
   clientId: z.string().trim().min(1).max(200),
   clientSecret: z.string().trim().max(500).optional(),
   apiKey: z.string().trim().max(500).optional(),
+  /** Make this environment the one new DTCM work uses. */
+  activate: z.boolean().optional(),
 });
 
 /** Thrown inside the locked merge to abandon it; nothing is written. */
@@ -112,7 +118,7 @@ export async function PUT(req: Request) {
       apiLogger.warn({ errors: validated.error.flatten(), msg: "dtcm-eticket:credentials-validation-failed" });
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
-    const { environment, clientId, clientSecret, apiKey } = validated.data;
+    const { environment, clientId, clientSecret, apiKey, activate } = validated.data;
 
     // The whole read-modify-write runs under the settings row lock, so two
     // saves (one per environment) cannot overwrite each other.
@@ -136,7 +142,7 @@ export async function PUT(req: Request) {
           ...(apiKey && { apiKeyEncrypted: encryptSecret(apiKey), apiKeyLast4: apiKey.slice(-4) }),
           configuredAt: new Date().toISOString(),
         };
-        after = { ...before, [environment]: next, activeEnvironment: environment };
+        after = { ...before, [environment]: next, activeEnvironment: activate ? environment : (before.activeEnvironment ?? environment) };
         return { ...cur, [DET_SETTINGS_KEY]: after as unknown as Prisma.JsonObject };
       });
     } catch (err) {
@@ -151,8 +157,15 @@ export async function PUT(req: Request) {
     clearDetTokenCache();
 
     const changed = describeChange(before, after);
-    apiLogger.info({ userId: session.user.id, environment, changed, msg: "dtcm-eticket:credentials-saved" });
-    audit(session.user.id, organizationId, "UPDATE_DTCM_ETICKET_CREDENTIALS", { changed }, getClientIp(req));
+    const switched = "activeEnvironment" in changed;
+    apiLogger.info({ userId: session.user.id, environment, changed, switched, msg: "dtcm-eticket:credentials-saved" });
+    audit(
+      session.user.id,
+      organizationId,
+      switched ? "SWITCH_DTCM_ETICKET_ENVIRONMENT" : "UPDATE_DTCM_ETICKET_CREDENTIALS",
+      { changed },
+      getClientIp(req),
+    );
 
     return NextResponse.json(detCredentialsStatus(after));
   } catch (error) {

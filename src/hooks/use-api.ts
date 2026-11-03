@@ -2418,7 +2418,7 @@ export function useDtcmEticketCredentials() {
 export function useSaveDtcmEticketCredentials() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { environment: DetEnvironment; clientId: string; clientSecret?: string; apiKey?: string }) =>
+    mutationFn: (data: { environment: DetEnvironment; clientId: string; clientSecret?: string; apiKey?: string; activate?: boolean }) =>
       fetchApi<DetCredentialsStatus>("/api/organization/dtcm-eticket/credentials", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
