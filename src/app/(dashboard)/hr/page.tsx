@@ -28,7 +28,18 @@ import { Badge } from "@/components/ui/badge";
 import { CalendarClock, Loader2, TriangleAlert, CalendarDays, Flag, RefreshCw, Users
 } from "lucide-react";
 
-function Days({ value, highlightNegative = false }: { value: number; highlightNegative?: boolean }) {
+function Days({
+  value,
+  highlightNegative = false,
+  zeroAsDash = false,
+}: {
+  value: number;
+  highlightNegative?: boolean;
+  /** For counts (days taken), where a zero is "none" and only adds noise. A
+   *  balance keeps its 0, because "nothing left" is itself the information. */
+  zeroAsDash?: boolean;
+}) {
+  if (zeroAsDash && value === 0) return <span className="text-muted-foreground/50">–</span>;
   const negative = value < 0;
   return (
     <span
@@ -41,6 +52,46 @@ function Days({ value, highlightNegative = false }: { value: number; highlightNe
     </span>
   );
 }
+
+/** Sick days used against a tier limit; the used figure stands out once non-zero. */
+function SickTier({ used, limit }: { used: number; limit: number }) {
+  return (
+    <span className="tabular-nums text-muted-foreground">
+      {used === 0 ? <span className="text-muted-foreground/60">0</span> : <span className="font-medium text-foreground">{used}</span>}
+      {" / "}
+      {limit}
+    </span>
+  );
+}
+
+const ANNIVERSARY_SOON_DAYS = 30;
+
+/** The anniversary resets the entitlement, so one that is close is worth seeing. */
+function NextAnniversary({ date, asOf }: { date: string; asOf: string }) {
+  const daysAway = daysBetween(asOf, date);
+  if (daysAway < 0 || daysAway > ANNIVERSARY_SOON_DAYS) return <span className="whitespace-nowrap">{date}</span>;
+  return (
+    <span className="inline-flex flex-col items-start gap-0.5 whitespace-nowrap">
+      {date}
+      <Badge
+        variant="outline"
+        className="border-amber-300 text-[10px] text-amber-800 dark:border-amber-800 dark:text-amber-300"
+      >
+        in {daysAway} {daysAway === 1 ? "day" : "days"}
+      </Badge>
+    </span>
+  );
+}
+
+/** Whole days from `from` to `to`, both `YYYY-MM-DD` (HR dates are strings, never Dates). */
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+/** The first cell of each column group draws the divider between groups. */
+const GROUP_START = "border-l";
+/** The name column stays in view while the table scrolls sideways. */
+const STICKY_NAME = "sticky left-0 z-10 bg-background group-hover:bg-muted";
 
 export default function HrSummaryPage() {
   const [includeExited, setIncludeExited] = useState(false);
@@ -173,36 +224,72 @@ export default function HrSummaryPage() {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+      {/* Height-capped so the header row sticks inside this scroll container
+          (an overflow-x box is the sticky ancestor, not the page). */}
+      <div className="max-h-[calc(100vh-15rem)] overflow-auto rounded-lg border">
+        <table className="w-full whitespace-nowrap text-sm">
+          <thead className="sticky top-0 z-20 bg-muted text-xs uppercase text-muted-foreground">
+            <tr className="border-b">
+              <th rowSpan={2} className="sticky left-0 z-10 bg-muted px-3 py-2 text-left font-medium">
+                Employee
+              </th>
+              <th colSpan={4} className={`${GROUP_START} px-3 pt-2 pb-1 text-center font-semibold text-foreground`}>
+                Annual leave
+              </th>
+              <th colSpan={2} className={`${GROUP_START} px-3 pt-2 pb-1 text-center font-semibold text-foreground`}>
+                Sick leave
+              </th>
+              <th colSpan={2} className={`${GROUP_START} px-3 pt-2 pb-1 text-center font-semibold text-foreground`}>
+                Other leave
+              </th>
+              <th colSpan={4} className={`${GROUP_START} px-3 pt-2 pb-1 text-center font-semibold text-foreground`}>
+                Comp-off (since joining)
+              </th>
+              <th rowSpan={2} className={`${GROUP_START} px-3 py-2 text-left font-medium`}>
+                Next anniversary
+              </th>
+            </tr>
             <tr>
-              <th className="px-3 py-2 text-left font-medium">Employee</th>
-              <th className="px-3 py-2 text-right font-medium">Entitled</th>
-              <th className="px-3 py-2 text-right font-medium">Carried in</th>
-              <th className="px-3 py-2 text-right font-medium">AL taken</th>
-              <th className="px-3 py-2 text-right font-medium">AL balance</th>
-              <th className="px-3 py-2 text-right font-medium">Sick (full)</th>
-              <th className="px-3 py-2 text-right font-medium">Sick (half)</th>
-              <th className="px-3 py-2 text-right font-medium">Maternity</th>
-              <th className="px-3 py-2 text-right font-medium">Parental</th>
+              <th className={`${GROUP_START} px-3 pb-2 text-right font-medium`}>Entitled</th>
+              <th className="px-3 pb-2 text-right font-medium">Carried in</th>
+              <th className="px-3 pb-2 text-right font-medium">Taken</th>
+              <th className="px-3 pb-2 text-right font-medium">Balance</th>
               <th
-                className="px-3 py-2 text-right font-medium"
+                className={`${GROUP_START} px-3 pb-2 text-right font-medium`}
+                title="SL-F days plus half of each SL-HD half day, against the 15 full-pay days"
+              >
+                Full pay
+              </th>
+              <th
+                className="px-3 pb-2 text-right font-medium"
+                title="SL-H days, recorded by HR after the 15 full-pay days are used"
+              >
+                Half pay
+              </th>
+              <th className={`${GROUP_START} px-3 pb-2 text-right font-medium`}>Maternity</th>
+              <th className="px-3 pb-2 text-right font-medium">Parental</th>
+              <th
+                className={`${GROUP_START} px-3 pb-2 text-right font-medium`}
                 title="On-duty days worked since joining. A comp-off is earned only when both days of a weekend are worked."
               >
                 OD days
               </th>
-              <th className="px-3 py-2 text-right font-medium">C-off earned</th>
-              <th className="px-3 py-2 text-right font-medium">C-off taken</th>
-              <th className="px-3 py-2 text-right font-medium">C-off balance</th>
-              <th className="px-3 py-2 text-left font-medium">Next anniversary</th>
+              <th className="px-3 pb-2 text-right font-medium">Earned</th>
+              <th className="px-3 pb-2 text-right font-medium">Taken</th>
+              <th className="px-3 pb-2 text-right font-medium">Balance</th>
             </tr>
           </thead>
           <tbody className="divide-y">
             {rows.map(({ employee, balance }: HrSummaryRow) => (
-              <tr key={employee.id} className="hover:bg-muted/30">
-                <td className="px-3 py-2">
-                  <div className="font-medium">{employee.name}</div>
+              <tr key={employee.id} className="group hover:bg-muted">
+                <td className={`${STICKY_NAME} max-w-[16rem] px-3 py-2`}>
+                  <Link
+                    href={`/hr/employees/${employee.id}`}
+                    title={employee.name}
+                    className="block truncate font-medium hover:text-primary hover:underline"
+                  >
+                    {employee.name}
+                  </Link>
                   <div className="text-xs text-muted-foreground">
                     {employee.empCode}
                     {employee.department ? ` · ${employee.department}` : ""}
@@ -231,7 +318,7 @@ export default function HrSummaryPage() {
                   </td>
                 ) : (
                   <>
-                <td className="px-3 py-2 text-right">
+                <td className={`${GROUP_START} px-3 py-2 text-right`}>
                   {/* An agreed figure is shown with a marker rather than silently:
                       a number that differs from everyone else's needs to explain
                       itself, or the next person to read it calls it a bug. It is
@@ -255,27 +342,27 @@ export default function HrSummaryPage() {
                     </Badge>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right"><Days value={balance.annual.carriedIn} /></td>
-                <td className="px-3 py-2 text-right"><Days value={balance.annual.taken} /></td>
+                <td className="px-3 py-2 text-right"><Days value={balance.annual.carriedIn} zeroAsDash /></td>
+                <td className="px-3 py-2 text-right"><Days value={balance.annual.taken} zeroAsDash /></td>
                 <td className="px-3 py-2 text-right">
                   <Days value={balance.annual.balance} highlightNegative />
                 </td>
-                <td className="px-3 py-2 text-right text-muted-foreground">
-                  {balance.sick.full.used} / {balance.sick.full.limit}
+                <td className={`${GROUP_START} px-3 py-2 text-right`}>
+                  <SickTier used={balance.sick.full.used} limit={balance.sick.full.limit} />
                 </td>
-                <td className="px-3 py-2 text-right text-muted-foreground">
-                  {balance.sick.half.used} / {balance.sick.half.limit}
+                <td className="px-3 py-2 text-right">
+                  <SickTier used={balance.sick.half.used} limit={balance.sick.half.limit} />
                 </td>
-                <td className="px-3 py-2 text-right"><Days value={balance.maternity.taken} /></td>
-                <td className="px-3 py-2 text-right"><Days value={balance.parental.taken} /></td>
-                <td className="px-3 py-2 text-right"><Days value={balance.compOff.onDutyDays} /></td>
-                <td className="px-3 py-2 text-right"><Days value={balance.compOff.earned} /></td>
-                <td className="px-3 py-2 text-right"><Days value={balance.compOff.taken} /></td>
+                <td className={`${GROUP_START} px-3 py-2 text-right`}><Days value={balance.maternity.taken} zeroAsDash /></td>
+                <td className="px-3 py-2 text-right"><Days value={balance.parental.taken} zeroAsDash /></td>
+                <td className={`${GROUP_START} px-3 py-2 text-right`}><Days value={balance.compOff.onDutyDays} zeroAsDash /></td>
+                <td className="px-3 py-2 text-right"><Days value={balance.compOff.earned} zeroAsDash /></td>
+                <td className="px-3 py-2 text-right"><Days value={balance.compOff.taken} zeroAsDash /></td>
                 <td className="px-3 py-2 text-right">
                   <Days value={balance.compOff.balance} highlightNegative />
                 </td>
-                <td className="px-3 py-2 text-xs text-muted-foreground">
-                  {balance.nextAnniversary}
+                <td className={`${GROUP_START} px-3 py-2 text-xs text-muted-foreground`}>
+                  <NextAnniversary date={balance.nextAnniversary} asOf={balance.asOf} />
                 </td>
                   </>
                 )}
