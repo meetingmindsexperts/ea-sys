@@ -248,7 +248,7 @@ export default function HrAttendancePage() {
         employeeId: r.employeeId,
         code: r.code,
         // The category decides whether the rule reaches the weekend (annual
-        // leave, on-duty, comp-off) or stops at working days; without it the
+        // leave, maternity, on-duty, comp-off) or stops at working days; without it the
         // grid would draw an AL shutdown one way and the balance charge it
         // another.
         category: r.category as LeaveCategory,

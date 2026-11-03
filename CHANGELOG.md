@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### HR: maternity leave, weekends, and a sick-leave save that failed (November 3)
+
+- **Sick leave before someone's first leave year saves again**: recording SL-F on a date in a year the system holds no leave figures for (someone who joined in August 2025 and was set up from 2026) failed with an unhandled 500, so the grid kept the old value. The full-pay limit check now skips that year and logs `hr:sick-tier-year-not-held`.
+- **Maternity leave on the Leave Summary and the employee page**: an "N on maternity leave" chip, an "On maternity leave until" badge, a Maternity column and tile, and the current spell's dates. The engine returns `maternity: { taken, current }`; a spell joins recorded days across weekends and public holidays only.
+- **Maternity leave counts weekends and public holidays**, as annual leave already did (`rangeCoversCalendarDays`): a dragged range and a standing ML rule both charge them. Rows recorded before this are not backfilled.
+- **Standing arrangement dialog**: the Person picker is the shared searchable picker (name or code), and the Code pickers are full width. The shared picker's list now opens at its field's width (a Tailwind v3 width class v4 ignores).
+
 ### Venue: stands drafted from the venue's drawing (November 2)
 
 - **Draft stands** on the drawing bar of the floor plan editor: when the drawing came from a vector PDF, its labels ("3x3", "6x3", "Table") and the sponsor names beside them become stands on the floor, shown in a review dialog first (how many, which sponsors, names with no sponsor, what was left out and why). Nothing is applied on its own; one Undo takes the draft back.
