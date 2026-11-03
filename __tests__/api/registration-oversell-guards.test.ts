@@ -257,7 +257,7 @@ describe("import-contacts — soldCount oversell guard", () => {
 
   it("returns 409 CAPACITY_EXCEEDED when the batch won't fit", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", soldCount: 99, quantity: 100 });
-    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 0 }); // 1 seat left, importing 2
+    mockDb._tx.$executeRaw.mockImplementation(seatRawExecutor({ TicketType: false })); // 1 seat left, importing 2
     const res = await importContacts(req({ contactIds: ["c1", "c2"], ticketTypeId: "T" }), { params });
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe("CAPACITY_EXCEEDED");
@@ -265,11 +265,10 @@ describe("import-contacts — soldCount oversell guard", () => {
 
   it("claims with the capacity predicate when it fits", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", soldCount: 0, quantity: 100 });
-    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.$executeRaw.mockImplementation(seatRawExecutor());
     const res = await importContacts(req({ contactIds: ["c1", "c2"], ticketTypeId: "T" }), { params });
     expect(res.status).toBeLessThan(400);
-    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "T", soldCount: { lte: 98 } }, data: { soldCount: { increment: 2 } } }),
-    );
+    // claimSeats: one guarded statement for the whole batch, soldCount + 2 <= quantity.
+    expect(rawClaims(mockDb._tx.$executeRaw, "TicketType")).toEqual([{ id: "T", count: 2 }]);
   });
 });

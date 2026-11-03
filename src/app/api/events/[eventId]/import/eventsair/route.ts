@@ -10,7 +10,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
-import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
+import { claimSeat, incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 import {
   eventChargesForRegistration,
@@ -212,20 +212,14 @@ export async function POST(req: Request, { params }: RouteParams) {
             },
           });
 
-          // Atomically claim a seat — the `soldCount < quantity` predicate ON
-          // the update is the guard, so concurrent imports / public
-          // registrations can't oversell the last seat. count 0 = full.
+          // Atomically claim a seat through claimSeat, the one guarded claim
+          // every path uses, so concurrent imports / public registrations
+          // can't oversell the last seat. false = full.
           // An uncategorised row has no ticket-type counter and no event seat
           // (holdsEventSeat, owner decision July 24, 2026); it gains both when a
           // type is assigned (Oct 29, 2026).
-          if (defaultTicketType) {
-            const claimed = await tx.ticketType.updateMany({
-              where: { id: defaultTicketType.id, soldCount: { lt: defaultTicketType.quantity } },
-              data: { soldCount: { increment: 1 } },
-            });
-            if (claimed.count === 0) {
-              throw new Error("TICKET_CAPACITY_REACHED");
-            }
+          if (defaultTicketType && !(await claimSeat(tx, { kind: "ticketType", id: defaultTicketType.id }))) {
+            throw new Error("TICKET_CAPACITY_REACHED");
           }
           // Event-wide cap: imports BYPASS the cap (owner decision July 24,
           // 2026) — unguarded increment, warn when over.

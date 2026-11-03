@@ -20,8 +20,8 @@ import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
 import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { parseRegistrationFormIdentifier, type RegistrationFormRate } from "@/lib/registration-form-link";
 import { linkMayReprice, priceAtLinkRate, rateFromRegistration, RESTAMPABLE_STATUSES, stampedPaymentStatus, type LinkRepriceState } from "@/lib/registration-form-pricing";
-import { applyRegistrationTransition, claimEventSeats } from "@/lib/registration-seat-db";
-import { holdsEventSeat, holdsSeat, type SeatState } from "@/lib/registration-seat";
+import { applyRegistrationTransition, claimEventSeats, claimSeat } from "@/lib/registration-seat-db";
+import { holdsEventSeat, holdsSeat, seatCounter, type SeatState } from "@/lib/registration-seat";
 import { registerTierSlug } from "@/lib/main-register-tiers";
 import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import {
@@ -982,10 +982,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
         if (rowClaim.count === 0) throw new TypeAlreadySetError();
 
-        // Then the counters, from the row it is: a type seat only when the row
-        // holds a seat at all (a virtual attendee holds none, and claiming one
-        // inflated the type), and its first event seat by the same rule
-        // (holdsEventSeat). The predicate ON each update is the guard, so a
+        // Then the counters, from the row it is: a seat only when the row holds
+        // one at all (a virtual attendee holds none, and claiming one inflated
+        // the type), on the counter seatCounter names, which is the one a later
+        // cancel releases, and its first event seat by the same rule
+        // (holdsEventSeat). claimSeat's guarded update is the guard, so a
         // concurrent completion cannot oversell the last seat.
         const seatState = {
           status: registration.status,
@@ -994,12 +995,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           ticketTypeId: resolvedType.id,
           pricingTierId: resolvedTier?.id ?? null,
         };
-        if (holdsSeat(seatState.status, seatState.attendanceMode)) {
-          const claimed = await tx.ticketType.updateMany({
-            where: { id: resolvedType.id, soldCount: { lt: resolvedType.quantity } },
-            data: { soldCount: { increment: 1 } },
-          });
-          if (claimed.count === 0) throw new SoldOutError();
+        const counter = seatCounter(seatState);
+        if (counter && holdsSeat(seatState.status, seatState.attendanceMode) && !(await claimSeat(tx, counter))) {
+          throw new SoldOutError();
         }
         if (holdsEventSeat(seatState) && !(await claimEventSeats(tx, registration.event.id))) throw new EventFullError();
       }

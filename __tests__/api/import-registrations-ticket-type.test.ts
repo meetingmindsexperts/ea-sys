@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockLockRegistrationEmails } = vi.hoisted(() => ({ mockLockRegistrationEmails: vi.fn(async () => undefined) }));
 vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: mockLockRegistrationEmails }));
 
+const { mockClaimSeat } = vi.hoisted(() => ({ mockClaimSeat: vi.fn() }));
 const { mockDb, mockAuth, mockApiLogger, mockIncrementEventSeats, mockSerial } = vi.hoisted(() => ({
   mockDb: {
     ticketType: {
@@ -70,6 +71,7 @@ vi.mock("@/lib/security", () => ({
 vi.mock("@/lib/utils", () => ({ generateBarcode: () => "barcode-1" }));
 vi.mock("@/lib/registration-serial", () => ({ getNextSerialId: mockSerial }));
 vi.mock("@/lib/registration-seat-db", () => ({
+  claimSeat: mockClaimSeat,
   incrementEventSeatsOverselling: mockIncrementEventSeats,
 }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn() }));
@@ -123,7 +125,7 @@ beforeEach(() => {
   mockDb.registration.findFirst.mockResolvedValue(null);
   mockDb.attendee.create.mockResolvedValue({ id: "att-1" });
   mockDb.registration.create.mockResolvedValue({ id: "reg-1" });
-  mockDb.ticketType.updateMany.mockResolvedValue({ count: 1 });
+  mockClaimSeat.mockResolvedValue(true);
   mockSerial.mockResolvedValue(1);
   // Free event by default; the paid-event block below flips this.
   mockDb.ticketType.count.mockResolvedValue(0);
@@ -182,7 +184,7 @@ describe("CSV import — registration type resolution", () => {
     // The regression: this used to be whatever row Postgres returned first.
     expect(createdRegistration().ticketTypeId).toBeNull();
     // No type ⇒ no ticket-type counter to claim...
-    expect(mockDb.ticketType.updateMany).not.toHaveBeenCalled();
+    expect(mockClaimSeat).not.toHaveBeenCalled();
     // ...and no event seat: one is held iff a ticket seat is (holdsEventSeat,
     // owner decision July 24, 2026). It is claimed when a type is assigned.
     expect(mockIncrementEventSeats).not.toHaveBeenCalled();
@@ -207,9 +209,7 @@ describe("CSV import — registration type resolution", () => {
     expect(res.status).toBe(200);
     const data = createdRegistration();
     expect(data.ticketTypeId).toBe("tt-phys");
-    expect(mockDb.ticketType.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ id: "tt-phys" }) })
-    );
+    expect(mockClaimSeat).toHaveBeenCalledWith(expect.anything(), { kind: "ticketType", id: "tt-phys" });
     // The attendee's free-text category mirrors the resolved type.
     expect(mockDb.attendee.create.mock.calls[0][0].data.registrationType).toBe("Physician");
   });

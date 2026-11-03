@@ -12,6 +12,7 @@
  *    synchronous JSON-RPC contract ({ success, sent, failed, total, errors }).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { rawClaims, seatRawExecutor } from "../helpers/raw-seat-sql";
 // The per-person lock is an advisory lock in Postgres; a mocked transaction
 // cannot take it. Its behaviour is pinned against the real database in
 // tests/integration-db/registration-email-lock.db.test.ts.
@@ -278,7 +279,8 @@ describe("create_registrations_bulk — M8 parity", () => {
     (mockDb as MockDb).registration.findFirst = vi.fn().mockResolvedValue(null);
     const tx = {
       attendee: { create: vi.fn().mockResolvedValue({ id: "att1", email: "a@b.com" }) },
-      ticketType: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      // The guarded seat claim (claimSeat) is one raw statement; 1 row = it fits.
+      $executeRaw: vi.fn(async () => 1),
       // Event-wide cap: bulk creates use the unguarded overselling increment.
       event: {
         findUnique: vi.fn().mockResolvedValue({ seatCount: 0, maxAttendees: null }),
@@ -334,6 +336,18 @@ describe("create_registrations_bulk — M8 parity", () => {
     );
     const data = (mockDb as MockDb)._regTx.registration.create.mock.calls[0][0].data;
     expect(data.status).toBe("PENDING");
+  });
+
+  it("a full type refuses the row through the shared guarded claim (dependency audit, Nov 3 2026)", async () => {
+    const tx = (mockDb as MockDb)._regTx;
+    tx.$executeRaw.mockImplementation(seatRawExecutor({ TicketType: false }));
+    const res = (await REGISTRATION_EXECUTORS.create_registrations_bulk(
+      { registrations: [row({ ticketTypeId: "tt-paid" })] },
+      ctx,
+    )) as { createdCount: number; errors: Array<{ code: string; error: string }> };
+    expect(rawClaims(tx.$executeRaw, "TicketType")).toEqual([{ id: "tt-paid", count: 1 }]);
+    expect(res.createdCount).toBe(0);
+    expect(res.errors[0]).toMatchObject({ code: "ROW_FAILED", error: "SOLD_OUT" });
   });
 
   it("a closed sales window rejects the row with SALES_ENDED (drift #4)", async () => {

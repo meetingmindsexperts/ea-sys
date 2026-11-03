@@ -13,7 +13,7 @@ import { updateRegistration } from "@/services/registration-service";
 import { buildImportPatch, updatedRowMessage } from "@/lib/import-upsert";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
-import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
+import { claimSeat, incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import {
   IMPORT_TICKET_TYPE_SELECT,
@@ -516,9 +516,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
           // Check capacity and increment soldCount — skipped for virtual
           // (uncapped; online attendees don't consume physical seats).
-          // Atomic: the `soldCount < quantity` predicate ON the update is the
-          // guard (not a stale pre-read), so a concurrent import / public
-          // registration can't oversell the last seat.
+          // claimSeat, the one guarded claim every path uses, so a concurrent
+          // import / public registration can't oversell the last seat.
           // A row imported as CANCELLED holds no seat (mirrors holdsSeat /
           // holdsEventSeat) — skip BOTH counters. Closes the deferred M6
           // "CSV import claims a seat for CANCELLED rows" (permanent soldCount
@@ -530,14 +529,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             // (`seatCounter` agrees) and no event seat either: an event seat is
             // held iff a ticket seat is (holdsEventSeat, owner decision July 24,
             // 2026). It gains both when a type is assigned (Oct 29, 2026).
-            if (ticketType) {
-              const claimed = await tx.ticketType.updateMany({
-                where: { id: ticketType.id, soldCount: { lt: ticketType.quantity } },
-                data: { soldCount: { increment: 1 } },
-              });
-              if (claimed.count === 0) {
-                throw new Error("CAPACITY_EXCEEDED");
-              }
+            if (ticketType && !(await claimSeat(tx, { kind: "ticketType", id: ticketType.id }))) {
+              throw new Error("CAPACITY_EXCEEDED");
             }
             // Event-wide cap: imports BYPASS the cap (owner decision July 24,
             // 2026) — unguarded increment, warn when over, mirroring the bulk

@@ -15,6 +15,7 @@
  *        increment) rolls back.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { rawClaims, seatRawExecutor } from "../helpers/raw-seat-sql";
 
 /** Writes to the registration that touch its type, rate, price or payment: everything but the completion
  *  stamp (completedAt, the document, tax and billing), which every successful completion writes. */
@@ -173,7 +174,7 @@ beforeEach(() => {
   mockTxAttendeeUpdate.mockResolvedValue({});
   mockTxTokenDelete.mockResolvedValue({});
   mockTxAuditCreate.mockResolvedValue({});
-  mockTxExecuteRaw.mockResolvedValue(1); // the event-seat claim fits
+  mockTxExecuteRaw.mockImplementation(seatRawExecutor()); // the seat claims fit
   mockTransaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
     cb({
       $executeRaw: mockTxExecuteRaw,
@@ -225,10 +226,10 @@ describe("completion type-set — base behavior", () => {
     // The response prices the completion at the OPEN tier, not the base price.
     expect(json.registration).toMatchObject({ ticketPrice: 80, ticketCurrency: "USD" });
 
-    expect(mockTxTtUpdateMany).toHaveBeenCalledWith({
-      where: { id: "tt-1", soldCount: { lt: 100 } },
-      data: { soldCount: { increment: 1 } },
-    });
+    // The type's guarded claim (claimSeat). A CSV_IMPORT row is not a
+    // tier-consuming source, so the tier it was priced at claims nothing.
+    expect(rawClaims(mockTxExecuteRaw, "TicketType")).toEqual([{ id: "tt-1", count: 1 }]);
+    expect(rawClaims(mockTxExecuteRaw, "PricingTier")).toEqual([]);
     expect(mockTxRegUpdateMany).toHaveBeenCalledWith({
       where: { id: "reg-1", ticketTypeId: null, status: { not: "CANCELLED" } }, // M3: conditional claim, never a cancelled row
       data: expect.objectContaining({
@@ -248,7 +249,7 @@ describe("completion type-set — base behavior", () => {
     const eventClaims = mockTxExecuteRaw.mock.calls.filter((c) => (c[0] as string[]).join("?").includes('"Event"'));
     expect(eventClaims).toHaveLength(1);
 
-    mockTxExecuteRaw.mockResolvedValue(0); // event full
+    mockTxExecuteRaw.mockImplementation(seatRawExecutor({ Event: false })); // event full
     mockTxTokenDelete.mockClear();
     const full = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
     expect(full.status).toBe(409);
@@ -263,12 +264,12 @@ describe("completion type-set — base behavior", () => {
     mockTtFindFirst.mockResolvedValue(makeChosenType());
     const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
     expect(res.status).toBe(200);
-    expect(mockTxTtUpdateMany).not.toHaveBeenCalled();
+    expect(rawClaims(mockTxExecuteRaw, "TicketType")).toEqual([]);
     expect(mockTxExecuteRaw.mock.calls.filter((c) => (c[0] as string[]).join("?").includes('"Event"'))).toHaveLength(0);
   });
 
   it("409s REGISTRATION_TYPE_SOLD_OUT and rolls back when the seat claim loses", async () => {
-    mockTxTtUpdateMany.mockResolvedValue({ count: 0 });
+    mockTxExecuteRaw.mockImplementation(seatRawExecutor({ TicketType: false }));
     const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ code: "REGISTRATION_TYPE_SOLD_OUT" });
@@ -369,7 +370,7 @@ describe("already-typed registrations are untouched by the type machinery", () =
     expect(res.status).toBe(200);
     // No type resolution, no seat claim, no registration row write.
     expect(mockTtFindFirst).not.toHaveBeenCalled();
-    expect(mockTxTtUpdateMany).not.toHaveBeenCalled();
+    expect(rawClaims(mockTxExecuteRaw, "TicketType")).toEqual([]);
     expect(typeOrPriceWrites(mockTxRegUpdateMany)).toEqual([]);
     expect((await res.json()).registration).toMatchObject({ ticketPrice: 50 });
   });

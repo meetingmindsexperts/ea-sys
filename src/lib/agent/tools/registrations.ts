@@ -11,6 +11,7 @@ import { generateBarcode, normalizeTag } from "@/lib/utils";
 import { holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
 import {
   claimPromoUsage,
+  claimSeat,
   claimSeatsOverselling,
   incrementEventSeatsOverselling,
   releaseEventSeats,
@@ -1049,15 +1050,9 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
             select: { id: true, email: true },
           });
 
-          // Atomic increment with sold-out guard — prevents overbooking under
-          // concurrent bulk + single registrations. Uses the cached outer
-          // `ticketType.quantity` — updateMany's where-clause evaluates the
-          // current DB value of soldCount, so we don't need a fresh SELECT.
-          const incremented = await tx.ticketType.updateMany({
-            where: { id: ticketType.id, soldCount: { lt: ticketType.quantity } },
-            data: { soldCount: { increment: 1 } },
-          });
-          if (incremented.count === 0) throw new Error("SOLD_OUT");
+          // Guarded claim, the one every path uses — prevents overbooking under
+          // concurrent bulk + single registrations.
+          if (!(await claimSeat(tx, { kind: "ticketType", id: ticketType.id }))) throw new Error("SOLD_OUT");
 
           // Event-wide cap: bulk creates follow the imports-bypass policy
           // (owner decision July 24, 2026) — proceed past a full event and

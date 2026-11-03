@@ -11,7 +11,7 @@ import { recordImport } from "@/lib/audit-data-transfer";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { generateBarcode } from "@/lib/utils";
-import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
+import { claimSeats, incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 import { resolveImportFallbackTicketType } from "@/lib/import-ticket-type";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -223,21 +223,15 @@ export async function POST(req: Request, { params }: RouteParams) {
           });
         }
 
-        // Update soldCount ATOMICALLY — guard against oversell. The predicate
-        // `soldCount <= quantity - N` ensures soldCount + N never exceeds the
-        // cap even under a concurrent import / public registration. All-or-
+        // Update soldCount ATOMICALLY through claimSeats, the one guarded claim
+        // every path uses: soldCount + N never exceeds the cap even under a
+        // concurrent import / public registration. All-or-
         // nothing: if the batch won't fit, the whole tx rolls back (no rows
         // created) and the operator imports fewer or raises the quantity.
         // Uncategorised rows have no ticket-type counter to move (seatCounter
         // agrees), and no event seat either (below).
-        if (ticketType) {
-          const claimed = await tx.ticketType.updateMany({
-            where: { id: ticketType.id, soldCount: { lte: ticketType.quantity - toCreate.length } },
-            data: { soldCount: { increment: toCreate.length } },
-          });
-          if (claimed.count === 0) {
-            throw new Error("CAPACITY_EXCEEDED");
-          }
+        if (ticketType && !(await claimSeats(tx, { kind: "ticketType", id: ticketType.id }, toCreate.length))) {
+          throw new Error("CAPACITY_EXCEEDED");
         }
         // Event-wide cap: imports BYPASS the cap (owner decision July 24, 2026)
         // — unguarded increment, warn when over. Only rows WITH a type hold an

@@ -13,6 +13,7 @@
  *     stamp + name mirror onto attendee.registrationType).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { rawClaims, seatRawExecutor } from "../helpers/raw-seat-sql";
 // The per-person lock is an advisory lock in Postgres; a mocked transaction
 // cannot take it. Its behaviour is pinned against the real database in
 // tests/integration-db/registration-email-lock.db.test.ts.
@@ -24,7 +25,8 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
   // per-person lock); one function serves both handles.
   const attendeeFindMany = vi.fn();
   const tx = {
-    ticketType: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    // The guarded seat claim (claimSeats) is one raw statement.
+    $executeRaw: vi.fn(),
     event: {
       findUnique: vi.fn().mockResolvedValue({ seatCount: 0, maxAttendees: null }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -106,7 +108,7 @@ beforeEach(() => {
   mockDb.contact.findMany.mockResolvedValue([richContact]);
   mockDb.attendee.findMany.mockResolvedValue([]); // no existing → creates
   mockDb._tx.event.findUnique.mockResolvedValue({ seatCount: 0, maxAttendees: null });
-  mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+  mockDb._tx.$executeRaw.mockImplementation(seatRawExecutor());
 });
 
 describe("import-contacts — full contact field carry", () => {
@@ -149,9 +151,7 @@ describe("import-contacts — full contact field carry", () => {
     expect(regData.paymentStatus).toBeUndefined(); // typed rows keep schema defaults
     // Every in-person row gets an entry barcode (Oct 19, 2026: this route never minted one).
     expect(regData.qrCode).toEqual(expect.stringMatching(/^\d{13,}$/));
-    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "T", soldCount: { lte: 49 } } }),
-    );
+    expect(rawClaims(mockDb._tx.$executeRaw, "TicketType")).toEqual([{ id: "T", count: 1 }]);
   });
 });
 
@@ -169,7 +169,7 @@ describe("import-contacts — typeless (uncategorised) import", () => {
     // with no type holds none (holdsEventSeat, the event recount); it gains
     // both when a type is assigned, so counting it here counted it twice
     // (Oct 29, 2026).
-    expect(mockDb._tx.ticketType.updateMany).not.toHaveBeenCalled();
+    expect(rawClaims(mockDb._tx.$executeRaw, "TicketType")).toEqual([]);
     expect(mockDb._tx.event.updateMany).not.toHaveBeenCalled();
 
     // The attendee's free-text mirror falls back to the contact's own category.
