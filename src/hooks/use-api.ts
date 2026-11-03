@@ -127,6 +127,7 @@ export const queryKeys = {
   // unsaved mapping on a transient DET error.
   dtcmEventSections: (eventId: string) => ["dtcm-eticket", "event", eventId] as const,
   dtcmRegistrationOrders: (eventId: string, registrationId: string) => ["dtcm-eticket", "registration", eventId, registrationId] as const,
+  dtcmRun: (eventId: string) => ["dtcm-eticket", "run", eventId] as const,
   aiCredentials: ["ai", "credentials"] as const,
   zoomSettings: (eventId: string) => ["zoom", "settings", eventId] as const,
   zoomMeeting: (sessionId: string) => ["zoom", "meeting", sessionId] as const,
@@ -2558,6 +2559,70 @@ export function useResolveDtcmOrder(eventId: string, registrationId: string) {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dtcmRegistrationOrders(eventId, registrationId) });
     },
+  });
+}
+
+export interface DtcmRunSummary {
+  id: string;
+  status: "RUNNING" | "STOPPED" | "COMPLETED" | "CANCELLED";
+  environment: DetEnvironment;
+  expected: number;
+  soldOutAreas: string[];
+  stopReason: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  lastTickAt: string | null;
+  progress: { purchased: number; failed: number; uncertain: number; inFlight: number };
+}
+
+export interface DtcmRunPreflight {
+  environment: DetEnvironment;
+  performanceCode: string;
+  eligible: number;
+  notNeeded: number;
+  problems: { reason: string; count: number; message: string }[];
+  sections: { area: string; name: string; needed: number; headroom: number | null; over: boolean }[];
+  overCapacity: boolean;
+}
+
+/** The latest run; polls while one is working. */
+export function useDtcmRun(eventId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.dtcmRun(eventId),
+    queryFn: () => fetchApi<{ run: DtcmRunSummary | null }>(`/api/events/${eventId}/dtcm-eticket/run`),
+    enabled,
+    refetchInterval: (query) => (query.state.data?.run?.status === "RUNNING" ? 10_000 : false),
+  });
+}
+
+/** What a run would do now. Reads DET, so only on demand. */
+export function useDtcmRunPreflight(eventId: string) {
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{ preflight: DtcmRunPreflight | null; preflightError?: { code: string; message: string } }>(
+        `/api/events/${eventId}/dtcm-eticket/run?preflight=1`,
+      ),
+  });
+}
+
+export function useStartDtcmRun(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (confirm: { environment: DetEnvironment; count: number }) =>
+      fetchApi(`/api/events/${eventId}/dtcm-eticket/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm }),
+      }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.dtcmRun(eventId) }),
+  });
+}
+
+export function useCancelDtcmRun(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => fetchApi(`/api/events/${eventId}/dtcm-eticket/run`, { method: "DELETE" }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.dtcmRun(eventId) }),
   });
 }
 

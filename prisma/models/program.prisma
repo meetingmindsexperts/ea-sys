@@ -1205,6 +1205,59 @@ model DtcmOrder {
   @@index([runId])
 }
 
+/// Where a bulk DET run stands (docs/DTCM_ETICKET_PLAN.md §5.3, step 4).
+enum DtcmIssueRunStatus {
+  /// The worker is buying, one registration at a time.
+  RUNNING
+  /// Stopped by the worker for a reason a person must look at (`stopReason`):
+  /// an uncertain purchase, DET unreachable, the mapping gone stale.
+  STOPPED
+  /// Nobody eligible was left.
+  COMPLETED
+  /// An organiser stopped it.
+  CANCELLED
+}
+
+/// One bulk "Generate DTCM codes" run for an event (step 4).
+///
+/// The run stores NO counters: what it bought, failed and left uncertain is
+/// counted from the `DtcmOrder` rows that carry its id, so the progress shown
+/// cannot drift from what happened. It also stores no list of registrations:
+/// each tick takes the next eligible registration that has no order from this
+/// run, so someone who registers during the run is included and someone
+/// coded another way meanwhile drops out by themselves.
+///
+/// `activeKey` (the event id while RUNNING, null otherwise) is unique: one
+/// live run per event, enforced by the insert rather than by a read.
+model DtcmIssueRun {
+  id              String             @id @default(cuid())
+  eventId         String
+  /// Multi-tenancy: denormalized tenant key. Backs prisma/rls/dtcmissuerun.sql.
+  organizationId  String?
+  /// The DET environment and performance the run was confirmed for; the worker
+  /// stops the run rather than buy anywhere else.
+  environment     String
+  performanceCode String
+  status          DtcmIssueRunStatus @default(RUNNING)
+  activeKey       String?            @unique
+  /// How many registrations the organiser confirmed buying for at the start.
+  expected        Int
+  /// Sections DET refused as sold out during the run; their rows are skipped.
+  soldOutAreas    String[]           @default([])
+  stopReason      String?
+  createdById     String?
+  startedAt       DateTime           @default(now())
+  lastTickAt      DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  event           Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, createdAt])
+  @@index([status])
+  @@index([organizationId])
+}
+
 
 /// A read-only, publicly shareable page of an event's abstracts or session
 /// proposals (Sep 29, 2026; docs/SUBMISSION_SHARE_PLAN.md). The organiser picks

@@ -102,6 +102,7 @@ import {
 } from "@/components/ui/dialog";
 import { BarcodeImportDialog } from "./barcode-import-dialog";
 import { DtcmPoolCard } from "./dtcm-pool-card";
+import { DtcmRunCard } from "./dtcm-run-card";
 import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payment-stats";
 
 /**
@@ -665,6 +666,8 @@ export default function RegistrationsPage() {
       {event?.requiresDtcmBarcode && (
         <DtcmPoolCard eventId={eventId} enabled={canSeeBarcodes} />
       )}
+      {/* Buying the event's codes from DET in bulk: organisers only. */}
+      {event?.requiresDtcmBarcode && event?.dtcmPerformanceCode && canImportDtcm && <DtcmRunCard eventId={eventId} />}
 
       {/* Bulk Selection Toolbar */}
       {selectedIds.size > 0 && !isReviewer && canSelect && (

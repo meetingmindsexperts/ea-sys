@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### DTCM: generate the whole event's DTCM codes from DET (November 3)
+
+- **Registrations page, Dubai events, organisers: a "DTCM codes from DET" card.** "Check who needs a code" shows what a run would do: how many tickets in which DET environment, who needs none, who is skipped and why (no phone, unmapped type, an open uncertain purchase), and each section's need against DET's capacity. "Buy N tickets" starts it after a confirmation naming the count and environment, and the server refuses if either has changed since. Step 4 of `docs/DTCM_ETICKET_PLAN.md`
+- The new `dtcm-issue` worker job (every 2 minutes) buys one registration at a time through the same purchase path as the desk, with the same never-twice rules. It stops the run, with the reason on the card, on an uncertain purchase, DET being unreachable, a stale mapping or a changed environment or performance code, or five refusals in a row; a section DET calls sold out is skipped and the rest carries on. "Stop run" takes effect at the next person
+- New table `DtcmIssueRun` (migration `20261103180000`, additive; RLS policy for the platform instance). Its progress is counted from the run's orders, never stored
+
 ### DTCM: buy a DTCM code from DET at the desk (November 3)
 
 - **The registration sheet's DTCM box has "Get code from DET"** where the person's registration type is mapped to a DET section and the mapping is current. It buys one ticket from DET and puts DET's barcode on the registration. If DET definitely did not sell (section full, DET down), a spare pool code is used instead so the attendee still leaves with one. Step 3 of `docs/DTCM_ETICKET_PLAN.md`

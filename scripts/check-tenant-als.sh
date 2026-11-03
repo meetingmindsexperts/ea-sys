@@ -369,6 +369,7 @@ SWEPT_MODULES=(
   # MCP communications executor, review H2).
   "src/lib/agent/tools/certificates.ts"     # certificate agent / MCP executors (July 31, 2026)
   "src/lib/certificates/issue-worker.ts"    # cert worker — per-run runWithTenant wrap (July 31, 2026)
+  "src/lib/dtcm-eticket/issue-worker.ts"    # DET bulk runs — per-run runWithTenantLane wrap (Nov 3, 2026)
   "src/lib/certificates/auto-issue.ts"      # cert survey-gated sweep — per-reg runWithTenant wrap (July 31, 2026)
   "src/lib/certificates/survey-thankyou-sweep.ts" # thank-you sweep — per-row wrap (review H1, Aug 3, 2026)
   # Bulk-email execution contexts (Certificates-sweep review H2, Aug 3, 2026) —
@@ -444,6 +445,7 @@ OPERATOR_LANE_ALLOWLIST=(
   "src/lib/webinar/room-autoclose.ts"        # open webinar rooms candidate scan (writes run in runWithTenant)
   "src/lib/certificates/auto-issue.ts"       # survey-completed candidate sweep
   "src/lib/certificates/issue-worker.ts"     # active-run scan + stall reclamation
+  "src/lib/dtcm-eticket/issue-worker.ts"     # RUNNING DET-run scan (each run worked in its own lane)
   "src/procurement/integrations/quickbooks/health-worker.ts" # which orgs hold a QuickBooks connection (the probe itself runs in the org's lane)
   "src/crm/reminders-worker.ts"              # due-task scan
   "src/crm/inbound-email-worker.ts"          # reply-token → thread resolve (the tenant is the ANSWER)

@@ -589,6 +589,7 @@ model Event {
   travelGrants                 TravelGrant[]
   dtcmCodes                    DtcmCode[]
   dtcmOrders                   DtcmOrder[]
+  dtcmIssueRuns                DtcmIssueRun[]
   speakerProfileForms          SpeakerProfileForm[]
 
   // CRM module — SetNull, so a sponsorship deal (revenue history) outlives the

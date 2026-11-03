@@ -313,7 +313,29 @@ Each step ships on its own and is useful alone.
    at the `activeKey` insert; a missing phone was refused before anything
    was written; an uncertain order was resolved as not bought from the
    sheet.
-4. **Bulk run.** Preflight, `DtcmIssueRun`, worker job, progress, retry failed.
+4. **Bulk run. BUILT Nov 3, 2026.** `DtcmIssueRun` (migration
+   `20261103180000_add_dtcm_issue_run`, `prisma/rls/dtcmissuerun.sql`; one
+   live run per event through `activeKey`; NO stored counters, progress is
+   counted from `DtcmOrder.runId`; no stored list of people, each tick takes
+   the next registration on a mapped type that this run has not tried).
+   `src/services/dtcm-issue-run-service.ts`: preflight (to buy, not needed,
+   skipped-and-why, per-section need against capacity), start (refused when
+   a section cannot hold it, or when the confirmed count or environment no
+   longer matches), cancel, and the tick, which buys through the desk's
+   `buyForRegistration()` and stops the run on an UNCERTAIN purchase, DET
+   unreachable, a stale mapping, a changed environment or code, or five
+   non-sold-out refusals in a row; a `5005` sold-out section is skipped and
+   the rest carries on. Worker job `dtcm-issue` (every 2 minutes on even
+   minutes, 45-second budget; `src/lib/dtcm-eticket/issue-worker.ts` scans
+   with `dbOperator` and works each run in its own lane). Route
+   `/api/events/[eventId]/dtcm-eticket/run` (GET, `?preflight=1`, POST,
+   DELETE; `dtcm.import`). The registrations page's "DTCM codes from DET"
+   card. "Retry failed" is a new run: it only picks up people who still have
+   no code. Verified against UAT: the preflight found 2 to buy, 2 coded, 2
+   on an unmapped type; the run bought both (orders 68170, 68171, at DET's
+   price) and completed; a second preflight found nobody. The sandbox run
+   found that a run never completed while unbuyable people remained, fixed
+   before commit.
 5. **Reverse.** Card + action.
 6. **Retire the barcodes app** after one live Dubai event runs on EA-SYS with the
    Laravel app on standby.
