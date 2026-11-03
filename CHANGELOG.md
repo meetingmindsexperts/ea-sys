@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Blueprint: saves and approvals check the version in the write (November 3)
+
+- **Two saves on the same version no longer overwrite each other** (dependency audit BP-1): `saveBlueprint()` compared the version and then updated by id, so two saves that both passed the comparison both succeeded and the later one silently replaced the earlier. The version is now part of the update's own where (`updatedAt`), and a save that loses the race gets `STALE_VERSION`. Reproduced on a real database: on the old code both raced saves returned success and the second won; now one succeeds and the other is refused.
+- **An approval approves exactly the version that was read** (BP-3): the plan claim and the preview move now carry the `updatedAt` the approver's version was checked against, so a save landing between the check and the claim makes the approval fail with a conflict instead of approving unseen content.
+- Not done: BP-2 (a process crash between creating the event and recording it on the blueprint) needs a unique event-to-blueprint link, a schema change; deferred while blueprints are barely used in production (2, none approved).
+
 ### HR: maternity leave, weekends, and a sick-leave save that failed (November 3)
 
 - **Sick leave before someone's first leave year saves again**: recording SL-F on a date in a year the system holds no leave figures for (someone who joined in August 2025 and was set up from 2026) failed with an unhandled 500, so the grid kept the old value. The full-pay limit check now skips that year and logs `hr:sick-tier-year-not-held`.

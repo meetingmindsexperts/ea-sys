@@ -55,6 +55,23 @@ describe("saveBlueprint", () => {
     expect(mockDb.blueprint.update).not.toHaveBeenCalled();
   });
 
+  /**
+   * Dependency audit BP-1 (Nov 3 2026). The version check above only READS, so
+   * two saves on the same version both passed it and the second overwrote the
+   * first. The version is now part of the update's own where.
+   */
+  it("puts the version it checked into the update itself", async () => {
+    mockDb.blueprint.findUnique.mockResolvedValue({ organizationId: "org-1", ownerId: "u-1", archivedAt: null, editorIds: [], updatedAt: new Date(SEEN) });
+    expect(await saveBlueprint(ME, ID, BODY)).toEqual({ ok: true, updated: 9000 });
+    expect(mockDb.blueprint.update.mock.calls[0][0].where).toEqual({ id: ID, organizationId: "org-1", updatedAt: new Date(SEEN) });
+  });
+
+  it("a save that loses the race after passing the check is refused as stale, not written", async () => {
+    mockDb.blueprint.findUnique.mockResolvedValue({ organizationId: "org-1", ownerId: "u-1", archivedAt: null, editorIds: [], updatedAt: new Date(SEEN) });
+    mockDb.blueprint.update.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("no row", { code: "P2025", clientVersion: "t" }));
+    expect(await saveBlueprint(ME, ID, BODY)).toMatchObject({ ok: false, code: "STALE_VERSION" });
+  });
+
   it("a row that stays invisible after a clash is another organisation's: not found, not a 500 (review L13)", async () => {
     const clash = new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "t" });
     mockDb.blueprint.findUnique.mockResolvedValue(null);

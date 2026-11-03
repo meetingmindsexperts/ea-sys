@@ -62,7 +62,8 @@ describe("approveBlueprint: the plan", () => {
     const res = await approveBlueprint(APPROVER, ID, "plan", OPTS);
     expect(res).toMatchObject({ ok: true, blueprint: { eventId: "evt-1" } });
     expect(h.db.blueprint.updateMany.mock.calls[0][0]).toMatchObject({
-      where: { status: "PLAN_READY", eventId: null, OR: [{ approvedAt: null }, { approvedAt: { lt: expect.any(Date) } }] },
+      // BP-3: the claim carries the version that was read and scored.
+      where: { status: "PLAN_READY", eventId: null, updatedAt: new Date(VERSION), OR: [{ approvedAt: null }, { approvedAt: { lt: expect.any(Date) } }] },
       data: { approvedById: "u-approver" },
     });
     expect(h.createEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "Summit", eventType: "CONFERENCE", source: "blueprint" }));
@@ -173,7 +174,7 @@ describe("approveBlueprint: the preview", () => {
   it("moves Preview to Live with an APPROVED record, creating nothing", async () => {
     h.db.blueprint.findFirst.mockResolvedValue(row({ status: "PREVIEW", eventId: "evt-1" }));
     expect((await approveBlueprint(APPROVER, ID, "preview", OPTS)).ok).toBe(true);
-    expect(h.db.blueprint.updateMany.mock.calls[0][0]).toMatchObject({ where: { status: "PREVIEW" }, data: { status: "LIVE" } });
+    expect(h.db.blueprint.updateMany.mock.calls[0][0]).toMatchObject({ where: { status: "PREVIEW", updatedAt: new Date(VERSION) }, data: { status: "LIVE" } });
     expect(h.db.blueprintStatusLog.create.mock.calls[0][0].data).toMatchObject({ kind: "APPROVED", toStatus: "LIVE", detail: { which: "preview" } });
     expect(h.createEvent).not.toHaveBeenCalled();
   });

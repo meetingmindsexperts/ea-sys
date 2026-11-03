@@ -141,12 +141,26 @@ export async function saveBlueprint(
         // approval refuses them: an Admin who rewrites a colleague's draft
         // must not later approve what they wrote (review H1, Oct 8, 2026).
         const recordEditor = existing.ownerId !== caller.userId && !existing.editorIds.includes(caller.userId);
-        const row = await db.blueprint.update({
-          where: { id },
-          data: { ...fields, ...(recordEditor && { editorIds: { push: caller.userId } }) },
-          select: { updatedAt: true },
-        });
-        return { ok: true as const, updated: row.updatedAt.getTime() };
+        // The version check is part of the WRITE (dependency audit BP-1). The
+        // comparison above only reads: two saves on the same version both
+        // passed it and the second silently overwrote the first. Here the
+        // second matches no row and is refused like any other stale save.
+        try {
+          const row = await db.blueprint.update({
+            where: { id, organizationId: caller.organizationId, updatedAt: existing.updatedAt },
+            data: { ...fields, ...(recordEditor && { editorIds: { push: caller.userId } }) },
+            select: { updatedAt: true },
+          });
+          return { ok: true as const, updated: row.updatedAt.getTime() };
+        } catch (err) {
+          const lost = err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025";
+          if (!lost) throw err;
+          return fail("STALE_VERSION", "Someone else changed this blueprint since you opened it. Reload to see their changes.", {
+            ...ctx,
+            sent: parsed.serverVersion,
+            race: true,
+          });
+        }
       }
       try {
         const row = await db.blueprint.create({

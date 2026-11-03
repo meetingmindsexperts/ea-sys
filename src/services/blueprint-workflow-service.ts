@@ -281,7 +281,12 @@ export async function approveBlueprint(caller: Caller, id: string, which: Approv
     return fail("NOT_ALLOWED_FROM_STAGE", `The ${which} can be approved only at ${STAGE_LABEL[needed]}; this blueprint is at ${STAGE_LABEL[row.status]}.`, ctx);
   }
 
-  const result = which === "plan" ? await approvePlan(caller, id, row.data, opts, ctx) : await approvePreview(caller, id, ctx);
+  // The version the approver read travels INTO the guarded write (dependency
+  // audit BP-3): checked only above, a save landing between that check and the
+  // claim would be approved unseen.
+  const result = which === "plan"
+    ? await approvePlan(caller, id, row.data, row.updatedAt, opts, ctx)
+    : await approvePreview(caller, id, row.updatedAt, ctx);
   if (!result.ok) return result;
   apiLogger.info({ msg: "blueprint-workflow:approved", ...ctx, eventId: result.eventId ?? null });
   await notifyWriter(caller, row.ownerId, {
@@ -295,11 +300,11 @@ export async function approveBlueprint(caller: Caller, id: string, which: Approv
 
 type Approved = { ok: true; eventId?: string } | Fail;
 
-async function approvePreview(caller: Caller, id: string, ctx: Record<string, unknown>): Promise<Approved> {
+async function approvePreview(caller: Caller, id: string, readAt: Date, ctx: Record<string, unknown>): Promise<Approved> {
   const moved = await runWithTenant(caller.organizationId, () =>
     tenantTransaction(async (tx) => {
       const res = await tx.blueprint.updateMany({
-        where: { id, organizationId: caller.organizationId, status: "PREVIEW" },
+        where: { id, organizationId: caller.organizationId, status: "PREVIEW", updatedAt: readAt },
         data: { status: "LIVE" },
       });
       if (res.count === 0) return false;
@@ -312,7 +317,14 @@ async function approvePreview(caller: Caller, id: string, ctx: Record<string, un
   return moved ? { ok: true } : fail("CONFLICT", "Someone else changed this blueprint; reload it", ctx);
 }
 
-async function approvePlan(caller: Caller, id: string, stored: unknown, opts: ApproveOptions, ctx: Record<string, unknown>): Promise<Approved> {
+async function approvePlan(
+  caller: Caller,
+  id: string,
+  stored: unknown,
+  readAt: Date,
+  opts: ApproveOptions,
+  ctx: Record<string, unknown>,
+): Promise<Approved> {
   const scored = scoreBlueprint(stored);
   if (scored.blocking.length > 0) {
     return fail(
@@ -336,6 +348,9 @@ async function approvePlan(caller: Caller, id: string, stored: unknown, opts: Ap
         organizationId: caller.organizationId,
         status: "PLAN_READY",
         eventId: null,
+        // Exactly the version that was read and scored above, so the event is
+        // built from what the approver saw and nothing saved since.
+        updatedAt: readAt,
         OR: [{ approvedAt: null }, { approvedAt: { lt: new Date(Date.now() - STALE_CLAIM_MS) } }],
       },
       data: { approvedAt: new Date(), approvedById: caller.userId },
