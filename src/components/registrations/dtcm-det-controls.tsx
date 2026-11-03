@@ -1,0 +1,162 @@
+"use client";
+
+/**
+ * The registration detail sheet's DET controls (docs/DTCM_ETICKET_PLAN.md
+ * step 3): "Get code from DET" for a registration with no code, and the state
+ * of its DET orders, including the two that need a person: an UNCERTAIN (or
+ * crashed) purchase, and a sale whose barcode was not read yet.
+ *
+ * Shown only where DET can work for this registration (`detReady`), so an
+ * organisation that only imports CSV codes never sees a button that cannot.
+ */
+import { useState } from "react";
+import { AlertTriangle, Barcode, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useIssueDtcmFromDet, useRegistrationDtcmOrders, useResolveDtcmOrder, type DtcmOrderSummary } from "@/hooks/use-api";
+
+interface Props {
+  eventId: string;
+  registrationId: string;
+  hasCode: boolean;
+  /** `dtcm.import`: may decide what happened to an uncertain sale. */
+  canResolve: boolean;
+  /** Re-read the registration after its code changed. */
+  onCodeChanged: () => Promise<void> | void;
+  /** Disable while the sheet's other code buttons are working. */
+  busy?: boolean;
+}
+
+export function DtcmDetControls({ eventId, registrationId, hasCode, canResolve, onCodeChanged, busy }: Props) {
+  const { data } = useRegistrationDtcmOrders(eventId, registrationId);
+  const issue = useIssueDtcmFromDet(eventId, registrationId);
+
+  if (!data) return null;
+  const open = data.orders.find((o) => o.unresolved) ?? data.orders.find((o) => o.status === "PURCHASED" && !o.barcode);
+
+  const handleIssue = async () => {
+    try {
+      const out = await issue.mutateAsync();
+      // Refresh FIRST: a success toast over a sheet still showing the button
+      // invites a second click (which the server refuses, but should not be offered).
+      await onCodeChanged();
+      if (out.source === "pool") {
+        toast.warning(`DET did not issue a code, so a spare one from the pool was used. ${out.detError ?? ""}`, { duration: 12000 });
+      } else {
+        toast.success("DTCM code issued by DET.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not get a code from DET", { duration: 12000 });
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      {!hasCode && data.detReady && !open && (
+        <Button size="sm" onClick={handleIssue} disabled={issue.isPending || busy}>
+          {issue.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Barcode className="mr-2 h-4 w-4" />}
+          Get code from DET
+        </Button>
+      )}
+      {open && (
+        <OpenOrder
+          eventId={eventId}
+          registrationId={registrationId}
+          order={open}
+          canResolve={canResolve}
+          onCodeChanged={onCodeChanged}
+        />
+      )}
+    </div>
+  );
+}
+
+function OpenOrder({
+  eventId,
+  registrationId,
+  order,
+  canResolve,
+  onCodeChanged,
+}: {
+  eventId: string;
+  registrationId: string;
+  order: DtcmOrderSummary;
+  canResolve: boolean;
+  onCodeChanged: () => Promise<void> | void;
+}) {
+  const resolve = useResolveDtcmOrder(eventId, registrationId);
+  const [detOrderId, setDetOrderId] = useState("");
+  const env = order.environment === "production" ? "production" : "sandbox";
+
+  const run = async (body: { action: "found"; detOrderId: string } | { action: "not-bought" } | { action: "read-barcode" }, done: string) => {
+    try {
+      await resolve.mutateAsync({ dtcmOrderId: order.id, body });
+      await onCodeChanged();
+      toast.success(done);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update the DET order", { duration: 12000 });
+    }
+  };
+
+  if (!order.unresolved) {
+    // PURCHASED, barcode not read yet.
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-left text-xs text-amber-800">
+        <p>
+          DET sold this ticket (order {order.orderId}, {env}) but its barcode has not been read yet.
+        </p>
+        <Button size="sm" variant="outline" className="mt-2" disabled={resolve.isPending} onClick={() => run({ action: "read-barcode" }, "Barcode read from DET.")}>
+          Read barcode again
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-left text-xs text-amber-800">
+      <p className="flex items-start gap-1.5">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>
+          A DET purchase for this person ({order.area}/{order.priceTypeCode}, {env}) may have gone through, but its answer was
+          lost. Do not try again: that could buy a second ticket.
+          {!canResolve && " An organiser can check DET and resolve it."}
+        </span>
+      </p>
+      {canResolve && (
+        <div className="space-y-2">
+          <p>Look the sale up in DET. If you find it, enter its order number; if DET has no sale, mark it as not bought.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              value={detOrderId}
+              onChange={(e) => setDetOrderId(e.target.value.trim())}
+              placeholder="DET order number"
+              className="h-8 w-40 bg-white font-mono"
+              aria-label="DET order number"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!detOrderId || resolve.isPending}
+              onClick={() => run({ action: "found", detOrderId }, "DET order linked and its barcode recorded.")}
+            >
+              Use this order
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={resolve.isPending}
+              onClick={() => {
+                if (window.confirm("Mark this purchase as not bought? Only do this if DET has no sale for this person.")) {
+                  void run({ action: "not-bought" }, "Marked as not bought. You can get a code again.");
+                }
+              }}
+            >
+              Not bought
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

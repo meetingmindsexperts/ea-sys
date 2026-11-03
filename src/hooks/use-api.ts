@@ -126,6 +126,7 @@ export const queryKeys = {
   // on every save, and each refetch here is a DET call that could unmount an
   // unsaved mapping on a transient DET error.
   dtcmEventSections: (eventId: string) => ["dtcm-eticket", "event", eventId] as const,
+  dtcmRegistrationOrders: (eventId: string, registrationId: string) => ["dtcm-eticket", "registration", eventId, registrationId] as const,
   aiCredentials: ["ai", "credentials"] as const,
   zoomSettings: (eventId: string) => ["zoom", "settings", eventId] as const,
   zoomMeeting: (sessionId: string) => ["zoom", "meeting", sessionId] as const,
@@ -2499,6 +2500,63 @@ export function useSaveDtcmEventSections(eventId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dtcmEventSections(eventId) });
+    },
+  });
+}
+
+export interface DtcmOrderSummary {
+  id: string;
+  status: "PENDING" | "PURCHASED" | "FAILED" | "UNCERTAIN" | "REVERSED";
+  environment: DetEnvironment;
+  orderId: string | null;
+  barcode: string | null;
+  area: string;
+  priceTypeCode: string;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** UNCERTAIN, or a PENDING left by a crash: a person must resolve it. */
+  unresolved: boolean;
+}
+
+export function useRegistrationDtcmOrders(eventId: string, registrationId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.dtcmRegistrationOrders(eventId, registrationId),
+    queryFn: () =>
+      fetchApi<{ detReady: boolean; environment: DetEnvironment | null; orders: DtcmOrderSummary[] }>(
+        `/api/events/${eventId}/registrations/${registrationId}/dtcm-eticket`,
+      ),
+    enabled,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useIssueDtcmFromDet(eventId: string, registrationId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{ source: "det" | "pool"; barcode: string; detError?: string }>(
+        `/api/events/${eventId}/registrations/${registrationId}/dtcm-eticket`,
+        { method: "POST" },
+      ),
+    // Success or not, the order list changed (a FAILED or UNCERTAIN row is news too).
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmRegistrationOrders(eventId, registrationId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmPool(eventId) });
+    },
+  });
+}
+
+export function useResolveDtcmOrder(eventId: string, registrationId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { dtcmOrderId: string; body: { action: "found"; detOrderId: string } | { action: "not-bought" } | { action: "read-barcode" } }) =>
+      fetchApi<{ order: { id: string; status: string; orderId: string | null }; barcode: string | null }>(
+        `/api/events/${eventId}/dtcm-orders/${args.dtcmOrderId}`,
+        { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args.body) },
+      ),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmRegistrationOrders(eventId, registrationId) });
     },
   });
 }

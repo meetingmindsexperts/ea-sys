@@ -2,6 +2,7 @@
 
 import { EXHIBITOR_BADGE_ROLE, isExhibitorBadge } from "@/lib/badge-layout";
 import { useCan } from "@/hooks/use-can";
+import { DtcmDetControls } from "@/components/registrations/dtcm-det-controls";
 
 import Image from "next/image";
 import { useState, useRef, useEffect } from "react";
@@ -209,6 +210,8 @@ export function RegistrationDetailSheet({
   // button would otherwise be offered on all of them.
   const canSeeBarcodes = useCan("barcode.view") === "allowed";
   const canResetSurveyHere = useCan("surveys.reset", eventId) === "allowed";
+  // Deciding what happened to an uncertain DET sale is the organisers' call.
+  const canResolveDtcmOrders = useCan("dtcm.import", eventId) === "allowed";
   // Delete and email follow the person's permissions, never the base role
   // (Oct 22, 2026): a Member whose custom role adds them saw neither.
   const canDelete = useCan("registrations.delete", eventId) === "allowed";
@@ -2994,6 +2997,23 @@ export function RegistrationDetailSheet({
                                 </div>
                               )}
                             </>
+                          )}
+                          {/* Buying from DET (step 3 of docs/DTCM_ETICKET_PLAN.md):
+                              the button when there is no code yet, and any DET
+                              order that needs a person, with or without a code
+                              (a desk fallback can leave an uncertain sale behind
+                              a pool code). Renders nothing where DET is not set
+                              up for this person. */}
+                          {canSeeBarcodes && (
+                            <DtcmDetControls
+                              key={selectedRegistration.id}
+                              eventId={eventId}
+                              registrationId={selectedRegistration.id}
+                              hasCode={Boolean(selectedRegistration.dtcmBarcode)}
+                              canResolve={canResolveDtcmOrders}
+                              busy={assigningDtcm}
+                              onCodeChanged={() => refreshSelectedRegistration(selectedRegistration.id)}
+                            />
                           )}
                         </div>
                       </div>

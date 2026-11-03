@@ -326,6 +326,7 @@ model Registration {
   billingAccount           BillingAccount?           @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
   group                    RegistrationGroup?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
   payments                 Payment[]
+  dtcmOrders               DtcmOrder[]
   accommodation            Accommodation?
   invoices                 Invoice[]
   promoRedemption          PromoCodeRedemption?

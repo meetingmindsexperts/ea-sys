@@ -1134,6 +1134,73 @@ model DtcmCode {
   @@index([organizationId])
 }
 
+/// Where a DET purchase stands (docs/DTCM_ETICKET_PLAN.md §5.2).
+enum DtcmOrderStatus {
+  /// Intent written; DET not yet answered.
+  PENDING
+  /// DET sold the ticket; `orderId` is set (and `barcode`, unless the order read failed).
+  PURCHASED
+  /// Definitely not bought. Safe to try again.
+  FAILED
+  /// DET may have sold it: the purchase answer was lost and the basket is gone.
+  /// Needs a person (paste the order id, or mark failed); never retried blindly.
+  UNCERTAIN
+  /// Reversed with DET; the seat is back in the permit.
+  REVERSED
+}
+
+/// One attempt to buy a DTCM ticket from DET for one registration (step 3 of
+/// docs/DTCM_ETICKET_PLAN.md).
+///
+/// WHY A ROW BEFORE THE CALL. Every purchase is a real ticket against a
+/// government permit, and a retry after a lost answer buys a second one. The
+/// row is written BEFORE the basket call, and `activeKey` (the registration id
+/// while the attempt is live, null once it is FAILED or REVERSED) is unique,
+/// so a second click, a second desk station or a re-delivered job stops at
+/// the insert. A nullable unique column rather than a partial index, because
+/// Prisma cannot represent a partial index (the CertificateIssueRunItem trap).
+///
+/// `environment` is the DET environment the ticket was bought in. Every later
+/// call on this order (read, reverse) uses it, never the organisation's active
+/// one, because DET answers "not found" for another environment's order.
+model DtcmOrder {
+  id              String          @id @default(cuid())
+  eventId         String
+  /// Multi-tenancy: denormalized tenant key, stamped from the Event at create.
+  /// Backs prisma/rls/dtcmorder.sql (platform-only).
+  organizationId  String?
+  /// SET NULL on delete: the order outlives its registration, because the
+  /// ticket it records still exists at DET.
+  registrationId  String?
+  environment     String
+  status          DtcmOrderStatus @default(PENDING)
+  activeKey       String?         @unique
+  performanceCode String
+  area            String
+  priceTypeCode   String
+  /// What was paid (DET's price for the price type); a reverse refunds the same.
+  amount          Decimal         @db.Decimal(14, 2)
+  basketId        String?
+  orderId         String?
+  barcode         String?
+  detCustomerId   String?
+  errorStage      String?
+  errorStatus     Int?
+  errorMessage    String?
+  /// The bulk run this attempt belonged to (step 4); null from the desk.
+  runId           String?
+  createdById     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  event           Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration    Registration?   @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, status])
+  @@index([registrationId])
+  @@index([organizationId])
+  @@index([runId])
+}
+
 
 /// A read-only, publicly shareable page of an event's abstracts or session
 /// proposals (Sep 29, 2026; docs/SUBMISSION_SHARE_PLAN.md). The organiser picks

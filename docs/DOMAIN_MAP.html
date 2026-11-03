@@ -345,7 +345,7 @@
 <div class="leaf"><code>lib/barcode-visibility.ts</code> · <code>lib/concurrency.ts</code> (<code>mapWithConcurrency</code> — Print All capped at 8 in-flight, 2500/request)</div>
 </div></details>
 <details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
-<div class="leaf"><code>Registration.qrCode</code> (entry credential) · <code>.dtcmBarcode</code> · <code>.checkedInAt</code> · <code>badgeType</code> · <code>Event.dtcmPerformanceCode</code> (required while DTCM is on; <code>src/lib/dtcm-performance-code.ts</code>)</div>
+<div class="leaf"><code>Registration.qrCode</code> (entry credential) · <code>.dtcmBarcode</code> · <code>.checkedInAt</code> · <code>badgeType</code> · <code>Event.dtcmPerformanceCode</code> (required while DTCM is on; <code>src/lib/dtcm-performance-code.ts</code>) · <code>DtcmOrder</code> (one DET purchase attempt; <code>src/services/dtcm-eticket-service.ts</code>)</div>
 </div></details>
 <details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
 <div class="gotcha"><b>NEVER "undo" a check-in by hand-flipping status</b> — leaves <code>checkedInAt</code> set → permanent ALREADY_CHECKED_IN. Use the DELETE/undo endpoint.</div>

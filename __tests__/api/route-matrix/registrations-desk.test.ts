@@ -93,6 +93,8 @@ import { POST as importCsvPOST } from "@/app/api/events/[eventId]/import/registr
 import { POST as completionPOST } from "@/app/api/events/[eventId]/import/registrations/send-completion-emails/route";
 import { GET as tagsGET } from "@/app/api/events/[eventId]/tags/route";
 import { GET as dtcmGET, POST as dtcmPOST } from "@/app/api/events/[eventId]/dtcm-pool/route";
+import { GET as dtcmDetGET, POST as dtcmDetPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/dtcm-eticket/route";
+import { PATCH as dtcmOrderPATCH } from "@/app/api/events/[eventId]/dtcm-orders/[orderId]/route";
 import { GET as sharesGET, POST as sharesPOST } from "@/app/api/events/[eventId]/registration-shares/route";
 import { PUT as sharePUT, DELETE as shareDELETE } from "@/app/api/events/[eventId]/registration-shares/[viewId]/route";
 import { POST as shareRegenPOST } from "@/app/api/events/[eventId]/registration-shares/[viewId]/regenerate/route";
@@ -193,6 +195,11 @@ const CASES: HandlerCase[] = [
   { name: "GET tags", handler: tagsGET, method: "GET" },
   { name: "GET dtcm-pool", handler: dtcmGET, method: "GET" },
   { name: "POST dtcm-pool", handler: dtcmPOST, method: "POST", body: { registrationId: "r1" } },
+  // Added Nov 3, 2026 (DET purchase, step 3; born on requirePermission). DET is
+  // never reached: the harness stubs fetch to throw and has no credentials.
+  { name: "GET registrations/[id]/dtcm-eticket", handler: dtcmDetGET, method: "GET", params: { registrationId: "r1" } },
+  { name: "POST registrations/[id]/dtcm-eticket", handler: dtcmDetPOST, method: "POST", params: { registrationId: "r1" } },
+  { name: "PATCH dtcm-orders/[orderId]", handler: dtcmOrderPATCH, method: "PATCH", params: { orderId: "do1" }, body: { action: "not-bought" } },
   { name: "GET registration-shares", handler: sharesGET, method: "GET" },
   { name: "POST registration-shares", handler: sharesPOST, method: "POST", body: shareBody },
   { name: "PUT registration-shares/[viewId]", handler: sharePUT, method: "PUT", params: view, body: shareBody },

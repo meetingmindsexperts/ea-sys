@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### DTCM: buy a DTCM code from DET at the desk (November 3)
+
+- **The registration sheet's DTCM box has "Get code from DET"** where the person's registration type is mapped to a DET section and the mapping is current. It buys one ticket from DET and puts DET's barcode on the registration. If DET definitely did not sell (section full, DET down), a spare pool code is used instead so the attendee still leaves with one. Step 3 of `docs/DTCM_ETICKET_PLAN.md`
+- **A ticket is never bought twice.** Every attempt is a `DtcmOrder` row (new table, migration `20261103140000`, additive; RLS policy for the platform instance) written before DET is called, and only one live attempt per registration can exist. A purchase whose answer was lost is checked with DET: if the basket is still there nothing was bought; if it is gone the order is UNCERTAIN and the sheet asks an organiser to find it in DET (enter its order number, which is checked) or mark it not bought. It is never retried and never falls back to the pool, because a ticket may exist
+- DET needs a phone number and a recognised country; a registration without them is refused with that message before anything is written
+- Desk staff on their own events, admins and organisers may get a code (`dtcm.assign` + `barcode.view`); only admins and organisers resolve an uncertain order (`dtcm.import`)
+
 ### DTCM: each registration type mapped to a DET section (November 3)
 
 - **Event Settings → Registration, under the performance code: a "DET sections" card.** It reads the event's performance from DET live and lets the organiser pick, per registration type (Faculty included), the DET section and price type its DTCM barcodes will be issued in. Only valid pairs are offered (a price type of the section's own category), the zero-priced type is pre-selected, and every save is checked against DET's map again on the server. Each section shows its capacity and holds beside the mapped registrations that still need a code (in person, not cancelled or waitlisted, none yet), flagging one that is over capacity. A mapping checked in another environment or for another code can be re-checked with one click, and the server's `isMappingCurrent()` keeps any purchase from using it until then. Step 2 of `docs/DTCM_ETICKET_PLAN.md`: nothing buys from DET yet

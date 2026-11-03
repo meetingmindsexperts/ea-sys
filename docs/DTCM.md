@@ -31,6 +31,7 @@ has to hold for all of them.
 | **CSV import** | Organizer | A day or two before the event, when DTCM issues the block |
 | **Spare pool** | The system, automatically | A walk-up registers at the desk and there is no code on the row |
 | **Typed by hand** | Organizer, on the registration detail sheet | Corrections, and anything the other two missed |
+| **Bought from DET** | Desk or organiser, "Get code from DET" on the sheet (Nov 3, 2026) | The event's DET sections are mapped; one `DtcmOrder` per attempt (`src/services/dtcm-eticket-service.ts`, [DTCM_ETICKET_PLAN.md](DTCM_ETICKET_PLAN.md)) |
 
 The **pool** is the leftovers: codes imported without an owner. Availability is
 **derived, never stored** — a code is spare when no registration on that event

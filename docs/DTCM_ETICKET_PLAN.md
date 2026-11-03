@@ -290,9 +290,27 @@ Each step ships on its own and is useful alone.
    us" arrives with `DtcmOrder` in step 3. Choosing a section pre-selects its
    zero-priced type (the permit is paid in seats). Verified against UAT in a
    browser.
-3. **`DtcmOrder` + desk generate.** Migration, service, the desk button with
-   pool fallback. Smallest path that buys a real ticket, so it gets the most
-   scrutiny.
+3. **`DtcmOrder` + desk generate. BUILT Nov 3, 2026.** Migration
+   `20261103140000_add_dtcm_order` (enum + table, additive) and
+   `prisma/rls/dtcmorder.sql`. `src/services/dtcm-eticket-service.ts` holds
+   the rules of §5.2: `issueDtcmTicket()` (desk) over `buyForRegistration()`
+   (which the bulk run will share), and `resolveDtcmOrder()` for the person
+   who settles an UNCERTAIN or crashed-PENDING order ("found" with a DET order
+   number, checked with DET first; "not bought"; "read barcode again"). The
+   one eligibility rule is `src/lib/dtcm-eticket/eligibility.ts` (DET needs a
+   phone number and a recognised country; the attendee's country is sent as
+   both nationality and phone country, as the Laravel app did). Routes:
+   `POST/GET /api/events/[eventId]/registrations/[registrationId]/dtcm-eticket`
+   (`dtcm.assign` + `barcode.view`; falls back to a spare pool code only when
+   DET definitely did not sell) and `PATCH /api/events/[eventId]/dtcm-orders/[orderId]`
+   (`dtcm.import` + `barcode.view`). The registration sheet's DTCM box gets
+   "Get code from DET" where the type is mapped and the mapping current, and
+   shows an order that needs a person. Verified against UAT: a purchase put
+   DET's barcode on the registration (order 68167); two simultaneous requests
+   for one registration bought exactly one ticket (68168), the other stopped
+   at the `activeKey` insert; a missing phone was refused before anything
+   was written; an uncertain order was resolved as not bought from the
+   sheet.
 4. **Bulk run.** Preflight, `DtcmIssueRun`, worker job, progress, retry failed.
 5. **Reverse.** Card + action.
 6. **Retire the barcodes app** after one live Dubai event runs on EA-SYS with the
