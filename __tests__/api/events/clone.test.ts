@@ -537,6 +537,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         badgeVerticalOffset: 12,
         cmeHours: 3,
         requiresDtcmBarcode: true,
+        dtcmPerformanceCode: "PDUB01DEC2026A",
         // Must be excluded:
         code: "MMG-001",
         surveyShareLink: { token: "t", expiresAt: "x", createdAt: "y", createdByUserId: "u" },
@@ -575,7 +576,10 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(data.bankDetails).toBe("IBAN 123");
       expect(data.badgeVerticalOffset).toBe(12);
       expect(data.cmeHours).toBe(3);
-      expect(data.requiresDtcmBarcode).toBe(true);
+      // A new event is a new DET performance (Nov 3, 2026): DTCM starts off
+      // and the source's performance code never reaches the clone.
+      expect(data.requiresDtcmBarcode).toBe(false);
+      expect(data.dtcmPerformanceCode).toBeUndefined();
 
       // Deliberately excluded.
       expect(data.code).toBeUndefined();

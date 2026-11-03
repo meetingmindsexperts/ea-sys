@@ -52,6 +52,7 @@ import {
   type ScheduleShiftSummary,
 } from "@/services/event-schedule-shift";
 import { eventCodeReferences, isEventCodeTaken } from "@/lib/event-code";
+import { DTCM_PERFORMANCE_CODE_MAX, resolveDtcmEventConfig } from "@/lib/dtcm-performance-code";
 
 /** Every field the edit can change, plus the assigned staff the per-field check needs. */
 const STORED_FIELD_SELECT = {
@@ -120,6 +121,9 @@ const updateEventSchema = z.object({
   // Dubai (DET/DTCM) compliance toggle — surfaces the per-registration
   // DTCM barcode field for this event only.
   requiresDtcmBarcode: z.boolean().optional(),
+  // The DET performance code the event's DTCM codes are bought against.
+  // Required while requiresDtcmBarcode is on; see resolveDtcmEventConfig.
+  dtcmPerformanceCode: z.string().max(DTCM_PERFORMANCE_CODE_MAX).nullable().optional(),
   // Per-event post-event feedback survey definition. Null clears the
   // survey (subsequent token mints + form loads will 404). See
   // src/lib/survey/schema.ts for the Zod-validated shape — duplicate
@@ -259,6 +263,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
         startDate: true,
         endDate: true,
         timezone: true,
+        // Also in STORED_FIELD_SELECT, named here so the DTCM rule reads them typed.
+        requiresDtcmBarcode: true,
+        dtcmPerformanceCode: true,
         ...STORED_FIELD_SELECT,
       },
     });
@@ -364,6 +371,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       bankDetails,
       badgeVerticalOffset,
       requiresDtcmBarcode,
+      dtcmPerformanceCode,
       maxAttendees,
       surveyConfig,
       settings,
@@ -409,6 +417,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
           { status: 409 },
         );
       }
+    }
+
+    // DTCM on means a DET performance code is set (docs/DTCM_ETICKET_PLAN.md).
+    const dtcm = resolveDtcmEventConfig(
+      { requiresDtcmBarcode, dtcmPerformanceCode },
+      { requiresDtcmBarcode: existingEvent.requiresDtcmBarcode, dtcmPerformanceCode: existingEvent.dtcmPerformanceCode },
+    );
+    if (!dtcm.ok) {
+      apiLogger.warn({ msg: "events:dtcm-config-refused", eventId, userId: session.user.id, code: dtcm.code });
+      return NextResponse.json({ error: dtcm.message, code: dtcm.code }, { status: 400 });
     }
 
     // M9 (program/agenda review): narrowing the event's dates (or moving its
@@ -709,6 +727,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(bankDetails !== undefined && { bankDetails }),
         ...(badgeVerticalOffset !== undefined && { badgeVerticalOffset }),
         ...(requiresDtcmBarcode !== undefined && { requiresDtcmBarcode }),
+        ...(dtcmPerformanceCode !== undefined && { dtcmPerformanceCode: dtcm.dtcmPerformanceCode }),
         // surveyConfig: explicit null clears (set to JSON null in DB
         // via Prisma.JsonNull); array writes verbatim. The Zod schema
         // above guarantees the array shape is valid before reaching

@@ -69,7 +69,7 @@ describe("event field visibility", () => {
   it("the detail view selects no finance, branding or operational columns", () => {
     for (const column of [
       "bankDetails", "taxRate", "taxLabel", "emailCcAddresses", "emailFooterHtml",
-      "surveyConfig", "badgeVerticalOffset", "requiresDtcmBarcode", "maxAttendees",
+      "surveyConfig", "badgeVerticalOffset", "requiresDtcmBarcode", "dtcmPerformanceCode", "maxAttendees",
       "seatCount", "speakerAgreementTemplate", "registrationTermsHtml",
     ]) {
       expect(RESTRICTED_EVENT_DETAIL_SELECT).not.toHaveProperty(column);

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### DTCM: every Dubai event carries its DET performance code (November 3)
+
+- **Turning on DTCM barcodes now asks for the event's DET performance code** (e.g. `PDUB01DEC2023B`), stored in the new `Event.dtcmPerformanceCode` column (migration `20261103100000`, additive). It is the first step of buying DTCM codes from DET inside EA-SYS instead of the separate barcodes app (`docs/DTCM_ETICKET_PLAN.md`). The field sits under the switch on Settings → Registration and is required while the switch is on; the rule (`src/lib/dtcm-performance-code.ts`) is enforced by the event save, event creation and the agent's `create_event` / `update_event`, which gain a `dtcmPerformanceCode` field. MCP clients must reconnect to see it (0.4.50)
+- **A cloned event starts with DTCM off.** A new event is a new DET performance, so the source's code is never copied; the organiser turns DTCM on again with the new code
+- The one production event that already had DTCM on keeps saving every other change; it is asked for its code the next time its Registration settings are saved
+- The event create route now answers 400, not 409, for every refusal other than a taken slug or event code
+
 ### Registrations and payments: the dependency audit's seams (November 3)
 
 - **A refund issued from the Stripe Dashboard always reaches the registration** (audit P1): `charge.refunded` recorded the refund on the payment, then on the registration, in separate statements. A failure between them left the registration short for good, because Stripe's retry saw the payment already reconciled and skipped. Both now commit in one transaction, as the refund button's path already did.

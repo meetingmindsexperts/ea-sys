@@ -173,7 +173,8 @@ export async function POST(req: Request) {
     });
     if (!result.ok) {
       // The service logs the refusal with its code.
-      const status = result.code === "INVALID_DATE_RANGE" || result.code === "INVALID_SLUG" ? 400 : 409;
+      // Only the two uniqueness clashes are conflicts; every other code is a bad request.
+      const status = result.code === "SLUG_TAKEN" || result.code === "EVENT_CODE_TAKEN" ? 409 : 400;
       return NextResponse.json({ error: result.message, code: result.code }, { status });
     }
 

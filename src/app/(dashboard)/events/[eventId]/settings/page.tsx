@@ -21,6 +21,8 @@ import { readTravelGrantSettings } from "@/lib/travel-grant/settings";
 import { DEFAULT_TRAVEL_GRANT_CTA_LABEL, TRAVEL_GRANT_CTA_LABEL_MAX } from "@/lib/travel-grant/constants";
 import { countryNamesFor, resolveCountryCode } from "@/lib/travel-grant/eligibility";
 import { CountrySelect } from "@/components/ui/country-select";
+import { DtcmPerformanceCodeField } from "@/components/events/dtcm-performance-code-field";
+import { normalizeDtcmPerformanceCode } from "@/lib/dtcm-performance-code";
 import {
   ABSTRACTS_PER_SUBMITTER_CEILING,
   CONTENT_WORDS_CEILING,
@@ -155,6 +157,7 @@ interface Event {
   bankDetails: string | null;
   badgeVerticalOffset: number;
   requiresDtcmBarcode: boolean;
+  dtcmPerformanceCode: string | null;
   settings: {
     registrationOpen?: boolean;
     waitlistEnabled?: boolean;
@@ -299,6 +302,7 @@ export default function EventSettingsPage() {
     bankDetails: "",
     badgeVerticalOffset: 0,
     requiresDtcmBarcode: false,
+    dtcmPerformanceCode: "",
   });
 
   const [registrationSettings, setRegistrationSettings] = useState({
@@ -436,6 +440,7 @@ export default function EventSettingsPage() {
           bankDetails: data.bankDetails || "",
           badgeVerticalOffset: data.badgeVerticalOffset ?? 0,
           requiresDtcmBarcode: data.requiresDtcmBarcode ?? false,
+          dtcmPerformanceCode: data.dtcmPerformanceCode || "",
         });
 
         const settings = data.settings || {};
@@ -581,6 +586,12 @@ export default function EventSettingsPage() {
    * MouseEvent as `extra` and spread it into the body.
    */
   const handleSaveGeneral = async (extra?: Record<string, unknown>) => {
+    // The server refuses this too (resolveDtcmEventConfig); asking here keeps
+    // the organiser on the field instead of a toast after a round-trip.
+    if (generalFormData.requiresDtcmBarcode && !normalizeDtcmPerformanceCode(generalFormData.dtcmPerformanceCode)) {
+      toast.error("Enter the event's DET performance code to turn on DTCM barcodes");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch(`/api/events/${eventId}`, {
@@ -592,6 +603,7 @@ export default function EventSettingsPage() {
           tag: generalFormData.tag || null,
           specialty: generalFormData.specialty || null,
           code: generalFormData.code || null,
+          dtcmPerformanceCode: normalizeDtcmPerformanceCode(generalFormData.dtcmPerformanceCode),
           venue: generalFormData.venue || null,
           address: generalFormData.address || null,
           city: generalFormData.city || null,
@@ -1591,6 +1603,12 @@ export default function EventSettingsPage() {
                 }
               />
             </div>
+            {generalFormData.requiresDtcmBarcode && (
+              <DtcmPerformanceCodeField
+                value={generalFormData.dtcmPerformanceCode}
+                onChange={(dtcmPerformanceCode) => setGeneralFormData({ ...generalFormData, dtcmPerformanceCode })}
+              />
+            )}
 
           </SettingsCard>
 

@@ -541,6 +541,53 @@ describe("PUT /api/events/[eventId]", () => {
 // session outside the CURRENT dates. `shiftSchedule: true` moves the event
 // and every session (plus future tier windows + deadlines) in one transaction.
 
+describe("PUT /api/events/[eventId] — DTCM performance code (Nov 3, 2026)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const stored = (over: Record<string, unknown> = {}) => ({
+    id: "evt-1",
+    slug: "test",
+    settings: {},
+    requiresDtcmBarcode: false,
+    dtcmPerformanceCode: null,
+    ...over,
+  });
+
+  it("refuses turning DTCM on without a performance code, and writes nothing", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue(stored());
+    const res = await PUT(makePutRequest({ requiresDtcmBarcode: true }), makeParams("evt-1"));
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("DTCM_PERFORMANCE_CODE_REQUIRED");
+    expect(mockDb.event.update).not.toHaveBeenCalled();
+  });
+
+  it("saves DTCM on with the code, normalised", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue(stored());
+    mockDb.event.update.mockResolvedValue({ ...sampleEvent, requiresDtcmBarcode: true });
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+    const res = await PUT(
+      makePutRequest({ requiresDtcmBarcode: true, dtcmPerformanceCode: " pdub01dec2026a " }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(200);
+    expect(mockDb.event.update.mock.calls[0][0].data).toMatchObject({
+      requiresDtcmBarcode: true,
+      dtcmPerformanceCode: "PDUB01DEC2026A",
+    });
+  });
+
+  it("does not block an unrelated edit on an event that had DTCM on before the code existed", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue(stored({ requiresDtcmBarcode: true }));
+    mockDb.event.update.mockResolvedValue({ ...sampleEvent, name: "Renamed" });
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+    const res = await PUT(makePutRequest({ name: "Renamed" }), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("PUT /api/events/[eventId] — shiftSchedule (postponement)", () => {
   beforeEach(() => {
     vi.clearAllMocks();

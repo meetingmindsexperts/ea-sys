@@ -419,6 +419,11 @@ model Event {
   // It does NOT make DTCM the entry barcode (that's always qrCode); it
   // only controls visibility of the separate DTCM field.
   requiresDtcmBarcode              Boolean     @default(false)
+  /// The DET eTicketing performance code this event's DTCM codes are bought
+  /// against (e.g. PDUB01DEC2023B). Required while `requiresDtcmBarcode` is
+  /// on (src/lib/dtcm-performance-code.ts). Never copied by clone: a new
+  /// event is a new DET performance (docs/DTCM_ETICKET_PLAN.md).
+  dtcmPerformanceCode              String?
   status                           EventStatus @default(DRAFT)
   settings                         Json        @default("{}")
   bannerImage                      String?

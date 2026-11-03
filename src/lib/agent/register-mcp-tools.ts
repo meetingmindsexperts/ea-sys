@@ -171,7 +171,8 @@ export function registerAllMcpTools(
       eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).optional(),
       tag: z.string().optional(),
       specialty: z.string().optional(),
-      requiresDtcmBarcode: z.boolean().optional().describe("Dubai (DET/DTCM) compliance toggle — surfaces the DTCM barcode field. Dubai events only; default false."),
+      requiresDtcmBarcode: z.boolean().optional().describe("Dubai (DET/DTCM) compliance toggle — surfaces the DTCM barcode field. Dubai events only; default false. When true, dtcmPerformanceCode is required."),
+      dtcmPerformanceCode: z.string().max(100).optional().describe("The event's DET eTicketing performance code, e.g. PDUB01DEC2023B. Required when requiresDtcmBarcode is true; letters, digits, - and _ only."),
       status: z.enum(["DRAFT", "PUBLISHED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
     },
     async (input) => safeTool("create_event", () =>
@@ -242,7 +243,7 @@ export function registerAllMcpTools(
 
   server.tool(
     "update_event",
-    "Update an event's safe-to-change fields. Allowed: name, description, venue, address, city, country, tag, specialty, code (invoice-number prefix, 1-20 chars A-Z0-9-), taxRate (0-100), taxLabel, bankDetails, badgeVerticalOffset, requiresDtcmBarcode. EXPLICITLY REJECTS slug/startDate/endDate/eventType/timezone — those cascade to public URLs, scheduled emails, Zoom provisioning, and session times. Use the dashboard Settings page to change those.",
+    "Update an event's safe-to-change fields. Allowed: name, description, venue, address, city, country, tag, specialty, code (invoice-number prefix, 1-20 chars A-Z0-9-), taxRate (0-100), taxLabel, bankDetails, badgeVerticalOffset, requiresDtcmBarcode, dtcmPerformanceCode (the DET performance code; required while requiresDtcmBarcode is true, so turning it on needs both). EXPLICITLY REJECTS slug/startDate/endDate/eventType/timezone — those cascade to public URLs, scheduled emails, Zoom provisioning, and session times. Use the dashboard Settings page to change those.",
     {
       eventId: z.string(),
       name: z.string().optional(),
@@ -258,7 +259,8 @@ export function registerAllMcpTools(
       taxLabel: z.string().nullable().optional(),
       bankDetails: z.string().nullable().optional(),
       badgeVerticalOffset: z.number().optional(),
-      requiresDtcmBarcode: z.boolean().optional().describe("Dubai (DET/DTCM) compliance toggle — surfaces the DTCM barcode field. Dubai events only."),
+      requiresDtcmBarcode: z.boolean().optional().describe("Dubai (DET/DTCM) compliance toggle — surfaces the DTCM barcode field. Dubai events only. Turning it on needs dtcmPerformanceCode, here or already set."),
+      dtcmPerformanceCode: z.string().max(100).nullable().optional().describe("The event's DET eTicketing performance code, e.g. PDUB01DEC2023B. Required while requiresDtcmBarcode is on; null clears it (refused while DTCM is on)."),
     },
     async (input) => safeTool("update_event", () =>
       runTool("update_event", input, {

@@ -80,6 +80,7 @@ export const EVENT_SETTINGS_FIELDS = [
   "bankDetails",
   "badgeVerticalOffset",
   "requiresDtcmBarcode",
+  "dtcmPerformanceCode",
 ] as const;
 
 /**

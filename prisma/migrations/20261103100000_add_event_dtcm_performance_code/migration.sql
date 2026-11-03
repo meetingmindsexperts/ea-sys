@@ -1,0 +1,11 @@
+-- The DET eTicketing performance code for a Dubai event (e.g. PDUB01DEC2023B):
+-- which DET performance this event's compliance codes are bought against
+-- (docs/DTCM_ETICKET_PLAN.md). Required whenever requiresDtcmBarcode is on;
+-- the rule lives in src/lib/dtcm-performance-code.ts, not in the database,
+-- because the one live DTCM event predates it and must stay saveable until
+-- its organiser enters the code.
+--
+-- ADDITIVE + IDEMPOTENT. A nullable column with no default: blue-green safe
+-- (the old container never selects it by name and ignores it on full-row
+-- reads), and a re-run is a no-op. No rollback hazard.
+ALTER TABLE "Event" ADD COLUMN IF NOT EXISTS "dtcmPerformanceCode" TEXT;

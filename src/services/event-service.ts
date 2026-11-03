@@ -26,6 +26,11 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { slugify, deriveEventCode } from "@/lib/utils";
 import { resolveUniqueEventCode } from "@/lib/event-code";
+import {
+  normalizeDtcmPerformanceCode,
+  resolveDtcmEventConfig,
+  type DtcmEventConfigErrorCode,
+} from "@/lib/dtcm-performance-code";
 import { refreshEventStats } from "@/lib/event-stats";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
 import { readDefaultRegistrationTypes } from "@/lib/default-registration-types";
@@ -58,6 +63,8 @@ export interface CreateEventInput {
   tag?: string | null;
   specialty?: string | null;
   requiresDtcmBarcode?: boolean;
+  /** DET performance code; required when `requiresDtcmBarcode` is true. */
+  dtcmPerformanceCode?: string | null;
 
   source: "rest" | "mcp" | "agent" | "api" | "blueprint";
 }
@@ -66,7 +73,8 @@ export type CreateEventErrorCode =
   | "INVALID_SLUG"
   | "INVALID_DATE_RANGE"
   | "SLUG_TAKEN"
-  | "EVENT_CODE_TAKEN";
+  | "EVENT_CODE_TAKEN"
+  | DtcmEventConfigErrorCode;
 
 export type CreateEventResult =
   | { ok: true; event: Event }
@@ -88,6 +96,12 @@ async function createEventInTenant(input: CreateEventInput): Promise<CreateEvent
   if (input.endDate < input.startDate) {
     return fail("INVALID_DATE_RANGE", "endDate must be on or after startDate", input);
   }
+
+  const dtcm = resolveDtcmEventConfig(
+    { requiresDtcmBarcode: input.requiresDtcmBarcode, dtcmPerformanceCode: input.dtcmPerformanceCode },
+    null,
+  );
+  if (!dtcm.ok) return fail(dtcm.code, dtcm.message, input);
 
   const baseSlug = resolveBaseSlug(input);
   if (!baseSlug) return fail("INVALID_SLUG", "The requested web address has no usable characters (a-z, 0-9)", input);
@@ -179,6 +193,7 @@ async function insertEvent(input: CreateEventInput, baseSlug: string): Promise<C
       tag: input.tag || null,
       specialty: input.specialty || null,
       requiresDtcmBarcode: input.requiresDtcmBarcode === true,
+      dtcmPerformanceCode: normalizeDtcmPerformanceCode(input.dtcmPerformanceCode),
       status: input.status ?? "DRAFT",
       registrationTermsHtml: DEFAULT_REGISTRATION_TERMS_HTML,
       speakerAgreementHtml: DEFAULT_SPEAKER_AGREEMENT_HTML,

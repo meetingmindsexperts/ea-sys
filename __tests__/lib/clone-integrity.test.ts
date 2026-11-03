@@ -46,12 +46,13 @@ const CLONED_EVENT_FIELDS = [
   "bankDetails",
   "badgeVerticalOffset",
   "cmeHours",
-  "requiresDtcmBarcode",
 ] as const;
 
 /** Fields that should be reset / excluded on the cloned event */
 const RESET_EVENT_FIELDS = {
   status: "DRAFT",
+  // A new event is a new DET performance: DTCM starts off, the code is not copied.
+  requiresDtcmBarcode: false,
   externalId: undefined,
   externalSource: undefined,
 } as const;
@@ -243,7 +244,7 @@ describe("clone data completeness", () => {
       "startDate", "endDate", "timezone", "venue", "address",
       "city", "country", "eventType", "tag", "specialty", "code",
       "status", "settings", "bannerImage", "footerHtml",
-      "requiresDtcmBarcode",
+      "requiresDtcmBarcode", "dtcmPerformanceCode",
       "emailHeaderImage", "emailFooterImage", "emailFooterHtml",
       "emailFromAddress", "emailFromName", "emailCcAddresses", "supportEmail",
       "registrationTermsHtml", "registrationWelcomeHtml", "registrationConfirmationHtml",
@@ -256,13 +257,14 @@ describe("clone data completeness", () => {
 
     // These fields should NOT be cloned (auto-generated or reset)
     const autoFields = ["id", "createdAt", "updatedAt"];
-    const resetFields = ["status", "externalId", "externalSource"];
+    const resetFields = ["status", "externalId", "externalSource", "requiresDtcmBarcode"];
     const specialFields = ["name", "slug", "settings"]; // modified, not copied as-is
     // Deliberately excluded per the clone design:
     //   code             — feeds invoice numbering; must regenerate per event
     //   surveyShareLink  — a live token tied to the source event
     //   speakerAgreementTemplate — file-backed (.docx); needs a file copy (Tier 3)
-    const intentionallyExcluded = ["code", "surveyShareLink", "speakerAgreementTemplate"];
+    //   dtcmPerformanceCode — names the SOURCE event's DET performance
+    const intentionallyExcluded = ["code", "surveyShareLink", "speakerAgreementTemplate", "dtcmPerformanceCode"];
 
     const copyableFields = allEventFields.filter(
       (f) =>

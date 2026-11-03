@@ -214,7 +214,11 @@ export async function POST(
             bankDetails: source.bankDetails,
             badgeVerticalOffset: source.badgeVerticalOffset,
             cmeHours: source.cmeHours,
-            requiresDtcmBarcode: source.requiresDtcmBarcode,
+            // DTCM starts OFF and dtcmPerformanceCode is not copied (owner,
+            // Nov 3 2026): a new event is a new DET performance, so the
+            // source's code would buy tickets against last year's event. The
+            // organiser turns DTCM back on with the new code.
+            requiresDtcmBarcode: false,
             // Event-wide attendee cap is config → copy; seatCount deliberately
             // NOT copied (the clone starts with zero registrations).
             maxAttendees: source.maxAttendees,

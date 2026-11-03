@@ -4,6 +4,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
 import { eventCodeReferences, isEventCodeTaken } from "@/lib/event-code";
+import { resolveDtcmEventConfig } from "@/lib/dtcm-performance-code";
 import { createEvent as createEventInService } from "@/services/event-service";
 import type { ToolExecutor } from "./_shared";
 
@@ -32,6 +33,7 @@ const listEventInfo: ToolExecutor = async (_input, ctx) => {
         // Dubai (DET/DTCM) compliance toggle — surfaces whether the DTCM
         // barcode field applies to this event.
         requiresDtcmBarcode: true,
+        dtcmPerformanceCode: true,
         _count: {
           select: {
             registrations: true,
@@ -173,6 +175,7 @@ const createEvent: ToolExecutor = async (input, ctx) => {
       specialty: input.specialty ? String(input.specialty).slice(0, 255) : null,
       // Dubai (DET/DTCM) compliance toggle — defaults off.
       requiresDtcmBarcode: input.requiresDtcmBarcode === true,
+      dtcmPerformanceCode: typeof input.dtcmPerformanceCode === "string" ? input.dtcmPerformanceCode : null,
       status: status as EventStatus | undefined,
       source: ctx.source,
     });
@@ -218,8 +221,10 @@ export const EVENT_UPDATE_FIELD_WHITELIST = new Set([
   "taxLabel",
   "bankDetails",
   "badgeVerticalOffset",
-  // Dubai (DET/DTCM) compliance toggle — safe boolean, no cascade.
+  // Dubai (DET/DTCM) compliance toggle and its DET performance code, which
+  // must be set while the toggle is on (resolveDtcmEventConfig).
   "requiresDtcmBarcode",
+  "dtcmPerformanceCode",
 ]);
 const EVENT_UPDATE_FIELD_BLACKLIST = new Set([
   "slug",
@@ -239,7 +244,7 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
 
     const existing = await db.event.findFirst({
       where: { id: eventId, organizationId: ctx.organizationId },
-      select: { id: true, name: true, code: true },
+      select: { id: true, name: true, code: true, requiresDtcmBarcode: true, dtcmPerformanceCode: true },
     });
     if (!existing) return { error: `Event ${eventId} not found or access denied`, code: "EVENT_NOT_FOUND" };
 
@@ -349,8 +354,20 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
       }
       updates.badgeVerticalOffset = offset;
     }
-    if (input.requiresDtcmBarcode !== undefined) {
-      updates.requiresDtcmBarcode = input.requiresDtcmBarcode === true;
+    if (input.requiresDtcmBarcode !== undefined || input.dtcmPerformanceCode !== undefined) {
+      const dtcm = resolveDtcmEventConfig(
+        {
+          requiresDtcmBarcode: input.requiresDtcmBarcode === undefined ? undefined : input.requiresDtcmBarcode === true,
+          dtcmPerformanceCode: input.dtcmPerformanceCode,
+        },
+        existing,
+      );
+      if (!dtcm.ok) {
+        apiLogger.warn({ eventId, userId: ctx.userId, code: dtcm.code, source: ctx.source }, "agent:update_event dtcm-config-refused");
+        return { error: dtcm.message, code: dtcm.code };
+      }
+      updates.requiresDtcmBarcode = dtcm.requiresDtcmBarcode;
+      updates.dtcmPerformanceCode = dtcm.dtcmPerformanceCode;
     }
 
     if (Object.keys(updates).length === 0) {
