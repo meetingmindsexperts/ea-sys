@@ -22,6 +22,7 @@ const { mockDb, det, mockGetCreds, logger } = vi.hoisted(() => ({
     detBasketExists: vi.fn(),
     deleteDetBasket: vi.fn(),
     getDetOrder: vi.fn(),
+    reverseDetOrder: vi.fn(),
   },
   mockGetCreds: vi.fn(),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -36,7 +37,7 @@ vi.mock("@/lib/dtcm-eticket/client", async (importOriginal) => ({
   ...det,
 }));
 
-import { issueDtcmTicket, resolveDtcmOrder, STALE_PENDING_MS } from "@/services/dtcm-eticket-service";
+import { issueDtcmTicket, resolveDtcmOrder, reverseDtcmOrder, STALE_PENDING_MS, unusedReason } from "@/services/dtcm-eticket-service";
 import { DetApiError } from "@/lib/dtcm-eticket/client";
 
 const creds = (environment: "staging" | "production" = "staging") => ({
@@ -339,5 +340,70 @@ describe("resolving", () => {
     row = uncertain({ status: "PENDING", updatedAt: new Date(Date.now() - STALE_PENDING_MS - 1000) });
     mockDb.dtcmOrder.findFirst.mockResolvedValue(row);
     expect(await resolveDtcmOrder(resolveInput({ kind: "not-bought" }))).toMatchObject({ ok: true });
+  });
+});
+
+describe("reversing an unused ticket (step 5)", () => {
+  const bought = (over: Record<string, unknown> = {}) => ({
+    id: "do-5",
+    eventId: "evt1",
+    registrationId: "reg-1",
+    environment: "production",
+    status: "PURCHASED",
+    orderId: "O5",
+    barcode: "BAR-5",
+    amount: new Prisma.Decimal(0),
+    updatedAt: new Date(),
+    registration: { status: "CANCELLED", dtcmBarcode: "BAR-5" },
+    ...over,
+  });
+  const reverse = () => reverseDtcmOrder({ organizationId: "org1", eventId: "evt1", dtcmOrderId: "do-5", userId: "u1" });
+
+  beforeEach(() => {
+    row = bought();
+    mockDb.dtcmOrder.findFirst.mockResolvedValue(row);
+    mockGetCreds.mockResolvedValue(creds("production"));
+  });
+
+  it("knows which tickets are unused", () => {
+    expect(unusedReason({ status: "PURCHASED", barcode: "B" }, null)).toBe("REGISTRATION_DELETED");
+    expect(unusedReason({ status: "PURCHASED", barcode: "B" }, { status: "CANCELLED", dtcmBarcode: "B" })).toBe("REGISTRATION_CANCELLED");
+    expect(unusedReason({ status: "PURCHASED", barcode: "B" }, { status: "CONFIRMED", dtcmBarcode: "OTHER" })).toBe("BARCODE_NOT_ON_REGISTRATION");
+    expect(unusedReason({ status: "PURCHASED", barcode: "B" }, { status: "CONFIRMED", dtcmBarcode: "B" })).toBeNull();
+    expect(unusedReason({ status: "FAILED", barcode: null }, null)).toBeNull();
+  });
+
+  it("refuses a ticket still on an active registration, without calling DET", async () => {
+    mockDb.dtcmOrder.findFirst.mockResolvedValue(bought({ registration: { status: "CONFIRMED", dtcmBarcode: "BAR-5" } }));
+    expect(await reverse()).toMatchObject({ ok: false, code: "STILL_IN_USE" });
+    expect(det.reverseDetOrder).not.toHaveBeenCalled();
+  });
+
+  it("reverses in the order's environment, frees the slot, and clears only a matching code", async () => {
+    det.reverseDetOrder.mockResolvedValue("reversed");
+    expect(await reverse()).toMatchObject({ ok: true, clearedRegistrationCode: true });
+    expect(mockGetCreds).toHaveBeenCalledWith("org1", "production");
+    expect(det.reverseDetOrder).toHaveBeenCalledWith(expect.anything(), "O5", 0);
+    expect(row).toMatchObject({ status: "REVERSED", activeKey: null });
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({ where: { id: "reg-1", dtcmBarcode: "BAR-5" }, data: { dtcmBarcode: null } });
+  });
+
+  it("does NOT mark it reversed on DET's 'not found' (it may be another environment's)", async () => {
+    det.reverseDetOrder.mockResolvedValue("not-found");
+    expect(await reverse()).toMatchObject({ ok: false, code: "DET_NOT_FOUND" });
+    expect(row.status).toBe("PURCHASED");
+  });
+
+  it("settles a lost answer by reading the order back", async () => {
+    det.reverseDetOrder.mockRejectedValue(new DetApiError("no answer", "reverseOrder", null));
+    det.getDetOrder.mockResolvedValueOnce(null);
+    expect(await reverse()).toMatchObject({ ok: true });
+    expect(row.status).toBe("REVERSED");
+
+    row = bought();
+    mockDb.dtcmOrder.findFirst.mockResolvedValue(row);
+    det.getDetOrder.mockResolvedValueOnce({ orderId: "O5", barcode: "BAR-5" });
+    expect(await reverse()).toMatchObject({ ok: false, code: "DET_FAILED" });
+    expect(row.status).toBe("PURCHASED");
   });
 });

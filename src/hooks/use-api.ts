@@ -128,6 +128,7 @@ export const queryKeys = {
   dtcmEventSections: (eventId: string) => ["dtcm-eticket", "event", eventId] as const,
   dtcmRegistrationOrders: (eventId: string, registrationId: string) => ["dtcm-eticket", "registration", eventId, registrationId] as const,
   dtcmRun: (eventId: string) => ["dtcm-eticket", "run", eventId] as const,
+  dtcmUnusedOrders: (eventId: string) => ["dtcm-eticket", "unused", eventId] as const,
   aiCredentials: ["ai", "credentials"] as const,
   zoomSettings: (eventId: string) => ["zoom", "settings", eventId] as const,
   zoomMeeting: (sessionId: string) => ["zoom", "meeting", sessionId] as const,
@@ -2623,6 +2624,40 @@ export function useCancelDtcmRun(eventId: string) {
   return useMutation({
     mutationFn: () => fetchApi(`/api/events/${eventId}/dtcm-eticket/run`, { method: "DELETE" }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.dtcmRun(eventId) }),
+  });
+}
+
+export interface DtcmUnusedOrder {
+  id: string;
+  environment: DetEnvironment;
+  orderId: string | null;
+  area: string;
+  registrationId: string | null;
+  name: string | null;
+  reason: "REGISTRATION_DELETED" | "REGISTRATION_CANCELLED" | "BARCODE_NOT_ON_REGISTRATION";
+}
+
+export function useDtcmUnusedOrders(eventId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.dtcmUnusedOrders(eventId),
+    queryFn: () => fetchApi<{ unused: DtcmUnusedOrder[] }>(`/api/events/${eventId}/dtcm-orders`),
+    enabled,
+  });
+}
+
+export function useReverseDtcmOrder(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (dtcmOrderId: string) =>
+      fetchApi<{ clearedRegistrationCode: boolean }>(`/api/events/${eventId}/dtcm-orders/${dtcmOrderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reverse" }),
+      }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmUnusedOrders(eventId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+    },
   });
 }
 

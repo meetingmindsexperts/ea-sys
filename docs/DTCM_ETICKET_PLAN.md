@@ -336,7 +336,19 @@ Each step ships on its own and is useful alone.
    price) and completed; a second preflight found nobody. The sandbox run
    found that a run never completed while unbuyable people remained, fixed
    before commit.
-5. **Reverse.** Card + action.
+5. **Reverse. BUILT Nov 3, 2026.** `reverseDtcmOrder()` and
+   `listUnusedDtcmOrders()` in `dtcm-eticket-service.ts`. Only an UNUSED
+   ticket can be reversed (`unusedReason()`: its registration is cancelled or
+   deleted, or carries a different code); one on an active registration is
+   refused with STILL_IN_USE. Uses the order's own environment; DET's `4001`
+   is reported, never taken as "reversed"; a lost answer is settled by reading
+   the order back. The registration's code is cleared only if it is that
+   ticket's barcode. Routes: `GET /api/events/[eventId]/dtcm-orders` (the
+   unused list) and `PATCH .../dtcm-orders/[orderId] { action: "reverse" }`,
+   both `dtcm.import`. The registrations page's "Unused DET tickets" card,
+   shown only when there are some. Verified against UAT: a cancelled
+   registration's ticket (order 68167) was listed and reversed, its code
+   cleared and its slot freed; an active one's was refused.
 6. **Retire the barcodes app** after one live Dubai event runs on EA-SYS with the
    Laravel app on standby.
 

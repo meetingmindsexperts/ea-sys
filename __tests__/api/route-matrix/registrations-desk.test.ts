@@ -95,6 +95,7 @@ import { GET as tagsGET } from "@/app/api/events/[eventId]/tags/route";
 import { GET as dtcmGET, POST as dtcmPOST } from "@/app/api/events/[eventId]/dtcm-pool/route";
 import { GET as dtcmDetGET, POST as dtcmDetPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/dtcm-eticket/route";
 import { PATCH as dtcmOrderPATCH } from "@/app/api/events/[eventId]/dtcm-orders/[orderId]/route";
+import { GET as dtcmUnusedGET } from "@/app/api/events/[eventId]/dtcm-orders/route";
 import { GET as sharesGET, POST as sharesPOST } from "@/app/api/events/[eventId]/registration-shares/route";
 import { PUT as sharePUT, DELETE as shareDELETE } from "@/app/api/events/[eventId]/registration-shares/[viewId]/route";
 import { POST as shareRegenPOST } from "@/app/api/events/[eventId]/registration-shares/[viewId]/regenerate/route";
@@ -200,6 +201,9 @@ const CASES: HandlerCase[] = [
   { name: "GET registrations/[id]/dtcm-eticket", handler: dtcmDetGET, method: "GET", params: { registrationId: "r1" } },
   { name: "POST registrations/[id]/dtcm-eticket", handler: dtcmDetPOST, method: "POST", params: { registrationId: "r1" } },
   { name: "PATCH dtcm-orders/[orderId]", handler: dtcmOrderPATCH, method: "PATCH", params: { orderId: "do1" }, body: { action: "not-bought" } },
+  // Added Nov 3, 2026 (step 5: reversing unused DET tickets).
+  { name: "PATCH dtcm-orders/[orderId] (reverse)", handler: dtcmOrderPATCH, method: "PATCH", params: { orderId: "do1" }, body: { action: "reverse" } },
+  { name: "GET dtcm-orders (unused)", handler: dtcmUnusedGET, method: "GET" },
   { name: "GET registration-shares", handler: sharesGET, method: "GET" },
   { name: "POST registration-shares", handler: sharesPOST, method: "POST", body: shareBody },
   { name: "PUT registration-shares/[viewId]", handler: sharePUT, method: "PUT", params: view, body: shareBody },

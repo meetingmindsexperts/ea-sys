@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### DTCM: reverse unused DET tickets (November 3)
+
+- **Registrations page, organisers: "Unused DET tickets"**, shown only when there are some: tickets bought from DET whose registration was cancelled or deleted, or now carries a different code. **Reverse** gives the seat back to the permit, stops the barcode working and removes it from the registration if it is still there. Never automatic (owner decision): a cancelled attendee may still carry a printed badge. Step 5 of `docs/DTCM_ETICKET_PLAN.md`
+- A ticket on an active registration cannot be reversed. A reverse uses the DET environment the ticket was bought in, treats DET's "order not found" as something to check rather than proof, and settles a lost answer by asking DET whether the order still exists
+
 ### DTCM: generate the whole event's DTCM codes from DET (November 3)
 
 - **Registrations page, Dubai events, organisers: a "DTCM codes from DET" card.** "Check who needs a code" shows what a run would do: how many tickets in which DET environment, who needs none, who is skipped and why (no phone, unmapped type, an open uncertain purchase), and each section's need against DET's capacity. "Buy N tickets" starts it after a confirmation naming the count and environment, and the server refuses if either has changed since. Step 4 of `docs/DTCM_ETICKET_PLAN.md`

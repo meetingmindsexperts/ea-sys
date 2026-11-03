@@ -103,6 +103,7 @@ import {
 import { BarcodeImportDialog } from "./barcode-import-dialog";
 import { DtcmPoolCard } from "./dtcm-pool-card";
 import { DtcmRunCard } from "./dtcm-run-card";
+import { DtcmUnusedCard } from "./dtcm-unused-card";
 import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payment-stats";
 
 /**
@@ -668,6 +669,8 @@ export default function RegistrationsPage() {
       )}
       {/* Buying the event's codes from DET in bulk: organisers only. */}
       {event?.requiresDtcmBarcode && event?.dtcmPerformanceCode && canImportDtcm && <DtcmRunCard eventId={eventId} />}
+      {/* Bought tickets nobody is using, to reverse by hand (never automatic). */}
+      {canImportDtcm && event?.requiresDtcmBarcode && <DtcmUnusedCard eventId={eventId} />}
 
       {/* Bulk Selection Toolbar */}
       {selectedIds.size > 0 && !isReviewer && canSelect && (

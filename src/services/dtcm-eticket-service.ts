@@ -35,6 +35,7 @@ import {
   getDetOrder,
   getDetPerformance,
   purchaseDetBasket,
+  reverseDetOrder,
 } from "@/lib/dtcm-eticket/client";
 import { getDetCredentials } from "@/lib/dtcm-eticket/credentials";
 import { dtcmEligibility, type IneligibleReason } from "@/lib/dtcm-eticket/eligibility";
@@ -508,5 +509,152 @@ export function resolveDtcmOrder(input: ResolveDtcmOrderInput): Promise<ResolveD
       log,
     );
     return recorded.ok ? { ok: true, order: recorded.order, barcode: recorded.barcode } : recorded;
+  });
+}
+
+// ── Reversing an unused ticket (step 5; owner decision D3: an organiser action, never automatic) ──
+
+export type ReverseDtcmOrderErrorCode =
+  | "ORDER_NOT_FOUND"
+  | "WRONG_STATUS"
+  | "STILL_IN_USE"
+  | "NOT_CONFIGURED"
+  | "DET_NOT_FOUND"
+  | "DET_FAILED";
+
+export type ReverseDtcmOrderResult =
+  | { ok: true; order: DtcmOrder; clearedRegistrationCode: boolean }
+  | { ok: false; code: ReverseDtcmOrderErrorCode; message: string };
+
+/**
+ * Why a PURCHASED order is not in use, or null when it still is. In use means:
+ * its registration exists, is not cancelled, and carries this order's barcode.
+ * Only an unused ticket may be reversed: a code on someone's badge is a live
+ * credential at a DTCM-inspected door.
+ */
+export function unusedReason(
+  order: Pick<DtcmOrder, "status" | "barcode">,
+  registration: { status: string; dtcmBarcode: string | null } | null,
+): "REGISTRATION_DELETED" | "REGISTRATION_CANCELLED" | "BARCODE_NOT_ON_REGISTRATION" | null {
+  if (order.status !== "PURCHASED") return null;
+  if (!registration) return "REGISTRATION_DELETED";
+  if (registration.status === "CANCELLED") return "REGISTRATION_CANCELLED";
+  if (order.barcode && registration.dtcmBarcode !== order.barcode) return "BARCODE_NOT_ON_REGISTRATION";
+  return null;
+}
+
+/**
+ * Reverses an unused DET ticket, giving its seat back to the permit.
+ *
+ *   - The order's OWN environment, never the active one.
+ *   - DET's `4001 not found` is NOT taken as "reversed": DET says the same for
+ *     another environment's order. It is reported for a person to check.
+ *   - A lost answer is settled by reading the order back: gone means the
+ *     reverse happened, still there means it did not.
+ *   - The registration's code is cleared only if it is this ticket's barcode.
+ */
+export function reverseDtcmOrder(input: {
+  organizationId: string;
+  eventId: string;
+  dtcmOrderId: string;
+  userId: string;
+}): Promise<ReverseDtcmOrderResult> {
+  return runWithTenant(input.organizationId, async () => {
+    const log = { eventId: input.eventId, dtcmOrderId: input.dtcmOrderId, userId: input.userId };
+    const order = await db.dtcmOrder.findFirst({
+      where: { id: input.dtcmOrderId, eventId: input.eventId },
+      include: { registration: { select: { status: true, dtcmBarcode: true } } },
+    });
+    if (!order) {
+      apiLogger.warn({ msg: "dtcm-eticket:reverse-not-found", ...log });
+      return { ok: false, code: "ORDER_NOT_FOUND", message: "DET order record not found" };
+    }
+    if (order.status !== "PURCHASED" || !order.orderId) {
+      apiLogger.warn({ msg: "dtcm-eticket:reverse-wrong-status", ...log, status: order.status });
+      return { ok: false, code: "WRONG_STATUS", message: `Only a bought ticket can be reversed; this one is ${order.status.toLowerCase()}` };
+    }
+    if (!unusedReason(order, order.registration)) {
+      apiLogger.warn({ msg: "dtcm-eticket:reverse-still-in-use", ...log });
+      return {
+        ok: false,
+        code: "STILL_IN_USE",
+        message: "This ticket's barcode is on an active registration. Cancel the registration first if the person is not coming.",
+      };
+    }
+
+    const creds = await getDetCredentials(input.organizationId, order.environment as DetEnvironment);
+    if (!creds) {
+      apiLogger.warn({ msg: "dtcm-eticket:reverse-not-configured", ...log, environment: order.environment });
+      return { ok: false, code: "NOT_CONFIGURED", message: `DET ${order.environment} credentials are not set up` };
+    }
+
+    const amount = Number(order.amount);
+    let reversed: boolean;
+    try {
+      reversed = (await reverseDetOrder(creds, order.orderId, amount)) === "reversed";
+    } catch (err) {
+      if (!(err instanceof DetApiError)) throw err;
+      if (!err.outcomeUnknown) {
+        apiLogger.warn({ msg: "dtcm-eticket:reverse-refused", ...log, stage: err.stage, httpStatus: err.httpStatus, detCode: err.detCode });
+        return { ok: false, code: "DET_FAILED", message: err.message };
+      }
+      // Lost answer: the order's presence says whether the reverse happened.
+      try {
+        reversed = (await getDetOrder(creds, order.orderId)) === null;
+      } catch (checkErr) {
+        apiLogger.warn({ msg: "dtcm-eticket:reverse-check-failed", ...log, err: checkErr instanceof Error ? checkErr.message : String(checkErr) });
+        return { ok: false, code: "DET_FAILED", message: `${err.message}. It is not known whether DET reversed it; try again (a second reverse is harmless).` };
+      }
+      if (!reversed) {
+        apiLogger.warn({ msg: "dtcm-eticket:reverse-not-applied", ...log });
+        return { ok: false, code: "DET_FAILED", message: `${err.message}. DET still has the order, so it was not reversed.` };
+      }
+    }
+    if (!reversed) {
+      apiLogger.warn({ msg: "dtcm-eticket:reverse-det-not-found", ...log, environment: order.environment, detOrderId: order.orderId });
+      return {
+        ok: false,
+        code: "DET_NOT_FOUND",
+        message: `DET has no order ${order.orderId} in ${order.environment}. It may already be reversed in DET's own portal; check there before marking anything.`,
+      };
+    }
+
+    const done = await db.dtcmOrder.updateMany({
+      where: { id: order.id, status: "PURCHASED" },
+      data: { status: "REVERSED", activeKey: null },
+    });
+    if (done.count === 0) apiLogger.error({ msg: "dtcm-eticket:reverse-row-raced", ...log });
+    const cleared = order.registrationId
+      ? await db.registration.updateMany({ where: { id: order.registrationId, dtcmBarcode: order.barcode }, data: { dtcmBarcode: null } })
+      : { count: 0 };
+    const row = await db.dtcmOrder.findUniqueOrThrow({ where: { id: order.id } });
+    await audit({ userId: input.userId, source: "rest" }, row, "DTCM_ORDER_REVERSED");
+    apiLogger.info({ msg: "dtcm-eticket:reversed", ...log, detOrderId: order.orderId, clearedRegistrationCode: cleared.count > 0 });
+    return { ok: true, order: row, clearedRegistrationCode: cleared.count > 0 };
+  });
+}
+
+/** The event's bought tickets nobody is using, for the organiser to reverse. */
+export async function listUnusedDtcmOrders(eventId: string) {
+  const orders = await db.dtcmOrder.findMany({
+    where: { eventId, status: "PURCHASED" },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      status: true,
+      environment: true,
+      orderId: true,
+      barcode: true,
+      area: true,
+      createdAt: true,
+      registrationId: true,
+      registration: { select: { status: true, dtcmBarcode: true, attendee: { select: { firstName: true, lastName: true } } } },
+    },
+  });
+  return orders.flatMap((o) => {
+    const reason = unusedReason(o, o.registration);
+    if (!reason) return [];
+    const name = o.registration ? `${o.registration.attendee.firstName} ${o.registration.attendee.lastName}`.trim() : null;
+    return [{ id: o.id, environment: o.environment, orderId: o.orderId, area: o.area, registrationId: o.registrationId, name, reason }];
   });
 }
