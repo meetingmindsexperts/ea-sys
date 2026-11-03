@@ -11,8 +11,9 @@
  */
 import { describe, it, expect } from "vitest";
 import { PaymentStatus } from "@prisma/client";
-import { ALL_PAYMENT_STATUSES, ADMIN_SETTABLE_PAYMENT_STATUSES } from "@/lib/agent/tools/_shared";
-import { MANUAL_PAYMENT_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
+import { ALL_PAYMENT_STATUSES } from "@/lib/agent/tools/_shared";
+import { ADMIN_SETTABLE_PAYMENT_STATUSES, MANUAL_PAYMENT_STATUSES } from "@/lib/registration-payment-policy";
+import { MANUAL_PAYMENT_STATUSES as UI_MANUAL_PAYMENT_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 
 describe("ALL_PAYMENT_STATUSES", () => {
   it("contains every Prisma PaymentStatus value (no drift possible)", () => {
@@ -35,10 +36,12 @@ describe("ALL_PAYMENT_STATUSES", () => {
 });
 
 describe("ADMIN_SETTABLE_PAYMENT_STATUSES (review H12)", () => {
-  it("mirrors the UI's MANUAL_PAYMENT_STATUSES exactly (drift guard)", () => {
-    // The UI file claimed the server excluded Stripe-driven statuses; H12
-    // made the server actually enforce it. These two sets must never drift.
-    expect([...ADMIN_SETTABLE_PAYMENT_STATUSES].sort()).toEqual([...MANUAL_PAYMENT_STATUSES].sort());
+  it("is the one list the UI offers, not a copy of it (dependency audit, Nov 3 2026)", () => {
+    // It was written out four times with a test keeping two in step; now the
+    // UI re-exports the policy module's list and the set is built from it.
+    expect(UI_MANUAL_PAYMENT_STATUSES).toBe(MANUAL_PAYMENT_STATUSES);
+    expect([...ADMIN_SETTABLE_PAYMENT_STATUSES]).toEqual([...MANUAL_PAYMENT_STATUSES]);
+    expect([...MANUAL_PAYMENT_STATUSES].sort()).toEqual(["COMPLIMENTARY", "INCLUSIVE", "PAID", "UNASSIGNED", "UNPAID"]);
   });
 
   it("excludes every webhook/refund-flow-owned status", () => {

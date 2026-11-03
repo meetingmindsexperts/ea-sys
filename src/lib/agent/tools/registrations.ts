@@ -28,7 +28,6 @@ import {
   createRegistration,
   sendRegistrationConfirmationEmail,
   updateRegistration as updateRegistrationService,
-  type ManualPaymentStatus,
   type ManualRegistrationStatus,
   type RegistrationAttendeeRole,
   type RegistrationTitle,
@@ -39,10 +38,13 @@ import {
   REGISTRATION_STATUSES,
   MANUAL_REGISTRATION_STATUSES,
   ALL_PAYMENT_STATUSES,
-  ADMIN_SETTABLE_PAYMENT_STATUSES,
-  PAYMENT_STATUS_WRITE_REJECTION,
   type ToolExecutor,
 } from "./_shared";
+import {
+  ADMIN_SETTABLE_PAYMENT_STATUSES,
+  PAYMENT_STATUS_WRITE_REJECTION,
+  type ManualPaymentStatus,
+} from "@/lib/registration-payment-policy";
 const UNPAID_STATUSES = ["UNPAID", "PENDING", "FAILED"];
 const BULK_MAX = 100;
 

@@ -23,6 +23,7 @@ import { redactFinancialFields } from "@/lib/finance-visibility";
 import { redactBarcodeFields } from "@/lib/barcode-visibility";
 import { redactSupportingDocumentFields } from "@/lib/supporting-document";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
+import { MANUAL_PAYMENT_STATUSES } from "@/lib/registration-payment-policy";
 import {
   updateRegistration,
   type UpdateRegistrationErrorCode,
@@ -41,11 +42,8 @@ const updateRegistrationSchema = z.object({
   // Admin-settable subset ONLY (review H12): PENDING / REFUNDED / FAILED are
   // owned by the Stripe webhook + the gated refund flow — a bare REFUNDED
   // flag here would cook the books (refundedAmount 0, no credit note, no
-  // Payment flip, no audit). The UI already offers only this subset
-  // (MANUAL_PAYMENT_STATUSES); this makes the server enforce it.
-  paymentStatus: z
-    .enum(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"])
-    .optional(),
+  // Payment flip, no audit). The same list the UI offers.
+  paymentStatus: z.enum(MANUAL_PAYMENT_STATUSES).optional(),
   // Sponsor attribution. When paymentStatus is being set to INCLUSIVE,
   // sponsorId must accompany it (validated below). Setting to null clears
   // the existing attribution. Leaving undefined leaves the existing value

@@ -55,17 +55,8 @@ export const PAYMENT_STATUS_DISPLAY_ORDER: readonly PaymentStatus[] = [
   "FAILED",
 ];
 
-// Admin-settable subset — Stripe-driven states (PENDING/REFUNDED/FAILED) are
-// owned by the payment webhook and must not be set manually at creation time.
-// INCLUSIVE is admin-settable (sponsor-paid registrations are created or
-// flipped by an organizer, never by Stripe).
-export const MANUAL_PAYMENT_STATUSES: readonly PaymentStatus[] = [
-  "UNASSIGNED",
-  "UNPAID",
-  "PAID",
-  "COMPLIMENTARY",
-  "INCLUSIVE",
-];
+// The admin-settable subset (review H12): one list, shared with the server.
+export { MANUAL_PAYMENT_STATUSES } from "@/lib/registration-payment-policy";
 
 // Statuses that mean "no money chase needed" — used by bulk-email + reports
 // to exclude legitimately-no-balance-due registrations from payment reminders.

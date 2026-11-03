@@ -19,6 +19,7 @@ import type { AgentSource } from "@/lib/agent/tools/_shared";
 import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE, requiresApproval } from "@/lib/agent/approvals";
 import { apiLogger } from "@/lib/logger";
 import { dashboardPathForTool, dashboardUrl } from "@/lib/agent/dashboard-links";
+import { MANUAL_PAYMENT_STATUSES } from "@/lib/registration-payment-policy";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -387,7 +388,7 @@ export function registerAllMcpTools(
       title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
       organization: z.string().optional(), status: z.enum(["PENDING", "CONFIRMED", "WAITLISTED"]).optional(),
       attendanceMode: z.enum(["IN_PERSON", "VIRTUAL"]).optional().describe("IN_PERSON (default) or VIRTUAL. Only meaningful on HYBRID events — VIRTUAL gets no entry barcode/badge, is uncapped (skips the seat count), and is priced via the ticket's virtualPrice."),
-      paymentStatus: z.enum(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"]).optional(),
+      paymentStatus: z.enum(MANUAL_PAYMENT_STATUSES).optional(),
       sponsorId: z.string().optional().describe("Sponsor id from Event.settings.sponsors[]. Required when paymentStatus is INCLUSIVE."),
       billingAccountId: z.string().optional().describe("\"Charge to another account\" — id of an active org BillingAccount (the attendee's hospital / a pharma grant). Invoice is addressed to that payer instead of the attendee. Orthogonal to paymentStatus (money still owed until the payer settles). Managed in Settings → Billing."),
       payerReference: z.string().optional().describe("Optional PO / grant reference printed on the invoice. Only meaningful with billingAccountId."),
@@ -488,7 +489,7 @@ export function registerAllMcpTools(
       registrationId: z.string(),
       expectedUpdatedAt: z.string().datetime().optional().describe("Row's updatedAt at read time. When supplied, server rejects the write with STALE_WRITE if the row has changed since."),
       status: z.nativeEnum(RegistrationStatus).optional(),
-      paymentStatus: z.enum(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"]).optional().describe("Admin-settable subset — PENDING/REFUNDED/FAILED are webhook/refund-flow-owned and rejected (review H12)."),
+      paymentStatus: z.enum(MANUAL_PAYMENT_STATUSES).optional().describe("Admin-settable subset — PENDING/REFUNDED/FAILED are webhook/refund-flow-owned and rejected (review H12)."),
       sponsorId: z.string().nullable().optional().describe("Sponsor attribution id from Event.settings.sponsors[]. Required when paymentStatus is INCLUSIVE. Pass null to clear an existing attribution. Use list_sponsors to discover ids."),
       billingAccountId: z.string().nullable().optional().describe("\"Charge to another account\" — id of an active org BillingAccount. Reassigns the payer; pass null to revert to self-pay (the fallback path). Orthogonal to paymentStatus. Managed in Settings → Billing."),
       payerReference: z.string().nullable().optional().describe("PO / grant reference printed on the invoice. Only meaningful with billingAccountId."),
@@ -551,7 +552,7 @@ export function registerAllMcpTools(
     { name: "bulk_update_registration_status", description: "Bulk-update status and/or paymentStatus on up to 200 registrations in a single transaction. Returns count of rows updated. paymentStatus accepts the admin-settable subset only (UNASSIGNED/UNPAID/PAID/COMPLIMENTARY/INCLUSIVE) — PENDING/REFUNDED/FAILED are owned by the payment webhook + the credit-note-gated refund flow and are rejected.", params: {
       registrationIds: z.array(z.string()).max(200),
       status: z.nativeEnum(RegistrationStatus).optional(),
-      paymentStatus: z.enum(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"]).optional().describe("Admin-settable subset — PENDING/REFUNDED/FAILED are webhook/refund-flow-owned and rejected (review H12)."),
+      paymentStatus: z.enum(MANUAL_PAYMENT_STATUSES).optional().describe("Admin-settable subset — PENDING/REFUNDED/FAILED are webhook/refund-flow-owned and rejected (review H12)."),
     }},
     // ─── Sponsor + promo + email writes ───
     { name: "upsert_sponsors", description: "Update the sponsor list for this event. mode='merge' (the default since Sep 2, 2026) overlays incoming rows onto the existing list by id, or failing that by case-insensitive (name, tier) composite, and APPENDS unmatched rows without deleting anything; mode='replace' deletes every sponsor not in the passed array (the dashboard's save-all). Pass replace only when the person wants the whole list rewritten. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs.", params: {

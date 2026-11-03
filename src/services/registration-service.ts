@@ -48,12 +48,12 @@ import { getSponsors } from "@/lib/sponsors";
 import { completedAtOnCreate } from "@/lib/registration-completion";
 import { claimPromoCodeInTx, recordPromoRedemptionInTx, type PromoClaim } from "@/services/promo-code-service";
 import { PROMO_REFUSAL_MESSAGE, type PromoRefusal } from "@/lib/promo-redeem";
-// Leaf constants module (no agent machinery) — the admin-settable
-// paymentStatus policy (review H12) shared with the MCP boundary.
 import {
   ADMIN_SETTABLE_PAYMENT_STATUSES,
+  MANUAL_PAYMENT_STATUSES,
   PAYMENT_STATUS_WRITE_REJECTION,
-} from "@/lib/agent/tools/_shared";
+  type ManualPaymentStatus,
+} from "@/lib/registration-payment-policy";
 
 // ── Confirmation-email building blocks (shared with the MCP bulk path) ──────
 
@@ -168,20 +168,6 @@ const OUTSTANDING_PAYMENT_STATUSES: ReadonlySet<PaymentStatus> = new Set([
   PaymentStatus.PENDING,
 ]);
 
-/**
- * Admin-settable subset. Stripe-driven states (PENDING / REFUNDED /
- * FAILED) are excluded because the webhook owns those. INCLUSIVE is
- * admin-settable — sponsor-paid registrations are tagged by the
- * organizer, never by Stripe.
- */
-export const MANUAL_PAYMENT_STATUSES = [
-  PaymentStatus.UNASSIGNED,
-  PaymentStatus.UNPAID,
-  PaymentStatus.PAID,
-  PaymentStatus.COMPLIMENTARY,
-  PaymentStatus.INCLUSIVE,
-] as const;
-export type ManualPaymentStatus = (typeof MANUAL_PAYMENT_STATUSES)[number];
 
 /**
  * Manual statuses an admin/agent may set at creation time. `CANCELLED`
