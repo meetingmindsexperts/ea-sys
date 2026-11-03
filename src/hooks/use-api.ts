@@ -10,6 +10,7 @@ import type { WebinarHandout } from "@/lib/webinar/handouts";
 import type { LivePollOption, PollTally } from "@/lib/webinar/live-polls";
 import type { RegistrationFormSkipReason } from "@/lib/registration-form-link";
 import type { DeskDaySummary } from "@/lib/desk-day-summary";
+import type { DetCredentialsStatus, DetEnvironment, DetPerformanceSummary } from "@/lib/dtcm-eticket/types";
 
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
@@ -119,6 +120,7 @@ export const queryKeys = {
   quickbooksConnection: ["quickbooks", "connection"] as const,
   quickbooksChart: ["quickbooks", "chart"] as const,
   stripeCredentials: ["stripe", "credentials"] as const,
+  dtcmEticketCredentials: ["dtcm-eticket", "credentials"] as const,
   aiCredentials: ["ai", "credentials"] as const,
   zoomSettings: (eventId: string) => ["zoom", "settings", eventId] as const,
   zoomMeeting: (sessionId: string) => ["zoom", "meeting", sessionId] as const,
@@ -2401,6 +2403,57 @@ export function useTestStripeConnection() {
         error?: string;
         account?: { name: string | null; email: string | null; id: string };
       }>("/api/organization/stripe/test-connection", { method: "POST" }),
+  });
+}
+
+// ============ ORG DET eTicketing CREDENTIALS (docs/DTCM_ETICKET_PLAN.md) ============
+
+export function useDtcmEticketCredentials() {
+  return useQuery({
+    queryKey: queryKeys.dtcmEticketCredentials,
+    queryFn: () => fetchApi<DetCredentialsStatus>("/api/organization/dtcm-eticket/credentials"),
+  });
+}
+
+export function useSaveDtcmEticketCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { environment: DetEnvironment; clientId: string; clientSecret?: string; apiKey?: string }) =>
+      fetchApi<DetCredentialsStatus>("/api/organization/dtcm-eticket/credentials", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmEticketCredentials });
+    },
+  });
+}
+
+export function useDeleteDtcmEticketCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => fetchApi("/api/organization/dtcm-eticket/credentials", { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmEticketCredentials });
+    },
+  });
+}
+
+export function useTestDtcmEticketConnection() {
+  return useMutation({
+    mutationFn: (data: { environment: DetEnvironment; performanceCode?: string }) =>
+      fetchApi<{
+        success: boolean;
+        environment: DetEnvironment;
+        clientId?: string;
+        performance?: DetPerformanceSummary | null;
+        error?: string;
+      }>("/api/organization/dtcm-eticket/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
   });
 }
 

@@ -239,6 +239,9 @@ SWEPT=(
   "src/app/api/organization/ai/test-connection/route.ts"
   "src/app/api/organization/stripe/credentials/route.ts"
   "src/app/api/organization/stripe/test-connection/route.ts"
+  # DET eTicketing credentials (Nov 3, 2026; born on requirePermission)
+  "src/app/api/organization/dtcm-eticket/credentials/route.ts"
+  "src/app/api/organization/dtcm-eticket/test-connection/route.ts"
   "src/app/api/organization/zoom/credentials/route.ts"
   "src/app/api/organization/zoom/test-connection/route.ts"
   "src/app/api/organization/eventsair/credentials/route.ts"

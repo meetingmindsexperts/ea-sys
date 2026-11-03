@@ -48,6 +48,8 @@ import { GET as aiGET, PUT as aiPUT, DELETE as aiDELETE } from "@/app/api/organi
 import { POST as aiTestPOST } from "@/app/api/organization/ai/test-connection/route";
 import { GET as stripeGET, PUT as stripePUT, DELETE as stripeDELETE } from "@/app/api/organization/stripe/credentials/route";
 import { POST as stripeTestPOST } from "@/app/api/organization/stripe/test-connection/route";
+import { GET as detGET, PUT as detPUT, DELETE as detDELETE } from "@/app/api/organization/dtcm-eticket/credentials/route";
+import { POST as detTestPOST } from "@/app/api/organization/dtcm-eticket/test-connection/route";
 import { GET as zoomGET, PUT as zoomPUT, DELETE as zoomDELETE } from "@/app/api/organization/zoom/credentials/route";
 import { POST as zoomTestPOST } from "@/app/api/organization/zoom/test-connection/route";
 import { GET as eaGET, PUT as eaPUT } from "@/app/api/organization/eventsair/credentials/route";
@@ -82,6 +84,11 @@ const CASES: HandlerCase[] = [
   { name: "PUT organization/stripe/credentials", handler: stripePUT, method: "PUT", body: { secretKey: "sk_test_x" }, ...org },
   { name: "DELETE organization/stripe/credentials", handler: stripeDELETE, method: "DELETE", ...org },
   { name: "POST organization/stripe/test-connection", handler: stripeTestPOST, method: "POST", body: {}, ...org },
+  // Added Nov 3, 2026 (DET eTicketing, born on requirePermission): org.credentials, like its neighbours.
+  { name: "GET organization/dtcm-eticket/credentials", handler: detGET, method: "GET", ...org },
+  { name: "PUT organization/dtcm-eticket/credentials", handler: detPUT, method: "PUT", body: { environment: "staging", clientId: "AMMEE1", clientSecret: "s", apiKey: "k" }, ...org },
+  { name: "DELETE organization/dtcm-eticket/credentials", handler: detDELETE, method: "DELETE", ...org },
+  { name: "POST organization/dtcm-eticket/test-connection", handler: detTestPOST, method: "POST", body: {}, ...org },
   { name: "GET organization/zoom/credentials", handler: zoomGET, method: "GET", ...org },
   { name: "PUT organization/zoom/credentials", handler: zoomPUT, method: "PUT", body: { accountId: "a", clientId: "c", clientSecret: "s" }, ...org },
   { name: "DELETE organization/zoom/credentials", handler: zoomDELETE, method: "DELETE", ...org },

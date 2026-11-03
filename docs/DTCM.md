@@ -127,6 +127,7 @@ door credential*.
 ## 6. Related
 
 - [DTCM_ETICKET_PLAN.md](DTCM_ETICKET_PLAN.md) - getting codes from DET's eTicketing API instead of a CSV, with the UAT findings
+- [src/lib/dtcm-eticket/](../src/lib/dtcm-eticket/) - the DET client and the organisation's credentials (Settings → Integrations), step 1 of that plan
 - [src/lib/dtcm-performance-code.ts](../src/lib/dtcm-performance-code.ts) - the performance code rule
 - [src/lib/dtcm-pool.ts](../src/lib/dtcm-pool.ts) — the pool, the claim, the counts
 - [src/lib/dtcm-walkup.ts](../src/lib/dtcm-walkup.ts) — the desk warning

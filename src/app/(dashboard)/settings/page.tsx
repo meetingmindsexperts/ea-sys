@@ -88,6 +88,7 @@ import { BillingAccountsCard } from "@/components/settings/billing-accounts-card
 import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { OrgStripeCredentials } from "@/components/settings/org-stripe-credentials";
+import { OrgDtcmEticketCredentials } from "@/components/settings/org-dtcm-eticket-credentials";
 import { OrgAiCredentials } from "@/components/settings/org-ai-credentials";
 import { OrgQuickBooksConnection } from "@/components/settings/org-quickbooks-connection";
 import { useQueryClient } from "@tanstack/react-query";
@@ -1408,6 +1409,7 @@ export default function SettingsPage() {
               <EventsAirCard />
               <ZoomCredentialsCard />
               <OrgStripeCredentials />
+              <OrgDtcmEticketCredentials />
               <OrgAiCredentials />
               <OrgQuickBooksConnection />
             </div>

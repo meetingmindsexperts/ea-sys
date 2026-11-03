@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### DTCM: the DET eTicketing connection (November 3)
+
+- **Settings → Integrations has a "DTCM eTicketing (Dubai)" card**: the organisation's DET account, one set of credentials per environment (Sandbox (UAT) and Production), client secret and API key stored AES-256-GCM encrypted in `Organization.settings.dtcmEticket` and never returned. **Test connection** signs in to DET and, given a performance code, shows that performance's sections and capacities. Step 1 of `docs/DTCM_ETICKET_PLAN.md`: nothing buys from DET yet
+- `src/lib/dtcm-eticket/client.ts` is the only code that talks to DET: token cached per organisation and environment, no retries, request bodies and URLs (which carry the API key) never logged, DET's own error codes kept on the error (`5001` basket gone, `4001` order gone, `2001` performance not found, `5005` section cannot sell)
+- Routes `/api/organization/dtcm-eticket/credentials` (GET / PUT / DELETE) and `/test-connection` (POST), on `org.credentials`, in the org-settings route matrix and the permission-guard list. Saves are audited with which fields changed, never their values
+- Verified against DET's UAT sandbox in a browser: performance `PDUB01DEC2023B` returned with its nine sections; an unknown code is refused with DET's own message
+
 ### DTCM: every Dubai event carries its DET performance code (November 3)
 
 - **Turning on DTCM barcodes now asks for the event's DET performance code** (e.g. `PDUB01DEC2023B`), stored in the new `Event.dtcmPerformanceCode` column (migration `20261103100000`, additive). It is the first step of buying DTCM codes from DET inside EA-SYS instead of the separate barcodes app (`docs/DTCM_ETICKET_PLAN.md`). The field sits under the switch on Settings → Registration and is required while the switch is on; the rule (`src/lib/dtcm-performance-code.ts`) is enforced by the event save, event creation and the agent's `create_event` / `update_event`, which gain a `dtcmPerformanceCode` field. MCP clients must reconnect to see it (0.4.50)
