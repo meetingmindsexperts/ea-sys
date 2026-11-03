@@ -2,8 +2,9 @@
 
 /**
  * Event Settings: the DET performance code, shown under the DTCM switch while
- * it is on. Saved with the tab. Required while DTCM is on; the rule and the
- * normaliser live in src/lib/dtcm-performance-code.ts, this is only the input.
+ * it is on (or still holds text). Saved with the tab. Required while DTCM is
+ * on; the rule and the normaliser live in src/lib/dtcm-performance-code.ts,
+ * this is only the input.
  */
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,18 +15,20 @@ import {
 } from "@/lib/dtcm-performance-code";
 
 interface Props {
+  /** True while DTCM is on; an empty code is then a problem. */
+  required: boolean;
   value: string;
   onChange: (value: string) => void;
 }
 
-export function DtcmPerformanceCodeField({ value, onChange }: Props) {
+export function DtcmPerformanceCodeField({ required, value, onChange }: Props) {
   const code = normalizeDtcmPerformanceCode(value);
-  const problem = fieldProblem(code);
+  const problem = fieldProblem(code, required);
 
   return (
     <div className="space-y-2 rounded-lg border border-slate-200 p-4">
       <Label htmlFor="dtcmPerformanceCode" className="text-sm font-medium">
-        DET performance code <span className="text-destructive">*</span>
+        DET performance code {required && <span className="text-destructive">*</span>}
       </Label>
       <Input
         id="dtcmPerformanceCode"
@@ -45,8 +48,8 @@ export function DtcmPerformanceCodeField({ value, onChange }: Props) {
   );
 }
 
-function fieldProblem(code: string | null): string | null {
-  if (code === null) return "Required while DTCM barcodes are on.";
+function fieldProblem(code: string | null, required: boolean): string | null {
+  if (code === null) return required ? "Required while DTCM barcodes are on." : null;
   if (!isValidDtcmPerformanceCode(code)) return "Use only letters, digits, - and _.";
   return null;
 }

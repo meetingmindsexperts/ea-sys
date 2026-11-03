@@ -22,7 +22,7 @@ import { DEFAULT_TRAVEL_GRANT_CTA_LABEL, TRAVEL_GRANT_CTA_LABEL_MAX } from "@/li
 import { countryNamesFor, resolveCountryCode } from "@/lib/travel-grant/eligibility";
 import { CountrySelect } from "@/components/ui/country-select";
 import { DtcmPerformanceCodeField } from "@/components/events/dtcm-performance-code-field";
-import { normalizeDtcmPerformanceCode } from "@/lib/dtcm-performance-code";
+import { normalizeDtcmPerformanceCode, resolveDtcmEventConfig } from "@/lib/dtcm-performance-code";
 import {
   ABSTRACTS_PER_SUBMITTER_CEILING,
   CONTENT_WORDS_CEILING,
@@ -274,6 +274,12 @@ export default function EventSettingsPage() {
   // save because sessions would fall outside the new dates, and the start
   // date moved by whole days, offer to move the whole schedule instead of a
   // dead end. Before this the only way through was to delete every session.
+  // The DTCM pair as last loaded, so the save asks the same question the
+  // server does: is this a CHANGE that leaves DTCM on without a code?
+  const [savedDtcm, setSavedDtcm] = useState<{ requiresDtcmBarcode: boolean; dtcmPerformanceCode: string | null }>({
+    requiresDtcmBarcode: false,
+    dtcmPerformanceCode: null,
+  });
   const [pendingShift, setPendingShift] = useState<{
     extra?: Record<string, unknown>;
     dayDelta: number;
@@ -442,6 +448,10 @@ export default function EventSettingsPage() {
           requiresDtcmBarcode: data.requiresDtcmBarcode ?? false,
           dtcmPerformanceCode: data.dtcmPerformanceCode || "",
         });
+        setSavedDtcm({
+          requiresDtcmBarcode: data.requiresDtcmBarcode ?? false,
+          dtcmPerformanceCode: data.dtcmPerformanceCode ?? null,
+        });
 
         const settings = data.settings || {};
 
@@ -586,10 +596,15 @@ export default function EventSettingsPage() {
    * MouseEvent as `extra` and spread it into the body.
    */
   const handleSaveGeneral = async (extra?: Record<string, unknown>) => {
-    // The server refuses this too (resolveDtcmEventConfig); asking here keeps
-    // the organiser on the field instead of a toast after a round-trip.
-    if (generalFormData.requiresDtcmBarcode && !normalizeDtcmPerformanceCode(generalFormData.dtcmPerformanceCode)) {
-      toast.error("Enter the event's DET performance code to turn on DTCM barcodes");
+    // The server's own rule, run before the round-trip. It refuses a CHANGE
+    // that leaves DTCM on without a code, never a re-save of stored values, so
+    // the General and Abstracts tabs still save on an event that has none.
+    const dtcm = resolveDtcmEventConfig(
+      { requiresDtcmBarcode: generalFormData.requiresDtcmBarcode, dtcmPerformanceCode: generalFormData.dtcmPerformanceCode },
+      savedDtcm,
+    );
+    if (!dtcm.ok) {
+      toast.error(dtcm.message);
       return;
     }
     setSaving(true);
@@ -1603,8 +1618,11 @@ export default function EventSettingsPage() {
                 }
               />
             </div>
-            {generalFormData.requiresDtcmBarcode && (
+            {/* Also shown while it holds text with DTCM off: the save checks a
+                kept code's format, and a refusal must point at a visible field. */}
+            {(generalFormData.requiresDtcmBarcode || generalFormData.dtcmPerformanceCode.trim() !== "") && (
               <DtcmPerformanceCodeField
+                required={generalFormData.requiresDtcmBarcode}
                 value={generalFormData.dtcmPerformanceCode}
                 onChange={(dtcmPerformanceCode) => setGeneralFormData({ ...generalFormData, dtcmPerformanceCode })}
               />

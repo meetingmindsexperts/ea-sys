@@ -97,9 +97,11 @@ switch. Owner decisions: a column rather than settings JSON, and it is
 **required while `requiresDtcmBarcode` is on**. The rule is
 `resolveDtcmEventConfig()` in `src/lib/dtcm-performance-code.ts`, called by
 every writer of the switch (event PUT, `createEvent()`, the agent's
-`update_event`). It is judged only when a request touches either field, so the
-one production event that had DTCM on before the column existed keeps saving
-unrelated edits and is asked for its code on its next Settings save. **A clone
+`update_event`). It refuses only a CHANGE that leaves DTCM on without a code
+(turning it on, or clearing the code); re-sending stored values is not one. So
+the one production event that had DTCM on before the column existed keeps
+saving every Settings tab, and its field shows as required until someone fills
+it in. A "touched" rule blocked those tabs and was replaced after review. **A clone
 starts with DTCM off and no code** (owner): a new event is a new DET
 performance, so copying the code would buy tickets against last year's.
 

@@ -586,6 +586,18 @@ describe("PUT /api/events/[eventId] — DTCM performance code (Nov 3, 2026)", ()
     const res = await PUT(makePutRequest({ name: "Renamed" }), makeParams("evt-1"));
     expect(res.status).toBe(200);
   });
+
+  it("lets that event's Settings tab save, which re-sends DTCM on with no code", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue(stored({ requiresDtcmBarcode: true }));
+    mockDb.event.update.mockResolvedValue({ ...sampleEvent, name: "Renamed" });
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+    const res = await PUT(
+      makePutRequest({ name: "Renamed", requiresDtcmBarcode: true, dtcmPerformanceCode: null }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(200);
+  });
 });
 
 describe("PUT /api/events/[eventId] — shiftSchedule (postponement)", () => {

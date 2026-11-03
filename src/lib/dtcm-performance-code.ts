@@ -8,10 +8,12 @@
  * Blueprint) and the agent's update_event. Clone does not need it because a
  * clone always starts with DTCM off.
  *
- * Judged only when a request TOUCHES either field, so an unrelated agent edit
- * (a venue change) on the one DTCM event that predates the code still saves.
- * The Settings page sends both fields on every save, so its organiser is asked
- * for the code the next time they save that tab, which is the intent.
+ * Judged only when a request CHANGES either field: turning DTCM on, or setting
+ * or clearing the code. Sending the stored values back is not a change, and
+ * the Settings page sends both on every save of three tabs, so a "touched"
+ * test would block every save on the one DTCM event that predates the code
+ * (and lock out a details-only editor, who cannot hold the code's key).
+ * Owner, Nov 3 2026: the code is asked for when DTCM is ENABLED.
  *
  * Client-safe: no imports, so the Settings page shares the normaliser.
  */
@@ -45,6 +47,12 @@ export function resolveDtcmEventConfig(
   next: { requiresDtcmBarcode?: boolean; dtcmPerformanceCode?: unknown },
   stored: { requiresDtcmBarcode: boolean; dtcmPerformanceCode: string | null } | null,
 ): DtcmEventConfigResult {
+  const sent = next.dtcmPerformanceCode;
+  if (sent !== undefined && sent !== null && typeof sent !== "string") {
+    // A door that skips Zod (a raw agent call) must not clear the code by
+    // sending a number; refuse rather than read it as "no code".
+    return { ok: false, code: "INVALID_DTCM_PERFORMANCE_CODE", message: "The DET performance code must be text" };
+  }
   const requiresDtcmBarcode = next.requiresDtcmBarcode ?? stored?.requiresDtcmBarcode ?? false;
   const dtcmPerformanceCode =
     next.dtcmPerformanceCode === undefined
@@ -59,12 +67,13 @@ export function resolveDtcmEventConfig(
     };
   }
 
-  const touched = next.requiresDtcmBarcode !== undefined || next.dtcmPerformanceCode !== undefined;
-  if (touched && requiresDtcmBarcode && dtcmPerformanceCode === null) {
+  const turnedOn = requiresDtcmBarcode && !(stored?.requiresDtcmBarcode ?? false);
+  const codeChanged = dtcmPerformanceCode !== (stored?.dtcmPerformanceCode ?? null);
+  if (requiresDtcmBarcode && dtcmPerformanceCode === null && (turnedOn || codeChanged)) {
     return {
       ok: false,
       code: "DTCM_PERFORMANCE_CODE_REQUIRED",
-      message: "Enter the event's DET performance code (for example PDUB01DEC2023B) to turn on DTCM barcodes",
+      message: "DTCM barcodes need the event's DET performance code (for example PDUB01DEC2023B), under Settings, Registration",
     };
   }
 

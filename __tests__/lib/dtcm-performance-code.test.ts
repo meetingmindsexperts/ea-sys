@@ -57,10 +57,27 @@ describe("resolveDtcmEventConfig", () => {
     expect(resolveDtcmEventConfig({}, legacy)).toMatchObject({ ok: true });
   });
 
-  it("asks the legacy event for its code on the next Settings save", () => {
-    // The Settings tab sends both fields on every save.
+  it("lets the legacy event's Settings tabs save: re-sending stored values is no change", () => {
+    // General, Registration and Abstracts send both fields on every save. A
+    // "touched" test blocked every one of them (review MED-1, Nov 3, 2026).
     const r = resolveDtcmEventConfig({ requiresDtcmBarcode: true, dtcmPerformanceCode: "" }, legacy);
-    expect(r).toMatchObject({ ok: false, code: "DTCM_PERFORMANCE_CODE_REQUIRED" });
+    expect(r).toEqual({ ok: true, requiresDtcmBarcode: true, dtcmPerformanceCode: null });
+  });
+
+  it("still refuses turning DTCM off and on again without a code", () => {
+    const stored = { requiresDtcmBarcode: false, dtcmPerformanceCode: null };
+    expect(resolveDtcmEventConfig({ requiresDtcmBarcode: true, dtcmPerformanceCode: "" }, stored)).toMatchObject({
+      ok: false,
+      code: "DTCM_PERFORMANCE_CODE_REQUIRED",
+    });
+  });
+
+  it("refuses a value that is not text instead of clearing the code", () => {
+    const stored = { requiresDtcmBarcode: false, dtcmPerformanceCode: "PDUB01DEC2026A" };
+    expect(resolveDtcmEventConfig({ dtcmPerformanceCode: 123 }, stored)).toMatchObject({
+      ok: false,
+      code: "INVALID_DTCM_PERFORMANCE_CODE",
+    });
   });
 
   it("refuses characters DET codes never contain", () => {

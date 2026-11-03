@@ -67,6 +67,10 @@ describe("event field permissions", () => {
     expect(changedEventFields({ settings: { registrationOpen: false } }, stored)).toEqual(["settings"]);
     expect(changedEventFields({ description: "" }, stored)).toEqual([]);
     expect(changedEventFields({ shiftSchedule: true }, stored)).toEqual(["shiftSchedule"]);
+    // Stored trimmed and upper-cased, so a messy re-send is no change and asks
+    // for no events.settings key (review LOW-1, Nov 3, 2026).
+    expect(changedEventFields({ dtcmPerformanceCode: " pdub01dec2026a " }, { dtcmPerformanceCode: "PDUB01DEC2026A" })).toEqual([]);
+    expect(changedEventFields({ dtcmPerformanceCode: "PDUB02" }, { dtcmPerformanceCode: "PDUB01" })).toEqual(["dtcmPerformanceCode"]);
   });
 
   it("leaves every built-in role's reach unchanged: whoever edits an event holds all three keys at one scope", () => {

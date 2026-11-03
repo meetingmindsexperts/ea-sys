@@ -1,4 +1,5 @@
 import type { PermissionKey } from "./catalogue";
+import { normalizeDtcmPerformanceCode } from "@/lib/dtcm-performance-code";
 
 /**
  * Permissions that hang on WHAT a request changes rather than which route it
@@ -188,6 +189,8 @@ export function eventFieldChanged(field: string, incoming: unknown, stored: unkn
     if (field === "taxRate" && v !== null && typeof v === "object") return Number(String(v));
     // The form sends 0 for "unlimited", which the route stores as null.
     if (field === "maxAttendees" && v === 0) return null;
+    // The route stores it trimmed and upper-cased, so " pdub01 " is no change.
+    if (field === "dtcmPerformanceCode" && typeof v === "string") return normalizeDtcmPerformanceCode(v);
     return v;
   };
   return stableJson(norm(incoming)) !== stableJson(norm(stored));
