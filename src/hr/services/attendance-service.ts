@@ -15,6 +15,12 @@
  * day itself; everything else, sick leave included, expands to working days
  * only. The explicit `includeNonWorkingDays` flag stays as an override.
  *
+ * ANNUAL AND MATERNITY LEAVE ALSO FILL THE WEEKEND BEFORE OR AFTER A SAVE when
+ * the same code is recorded on its far side (owner, Nov 3 2026): Friday saved
+ * one day and Monday the next is one absence. Empty days only, full-day codes
+ * only, and never for a caller that set `includeNonWorkingDays` itself. The
+ * rule is `hr-leave-bridge.ts`; what was filled is returned and audited.
+ *
  * EVERY WRITE AND EVERY CLEAR RECORDS WHAT IT REPLACED. The audit row carries the
  * previous code of each overwritten day and the code of each deleted day, so a
  * drag that lands wrong can be put back from the trail alone. Codes only, never
@@ -27,6 +33,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
   type CalendarDate,
+  addDays,
   dayOfWeek,
   daysBetween,
   eachDate,
@@ -35,7 +42,13 @@ import {
   toCalendarDate,
   yearOf,
 } from "../lib/hr-date";
-import { HR_DEFAULT_WEEKEND_DAYS, rangeCoversCalendarDays, HR_SICK_TIER_DAYS } from "../lib/hr-constants";
+import {
+  HR_DEFAULT_WEEKEND_DAYS,
+  HR_SICK_TIER_DAYS,
+  fillsWeekendBetween,
+  rangeCoversCalendarDays,
+} from "../lib/hr-constants";
+import { BRIDGE_SCAN_DAYS, bridgeDays } from "../lib/hr-leave-bridge";
 import { isWithinEmployment } from "../lib/hr-leave-year";
 // One balance engine, asked rather than re-derived: it already knows about the
 // opening seed, rule-derived days and half days, and a second count here would
@@ -203,9 +216,48 @@ async function projectSickFullTier(params: {
   return worst;
 }
 
+/**
+ * The empty weekend or holiday days between this range and the same code
+ * already recorded on either side. See `hr-leave-bridge.ts` for the rule.
+ */
+async function weekendToFill(params: {
+  organizationId: string;
+  employeeId: string;
+  from: CalendarDate;
+  to: CalendarDate;
+  code: string;
+  weekendDays: readonly number[];
+}): Promise<CalendarDate[]> {
+  const windowFrom = fromCalendarDate(addDays(params.from, -BRIDGE_SCAN_DAYS));
+  const windowTo = fromCalendarDate(addDays(params.to, BRIDGE_SCAN_DAYS));
+  const [entries, holidays] = await Promise.all([
+    db.attendanceEntry.findMany({
+      where: {
+        organizationId: params.organizationId,
+        employeeId: params.employeeId,
+        date: { gte: windowFrom, lte: windowTo },
+      },
+      select: { date: true, leaveCode: { select: { code: true } } },
+    }),
+    db.publicHoliday.findMany({
+      where: { organizationId: params.organizationId, date: { gte: windowFrom, lte: windowTo } },
+      select: { date: true },
+    }),
+  ]);
+  const codeOn = new Map(entries.map((e) => [toCalendarDate(e.date), e.leaveCode.code]));
+  const holidaySet = new Set(holidays.map((h) => toCalendarDate(h.date)));
+  return bridgeDays({
+    from: params.from,
+    to: params.to,
+    code: params.code,
+    recordedCode: (d) => codeOn.get(d),
+    isNonWorking: (d) => params.weekendDays.includes(dayOfWeek(d)) || holidaySet.has(d),
+  });
+}
+
 export async function setAttendance(
   input: SetAttendanceInput,
-): Promise<AttendanceResult<{ written: number; skipped: CalendarDate[] }>> {
+): Promise<AttendanceResult<{ written: number; skipped: CalendarDate[]; bridged: CalendarDate[] }>> {
   const to = input.to ?? input.from;
   if (!isCalendarDate(input.from) || !isCalendarDate(to)) {
     return { ok: false, code: "INVALID_DATE", message: "That is not a valid date." };
@@ -297,6 +349,26 @@ export async function setAttendance(
       meta: { skipped },
     };
   }
+
+  // Annual or maternity leave continuing from a Friday to the Monday after is
+  // one absence (owner, Nov 3 2026). Only when the policy decides the reach:
+  // the Excel sync passes `includeNonWorkingDays` and writes exactly the days
+  // the sheet lists, so it must not have days invented for it. Full-day codes
+  // only; somebody back for half a Friday was not away all weekend.
+  const bridged =
+    input.includeNonWorkingDays === undefined &&
+    fillsWeekendBetween(leaveCode.countsAs) &&
+    toNumber(leaveCode.dayWeight) === 1
+      ? await weekendToFill({
+          organizationId: input.organizationId,
+          employeeId: input.employeeId,
+          from: input.from,
+          to,
+          code: leaveCode.code,
+          weekendDays,
+        })
+      : [];
+  if (bridged.length > 0) target = [...target, ...bridged].sort();
 
   /*
    * The 15-day full-pay sick limit (Art. 31), as a WARNING rather than a
@@ -412,13 +484,14 @@ export async function setAttendance(
             from: input.from,
             to,
             days: target.length,
+            bridged,
             overwritten,
           },
         },
       })
       .catch((err) => apiLogger.error({ msg: "hr-attendance:audit-failed", err }));
 
-    return { ok: true, result: { written: target.length, skipped } };
+    return { ok: true, result: { written: target.length, skipped, bridged } };
   } catch (err) {
     if (isTransactionTimeout(err)) {
       apiLogger.error({

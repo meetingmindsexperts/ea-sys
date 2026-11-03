@@ -293,7 +293,7 @@ export function useSetHrAttendance(opts: { invalidate?: boolean } = {}) {
       //
       // Note the route SPREADS `meta` at the top level of the body rather than
       // nesting it, so the numbers are read from `err.data` directly.
-      return send<{ written: number; skipped: string[] }>("/api/hr/attendance", "PUT", input);
+      return send<{ written: number; skipped: string[]; bridged?: string[] }>("/api/hr/attendance", "PUT", input);
     },
     onSuccess: () => {
       if (invalidate) void qc.invalidateQueries({ queryKey: ["hr"] });

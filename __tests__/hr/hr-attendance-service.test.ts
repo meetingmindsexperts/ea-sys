@@ -75,6 +75,40 @@ function auditChanges(): Record<string, unknown> {
   return call.data.changes;
 }
 
+describe("setAttendance fills the weekend between two pieces of leave", () => {
+  const al = { id: "lc-al", code: "AL", countsAs: "ANNUAL", dayWeight: 1 };
+  const fridayAl = [{ date: new Date("2026-11-06T00:00:00Z"), leaveCode: { code: "AL" } }];
+  const writtenDates = () =>
+    mockTx.attendanceEntry.upsert.mock.calls.map(
+      (c) => (c[0] as { create: { date: Date } }).create.date.toISOString().slice(0, 10),
+    );
+
+  it("Monday after a Friday of AL writes Saturday and Sunday too", async () => {
+    mockDb.leaveCode.findFirst.mockResolvedValue(al);
+    mockDb.attendanceEntry.findMany.mockResolvedValue(fridayAl);
+    const res = await setAttendance({ ...base, source: "ui", from: "2026-11-09", code: "AL" });
+    expect(res).toMatchObject({ ok: true, result: { written: 3, bridged: ["2026-11-07", "2026-11-08"] } });
+    expect(writtenDates()).toEqual(["2026-11-07", "2026-11-08", "2026-11-09"]);
+    expect(auditChanges()).toMatchObject({ bridged: ["2026-11-07", "2026-11-08"], days: 3 });
+  });
+
+  it("the Excel sync, which states its own reach, gets no days invented", async () => {
+    mockDb.leaveCode.findFirst.mockResolvedValue(al);
+    mockDb.attendanceEntry.findMany.mockResolvedValue(fridayAl);
+    const res = await setAttendance({
+      ...base, source: "import", from: "2026-11-09", code: "AL", includeNonWorkingDays: true,
+    });
+    expect(res).toMatchObject({ ok: true, result: { written: 1, bridged: [] } });
+  });
+
+  it("a half-day code does not fill the weekend", async () => {
+    mockDb.leaveCode.findFirst.mockResolvedValue({ ...al, code: "AL-HD", dayWeight: 0.5 });
+    mockDb.attendanceEntry.findMany.mockResolvedValue(fridayAl);
+    const res = await setAttendance({ ...base, source: "ui", from: "2026-11-09", code: "AL-HD" });
+    expect(res).toMatchObject({ ok: true, result: { written: 1, bridged: [] } });
+  });
+});
+
 describe("clearAttendance", () => {
   it("refuses a range longer than a year, and deletes nothing", async () => {
     const res = await clearAttendance({ ...base, from: "2000-01-01", to: "2100-12-31" });

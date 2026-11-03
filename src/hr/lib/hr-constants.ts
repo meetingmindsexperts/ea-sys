@@ -80,6 +80,17 @@ export function rangeCoversCalendarDays(category: LeaveCategory): boolean {
 }
 
 /**
+ * Does saving this leave also fill an empty weekend (or holiday break) that
+ * separates it from the same leave already recorded? Owner, Nov 3 2026: annual
+ * and maternity leave continuing from a Friday to the Monday after is one
+ * absence. Not on-duty or comp-off: those describe single days, and two of
+ * them a weekend apart are two days. See `hr-leave-bridge.ts`.
+ */
+export function fillsWeekendBetween(category: LeaveCategory): boolean {
+  return category === "ANNUAL" || category === "MATERNITY";
+}
+
+/**
  * Does a category describe WORKING, or time not worked?
  *
  * Decides which standing rule speaks when two overlap (`ruleFor`). Owner

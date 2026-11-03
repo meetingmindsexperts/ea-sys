@@ -369,7 +369,7 @@ export default function HrAttendancePage() {
         byEmployee.set(c.employee.id, group);
       }
       setPop(null);
-      let written = 0, skipped = 0;
+      let written = 0, skipped = 0, bridged = 0;
       const failures: { name: string; message: string }[] = [];
       // Not a failure: the service refused ONCE so a person can be asked. Held
       // aside so the toast does not call it an error and the dialog can offer
@@ -390,6 +390,7 @@ export default function HrAttendancePage() {
             });
             written += res.written;
             skipped += res.skipped.length;
+            bridged += res.bridged?.length ?? 0;
           } else {
             const res = await clearAttendance.mutateAsync({
               employeeId: employee.id,
@@ -433,10 +434,15 @@ export default function HrAttendancePage() {
       const skippedNote = skipped
         ? `, ${skipped} non-working day${skipped === 1 ? "" : "s"} skipped`
         : "";
+      // Days the service added between this leave and the same leave already
+      // recorded across a weekend, so the count is not a surprise.
+      const bridgedNote = bridged
+        ? `, including ${bridged} weekend or holiday day${bridged === 1 ? "" : "s"} joining it to the leave next to it`
+        : "";
       if (failures.length === 0) {
         toast.success(
           code
-            ? `${written} day${written === 1 ? "" : "s"} set to ${code}${skippedNote}`
+            ? `${written} day${written === 1 ? "" : "s"} set to ${code}${skippedNote}${bridgedNote}`
             : `Cleared ${written} ${written === 1 ? "day" : "days"}`,
         );
         // Collapse to the head rather than clearing. Dropping the selection
