@@ -27,7 +27,7 @@ export interface AttendanceRuleLike {
   code: string;
   /**
    * The code's category. Decides two things. How far the rule reaches: a
-   * category that covers calendar days (annual leave, on-duty, comp-off, see
+   * category that covers calendar days (annual leave, maternity, on-duty, comp-off, see
    * `rangeCoversCalendarDays`) speaks for the weekend and the public holiday
    * inside its window too, exactly as an explicit range of that code would be
    * written. And which of two overlapping rules speaks: time not worked beats

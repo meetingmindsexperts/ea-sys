@@ -142,11 +142,12 @@ export interface LeaveSpell {
 /**
  * Group one category's recorded days into spells. Exported for tests.
  *
- * Maternity is recorded on WORKING days only (`rangeCoversCalendarDays`, and a
- * holiday outranks a standing rule), so a spell holds no rows for weekends or
- * public holidays. Two recorded days belong to one spell when every day between
- * them is one of those. A fixed day-count gap was the first version and split
- * every spell at Eid (a five-weekday holiday is a ten-day gap).
+ * Maternity covers calendar days (`rangeCoversCalendarDays`, since Nov 3 2026),
+ * but anything recorded before that, or day by day on the grid, may hold no
+ * rows for weekends or public holidays. Two recorded days belong to one spell
+ * when every day between them is one of those. A fixed day-count gap was the
+ * first version and split every spell at Eid (a five-weekday holiday is a
+ * ten-day gap).
  */
 export function leaveSpells(
   entries: readonly BalanceEntry[],

@@ -12,7 +12,7 @@
  *      about somebody who did not work here.
  *   2. An explicit entry -> that entry. This is what lets OD on a Saturday
  *      override the weekend, which is the whole point of the OD code.
- *   3. A STANDING RULE whose code COVERS CALENDAR DAYS (annual leave, on-duty,
+ *   3. A STANDING RULE whose code COVERS CALENDAR DAYS (annual leave, maternity, on-duty,
  *      comp-off: `rangeCoversCalendarDays`) -> its code, weekend or holiday
  *      included. Owner ruling, Aug 31 2026 ("calendar days everywhere"): a
  *      company shutdown recorded as an AL rule costs exactly what the same

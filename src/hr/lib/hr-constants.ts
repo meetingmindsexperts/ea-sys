@@ -61,12 +61,22 @@ export const HR_DAY_DECIMALS = 1;
  * recorded sick leave on working days only. Applying the calendar rule to sick
  * leave would have invented a policy nobody has.
  *
+ * MATERNITY joined on Nov 3, 2026 (owner: "when maternity leave or annual
+ * leave, Saturday and Sunday count too"). Art. 30 grants 60 days of maternity
+ * leave as a block of calendar days, so a weekend inside it is part of it, and
+ * so is a public holiday, as with annual leave.
+ *
  * ON_DUTY and COMP_OFF are here for a different reason: those codes describe
  * the DAY ITSELF rather than an absence from it, so a Saturday is exactly when
  * they are meant to be recorded.
  */
 export function rangeCoversCalendarDays(category: LeaveCategory): boolean {
-  return category === "ANNUAL" || category === "ON_DUTY" || category === "COMP_OFF";
+  return (
+    category === "ANNUAL" ||
+    category === "MATERNITY" ||
+    category === "ON_DUTY" ||
+    category === "COMP_OFF"
+  );
 }
 
 /**

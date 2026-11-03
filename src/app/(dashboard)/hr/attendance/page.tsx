@@ -62,6 +62,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -1184,7 +1185,7 @@ function CompanyDayDialog(props: {
           <div className="space-y-1">
             <Label className="text-xs">Code</Label>
             <Select value={form.code} onValueChange={(v) => setForm((f) => ({ ...f, code: v }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {props.codes.map((c) => (
                   <SelectItem key={c.code} value={c.code}>{c.code} — {c.label}</SelectItem>
@@ -1198,8 +1199,8 @@ function CompanyDayDialog(props: {
               onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} />
           </div>
           <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-            A working code such as WFH covers working days only. Annual leave, on-duty and
-            comp-off cover every day in the range, weekends and public holidays included,
+            A working code such as WFH covers working days only. Annual leave, maternity leave,
+            on-duty and comp-off cover every day in the range, weekends and public holidays included,
             exactly as the same block recorded on the grid would. A company day that is leave
             also applies to anyone with a standing working arrangement such as WFH: the
             shutdown wins, and their arrangement resumes when it ends. Nothing is written per
@@ -1236,6 +1237,7 @@ function StandingDialog(props: {
   const [form, setForm] = useState({
     employeeId: "", startDate: "", endDate: "", code: "WFH", label: "Works remotely",
   });
+  const personOptions = props.employees.map((e) => ({ value: e.id, label: `${e.name} (${e.empCode})` }));
   const [prevOpen, setPrevOpen] = useState(props.open);
   if (props.open !== prevOpen) {
     setPrevOpen(props.open);
@@ -1256,23 +1258,24 @@ function StandingDialog(props: {
           </DialogTitle>
           <DialogDescription>
             Something permanently true about one person. It fills every working day until you end
-            it (every day, for annual leave, on-duty or comp-off). Any individual record still
+            it (every day, for annual leave, maternity leave, on-duty or comp-off). Any individual record still
             overrides it, and so does a company day that is leave: during a shutdown a remote
             worker is on leave with everyone else.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <div className="space-y-1">
-            <Label className="text-xs">Person</Label>
-            <Select value={form.employeeId}
-              onValueChange={(v) => setForm((f) => ({ ...f, employeeId: v }))}>
-              <SelectTrigger><SelectValue placeholder="Pick someone" /></SelectTrigger>
-              <SelectContent>
-                {props.employees.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>{e.name} ({e.empCode})</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="standing-person" className="text-xs">Person</Label>
+            <SearchableSelect
+              id="standing-person"
+              value={form.employeeId}
+              displayLabel={personOptions.find((o) => o.value === form.employeeId)?.label}
+              onChange={(v) => setForm((f) => ({ ...f, employeeId: v }))}
+              options={personOptions}
+              placeholder="Pick someone"
+              searchPlaceholder="Search by name or code…"
+              emptyText="No one matches."
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
@@ -1289,7 +1292,7 @@ function StandingDialog(props: {
           <div className="space-y-1">
             <Label className="text-xs">Code</Label>
             <Select value={form.code} onValueChange={(v) => setForm((f) => ({ ...f, code: v }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {props.codes.map((c) => (
                   <SelectItem key={c.code} value={c.code}>{c.code} — {c.label}</SelectItem>

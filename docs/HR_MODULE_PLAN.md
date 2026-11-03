@@ -545,7 +545,7 @@ three, because "days of sick leave left" is not one number.
   wrong in a way that silently shifts a payroll month.
 - **Effective status for an (employee, date) with no entry:** outside the
   employment window gives not-applicable; a standing rule carrying a
-  calendar-day code (annual leave, on-duty, comp-off) gives that code; a public
+  calendar-day code (annual leave, maternity, on-duty, comp-off) gives that code; a public
   holiday gives `PH`; a weekend gives `OFF`; any other standing rule gives its
   code; otherwise `P`. An explicit entry always wins, so `OD` on a Saturday
   overrides `OFF`. The full chain is §17.3.
@@ -947,7 +947,7 @@ a rule is not a record of what somebody typed.
 
 1. Outside the employment window → `NOT_EMPLOYED`
 2. An explicit `AttendanceEntry` → that entry
-3. A standing rule whose code **covers calendar days** (annual leave, on-duty,
+3. A standing rule whose code **covers calendar days** (annual leave, maternity, on-duty,
    comp-off: `rangeCoversCalendarDays`) → its code, weekend or holiday
    included. Owner ruling, Aug 31 2026, "calendar days everywhere": a company
    shutdown recorded as an AL rule costs exactly what the same block dragged on

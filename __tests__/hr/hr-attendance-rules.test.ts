@@ -367,6 +367,14 @@ describe("a rule reaches the balance", () => {
     expect(days([long])).toHaveLength(12);
   });
 
+  /** Owner, Nov 3 2026: maternity counts Saturday and Sunday, as annual leave does. */
+  it("an ML rule spanning a weekend charges the weekend too", () => {
+    const long: AttendanceRuleLike = {
+      ...shutdown, id: "r-long-ml", code: "ML", category: "MATERNITY", endDate: d("2026-03-13"),
+    };
+    expect(days([long])).toHaveLength(12);
+  });
+
   it("a WFH rule spanning a weekend still covers only the ten working days", () => {
     const long: AttendanceRuleLike = {
       ...shutdown, id: "r-long-wfh", code: "WFH", category: "WORK", endDate: d("2026-03-13"),
@@ -523,9 +531,13 @@ describe("how far a range reaches", () => {
     expect(rangeCoversCalendarDays("COMP_OFF")).toBe(true);
   });
 
+  it("maternity reaches the weekend and the holiday: Art. 30 is calendar days", () => {
+    expect(rangeCoversCalendarDays("MATERNITY")).toBe(true);
+  });
+
   it("everything else stays working-days-only", () => {
     for (const category of [
-      "MATERNITY", "PARENTAL", "BEREAVEMENT", "HAJJ", "STUDY",
+      "PARENTAL", "BEREAVEMENT", "HAJJ", "STUDY",
       "NATIONAL_SERVICE", "UNPAID", "ABSENT", "WORK", "REST", "PUBLIC_HOLIDAY",
     ] as const) {
       expect(rangeCoversCalendarDays(category)).toBe(false);
