@@ -229,6 +229,8 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     mockDb.payment.aggregate.mockResolvedValue({ _sum: { amount: 100 } });
     issueCreditNoteSpy.mockResolvedValue({ ok: true, creditNote: { creditNoteId: "cn1" } });
     mockDb.auditLog.create.mockResolvedValue({});
+    // The counters commit in one transaction; these tests read the writes off mockDb.
+    mockDb.$transaction.mockImplementation(async (fn: (t: typeof mockDb) => unknown) => fn(mockDb));
   });
 
   // amount_refunded is CUMULATIVE (minor units); currency lowercase.
@@ -393,6 +395,31 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     await flush();
     expect(issueCreditNoteSpy).not.toHaveBeenCalled();
     expect(mockDb.registration.update).not.toHaveBeenCalled();
+  });
+
+  it("claims the payment counter and rolls up the registration in ONE transaction (dependency audit, Nov 3 2026)", async () => {
+    // Apart, a failed roll-up left the payment counter advanced, and the retry
+    // read delta 0 and skipped it: the registration stayed short for good.
+    const tx = {
+      payment: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 100 } }) },
+      registration: { update: vi.fn().mockRejectedValue(new Error("connection reset")), updateMany: vi.fn() },
+    };
+    mockDb.$transaction.mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx));
+    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 10000 }));
+    mockDb.payment.findUnique.mockResolvedValue(paymentRow(0, 100));
+
+    const res = await POST(makeWebhookRequest());
+    // 500 so Stripe retries; the rolled-back claim lets the retry see the full delta.
+    expect(res.status).toBe(500);
+    expect(tx.payment.updateMany).toHaveBeenCalledWith({
+      where: { id: "pay-1", refundedAmount: 0 },
+      data: { refundedAmount: 100, status: "REFUNDED" },
+    });
+    expect(mockDb.payment.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.registration.update).not.toHaveBeenCalled();
+    await flush();
+    expect(issueCreditNoteSpy).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
   });
 
   it("warns and skips when no Payment record found for paymentIntentId (unknown charge age)", async () => {

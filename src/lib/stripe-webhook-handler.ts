@@ -719,41 +719,52 @@ export async function handleStripeEvent(
       // observed counter so two concurrent deliveries can't both advance it /
       // both mint a CN. The loser 500s and Stripe's retry re-reads a counter
       // that already includes the winner's delta (→ delta ≤ 0 → skip).
+      //
+      // The claim and the registration roll-up commit together (dependency
+      // audit, Nov 3, 2026). Apart, a failure between them left the payment
+      // counter advanced and the registration short, and Stripe's retry then
+      // read delta 0 and skipped it for good. Rolled back together, the retry
+      // finds the counter where it was and does the whole thing again.
       const paymentFullyRefunded = cumulativeRefunded >= Number(payment.amount) - 0.005;
-      const claimed = await db.payment.updateMany({
-        where: { id: payment.id, refundedAmount: payment.refundedAmount },
-        data: {
-          refundedAmount: cumulativeRefunded,
-          ...(paymentFullyRefunded ? { status: "REFUNDED" as const } : {}),
-        },
+      const settled = await tenantTransaction(async (tx) => {
+        const claimed = await tx.payment.updateMany({
+          where: { id: payment.id, refundedAmount: payment.refundedAmount },
+          data: {
+            refundedAmount: cumulativeRefunded,
+            ...(paymentFullyRefunded ? { status: "REFUNDED" as const } : {}),
+          },
+        });
+        if (claimed.count === 0) return null;
+
+        // Roll the delta up into the registration's mixed running total, and
+        // flip the whole reg REFUNDED only when the new total covers everything
+        // collected (settled = PAID + REFUNDED rows — refunded payments still
+        // represent money that was collected).
+        const paidAgg = await tx.payment.aggregate({
+          where: { registrationId: registrationId, status: { in: ["PAID", "REFUNDED"] } },
+          _sum: { amount: true },
+        });
+        const paidTotal = round2(Number(paidAgg._sum.amount ?? payment.amount));
+        const updatedReg = await tx.registration.update({
+          where: { id: registrationId },
+          data: { refundedAmount: { increment: delta } },
+          select: { refundedAmount: true },
+        });
+        const newRegTotal = round2(Number(updatedReg.refundedAmount));
+        const isFull = newRegTotal >= paidTotal - 0.005;
+        if (isFull) {
+          await tx.registration.updateMany({
+            where: { id: registrationId, paymentStatus: "PAID" },
+            data: { paymentStatus: "REFUNDED" },
+          });
+        }
+        return { paidTotal, newRegTotal, isFull };
       });
-      if (claimed.count === 0) {
+      if (!settled) {
         apiLogger.warn({ msg: "charge.refunded: payment counter moved concurrently — 500 so Stripe retries", registrationId: registrationId, paymentIntentId });
         return NextResponse.json({ error: "Concurrent reconciliation" }, { status: 500 });
       }
-
-      // Roll the delta up into the registration's mixed running total, and
-      // flip the whole reg REFUNDED only when the new total covers everything
-      // collected (settled = PAID + REFUNDED rows — refunded payments still
-      // represent money that was collected).
-      const paidAgg = await db.payment.aggregate({
-        where: { registrationId: registrationId, status: { in: ["PAID", "REFUNDED"] } },
-        _sum: { amount: true },
-      });
-      const paidTotal = round2(Number(paidAgg._sum.amount ?? payment.amount));
-      const updatedReg = await db.registration.update({
-        where: { id: registrationId },
-        data: { refundedAmount: { increment: delta } },
-        select: { refundedAmount: true },
-      });
-      const newRegTotal = round2(Number(updatedReg.refundedAmount));
-      const isFull = newRegTotal >= paidTotal - 0.005;
-      if (isFull) {
-        await db.registration.updateMany({
-          where: { id: registrationId, paymentStatus: "PAID" },
-          data: { paymentStatus: "REFUNDED" },
-        });
-      }
+      const { paidTotal, newRegTotal, isFull } = settled;
 
       apiLogger.info({
         msg: "Refund reconciled via Stripe webhook",
