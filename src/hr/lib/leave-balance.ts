@@ -118,6 +118,9 @@ export interface LeaveBalance {
   };
   sick: { full: SickTier; half: SickTier; unpaid: SickTier };
   compOff: {
+    /** OD days worked, the raw days behind `earned`. Only a fully worked
+     *  weekend earns a comp-off, so this is usually more than `earned`. */
+    onDutyDays: number;
     opening: number;
     earned: number;
     taken: number;
@@ -129,6 +132,10 @@ export interface LeaveBalance {
     taken: number;
     /** The spell `asOf` falls inside, or null when not on maternity leave then. */
     current: LeaveSpell | null;
+  };
+  parental: {
+    /** Days recorded in this leave year (Art. 32). Working days, as recorded. */
+    taken: number;
   };
 }
 
@@ -335,6 +342,7 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
       unpaid: tier(sickUnpaidUsed, HR_SICK_TIER_DAYS.unpaid),
     },
     compOff: {
+      onDutyDays: sumWeights(entries, "ON_DUTY", compFrom, compTo),
       opening: roundDays(employee.openingCompOff),
       earned: compEarned,
       taken: compTaken,
@@ -344,6 +352,9 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
     maternity: {
       taken: sumWeights(yearEntries, "MATERNITY", from, to),
       current: maternityNow,
+    },
+    parental: {
+      taken: sumWeights(yearEntries, "PARENTAL", from, to),
     },
   };
 }

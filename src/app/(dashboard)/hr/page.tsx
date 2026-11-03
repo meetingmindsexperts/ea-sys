@@ -185,6 +185,13 @@ export default function HrSummaryPage() {
               <th className="px-3 py-2 text-right font-medium">Sick (full)</th>
               <th className="px-3 py-2 text-right font-medium">Sick (half)</th>
               <th className="px-3 py-2 text-right font-medium">Maternity</th>
+              <th className="px-3 py-2 text-right font-medium">Parental</th>
+              <th
+                className="px-3 py-2 text-right font-medium"
+                title="On-duty days worked since joining. A comp-off is earned only when both days of a weekend are worked."
+              >
+                OD days
+              </th>
               <th className="px-3 py-2 text-right font-medium">C-off earned</th>
               <th className="px-3 py-2 text-right font-medium">C-off taken</th>
               <th className="px-3 py-2 text-right font-medium">C-off balance</th>
@@ -215,7 +222,7 @@ export default function HrSummaryPage() {
                      Rendering the engine's zeros as numbers would read as "took
                      nothing, owed thirty", which is the figure that used to be
                      shown for every pre-year leaver (review H1). Say what it is. */
-                  <td colSpan={11} className="px-3 py-2 text-xs text-muted-foreground">
+                  <td colSpan={13} className="px-3 py-2 text-xs text-muted-foreground">
                     Not employed in {balance.leaveYear}
                     {employee.exitDate && employee.exitDate < `${balance.leaveYear}-01-01`
                       ? ` (left ${employee.exitDate})`
@@ -260,6 +267,8 @@ export default function HrSummaryPage() {
                   {balance.sick.half.used} / {balance.sick.half.limit}
                 </td>
                 <td className="px-3 py-2 text-right"><Days value={balance.maternity.taken} /></td>
+                <td className="px-3 py-2 text-right"><Days value={balance.parental.taken} /></td>
+                <td className="px-3 py-2 text-right"><Days value={balance.compOff.onDutyDays} /></td>
                 <td className="px-3 py-2 text-right"><Days value={balance.compOff.earned} /></td>
                 <td className="px-3 py-2 text-right"><Days value={balance.compOff.taken} /></td>
                 <td className="px-3 py-2 text-right">
@@ -274,7 +283,7 @@ export default function HrSummaryPage() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-3 py-10 text-center text-muted-foreground">
+                <td colSpan={14} className="px-3 py-10 text-center text-muted-foreground">
                   No employees yet. Import the workbook, or add someone.
                 </td>
               </tr>
@@ -287,7 +296,8 @@ export default function HrSummaryPage() {
         A negative balance is leave taken in advance and is shown rather than
         floored. Sick leave is the Art. 31 tiers: 15 days full pay, then 30 at
         half pay, then 45 unpaid. A comp-off is earned by working both days of one
-        weekend.
+        weekend. OD days and the comp-off columns count since joining, not just this
+        leave year, because comp-off is a running balance.
       </p>
     </div>
   );

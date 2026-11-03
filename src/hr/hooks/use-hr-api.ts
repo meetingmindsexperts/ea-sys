@@ -69,6 +69,7 @@ export interface HrBalance {
   };
   sick: { full: HrTier; half: HrTier; unpaid: HrTier };
   compOff: {
+    onDutyDays: number;
     opening: number;
     earned: number;
     taken: number;
@@ -79,6 +80,7 @@ export interface HrBalance {
     taken: number;
     current: { from: string; to: string; days: number } | null;
   };
+  parental: { taken: number };
 }
 
 export interface HrSummaryRow {

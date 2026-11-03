@@ -264,6 +264,8 @@ export default function HrEmployeePage({
                       </span>
                     )}
                   </Fact>
+                  <Fact label="Parental leave">{balance.parental.taken}</Fact>
+                  <Fact label="On-duty days worked">{balance.compOff.onDutyDays}</Fact>
                   <Fact label="Comp-off (earned − taken)">
                     {balance.compOff.earned} − {balance.compOff.taken} = {balance.compOff.balance}
                   </Fact>

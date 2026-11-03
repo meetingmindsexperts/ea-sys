@@ -561,6 +561,21 @@ describe("comp-off is bounded by employment, not by the clock (M11)", () => {
     { date: "2026-08-02" as CalendarDate, category: "ON_DUTY" as LeaveCategory, dayWeight: 1 },
   ];
 
+  /** Muthu, Nov 3 2026: show OD days beside the comp-offs they earn. */
+  it("counts every OD day, including a lone Saturday that earns nothing", () => {
+    const b = computeLeaveBalance({
+      employee: person,
+      leaveYear: 2026,
+      asOf: "2026-08-31" as CalendarDate,
+      entries: [
+        ...weekendWorked,
+        { date: "2026-08-08" as CalendarDate, category: "ON_DUTY" as LeaveCategory, dayWeight: 1 },
+      ],
+    });
+    expect(b.compOff.onDutyDays).toBe(3);
+    expect(b.compOff.earned).toBe(1);
+  });
+
   it("a comp-off booked for next week is already spent today", () => {
     const b = computeLeaveBalance({
       employee: person,
@@ -661,6 +676,15 @@ describe("maternity leave", () => {
     });
     expect(b.maternity.current?.from).toBe("2026-12-14");
     expect(b.maternity.taken).toBe(6); // Fri 1 Jan + Mon 4 to Fri 8 Jan
+  });
+
+  it("parental leave is counted on its own, for this leave year only", () => {
+    const parental = (date: string): BalanceEntry => ({ date, category: "PARENTAL", dayWeight: 1 });
+    const b = balanceFor({
+      entries: [parental("2025-12-30"), parental("2026-02-02"), parental("2026-02-03"), ...spell],
+    });
+    expect(b.parental.taken).toBe(2);
+    expect(b.maternity.taken).toBe(30);
   });
 
   it("is never current for someone with no maternity rows", () => {
