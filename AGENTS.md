@@ -133,6 +133,21 @@ npx tsc --noEmit && npm run lint && npm run test && npm run build
 All four, green, every time. `npm run test:e2e` when the change touches a user flow (stop the dev
 server first — Playwright's port collides with 3113).
 
+**Then review the commit, ranked.** A reviewer gets the code and the commit message, not the
+author's conclusions, and reports each finding with a `file:line`, a severity and a concrete failure
+scenario (these inputs or this state, then this wrong result). A finding with no scenario is a
+question, not a finding. The reviewer says "none" for a level when it found none.
+
+| Level | Means | Before push |
+|---|---|---|
+| BLOCKER | Data loss, money or seats wrong, a permission or tenant boundary crossed, production down | Fix |
+| HIGH | A real bug a user can reach, or a payments, permissions or tenancy path that can go wrong under a race or a retry | Fix |
+| MED | Wrong in a rare or unreachable case, or a guard (test, check script) that can miss what it claims to catch | Fix, or record it in `docs/ROADMAP.md` with the reason |
+| LOW | Wording, a misleading comment, a cleanup | Optional |
+
+Fixes land as their own commit after the reviewed one, never as an amend. An older defect the review
+turns up is reported separately from the change under review, so the owner decides it on its own.
+
 ### 6. Enrichment syncs are enrich-only
 `syncToContact` **never clears a populated field** — so a payload of only `{email, firstName, lastName}`
 against an existing contact is a **silent no-op that reports success.** If you are syncing an entity to
