@@ -199,9 +199,7 @@ export async function buyForRegistration(ctx: DtcmPurchaseContext, registration:
       const live = await db.dtcmOrder.findUnique({ where: { activeKey: registration.id } });
       return fail(
         "ALREADY_IN_PROGRESS",
-        live && (live.status === "UNCERTAIN" || isStalePending(live))
-          ? "An earlier DET purchase for this registration may have gone through. Resolve it before buying again."
-          : "A DET purchase for this registration is already in progress",
+        alreadyInProgressMessage(live),
         { ...log, liveOrderId: live?.id, liveStatus: live?.status },
         live ?? undefined,
       );
@@ -238,7 +236,14 @@ export async function buyForRegistration(ctx: DtcmPurchaseContext, registration:
   // number survives in the logs, and the row is a stale PENDING that a person
   // resolves (resolveDtcmOrder accepts those, see STALE_PENDING_MS).
   apiLogger.info({ msg: "dtcm-eticket:issue-purchased", ...orderLog, detOrderId: purchased });
-  await db.dtcmOrder.update({ where: { id: order.id }, data: { orderId: purchased, status: "PURCHASED" } });
+  const claimed = await db.dtcmOrder.updateMany({ where: { id: order.id, status: "PENDING" }, data: { orderId: purchased, status: "PURCHASED" } });
+  if (claimed.count === 0) {
+    // A person resolved this attempt (as a crashed PENDING) while DET was
+    // selling. The sale is the truth: record it, and say so loudly, because
+    // a second attempt may now hold the registration.
+    apiLogger.error({ msg: "dtcm-eticket:sold-after-resolution", ...orderLog, detOrderId: purchased });
+    await db.dtcmOrder.update({ where: { id: order.id }, data: { orderId: purchased, status: "PURCHASED" } });
+  }
   return recordBarcode(ctx, order.id, registration.id, purchased, orderLog);
 }
 
@@ -264,9 +269,12 @@ async function afterPurchaseError(
     basketStillThere = null;
   }
 
-  if (basketStillThere) {
-    await releaseBasket(ctx.creds, basketId, log);
-    return fail("DET_REFUSED", `${err.message} (DET still held the basket, so nothing was bought)`, errLog, await markFailed(orderId, err));
+  // "Still there" is not proof on its own: our timeout can fire while DET is
+  // still committing, so the basket can be seen and then sold a moment later.
+  // Only a CONFIRMED delete proves it can no longer be bought (review HIGH 1,
+  // Nov 3 2026). A delete that fails falls through to UNCERTAIN.
+  if (basketStillThere && (await releaseBasket(ctx.creds, basketId, log))) {
+    return fail("DET_REFUSED", `${err.message} (DET still held the basket and released it, so nothing was bought)`, errLog, await markFailed(orderId, err));
   }
 
   const uncertain = await db.dtcmOrder.update({
@@ -318,14 +326,38 @@ async function recordBarcode(
   return { ok: true, order: row, barcode };
 }
 
-async function releaseBasket(creds: DetCredentials, basketId: string, log: Record<string, unknown>) {
+/** True when DET confirmed the delete; false (logged) when it did not. */
+async function releaseBasket(creds: DetCredentials, basketId: string, log: Record<string, unknown>): Promise<boolean> {
   try {
     await deleteDetBasket(creds, basketId);
+    return true;
   } catch (err) {
     // Best effort: an undeleted basket expires on DET's side. Logged so a
     // held seat that will not free up can be traced.
     apiLogger.warn({ msg: "dtcm-eticket:issue-basket-release-failed", ...log, basketId, err: err instanceof Error ? err.message : String(err) });
+    return false;
   }
+}
+
+/** Why a DET order is not the purchase this row recorded, or null when it fits. */
+function orderMismatch(
+  row: Pick<DtcmOrder, "area" | "priceTypeCode" | "detCustomerId">,
+  det: { section: string | null; priceTypeCode: string | null; customerId: string | null },
+): string | null {
+  if (det.section && det.section !== row.area) return `it is in section ${det.section}, this purchase was for ${row.area}`;
+  if (det.priceTypeCode && det.priceTypeCode !== row.priceTypeCode) return `it is price type ${det.priceTypeCode}, this purchase was for ${row.priceTypeCode}`;
+  if (row.detCustomerId && det.customerId && det.customerId !== row.detCustomerId) return "it was sold to a different DET customer";
+  return null;
+}
+
+function alreadyInProgressMessage(live: DtcmOrder | null): string {
+  if (live && (live.status === "UNCERTAIN" || isStalePending(live))) {
+    return "An earlier DET purchase for this registration may have gone through. Resolve it before buying again.";
+  }
+  if (live?.status === "PURCHASED") {
+    return `DET already sold a ticket for this registration (order ${live.orderId}${live.barcode ? `, barcode ${live.barcode}` : ""}). Enter that barcode instead of buying another.`;
+  }
+  return "A DET purchase for this registration is already in progress";
 }
 
 function markFailed(orderId: string, err: DetApiError) {
@@ -362,6 +394,8 @@ function audit(ctx: { userId: string | null; source: DtcmSource }, order: DtcmOr
 
 export type ResolveDtcmOrderErrorCode =
   | "ORDER_NOT_FOUND"
+  | "ORDER_ALREADY_LINKED"
+  | "ORDER_MISMATCH"
   | "WRONG_STATUS"
   | "NOT_CONFIGURED"
   | "DET_ORDER_NOT_FOUND"
@@ -402,11 +436,21 @@ export function resolveDtcmOrder(input: ResolveDtcmOrderInput): Promise<ResolveD
     }
 
     const ctx = { userId: input.userId, source: "rest" as const };
+    // Every resolve write is conditional on the state that was read (review
+    // MED 3): two organisers, or a double submit, cannot both act on one order.
+    const unchanged = { id: order.id, status: order.status, updatedAt: order.updatedAt };
+    const raced = (): ResolveDtcmOrderResult => {
+      apiLogger.warn({ msg: "dtcm-eticket:resolve-raced", ...log });
+      return { ok: false, code: "WRONG_STATUS", message: "Someone else changed this DET order a moment ago. Reopen the registration." };
+    };
+
     if (input.action.kind === "not-bought") {
-      const failed = await db.dtcmOrder.update({
-        where: { id: order.id },
+      const done = await db.dtcmOrder.updateMany({
+        where: unchanged,
         data: { status: "FAILED", activeKey: null, errorMessage: `Marked as not bought by a person after: ${order.errorMessage ?? "no answer"}`.slice(0, 1000) },
       });
+      if (done.count === 0) return raced();
+      const failed = await db.dtcmOrder.findUniqueOrThrow({ where: { id: order.id } });
       await audit(ctx, failed, "DTCM_ORDER_MARKED_NOT_BOUGHT");
       apiLogger.info({ msg: "dtcm-eticket:resolve-not-bought", ...log });
       return { ok: true, order: failed, barcode: null };
@@ -421,18 +465,35 @@ export function resolveDtcmOrder(input: ResolveDtcmOrderInput): Promise<ResolveD
 
     const detOrderId = input.action.kind === "found" ? input.action.detOrderId : (order.orderId ?? "");
     if (input.action.kind === "found") {
-      // Prove the number is a real order before trusting it.
+      // A number another row already holds is someone else's ticket.
+      const taken = await db.dtcmOrder.findFirst({
+        where: { environment: order.environment, orderId: detOrderId, id: { not: order.id } },
+        select: { id: true },
+      });
+      if (taken) {
+        apiLogger.warn({ msg: "dtcm-eticket:resolve-order-taken", ...log, detOrderId, takenBy: taken.id });
+        return { ok: false, code: "ORDER_ALREADY_LINKED", message: `DET order ${detOrderId} already belongs to another registration's purchase`, order };
+      }
+      // Prove the number is a real order, and THIS attempt's, before trusting it (review MED 2).
+      let det;
       try {
-        if (!(await getDetOrder(creds, detOrderId))) {
-          apiLogger.warn({ msg: "dtcm-eticket:resolve-det-order-missing", ...log, detOrderId });
-          return { ok: false, code: "DET_ORDER_NOT_FOUND", message: `DET has no order ${detOrderId} in ${order.environment}`, order };
-        }
+        det = await getDetOrder(creds, detOrderId);
       } catch (err) {
         if (!(err instanceof DetApiError)) throw err;
         apiLogger.warn({ msg: "dtcm-eticket:resolve-det-failed", ...log, stage: err.stage, httpStatus: err.httpStatus });
         return { ok: false, code: "DET_FAILED", message: err.message, order };
       }
-      await db.dtcmOrder.update({ where: { id: order.id }, data: { orderId: detOrderId, status: "PURCHASED" } });
+      if (!det) {
+        apiLogger.warn({ msg: "dtcm-eticket:resolve-det-order-missing", ...log, detOrderId });
+        return { ok: false, code: "DET_ORDER_NOT_FOUND", message: `DET has no order ${detOrderId} in ${order.environment}`, order };
+      }
+      const mismatch = orderMismatch(order, det);
+      if (mismatch) {
+        apiLogger.warn({ msg: "dtcm-eticket:resolve-order-mismatch", ...log, detOrderId, mismatch });
+        return { ok: false, code: "ORDER_MISMATCH", message: `DET order ${detOrderId} is not this purchase: ${mismatch}`, order };
+      }
+      const claimed = await db.dtcmOrder.updateMany({ where: unchanged, data: { orderId: detOrderId, status: "PURCHASED" } });
+      if (claimed.count === 0) return raced();
     }
 
     if (!order.registrationId) {

@@ -3009,7 +3009,7 @@ export function RegistrationDetailSheet({
                               key={selectedRegistration.id}
                               eventId={eventId}
                               registrationId={selectedRegistration.id}
-                              hasCode={Boolean(selectedRegistration.dtcmBarcode)}
+                              currentCode={selectedRegistration.dtcmBarcode ?? null}
                               canResolve={canResolveDtcmOrders}
                               busy={assigningDtcm}
                               onCodeChanged={() => refreshSelectedRegistration(selectedRegistration.id)}

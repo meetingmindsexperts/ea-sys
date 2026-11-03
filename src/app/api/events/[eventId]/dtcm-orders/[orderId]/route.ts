@@ -35,6 +35,8 @@ const bodySchema = z.discriminatedUnion("action", [
 const HTTP_STATUS: Partial<Record<ResolveDtcmOrderErrorCode, number>> = {
   ORDER_NOT_FOUND: 404,
   WRONG_STATUS: 409,
+  ORDER_ALREADY_LINKED: 409,
+  ORDER_MISMATCH: 400,
   NOT_CONFIGURED: 400,
   DET_ORDER_NOT_FOUND: 400,
   DET_FAILED: 502,

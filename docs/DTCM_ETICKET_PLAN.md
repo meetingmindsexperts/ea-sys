@@ -173,9 +173,11 @@ Failure handling:
 - Purchase call **times out or 5xxs**: we do not know if a ticket was bought.
   Do not delete the basket. Instead ask `GET /baskets/{basketId}` (Q3,
   verified in UAT, §10):
-  - **Basket still there** → the purchase did not happen. Delete the basket,
-    mark FAILED, clear `activeKey`. Safe to retry. This settles the common
-    case (timeout before DET processed the request) with no human.
+  - **Basket still there AND DET confirms deleting it** → the purchase did
+    not happen and now cannot: mark FAILED, clear `activeKey`. Safe to retry.
+    "Still there" alone is not proof, because our timeout can fire while DET
+    is still committing the sale (review of step 3, HIGH 1); a delete that
+    fails makes the order UNCERTAIN.
   - **`5001 Basket is not found`** → the purchase most likely happened (a
     purchased basket disappears; an unpurchased one only disappears on expiry).
     Mark **UNCERTAIN**, keep `activeKey`. DET has no "order by basket" lookup,

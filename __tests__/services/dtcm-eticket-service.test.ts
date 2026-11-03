@@ -10,7 +10,7 @@ const { mockDb, det, mockGetCreds, logger } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn(), updateMany: vi.fn() },
-    dtcmOrder: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn() },
+    dtcmOrder: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -104,11 +104,22 @@ beforeEach(() => {
   det.deleteDetBasket.mockResolvedValue(undefined);
   mockDb.dtcmOrder.create.mockImplementation(async ({ data }) => (row = { id: "do-1", updatedAt: new Date(), ...data }));
   mockDb.dtcmOrder.update.mockImplementation(async ({ data }) => (row = { ...row, ...data }));
+  // A conditional write: applies only while the row still has the status it was read with.
+  mockDb.dtcmOrder.updateMany.mockImplementation(async ({ where, data }) => {
+    if (where.status !== undefined && row.status !== where.status) return { count: 0 };
+    row = { ...row, ...data };
+    return { count: 1 };
+  });
   mockDb.dtcmOrder.findUniqueOrThrow.mockImplementation(async () => row);
   mockDb.$transaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
 });
 
-const statusWrites = () => mockDb.dtcmOrder.update.mock.calls.map(([a]) => a.data);
+const statusWrites = () =>
+  [...mockDb.dtcmOrder.update.mock.calls, ...mockDb.dtcmOrder.updateMany.mock.calls]
+    .map(([a], i) => ({ a, order: i }))
+    .map(({ a }) => a.data);
+/** The row's final state, which is what the rules are about. */
+const finalRow = () => row;
 
 describe("the purchase", () => {
   it("writes the intent row first, buys at DET's price, and puts the barcode on a code-less registration", async () => {
@@ -153,7 +164,7 @@ describe("failures before the sale are definite: released and retryable", () => 
   it("basket refused: FAILED, activeKey cleared, nothing to release", async () => {
     det.createDetBasket.mockRejectedValue(refused("createBasket"));
     expect(await issueDtcmTicket(input)).toMatchObject({ ok: false, code: "DET_REFUSED" });
-    expect(statusWrites().at(-1)).toMatchObject({ status: "FAILED", activeKey: null, errorStage: "createBasket" });
+    expect(finalRow()).toMatchObject({ status: "FAILED", activeKey: null, errorStage: "createBasket" });
     expect(det.deleteDetBasket).not.toHaveBeenCalled();
   });
 
@@ -161,7 +172,7 @@ describe("failures before the sale are definite: released and retryable", () => 
     det.createDetCustomer.mockRejectedValue(refused("createCustomer"));
     await issueDtcmTicket(input);
     expect(det.deleteDetBasket).toHaveBeenCalledWith(expect.anything(), "B1");
-    expect(statusWrites().at(-1)).toMatchObject({ status: "FAILED", activeKey: null });
+    expect(finalRow()).toMatchObject({ status: "FAILED", activeKey: null });
   });
 
   it("purchase refused with a definite 4xx: released and FAILED", async () => {
@@ -178,19 +189,27 @@ describe("a lost purchase answer is never retried blindly", () => {
     det.detBasketExists.mockResolvedValue(true);
     expect(await issueDtcmTicket(input)).toMatchObject({ code: "DET_REFUSED" });
     expect(det.deleteDetBasket).toHaveBeenCalled();
-    expect(statusWrites().at(-1)).toMatchObject({ status: "FAILED", activeKey: null });
+    expect(finalRow()).toMatchObject({ status: "FAILED", activeKey: null });
   });
 
   it("basket gone: UNCERTAIN, activeKey KEPT, basket untouched, nothing on the registration", async () => {
     det.purchaseDetBasket.mockRejectedValue(unknownOutcome());
     det.detBasketExists.mockResolvedValue(false);
     expect(await issueDtcmTicket(input)).toMatchObject({ ok: false, code: "UNCERTAIN" });
-    const last = statusWrites().at(-1);
-    expect(last).toMatchObject({ status: "UNCERTAIN" });
-    expect(last).not.toHaveProperty("activeKey");
+    expect(finalRow()).toMatchObject({ status: "UNCERTAIN", activeKey: "reg-1" });
     expect(det.deleteDetBasket).not.toHaveBeenCalled();
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
     expect(mockDb.auditLog.create.mock.calls[0][0].data.action).toBe("DTCM_ORDER_UNCERTAIN");
+  });
+
+  it("basket seen but its delete fails: UNCERTAIN, never FAILED or pooled (review HIGH 1)", async () => {
+    // Our timeout fired while DET was still committing: the basket is visible,
+    // then sold, so the delete answers 5001. That is not proof of "not bought".
+    det.purchaseDetBasket.mockRejectedValue(new DetApiError("DET purchaseBasket timed out after 30s", "purchaseBasket", null));
+    det.detBasketExists.mockResolvedValue(true);
+    det.deleteDetBasket.mockRejectedValue(new DetApiError("DET deleteBasket failed (HTTP 400, code 5001)", "deleteBasket", 400, "5001"));
+    expect(await issueDtcmTicket(input)).toMatchObject({ ok: false, code: "UNCERTAIN" });
+    expect(finalRow()).toMatchObject({ status: "UNCERTAIN", activeKey: "reg-1" });
   });
 
   it("basket check itself fails: UNCERTAIN, not FAILED", async () => {
@@ -214,11 +233,31 @@ describe("after the sale", () => {
     expect(row).toMatchObject({ status: "PURCHASED", barcode: "BAR-1" });
   });
 
+  it("records a sale that lands after a person resolved the attempt, and says so", async () => {
+    det.purchaseDetBasket.mockImplementation(async () => {
+      row = { ...row, status: "FAILED", activeKey: null }; // a person marked it not bought meanwhile
+      return "O1";
+    });
+    await issueDtcmTicket(input);
+    expect(row).toMatchObject({ orderId: "O1", status: "PURCHASED" });
+    expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "dtcm-eticket:sold-after-resolution" }));
+  });
+
+  it("tells the desk which barcode DET already sold, instead of 'in progress'", async () => {
+    mockDb.dtcmOrder.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "x" }));
+    mockDb.dtcmOrder.findUnique.mockResolvedValue({ id: "do-0", status: "PURCHASED", orderId: "O9", barcode: "BAR-9", updatedAt: new Date() });
+    const out = await issueDtcmTicket(input);
+    expect(out).toMatchObject({ ok: false, code: "ALREADY_IN_PROGRESS" });
+    expect(out.ok ? "" : out.message).toContain("BAR-9");
+  });
+
   it("logs the DET order number BEFORE writing it, so a crash cannot lose it", async () => {
     await issueDtcmTicket(input);
     const logged = logger.info.mock.calls.findIndex(([o]) => o?.msg === "dtcm-eticket:issue-purchased");
     const loggedAt = logger.info.mock.invocationCallOrder[logged];
-    const writeAt = mockDb.dtcmOrder.update.mock.invocationCallOrder[statusWrites().findIndex((d) => d.orderId === "O1")];
+    const writeAt = mockDb.dtcmOrder.updateMany.mock.invocationCallOrder[
+      mockDb.dtcmOrder.updateMany.mock.calls.findIndex(([a]) => a.data.orderId === "O1")
+    ];
     expect(loggedAt).toBeLessThan(writeAt);
   });
 });
@@ -246,17 +285,39 @@ describe("resolving", () => {
 
   it("checks a found order with DET in the ORDER's environment, then records its barcode", async () => {
     row = uncertain();
-    mockDb.dtcmOrder.findFirst.mockResolvedValue(row);
+    // First lookup: the order row; second: "does another row hold 777?" (no).
+    mockDb.dtcmOrder.findFirst.mockResolvedValueOnce(row).mockResolvedValueOnce(null);
     mockGetCreds.mockResolvedValue(creds("production"));
-    det.getDetOrder.mockResolvedValue({ orderId: "777", barcode: "BAR-7" });
+    det.getDetOrder.mockResolvedValue({ orderId: "777", barcode: "BAR-7", section: null, priceTypeCode: null, customerId: null });
     const out = await resolveDtcmOrder(resolveInput({ kind: "found", detOrderId: "777" }));
     expect(out).toMatchObject({ ok: true, barcode: "BAR-7" });
     expect(mockGetCreds).toHaveBeenCalledWith("org1", "production");
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({ where: { id: "reg-1", dtcmBarcode: null }, data: { dtcmBarcode: "BAR-7" } });
   });
 
+  it("refuses a real order that is not this purchase (another section) (review MED 2)", async () => {
+    row = uncertain({ area: "SVIP2", priceTypeCode: "C" });
+    mockDb.dtcmOrder.findFirst.mockResolvedValueOnce(row).mockResolvedValueOnce(null);
+    det.getDetOrder.mockResolvedValue({ orderId: "778", barcode: "BAR-X", section: "SGOLDA", priceTypeCode: "D", customerId: null });
+    expect(await resolveDtcmOrder(resolveInput({ kind: "found", detOrderId: "778" }))).toMatchObject({ ok: false, code: "ORDER_MISMATCH" });
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses an order number another row already holds", async () => {
+    mockDb.dtcmOrder.findFirst.mockResolvedValueOnce(uncertain()).mockResolvedValueOnce({ id: "do-other" });
+    expect(await resolveDtcmOrder(resolveInput({ kind: "found", detOrderId: "68167" }))).toMatchObject({ ok: false, code: "ORDER_ALREADY_LINKED" });
+    expect(det.getDetOrder).not.toHaveBeenCalled();
+  });
+
+  it("two people resolving at once: the second is refused (review MED 3)", async () => {
+    row = uncertain();
+    mockDb.dtcmOrder.findFirst.mockResolvedValue({ ...row });
+    row = { ...row, status: "FAILED" }; // the other organiser's write landed first
+    expect(await resolveDtcmOrder(resolveInput({ kind: "not-bought" }))).toMatchObject({ ok: false, code: "WRONG_STATUS" });
+  });
+
   it("refuses an order number DET does not know", async () => {
-    mockDb.dtcmOrder.findFirst.mockResolvedValue(uncertain());
+    mockDb.dtcmOrder.findFirst.mockResolvedValueOnce(uncertain()).mockResolvedValueOnce(null);
     det.getDetOrder.mockResolvedValue(null);
     expect(await resolveDtcmOrder(resolveInput({ kind: "found", detOrderId: "1" }))).toMatchObject({ ok: false, code: "DET_ORDER_NOT_FOUND" });
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
@@ -266,7 +327,7 @@ describe("resolving", () => {
     row = uncertain();
     mockDb.dtcmOrder.findFirst.mockResolvedValue(row);
     expect(await resolveDtcmOrder(resolveInput({ kind: "not-bought" }))).toMatchObject({ ok: true });
-    expect(statusWrites().at(-1)).toMatchObject({ status: "FAILED", activeKey: null });
+    expect(finalRow()).toMatchObject({ status: "FAILED", activeKey: null });
   });
 
   it("only an unresolved order can be resolved: a fresh PENDING is still in flight", async () => {

@@ -1195,6 +1195,10 @@ model DtcmOrder {
   event           Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
   registration    Registration?   @relation(fields: [registrationId], references: [id], onDelete: SetNull)
 
+  /// One DET order can belong to one row only: a pasted order number cannot
+  /// put one government ticket on two registrations. NULLs (attempts not yet
+  /// sold) are distinct in Postgres, so this is a plain unique.
+  @@unique([environment, orderId])
   @@index([eventId, status])
   @@index([registrationId])
   @@index([organizationId])

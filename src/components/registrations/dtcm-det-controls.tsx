@@ -19,7 +19,8 @@ import { useIssueDtcmFromDet, useRegistrationDtcmOrders, useResolveDtcmOrder, ty
 interface Props {
   eventId: string;
   registrationId: string;
-  hasCode: boolean;
+  /** The registration's DTCM code now, or null. */
+  currentCode: string | null;
   /** `dtcm.import`: may decide what happened to an uncertain sale. */
   canResolve: boolean;
   /** Re-read the registration after its code changed. */
@@ -28,12 +29,17 @@ interface Props {
   busy?: boolean;
 }
 
-export function DtcmDetControls({ eventId, registrationId, hasCode, canResolve, onCodeChanged, busy }: Props) {
+export function DtcmDetControls({ eventId, registrationId, currentCode, canResolve, onCodeChanged, busy }: Props) {
+  const hasCode = Boolean(currentCode);
   const { data } = useRegistrationDtcmOrders(eventId, registrationId);
   const issue = useIssueDtcmFromDet(eventId, registrationId);
 
   if (!data) return null;
   const open = data.orders.find((o) => o.unresolved) ?? data.orders.find((o) => o.status === "PURCHASED" && !o.barcode);
+  // A ticket DET sold for this person whose barcode is not the one on the
+  // registration (cleared by hand, or a code arrived another way during the
+  // sale). Buying again would be refused, so say what exists instead.
+  const orphan = open ? undefined : data.orders.find((o) => o.status === "PURCHASED" && o.barcode && o.barcode !== currentCode);
 
   const handleIssue = async () => {
     try {
@@ -53,11 +59,19 @@ export function DtcmDetControls({ eventId, registrationId, hasCode, canResolve, 
 
   return (
     <div className="space-y-2">
-      {!hasCode && data.detReady && !open && (
+      {!hasCode && data.detReady && !open && !orphan && (
         <Button size="sm" onClick={handleIssue} disabled={issue.isPending || busy}>
           {issue.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Barcode className="mr-2 h-4 w-4" />}
           Get code from DET
         </Button>
+      )}
+      {orphan && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-left text-xs text-amber-800">
+          DET sold a ticket for this person (order {orphan.orderId}) with barcode{" "}
+          <span className="font-mono">{orphan.barcode}</span>, which is not the code on this registration. Use Enter a code
+          to put it back rather than buying another
+          {hasCode ? ", or have an organiser reverse the unused DET order" : ""}.
+        </p>
       )}
       {open && (
         <OpenOrder
