@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import {
   blankLine,
+  fromCatalogueProduct,
   fromDraftLine,
   fromQuoteLine,
   keepPricesIn,
@@ -134,3 +135,37 @@ describe("an unpriced deal line (review of abf62a0a)", () => {
   });
 });
 
+
+describe("fromCatalogueProduct (Nov 3, 2026)", () => {
+  const gold = { id: "p-9", name: "Sponsorship - Gold", sku: "SPO10002", price: "75000.00", currency: "AED" };
+
+  it("links the line to the product and fills the price in the product's currency", () => {
+    const line = fromCatalogueProduct(gold, "AED");
+    expect(line).toMatchObject({
+      crmProductId: "p-9",
+      productCode: "SPO10002",
+      name: "Sponsorship - Gold",
+      quantity: "1",
+      unitPrice: "75000",
+      priceCurrency: "AED",
+      priceFromCatalogue: true,
+    });
+  });
+
+  it("leaves the price empty and flagged on a quote in another currency, never converted", () => {
+    const line = fromCatalogueProduct(gold, "USD");
+    expect(line.unitPrice).toBe("");
+    expect(linesNeedingPrice([line], "USD")).toHaveLength(1);
+  });
+
+  it("fills the price when the quote switches to the product's currency", () => {
+    const [line] = switchLinesCurrency([fromCatalogueProduct(gold, "USD")], "AED");
+    expect(line!.unitPrice).toBe("75000");
+  });
+
+  it("asks for a price when the viewer's catalogue price is redacted", () => {
+    const line = fromCatalogueProduct({ ...gold, price: undefined, sku: null }, "AED");
+    expect(line).toMatchObject({ unitPrice: "", productCode: "", catalogue: null });
+    expect(linesNeedingPrice([line], "AED")).toHaveLength(1);
+  });
+});

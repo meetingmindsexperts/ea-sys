@@ -7,6 +7,8 @@
  * lines (product code, name, description, quantity, unit price), tax, terms and
  * notes. A new quote starts from the server draft (the deal's company, products,
  * event tax and the org's default terms); an edit starts from the saved quote.
+ * "Add from catalogue" picks any catalogue product, linked like a deal line, so
+ * a product does not have to be on the deal first (Nov 3, 2026).
  *
  * The totals shown are computed by the same `computeQuoteTotals` the service
  * stores, so the preview cannot disagree with the PDF. Prices are never
@@ -31,6 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiError } from "@/lib/api-fetch";
+import { ProductPicker } from "@/crm/components/crm-deal-products";
 import { useCreateCrmDealQuote, useCrmQuoteDraft, useUpdateCrmDealQuote } from "@/crm/hooks/use-crm-api";
 import {
   MAX_QUOTE_LINES,
@@ -47,6 +50,7 @@ import {
 } from "@/crm/lib/quote-rules";
 import {
   blankLine,
+  fromCatalogueProduct,
   fromDraftLine,
   fromQuoteLine,
   keepPricesIn,
@@ -411,6 +415,16 @@ function QuoteEditorForm({
           >
             <Plus className="mr-1.5 h-3.5 w-3.5" /> Add line
           </Button>
+          <ProductPicker
+            excludeIds={[...onQuote].filter((id): id is string => !!id)}
+            adding={false}
+            disabled={lines.length >= MAX_QUOTE_LINES}
+            label="Add from catalogue"
+            triggerClassName="justify-start"
+            onPick={(product) =>
+              setLines((prev) => [...prev, fromCatalogueProduct(product, currency)].slice(0, MAX_QUOTE_LINES))
+            }
+          />
           {productsToAdd.length > 0 && (
             <Button type="button" size="sm" variant="outline" onClick={addDealProducts}>
               <PackagePlus className="mr-1.5 h-3.5 w-3.5" /> Add deal products ({productsToAdd.length})

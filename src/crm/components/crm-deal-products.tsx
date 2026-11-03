@@ -29,6 +29,7 @@ import {
   sumDealProducts,
   dealProductsMixedCurrency,
   type CrmDealProductRow,
+  type CrmProductRow,
 } from "@/crm/lib/crm-types";
 
 /**
@@ -91,7 +92,7 @@ export function DealProducts({ dealId, canWrite }: { dealId: string; canWrite: b
         <ProductPicker
           excludeIds={lines.map((l) => l.crmProductId).filter((x): x is string => !!x)}
           adding={add.isPending}
-          onPick={(crmProductId) => add.mutate({ crmProductId })}
+          onPick={(product) => add.mutate({ crmProductId: product.id })}
         />
       )}
     </div>
@@ -221,14 +222,24 @@ function LineItem({
   );
 }
 
-function ProductPicker({
+/**
+ * Search the catalogue and pick a product. Shared with the quote editor, which
+ * passes its own trigger label and width.
+ */
+export function ProductPicker({
   excludeIds,
   adding,
   onPick,
+  label = "Add a product…",
+  triggerClassName = "w-full justify-between",
+  disabled = false,
 }: {
   excludeIds: string[];
   adding: boolean;
-  onPick: (crmProductId: string) => void;
+  onPick: (product: CrmProductRow) => void;
+  label?: string;
+  triggerClassName?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -243,10 +254,10 @@ function ProductPicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="w-full justify-between" disabled={adding}>
+        <Button type="button" variant="outline" size="sm" className={triggerClassName} disabled={adding || disabled}>
           <span className="flex items-center gap-2 text-muted-foreground">
             {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Add a product…
+            {label}
           </span>
           <ChevronsUpDown className="h-4 w-4 opacity-50" />
         </Button>
@@ -262,7 +273,7 @@ function ProductPicker({
                   key={p.id}
                   value={p.id}
                   onSelect={() => {
-                    onPick(p.id);
+                    onPick(p);
                     setOpen(false);
                     setSearch("");
                   }}

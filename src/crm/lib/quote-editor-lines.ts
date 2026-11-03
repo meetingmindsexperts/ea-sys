@@ -82,6 +82,27 @@ export function fromDraftLine(line: CrmQuoteDraftLine, currency: string): Editor
   return catalogueFill(base, currency);
 }
 
+/**
+ * A line picked straight from the catalogue in the editor, so a quote is not
+ * limited to the products already on the deal. Linked to the product like a
+ * deal line; the price fills only when the product is priced in the quote's
+ * currency (no conversion). A price redacted for the viewer leaves it to type.
+ */
+export function fromCatalogueProduct(
+  product: { id: string; name: string; sku?: string | null; price?: string | number | null; currency: string },
+  currency: string,
+): EditorLine {
+  const price = product.price == null ? null : Number(product.price);
+  const base: EditorLine = {
+    ...blankLine(),
+    productCode: product.sku ?? "",
+    name: product.name,
+    crmProductId: product.id,
+    catalogue: price !== null && Number.isFinite(price) ? { price, currency: product.currency } : null,
+  };
+  return catalogueFill(base, currency);
+}
+
 export function fromQuoteLine(line: CrmQuoteRow["lines"][number], quoteCurrency: string): EditorLine {
   return {
     key: newKey(),
