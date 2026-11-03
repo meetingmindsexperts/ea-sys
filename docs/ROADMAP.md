@@ -7,6 +7,32 @@
 
 ---
 
+## A refund-button refund can be counted twice (found Nov 3, 2026): recorded, not fixed
+
+Found reviewing the dependency audit's fixes; the owner chose to leave it for
+now. `refundRegistration()` in `src/services/payment-service.ts` books the
+refund on the REGISTRATION before calling Stripe, but bumps
+`Payment.refundedAmount` only after `stripe.refunds.create` returns, as a lone
+statement whose failure is only logged. `charge.refunded` in
+`src/lib/stripe-webhook-handler.ts` reconciles against that payment counter,
+so it double-counts when:
+
+- the webhook arrives between the Stripe call and the payment update: it sees
+  a delta, adds it to the registration a second time and issues a second
+  credit note;
+- the payment update fails, or the process dies after the Stripe call: the
+  sweep in `src/lib/refund-reconciliation.ts` marks the attempt SUCCEEDED but
+  never sets the payment counter, so the next delivery double-counts the same
+  way.
+
+Options weighed: (1, recommended) the webhook answers 500 while one of our
+`RefundAttempt`s on that intent is PENDING, so Stripe retries after the route
+finishes, and the sweep sets the payment counter when it confirms an attempt;
+(2) book the payment counter in the same pre-Stripe transaction as the
+registration and undo it on every rollback path, cleaner but it rewrites the
+refund rollback logic; (3) list the charge's refunds and ignore the ones
+carrying `metadata.refundAttemptId`, an extra Stripe call per webhook.
+
 ## Bot spam on the public forms (recorded Oct 26, 2026): not started
 
 Owner: "we have so many forms, what if bots start spam submissions". Today every public form has per-IP
