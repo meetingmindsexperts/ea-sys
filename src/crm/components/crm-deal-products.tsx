@@ -222,6 +222,8 @@ function LineItem({
   );
 }
 
+const PICKER_ROWS = 100;
+
 /**
  * Search the catalogue and pick a product. Shared with the quote editor, which
  * passes its own trigger label and width.
@@ -268,7 +270,7 @@ export function ProductPicker({
           <CommandList>
             <CommandEmpty>No products match.</CommandEmpty>
             <CommandGroup>
-              {available.slice(0, 100).map((p) => (
+              {available.slice(0, PICKER_ROWS).map((p) => (
                 <CommandItem
                   key={p.id}
                   value={p.id}
@@ -283,6 +285,11 @@ export function ProductPicker({
                   <Badge variant="outline" className="ml-2 shrink-0 text-[10px]">{p.category}</Badge>
                 </CommandItem>
               ))}
+              {available.length > PICKER_ROWS && (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                  Showing {PICKER_ROWS} of {available.length}. Type to search the rest.
+                </p>
+              )}
             </CommandGroup>
           </CommandList>
         </Command>

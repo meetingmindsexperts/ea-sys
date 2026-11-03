@@ -13,7 +13,7 @@
  * The totals shown are computed by the same `computeQuoteTotals` the service
  * stores, so the preview cannot disagree with the PDF. Prices are never
  * converted: each line remembers the currency its price was entered in, and a
- * currency switch flags any price entered in another one (quote-editor-lines).
+ * line priced in another currency is flagged and blocks the save (quote-editor-lines).
  */
 import { useState } from "react";
 import { toast } from "sonner";
@@ -34,6 +34,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiError } from "@/lib/api-fetch";
 import { ProductPicker } from "@/crm/components/crm-deal-products";
+import type { CrmProductRow } from "@/crm/lib/crm-types";
 import { useCreateCrmDealQuote, useCrmQuoteDraft, useUpdateCrmDealQuote } from "@/crm/hooks/use-crm-api";
 import {
   MAX_QUOTE_LINES,
@@ -56,7 +57,6 @@ import {
   keepPricesIn,
   linesNeedingPrice,
   linesPricedInOtherCurrency,
-  switchLinesCurrency,
   withTypedPrice,
   type EditorLine,
 } from "@/crm/lib/quote-editor-lines";
@@ -155,7 +155,7 @@ function QuoteEditorForm({
   const [lines, setLines] = useState<EditorLine[]>(() =>
     quote
       ? quote.lines.map((l) => fromQuoteLine(l, initialCurrency))
-      : draft.lines.map((l) => fromDraftLine(l, initialCurrency)),
+      : draft.lines.map((l) => fromDraftLine(l)),
   );
   const [saveTermsAsDefault, setSaveTermsAsDefault] = useState(false);
 
@@ -166,7 +166,7 @@ function QuoteEditorForm({
 
   const onQuote = new Set(lines.map((l) => l.crmProductId).filter(Boolean));
   const productsToAdd = draft.lines.filter((l) => !l.crmProductId || !onQuote.has(l.crmProductId));
-  const needsPrice = linesNeedingPrice(lines, currency);
+  const needsPrice = linesNeedingPrice(lines);
   const needsPriceKeys = new Set(needsPrice.map((l) => l.key));
   const pricedElsewhere = linesPricedInOtherCurrency(lines, currency);
   const pricedElsewhereKeys = new Set(pricedElsewhere.map((l) => l.key));
@@ -182,12 +182,18 @@ function QuoteEditorForm({
 
   function changeCurrency(next: string) {
     if (!isQuoteCurrency(next) || next === currency) return;
-    setLines((prev) => switchLinesCurrency(prev, next));
     setCurrency(next);
   }
 
   function addDealProducts() {
-    setLines((prev) => [...prev, ...productsToAdd.map((l) => fromDraftLine(l, currency))].slice(0, MAX_QUOTE_LINES));
+    setLines((prev) => [...prev, ...productsToAdd.map((l) => fromDraftLine(l))].slice(0, MAX_QUOTE_LINES));
+  }
+
+  /** A product already on the deal comes in at the deal's agreed price, not the list price. */
+  function addCatalogueProduct(product: CrmProductRow) {
+    const onDeal = draft.lines.find((l) => l.crmProductId === product.id);
+    const line = onDeal ? fromDraftLine(onDeal) : fromCatalogueProduct(product);
+    setLines((prev) => [...prev, line].slice(0, MAX_QUOTE_LINES));
   }
 
   function buildInput(): QuoteInput | string {
@@ -207,7 +213,7 @@ function QuoteEditorForm({
       const quantity = parseAmount(l.quantity);
       if (quantity === null || !Number.isInteger(quantity) || quantity < 1) return `Line ${row}: quantity must be a whole number of at least 1`;
       if (pricedElsewhereKeys.has(l.key)) {
-        return `Line ${row}: the price was entered in ${l.priceCurrency}. Re-enter it in ${currency}, or keep the prices as they are.`;
+        return `Line ${row}: the price is in ${l.priceCurrency}. Re-enter it in ${currency}, or keep the prices as they are.`;
       }
       const unitPrice = parseAmount(l.unitPrice);
       if (unitPrice === null || unitPrice < 0) return `Line ${row} needs a unit price in ${currency}`;
@@ -312,8 +318,8 @@ function QuoteEditorForm({
           <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <p className="flex-1">
-              {pricedElsewhere.length === 1 ? "1 price was" : `${pricedElsewhere.length} prices were`} entered in{" "}
-              {otherCurrencies}. Prices are not converted: re-enter them in {currency}, or keep them as they are.
+              {pricedElsewhere.length === 1 ? "1 price is" : `${pricedElsewhere.length} prices are`} in {otherCurrencies}.
+              Prices are not converted: re-enter them in {currency}, or keep them as they are.
             </p>
             <Button type="button" size="sm" variant="outline" onClick={() => setLines((prev) => keepPricesIn(prev, currency))}>
               Keep as {currency}
@@ -380,10 +386,10 @@ function QuoteEditorForm({
                         className={`h-8 text-right tabular-nums ${missingPrice || wrongCurrency ? "border-amber-400" : ""}`}
                       />
                       {missingPrice && (
-                        <p className="text-right text-[11px] text-amber-700">Catalogue price is in {l.catalogue?.currency}</p>
+                        <p className="text-right text-[11px] text-amber-700">Needs a price</p>
                       )}
                       {wrongCurrency && (
-                        <p className="text-right text-[11px] text-amber-700">Entered in {l.priceCurrency}</p>
+                        <p className="text-right text-[11px] text-amber-700">Priced in {l.priceCurrency}</p>
                       )}
                     </div>
                     <p className="flex h-8 items-center justify-end text-sm tabular-nums">
@@ -421,9 +427,7 @@ function QuoteEditorForm({
             disabled={lines.length >= MAX_QUOTE_LINES}
             label="Add from catalogue"
             triggerClassName="justify-start"
-            onPick={(product) =>
-              setLines((prev) => [...prev, fromCatalogueProduct(product, currency)].slice(0, MAX_QUOTE_LINES))
-            }
+            onPick={addCatalogueProduct}
           />
           {productsToAdd.length > 0 && (
             <Button type="button" size="sm" variant="outline" onClick={addDealProducts}>

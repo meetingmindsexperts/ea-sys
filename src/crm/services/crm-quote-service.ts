@@ -259,7 +259,7 @@ export function buildQuoteDraft(deal: DealContext, preparedByName: string, now: 
         name: p.productName,
         description: null,
         quantity: p.quantity,
-        // No conversion: a price in another currency is left for the rep to type.
+        // No conversion: the editor shows a price in another currency flagged, from cataloguePrice.
         unitPrice: !unpriced && p.currency === currency ? Number(p.unitPrice) : null,
         productCurrency: unpriced ? null : p.currency,
         cataloguePrice: unpriced ? null : Number(p.unitPrice),

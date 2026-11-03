@@ -14,7 +14,6 @@ import {
   keepPricesIn,
   linesNeedingPrice,
   linesPricedInOtherCurrency,
-  switchLinesCurrency,
   withTypedPrice,
 } from "@/crm/lib/quote-editor-lines";
 
@@ -41,47 +40,24 @@ const aedProductOnUsdDraft = {
 };
 
 describe("fromDraftLine", () => {
-  it("pre-fills a catalogue price only in the product's own currency", () => {
-    expect(fromDraftLine(usdProduct, "USD")).toMatchObject({ unitPrice: "95000", priceCurrency: "USD", priceFromCatalogue: true });
-    expect(fromDraftLine(usdProduct, "AED")).toMatchObject({ unitPrice: "", priceCurrency: null, priceFromCatalogue: false });
+  it("fills the catalogue price in the product's own currency", () => {
+    expect(fromDraftLine(usdProduct)).toMatchObject({ unitPrice: "95000", priceCurrency: "USD" });
+    expect(fromDraftLine(aedProductOnUsdDraft)).toMatchObject({ unitPrice: "20000", priceCurrency: "AED" });
+  });
+
+  it("flags a price in another currency, and the save check refuses it (Nov 3, 2026)", () => {
+    const line = fromDraftLine(aedProductOnUsdDraft);
+    expect(linesPricedInOtherCurrency([line], "USD")).toHaveLength(1);
+    expect(linesPricedInOtherCurrency([line], "AED")).toHaveLength(0);
+    expect(linesNeedingPrice([line])).toHaveLength(0);
   });
 });
 
-describe("switching the quote currency", () => {
-  it("clears an untouched catalogue price instead of relabelling it", () => {
-    const [line] = switchLinesCurrency([fromDraftLine(usdProduct, "USD")], "AED");
-    expect(line).toMatchObject({ unitPrice: "", priceCurrency: null });
-    expect(linesPricedInOtherCurrency([line!], "AED")).toHaveLength(0);
-    expect(linesNeedingPrice([line!], "AED")).toHaveLength(1);
-  });
-
-  it("re-fills the catalogue price when switching back to the product's currency", () => {
-    const there = switchLinesCurrency([fromDraftLine(usdProduct, "USD")], "AED");
-    const [back] = switchLinesCurrency(there, "USD");
-    expect(back).toMatchObject({ unitPrice: "95000", priceCurrency: "USD", priceFromCatalogue: true });
-  });
-
-  it("fills a product's own-currency price when the quote switches to that currency", () => {
-    const line = fromDraftLine(aedProductOnUsdDraft, "USD");
-    expect(linesNeedingPrice([line], "USD")).toHaveLength(1);
-
-    const [switched] = switchLinesCurrency([line], "AED");
-    expect(switched).toMatchObject({ unitPrice: "20000", priceCurrency: "AED", priceFromCatalogue: true });
-    expect(linesNeedingPrice([switched!], "AED")).toHaveLength(0);
-  });
-
-  it("keeps a typed price but flags it as entered in the old currency", () => {
+describe("a currency the price was not entered in", () => {
+  it("flags a typed price after the quote's currency changes, never relabelling it", () => {
     const typed = withTypedPrice(blankLine(), "1200", "USD");
-    const [line] = switchLinesCurrency([typed], "AED");
-    expect(line!.unitPrice).toBe("1200");
-    expect(linesPricedInOtherCurrency([line!], "AED")).toHaveLength(1);
-  });
-
-  it("treats an edited catalogue price as the user's number, not the catalogue's", () => {
-    const edited = withTypedPrice(fromDraftLine(usdProduct, "USD"), "90000", "USD");
-    const [line] = switchLinesCurrency([edited], "AED");
-    expect(line!.unitPrice).toBe("90000");
-    expect(linesPricedInOtherCurrency([line!], "AED")).toHaveLength(1);
+    expect(typed.unitPrice).toBe("1200");
+    expect(linesPricedInOtherCurrency([typed], "AED")).toHaveLength(1);
   });
 
   it("flags every price on a saved quote when its currency changes", () => {
@@ -89,28 +65,23 @@ describe("switching the quote currency", () => {
       { productCode: null, name: "Booth", description: null, quantity: 2, unitPrice: 5000, amount: 10000, crmProductId: null } as never,
       "USD",
     );
-    const lines = switchLinesCurrency([saved], "EUR");
-    expect(linesPricedInOtherCurrency(lines, "EUR")).toHaveLength(1);
-    expect(linesPricedInOtherCurrency(lines, "USD")).toHaveLength(0);
+    expect(linesPricedInOtherCurrency([saved], "EUR")).toHaveLength(1);
+    expect(linesPricedInOtherCurrency([saved], "USD")).toHaveLength(0);
   });
 
-  it("lets the user confirm the flagged prices stand in the new currency", () => {
-    const lines = switchLinesCurrency([withTypedPrice(blankLine(), "1200", "USD")], "AED");
-    const kept = keepPricesIn(lines, "AED");
-    expect(linesPricedInOtherCurrency(kept, "AED")).toHaveLength(0);
-    expect(kept[0]!.unitPrice).toBe("1200");
+  it("lets the user confirm the flagged prices stand in the quote's currency", () => {
+    const kept = keepPricesIn([fromDraftLine(aedProductOnUsdDraft)], "USD");
+    expect(linesPricedInOtherCurrency(kept, "USD")).toHaveLength(0);
+    expect(kept[0]!.unitPrice).toBe("20000");
   });
 
   it("re-typing a flagged price clears the flag", () => {
-    const [line] = switchLinesCurrency([withTypedPrice(blankLine(), "1200", "USD")], "AED");
-    const retyped = withTypedPrice(line!, "4400", "AED");
-    expect(linesPricedInOtherCurrency([retyped], "AED")).toHaveLength(0);
+    const retyped = withTypedPrice(fromDraftLine(aedProductOnUsdDraft), "5450", "USD");
+    expect(linesPricedInOtherCurrency([retyped], "USD")).toHaveLength(0);
   });
 
-  it("leaves a line with no catalogue product and no price alone", () => {
-    const [line] = switchLinesCurrency([blankLine()], "AED");
-    expect(line).toMatchObject({ unitPrice: "", priceCurrency: null });
-    expect(linesNeedingPrice([line!], "AED")).toHaveLength(0);
+  it("leaves a hand-added blank line to the save check", () => {
+    expect(linesNeedingPrice([blankLine()])).toHaveLength(0);
   });
 });
 
@@ -124,14 +95,14 @@ describe("an unpriced deal line (review of abf62a0a)", () => {
   };
 
   it("arrives blank and is flagged as needing a price", () => {
-    const line = fromDraftLine(unpricedOnDeal, "USD");
+    const line = fromDraftLine(unpricedOnDeal);
     expect(line.unitPrice).toBe("");
-    expect(linesNeedingPrice([line], "USD")).toHaveLength(1);
+    expect(linesNeedingPrice([line])).toHaveLength(1);
   });
 
   it("is no longer flagged once the rep types a price", () => {
-    const line = withTypedPrice(fromDraftLine(unpricedOnDeal, "USD"), "15000", "USD");
-    expect(linesNeedingPrice([line], "USD")).toHaveLength(0);
+    const line = withTypedPrice(fromDraftLine(unpricedOnDeal), "15000", "USD");
+    expect(linesNeedingPrice([line])).toHaveLength(0);
   });
 });
 
@@ -139,33 +110,30 @@ describe("an unpriced deal line (review of abf62a0a)", () => {
 describe("fromCatalogueProduct (Nov 3, 2026)", () => {
   const gold = { id: "p-9", name: "Sponsorship - Gold", sku: "SPO10002", price: "75000.00", currency: "AED" };
 
-  it("links the line to the product and fills the price in the product's currency", () => {
-    const line = fromCatalogueProduct(gold, "AED");
-    expect(line).toMatchObject({
+  it("links the line to the product and fills its price in the product's currency", () => {
+    expect(fromCatalogueProduct(gold)).toMatchObject({
       crmProductId: "p-9",
       productCode: "SPO10002",
       name: "Sponsorship - Gold",
       quantity: "1",
       unitPrice: "75000",
       priceCurrency: "AED",
-      priceFromCatalogue: true,
     });
   });
 
-  it("leaves the price empty and flagged on a quote in another currency, never converted", () => {
-    const line = fromCatalogueProduct(gold, "USD");
-    expect(line.unitPrice).toBe("");
-    expect(linesNeedingPrice([line], "USD")).toHaveLength(1);
+  it("is flagged on a quote in another currency, never converted", () => {
+    expect(linesPricedInOtherCurrency([fromCatalogueProduct(gold)], "USD")).toHaveLength(1);
   });
 
-  it("fills the price when the quote switches to the product's currency", () => {
-    const [line] = switchLinesCurrency([fromCatalogueProduct(gold, "USD")], "AED");
-    expect(line!.unitPrice).toBe("75000");
+  it("treats a 0 price as unpriced, never a free line (review of d6cf46cb)", () => {
+    const line = fromCatalogueProduct({ ...gold, price: "0.00" });
+    expect(line).toMatchObject({ unitPrice: "", catalogue: null });
+    expect(linesNeedingPrice([line])).toHaveLength(1);
   });
 
   it("asks for a price when the viewer's catalogue price is redacted", () => {
-    const line = fromCatalogueProduct({ ...gold, price: undefined, sku: null }, "AED");
+    const line = fromCatalogueProduct({ ...gold, price: undefined, sku: null });
     expect(line).toMatchObject({ unitPrice: "", productCode: "", catalogue: null });
-    expect(linesNeedingPrice([line], "AED")).toHaveLength(1);
+    expect(linesNeedingPrice([line])).toHaveLength(1);
   });
 });
