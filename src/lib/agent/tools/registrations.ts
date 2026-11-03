@@ -21,7 +21,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { checkInGate, executeCheckIn, CheckInCancelledError } from "@/lib/check-in";
 import { refreshEventStats } from "@/lib/event-stats";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
-import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
+import { flagGroupInvoiceDriftForCancelledMembers } from "@/lib/group-invoice-drift";
 import { notifyEventAdmins } from "@/lib/notifications";
 import {
   CONFIRMATION_EVENT_SELECT,

@@ -8,7 +8,7 @@ import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError, issuePaidReg
 import { runWithTenant } from "@/lib/tenant-context";
 import { applyRegistrationTransition } from "@/lib/registration-seat-db";
 import { lockRegistrationRows } from "@/lib/registration-row-lock";
-import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
+import { flagGroupInvoiceDriftForCancelledMembers } from "@/lib/group-invoice-drift";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { findStripeRefundForAttempt } from "@/lib/refund-reconciliation";
 

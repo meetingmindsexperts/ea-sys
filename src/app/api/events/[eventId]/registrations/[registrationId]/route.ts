@@ -5,7 +5,7 @@ import { RegistrationStatus, AttendanceMode } from "@prisma/client";
 import { holdsSeat, seatCounter } from "@/lib/registration-seat";
 import { releaseEventSeats, releasePromoUsage, releaseSeat } from "@/lib/registration-seat-db";
 import { lockRegistrationRows } from "@/lib/registration-row-lock";
-import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
+import { flagGroupInvoiceDriftForCancelledMembers } from "@/lib/group-invoice-drift";
 import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";

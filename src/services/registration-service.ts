@@ -41,7 +41,7 @@ import { needsQrCode, seatCounter } from "@/lib/registration-seat";
 import { applyRegistrationTransition, claimEventSeats, claimSeats } from "@/lib/registration-seat-db";
 import { resolveRepricing } from "@/lib/registration-repricing";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
-import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
+import { flagGroupInvoiceDriftForCancelledMembers } from "@/lib/group-invoice-drift";
 import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
 import { computeDetailsDelta, syncRegistrationDetailsToSpeakers } from "@/lib/person-details-sync";
 import { getSponsors } from "@/lib/sponsors";
