@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### DTCM: each registration type mapped to a DET section (November 3)
+
+- **Event Settings → Registration, under the performance code: a "DET sections" card.** It reads the event's performance from DET live and lets the organiser pick, per registration type (Faculty included), the DET section and price type its DTCM barcodes will be issued in. Only valid pairs are offered (a price type of the section's own category), the zero-priced type is pre-selected, and every save is checked against DET's map again on the server. Each section shows its capacity and holds beside the in-person registrations mapped into it, flagging one that is over capacity. Step 2 of `docs/DTCM_ETICKET_PLAN.md`: nothing buys from DET yet
+- Stored in `Event.settings.dtcm` with the DET environment and performance code it was checked against; the card warns when either no longer matches. Written only by `/api/events/[eventId]/dtcm-eticket` (`events.settings`, organisation members only), a route-owned settings key so a Settings save can neither write nor clobber it, and never copied by clone
+
 ### DTCM: the DET eTicketing connection (November 3)
 
 - **Settings → Integrations has a "DTCM eTicketing (Dubai)" card**: the organisation's DET account, one set of credentials per environment (Sandbox (UAT) and Production), client secret and API key stored AES-256-GCM encrypted in `Organization.settings.dtcmEticket` and never returned. Saving never switches which environment is in use (except the first save); switching is its own confirmed, separately audited **Use … for DTCM** action. **Test connection** signs in to DET and, given a performance code, shows that performance's sections and capacities. Step 1 of `docs/DTCM_ETICKET_PLAN.md`: nothing buys from DET yet

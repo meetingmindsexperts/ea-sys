@@ -188,6 +188,7 @@ SWEPT=(
   "src/app/api/events/[eventId]/import/registrations/send-completion-emails/route.ts"
   "src/app/api/events/[eventId]/tags/route.ts"
   "src/app/api/events/[eventId]/dtcm-pool/route.ts"
+  "src/app/api/events/[eventId]/dtcm-eticket/route.ts"
   "src/app/api/events/[eventId]/registration-shares/route.ts"
   "src/app/api/events/[eventId]/registration-shares/[viewId]/route.ts"
   "src/app/api/events/[eventId]/registration-shares/[viewId]/regenerate/route.ts"

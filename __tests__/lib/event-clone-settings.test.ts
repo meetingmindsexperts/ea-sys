@@ -77,6 +77,11 @@ describe("cloneEventSettings", () => {
     expect(out).not.toHaveProperty("someBrandNewFeatureFlagNobodyListedYet");
   });
 
+  it("never carries the DET section mapping: a clone starts with DTCM off (Nov 3, 2026)", () => {
+    const out = cloneEventSettings({ registrationOpen: true, dtcm: { sections: { t1: { area: "SVIP2", priceTypeCode: "C" } } } });
+    expect(out).not.toHaveProperty("dtcm");
+  });
+
   it("no longer carries `sponsors`, which is a table now", () => {
     // Sponsors were promoted out of settings on Sep 2 2026 and the clone route
     // copies ROWS. Carrying the key too would give a clone a stale JSON copy

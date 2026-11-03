@@ -22,6 +22,7 @@ import { DEFAULT_TRAVEL_GRANT_CTA_LABEL, TRAVEL_GRANT_CTA_LABEL_MAX } from "@/li
 import { countryNamesFor, resolveCountryCode } from "@/lib/travel-grant/eligibility";
 import { CountrySelect } from "@/components/ui/country-select";
 import { DtcmPerformanceCodeField } from "@/components/events/dtcm-performance-code-field";
+import { DtcmSectionsCard } from "@/components/events/dtcm-sections-card";
 import { normalizeDtcmPerformanceCode, resolveDtcmEventConfig } from "@/lib/dtcm-performance-code";
 import {
   ABSTRACTS_PER_SUBMITTER_CEILING,
@@ -1626,6 +1627,10 @@ export default function EventSettingsPage() {
                 value={generalFormData.dtcmPerformanceCode}
                 onChange={(dtcmPerformanceCode) => setGeneralFormData({ ...generalFormData, dtcmPerformanceCode })}
               />
+            )}
+            {/* The SAVED code, not the one being typed: the card reads DET for what is stored. */}
+            {generalFormData.requiresDtcmBarcode && savedDtcm.requiresDtcmBarcode && savedDtcm.dtcmPerformanceCode && (
+              <DtcmSectionsCard eventId={eventId} performanceCode={savedDtcm.dtcmPerformanceCode} />
             )}
 
           </SettingsCard>

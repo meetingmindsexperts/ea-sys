@@ -11,6 +11,7 @@ import type { LivePollOption, PollTally } from "@/lib/webinar/live-polls";
 import type { RegistrationFormSkipReason } from "@/lib/registration-form-link";
 import type { DeskDaySummary } from "@/lib/desk-day-summary";
 import type { DetCredentialsStatus, DetEnvironment, DetPerformanceSummary } from "@/lib/dtcm-eticket/types";
+import type { DtcmSectionMapping } from "@/lib/dtcm-eticket/sections";
 
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
@@ -121,6 +122,7 @@ export const queryKeys = {
   quickbooksChart: ["quickbooks", "chart"] as const,
   stripeCredentials: ["stripe", "credentials"] as const,
   dtcmEticketCredentials: ["dtcm-eticket", "credentials"] as const,
+  dtcmEventSections: (eventId: string) => ["events", eventId, "dtcm-eticket"] as const,
   aiCredentials: ["ai", "credentials"] as const,
   zoomSettings: (eventId: string) => ["zoom", "settings", eventId] as const,
   zoomMeeting: (sessionId: string) => ["zoom", "meeting", sessionId] as const,
@@ -2454,6 +2456,47 @@ export function useTestDtcmEticketConnection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       }),
+  });
+}
+
+export interface DtcmEventSectionsResponse {
+  requiresDtcmBarcode: boolean;
+  performanceCode: string | null;
+  mapping: {
+    sections: Record<string, DtcmSectionMapping>;
+    environment: DetEnvironment | null;
+    performanceCode: string | null;
+    checkedAt: string | null;
+  };
+  ticketTypes: { id: string; name: string; isFaculty: boolean; isActive: boolean; registrations: number }[];
+  det:
+    | { performance: DetPerformanceSummary; environment: DetEnvironment; error: null }
+    | { performance: null; environment: DetEnvironment | null; error: { message: string; stage: string; code: string } }
+    | null;
+}
+
+/** Keyed by the performance code too, so a changed code never shows the old performance from cache. */
+export function useDtcmEventSections(eventId: string, performanceCode: string) {
+  return useQuery({
+    queryKey: [...queryKeys.dtcmEventSections(eventId), performanceCode],
+    queryFn: () => fetchApi<DtcmEventSectionsResponse>(`/api/events/${eventId}/dtcm-eticket`),
+    // DET is a government API on the far side of a whitelist: no refetch on every focus.
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useSaveDtcmEventSections(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sections: Record<string, DtcmSectionMapping | null>) =>
+      fetchApi(`/api/events/${eventId}/dtcm-eticket`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sections }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmEventSections(eventId) });
+    },
   });
 }
 

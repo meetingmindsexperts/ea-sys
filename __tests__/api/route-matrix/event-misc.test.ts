@@ -60,6 +60,7 @@ import { POST as clonePOST } from "@/app/api/events/[eventId]/clone/route";
 import { GET as bundleGET } from "@/app/api/events/[eventId]/export-bundle/route";
 import { POST as importAbstractsPOST } from "@/app/api/events/[eventId]/import/abstracts/route";
 import { POST as importBarcodesPOST } from "@/app/api/events/[eventId]/import/barcodes/route";
+import { GET as dtcmSectionsGET, PUT as dtcmSectionsPUT } from "@/app/api/events/[eventId]/dtcm-eticket/route";
 import { POST as importEventsAirPOST } from "@/app/api/events/[eventId]/import/eventsair/route";
 import { POST as importSessionsPOST } from "@/app/api/events/[eventId]/import/sessions/route";
 import { POST as importSpeakersPOST } from "@/app/api/events/[eventId]/import/speakers/route";
@@ -97,6 +98,9 @@ const CASES: HandlerCase[] = [
   json("GET export-bundle", bundleGET, "GET"),
   json("POST import/abstracts (JSON, not multipart)", importAbstractsPOST, "POST", { body: {} }),
   json("POST import/barcodes (JSON, not multipart)", importBarcodesPOST, "POST", { body: {} }),
+  // Added Nov 3, 2026 (DET sections, born on requirePermission): events.settings.
+  json("GET dtcm-eticket", dtcmSectionsGET, "GET"),
+  json("PUT dtcm-eticket", dtcmSectionsPUT, "PUT", { body: { sections: {} } }),
   json("POST import/eventsair", importEventsAirPOST, "POST", { body: { eventsAirEventId: "ea1" } }),
   json("POST import/sessions (JSON, not multipart)", importSessionsPOST, "POST", { body: {} }),
   json("POST import/speakers (JSON, not multipart)", importSpeakersPOST, "POST", { body: {} }),

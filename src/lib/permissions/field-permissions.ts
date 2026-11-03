@@ -94,9 +94,12 @@ export const EVENT_SETTINGS_FIELDS = [
  * routes'. `venue` is the online venue's (its switch, filter, AI switch and
  * rooms; /api/venue and /api/events/[eventId]/venue, Oct 8, 2026): the event
  * edit merges settings at the top level, so a stale copy sent back would
- * replace all of it. No screen sends any of them through this route.
+ * replace all of it. `dtcm` is the DET section mapping
+ * (/api/events/[eventId]/dtcm-eticket, Nov 3, 2026), checked against DET's
+ * live map before it is saved, which this route cannot do. No screen sends any
+ * of them through this route.
  */
-export const ROUTE_OWNED_SETTINGS_KEYS = ["reviewerUserIds", "handouts", "cme", "reimbursement", "webinar", "venue"] as const;
+export const ROUTE_OWNED_SETTINGS_KEYS = ["reviewerUserIds", "handouts", "cme", "reimbursement", "webinar", "venue", "dtcm"] as const;
 const ROUTE_OWNED_SETTINGS = new Set<string>(ROUTE_OWNED_SETTINGS_KEYS);
 
 /** The settings an event edit may write: everything but the route-owned keys. */
