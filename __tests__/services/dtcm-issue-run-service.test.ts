@@ -10,7 +10,7 @@ import { Prisma } from "@prisma/client";
 const { mockDb, svc, logger } = vi.hoisted(() => ({
   mockDb: {
     registration: { findMany: vi.fn() },
-    dtcmOrder: { findMany: vi.fn(), groupBy: vi.fn() },
+    dtcmOrder: { findMany: vi.fn(), findFirst: vi.fn(), groupBy: vi.fn() },
     dtcmIssueRun: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     auditLog: { create: vi.fn() },
   },
@@ -73,6 +73,7 @@ beforeEach(() => {
   svc.buyForRegistration.mockReset();
   svc.loadDtcmPurchaseContext.mockResolvedValue({ ok: true, context: ctx() });
   mockDb.dtcmOrder.findMany.mockResolvedValue([]);
+  mockDb.dtcmOrder.findFirst.mockResolvedValue(null);
   mockDb.dtcmOrder.groupBy.mockResolvedValue([]);
   mockDb.auditLog.create.mockResolvedValue({});
   mockDb.dtcmIssueRun.update.mockResolvedValue({});
@@ -86,6 +87,7 @@ describe("preflight", () => {
       reg("r2", { ticketTypeId: "tt-b" }),
       reg("r3", { dtcmBarcode: "X" }),
       reg("r4", { status: "CANCELLED" }),
+      reg("r8", { status: "WAITLISTED" }),
       reg("r5", { attendee: { ...attendee, phone: null } }),
       reg("r6", { ticketTypeId: "tt-none" }),
       reg("r7"),
@@ -95,7 +97,7 @@ describe("preflight", () => {
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.preflight.eligibleIds).toEqual(["r1", "r2"]);
-    expect(out.preflight.notNeeded).toBe(2);
+    expect(out.preflight.notNeeded).toBe(3); // coded, cancelled, waitlisted (review M5)
     expect(out.preflight.problems).toEqual({ MISSING_PHONE: 1, TYPE_NOT_MAPPED: 1, AWAITING_RESOLUTION: 1 });
     expect(out.preflight.sections).toEqual([
       { area: "SVIP2", name: "VIP2", needed: 1, headroom: 2, over: false },
@@ -111,13 +113,15 @@ describe("preflight", () => {
 });
 
 describe("start", () => {
-  const start = (confirm: { environment: "staging" | "production"; count: number }) =>
-    startDtcmRun({ organizationId: "org1", eventId: "evt1", userId: "u1", confirm });
+  const start = (confirm: { environment: "staging" | "production"; count: number; performanceCode?: string }) =>
+    startDtcmRun({ organizationId: "org1", eventId: "evt1", userId: "u1", confirm: { performanceCode: "P1", ...confirm } });
 
   it("refuses when the confirmed count or environment no longer matches", async () => {
     mockDb.registration.findMany.mockResolvedValue([reg("r1"), reg("r2", { ticketTypeId: "tt-b" })]);
     expect(await start({ environment: "staging", count: 1 })).toMatchObject({ ok: false, code: "CONFIRMATION_STALE" });
     expect(await start({ environment: "production", count: 2 })).toMatchObject({ ok: false, code: "CONFIRMATION_STALE" });
+    // The performance code is part of what was confirmed (review HIGH 1).
+    expect(await start({ environment: "staging", count: 2, performanceCode: "P0" })).toMatchObject({ ok: false, code: "CONFIRMATION_STALE" });
     expect(mockDb.dtcmIssueRun.create).not.toHaveBeenCalled();
   });
 
@@ -203,7 +207,7 @@ describe("tick", () => {
   it("skips a section DET calls sold out and carries on with the others", async () => {
     mockDb.registration.findMany.mockResolvedValueOnce([reg("r1"), reg("r2"), reg("r3", { ticketTypeId: "tt-b" })]);
     svc.buyForRegistration
-      .mockResolvedValueOnce({ ok: false, code: "DET_REFUSED", message: "x", order: { errorMessage: "DET createBasket failed (HTTP 400, code 5005): Section soldout" } })
+      .mockResolvedValueOnce({ ok: false, code: "DET_REFUSED", message: "x", detCode: "5005" })
       .mockResolvedValueOnce({ ok: true });
     await tickDtcmRun("run1", 10_000, 0);
     expect(svc.buyForRegistration.mock.calls.map(([, r]) => r.id)).toEqual(["r1", "r3"]);
@@ -212,7 +216,7 @@ describe("tick", () => {
 
   it("stops after five refusals in a row that are not 'sold out'", async () => {
     mockDb.registration.findMany.mockResolvedValueOnce(["r1", "r2", "r3", "r4", "r5", "r6"].map((id) => reg(id, { ticketTypeId: "tt-b" })));
-    svc.buyForRegistration.mockResolvedValue({ ok: false, code: "DET_REFUSED", message: "500", order: { errorMessage: "HTTP 500" } });
+    svc.buyForRegistration.mockResolvedValue({ ok: false, code: "DET_REFUSED", message: "500", detCode: null });
     await tickDtcmRun("run1", 10_000, 0);
     expect(svc.buyForRegistration).toHaveBeenCalledTimes(5);
     expect(stopWrite()).toMatchObject({ status: "STOPPED" });
@@ -235,6 +239,55 @@ describe("tick", () => {
     svc.buyForRegistration.mockResolvedValue({ ok: true });
     await tickDtcmRun("run1", 10_000, 0);
     expect(svc.buyForRegistration).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops, and rethrows, on an unexpected error mid-purchase (review HIGH 2)", async () => {
+    mockDb.registration.findMany.mockResolvedValueOnce([reg("r1"), reg("r2")]);
+    svc.buyForRegistration.mockRejectedValueOnce(new Error("db write failed"));
+    await expect(tickDtcmRun("run1", 10_000, 0)).rejects.toThrow("db write failed");
+    expect(stopWrite()).toMatchObject({ status: "STOPPED" });
+    expect(svc.buyForRegistration).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops before buying when a previous tick left a purchase PENDING (review HIGH 3)", async () => {
+    mockDb.dtcmOrder.findFirst.mockResolvedValue({ registrationId: "r9" });
+    mockDb.registration.findMany.mockResolvedValue([reg("r1")]);
+    await tickDtcmRun("run1", 10_000, 0);
+    expect(svc.buyForRegistration).not.toHaveBeenCalled();
+    expect(stopWrite()).toMatchObject({ status: "STOPPED" });
+  });
+
+  it("starts no new purchase once the worker is stopping", async () => {
+    mockDb.registration.findMany.mockResolvedValueOnce([reg("r1")]);
+    await tickDtcmRun("run1", 10_000, 0, () => true);
+    expect(svc.buyForRegistration).not.toHaveBeenCalled();
+    expect(stopWrite()).toBeUndefined();
+  });
+
+  it("counts refusals in a row across ticks from the run's own orders (review M4)", async () => {
+    mockDb.dtcmOrder.findMany.mockResolvedValue(Array.from({ length: 4 }, () => ({ status: "FAILED", errorMessage: "HTTP 500" })));
+    mockDb.registration.findMany.mockResolvedValueOnce([reg("r1", { ticketTypeId: "tt-b" }), reg("r2", { ticketTypeId: "tt-b" })]);
+    svc.buyForRegistration.mockResolvedValue({ ok: false, code: "DET_REFUSED", message: "500", detCode: null });
+    await tickDtcmRun("run1", 10_000, 0);
+    expect(svc.buyForRegistration).toHaveBeenCalledTimes(1);
+    expect(stopWrite()).toMatchObject({ status: "STOPPED" });
+  });
+
+  it("buys only for people registered when the run started (review M6)", async () => {
+    mockDb.registration.findMany.mockResolvedValueOnce([]);
+    await tickDtcmRun("run1", 10_000, 0);
+    expect(mockDb.registration.findMany.mock.calls[0][0].where.createdAt).toHaveProperty("lte");
+  });
+
+  it("stops, never 'finishes', when the mapping went stale mid-run (review LOW 7)", async () => {
+    svc.loadDtcmPurchaseContext.mockResolvedValue({
+      ok: true,
+      context: { ...ctx(), event: { ...event, settings: { dtcm: { ...event.settings.dtcm, environment: "production" } } } },
+    });
+    mockDb.registration.findMany.mockResolvedValueOnce([reg("r1")]);
+    await tickDtcmRun("run1", 10_000, 0);
+    expect(svc.buyForRegistration).not.toHaveBeenCalled();
+    expect(stopWrite()).toMatchObject({ status: "STOPPED" });
   });
 
   it("does nothing for a run that is no longer RUNNING", async () => {

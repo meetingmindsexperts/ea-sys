@@ -2609,7 +2609,7 @@ export function useDtcmRunPreflight(eventId: string) {
 export function useStartDtcmRun(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (confirm: { environment: DetEnvironment; count: number }) =>
+    mutationFn: (confirm: { environment: DetEnvironment; performanceCode: string; count: number }) =>
       fetchApi(`/api/events/${eventId}/dtcm-eticket/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2648,14 +2648,15 @@ export function useDtcmUnusedOrders(eventId: string, enabled: boolean) {
 export function useReverseDtcmOrder(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (dtcmOrderId: string) =>
-      fetchApi<{ clearedRegistrationCode: boolean }>(`/api/events/${eventId}/dtcm-orders/${dtcmOrderId}`, {
+    mutationFn: (args: { dtcmOrderId: string; action: "reverse" | "mark-reversed" }) =>
+      fetchApi<{ clearedRegistrationCode: boolean }>(`/api/events/${eventId}/dtcm-orders/${args.dtcmOrderId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reverse" }),
+        body: JSON.stringify({ action: args.action }),
       }),
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmUnusedOrders(eventId) });
+      // Every DTCM view (the unused list, a registration's DET panel, the run card).
+      queryClient.invalidateQueries({ queryKey: ["dtcm-eticket"] });
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
     },
   });

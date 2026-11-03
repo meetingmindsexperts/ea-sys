@@ -35,6 +35,7 @@ export interface EligibilityRegistration {
 export type IneligibleReason =
   | "DTCM_OFF"
   | "CANCELLED"
+  | "WAITLISTED"
   | "VIRTUAL"
   | "ALREADY_HAS_CODE"
   | "TYPE_NOT_MAPPED"
@@ -54,6 +55,7 @@ const TITLE_LABEL: Record<string, string> = { DR: "Dr", MR: "Mr", MRS: "Mrs", MS
 export const INELIGIBLE_MESSAGES: Record<IneligibleReason, string> = {
   DTCM_OFF: "DTCM barcodes are not on for this event, or it has no DET performance code",
   CANCELLED: "The registration is cancelled",
+  WAITLISTED: "The registration is on the waitlist",
   VIRTUAL: "Virtual attendees do not get a DTCM barcode",
   ALREADY_HAS_CODE: "The registration already has a DTCM barcode",
   TYPE_NOT_MAPPED: "The registration type has no DET section (Settings, Registration, DET sections)",
@@ -79,6 +81,8 @@ export function dtcmEligibility(
 ): Eligibility {
   if (!event.requiresDtcmBarcode || !event.dtcmPerformanceCode) return refuse("DTCM_OFF");
   if (registration.status === "CANCELLED") return refuse("CANCELLED");
+  // Not yet a place at the event, so not yet a ticket (review of step 4, M5).
+  if (registration.status === "WAITLISTED") return refuse("WAITLISTED");
   if (registration.attendanceMode === "VIRTUAL") return refuse("VIRTUAL");
   if (registration.dtcmBarcode) return refuse("ALREADY_HAS_CODE");
 

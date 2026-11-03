@@ -9,8 +9,8 @@ import { Prisma } from "@prisma/client";
 const { mockDb, det, mockGetCreds, logger } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
-    registration: { findFirst: vi.fn(), updateMany: vi.fn() },
-    dtcmOrder: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn() },
+    registration: { findFirst: vi.fn(), updateMany: vi.fn(), count: vi.fn(), findMany: vi.fn() },
+    dtcmOrder: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -37,7 +37,15 @@ vi.mock("@/lib/dtcm-eticket/client", async (importOriginal) => ({
   ...det,
 }));
 
-import { issueDtcmTicket, resolveDtcmOrder, reverseDtcmOrder, STALE_PENDING_MS, unusedReason } from "@/services/dtcm-eticket-service";
+import {
+  issueDtcmTicket,
+  listUnusedDtcmOrders,
+  markDtcmOrderReversed,
+  resolveDtcmOrder,
+  reverseDtcmOrder,
+  STALE_PENDING_MS,
+  unusedReason,
+} from "@/services/dtcm-eticket-service";
 import { DetApiError } from "@/lib/dtcm-eticket/client";
 
 const creds = (environment: "staging" | "production" = "staging") => ({
@@ -112,7 +120,12 @@ beforeEach(() => {
     return { count: 1 };
   });
   mockDb.dtcmOrder.findUniqueOrThrow.mockImplementation(async () => row);
-  mockDb.$transaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
+  // Both forms: an array of operations, or an interactive callback given the client.
+  mockDb.$transaction.mockImplementation(async (ops: unknown) =>
+    typeof ops === "function" ? (ops as (tx: typeof mockDb) => unknown)(mockDb) : Promise.all(ops as Promise<unknown>[]),
+  );
+  mockDb.registration.count.mockResolvedValue(0);
+  mockDb.registration.findMany.mockResolvedValue([]);
 });
 
 const statusWrites = () =>
@@ -385,7 +398,49 @@ describe("reversing an unused ticket (step 5)", () => {
     expect(mockGetCreds).toHaveBeenCalledWith("org1", "production");
     expect(det.reverseDetOrder).toHaveBeenCalledWith(expect.anything(), "O5", 0);
     expect(row).toMatchObject({ status: "REVERSED", activeKey: null });
-    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({ where: { id: "reg-1", dtcmBarcode: "BAR-5" }, data: { dtcmBarcode: null } });
+    // Cleared only while the registration still holds this barcode AND is still cancelled.
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg-1", dtcmBarcode: "BAR-5", status: "CANCELLED" },
+      data: { dtcmBarcode: null },
+    });
+    expect(mockDb.auditLog.create.mock.calls.at(-1)?.[0].data.action).toBe("DTCM_ORDER_REVERSED");
+  });
+
+  it("refuses when the barcode is on someone else's active registration (shared code, review HIGH 1)", async () => {
+    mockDb.registration.count.mockResolvedValue(1);
+    expect(await reverse()).toMatchObject({ ok: false, code: "STILL_IN_USE" });
+    expect(det.reverseDetOrder).not.toHaveBeenCalled();
+  });
+
+  it("leaves a shared, in-use ticket off the unused list", async () => {
+    mockDb.dtcmOrder.findMany.mockResolvedValue([
+      { ...bought(), registration: { status: "CANCELLED", dtcmBarcode: "BAR-5", attendee: { firstName: "A", lastName: "C" } } },
+      { ...bought({ id: "do-6", barcode: "BAR-6" }), registration: { status: "CANCELLED", dtcmBarcode: "BAR-6", attendee: { firstName: "D", lastName: "E" } } },
+    ]);
+    mockDb.registration.findMany.mockResolvedValue([{ dtcmBarcode: "BAR-5" }]); // BAR-5 moved to an active person
+    const list = await listUnusedDtcmOrders("evt1");
+    expect(list.map((o) => o.id)).toEqual(["do-6"]);
+  });
+
+  it("records nothing when someone else settled the order first (review LOW 3)", async () => {
+    det.reverseDetOrder.mockResolvedValue("reversed");
+    mockDb.dtcmOrder.updateMany.mockResolvedValueOnce({ count: 0 });
+    expect(await reverse()).toMatchObject({ ok: false, code: "WRONG_STATUS" });
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create.mock.calls.some(([a]) => a.data.action === "DTCM_ORDER_REVERSED")).toBe(false);
+  });
+
+  it("'mark as reversed' believes DET only when DET no longer has the order (review MED 2)", async () => {
+    det.getDetOrder.mockResolvedValueOnce({ orderId: "O5" });
+    expect(await markDtcmOrderReversed({ organizationId: "org1", eventId: "evt1", dtcmOrderId: "do-5", userId: "u1" })).toMatchObject({
+      ok: false,
+      code: "DET_FAILED",
+    });
+    expect(row.status).toBe("PURCHASED");
+    det.getDetOrder.mockResolvedValueOnce(null);
+    expect(await markDtcmOrderReversed({ organizationId: "org1", eventId: "evt1", dtcmOrderId: "do-5", userId: "u1" })).toMatchObject({ ok: true });
+    expect(row.status).toBe("REVERSED");
+    expect(mockDb.auditLog.create.mock.calls.at(-1)?.[0].data.action).toBe("DTCM_ORDER_MARKED_REVERSED");
   });
 
   it("does NOT mark it reversed on DET's 'not found' (it may be another environment's)", async () => {

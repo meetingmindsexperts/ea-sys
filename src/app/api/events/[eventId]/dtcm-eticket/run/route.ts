@@ -38,7 +38,11 @@ interface RouteParams {
 }
 
 const startSchema = z.object({
-  confirm: z.object({ environment: z.enum(["staging", "production"]), count: z.number().int().min(1).max(100_000) }),
+  confirm: z.object({
+    environment: z.enum(["staging", "production"]),
+    performanceCode: z.string().trim().min(1).max(100),
+    count: z.number().int().min(1).max(100_000),
+  }),
 });
 
 const START_STATUS: Record<StartDtcmRunErrorCode, number> = {

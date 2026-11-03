@@ -335,7 +335,17 @@ Each step ships on its own and is useful alone.
    on an unmapped type; the run bought both (orders 68170, 68171, at DET's
    price) and completed; a second preflight found nobody. The sandbox run
    found that a run never completed while unbuyable people remained, fixed
-   before commit.
+   before commit. Review of step 4 (0 BLOCKER / 3 HIGH / 3 MED / 3 LOW),
+   fixed: the confirmation also pins the performance code; an unexpected
+   error mid-purchase, or a PENDING order a previous tick left (a worker
+   restart during a deploy), STOPS the run; no new purchase starts after
+   SIGTERM; the five-refusals rule counts across ticks from the run's own
+   orders; WAITLISTED is refused by the shared eligibility rule (preflight and
+   run agree); a run buys only for people registered when it started; a
+   stale mapping stops the run instead of finishing it; sold-out is read from
+   DET's code, not message text. Open for the owner: whether bulk purchase
+   should have its own permission key (`dtcm.import` reads "load codes from a
+   spreadsheet").
 5. **Reverse. BUILT Nov 3, 2026.** `reverseDtcmOrder()` and
    `listUnusedDtcmOrders()` in `dtcm-eticket-service.ts`. Only an UNUSED
    ticket can be reversed (`unusedReason()`: its registration is cancelled or
@@ -348,7 +358,14 @@ Each step ships on its own and is useful alone.
    both `dtcm.import`. The registrations page's "Unused DET tickets" card,
    shown only when there are some. Verified against UAT: a cancelled
    registration's ticket (order 68167) was listed and reversed, its code
-   cleared and its slot freed; an active one's was refused.
+   cleared and its slot freed; an active one's was refused. Review of step 5
+   (0 BLOCKER / 1 HIGH / 1 MED / 5 LOW), fixed: a barcode on ANY active
+   registration (a shared code) counts as in use, in the list and the
+   reverse; the reversal's writes are one transaction, conditional on the
+   order still being PURCHASED, and clear a code only from a still-cancelled
+   registration; a "mark as reversed" action (checked with DET: the order
+   must be gone) settles a row whose reverse was applied at DET but not
+   recorded; the card shows even with DTCM switched off.
 6. **Retire the barcodes app** after one live Dubai event runs on EA-SYS with the
    Laravel app on standby.
 

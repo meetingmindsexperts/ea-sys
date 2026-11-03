@@ -74,7 +74,8 @@ export type IssueDtcmTicketErrorCode =
 
 export type IssueDtcmTicketResult =
   | { ok: true; order: DtcmOrder; barcode: string }
-  | { ok: false; code: IssueDtcmTicketErrorCode; message: string; order?: DtcmOrder };
+  /** `detCode` is DET's own code for a DET_REFUSED ("5005" = section cannot sell). */
+  | { ok: false; code: IssueDtcmTicketErrorCode; message: string; order?: DtcmOrder; detCode?: string | null };
 
 export interface IssueDtcmTicketInput {
   organizationId: string;
@@ -107,10 +108,16 @@ const REGISTRATION_SELECT = {
 
 type PurchaseRegistration = Prisma.RegistrationGetPayload<{ select: typeof REGISTRATION_SELECT }>;
 
-function fail(code: IssueDtcmTicketErrorCode, message: string, log: Record<string, unknown>, order?: DtcmOrder): IssueDtcmTicketResult {
+function fail(
+  code: IssueDtcmTicketErrorCode,
+  message: string,
+  log: Record<string, unknown>,
+  order?: DtcmOrder,
+  detCode?: string | null,
+): IssueDtcmTicketResult {
   const level = code === "UNCERTAIN" || code === "CODE_ARRIVED_MEANWHILE" ? "error" : "warn";
   apiLogger[level]({ msg: `dtcm-eticket:issue-${code.toLowerCase()}`, code, ...log });
-  return { ok: false, code, message, ...(order && { order }) };
+  return { ok: false, code, message, ...(order && { order }), ...(detCode !== undefined && { detCode }) };
 }
 
 /** The desk path: load the context and the registration, then buy. */
@@ -229,7 +236,7 @@ export async function buyForRegistration(ctx: DtcmPurchaseContext, registration:
     if (basketId) await releaseBasket(ctx.creds, basketId, orderLog);
     const failed = await markFailed(order.id, err);
     const message = err.detCode === "5005" ? `DET cannot sell in section ${mapping.area}: ${err.message}` : err.message;
-    return fail("DET_REFUSED", message, { ...orderLog, stage: err.stage, httpStatus: err.httpStatus, detCode: err.detCode }, failed);
+    return fail("DET_REFUSED", message, { ...orderLog, stage: err.stage, httpStatus: err.httpStatus, detCode: err.detCode }, failed, err.detCode);
   }
 
   // Bought. From here nothing may mark the row FAILED: the ticket exists.
@@ -259,7 +266,7 @@ async function afterPurchaseError(
   const errLog = { ...log, stage: err.stage, httpStatus: err.httpStatus, detCode: err.detCode };
   if (!err.outcomeUnknown) {
     await releaseBasket(ctx.creds, basketId, log);
-    return fail("DET_REFUSED", err.message, errLog, await markFailed(orderId, err));
+    return fail("DET_REFUSED", err.message, errLog, await markFailed(orderId, err), err.detCode);
   }
 
   let basketStillThere: boolean | null;
@@ -544,6 +551,54 @@ export function unusedReason(
 }
 
 /**
+ * Whether any non-cancelled registration on the event carries this barcode.
+ * A human may type one code onto several people (docs/DTCM.md §2), so a
+ * cancelled attendee's code can be on their replacement's badge: the order's
+ * OWN registration is not the whole answer (review of step 5, HIGH 1).
+ */
+async function barcodeInUseElsewhere(eventId: string, barcode: string | null): Promise<boolean> {
+  if (!barcode) return false;
+  return (await db.registration.count({ where: { eventId, dtcmBarcode: barcode, status: { not: "CANCELLED" } } })) > 0;
+}
+
+/**
+ * The writes that end a reversal, in one transaction, conditional on the order
+ * still being PURCHASED (review of step 5, MED 2 and LOW 3/4). The
+ * registration's code is cleared only if that registration still holds this
+ * barcode and is still cancelled or the order's own: a re-activated attendee
+ * keeps theirs.
+ */
+async function recordReversal(
+  order: Pick<DtcmOrder, "id" | "registrationId" | "barcode">,
+  userId: string,
+  how: "DTCM_ORDER_REVERSED" | "DTCM_ORDER_MARKED_REVERSED",
+): Promise<{ ok: true; order: DtcmOrder; clearedRegistrationCode: boolean } | { ok: false }> {
+  return db.$transaction(async (tx) => {
+    const done = await tx.dtcmOrder.updateMany({ where: { id: order.id, status: "PURCHASED" }, data: { status: "REVERSED", activeKey: null } });
+    if (done.count === 0) return { ok: false as const };
+    const cleared =
+      order.registrationId && order.barcode
+        ? await tx.registration.updateMany({
+            where: { id: order.registrationId, dtcmBarcode: order.barcode, status: "CANCELLED" },
+            data: { dtcmBarcode: null },
+          })
+        : { count: 0 };
+    const row = await tx.dtcmOrder.findUniqueOrThrow({ where: { id: order.id } });
+    await tx.auditLog.create({
+      data: {
+        eventId: row.eventId,
+        userId,
+        action: how,
+        entityType: "Registration",
+        entityId: row.registrationId ?? row.id,
+        changes: { source: "rest", dtcmOrderId: row.id, environment: row.environment, detOrderId: row.orderId, clearedRegistrationCode: cleared.count > 0 },
+      },
+    });
+    return { ok: true as const, order: row, clearedRegistrationCode: cleared.count > 0 };
+  });
+}
+
+/**
  * Reverses an unused DET ticket, giving its seat back to the permit.
  *
  *   - The order's OWN environment, never the active one.
@@ -573,12 +628,13 @@ export function reverseDtcmOrder(input: {
       apiLogger.warn({ msg: "dtcm-eticket:reverse-wrong-status", ...log, status: order.status });
       return { ok: false, code: "WRONG_STATUS", message: `Only a bought ticket can be reversed; this one is ${order.status.toLowerCase()}` };
     }
-    if (!unusedReason(order, order.registration)) {
+    // Re-checked right before DET is called, shared codes included.
+    if (!unusedReason(order, order.registration) || (await barcodeInUseElsewhere(input.eventId, order.barcode))) {
       apiLogger.warn({ msg: "dtcm-eticket:reverse-still-in-use", ...log });
       return {
         ok: false,
         code: "STILL_IN_USE",
-        message: "This ticket's barcode is on an active registration. Cancel the registration first if the person is not coming.",
+        message: "This ticket's barcode is on an active registration (possibly someone else's, if the code was shared). Cancel that registration first if nobody will use it.",
       };
     }
 
@@ -619,18 +675,62 @@ export function reverseDtcmOrder(input: {
       };
     }
 
-    const done = await db.dtcmOrder.updateMany({
-      where: { id: order.id, status: "PURCHASED" },
-      data: { status: "REVERSED", activeKey: null },
+    // Logged before the write: if the write fails, the log says DET reversed it,
+    // and "mark as reversed" settles the row.
+    apiLogger.info({ msg: "dtcm-eticket:reversed-at-det", ...log, detOrderId: order.orderId });
+    const recorded = await recordReversal(order, input.userId, "DTCM_ORDER_REVERSED");
+    if (!recorded.ok) {
+      apiLogger.error({ msg: "dtcm-eticket:reverse-row-raced", ...log });
+      return { ok: false, code: "WRONG_STATUS", message: "Someone else changed this DET order a moment ago. Refresh the list." };
+    }
+    apiLogger.info({ msg: "dtcm-eticket:reversed", ...log, clearedRegistrationCode: recorded.clearedRegistrationCode });
+    return recorded;
+  });
+}
+
+/**
+ * Settles a PURCHASED row that DET no longer has: a reverse applied at DET
+ * whose answer or database write was lost, or one done in DET's own portal.
+ * The organiser has checked DET's portal; EA-SYS checks DET agrees (4001)
+ * before believing it (review of step 5, MED 2).
+ */
+export function markDtcmOrderReversed(input: {
+  organizationId: string;
+  eventId: string;
+  dtcmOrderId: string;
+  userId: string;
+}): Promise<ReverseDtcmOrderResult> {
+  return runWithTenant(input.organizationId, async () => {
+    const log = { eventId: input.eventId, dtcmOrderId: input.dtcmOrderId, userId: input.userId };
+    const order = await db.dtcmOrder.findFirst({
+      where: { id: input.dtcmOrderId, eventId: input.eventId },
+      include: { registration: { select: { status: true, dtcmBarcode: true } } },
     });
-    if (done.count === 0) apiLogger.error({ msg: "dtcm-eticket:reverse-row-raced", ...log });
-    const cleared = order.registrationId
-      ? await db.registration.updateMany({ where: { id: order.registrationId, dtcmBarcode: order.barcode }, data: { dtcmBarcode: null } })
-      : { count: 0 };
-    const row = await db.dtcmOrder.findUniqueOrThrow({ where: { id: order.id } });
-    await audit({ userId: input.userId, source: "rest" }, row, "DTCM_ORDER_REVERSED");
-    apiLogger.info({ msg: "dtcm-eticket:reversed", ...log, detOrderId: order.orderId, clearedRegistrationCode: cleared.count > 0 });
-    return { ok: true, order: row, clearedRegistrationCode: cleared.count > 0 };
+    if (!order || order.status !== "PURCHASED" || !order.orderId) {
+      apiLogger.warn({ msg: "dtcm-eticket:mark-reversed-wrong-status", ...log, status: order?.status });
+      return { ok: false, code: "WRONG_STATUS", message: "Only a bought ticket can be marked as reversed" };
+    }
+    const creds = await getDetCredentials(input.organizationId, order.environment as DetEnvironment);
+    if (!creds) {
+      apiLogger.warn({ msg: "dtcm-eticket:mark-reversed-not-configured", ...log });
+      return { ok: false, code: "NOT_CONFIGURED", message: `DET ${order.environment} credentials are not set up` };
+    }
+    let stillAtDet: boolean;
+    try {
+      stillAtDet = (await getDetOrder(creds, order.orderId)) !== null;
+    } catch (err) {
+      if (!(err instanceof DetApiError)) throw err;
+      apiLogger.warn({ msg: "dtcm-eticket:mark-reversed-det-failed", ...log, stage: err.stage, httpStatus: err.httpStatus });
+      return { ok: false, code: "DET_FAILED", message: err.message };
+    }
+    if (stillAtDet) {
+      apiLogger.warn({ msg: "dtcm-eticket:mark-reversed-still-at-det", ...log });
+      return { ok: false, code: "DET_FAILED", message: `DET still has order ${order.orderId}, so it is not reversed. Use Reverse instead.` };
+    }
+    const recorded = await recordReversal(order, input.userId, "DTCM_ORDER_MARKED_REVERSED");
+    if (!recorded.ok) return { ok: false, code: "WRONG_STATUS", message: "Someone else changed this DET order a moment ago" };
+    apiLogger.info({ msg: "dtcm-eticket:marked-reversed", ...log });
+    return recorded;
   });
 }
 
@@ -651,9 +751,19 @@ export async function listUnusedDtcmOrders(eventId: string) {
       registration: { select: { status: true, dtcmBarcode: true, attendee: { select: { firstName: true, lastName: true } } } },
     },
   });
+  // A barcode on ANY active registration is in use, whoever's order it came from.
+  const barcodes = orders.map((o) => o.barcode).filter((b): b is string => Boolean(b));
+  const inUse = new Set(
+    (
+      await db.registration.findMany({
+        where: { eventId, dtcmBarcode: { in: barcodes }, status: { not: "CANCELLED" } },
+        select: { dtcmBarcode: true },
+      })
+    ).map((r) => r.dtcmBarcode),
+  );
   return orders.flatMap((o) => {
     const reason = unusedReason(o, o.registration);
-    if (!reason) return [];
+    if (!reason || (o.barcode && inUse.has(o.barcode))) return [];
     const name = o.registration ? `${o.registration.attendee.firstName} ${o.registration.attendee.lastName}`.trim() : null;
     return [{ id: o.id, environment: o.environment, orderId: o.orderId, area: o.area, registrationId: o.registrationId, name, reason }];
   });

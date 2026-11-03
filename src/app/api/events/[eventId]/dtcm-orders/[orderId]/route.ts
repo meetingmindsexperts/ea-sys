@@ -9,6 +9,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import {
+  markDtcmOrderReversed,
   resolveDtcmOrder,
   reverseDtcmOrder,
   type ResolveDtcmOrderErrorCode,
@@ -25,6 +26,9 @@ import {
  *   reverse      — give an UNUSED ticket's seat back to the permit (step 5;
  *                  owner decision D3: an organiser action, never automatic).
  *                  Refused while the barcode is on an active registration.
+ *   mark-reversed — settle a bought ticket DET no longer has (a reverse whose
+ *                  answer or write was lost, or one done in DET's portal);
+ *                  checked with DET first.
  *
  * `dtcm.import` (ADMIN and ORGANIZER), not a desk key: deciding that a sale
  * did not happen is a judgement about the permit, not a counter task. Plus
@@ -39,6 +43,7 @@ const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("not-bought") }),
   z.object({ action: z.literal("read-barcode") }),
   z.object({ action: z.literal("reverse") }),
+  z.object({ action: z.literal("mark-reversed") }),
 ]);
 
 const REVERSE_STATUS: Record<ReverseDtcmOrderErrorCode, number> = {
@@ -93,8 +98,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         apiLogger.warn({ msg: "dtcm-eticket:resolve-event-not-found", eventId, userId: session.user.id });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
       }
-      if (parsed.data.action === "reverse") {
-        const out = await reverseDtcmOrder({ organizationId, eventId, dtcmOrderId: orderId, userId: session.user.id });
+      if (parsed.data.action === "reverse" || parsed.data.action === "mark-reversed") {
+        const run = parsed.data.action === "reverse" ? reverseDtcmOrder : markDtcmOrderReversed;
+        const out = await run({ organizationId, eventId, dtcmOrderId: orderId, userId: session.user.id });
         if (!out.ok) return NextResponse.json({ error: out.message, code: out.code }, { status: REVERSE_STATUS[out.code] });
         return NextResponse.json({
           order: { id: out.order.id, status: out.order.status, orderId: out.order.orderId },

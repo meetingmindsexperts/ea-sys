@@ -10,9 +10,14 @@
  * WHEN A RUN STOPS (status STOPPED, `stopReason`, for a person to read):
  *   - an UNCERTAIN purchase: DET lost an answer, and buying on while that is
  *     unexplained could compound it;
+ *   - an unexpected error mid-purchase, or a purchase a previous tick left
+ *     PENDING (a worker restart during a deploy): either may have sold;
  *   - DET unreachable, credentials missing, the mapping no longer current, or
  *     the environment / performance code changed since the run was confirmed;
- *   - five definite DET refusals in a row that were not "section sold out".
+ *   - five definite DET refusals in a row that were not "section sold out",
+ *     counted across ticks from the run's own orders.
+ * A run buys only for people registered when it started: the organiser
+ * confirmed a count, and later registrants are the desk's or the next run's.
  * A section DET refuses as sold out (5005) is added to `soldOutAreas` and its
  * remaining registrations are skipped; the rest of the run carries on.
  *
@@ -24,7 +29,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { dtcmEligibility, type IneligibleReason } from "@/lib/dtcm-eticket/eligibility";
 import { readDtcmEventSettings, sectionHeadroom } from "@/lib/dtcm-eticket/sections";
-import type { DetEnvironment } from "@/lib/dtcm-eticket/types";
+import { DET_CODES, type DetEnvironment } from "@/lib/dtcm-eticket/types";
 import { buyForRegistration, loadDtcmPurchaseContext, type DtcmPurchaseContext } from "@/services/dtcm-eticket-service";
 
 const RUN_REGISTRATION_SELECT = {
@@ -40,7 +45,7 @@ const RUN_REGISTRATION_SELECT = {
 type RunRegistration = Prisma.RegistrationGetPayload<{ select: typeof RUN_REGISTRATION_SELECT }>;
 
 /** Reasons that mean "this person needs nothing", not "this person has a problem". */
-const NOT_NEEDED: ReadonlySet<IneligibleReason> = new Set(["CANCELLED", "VIRTUAL", "ALREADY_HAS_CODE"]);
+const NOT_NEEDED: ReadonlySet<IneligibleReason> = new Set(["CANCELLED", "WAITLISTED", "VIRTUAL", "ALREADY_HAS_CODE"]);
 
 /** Consecutive non-sold-out refusals after which DET is treated as unwell. */
 const MAX_CONSECUTIVE_REFUSALS = 5;
@@ -148,7 +153,7 @@ export async function startDtcmRun(input: {
   organizationId: string;
   eventId: string;
   userId: string;
-  confirm: { environment: DetEnvironment; count: number };
+  confirm: { environment: DetEnvironment; performanceCode: string; count: number };
 }): Promise<StartDtcmRunResult> {
   const log = { eventId: input.eventId, userId: input.userId };
   const pre = await dtcmRunPreflight(input.organizationId, input.eventId, input.userId);
@@ -166,10 +171,17 @@ export async function startDtcmRun(input: {
     const over = p.sections.filter((s) => s.over).map((s) => `${s.area} needs ${s.needed}, DET has ${s.headroom}`);
     return refuse("OVER_CAPACITY", `More registrations than DET seats: ${over.join("; ")}. Change the DET sections or ask DET for more seats.`);
   }
-  if (input.confirm.environment !== p.environment || input.confirm.count !== p.eligibleIds.length) {
+  // Environment, performance AND count must be what the organiser saw (review
+  // of step 4, HIGH 1: a code changed between the check and the click bought
+  // for a performance nobody confirmed).
+  if (
+    input.confirm.environment !== p.environment ||
+    input.confirm.performanceCode !== p.performanceCode ||
+    input.confirm.count !== p.eligibleIds.length
+  ) {
     return refuse(
       "CONFIRMATION_STALE",
-      `This would now buy ${p.eligibleIds.length} ${p.environment} tickets, not ${input.confirm.count} ${input.confirm.environment}. Check again and confirm.`,
+      `This would now buy ${p.eligibleIds.length} ${p.environment} tickets for ${p.performanceCode}, not ${input.confirm.count} ${input.confirm.environment} for ${input.confirm.performanceCode}. Check again and confirm.`,
     );
   }
 
@@ -248,7 +260,12 @@ async function stopRun(runId: string, reason: string) {
  * the worker inside the run's own tenant lane. Re-reads the run's status
  * before every purchase, so a Cancel takes effect at the next person.
  */
-export async function tickDtcmRun(runId: string, budgetMs: number, pauseMs = 250): Promise<void> {
+export async function tickDtcmRun(
+  runId: string,
+  budgetMs: number,
+  pauseMs = 250,
+  shouldStop: () => boolean = () => false,
+): Promise<void> {
   const deadline = Date.now() + budgetMs;
   const run = await db.dtcmIssueRun.findUnique({ where: { id: runId } });
   if (!run || run.status !== "RUNNING" || !run.organizationId) return;
@@ -264,26 +281,52 @@ export async function tickDtcmRun(runId: string, budgetMs: number, pauseMs = 250
     );
   }
 
+  // Ticks are serial (the job lease), so a PENDING order of this run at the
+  // start of a tick was left by a tick that died mid-purchase: a worker
+  // restart during a deploy, or a crash. It may have sold (review of step 4,
+  // HIGH 3).
+  const interrupted = await db.dtcmOrder.findFirst({ where: { runId: run.id, status: "PENDING" }, select: { registrationId: true } });
+  if (interrupted) {
+    return stopRun(
+      run.id,
+      `A purchase was interrupted (worker restart?) for registration ${interrupted.registrationId}. Resolve it on that registration (after 10 minutes), then start again.`,
+    );
+  }
+
   const soldOut = new Set(run.soldOutAreas);
   const mappedTypes = Object.keys(readDtcmEventSettings(ctx.event.settings).sections ?? {});
-  let refusalsInARow = 0;
-  for (const registration of await nextCandidates(run.id, run.eventId, mappedTypes)) {
-    if (Date.now() > deadline) return;
+  let refusalsInARow = await trailingRefusals(run.id);
+  for (const registration of await nextCandidates(run.id, run.eventId, mappedTypes, run.startedAt)) {
+    if (Date.now() > deadline || shouldStop()) return;
+    const e = dtcmEligibility(ctx.event, registration, ctx.creds.environment);
+    // A stale mapping or DTCM switched off refuses EVERYONE: stop, never finish
+    // as if done (review of step 4, LOW 7).
+    if (!e.ok && (e.reason === "MAPPING_STALE" || e.reason === "DTCM_OFF")) return stopRun(run.id, e.message);
+    if (!e.ok) continue; // someone fixed or coded meanwhile; the next tick re-reads
+    if (soldOut.has(e.mapping.area)) continue;
+    // Only before a real purchase, so thousands of skipped people cost nothing.
     const current = await db.dtcmIssueRun.findUnique({ where: { id: run.id }, select: { status: true } });
     if (current?.status !== "RUNNING") return;
 
-    const e = dtcmEligibility(ctx.event, registration, ctx.creds.environment);
-    if (!e.ok) continue; // someone fixed or coded meanwhile; the next tick re-reads
-    if (soldOut.has(e.mapping.area)) continue;
-
-    const result = await buyForRegistration(ctx, registration);
+    let result: Awaited<ReturnType<typeof buyForRegistration>>;
+    try {
+      result = await buyForRegistration(ctx, registration);
+    } catch (err) {
+      // Not a DET answer: a database write failed mid-purchase, perhaps after
+      // the sale. Stop rather than buy on (review of step 4, HIGH 2).
+      await stopRun(
+        run.id,
+        `Unexpected error while buying for registration ${registration.id}. Check that registration's DET order before starting again.`,
+      );
+      throw err;
+    }
     if (result.ok) {
       refusalsInARow = 0;
     } else if (result.code === "UNCERTAIN") {
       return stopRun(run.id, `DET lost the answer to a purchase (${registration.id}). Resolve it on the registration before starting again.`);
     } else if (result.code === "MAPPING_STALE" || result.code === "DTCM_OFF" || result.code === "NOT_ON_DET_MAP") {
       return stopRun(run.id, result.message);
-    } else if (result.code === "DET_REFUSED" && /code 5005/.test(result.order?.errorMessage ?? "")) {
+    } else if (result.code === "DET_REFUSED" && result.detCode === DET_CODES.OFFER_INVALID) {
       soldOut.add(e.mapping.area);
       await db.dtcmIssueRun.update({ where: { id: run.id }, data: { soldOutAreas: [...soldOut] } });
       apiLogger.warn({ msg: "dtcm-run:section-sold-out", runId: run.id, area: e.mapping.area });
@@ -309,11 +352,31 @@ export async function tickDtcmRun(runId: string, budgetMs: number, pauseMs = 250
 }
 
 /**
+ * How many of this run's most recent attempts were definite refusals other
+ * than "sold out", so the five-in-a-row rule holds across ticks (review of
+ * step 4, M4: a slow DET fits one or two attempts in a tick).
+ */
+async function trailingRefusals(runId: string): Promise<number> {
+  const recent = await db.dtcmOrder.findMany({
+    where: { runId },
+    orderBy: { createdAt: "desc" },
+    take: MAX_CONSECUTIVE_REFUSALS,
+    select: { status: true, errorMessage: true },
+  });
+  let n = 0;
+  for (const o of recent) {
+    if (o.status !== "FAILED" || /\bcode 5005\b/.test(o.errorMessage ?? "")) break;
+    n++;
+  }
+  return n;
+}
+
+/**
  * Registrations on a mapped type that this run has not tried yet, with no
  * code and no live order. Eligibility proper (phone, country, mapping
  * current...) is checked per person by the caller, with the desk's rule.
  */
-function nextCandidates(runId: string, eventId: string, mappedTypeIds: string[]): Promise<RunRegistration[]> {
+function nextCandidates(runId: string, eventId: string, mappedTypeIds: string[], startedAt: Date): Promise<RunRegistration[]> {
   // No `take`: a page could fill with people who can never be bought for (no
   // phone), and those behind them would never be reached. Event-sized, and the
   // select is small.
@@ -321,6 +384,8 @@ function nextCandidates(runId: string, eventId: string, mappedTypeIds: string[])
     where: {
       eventId,
       ticketTypeId: { in: mappedTypeIds },
+      // Only people registered when the run was confirmed (review of step 4, M6).
+      createdAt: { lte: startedAt },
       dtcmBarcode: null,
       status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
       attendanceMode: "IN_PERSON",

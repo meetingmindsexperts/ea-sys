@@ -11,6 +11,7 @@
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ApiError } from "@/lib/api-fetch";
 import { useDtcmUnusedOrders, useReverseDtcmOrder, type DtcmUnusedOrder } from "@/hooks/use-api";
 
 const WHY: Record<DtcmUnusedOrder["reason"], string> = {
@@ -29,10 +30,27 @@ export function DtcmUnusedCard({ eventId }: { eventId: string }) {
     const who = o.name ?? "a deleted registration";
     if (!window.confirm(`Reverse DET order ${o.orderId} (${who})? Its DTCM barcode stops working and the seat goes back to the permit.`)) return;
     try {
-      const out = await reverse.mutateAsync(o.id);
+      const out = await reverse.mutateAsync({ dtcmOrderId: o.id, action: "reverse" });
       toast.success(out.clearedRegistrationCode ? "Reversed, and the code was removed from the registration." : "Reversed.");
     } catch (err) {
+      // DET has no such order: reversed already (a lost answer, or in DET's
+      // portal). Offer to record that, which is checked with DET again.
+      if (err instanceof ApiError && err.code === "DET_NOT_FOUND") {
+        if (window.confirm(`${err.message}\n\nIf DET's portal shows order ${o.orderId} reversed, mark it reversed here?`)) {
+          await markReversed(o);
+        }
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Could not reverse the DET order", { duration: 12000 });
+    }
+  };
+
+  const markReversed = async (o: DtcmUnusedOrder) => {
+    try {
+      await reverse.mutateAsync({ dtcmOrderId: o.id, action: "mark-reversed" });
+      toast.success("Marked as reversed.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not mark the order reversed", { duration: 12000 });
     }
   };
 
@@ -53,7 +71,7 @@ export function DtcmUnusedCard({ eventId }: { eventId: string }) {
               {o.environment === "production" ? "production" : "sandbox"}), {WHY[o.reason]}
             </span>
             <Button size="sm" variant="outline" disabled={reverse.isPending} onClick={() => handleReverse(o)}>
-              {reverse.isPending && reverse.variables === o.id && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+              {reverse.isPending && reverse.variables?.dtcmOrderId === o.id && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
               Reverse
             </Button>
           </li>

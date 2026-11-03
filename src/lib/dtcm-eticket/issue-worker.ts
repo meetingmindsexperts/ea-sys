@@ -15,8 +15,18 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { tickDtcmRun } from "@/services/dtcm-issue-run-service";
 
-/** Per tick, across all runs: the job fires every minute and must finish before the next. */
+/** Per tick, across all runs: the job fires every 2 minutes and the budget stays well inside that. */
 const TICK_BUDGET_MS = 45_000;
+
+/**
+ * Set on SIGTERM (a deploy restarts the worker). No NEW purchase starts after
+ * it; the one in flight finishes if the 25-second drain allows, and if it does
+ * not, the next tick finds its PENDING order and stops the run for a person.
+ */
+let stopping = false;
+process.once("SIGTERM", () => {
+  stopping = true;
+});
 
 export async function tickAllDtcmRuns(): Promise<{ runs: number }> {
   const runs = await dbOperator.dtcmIssueRun.findMany({
@@ -29,11 +39,15 @@ export async function tickAllDtcmRuns(): Promise<{ runs: number }> {
     const left = deadline - Date.now();
     if (left <= 0) break;
     try {
-      await runWithTenantLane(run.organizationId, { route: "dtcm-eticket:issue-worker" }, () => tickDtcmRun(run.id, left));
+      if (stopping) break;
+      await runWithTenantLane(run.organizationId, { route: "dtcm-eticket:issue-worker" }, () =>
+        tickDtcmRun(run.id, left, undefined, () => stopping),
+      );
     } catch (err) {
-      // One run's failure must not stop the others; the run stays RUNNING and
-      // the next tick tries again (nothing is retried blindly: every purchase
-      // still goes through the activeKey insert).
+      // One run's failure must not stop the others. A purchase that threw has
+      // already STOPPED its run (tickDtcmRun); anything earlier (reading the
+      // run or DET's map) leaves it RUNNING for the next tick, and every
+      // purchase still goes through the activeKey insert.
       apiLogger.error({ err, runId: run.id, msg: "dtcm-run:tick-failed" });
     }
   }

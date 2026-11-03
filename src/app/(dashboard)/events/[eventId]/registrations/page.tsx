@@ -670,7 +670,8 @@ export default function RegistrationsPage() {
       {/* Buying the event's codes from DET in bulk: organisers only. */}
       {event?.requiresDtcmBarcode && event?.dtcmPerformanceCode && canImportDtcm && <DtcmRunCard eventId={eventId} />}
       {/* Bought tickets nobody is using, to reverse by hand (never automatic). */}
-      {canImportDtcm && event?.requiresDtcmBarcode && <DtcmUnusedCard eventId={eventId} />}
+      {/* Not gated on the DTCM switch: tickets bought before it was turned off can still be handed back. */}
+      {canImportDtcm && <DtcmUnusedCard eventId={eventId} />}
 
       {/* Bulk Selection Toolbar */}
       {selectedIds.size > 0 && !isReviewer && canSelect && (
