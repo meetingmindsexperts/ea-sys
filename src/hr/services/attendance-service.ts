@@ -21,7 +21,8 @@
  * only, and never for a caller that set `includeNonWorkingDays` itself. The
  * rule is `hr-leave-bridge.ts`; what was filled is returned and audited.
  *
- * EVERY WRITE AND EVERY CLEAR RECORDS WHAT IT REPLACED. The audit row carries the
+ * EVERY WRITE AND EVERY CLEAR RECORDS WHAT IT REPLACED, in the same transaction
+ * as the change, so neither can commit without the other. The audit row carries the
  * previous code of each overwritten day and the code of each deleted day, so a
  * drag that lands wrong can be put back from the trail alone. Codes only, never
  * remarks: free text is where a medical detail would land, and the trail
@@ -417,7 +418,7 @@ export async function setAttendance(
     // the write. Without it an accidental overwrite (AL dragged across a
     // recorded sick week) was unrecoverable: the audit said what was written
     // and never what it replaced (review H5, Aug 31 2026).
-    const overwritten = await tenantTransaction(async (tx) => {
+    await tenantTransaction(async (tx) => {
       const existing = await tx.attendanceEntry.findMany({
         where: {
           organizationId: input.organizationId,
@@ -463,13 +464,15 @@ export async function setAttendance(
           },
         });
       }
-      return previous;
-    }, TX_BUDGET);
 
-    await db.auditLog
-      .create({
+      // In the SAME transaction as the write: `overwritten` is the only record
+      // of what a save replaced, so a write that commits without it cannot be
+      // undone. An audit failure therefore rolls the write back (dependency
+      // audit HR-1, Nov 3 2026).
+      await tx.auditLog.create({
         data: {
           userId: input.actorUserId,
+          organizationId: input.organizationId,
           action: "UPDATE",
           entityType: "AttendanceEntry",
           entityId: `employee:${input.employeeId}`,
@@ -485,11 +488,11 @@ export async function setAttendance(
             to,
             days: target.length,
             bridged,
-            overwritten,
+            overwritten: previous,
           },
         },
-      })
-      .catch((err) => apiLogger.error({ msg: "hr-attendance:audit-failed", err }));
+      });
+    }, TX_BUDGET);
 
     return { ok: true, result: { written: target.length, skipped, bridged } };
   } catch (err) {
@@ -557,12 +560,13 @@ export async function clearAttendance(input: {
         orderBy: { date: "asc" },
       });
       await tx.attendanceEntry.deleteMany({ where });
-      return rows.map((r) => ({ date: toCalendarDate(r.date), code: r.leaveCode.code }));
-    }, TX_BUDGET);
-    await db.auditLog
-      .create({
+      const entries = rows.map((r) => ({ date: toCalendarDate(r.date), code: r.leaveCode.code }));
+      // A hard delete whose audit row is the only way to put the days back, so
+      // the two commit together or not at all (HR-1).
+      await tx.auditLog.create({
         data: {
           userId: input.actorUserId,
+          organizationId: input.organizationId,
           action: "DELETE",
           entityType: "AttendanceEntry",
           entityId: `employee:${input.employeeId}`,
@@ -570,12 +574,13 @@ export async function clearAttendance(input: {
             employeeId: input.employeeId,
             from: input.from,
             to,
-            removed: removed.length,
-            entries: removed,
+            removed: entries.length,
+            entries,
           },
         },
-      })
-      .catch((err) => apiLogger.error({ msg: "hr-attendance:audit-failed", err }));
+      });
+      return entries;
+    }, TX_BUDGET);
     return { ok: true, result: { removed: removed.length } };
   } catch (err) {
     if (isTransactionTimeout(err)) {

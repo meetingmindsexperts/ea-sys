@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -66,24 +66,28 @@ export async function DELETE(
           { status: 409 },
         );
       }
-      const { count } = await db.publicHoliday.deleteMany({
-        where: { id: holidayId, organizationId: org.orgId },
-      });
-      if (count === 0) {
-        apiLogger.warn({ msg: "hr/holiday:not-found", holidayId, userId: session.user.id });
-        return NextResponse.json({ error: "Holiday not found." }, { status: 404 });
-      }
-      await db.auditLog
-        .create({
+      // The delete and its audit commit together (HR-1).
+      const count = await tenantTransaction(async (tx) => {
+        const res = await tx.publicHoliday.deleteMany({
+          where: { id: holidayId, organizationId: org.orgId },
+        });
+        if (res.count === 0) return 0;
+        await tx.auditLog.create({
           data: {
             userId: session.user.id,
+            organizationId: org.orgId,
             action: "DELETE",
             entityType: "PublicHoliday",
             entityId: holidayId,
             changes: { date: toCalendarDate(holiday.date), label: holiday.label },
           },
-        })
-        .catch((err) => apiLogger.error({ msg: "hr/holiday:audit-failed", err, holidayId }));
+        });
+        return res.count;
+      });
+      if (count === 0) {
+        apiLogger.warn({ msg: "hr/holiday:not-found", holidayId, userId: session.user.id });
+        return NextResponse.json({ error: "Holiday not found." }, { status: 404 });
+      }
       apiLogger.info({ msg: "hr/holiday:deleted", holidayId, date: toCalendarDate(holiday.date), userId: session.user.id });
       return NextResponse.json({ ok: true });
     } catch (err) {

@@ -25,7 +25,7 @@
  *      stranded rows the refusal exists to prevent.
  */
 
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
   type CalendarDate,
@@ -265,41 +265,45 @@ export async function createEmployee(
   }
 
   try {
-    const row = await db.employee.create({
-      data: {
-        organizationId: input.organizationId,
-        empCode: input.empCode.trim(),
-        name: input.name.trim(),
-        department: input.department?.trim() || null,
-        jobTitle: input.jobTitle?.trim() || null,
-        joiningDate: fromCalendarDate(input.joiningDate),
-        exitDate: input.exitDate ? fromCalendarDate(input.exitDate) : null,
-        status,
-        // Capped on the way in, so a bad seed cannot store a figure the balance
-        // engine would then have to keep re-capping on every read.
-        carryoverDays: capCarryover(input.carryoverDays ?? 0),
-        openingSickUsed: input.openingSickUsed ?? 0,
-        openingCompOff: input.openingCompOff ?? 0,
-        annualEntitlementDays: input.annualEntitlementDays ?? null,
-        // The seeds are true for the year they were typed in, and no other.
-        seedLeaveYear: input.seedLeaveYear ?? yearOf(todayInTimezone(HR_DEFAULT_TIMEZONE)),
-        userId: input.userId ?? null,
-        notes: input.notes?.trim() || null,
-      },
-      select: EMPLOYEE_SELECT,
-    });
-
-    await db.auditLog
-      .create({
+    // The row and its audit commit together (dependency audit HR-1): an
+    // employee record that exists with no trace of who created it is the gap
+    // the audit closed.
+    const row = await tenantTransaction(async (tx) => {
+      const created = await tx.employee.create({
+        data: {
+          organizationId: input.organizationId,
+          empCode: input.empCode.trim(),
+          name: input.name.trim(),
+          department: input.department?.trim() || null,
+          jobTitle: input.jobTitle?.trim() || null,
+          joiningDate: fromCalendarDate(input.joiningDate),
+          exitDate: input.exitDate ? fromCalendarDate(input.exitDate) : null,
+          status,
+          // Capped on the way in, so a bad seed cannot store a figure the balance
+          // engine would then have to keep re-capping on every read.
+          carryoverDays: capCarryover(input.carryoverDays ?? 0),
+          openingSickUsed: input.openingSickUsed ?? 0,
+          openingCompOff: input.openingCompOff ?? 0,
+          annualEntitlementDays: input.annualEntitlementDays ?? null,
+          // The seeds are true for the year they were typed in, and no other.
+          seedLeaveYear: input.seedLeaveYear ?? yearOf(todayInTimezone(HR_DEFAULT_TIMEZONE)),
+          userId: input.userId ?? null,
+          notes: input.notes?.trim() || null,
+        },
+        select: EMPLOYEE_SELECT,
+      });
+      await tx.auditLog.create({
         data: {
           userId: input.actorUserId,
+          organizationId: input.organizationId,
           action: "CREATE",
           entityType: "Employee",
-          entityId: row.id,
-          changes: { source: input.source, empCode: row.empCode, name: row.name },
+          entityId: created.id,
+          changes: { source: input.source, empCode: created.empCode, name: created.name },
         },
-      })
-      .catch((err) => apiLogger.error({ msg: "hr-employee:audit-failed", err }));
+      });
+      return created;
+    });
 
     return { ok: true, employee: toEmployeeView(row) };
   } catch (err) {
@@ -417,56 +421,59 @@ export async function updateEmployee(
     // takes a compound where, so a refactor that drops the read cannot turn
     // this into a cross-tenant write (review M6; the same shape
     // `deleteAttendanceRule` already uses, and the tenancy harness pins it).
-    const { count } = await db.employee.updateMany({
-      where: { id: input.employeeId, organizationId: input.organizationId },
-      data: {
-        ...(p.name !== undefined && { name: p.name.trim() }),
-        ...(p.department !== undefined && { department: p.department?.trim() || null }),
-        ...(p.jobTitle !== undefined && { jobTitle: p.jobTitle?.trim() || null }),
-        ...(p.joiningDate !== undefined && { joiningDate: fromCalendarDate(joining) }),
-        ...(p.exitDate !== undefined && {
-          exitDate: exit ? fromCalendarDate(exit) : null,
-        }),
-        ...(p.carryoverDays !== undefined && { carryoverDays: capCarryover(p.carryoverDays) }),
-        ...(p.openingSickUsed !== undefined && { openingSickUsed: p.openingSickUsed }),
-        ...(p.openingCompOff !== undefined && { openingCompOff: p.openingCompOff }),
-        // null is meaningful: it clears the agreement and restores the rule.
-        ...(p.annualEntitlementDays !== undefined && {
-          annualEntitlementDays: p.annualEntitlementDays,
-        }),
-        ...(p.notes !== undefined && { notes: p.notes?.trim() || null }),
-        ...(p.status !== undefined && { status: p.status }),
-        ...(p.userId !== undefined && { userId: p.userId }),
-      },
-    });
-    if (count === 0) {
-      return { ok: false, code: "EMPLOYEE_NOT_FOUND", message: "Employee not found." };
-    }
-    const row = await db.employee.findFirst({
-      where: { id: input.employeeId, organizationId: input.organizationId },
-      select: EMPLOYEE_SELECT,
-    });
-    if (!row) {
-      return { ok: false, code: "EMPLOYEE_NOT_FOUND", message: "Employee not found." };
-    }
+    const outcome = await tenantTransaction(async (tx) => {
+      const { count } = await tx.employee.updateMany({
+        where: { id: input.employeeId, organizationId: input.organizationId },
+        data: {
+          ...(p.name !== undefined && { name: p.name.trim() }),
+          ...(p.department !== undefined && { department: p.department?.trim() || null }),
+          ...(p.jobTitle !== undefined && { jobTitle: p.jobTitle?.trim() || null }),
+          ...(p.joiningDate !== undefined && { joiningDate: fromCalendarDate(joining) }),
+          ...(p.exitDate !== undefined && {
+            exitDate: exit ? fromCalendarDate(exit) : null,
+          }),
+          ...(p.carryoverDays !== undefined && { carryoverDays: capCarryover(p.carryoverDays) }),
+          ...(p.openingSickUsed !== undefined && { openingSickUsed: p.openingSickUsed }),
+          ...(p.openingCompOff !== undefined && { openingCompOff: p.openingCompOff }),
+          // null is meaningful: it clears the agreement and restores the rule.
+          ...(p.annualEntitlementDays !== undefined && {
+            annualEntitlementDays: p.annualEntitlementDays,
+          }),
+          ...(p.notes !== undefined && { notes: p.notes?.trim() || null }),
+          ...(p.status !== undefined && { status: p.status }),
+          ...(p.userId !== undefined && { userId: p.userId }),
+        },
+      });
+      if (count === 0) return null;
+      const row = await tx.employee.findFirst({
+        where: { id: input.employeeId, organizationId: input.organizationId },
+        select: EMPLOYEE_SELECT,
+      });
+      if (!row) return null;
 
-    const after = toEmployeeView(row);
-    const changed = employeeAuditDiff(toEmployeeView(existing), after);
-    if (Object.keys(changed).length > 0) {
-      await db.auditLog
-        .create({
+      const after = toEmployeeView(row);
+      const changed = employeeAuditDiff(toEmployeeView(existing), after);
+      // Same transaction (HR-1): exit dates and opening balances move payroll
+      // figures, so the change and the record of it commit together.
+      if (Object.keys(changed).length > 0) {
+        await tx.auditLog.create({
           data: {
             userId: input.actorUserId,
+            organizationId: input.organizationId,
             action: "UPDATE",
             entityType: "Employee",
             entityId: row.id,
             changes: { changed, source: input.source ?? "ui" },
           },
-        })
-        .catch((err) => apiLogger.error({ msg: "hr-employee:audit-failed", err }));
+        });
+      }
+      return after;
+    });
+    if (!outcome) {
+      return { ok: false, code: "EMPLOYEE_NOT_FOUND", message: "Employee not found." };
     }
 
-    return { ok: true, employee: after };
+    return { ok: true, employee: outcome };
   } catch (err) {
     const code = (err as { code?: string })?.code;
     if (code === "P2002" && String((err as { meta?: { target?: unknown } })?.meta?.target ?? "").includes("userId")) {

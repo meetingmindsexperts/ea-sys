@@ -183,8 +183,8 @@ export async function createAttendanceRule(
   }
 
   try {
-    const created = await tenantTransaction(async (tx) =>
-      tx.attendanceRule.create({
+    const created = await tenantTransaction(async (tx) => {
+      const rule = await tx.attendanceRule.create({
         data: {
           organizationId: input.organizationId,
           scope: input.scope,
@@ -197,16 +197,17 @@ export async function createAttendanceRule(
           source: input.source,
         },
         select: RULE_SELECT,
-      }),
-    );
-
-    await db.auditLog
-      .create({
+      });
+      // In the same transaction (dependency audit HR-1): a rule can put a whole
+      // company on leave, so it must never exist without the record of who
+      // made it.
+      await tx.auditLog.create({
         data: {
           userId: input.actorUserId,
+          organizationId: input.organizationId,
           action: "CREATE",
           entityType: "AttendanceRule",
-          entityId: created.id,
+          entityId: rule.id,
           changes: {
             source: input.source,
             scope: input.scope,
@@ -219,10 +220,9 @@ export async function createAttendanceRule(
             // facts a reversal needs.
           },
         },
-      })
-      .catch((err) =>
-        apiLogger.error({ msg: "hr/attendance-rule:audit-failed", err, ruleId: created.id }),
-      );
+      });
+      return rule;
+    });
 
     apiLogger.info({
       msg: "hr/attendance-rule:created",
@@ -281,7 +281,27 @@ export async function deleteAttendanceRule(params: {
       const res = await tx.attendanceRule.deleteMany({
         where: { id: params.ruleId, organizationId: params.organizationId },
       });
-      return { count: res.count, snapshot };
+      if (res.count === 0) return { count: 0 };
+      // Same transaction (HR-1): deleting a company-wide rule changes every
+      // balance in the org, and the snapshot is what lets it be put back.
+      await tx.auditLog.create({
+        data: {
+          userId: params.actorUserId,
+          organizationId: params.organizationId,
+          action: "DELETE",
+          entityType: "AttendanceRule",
+          entityId: params.ruleId,
+          changes: {
+            source: params.source,
+            scope: snapshot?.scope ?? null,
+            employeeId: snapshot?.employeeId ?? null,
+            code: snapshot?.leaveCode.code ?? null,
+            startDate: snapshot ? toCalendarDate(snapshot.startDate) : null,
+            endDate: snapshot?.endDate ? toCalendarDate(snapshot.endDate) : null,
+          },
+        },
+      });
+      return { count: res.count };
     });
     if (deleted.count === 0) {
       apiLogger.warn({
@@ -291,27 +311,6 @@ export async function deleteAttendanceRule(params: {
       });
       return { ok: false, code: "RULE_NOT_FOUND", message: "That rule no longer exists." };
     }
-
-    await db.auditLog
-      .create({
-        data: {
-          userId: params.actorUserId,
-          action: "DELETE",
-          entityType: "AttendanceRule",
-          entityId: params.ruleId,
-          changes: {
-            source: params.source,
-            scope: deleted.snapshot?.scope ?? null,
-            employeeId: deleted.snapshot?.employeeId ?? null,
-            code: deleted.snapshot?.leaveCode.code ?? null,
-            startDate: deleted.snapshot ? toCalendarDate(deleted.snapshot.startDate) : null,
-            endDate: deleted.snapshot?.endDate ? toCalendarDate(deleted.snapshot.endDate) : null,
-          },
-        },
-      })
-      .catch((err) =>
-        apiLogger.error({ msg: "hr/attendance-rule:audit-failed", err, ruleId: params.ruleId }),
-      );
 
     apiLogger.info({ msg: "hr/attendance-rule:deleted", ruleId: params.ruleId });
     return { ok: true, result: { id: params.ruleId } };

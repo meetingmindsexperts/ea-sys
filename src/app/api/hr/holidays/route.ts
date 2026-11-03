@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -96,27 +96,30 @@ export async function POST(req: NextRequest) {
 
   return runWithTenant(org.orgId, async () => {
     try {
-      const row = await db.publicHoliday.create({
-        data: {
-          organizationId: org.orgId,
-          date: fromCalendarDate(parsed.data.date),
-          label: parsed.data.label.trim(),
-        },
-        select: { id: true, date: true, label: true },
-      });
       // Audited (review M8): a holiday changes what a rule charges and how much
-      // leave a range costs, for everyone, and nothing said who added it.
-      await db.auditLog
-        .create({
+      // leave a range costs, for everyone, and nothing said who added it. In
+      // the same transaction, so it cannot exist without that record (HR-1).
+      const row = await tenantTransaction(async (tx) => {
+        const created = await tx.publicHoliday.create({
+          data: {
+            organizationId: org.orgId,
+            date: fromCalendarDate(parsed.data.date),
+            label: parsed.data.label.trim(),
+          },
+          select: { id: true, date: true, label: true },
+        });
+        await tx.auditLog.create({
           data: {
             userId: session.user.id,
+            organizationId: org.orgId,
             action: "CREATE",
             entityType: "PublicHoliday",
-            entityId: row.id,
-            changes: { date: parsed.data.date, label: row.label },
+            entityId: created.id,
+            changes: { date: parsed.data.date, label: created.label },
           },
-        })
-        .catch((err) => apiLogger.error({ msg: "hr/holidays:audit-failed", err, holidayId: row.id }));
+        });
+        return created;
+      });
       apiLogger.info({ msg: "hr/holidays:created", holidayId: row.id, date: parsed.data.date, userId: session.user.id });
       return NextResponse.json(
         { holiday: { ...row, date: toCalendarDate(row.date) } },

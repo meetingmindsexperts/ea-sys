@@ -11,19 +11,23 @@ import { HR_LEAVE_CODE_SEED } from "@/hr/lib/hr-seed-data";
  */
 
 const { mockDb, mockTx, mockApiLogger } = vi.hoisted(() => {
+  // One audit mock shared by `tx` and `db`, so `auditChanges()` reads it
+  // wherever the row is written; the tests below pin that it is the tx.
+  const auditLog = { create: vi.fn() };
   const mockTx = {
     attendanceEntry: {
       findMany: vi.fn(),
       upsert: vi.fn(),
       deleteMany: vi.fn(),
     },
+    auditLog,
   };
   const mockDb = {
     employee: { findFirst: vi.fn() },
     leaveCode: { findFirst: vi.fn() },
     publicHoliday: { findMany: vi.fn() },
     attendanceEntry: { deleteMany: vi.fn(), findMany: vi.fn() },
-    auditLog: { create: vi.fn() },
+    auditLog,
   };
   const mockApiLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
   return { mockDb, mockTx, mockApiLogger };

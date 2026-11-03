@@ -17,7 +17,12 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => ({
   mockApiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// The change and its audit share one transaction (HR-1); the callback runs
+// against the same mock, so a rejected audit write rejects the whole call.
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (cb: (tx: unknown) => unknown) => cb(mockDb),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 
 import {

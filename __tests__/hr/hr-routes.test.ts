@@ -49,7 +49,12 @@ vi.mock("next/server", () => {
   return { NextRequest: class {}, NextResponse: Res };
 });
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// The change and its audit share one transaction (HR-1); the callback runs
+// against the same mock, so a rejected audit write rejects the whole call.
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (cb: (tx: unknown) => unknown) => cb(mockDb),
+}));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -227,7 +232,26 @@ describe("public holidays", () => {
     expect(mockDb.publicHoliday.deleteMany).toHaveBeenCalledWith({ where: { id: "h1", organizationId: "org1" } });
     expect(mockDb.auditLog.create.mock.calls[0][0].data).toMatchObject({
       action: "DELETE", entityType: "PublicHoliday", changes: { date: "2027-03-10", label: "Eid al-Fitr" },
+      organizationId: "org1",
     });
+  });
+
+  // HR-1: the holiday and its audit row share one transaction, so an audit
+  // failure is a failed request (and a rolled-back write), never a 201/200.
+  it("POST answers 500 when the audit write fails, not 201", async () => {
+    mockDb.publicHoliday.create.mockResolvedValue({ id: "h1", date: new Date("2027-03-10T00:00:00Z"), label: "Eid al-Fitr" });
+    mockDb.auditLog.create.mockRejectedValueOnce(new Error("audit insert failed"));
+    const res = await postHoliday(req("http://t/api/hr/holidays", body));
+    expect(res.status).toBe(500);
+  });
+
+  it("DELETE answers 500 when the audit write fails, not 200", async () => {
+    mockDb.publicHoliday.findFirst.mockResolvedValue({ id: "h1", date: new Date("2027-03-10T00:00:00Z"), label: "Eid al-Fitr" });
+    mockDb.attendanceEntry.count.mockResolvedValue(0);
+    mockDb.publicHoliday.deleteMany.mockResolvedValue({ count: 1 });
+    mockDb.auditLog.create.mockRejectedValueOnce(new Error("audit insert failed"));
+    const res = await deleteHoliday(req("http://t/x"), params({ holidayId: "h1" }));
+    expect(res.status).toBe(500);
   });
 });
 
