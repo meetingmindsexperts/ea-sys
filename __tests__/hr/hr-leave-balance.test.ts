@@ -5,6 +5,7 @@ import {
   type BalanceEntry,
   capCarryover,
   computeLeaveBalance,
+  leaveSpells,
   planYearRoll,
 } from "@/hr/lib/leave-balance";
 import { effectiveStatusFor } from "@/hr/lib/hr-effective-status";
@@ -586,5 +587,63 @@ describe("comp-off is bounded by employment, not by the clock (M11)", () => {
       ],
     });
     expect(b.compOff.taken).toBe(0);
+  });
+});
+
+/**
+ * Maternity on the summary and the employee page (Nov 3 2026). It is recorded
+ * on working days only, so a spell has holes at every weekend; "on leave now"
+ * must see through those and must end when she is back.
+ */
+describe("maternity leave", () => {
+  /** Weekdays from a Monday, as the grid records ML. */
+  function maternityWeekdays(from: string, weeks: number): BalanceEntry[] {
+    const out: BalanceEntry[] = [];
+    const start = new Date(`${from}T00:00:00Z`).getTime();
+    for (let i = 0; i < weeks * 7; i++) {
+      const d = new Date(start + i * 86_400_000);
+      if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
+      out.push({ date: d.toISOString().slice(0, 10), category: "MATERNITY", dayWeight: 1 });
+    }
+    return out;
+  }
+  const spell = maternityWeekdays("2026-10-05", 6); // Mon 5 Oct to Fri 13 Nov
+
+  it("is on leave on a weekend in the middle of the spell", () => {
+    const b = balanceFor({ entries: spell, asOf: "2026-11-01" as CalendarDate });
+    expect(b.maternity.current).toEqual({ from: "2026-10-05", to: "2026-11-13", days: 30 });
+    expect(b.maternity.taken).toBe(30);
+  });
+
+  it("is not on leave after the spell ends, but the days still count", () => {
+    const b = balanceFor({ entries: spell, asOf: "2026-11-20" as CalendarDate });
+    expect(b.maternity.current).toBeNull();
+    expect(b.maternity.taken).toBe(30);
+  });
+
+  it("splits two spells separated by a return to work", () => {
+    const spells = leaveSpells(
+      [...maternityWeekdays("2026-02-02", 1), ...maternityWeekdays("2026-02-23", 1)],
+      "MATERNITY",
+    );
+    expect(spells.map((s) => [s.from, s.to])).toEqual([
+      ["2026-02-02", "2026-02-06"],
+      ["2026-02-23", "2026-02-27"],
+    ]);
+  });
+
+  it("counts only this year's days, but a December spell is still current in January", () => {
+    const b = computeLeaveBalance({
+      employee: { joiningDate: "2010-01-04", carryoverDays: 0, openingSickUsed: 0, openingCompOff: 0 },
+      leaveYear: 2027,
+      asOf: "2027-01-06" as CalendarDate,
+      entries: maternityWeekdays("2026-12-14", 4),
+    });
+    expect(b.maternity.current?.from).toBe("2026-12-14");
+    expect(b.maternity.taken).toBe(6); // Fri 1 Jan + Mon 4 to Fri 8 Jan
+  });
+
+  it("is never current for someone with no maternity rows", () => {
+    expect(balanceFor({ entries: annual(10) }).maternity).toEqual({ taken: 0, current: null });
   });
 });

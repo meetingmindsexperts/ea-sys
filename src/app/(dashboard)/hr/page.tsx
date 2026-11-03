@@ -90,6 +90,7 @@ export default function HrSummaryPage() {
   const awaitingFirstYear = rows.filter(
     (r) => r.balance.employedInYear && !r.balance.hasCompletedFirstYear,
   ).length;
+  const onMaternity = rows.filter((r) => r.balance.maternity.current).length;
   // The roll carries the PREVIOUS year in. On the go-live year there is no
   // previous year in the system (the carry-in is the typed seed), so the
   // button is offered only once somebody's seed year is behind the view.
@@ -152,7 +153,7 @@ export default function HrSummaryPage() {
         </div>
       </div>
 
-      {(negatives > 0 || awaitingFirstYear > 0) && (
+      {(negatives > 0 || awaitingFirstYear > 0 || onMaternity > 0) && (
         <div className="flex flex-wrap gap-2 text-xs">
           {negatives > 0 && (
             <span className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
@@ -162,6 +163,11 @@ export default function HrSummaryPage() {
           {awaitingFirstYear > 0 && (
             <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
               {awaitingFirstYear} not yet at their first anniversary (no entitlement yet)
+            </span>
+          )}
+          {onMaternity > 0 && (
+            <span className="rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-violet-900 dark:border-violet-900 dark:bg-violet-950 dark:text-violet-200">
+              {onMaternity} on maternity leave
             </span>
           )}
         </div>
@@ -178,6 +184,7 @@ export default function HrSummaryPage() {
               <th className="px-3 py-2 text-right font-medium">AL balance</th>
               <th className="px-3 py-2 text-right font-medium">Sick (full)</th>
               <th className="px-3 py-2 text-right font-medium">Sick (half)</th>
+              <th className="px-3 py-2 text-right font-medium">Maternity</th>
               <th className="px-3 py-2 text-right font-medium">C-off earned</th>
               <th className="px-3 py-2 text-right font-medium">C-off taken</th>
               <th className="px-3 py-2 text-right font-medium">C-off balance</th>
@@ -194,13 +201,21 @@ export default function HrSummaryPage() {
                     {employee.department ? ` · ${employee.department}` : ""}
                     {employee.exitDate ? ` · left ${employee.exitDate}` : ""}
                   </div>
+                  {balance.maternity.current && (
+                    <Badge
+                      variant="outline"
+                      className="mt-1 border-violet-300 text-[10px] text-violet-800 dark:border-violet-800 dark:text-violet-300"
+                    >
+                      On maternity leave until {balance.maternity.current.to}
+                    </Badge>
+                  )}
                 </td>
                 {!balance.employedInYear ? (
                   /* A year the person was not employed in has no balance to show.
                      Rendering the engine's zeros as numbers would read as "took
                      nothing, owed thirty", which is the figure that used to be
                      shown for every pre-year leaver (review H1). Say what it is. */
-                  <td colSpan={10} className="px-3 py-2 text-xs text-muted-foreground">
+                  <td colSpan={11} className="px-3 py-2 text-xs text-muted-foreground">
                     Not employed in {balance.leaveYear}
                     {employee.exitDate && employee.exitDate < `${balance.leaveYear}-01-01`
                       ? ` (left ${employee.exitDate})`
@@ -244,6 +259,7 @@ export default function HrSummaryPage() {
                 <td className="px-3 py-2 text-right text-muted-foreground">
                   {balance.sick.half.used} / {balance.sick.half.limit}
                 </td>
+                <td className="px-3 py-2 text-right"><Days value={balance.maternity.taken} /></td>
                 <td className="px-3 py-2 text-right"><Days value={balance.compOff.earned} /></td>
                 <td className="px-3 py-2 text-right"><Days value={balance.compOff.taken} /></td>
                 <td className="px-3 py-2 text-right">

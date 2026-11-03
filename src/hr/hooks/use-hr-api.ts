@@ -75,6 +75,10 @@ export interface HrBalance {
     balance: number;
     earnings: { from: string; to: string }[];
   };
+  maternity: {
+    taken: number;
+    current: { from: string; to: string; days: number } | null;
+  };
 }
 
 export interface HrSummaryRow {

@@ -180,6 +180,14 @@ export default function HrEmployeePage({
                 entitlement agreed
               </Badge>
             )}
+            {balance.maternity.current && (
+              <Badge
+                variant="outline"
+                className="border-violet-300 text-violet-800 dark:border-violet-800 dark:text-violet-300"
+              >
+                On maternity leave until {balance.maternity.current.to}
+              </Badge>
+            )}
           </>
         }
         actions={
@@ -204,6 +212,9 @@ export default function HrEmployeePage({
                 { label: "Taken", value: balance.annual.taken },
                 { label: "Sick (full pay) left", value: balance.sick.full.remaining },
                 { label: "Comp-off", value: balance.compOff.balance },
+                ...(balance.maternity.taken > 0
+                  ? [{ label: "Maternity", value: balance.maternity.taken }]
+                  : []),
               ]
             : undefined
         }
@@ -244,6 +255,14 @@ export default function HrEmployeePage({
                   </Fact>
                   <Fact label="Sick used (full / half / unpaid)">
                     {balance.sick.full.used} / {balance.sick.half.used} / {balance.sick.unpaid.used}
+                  </Fact>
+                  <Fact label="Maternity leave">
+                    {balance.maternity.taken}
+                    {balance.maternity.current && (
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        on leave {balance.maternity.current.from} to {balance.maternity.current.to}
+                      </span>
+                    )}
                   </Fact>
                   <Fact label="Comp-off (earned − taken)">
                     {balance.compOff.earned} − {balance.compOff.taken} = {balance.compOff.balance}

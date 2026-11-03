@@ -13,7 +13,7 @@
  */
 
 import type { LeaveCategory } from "@prisma/client";
-import { type CalendarDate, isWithin } from "./hr-date";
+import { type CalendarDate, daysBetween, isWithin } from "./hr-date";
 import {
   HR_ANNUAL_ENTITLEMENT_DAYS,
   HR_CARRYOVER_CAP_DAYS,
@@ -121,6 +121,50 @@ export interface LeaveBalance {
     balance: number;
     earnings: CompOffEarning[];
   };
+  maternity: {
+    /** Days recorded in this leave year. Working days only, as recorded. */
+    taken: number;
+    /** The spell `asOf` falls inside, or null when not on maternity leave then. */
+    current: LeaveSpell | null;
+  };
+}
+
+/** A stretch of one kind of leave, start to end, and the days recorded in it. */
+export interface LeaveSpell {
+  from: CalendarDate;
+  to: CalendarDate;
+  days: number;
+}
+
+/**
+ * The widest gap between two recorded days that still belongs to one spell.
+ *
+ * Maternity is recorded on WORKING days only (`rangeCoversCalendarDays`), so a
+ * spell running Thursday to Monday holds no rows for the weekend. Four days
+ * spans a weekend plus a public holiday; a real return to work leaves a longer
+ * gap than that.
+ */
+const SPELL_GAP_DAYS = 4;
+
+/** Group one category's recorded days into spells. Exported for tests. */
+export function leaveSpells(
+  entries: readonly BalanceEntry[],
+  category: LeaveCategory,
+): LeaveSpell[] {
+  const days = entries
+    .filter((e) => e.category === category)
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+  const spells: LeaveSpell[] = [];
+  for (const e of days) {
+    const last = spells[spells.length - 1];
+    if (last && daysBetween(last.to, e.date) <= SPELL_GAP_DAYS) {
+      last.to = e.date;
+      last.days = roundDays(last.days + e.dayWeight);
+      continue;
+    }
+    spells.push({ from: e.date, to: e.date, days: e.dayWeight });
+  }
+  return spells;
 }
 
 /** One decimal place everywhere. Half days are the only fraction admitted. */
@@ -250,6 +294,14 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
   const compEarned = roundDays(earnings.length + employee.openingCompOff);
   const compTaken = sumWeights(entries, "COMP_OFF", compFrom, compTo);
 
+  // The current spell is read from every employed day, not the year's entries:
+  // a spell that began in December is still the one being taken in January.
+  // Its end is only as far as the caller's entries reach (the services stop at
+  // the leave year's end), so a spell running into next year ends 31 December.
+  const employedEntries = entries.filter((e) => isWithin(e.date, compFrom, compTo));
+  const maternityNow =
+    leaveSpells(employedEntries, "MATERNITY").find((s) => s.from <= asOf && asOf <= s.to) ?? null;
+
   return {
     leaveYear,
     asOf,
@@ -275,6 +327,10 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
       taken: compTaken,
       balance: roundDays(compEarned - compTaken),
       earnings,
+    },
+    maternity: {
+      taken: sumWeights(yearEntries, "MATERNITY", from, to),
+      current: maternityNow,
     },
   };
 }
