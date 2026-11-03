@@ -37,8 +37,14 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 // The tier check asks the ONE balance engine; mocked here so these tests are
 // about the projection arithmetic and not about re-testing the engine.
-const mockGetBalance = vi.hoisted(() => vi.fn());
-vi.mock("@/hr/services/leave-balance-service", () => ({ getLeaveBalance: mockGetBalance }));
+const { mockGetBalance, MockYearNotHeld } = vi.hoisted(() => ({
+  mockGetBalance: vi.fn(),
+  MockYearNotHeld: class extends Error {},
+}));
+vi.mock("@/hr/services/leave-balance-service", () => ({
+  getLeaveBalance: mockGetBalance,
+  LeaveYearNotHeldError: MockYearNotHeld,
+}));
 
 import { clearAttendance, setAttendance } from "@/hr/services/attendance-service";
 
@@ -317,6 +323,28 @@ describe("the sick tier check, driven through setAttendance", () => {
       acknowledgeSickTier: true,
     });
     expect(res.ok).toBe(true);
+  });
+
+  /** Joined Aug 2025, seeded from 2026: a 2025 sick day was a 500 (Nov 3 2026). */
+  it("writes a sick day in a year before the seed year instead of throwing", async () => {
+    mockDb.leaveCode.findFirst.mockResolvedValue(sick(1));
+    mockGetBalance.mockRejectedValue(new MockYearNotHeld("No leave records are held for 2025."));
+    const res = await setAttendance({
+      ...base, source: "ui", from: "2025-10-06", code: "SL-F",
+    });
+    expect(res.ok).toBe(true);
+    expect(mockTx.attendanceEntry.upsert).toHaveBeenCalled();
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "hr:sick-tier-year-not-held", leaveYear: 2025 }),
+    );
+  });
+
+  it("still surfaces any other balance failure", async () => {
+    mockDb.leaveCode.findFirst.mockResolvedValue(sick(1));
+    mockGetBalance.mockRejectedValue(new Error("db down"));
+    await expect(
+      setAttendance({ ...base, source: "ui", from: "2026-06-01", code: "SL-F" }),
+    ).rejects.toThrow("db down");
   });
 
   it("never asks about a code that is not full-pay sick", async () => {

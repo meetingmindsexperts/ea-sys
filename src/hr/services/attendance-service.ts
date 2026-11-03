@@ -40,7 +40,7 @@ import { isWithinEmployment } from "../lib/hr-leave-year";
 // One balance engine, asked rather than re-derived: it already knows about the
 // opening seed, rule-derived days and half days, and a second count here would
 // be the thing that disagrees with the summary screen.
-import { getLeaveBalance } from "./leave-balance-service";
+import { getLeaveBalance, LeaveYearNotHeldError } from "./leave-balance-service";
 
 export type AttendanceErrorCode =
   | "INVALID_DATE"
@@ -121,6 +121,37 @@ function toNumber(v: unknown): number {
 }
 
 /**
+ * The balance for one leave year, or null for a year before the person's seed
+ * year that no roll has written a grant for. A sick day there (someone who
+ * joined in August 2025, seeded from 2026) cannot be judged against a tier we
+ * hold no opening figures for, so it is not judged; throwing turned the whole
+ * write into a 500 and the grid silently kept the old value.
+ */
+async function balanceIfHeld(params: {
+  organizationId: string;
+  employeeId: string;
+  leaveYear: number;
+  weekendDays: readonly number[];
+}) {
+  try {
+    return await getLeaveBalance({
+      organizationId: params.organizationId,
+      employeeId: params.employeeId,
+      leaveYear: params.leaveYear,
+      weekendDays: params.weekendDays,
+    });
+  } catch (err) {
+    if (!(err instanceof LeaveYearNotHeldError)) throw err;
+    apiLogger.warn({
+      msg: "hr:sick-tier-year-not-held",
+      employeeId: params.employeeId,
+      leaveYear: params.leaveYear,
+    });
+    return null;
+  }
+}
+
+/**
  * What this write would do to the full-pay sick tier, or null when it cannot
  * be judged (no such employee, or the dates span no leave year we hold).
  *
@@ -160,12 +191,7 @@ async function projectSickFullTier(params: {
 
   let worst: { leaveYear: number; used: number; adding: number; wouldBe: number } | null = null;
   for (const [leaveYear, dates] of byYear) {
-    const balance = await getLeaveBalance({
-      organizationId: params.organizationId,
-      employeeId: params.employeeId,
-      leaveYear,
-      weekendDays: params.weekendDays,
-    });
+    const balance = await balanceIfHeld({ ...params, leaveYear });
     if (!balance || !balance.balance.employedInYear) continue;
     const used = balance.balance.sick.full.used - (replacingByYear.get(leaveYear) ?? 0);
     const adding = params.newDayWeight * dates.length;
