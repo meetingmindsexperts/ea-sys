@@ -345,7 +345,7 @@
 <div class="leaf"><code>lib/barcode-visibility.ts</code> · <code>lib/concurrency.ts</code> (<code>mapWithConcurrency</code> — Print All capped at 8 in-flight, 2500/request)</div>
 </div></details>
 <details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
-<div class="leaf"><code>Registration.qrCode</code> (entry credential) · <code>.dtcmBarcode</code> · <code>.checkedInAt</code> · <code>badgeType</code></div>
+<div class="leaf"><code>Registration.qrCode</code> (entry credential) · <code>.dtcmBarcode</code> · <code>.checkedInAt</code> · <code>badgeType</code> · <code>Event.dtcmPerformanceCode</code> (required while DTCM is on; <code>src/lib/dtcm-performance-code.ts</code>)</div>
 </div></details>
 <details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
 <div class="gotcha"><b>NEVER "undo" a check-in by hand-flipping status</b> — leaves <code>checkedInAt</code> set → permanent ALREADY_CHECKED_IN. Use the DELETE/undo endpoint.</div>
@@ -355,7 +355,7 @@
 <details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
 <div class="leaf"><b class="k">Report</b> <code>docs/CODE_REVIEW_CHECKIN_BADGES.html</code> (July 11) — all 8 HIGHs shipped in 3 phases; door-day MED batch closed M1–M6</div>
 <div class="leaf"><b class="k">Deferred</b> ROADMAP §"Check-in &amp; badges review" (remaining LOWs)</div>
-<div class="leaf"><b class="k">Docs</b> DTCM workflow in CLAUDE.md §Known gotchas + memory</div>
+<div class="leaf"><b class="k">Docs</b> <code>docs/DTCM.md</code> (codes, pool, sharing, the performance code) · <code>docs/DTCM_ETICKET_PLAN.md</code> (buying codes from DET's API)</div>
 </div></details>
 </div>
 </details>

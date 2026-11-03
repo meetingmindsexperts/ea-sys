@@ -7,6 +7,18 @@ a QR on the badge, and accepts it at check-in.
 Only events with **`requiresDtcmBarcode`** set do any of this. Everywhere else
 the column stays null and every path below short-circuits.
 
+**The event's DET performance code (2026-11-03).** An event with DTCM on also
+carries `Event.dtcmPerformanceCode`, the DET eTicketing performance its codes
+are issued against (e.g. `PDUB01DEC2023B`). One rule, in
+[src/lib/dtcm-performance-code.ts](../src/lib/dtcm-performance-code.ts):
+**turning DTCM on, or clearing the code while it is on, needs a code**.
+Re-sending stored values is not a change, so the one event that had DTCM on
+before the column existed still saves. Every writer of the switch calls it: the
+event edit, `createEvent()` and the agent's `update_event`. A clone starts with
+DTCM off and no code. Nothing reads the code yet; it is step 0 of buying codes
+from DET inside EA-SYS ([DTCM_ETICKET_PLAN.md](DTCM_ETICKET_PLAN.md)), which
+would add a fourth way a code arrives (§1).
+
 ---
 
 ## 1. Where a code comes from
@@ -114,6 +126,8 @@ door credential*.
 
 ## 6. Related
 
+- [DTCM_ETICKET_PLAN.md](DTCM_ETICKET_PLAN.md) - getting codes from DET's eTicketing API instead of a CSV, with the UAT findings
+- [src/lib/dtcm-performance-code.ts](../src/lib/dtcm-performance-code.ts) - the performance code rule
 - [src/lib/dtcm-pool.ts](../src/lib/dtcm-pool.ts) — the pool, the claim, the counts
 - [src/lib/dtcm-walkup.ts](../src/lib/dtcm-walkup.ts) — the desk warning
 - [src/lib/barcode-visibility.ts](../src/lib/barcode-visibility.ts) — who may see one
