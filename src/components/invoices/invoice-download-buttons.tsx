@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { FileText, Loader2, Receipt } from "lucide-react";
 
 interface InvoiceItem {
@@ -26,6 +27,11 @@ interface Props {
    * the registrant portal.
    */
   eventSlug?: string;
+  /**
+   * Full-width, thumb-sized buttons on a phone, natural size from `sm` up.
+   * The registrant portal is mobile first; the staff detail sheet is not.
+   */
+  stretch?: boolean;
 }
 
 /**
@@ -42,7 +48,8 @@ interface Props {
  *     `/document` route which works regardless of session state; otherwise
  *     uses the auth-required registrant `/quote` route as a last resort.
  */
-export function InvoiceDownloadButtons({ registrationId, eventSlug }: Props) {
+export function InvoiceDownloadButtons({ registrationId, eventSlug, stretch = false }: Props) {
+  const buttonClass = cn(stretch && "h-11 flex-1 sm:h-8 sm:flex-none");
   const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -66,7 +73,7 @@ export function InvoiceDownloadButtons({ registrationId, eventSlug }: Props) {
       ? `/api/public/events/${eventSlug}/registrations/${registrationId}/document`
       : `/api/registrant/registrations/${registrationId}/quote`;
     return (
-      <Button variant="outline" size="sm" asChild>
+      <Button variant="outline" size="sm" asChild className={cn(stretch && "h-11 w-full sm:h-8 sm:w-auto")}>
         <a href={fallbackUrl} download>
           <FileText className="mr-2 h-3.5 w-3.5" /> Download Quote
         </a>
@@ -75,11 +82,12 @@ export function InvoiceDownloadButtons({ registrationId, eventSlug }: Props) {
   }
 
   return (
-    <div className="flex gap-2">
+    <div className={cn("flex gap-2", stretch && "w-full sm:w-auto")}>
       {invoice && (
         <Button
           variant="outline"
           size="sm"
+          className={buttonClass}
           disabled={downloadingId === invoice.id}
           onClick={() =>
             downloadAuthPdf(
@@ -102,6 +110,7 @@ export function InvoiceDownloadButtons({ registrationId, eventSlug }: Props) {
         <Button
           variant="outline"
           size="sm"
+          className={buttonClass}
           disabled={downloadingId === receipt.id}
           onClick={() =>
             downloadAuthPdf(

@@ -41,6 +41,7 @@ import { formatCurrency, formatPersonName } from "@/lib/utils";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatSerialId } from "@/lib/registration-serial";
 import { CertificateList, type CertificateListItem } from "@/components/registrant/certificate-list";
+import { ApiError } from "@/lib/api-fetch";
 
 interface Event {
   id: string;
@@ -192,10 +193,13 @@ export default function EventMyRegistrationPage() {
     queryKey: ["registrant", "certificates", slug],
     queryFn: async () => {
       const res = await fetch(`/api/registrant/certificates?event=${encodeURIComponent(slug)}`);
-      if (!res.ok) throw new Error(`Failed to load certificates (${res.status})`);
+      // ApiError carries the status, so a 401 reaches the session-expiry
+      // handling instead of being retried as a plain failure.
+      if (!res.ok) throw new ApiError(`Failed to load certificates (${res.status})`, res.status);
       return ((await res.json()) as { certificates: CertificateListItem[] }).certificates;
     },
-    enabled: !!slug,
+    // Only for someone signed in: a visitor has no certificates to ask about.
+    enabled: !!slug && !!session?.user,
   });
   useEffect(() => {
     if (certificatesFailed) console.error("registrant-portal: failed to load certificates", certificatesError);
@@ -362,6 +366,19 @@ export default function EventMyRegistrationPage() {
 
   const locationParts = [event?.venue, event?.city, event?.country].filter(Boolean);
 
+  // First when there are any: they are issued after the event, by which time
+  // they are what a person comes back for. Shown on the not-registered panel
+  // too: faculty an organiser added hold an appreciation certificate for an
+  // event they never registered for.
+  const certificatesCard = certificates.length > 0 && (
+    <Card className="gap-0 py-0">
+      <CardContent className="space-y-3 p-4 sm:p-6">
+        <h3 className="font-semibold text-slate-800">Your certificates</h3>
+        <CertificateList certificates={certificates} />
+      </CardContent>
+    </Card>
+  );
+
   const renderContent = () => {
     if (isError) {
       return (
@@ -384,6 +401,8 @@ export default function EventMyRegistrationPage() {
     }
     if (registrations.length === 0) {
       return (
+        <div className="space-y-6">
+        {certificatesCard}
         <div className="bg-white rounded-xl border border-slate-200 p-8 text-center space-y-4">
           <AlertCircle className="h-10 w-10 text-slate-300 mx-auto" />
           <div>
@@ -412,20 +431,12 @@ export default function EventMyRegistrationPage() {
             </div>
           )}
         </div>
+        </div>
       );
     }
     return (
       <div className="space-y-6">
-        {/* First when there are any: they are issued after the event, by
-            which time they are what a person comes back for. */}
-        {certificates.length > 0 && (
-          <Card className="gap-0 py-0">
-            <CardContent className="space-y-3 p-4 sm:p-6">
-              <h3 className="font-semibold text-slate-800">Your certificates</h3>
-              <CertificateList certificates={certificates} />
-            </CardContent>
-          </Card>
-        )}
+        {certificatesCard}
         {registrations.map((reg) => {
           const isEditing = editingId === reg.id;
           const price = readRegistrationBasePrice(reg);
@@ -505,6 +516,7 @@ export default function EventMyRegistrationPage() {
                       <InvoiceDownloadButtons
                         registrationId={reg.id}
                         eventSlug={slug}
+                        stretch
                       />
                     )}
                     {promoRemovableWhileFree && (
