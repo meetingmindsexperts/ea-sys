@@ -200,3 +200,43 @@ describe("GET /api/registrant/certificates/[certificateId]/download", () => {
     expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: expect.stringContaining(":failed") }));
   });
 });
+
+describe("GET /api/registrant/certificates", () => {
+  async function list(query = "") {
+    const { GET: listGet } = await import("@/app/api/registrant/certificates/route");
+    return listGet(new Request(`http://x/api/registrant/certificates${query}`));
+  }
+  const full = (id: string, slug: string) =>
+    row({
+      id,
+      type: "ATTENDANCE",
+      serial: `S-${id}`,
+      issuedAt: new Date("2026-11-04T08:00:00Z"),
+      cmeHoursSnapshot: new Prisma.Decimal(6.5),
+      certificateTemplate: { name: "Standard", role: null, cmeHours: null },
+      event: { id: `ev-${slug}`, slug, cmeHours: null },
+    });
+
+  it("refuses a signed-out request", async () => {
+    mockAuth.mockResolvedValue(null);
+    expect((await list()).status).toBe(401);
+  });
+
+  it("lists released certificates with a title and a meta line, narrowed to one event on request", async () => {
+    mockDb.issuedCertificate.findMany.mockResolvedValue([full("a", "MEHF2027"), full("b", "hemnet2026")]);
+    const all = (await (await list()).json()) as { certificates: { id: string }[] };
+    expect(all.certificates.map((c) => c.id)).toEqual(["a", "b"]);
+
+    const one = (await (await list("?event=MEHF2027")).json()) as { certificates: unknown[] };
+    expect(one.certificates).toEqual([
+      { id: "a", eventSlug: "MEHF2027", title: "Certificate of attendance", meta: expect.stringMatching(/^6\.5 CME hours · No\. S-a · Issued /) },
+    ]);
+  });
+
+  it("leaves out what is not released", async () => {
+    mockDb.issuedCertificate.findMany.mockResolvedValue([
+      { ...full("a", "MEHF2027"), issueRunItemId: "itemA", issueRunItem: { emailedAt: null, run: { reissue: false } } },
+    ]);
+    expect(((await (await list()).json()) as { certificates: unknown[] }).certificates).toEqual([]);
+  });
+});

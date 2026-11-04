@@ -40,6 +40,7 @@ import { toast } from "sonner";
 import { formatCurrency, formatPersonName } from "@/lib/utils";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatSerialId } from "@/lib/registration-serial";
+import { CertificateList, type CertificateListItem } from "@/components/registrant/certificate-list";
 
 interface Event {
   id: string;
@@ -184,6 +185,21 @@ export default function EventMyRegistrationPage() {
       console.error("registrant-portal: failed to load registrations", error);
     }
   }, [isError, error]);
+
+  // This event's certificates, the ones the all-events list shows. A failure
+  // leaves the section out rather than the whole page.
+  const { data: certificates = [], isError: certificatesFailed, error: certificatesError } = useQuery<CertificateListItem[]>({
+    queryKey: ["registrant", "certificates", slug],
+    queryFn: async () => {
+      const res = await fetch(`/api/registrant/certificates?event=${encodeURIComponent(slug)}`);
+      if (!res.ok) throw new Error(`Failed to load certificates (${res.status})`);
+      return ((await res.json()) as { certificates: CertificateListItem[] }).certificates;
+    },
+    enabled: !!slug,
+  });
+  useEffect(() => {
+    if (certificatesFailed) console.error("registrant-portal: failed to load certificates", certificatesError);
+  }, [certificatesFailed, certificatesError]);
 
   // Filter to this event only
   const registrations = allRegistrations.filter((r) => r.event.slug === slug);
@@ -400,6 +416,16 @@ export default function EventMyRegistrationPage() {
     }
     return (
       <div className="space-y-6">
+        {/* First when there are any: they are issued after the event, by
+            which time they are what a person comes back for. */}
+        {certificates.length > 0 && (
+          <Card className="gap-0 py-0">
+            <CardContent className="space-y-3 p-4 sm:p-6">
+              <h3 className="font-semibold text-slate-800">Your certificates</h3>
+              <CertificateList certificates={certificates} />
+            </CardContent>
+          </Card>
+        )}
         {registrations.map((reg) => {
           const isEditing = editingId === reg.id;
           const price = readRegistrationBasePrice(reg);
@@ -450,7 +476,9 @@ export default function EventMyRegistrationPage() {
           const regTaxLabel = regFin.taxLabel;
 
           return (
-            <Card key={reg.id} className="overflow-hidden">
+            // No card padding: the status bar is the card's top edge (the
+            // default py-6 left an empty strip above it).
+            <Card key={reg.id} className="gap-0 overflow-hidden py-0">
               {/* Status bar */}
               <div className="px-4 sm:px-6 py-4 border-b bg-slate-50/50">
                 <div className="flex flex-wrap gap-2">
@@ -463,7 +491,7 @@ export default function EventMyRegistrationPage() {
               <CardContent className="p-4 sm:p-6 space-y-6">
                 {/* Confirmation / Payment */}
                 {(isConfirmed || isPaid || isSponsored || isRefunded || isGroupCovered) && !showPayment && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3">
                       <CheckCircle className="h-6 w-6 text-green-600 shrink-0" />
                       <div>
@@ -480,7 +508,7 @@ export default function EventMyRegistrationPage() {
                       />
                     )}
                     {promoRemovableWhileFree && (
-                      <div className="text-sm text-right shrink-0">
+                      <div className="text-sm sm:text-right shrink-0">
                         <p className="font-medium text-emerald-700">
                           Promo code {reg.promoCode!.code} applied
                         </p>
@@ -499,9 +527,10 @@ export default function EventMyRegistrationPage() {
 
                 {showPayment && (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <CreditCard className="h-6 w-6 text-amber-600 shrink-0" />
+                    {/* Mobile first: the amounts, then a full-width Pay Now. */}
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-start gap-3">
+                        <CreditCard className="mt-0.5 h-6 w-6 text-amber-600 shrink-0" />
                         <div>
                           <p className="font-semibold text-amber-800">Payment Required</p>
                           <div className="text-sm text-amber-700 space-y-0.5">
@@ -518,7 +547,7 @@ export default function EventMyRegistrationPage() {
                           </div>
                         </div>
                       </div>
-                      <Button className="btn-gradient" disabled={checkoutLoading === reg.id} onClick={async () => {
+                      <Button className="btn-gradient h-11 w-full sm:h-9 sm:w-auto" disabled={checkoutLoading === reg.id} onClick={async () => {
                         setCheckoutLoading(reg.id);
                         try {
                           const res = await fetch(`/api/public/events/${reg.event.slug}/checkout`, {

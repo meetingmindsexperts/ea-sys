@@ -1,15 +1,15 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import Link from "next/link";
-import { AlertCircle, Award, Calendar, Download, MapPin, Ticket } from "lucide-react";
+import { AlertCircle, Calendar, MapPin, Ticket } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { formatEventDateRange } from "@/lib/event-time";
-import { formatDate } from "@/lib/utils";
-import { cmeHoursOf, findReleasedCertificates } from "@/lib/registrant-certificates";
+import { certificateMeta, certificateTitle, findReleasedCertificates } from "@/lib/registrant-certificates";
+import { CertificateList } from "@/components/registrant/certificate-list";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,11 +37,6 @@ const statusColors: Record<string, string> = {
   CONFIRMED: "bg-green-100 text-green-800",
   WAITLISTED: "bg-blue-100 text-blue-800",
   CHECKED_IN: "bg-purple-100 text-purple-800",
-};
-
-const CERT_TYPE_LABEL: Record<string, string> = {
-  ATTENDANCE: "Certificate of attendance",
-  APPRECIATION: "Certificate of appreciation",
 };
 
 interface EventSummary {
@@ -102,7 +97,10 @@ export default async function MyRegistrationPage() {
   const ordered = [...events.values()].sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-6">
+    // Mobile first (owner, Nov 4, 2026): most people open this from the
+    // confirmation email on a phone. Everything stacks and buttons span the
+    // card by default; from `sm` up the actions sit beside their text.
+    <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6 sm:space-y-6 sm:px-6 sm:py-8">
       <PageHeader
         title="My events"
         description={email ? `Everything registered to ${email}` : "Your registrations and certificates"}
@@ -127,15 +125,15 @@ export default async function MyRegistrationPage() {
         return (
           <Card key={event.id}>
             <CardHeader className="space-y-2">
-              <CardTitle>{event.name}</CardTitle>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5" />
+              <CardTitle className="leading-snug">{event.name}</CardTitle>
+              <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:gap-x-4">
+                <span className="flex items-start gap-1.5">
+                  <Calendar className="mt-px h-3.5 w-3.5 shrink-0" />
                   {formatEventDateRange(event.startDate, event.endDate, event.timezone)}
                 </span>
                 {where && (
-                  <span className="flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5" />
+                  <span className="flex items-start gap-1.5">
+                    <MapPin className="mt-px h-3.5 w-3.5 shrink-0" />
                     {where}
                   </span>
                 )}
@@ -143,57 +141,30 @@ export default async function MyRegistrationPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {regs.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2">
-                  {regs.map((r) => (
-                    <span key={r.id} className="flex items-center gap-2">
-                      <Badge variant="outline" className={statusColors[r.status]}>
-                        {r.status.replace("_", " ")}
-                      </Badge>
-                      {r.ticketType?.name && (
-                        <Badge variant="outline">
-                          <Ticket className="mr-1 h-3 w-3" />
-                          {r.ticketType.name}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="flex flex-wrap gap-2">
+                    {regs.map((r) => (
+                      <span key={r.id} className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className={statusColors[r.status]}>
+                          {r.status.replace("_", " ")}
                         </Badge>
-                      )}
-                    </span>
-                  ))}
-                  <Button asChild size="sm" className="ml-auto">
+                        {r.ticketType?.name && (
+                          <Badge variant="outline">
+                            <Ticket className="mr-1 h-3 w-3" />
+                            {r.ticketType.name}
+                          </Badge>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                  <Button asChild className="h-11 w-full sm:ml-auto sm:h-9 sm:w-auto">
                     <Link href={`/e/${event.slug}/my-registration`}>Open registration</Link>
                   </Button>
                 </div>
               )}
 
               {certs.length > 0 && (
-                <ul className="divide-y rounded-md border">
-                  {certs.map((c) => (
-                    <li key={c.id} className="flex flex-wrap items-center gap-3 p-3">
-                      <Award className="h-5 w-5 shrink-0 text-primary" />
-                      {/* A floor on the text's width, so on a phone the button
-                          wraps below it rather than squeezing it to a column. */}
-                      <div className="min-w-[12rem] flex-1">
-                        <p className="text-sm font-medium">
-                          {c.certificateTemplate?.role ?? CERT_TYPE_LABEL[c.type] ?? "Certificate"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {[
-                            cmeHoursOf(c) && `${cmeHoursOf(c)} CME hours`,
-                            `No. ${c.serial}`,
-                            `Issued ${formatDate(c.issuedAt)}`,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </p>
-                      </div>
-                      <Button asChild size="sm" variant="outline">
-                        {/* A plain link: the route answers with the PDF as an attachment. */}
-                        <a href={`/api/registrant/certificates/${c.id}/download`}>
-                          <Download className="mr-1.5 h-4 w-4" />
-                          Download
-                        </a>
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
+                <CertificateList certificates={certs.map((c) => ({ id: c.id, title: certificateTitle(c), meta: certificateMeta(c) }))} />
               )}
             </CardContent>
           </Card>

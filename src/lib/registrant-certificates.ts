@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { formatDate } from "@/lib/utils";
 
 /**
  * Which issued certificates a signed-in person may see and download on their
@@ -131,4 +132,20 @@ export async function findReleasedCertificates(
 export function cmeHoursOf(cert: Pick<PortalCertificate, "cmeHoursSnapshot" | "certificateTemplate" | "event">): string | null {
   const hours = cert.cmeHoursSnapshot ?? cert.certificateTemplate?.cmeHours ?? cert.event.cmeHours ?? null;
   return hours === null ? null : hours.toString();
+}
+
+const CERT_TYPE_LABEL: Record<string, string> = {
+  ATTENDANCE: "Certificate of attendance",
+  APPRECIATION: "Certificate of appreciation",
+};
+
+/** What the certificate is called: its template's role ("Speaker"), else its kind. */
+export function certificateTitle(cert: Pick<PortalCertificate, "type" | "certificateTemplate">): string {
+  return cert.certificateTemplate?.role ?? CERT_TYPE_LABEL[cert.type] ?? "Certificate";
+}
+
+/** The line under the title: CME hours, serial, issue date. */
+export function certificateMeta(cert: PortalCertificate): string {
+  const hours = cmeHoursOf(cert);
+  return [hours && `${hours} CME hours`, `No. ${cert.serial}`, `Issued ${formatDate(cert.issuedAt)}`].filter(Boolean).join(" · ");
 }

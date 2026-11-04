@@ -189,8 +189,12 @@ function EventLoginForm() {
           router.push(`/e/${slug}/proposal/register`);
         }
       } else {
-        // Default: middleware will auto-redirect based on role
-        router.push("/dashboard");
+        // A registrant who signed in on THIS event's page lands on this
+        // event's registration. /my-registration is the all-events list now,
+        // so the role redirect below would leave them one click away.
+        // Everyone else: middleware routes by role.
+        const role = await getSession().then((s) => s?.user?.role).catch(() => undefined);
+        router.push(role === "REGISTRANT" ? `/e/${slug}/my-registration` : "/dashboard");
       }
       router.refresh();
     } catch (err) {
