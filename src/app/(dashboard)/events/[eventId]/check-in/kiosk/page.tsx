@@ -211,29 +211,6 @@ export default function KioskCheckInPage() {
   // the fallback for an event that only has that.
   const eventBanner = event?.bannerImage || event?.emailHeaderImage || null;
   const eventBannerMobile = event?.bannerImage ? event?.bannerImageMobile ?? null : null;
-  // The banner's width/height, so the panel over a kiosk background can be
-  // exactly as wide as the banner draws (owner, Nov 4 2026). Null until the
-  // image has loaded, and for an event with no banner: the panel then stays
-  // at the banner band's own 1200px.
-  // Keyed by the image it was measured from, so a changed banner never borrows
-  // the previous one's width.
-  const [measuredBanner, setMeasuredBanner] = useState<{ src: string; width: number; aspect: number } | null>(null);
-  const bannerSize = measuredBanner && measuredBanner.src === eventBanner ? measuredBanner : null;
-  useEffect(() => {
-    if (!eventBanner || !kioskBackgroundUrl) return;
-    let cancelled = false;
-    const img = new Image();
-    img.onload = () => {
-      if (!cancelled && img.naturalHeight > 0) {
-        setMeasuredBanner({ src: eventBanner, width: img.naturalWidth, aspect: img.naturalWidth / img.naturalHeight });
-      }
-    };
-    img.onerror = () => console.warn("kiosk: banner did not load, panel stays 1200px wide", eventBanner);
-    img.src = eventBanner;
-    return () => {
-      cancelled = true;
-    };
-  }, [eventBanner, kioskBackgroundUrl]);
   // A LOGO (drawn for a light background) only when the event has no artwork.
   const logoMark = eventBanner ? null : branding?.logo || null;
   // Read through a ref so the scan handler is not re-created (and its debounce
@@ -651,7 +628,15 @@ export default function KioskCheckInPage() {
          lobby screen, closer to a printed sign than a page: it must look the
          same on every machine regardless of the viewer's light/dark setting,
          so nothing here may resolve differently per host. */
-      className="fixed inset-0 z-50 flex flex-col items-center bg-white text-slate-900 select-none"
+      className={cn(
+        "fixed inset-0 z-50 flex flex-col items-center bg-white text-slate-900 select-none",
+        kioskBackgroundUrl && "bg-cover bg-center",
+      )}
+      // The kiosk background (owner, Nov 4 2026, from their mockup): ONE
+      // full-screen artwork that carries the event's name and branding, with
+      // the scan prompt straight on its light middle. So with one set there is
+      // no banner band and no panel; without one, the white kiosk as before.
+      style={webinarBackgroundStyle(kioskBackgroundUrl)}
     >
       {/* Keyboard-wedge target — visually hidden, always focused */}
       <form
@@ -676,6 +661,7 @@ export default function KioskCheckInPage() {
           of the vertically-centred scan area — the event name printed straight
           through the barcode icon. Letting it take its own space and centring
           what remains composes at any banner height. */}
+      {!kioskBackgroundUrl && (
       <div className="w-full shrink-0 flex flex-col items-center">
         {/* The public registration page's banner band: the artwork at its own
             proportions, centred, never wider than 1200px. Full-bleed at up to
@@ -714,35 +700,12 @@ export default function KioskCheckInPage() {
           </p>
         )}
       </div>
+      )}
 
       {/* `min-h-0` so flex-1 can actually shrink below its content: without it a
           flex child refuses to go under its intrinsic height and the footer gets
           pushed off the bottom on a short screen. */}
-      {/* The kiosk background (owner, Nov 4 2026: "put the background below
-          the banner"). The banner keeps its white band across the top; the
-          artwork fills everything under it, and the scan area sits on a
-          frosted panel exactly the banner's width, so the two line up: its
-          height cap (26vh, on the band above) times its proportions, never
-          past its own pixel width (it is never scaled up) or the band's
-          1200px. Without a background this is simply the white screen. */}
-      <div
-        className={cn("flex min-h-0 w-full flex-1 justify-center", kioskBackgroundUrl && "bg-slate-100 bg-cover bg-center")}
-        style={webinarBackgroundStyle(kioskBackgroundUrl)}
-      >
-      <main
-        className={cn(
-          "min-h-0 w-full flex flex-col items-center justify-center overflow-hidden",
-          // Frosted, not solid (owner, Nov 4 2026: "make the middle
-          // transparent"): the artwork shows through faintly, and the blur
-          // keeps the scan prompt readable over a busy image.
-          kioskBackgroundUrl && "max-w-[1200px] bg-white/75 shadow-xl backdrop-blur-md",
-        )}
-        style={
-          kioskBackgroundUrl && bannerSize
-            ? { maxWidth: `min(1200px, ${bannerSize.width}px, calc(26vh * ${bannerSize.aspect.toFixed(4)}))` }
-            : undefined
-        }
-      >
+      <main className="flex-1 min-h-0 w-full flex flex-col items-center justify-center overflow-hidden">
       {state.kind === "idle" && (
         <div className="flex flex-col items-center text-center px-8">
           {/* The scan mark carries the organisation's colour, so losing the
@@ -825,7 +788,6 @@ export default function KioskCheckInPage() {
       )}
 
       </main>
-      </div>
 
       {/* No footer mark: the email footer artwork is drawn for an email,
           and on the kiosk it competed with the scan area (owner, Nov 4 2026). */}

@@ -2081,7 +2081,7 @@ export default function EventSettingsPage() {
                   label="Kiosk background"
                   value={badgeLayout.kioskBackgroundUrl}
                   onChange={(url) => setBadgeLayout({ ...badgeLayout, kioskBackgroundUrl: url })}
-                  hint="Fills the kiosk screen to the left and right of the white check-in panel, like the webinar page background. About 1920×1080px, under 2 MB. Leave empty for a plain white kiosk."
+                  hint="Replaces the kiosk screen with this one image: the banner is not shown, so include the event's name and branding in it, and keep the middle light and plain for the check-in prompt. 1920×1080px, under 2 MB. Leave empty for the white kiosk with the banner."
                   previewClassName="w-full h-40 object-cover"
                 />
               </div>
