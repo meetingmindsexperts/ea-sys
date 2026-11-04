@@ -37,10 +37,25 @@ describe("drawInfoBoxes meta rows", () => {
 
   it("gives a value that must wrap the height it needs, and grows the box", () => {
     const longEmail = "accounts.payable.department+mehfc2027@very-long-hospital-domain-name.ae";
-    const short = draw([{ label: "Billing Email", value: "a@b.ae" }, { label: "Billing Phone", value: "+971" }]);
-    const long = draw([{ label: "Billing Email", value: longEmail }, { label: "Billing Phone", value: "+971" }]);
+    // Enough rows that the right box, not the 4-line left one, sets the height.
+    const rows = (email: string) => [
+      { label: "Date", value: "04/11/2026" },
+      { label: "Quote Reference", value: "UJ29JE97" },
+      { label: "Tax Number", value: "100352048100003" },
+      { label: "Billing Email", value: email },
+      { label: "Billing Phone", value: "+971" },
+    ];
+    const short = draw(rows("a@b.ae"));
+    const long = draw(rows(longEmail));
     const email = long.at(longEmail);
     expect(long.at("Billing Phone").y).toBeGreaterThanOrEqual(email.y + email.height);
-    expect(long.bottom).toBeGreaterThanOrEqual(short.bottom);
+    expect(long.bottom).toBeGreaterThan(short.bottom);
+  });
+
+  it("gives a value with line breaks its full height", () => {
+    const terms = "Net 30\nwire only\nEUR";
+    const { at } = draw([{ label: "Payment Terms", value: terms }, { label: "Currency", value: "EUR" }]);
+    const value = at(terms);
+    expect(at("Currency").y).toBeGreaterThanOrEqual(value.y + value.height);
   });
 });

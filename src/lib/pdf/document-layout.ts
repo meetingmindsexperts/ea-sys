@@ -444,6 +444,9 @@ export function drawInfoBoxes(
       });
     rY += Math.max(labelLineH, fit.height + 3);
   });
+  // Callers set their own sizes today; this keeps a 7pt value from leaking
+  // into whatever is drawn next.
+  doc.fontSize(9);
 
   return y + boxHeight + 18;
 }
@@ -451,9 +454,11 @@ export function drawInfoBoxes(
 /** The font size a meta value prints at, and the height it takes. */
 function fitMetaValue(doc: PDFKit.PDFDocument, value: string, width: number): { size: number; height: number } {
   doc.font("Helvetica");
+  // The height is always measured as drawn: a value holding a line break
+  // (possible through the API) is narrow per line but several lines tall.
   for (const size of [9, 8.5, 8, 7.5, 7]) {
     doc.fontSize(size);
-    if (doc.widthOfString(value) <= width) return { size, height: doc.currentLineHeight() };
+    if (doc.widthOfString(value) <= width) return { size, height: doc.heightOfString(value, { width }) };
   }
   doc.fontSize(7);
   return { size: 7, height: doc.heightOfString(value, { width }) };
