@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
+import { localDateInTz } from "@/lib/event-time";
 
 /**
  * Which issued certificates a signed-in person may see and download on their
@@ -165,21 +166,40 @@ export function certificateMeta(cert: PortalCertificate): string {
 
 /**
  * A person's CME hours from the certificates they have been sent, this year
- * and all time, counted by the year the EVENT took place (a certificate
- * reissued in January still counts for last year's conference). Decimal hours
- * are summed in tenths, so 0.5 + 0.5 + 0.5 is 1.5 and not 1.4999.
+ * and all time.
+ *
+ * ATTENDANCE certificates only, and an event counted ONCE (its largest): a
+ * speaker can hold an attendance and an appreciation certificate for one
+ * event, or two attendance ones ("CME (Speaker)" and "CME (Moderator)"), and
+ * each would otherwise add the event's hours again. CME is earned by
+ * attending; an appreciation certificate is a thank-you.
+ *
+ * The year is the EVENT's, in the event's own time zone (a conference that
+ * starts at 00:00 on 1 January in Dubai is that year's, not the last), and
+ * "this year" is now in `timeZone`. Summed in tenths, so 0.5 + 0.5 + 0.5 is
+ * 1.5 and not 1.4999.
  */
-export function cmeTotals(certs: Pick<PortalCertificate, "cmeHoursSnapshot" | "certificateTemplate" | "event">[], now: Date): { thisYear: number; allTime: number } {
-  const year = now.getUTCFullYear();
+export function cmeTotals(
+  certs: Pick<PortalCertificate, "type" | "cmeHoursSnapshot" | "certificateTemplate" | "event">[],
+  now: Date,
+  timeZone: string,
+): { thisYear: number; allTime: number; year: string } {
+  const year = localDateInTz(now, timeZone).slice(0, 4);
+  const perEvent = new Map<string, { tenths: number; year: string }>();
+  for (const cert of certs) {
+    if (cert.type !== "ATTENDANCE") continue;
+    const hours = cmeHoursOf(cert);
+    const tenths = hours ? Math.round(Number(hours) * 10) : 0;
+    if (!Number.isFinite(tenths) || tenths <= 0) continue;
+    const seen = perEvent.get(cert.event.id);
+    if (seen && seen.tenths >= tenths) continue;
+    perEvent.set(cert.event.id, { tenths, year: localDateInTz(cert.event.startDate, cert.event.timezone).slice(0, 4) });
+  }
   let thisYear = 0;
   let allTime = 0;
-  for (const cert of certs) {
-    const hours = cmeHoursOf(cert);
-    if (!hours) continue;
-    const tenths = Math.round(Number(hours) * 10);
-    if (!Number.isFinite(tenths)) continue;
-    allTime += tenths;
-    if (cert.event.startDate.getUTCFullYear() === year) thisYear += tenths;
+  for (const e of perEvent.values()) {
+    allTime += e.tenths;
+    if (e.year === year) thisYear += e.tenths;
   }
-  return { thisYear: thisYear / 10, allTime: allTime / 10 };
+  return { thisYear: thisYear / 10, allTime: allTime / 10, year };
 }

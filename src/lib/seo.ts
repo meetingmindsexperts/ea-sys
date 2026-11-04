@@ -143,6 +143,10 @@ export function catalogueJsonLd(events: SeoEvent[], origin: string, organization
  * RSVP and agreement links, completion and reset tokens). Robots rules are a
  * request, not access control: these pages are already behind auth or a
  * token, and this only keeps them out of indexes.
+ *
+ * /uploads/ is NOT here: banners and logos live there, and Google needs to
+ * fetch an event's image for its event results (social cards honour robots
+ * too). Private uploads are refused by the uploads route's own allow-list.
  */
 export const ROBOTS_DISALLOW = [
   "/api/",
@@ -170,7 +174,6 @@ export const ROBOTS_DISALLOW = [
   "/verify-email",
   "/mcp-authorize",
   "/stream-clock",
-  "/uploads/",
   "/e/*/login",
   "/e/*/my-registration",
   "/e/*/my-group",

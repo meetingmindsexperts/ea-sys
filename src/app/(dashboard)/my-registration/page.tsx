@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
-import { formatEventDateRange } from "@/lib/event-time";
+import { DEFAULT_EVENT_TIMEZONE, formatEventDateRange } from "@/lib/event-time";
 import { certificateMeta, certificateTitle, cmeTotals, findReleasedCertificates } from "@/lib/registrant-certificates";
 import { CertificateList } from "@/components/registrant/certificate-list";
 import { Button } from "@/components/ui/button";
@@ -95,7 +95,7 @@ export default async function MyRegistrationPage() {
   for (const r of registrations) events.set(r.event.id, r.event);
   for (const c of certificates) if (!events.has(c.event.id)) events.set(c.event.id, c.event);
   const ordered = [...events.values()].sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
-  const cme = cmeTotals(certificates, new Date());
+  const cme = cmeTotals(certificates, new Date(), DEFAULT_EVENT_TIMEZONE);
 
   return (
     // Mobile first (owner, Nov 4, 2026): most people open this from the
@@ -114,7 +114,7 @@ export default async function MyRegistrationPage() {
             <div className="grid flex-1 grid-cols-2 gap-4">
               <div>
                 <p className="text-2xl font-semibold tabular-nums">{cme.thisYear}</p>
-                <p className="text-xs text-muted-foreground">CME hours in {new Date().getUTCFullYear()}</p>
+                <p className="text-xs text-muted-foreground">CME hours in {cme.year}</p>
               </div>
               <div>
                 <p className="text-2xl font-semibold tabular-nums">{cme.allTime}</p>

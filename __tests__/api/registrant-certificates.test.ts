@@ -276,16 +276,33 @@ describe("certificateMeta", () => {
 });
 
 describe("cmeTotals", () => {
-  const cert = (hours: number | null, year: number) =>
+  let n = 0;
+  const cert = (hours: number | null, start: string, over: { type?: string; eventId?: string; tz?: string } = {}) =>
     ({
+      type: over.type ?? "ATTENDANCE",
       cmeHoursSnapshot: hours === null ? null : new Prisma.Decimal(hours),
       certificateTemplate: null,
-      event: { startDate: new Date(`${year}-06-01T00:00:00Z`), cmeHours: null },
+      event: { id: over.eventId ?? `ev${n++}`, startDate: new Date(start), timezone: over.tz ?? "Asia/Dubai", cmeHours: null },
     }) as unknown as Parameters<typeof cmeTotals>[0][number];
+  const NOW = new Date("2026-11-04T08:00:00Z");
 
-  it("this year by the event's year, and all time, in exact tenths", () => {
-    const now = new Date("2026-11-04T00:00:00Z");
-    expect(cmeTotals([cert(0.5, 2026), cert(0.5, 2026), cert(0.5, 2026), cert(8, 2025), cert(null, 2026)], now)).toEqual({ thisYear: 1.5, allTime: 9.5 });
-    expect(cmeTotals([], now)).toEqual({ thisYear: 0, allTime: 0 });
+  it("sums attendance hours this year and in total, in exact tenths", () => {
+    expect(cmeTotals([cert(0.5, "2026-03-01T06:00:00Z"), cert(0.5, "2026-04-01T06:00:00Z"), cert(0.5, "2026-05-01T06:00:00Z"), cert(8, "2025-06-01T06:00:00Z"), cert(null, "2026-06-01T06:00:00Z")], NOW, "Asia/Dubai"))
+      .toEqual({ thisYear: 1.5, allTime: 9.5, year: "2026" });
+    expect(cmeTotals([], NOW, "Asia/Dubai")).toEqual({ thisYear: 0, allTime: 0, year: "2026" });
+  });
+
+  it("counts an event once, at its largest, and never an appreciation certificate", () => {
+    const certs = [
+      cert(6, "2026-07-10T06:00:00Z", { eventId: "osh" }),
+      cert(6, "2026-07-10T06:00:00Z", { eventId: "osh" }),
+      cert(4, "2026-07-10T06:00:00Z", { eventId: "osh", type: "APPRECIATION" }),
+    ];
+    expect(cmeTotals(certs, NOW, "Asia/Dubai")).toMatchObject({ thisYear: 6, allTime: 6 });
+  });
+
+  it("takes the event's year in its own time zone", () => {
+    // 00:00 on 1 January 2026 in Dubai is 20:00 on 31 December 2025 UTC.
+    expect(cmeTotals([cert(3, "2025-12-31T20:00:00Z")], NOW, "Asia/Dubai")).toMatchObject({ thisYear: 3, allTime: 3 });
   });
 });

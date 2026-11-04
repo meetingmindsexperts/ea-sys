@@ -75,14 +75,15 @@ describe("structured data", () => {
 
 describe("robots rules", () => {
   it("keep personal, sign-in, secret-link and staff pages out", () => {
-    for (const p of ["/api/", "/dashboard", "/events", "/my-registration", "/login", "/e/*/shared/", "/e/*/survey", "/e/*/my-registration", "/uploads/"]) {
+    for (const p of ["/api/", "/dashboard", "/events", "/my-registration", "/login", "/e/*/shared/", "/e/*/survey", "/e/*/my-registration"]) {
       expect(ROBOTS_DISALLOW).toContain(p);
     }
   });
 
-  it("never block the public catalogue or an event's own page and form", () => {
+  it("never block the public catalogue, an event's page and form, or the images they show", () => {
     for (const p of ROBOTS_DISALLOW) {
-      expect(["/catalogue", "/e/MEHF2027", "/e/MEHF2027/register"].some((url) => url.startsWith(p.replace("/*", "/MEHF2027")))).toBe(false);
+      const open = ["/catalogue", "/e/MEHF2027", "/e/MEHF2027/register", "/e/MEHF2027/agenda", "/uploads/media/2026/10/banner.png"];
+      expect(open.some((url) => url.startsWith(p.replace("/*", "/MEHF2027")))).toBe(false);
     }
   });
 });

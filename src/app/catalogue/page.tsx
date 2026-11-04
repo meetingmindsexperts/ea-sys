@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Award, Calendar, LayoutList, MapPin, Search } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -105,20 +106,22 @@ async function loadCatalogue(host: string | null, query: CatalogueQuery) {
       },
     }),
     db.event.count({ where }),
-    // What the filter menus offer: every listed event's values, whatever is filtered now.
-    db.event.findMany({
-      where: catalogueBaseWhere(orgScope),
-      select: { country: true, specialty: true, eventType: true },
-    }),
+    // What the filter menus offer: every listed event's values, whatever is
+    // filtered now. Distinct per column, so the cost is the number of values.
+    Promise.all([
+      db.event.findMany({ where: catalogueBaseWhere(orgScope), distinct: ["country"], select: { country: true } }),
+      db.event.findMany({ where: catalogueBaseWhere(orgScope), distinct: ["specialty"], select: { specialty: true } }),
+      db.event.findMany({ where: catalogueBaseWhere(orgScope), distinct: ["eventType"], select: { eventType: true } }),
+    ]),
     tenant.orgId ? db.organization.findUnique({ where: { id: tenant.orgId }, select: { name: true, logo: true } }) : null,
   ]);
   const distinct = (values: (string | null)[]) => [...new Set(values.filter((v): v is string => !!v))].sort();
   return {
     events: events as CatalogueEvent[],
     total,
-    countries: distinct(facets.map((f) => f.country)),
-    specialties: distinct(facets.map((f) => f.specialty)),
-    types: distinct(facets.map((f) => f.eventType)) as (keyof typeof EVENT_TYPE_LABEL)[],
+    countries: distinct(facets[0].map((f) => f.country)),
+    specialties: distinct(facets[1].map((f) => f.specialty)),
+    types: distinct(facets[2].map((f) => f.eventType)) as (keyof typeof EVENT_TYPE_LABEL)[],
     organization,
   };
 }
@@ -137,6 +140,9 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
   }
   const { events, total, countries, specialties, types, organization } = data;
   const pages = Math.max(1, Math.ceil(total / CATALOGUE_PAGE_SIZE));
+  // A page past the end (an old link, a hand-typed number) goes to the last
+  // real one rather than an empty list under a count that says otherwise.
+  if (query.page > pages) redirect(catalogueHref(query, { page: pages }));
   const filtered = !!(query.q || query.country || query.type || query.specialty);
 
   return (
