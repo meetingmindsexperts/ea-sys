@@ -11,6 +11,10 @@ import { db } from "@/lib/db";
  * ways the portal finds registrations: linked to the account, or on the
  * account's email. A speaker's appreciation certificate hangs off the Speaker,
  * not a registration, so both are asked. A blank email matches nothing.
+ * Matching a Speaker by email is the owner's decision (Nov 4, 2026), taken
+ * knowing registrant accounts are not email-verified: it is the trust the
+ * registration list already runs on, and faculty an organiser added by hand
+ * have no account link to match on.
  *
  * WHICH. Never a revoked one, never one whose PDF has not been rendered, and
  * only once it has been RELEASED to them (`isReleased`).
