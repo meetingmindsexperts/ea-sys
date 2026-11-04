@@ -713,7 +713,7 @@ export default function KioskCheckInPage() {
 
       {state.kind === "processing" && (
         <div className="flex flex-col items-center text-center px-8">
-          <Loader2 className="h-24 w-24 animate-spin mb-8" />
+          <Loader2 className="h-24 w-24 animate-spin mb-8 [@media(max-height:820px)]:h-16 [@media(max-height:820px)]:w-16 [@media(max-height:820px)]:mb-4" />
           <h1 className="text-4xl font-bold">One moment…</h1>
         </div>
       )}
@@ -723,17 +723,17 @@ export default function KioskCheckInPage() {
           <div className="mb-8 rounded-full bg-emerald-50 p-8 [@media(max-height:820px)]:mb-4 [@media(max-height:820px)]:p-5">
             <CheckCircle2 className="h-28 w-28 [@media(max-height:820px)]:h-16 [@media(max-height:820px)]:w-16 text-emerald-600" />
           </div>
-          <h1 className="text-5xl font-bold mb-4">
+          <h1 className="text-5xl font-bold mb-4 [@media(max-height:820px)]:text-4xl [@media(max-height:820px)]:mb-2">
             {state.reprint ? "You're already checked in" : `Welcome, ${state.name}!`}
           </h1>
-          {state.reprint && <p className="text-3xl mb-4">{state.name}</p>}
+          {state.reprint && <p className="text-3xl mb-4 [@media(max-height:820px)]:text-2xl [@media(max-height:820px)]:mb-2">{state.name}</p>}
           {state.printed ? (
-            <p className="flex items-center gap-3 text-2xl text-slate-600">
+            <p className="flex items-center gap-3 text-2xl [@media(max-height:820px)]:text-xl text-slate-600">
               <Printer className="h-7 w-7" />
               {state.reprint ? "Printing your badge again…" : "Your badge is printing…"}
             </p>
           ) : (
-            <p className="text-2xl text-amber-700 max-w-xl">
+            <p className="text-2xl [@media(max-height:820px)]:text-xl text-amber-700 max-w-xl">
               {state.reprint
                 ? "We couldn't print your badge — please visit the registration desk."
                 : "You're checked in, but the badge didn't print — please visit the registration desk."}
@@ -753,9 +753,9 @@ export default function KioskCheckInPage() {
           <div className="mb-8 rounded-full bg-amber-50 p-8 [@media(max-height:820px)]:mb-4 [@media(max-height:820px)]:p-5">
             <AlertTriangle className="h-28 w-28 [@media(max-height:820px)]:h-16 [@media(max-height:820px)]:w-16 text-amber-600" />
           </div>
-          <h1 className="text-5xl font-bold mb-4">{state.title}</h1>
-          <p className="text-2xl text-slate-600 max-w-xl mb-6">{state.detail}</p>
-          <p className="text-2xl font-semibold">
+          <h1 className="text-5xl font-bold mb-4 [@media(max-height:820px)]:text-4xl [@media(max-height:820px)]:mb-2">{state.title}</h1>
+          <p className="text-2xl text-slate-600 max-w-xl mb-6 [@media(max-height:820px)]:text-xl [@media(max-height:820px)]:mb-3">{state.detail}</p>
+          <p className="text-2xl font-semibold [@media(max-height:820px)]:text-xl">
             Please visit the registration desk — our team will help you.
           </p>
         </div>
@@ -766,9 +766,9 @@ export default function KioskCheckInPage() {
           <div className="mb-8 rounded-full bg-red-50 p-8 [@media(max-height:820px)]:mb-4 [@media(max-height:820px)]:p-5">
             <ShieldAlert className="h-28 w-28 [@media(max-height:820px)]:h-16 [@media(max-height:820px)]:w-16 text-red-600" />
           </div>
-          <h1 className="text-5xl font-bold mb-4">Kiosk needs attention</h1>
-          <p className="text-2xl text-slate-600 max-w-xl">{state.detail}</p>
-          <p className="mt-6 text-2xl font-semibold">
+          <h1 className="text-5xl font-bold mb-4 [@media(max-height:820px)]:text-4xl [@media(max-height:820px)]:mb-2">Kiosk needs attention</h1>
+          <p className="text-2xl text-slate-600 max-w-xl [@media(max-height:820px)]:text-xl">{state.detail}</p>
+          <p className="mt-6 text-2xl font-semibold [@media(max-height:820px)]:mt-3 [@media(max-height:820px)]:text-xl">
             Please check in at the registration desk.
           </p>
         </div>
@@ -792,7 +792,7 @@ export default function KioskCheckInPage() {
                was a postage stamp (owner, Nov 4 2026). Capped by height so the
                scan area keeps the room, and by width so a tall one
                does not turn it into a second banner. */
-            className="h-auto w-auto max-h-[14vh] max-w-[min(720px,90vw)] [@media(max-height:820px)]:max-h-[10vh] object-contain rounded-lg"
+            className="h-auto w-auto max-h-[14vh] max-w-[min(720px,90vw)] [@media(max-height:820px)]:max-h-[10vh] object-contain"
           />
         </div>
       )}
