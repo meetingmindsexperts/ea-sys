@@ -36,15 +36,15 @@ const tokensIn = (...parts: string[]) => {
 };
 
 describe("registry shape", () => {
-  it("holds 37 system templates, each with a body and a spec under its own slug", () => {
-    expect(SYSTEM_TEMPLATE_SLUG_LIST).toHaveLength(37);
+  it("holds 38 system templates, each with a body and a spec under its own slug", () => {
+    expect(SYSTEM_TEMPLATE_SLUG_LIST).toHaveLength(38);
     for (const slug of SYSTEM_TEMPLATE_SLUG_LIST) {
       expect(EMAIL_TEMPLATE_REGISTRY[slug].slug).toBe(slug);
       expect(DEFAULT_TEMPLATE_BODIES[slug].subject.length).toBeGreaterThan(0);
       expect(DEFAULT_TEMPLATE_BODIES[slug].htmlContent.length).toBeGreaterThan(0);
       expect(EMAIL_TEMPLATE_REGISTRY[slug].description.length).toBeGreaterThan(0);
     }
-    expect(new Set(SYSTEM_TEMPLATE_SLUG_LIST).size).toBe(37);
+    expect(new Set(SYSTEM_TEMPLATE_SLUG_LIST).size).toBe(38);
   });
 
   it("derives DEFAULT_TEMPLATES, TEMPLATE_VARIABLES and the client-safe slug set from the registry, in seed order", () => {

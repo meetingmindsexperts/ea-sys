@@ -154,6 +154,8 @@ export interface Registration {
   createdSource: string | null;
   /** When their own details were completed; null = still to complete (docs/ONSITE_DESK_PLAN.md §3.1). */
   completedAt?: string | null;
+  /** What the type asks for that this registration does not hold (type-evidence.ts); never the values. */
+  missingEvidence?: string[];
   checkedInAt: string | null;
   /** First time this registrant entered the webinar lobby / joined (presence). */
   webinarFirstJoinedAt?: string | null;

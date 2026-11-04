@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Request ID and document: a personal link per registration (November 4)
+
+- **Registrations page: "Missing ID or document" filter and a "Request ID / Document" action.** The filter lists everyone whose registration type asks for a member ID, a student ID and its expiry, or a supporting document that the registration does not hold. The action emails each selected person their own link, valid for the number of days chosen (14 by default). People whose type asks for nothing, or who have already provided everything, are skipped and counted by reason. Built to collect the IDs of the 73 MEHF2027 Student and Resident presenters whose abstract sign-up never asked
+- **The link opens `/e/<slug>/verify-details`**, which asks only for what is still missing and uses the registration form's upload. It never shows or overwrites anything already on file, works once, and refuses another event's upload. Each save is audited (`EVIDENCE_PROVIDED`)
+- New editable email template **ID and Document Request** (`evidence-request`), with `{{evidenceLink}}` and `{{evidenceItems}}`. The link is a hashed VerificationToken (`evidence:<registrationId>`), so there is no migration. Sending requires `registrations.email`
+- The type's evidence rules moved into `src/lib/type-evidence.ts`, shared by the abstract sign-up doors, the link and the filter. The list route now returns each row's `missingEvidence` (which fields, never their values) and accepts `evidence=missing`, which the export sends too
+
 ### Abstract sign-ups ask for the registration type's ID and document (November 4)
 
 - **The abstract submission form now honours the chosen registration type's own switches**, exactly like the delegate form: member number, student ID, its expiry date and the supporting document, worded and labelled from the type. Before this both abstract doors ignored them, so on MEHF2027 every Student (46) and Resident (27) presenter registration arrived with no ID and no document

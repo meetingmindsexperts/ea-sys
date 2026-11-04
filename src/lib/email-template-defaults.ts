@@ -968,6 +968,35 @@ If you did not expect this email, you can safely ignore it.
 
 {{organizerSignature}}`,
   },
+  "evidence-request": {
+    // Nov 4, 2026: the ID and document request (src/lib/evidence-request.ts).
+    subject: "Please add your ID details for {{eventName}}",
+    htmlContent: `<div style="padding: 24px 0;">
+    <p>Dear {{title}} <strong>{{firstName}} {{lastName}}</strong>,</p>
+    <p>Thank you for registering for <strong>{{eventName}}</strong> as <strong>{{ticketType}}</strong>. This registration type requires the following, which we do not have yet:</p>
+    <p style="margin: 16px 0; padding: 12px 16px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;"><strong>{{evidenceItems}}</strong></p>
+    <p>Please add them using your personal link below. It takes a minute, and you can upload a PDF, JPG or PNG.</p>
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{evidenceLink}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Add my details</a>
+    </div>
+    <p style="color: #6b7280; font-size: 13px;">Or copy this link into your browser:<br><span style="word-break: break-all; color: #00aade;">{{evidenceLink}}</span></p>
+    <p style="color: #6b7280; font-size: 13px;">This link is for your use only and expires on {{linkExpiresOn}} ({{linkExpiresIn}}).</p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `Please add your ID details for {{eventName}}
+
+Dear {{title}} {{firstName}} {{lastName}},
+
+Thank you for registering for {{eventName}} as {{ticketType}}. This registration type requires the following, which we do not have yet:
+
+{{evidenceItems}}
+
+Please add them using your personal link: {{evidenceLink}}
+
+This link is for your use only and expires on {{linkExpiresOn}} ({{linkExpiresIn}}).
+
+{{organizerSignature}}`,
+  },
   "survey-thankyou": {
     // Sent automatically by the public POST handler immediately on
     // successful submit. Also cert-neutral by default — CME events

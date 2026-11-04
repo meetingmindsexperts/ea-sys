@@ -61,12 +61,14 @@ import {
   Eye,
   EyeOff,
   ConciergeBell,
+  IdCard,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, formatDate, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { SendRegistrationFormDialog } from "@/components/registrations/registration-form-send";
+import { SendEvidenceRequestDialog } from "@/components/registrations/evidence-request-send";
 import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useEventTags, useSponsors, useEventSurveys } from "@/hooks/use-api";
 import { matchesSurveyResponded, type SurveyRespondedFilter } from "@/lib/survey/responded-filter";
 import { displayRegistrationType, pickableRegTypes } from "@/lib/faculty-filter";
@@ -246,7 +248,9 @@ export default function RegistrationsPage() {
   const canUpdate = useCan("registrations.update", eventId) === "allowed";
   // The desk admits people, so it follows the check-in key, as its routes do.
   const canOpenDesk = useCan("registrations.checkin", eventId) === "allowed";
-  const canSelect = canBulk || canSendEmail || canImport;
+  // Request ID and document (evidence-request route): the per-person email key.
+  const canRequestEvidence = useCan("registrations.email", eventId) === "allowed";
+  const canSelect = canBulk || canSendEmail || canImport || canRequestEvidence;
   // Payer column only when someone on this list actually has a third-party
   // payer. It read "-" on nearly every row, and the width is better spent on
   // Country and Paid / Due (organiser request, Sep 10 2026). The payer field
@@ -288,6 +292,8 @@ export default function RegistrationsPage() {
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
   // Registration form completed or not (docs/ONSITE_DESK_PLAN.md §3.2).
   const [completionFilter, setCompletionFilter] = useState<"all" | "pending" | "done">("all");
+  // The type's ID and document (type-evidence.ts): "missing" = asked for and not held.
+  const [evidenceFilter, setEvidenceFilter] = useState<"all" | "missing">("all");
   // Several registration types at once (owner, Oct 27); empty means every type.
   const [ticketFilters, setTicketFilters] = useState<string[]>([]);
   // "Answered / Not answered <survey>" (several surveys, Phase 2): client-side
@@ -320,6 +326,7 @@ export default function RegistrationsPage() {
   // can blow the bucket. The confirm step + count display is the
   // friction we want.
   const [sendFormConfirmOpen, setSendFormConfirmOpen] = useState(false);
+  const [evidenceRequestOpen, setEvidenceRequestOpen] = useState(false);
 
   const handleRowClick = (registration: Registration) => {
     setSelectedRegistration(registration);
@@ -351,6 +358,7 @@ export default function RegistrationsPage() {
         if (statusFilter !== "all") p.set("status", statusFilter);
         if (paymentFilter !== "all") p.set("paymentStatus", paymentFilter);
         if (completionFilter !== "all") p.set("completion", completionFilter);
+        if (evidenceFilter !== "all") p.set("evidence", evidenceFilter);
         if (ticketFilters.length > 0) p.set("ticketTypeId", ticketFilters.join(","));
       }
       // The tag filter is applied SERVER-side on the table's own query
@@ -396,11 +404,13 @@ export default function RegistrationsPage() {
     const matchesTicket = ticketFilters.length === 0 || (!!r.ticketType?.id && ticketFilters.includes(r.ticketType.id));
     const matchesSurvey = matchesSurveyResponded(r.answeredSurveyIds, surveyFilter);
     const matchesCompletion = matchesCompletionFilter(r, completionFilter);
+    const matchesEvidence = evidenceFilter === "all" || (r.missingEvidence?.length ?? 0) > 0;
 
-    return matchesSearch && matchesStatus && matchesPayment && matchesTicket && matchesSurvey && matchesCompletion;
+    return matchesSearch && matchesStatus && matchesPayment && matchesTicket && matchesSurvey && matchesCompletion && matchesEvidence;
   });
-  // The bulk send cannot express the form filter, so with it on "Email" sends to exactly the listed rows.
-  const completionNarrowed = completionFilter !== "all";
+  // The bulk send cannot express the form filter or the ID and document filter, so with either on
+  // "Email" sends to exactly the listed rows.
+  const completionNarrowed = completionFilter !== "all" || evidenceFilter !== "all";
 
   // Live recipient count for the bulk-email dialog's "all" mode. Mirrors the
   // SEND semantics (status + payment + ticket) and deliberately EXCLUDES the
@@ -710,6 +720,16 @@ export default function RegistrationsPage() {
                 Send Registration Form
               </Button>
             )}
+            {canRequestEvidence && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setEvidenceRequestOpen(true)}
+              >
+                <IdCard className="mr-2 h-4 w-4" />
+                Request ID / Document
+              </Button>
+            )}
             {canSendEmail && (
               <Button
                 size="sm"
@@ -819,6 +839,15 @@ export default function RegistrationsPage() {
                 <SelectItem value="done">Form completed</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={evidenceFilter} onValueChange={(v) => { setEvidenceFilter(v as "all" | "missing"); setPage(1); }}>
+              <SelectTrigger className="w-[210px]" aria-label="ID and document">
+                <SelectValue placeholder="ID and document" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any ID and document</SelectItem>
+                <SelectItem value="missing">Missing ID or document</SelectItem>
+              </SelectContent>
+            </Select>
             <MultiSelect
               className="w-[220px]"
               options={(ticketTypes as TicketType[]).map((t) => ({ value: t.id, label: t.name }))}
@@ -881,6 +910,7 @@ export default function RegistrationsPage() {
                 setStatusFilter("all");
                 setPaymentFilter("all");
                 setCompletionFilter("all");
+                setEvidenceFilter("all");
                 setTicketFilters([]);
                 setSurveyFilter(null);
               }}
@@ -1204,7 +1234,7 @@ export default function RegistrationsPage() {
               />
               <p className="text-xs text-muted-foreground">
                 Matches a registration #, the full registration ID, or the attendee email.
-                {(statusFilter !== "all" || paymentFilter !== "all" || completionFilter !== "all" || ticketFilters.length > 0 || tagFilter.length > 0 || sponsorFilter !== "" || surveyFilter)
+                {(statusFilter !== "all" || paymentFilter !== "all" || completionFilter !== "all" || evidenceFilter !== "all" || ticketFilters.length > 0 || tagFilter.length > 0 || sponsorFilter !== "" || surveyFilter)
                   ? " Note: only currently-loaded rows are matched — clear filters to match across all registrations."
                   : ""}
               </p>
@@ -1342,6 +1372,14 @@ export default function RegistrationsPage() {
         onOpenChange={setSendFormConfirmOpen}
         registrationIds={Array.from(selectedIds)}
         recipientLabel={`${selectedIds.size} registrant${selectedIds.size === 1 ? "" : "s"}`}
+        onSent={clearSelection}
+      />
+
+      <SendEvidenceRequestDialog
+        eventId={eventId}
+        open={evidenceRequestOpen}
+        onOpenChange={setEvidenceRequestOpen}
+        registrationIds={Array.from(selectedIds)}
         onSent={clearSelection}
       />
 

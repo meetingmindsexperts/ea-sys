@@ -22,7 +22,6 @@
  * everything here is caught, logged, and swallowed, and the organizer can put
  * it right from the Grant registration button.
  */
-import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
@@ -34,20 +33,16 @@ import { isPresenterPayNowEnabled } from "@/lib/presenter-registration-settings"
 import { presenterRateOptions } from "@/lib/presenter-tiers";
 import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
 import { escapeHtml } from "@/lib/html";
+import { IDENTITY_EVIDENCE_SELECT, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
+import { SUPPORTING_DOCUMENT_POLICY_SELECT, resolveSupportingDocument } from "@/lib/supporting-document";
 import {
-  IDENTITY_EVIDENCE_SELECT,
-  readIdentityEvidencePolicy,
-  missingIdentityEvidence,
-  hasInvalidExpiryDate,
-  type IdentityEvidencePolicy,
-} from "@/lib/identity-evidence";
-import {
-  SUPPORTING_DOCUMENT_POLICY_SELECT,
-  resolveSupportingDocument,
-  requiresSupportingDocument,
-  supportingDocumentLabel,
-  type SupportingDocumentPolicy,
-} from "@/lib/supporting-document";
+  asksForEvidence,
+  checkTypeEvidence,
+  type TypeEvidenceInput,
+  type TypeEvidencePolicy,
+  type TypeEvidenceRefusal,
+  typeEvidenceShape,
+} from "@/lib/type-evidence";
 
 /**
  * The student ID, member ID and supporting document a submitter gave for the
@@ -56,25 +51,10 @@ import {
  * doors ignored them, so 46 MEHF2027 Student presenter registrations arrived
  * with neither the ID nor the document the Student type requires.
  */
-export interface PresenterEvidenceInput {
-  memberId?: string | null;
-  studentId?: string | null;
-  studentIdExpiry?: string | null;
-  supportingDocumentUrl?: string | null;
-  supportingDocumentFilename?: string | null;
-}
+export type PresenterEvidenceInput = TypeEvidenceInput;
 
-/** The request fields for that evidence, shared by both abstract doors (same limits as the delegate form). */
-export const presenterEvidenceShape = {
-  memberId: z.string().max(100).optional(),
-  studentId: z.string().max(100).optional(),
-  studentIdExpiry: z.string().max(20).optional(),
-  supportingDocumentUrl: z.string().max(500).optional(),
-  supportingDocumentFilename: z.string().max(255).optional(),
-};
-
-/** A ticket type's identity and document switches, as the rate lookup reads them. */
-type TypeEvidencePolicy = Partial<IdentityEvidencePolicy> & SupportingDocumentPolicy;
+/** The request fields for that evidence, shared by both abstract doors. */
+export const presenterEvidenceShape = typeEvidenceShape;
 
 /**
  * What the caller needs in order to tell the submitter about their fee.
@@ -250,82 +230,9 @@ export async function holdsLiveRegistration(eventId: string, email: string): Pro
   return existing !== null;
 }
 
-export type PresenterEvidenceRefusal = {
-  ok: false;
-  code: "IDENTITY_EVIDENCE_REQUIRED" | "INVALID_EXPIRY_DATE" | "DOCUMENT_REQUIRED";
-  message: string;
-  /** The fields to mark, by name, so the form can point at each one. */
-  fields: ("memberId" | "studentId" | "studentIdExpiry" | "supportingDocument")[];
-  /** Why a submitted document was not accepted, for the log (it came from the client). */
-  dropped?: "not-our-upload" | "type-does-not-ask";
-};
-
-/**
- * The chosen type's ID and document rules, checked against what was given.
- * Pure: the same rules as the delegate form (identity-evidence.ts and
- * supporting-document.ts), applied to the presenter rate's type.
- */
-export function checkPresenterEvidence(
-  policy: TypeEvidencePolicy,
-  eventId: string,
-  evidence: PresenterEvidenceInput | undefined,
-): { ok: true } | PresenterEvidenceRefusal {
-  // Everything missing in one answer, so nobody is refused twice in a row.
-  const missing = missingIdentityEvidence(readIdentityEvidencePolicy(policy), evidence ?? {});
-  const document = resolveSupportingDocument(
-    policy,
-    eventId,
-    evidence?.supportingDocumentUrl,
-    evidence?.supportingDocumentFilename,
-  );
-  const dropped = document.dropped ? { dropped: document.dropped } : {};
-  const documentLabel = supportingDocumentLabel(policy);
-  if (missing.length > 0) {
-    const labels = document.missingRequired ? [...missing, documentLabel] : missing;
-    return {
-      ok: false,
-      code: "IDENTITY_EVIDENCE_REQUIRED",
-      message: `${labels.join(" and ")} ${labels.length > 1 ? "are" : "is"} required for this registration type.`,
-      fields: [
-        ...missing.map((label) => EVIDENCE_FIELD_BY_LABEL[label]).filter((f) => f !== undefined),
-        ...(document.missingRequired ? (["supportingDocument"] as const) : []),
-      ],
-      ...dropped,
-    };
-  }
-  if (hasInvalidExpiryDate(evidence ?? {})) {
-    return {
-      ok: false,
-      code: "INVALID_EXPIRY_DATE",
-      message: "Please enter a valid student ID expiry date.",
-      fields: document.missingRequired ? ["studentIdExpiry", "supportingDocument"] : ["studentIdExpiry"],
-      ...dropped,
-    };
-  }
-  if (document.missingRequired) {
-    return {
-      ok: false,
-      code: "DOCUMENT_REQUIRED",
-      message: `${documentLabel} is required for this registration type.`,
-      fields: ["supportingDocument"],
-      ...dropped,
-    };
-  }
-  return { ok: true };
-}
-
-/** missingIdentityEvidence() names fields by label; the form marks them by name. */
-const EVIDENCE_FIELD_BY_LABEL: Record<string, PresenterEvidenceRefusal["fields"][number]> = {
-  "Member ID": "memberId",
-  "Student ID": "studentId",
-  "Student ID expiry date": "studentIdExpiry",
-};
-
-/** True when the type asks for anything the submitter has to give. */
-function asksForEvidence(policy: TypeEvidencePolicy): boolean {
-  const identity = readIdentityEvidencePolicy(policy);
-  return identity.requiresMemberId || identity.requiresStudentId || requiresSupportingDocument(policy);
-}
+/** The abstract doors' name for the shared rule (type-evidence.ts). */
+export type PresenterEvidenceRefusal = TypeEvidenceRefusal;
+export const checkPresenterEvidence = checkTypeEvidence;
 
 /**
  * The door's pre-flight check, shared by BOTH abstract doors (`/submitter`

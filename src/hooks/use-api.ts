@@ -9,6 +9,7 @@ import { ApiError, errorMessageFor } from "@/lib/api-fetch";
 import type { WebinarHandout } from "@/lib/webinar/handouts";
 import type { LivePollOption, PollTally } from "@/lib/webinar/live-polls";
 import type { RegistrationFormSkipReason } from "@/lib/registration-form-link";
+import type { EvidenceRequestSkipReason } from "@/lib/evidence-request";
 import type { DeskDaySummary } from "@/lib/desk-day-summary";
 import type { DetCredentialsStatus, DetEnvironment, DetPerformanceSummary } from "@/lib/dtcm-eticket/types";
 import type { DtcmSectionMapping } from "@/lib/dtcm-eticket/sections";
@@ -1663,6 +1664,23 @@ export function useSendCompletionEmails(eventId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
     },
+  });
+}
+
+/** Request ID and document: each person's own link (src/lib/evidence-request.ts). */
+export function useSendEvidenceRequests(eventId: string) {
+  return useMutation({
+    mutationFn: (input: { registrationIds: string[]; expiryDays: number }) =>
+      fetchApi<{
+        sent: number;
+        skipped: number;
+        skippedDetails: { registrationId: string; reason: EvidenceRequestSkipReason }[];
+        errors: string[];
+      }>(`/api/events/${eventId}/registrations/evidence-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }),
   });
 }
 

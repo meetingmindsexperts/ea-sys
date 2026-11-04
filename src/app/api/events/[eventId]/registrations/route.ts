@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { PaymentStatus, RegistrationStatus } from "@prisma/client";
+import { PaymentStatus, RegistrationStatus, type Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
@@ -19,6 +19,7 @@ import {
 } from "@/lib/registration-financials";
 import { redactBarcodeFields } from "@/lib/barcode-visibility";
 import { redactSupportingDocumentFields } from "@/lib/supporting-document";
+import { MISSING_EVIDENCE_WHERE, missingEvidenceFields } from "@/lib/type-evidence";
 import { rateLimited } from "@/lib/api-errors";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -204,6 +205,21 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
     const completionWhere = completionWhereFor(completionParam);
+    // "Missing ID or document" (type-evidence.ts): the export sends it, so the
+    // file matches the screen.
+    const evidenceParam = searchParams.get("evidence");
+    if (evidenceParam && evidenceParam !== "missing") {
+      apiLogger.warn({ msg: "events/registrations:invalid-evidence-filter", eventId, value: evidenceParam });
+      return NextResponse.json(
+        { error: `Invalid evidence filter: "${evidenceParam}"`, code: "INVALID_FILTER" },
+        { status: 400 },
+      );
+    }
+    // Both filters are AND lists; merged, so neither spread drops the other.
+    const andFilters = [
+      ...((completionWhere.AND as Prisma.RegistrationWhereInput[] | undefined) ?? []),
+      ...(evidenceParam === "missing" ? [MISSING_EVIDENCE_WHERE] : []),
+    ];
     const status = parsedStatus?.success ? parsedStatus.data : undefined;
     const paymentStatus = parsedPaymentStatus?.success ? parsedPaymentStatus.data : undefined;
     // One registration type, or several comma-separated (the list page's multi-select, Oct 27).
@@ -335,7 +351,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(paymentStatus && { paymentStatus }),
           ...(ticketTypeIds.length && { ticketTypeId: { in: ticketTypeIds } }),
           ...(groupId && { groupId }),
-          ...completionWhere,
+          ...(andFilters.length > 0 && { AND: andFilters }),
           ...(qSerial !== null && { serialId: qSerial }),
           ...sponsorWhere,
           // Tags and free-text search BOTH constrain `attendee`, so they must
@@ -375,6 +391,11 @@ export async function GET(req: Request, { params }: RouteParams) {
               dietaryReqs: true,
               specialty: true,
               registrationType: true,
+              // Read only to compute `missingEvidence` below, then dropped:
+              // the list never carries anyone's ID numbers.
+              memberId: true,
+              studentId: true,
+              studentIdExpiry: true,
             },
           },
           ticketType: {
@@ -398,6 +419,10 @@ export async function GET(req: Request, { params }: RouteParams) {
               // spot arrived with the policy columns.
               requiresDocument: true,
               documentLabel: true,
+              // The "Missing ID or document" filter (type-evidence.ts).
+              requiresMemberId: true,
+              requiresStudentId: true,
+              requiresStudentIdExpiry: true,
             },
           },
           pricingTier: {
@@ -562,11 +587,22 @@ export async function GET(req: Request, { params }: RouteParams) {
       taxLabel: event.taxLabel ?? null,
     };
     const answeredByReg = answeredSurveysPromise ? await answeredSurveysPromise : null;
-    const withMoney = flagged.map((r) => ({
-      ...r,
-      rowMoney: computeRegistrationRowMoney(r, moneyCtx),
-      ...(answeredByReg ? { answeredSurveyIds: answeredByReg.get(r.id) ?? [] } : {}),
-    }));
+    const withMoney = flagged.map((r) => {
+      // What the person's type asks for and the row does not hold, computed
+      // here so the filter works for readers whose rows lose the document path
+      // (supportingDocs.view) and so the ID numbers themselves never leave.
+      const { memberId, studentId, studentIdExpiry, ...attendee } = r.attendee;
+      const missingEvidence = r.status === "CANCELLED"
+        ? []
+        : missingEvidenceFields(r.ticketType, { memberId, studentId, studentIdExpiry, supportingDocumentUrl: r.supportingDocumentUrl });
+      return {
+        ...r,
+        attendee,
+        missingEvidence,
+        rowMoney: computeRegistrationRowMoney(r, moneyCtx),
+        ...(answeredByReg ? { answeredSurveyIds: answeredByReg.get(r.id) ?? [] } : {}),
+      };
+    });
 
     let payload = withMoney;
     if (redactsFinance) {
@@ -647,6 +683,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(status ? { status } : {}),
           ...(paymentStatus ? { paymentStatus } : {}),
           ...(completionParam ? { completion: completionParam } : {}),
+          ...(evidenceParam ? { evidence: evidenceParam } : {}),
           ...(ticketTypeId ? { ticketTypeId } : {}),
         },
       });
@@ -695,6 +732,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(paymentStatus ? { paymentStatus } : {}),
           ...(ticketTypeId ? { ticketTypeId } : {}),
           ...(completionParam ? { completion: completionParam } : {}),
+          ...(evidenceParam ? { evidence: evidenceParam } : {}),
           ...(tagsFilter.length > 0 ? { tags: tagsFilter } : {}),
           // The raw search term is NOT stored. Operators search full names and
           // email addresses, and `AuditLog` has no prune job and survives a

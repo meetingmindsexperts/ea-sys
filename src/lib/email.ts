@@ -1858,6 +1858,10 @@ export function getSamplePreviewVariables(
     rateName: "Early Bird",
     linkExpiresIn: "7 days",
     linkExpiresOn: "Friday, October 23, 2026",
+    // ID and document request placeholders — real sends mint each person's
+    // link and list what their own registration type still needs.
+    evidenceLink: "#",
+    evidenceItems: "Student ID, Student ID expiry date, Valid Student ID",
     // Dinner-RSVP invitation placeholder — real sends use each invitee's token.
     rsvpLink: "#",
     rsvpButton: buildRsvpButton({ rsvpLink: "#", rsvpName: "Gala Dinner" }).html,
