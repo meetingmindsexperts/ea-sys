@@ -35,6 +35,7 @@ import {
   Mail,
   LogOut,
   RefreshCw,
+  LayoutList,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency, formatPersonName } from "@/lib/utils";
@@ -858,9 +859,20 @@ export default function EventMyRegistrationPage() {
               <span className="hidden sm:inline text-sm text-slate-500 truncate max-w-[240px]">
                 {session.user.email}
               </span>
-              {/* Every event and the certificates sent, on one page. */}
-              <Button asChild variant="ghost" size="sm">
-                <a href="/my-registration">All my events</a>
+              {/* Every event and the certificates sent, on one page. A button
+                  in the brand colour, not a ghost link: as plain text beside
+                  the email it read as part of the account line (owner). */}
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="border-primary/40 bg-primary/5 font-medium text-primary hover:bg-primary/10 hover:text-primary"
+              >
+                <a href="/my-registration">
+                  <LayoutList className="h-4 w-4 sm:mr-1.5" />
+                  <span className="hidden sm:inline">All my events</span>
+                  <span className="sm:hidden">My events</span>
+                </a>
               </Button>
               <Button
                 variant="ghost"
