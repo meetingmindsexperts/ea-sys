@@ -819,7 +819,7 @@ export default function EventMyRegistrationPage() {
               </span>
               {/* Every event and the certificates sent, on one page. */}
               <Button asChild variant="ghost" size="sm">
-                <a href="/my-registration?all=1">All my events</a>
+                <a href="/my-registration">All my events</a>
               </Button>
               <Button
                 variant="ghost"

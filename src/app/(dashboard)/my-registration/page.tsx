@@ -27,9 +27,9 @@ import { PageHeader } from "@/components/ui/typography";
  * everyone to their latest registration, so someone registered for three had
  * no route to the other two.
  *
- * One registration and no certificates still goes straight to that event's
- * page, exactly as before: a list of one is a click nobody needs. Unless the
- * person asked for the list (`?all=1`), or that link would bounce them back.
+ * It is always the list, even of one (owner, Nov 4, 2026): it is the page the
+ * event pages' "All my events" link names, so it must not bounce a person
+ * with one registration back to where they came from.
  */
 
 const statusColors: Record<string, string> = {
@@ -76,8 +76,8 @@ async function loadPortal(userId: string, email: string) {
   );
 }
 
-export default async function MyRegistrationPage({ searchParams }: { searchParams: Promise<{ all?: string }> }) {
-  const [session, { all }] = await Promise.all([auth(), searchParams]);
+export default async function MyRegistrationPage() {
+  const session = await auth();
   if (!session?.user?.id) {
     redirect("/login?callbackUrl=/my-registration");
   }
@@ -93,10 +93,6 @@ export default async function MyRegistrationPage({ searchParams }: { searchParam
     throw err;
   }
 
-  // `?all=1` is the event page's "All my events" link, which asked for the list.
-  if (registrations.length === 1 && certificates.length === 0 && all !== "1") {
-    redirect(`/e/${registrations[0].event.slug}/my-registration`);
-  }
 
   // One card per event: its registrations and its certificates. A speaker's
   // appreciation certificate can belong to an event they never registered for.
