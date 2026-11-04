@@ -96,6 +96,7 @@ const QUOTE_SELECT = {
   qboSentByName: true,
   qboSendStartedAt: true,
   qboLastError: true,
+  qboOutcomeUnknown: true,
   createdAt: true,
   updatedAt: true,
   lines: {
@@ -157,6 +158,7 @@ export function toQuoteRow(q: QuoteRecord): CrmQuoteRow {
       sentAt: q.qboSentAt?.toISOString() ?? null,
       sentByName: q.qboSentByName,
       sending: q.qboSendStartedAt !== null && Date.now() - q.qboSendStartedAt.getTime() < QBO_SEND_STALE_MS,
+      unresolved: q.qboOutcomeUnknown && !q.qboEstimateId,
       lastError: q.qboLastError,
     },
     createdAt: q.createdAt.toISOString(),
@@ -179,20 +181,38 @@ export function toQuoteRow(q: QuoteRecord): CrmQuoteRow {
  * record now, and an edit here would leave two different versions of it.
  */
 function lockedByQuickBooks(
-  q: { qboEstimateId: string | null; qboSendStartedAt: Date | null },
+  q: { qboEstimateId: string | null; qboSendStartedAt: Date | null; qboOutcomeUnknown: boolean },
   quoteId: string,
   verb: string,
 ): QuoteFail | null {
   const sending = q.qboSendStartedAt !== null && Date.now() - q.qboSendStartedAt.getTime() < QBO_SEND_STALE_MS;
-  if (!q.qboEstimateId && !sending) return null;
-  apiLogger.warn({ msg: "crm-quote:locked-by-quickbooks", quoteId, verb, sent: Boolean(q.qboEstimateId) });
+  if (!q.qboEstimateId && !sending && !q.qboOutcomeUnknown) return null;
+  apiLogger.warn({ msg: "crm-quote:locked-by-quickbooks", quoteId, verb, sent: Boolean(q.qboEstimateId), unresolved: q.qboOutcomeUnknown });
+  return { ok: false, code: "QUOTE_IN_QUICKBOOKS", message: lockMessage(q, verb, sending) };
+}
+
+function lockMessage(q: { qboEstimateId: string | null }, verb: string, sending: boolean): string {
+  if (q.qboEstimateId) return `This quote is in QuickBooks and can no longer be ${verb} here. Change the Estimate in QuickBooks.`;
+  if (sending) return "This quote is being sent to QuickBooks right now.";
+  return "QuickBooks did not confirm the last send of this quote. Send it again to settle whether the Estimate exists.";
+}
+
+/** The claim conditions every edit and delete adds, so a send that got there first wins. */
+function notInQuickBooks() {
   return {
-    ok: false,
-    code: "QUOTE_IN_QUICKBOOKS",
-    message: q.qboEstimateId
-      ? `This quote is in QuickBooks and can no longer be ${verb} here. Change the Estimate in QuickBooks.`
-      : "This quote is being sent to QuickBooks right now.",
+    qboEstimateId: null,
+    qboOutcomeUnknown: false,
+    OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: new Date(Date.now() - QBO_SEND_STALE_MS) } }],
   };
+}
+
+/** After a lost claim: was it a QuickBooks send that took the quote? */
+async function lockedAfterLostClaim(organizationId: string, quoteId: string, verb: string): Promise<QuoteFail | null> {
+  const now = await db.crmQuote.findFirst({
+    where: { id: quoteId, organizationId },
+    select: { qboEstimateId: true, qboSendStartedAt: true, qboOutcomeUnknown: true },
+  });
+  return now ? lockedByQuickBooks(now, quoteId, verb) : null;
 }
 
 // ── Deal context ──────────────────────────────────────────────────────────────
@@ -670,8 +690,7 @@ export async function updateDealQuote(
           version: args.expectedVersion,
           archivedAt: null,
           // A send that claimed the quote after the check above wins.
-          qboEstimateId: null,
-          OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: new Date(Date.now() - QBO_SEND_STALE_MS) } }],
+          ...notInQuickBooks(),
         },
         data: { ...quoteFields(args.input, prepared.totals), version: { increment: 1 } },
       });
@@ -748,6 +767,8 @@ export async function updateDealQuote(
   } catch (err) {
     if (pendingUrl) await deleteStoredFile(pendingUrl, UPLOAD_PREFIX.crmDealDocs);
     if (err instanceof StaleQuoteError) {
+      const locked = await lockedAfterLostClaim(args.organizationId, args.quoteId, "edited");
+      if (locked) return locked;
       apiLogger.warn({ msg: "crm-quote:stale-write-race", quoteId: args.quoteId, expected: args.expectedVersion });
       return {
         ok: false,
@@ -801,7 +822,7 @@ export async function archiveDealQuote(
   try {
     const existing = await db.crmQuote.findFirst({
       where: { id: args.quoteId, dealId: args.dealId, organizationId: args.organizationId },
-      select: { id: true, number: true, archivedAt: true, qboEstimateId: true, qboSendStartedAt: true },
+      select: { id: true, number: true, archivedAt: true, qboEstimateId: true, qboSendStartedAt: true, qboOutcomeUnknown: true },
     });
     if (!existing) {
       apiLogger.warn({ msg: "crm-quote:archive-not-found", quoteId: args.quoteId, dealId: args.dealId, organizationId: args.organizationId });
@@ -817,8 +838,7 @@ export async function archiveDealQuote(
           id: args.quoteId,
           organizationId: args.organizationId,
           archivedAt: null,
-          qboEstimateId: null,
-          OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: new Date(Date.now() - QBO_SEND_STALE_MS) } }],
+          ...notInQuickBooks(),
         },
         data: { archivedAt: new Date() },
       });
@@ -842,6 +862,11 @@ export async function archiveDealQuote(
       return { claimed: true, removedUrl: document.url };
     });
 
+    // A send that claimed the quote meanwhile: not deleted, and say why.
+    if (!outcome.claimed) {
+      const locked = await lockedAfterLostClaim(args.organizationId, args.quoteId, "deleted");
+      if (locked) return locked;
+    }
     // A concurrent delete won the claim and wrote the History row; this one did nothing.
     if (!outcome.claimed) {
       apiLogger.info({ msg: "crm-quote:archive-already-done", quoteId: args.quoteId });

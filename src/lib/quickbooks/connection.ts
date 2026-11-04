@@ -188,12 +188,13 @@ export type AccessTokenResult =
  * A usable access token, refreshing first when the stored one is within the
  * skew of expiry.
  *
- * Concurrency, stated rather than defended against: two refreshes at once
- * both succeed at Intuit and the second's rotated token wins, which is
- * harmless because Intuit keeps the previous refresh token usable for a
- * short grace period. Accepted because the only automatic caller is the
- * daily health job, which holds a worker lease and therefore runs alone.
- * A second automatic reader is the point at which this needs a lock.
+ * Concurrency: the CRM's QuickBooks screens (Nov 4, 2026) make several calls
+ * at once, so within one process the refresh is single-flight per
+ * organisation (`refreshing`): callers that find the token expired together
+ * share one refresh instead of rotating the refresh token several times over.
+ * Across processes (two web slots, the worker) two refreshes can still race;
+ * both succeed at Intuit and the last save wins, which Intuit's grace period
+ * on the previous refresh token covers.
  */
 export async function getAccessToken(organizationId: string): Promise<AccessTokenResult> {
   const app = await loadQuickBooksApp(organizationId);
@@ -229,6 +230,21 @@ export async function getAccessToken(organizationId: string): Promise<AccessToke
     };
   }
 
+  const inFlight = refreshing.get(organizationId);
+  if (inFlight) return inFlight;
+  const refresh = refreshAndSave(organizationId, app, connection).finally(() => refreshing.delete(organizationId));
+  refreshing.set(organizationId, refresh);
+  return refresh;
+}
+
+/** One refresh per organisation at a time in this process; see getAccessToken. */
+const refreshing = new Map<string, Promise<AccessTokenResult>>();
+
+async function refreshAndSave(
+  organizationId: string,
+  app: QuickBooksApp,
+  connection: StoredQuickBooksConnection,
+): Promise<AccessTokenResult> {
   const refreshed = await refreshTokens(app, decryptSecret(connection.refreshTokenEncrypted));
   if (!refreshed.ok) {
     return { ok: false, code: "REFRESH_FAILED", message: refreshed.message };

@@ -12,10 +12,15 @@
  *   1. Readiness is judged by `quickBooksReadiness` (pure, shared with the
  *      screen), then checked live: the customer, products and the event's
  *      Class still exist and are active, and multi-currency allows the quote.
- *   2. The quote is claimed (`qboSendStartedAt`) by a conditional update, so a
- *      second click or a second tab stops there.
+ *   2. The quote is claimed (`qboSendStartedAt`) by a conditional update on
+ *      the version that was checked, so a second click, a second tab or an
+ *      edit saved meanwhile stops there. The claim also raises
+ *      `qboOutcomeUnknown`, which only a definite outcome lowers: after a lost
+ *      answer or a crash the quote stays locked until a later send settles
+ *      whether the Estimate exists.
  *   3. Before creating, QuickBooks is asked for an Estimate with the quote's
- *      number. One carrying this quote's marker is ADOPTED: an earlier attempt
+ *      number (the send refuses a company that ignores sent numbers, since
+ *      this lookup would then find nothing). One carrying this quote's marker is ADOPTED: an earlier attempt
  *      made it and its answer was lost. One without the marker means the number
  *      is taken, and the send stops.
  *   4. The create carries a requestid that only moves on after a definite
@@ -34,6 +39,7 @@ import {
   currentRealm,
   findClassByName,
   findEstimatesByDocNumber,
+  getCustomTxnNumbers,
   getCustomer,
   getItems,
   listTaxCodes,
@@ -41,7 +47,7 @@ import {
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import {
   QBO_SEND_STALE_MS,
-  TOTAL_TOLERANCE,
+  totalTolerance,
   estimateMarker,
   estimateRequestId,
   quickBooksReadiness,
@@ -225,11 +231,13 @@ const SEND_SELECT = {
   total: true,
   notes: true,
   archivedAt: true,
+  version: true,
   qboEstimateId: true,
   qboEstimateNumber: true,
   qboSentAt: true,
   qboSendStartedAt: true,
   qboSendAttempt: true,
+  qboOutcomeUnknown: true,
   lines: {
     orderBy: { sortOrder: "asc" },
     select: {
@@ -262,7 +270,7 @@ function readinessFor(quote: SendQuote, realmId: string) {
     realmId,
     dealStatus: quote.deal.status,
     company: quote.deal.company,
-    quote: { currency: quote.currency, taxRate: quote.taxRate === null ? null : Number(quote.taxRate) },
+    quote: { currency: quote.currency, taxRate: quote.taxRate === null ? null : Number(quote.taxRate), notes: quote.notes },
     lines: quote.lines.map((l) => ({ name: l.name, crmProductId: l.crmProductId, product: l.crmProduct })),
     settings: readCrmQuickBooksSettings(quote.deal.org.settings),
   });
@@ -270,6 +278,8 @@ function readinessFor(quote: SendQuote, realmId: string) {
 
 export interface QuoteQuickBooksState {
   sent: boolean;
+  /** An earlier send's answer was lost: sending again settles whether the Estimate exists. */
+  unresolved: boolean;
   estimateId: string | null;
   estimateNumber: string | null;
   sentAt: string | null;
@@ -289,13 +299,30 @@ export async function getQuoteQuickBooksState(
     if (quote.qboEstimateId) {
       return {
         ok: true,
-        state: { sent: true, estimateId: quote.qboEstimateId, estimateNumber: quote.qboEstimateNumber, sentAt: quote.qboSentAt?.toISOString() ?? null, problems: [] },
+        state: {
+          sent: true,
+          unresolved: false,
+          estimateId: quote.qboEstimateId,
+          estimateNumber: quote.qboEstimateNumber,
+          sentAt: quote.qboSentAt?.toISOString() ?? null,
+          problems: [],
+        },
       };
     }
     const realm = await currentRealm(args.organizationId);
     if (!realm.ok) return qboFail(realm, args.organizationId, "state:realm");
     const readiness = readinessFor(quote, realm.data.realmId);
-    return { ok: true, state: { sent: false, estimateId: null, estimateNumber: null, sentAt: null, problems: readiness.ok ? [] : readiness.problems } };
+    return {
+      ok: true,
+      state: {
+        sent: false,
+        unresolved: quote.qboOutcomeUnknown,
+        estimateId: null,
+        estimateNumber: null,
+        sentAt: null,
+        problems: readiness.ok ? [] : readiness.problems,
+      },
+    };
   } catch (err) {
     return unknownFail(err, "crm-quickbooks:state-failed", args);
   }
@@ -309,12 +336,27 @@ export interface SentEstimate {
   totalWarning: string | null;
 }
 
-/** Hand the claim back, recording why, so the next click can try again. */
-async function releaseClaim(quoteId: string, error: string, nextAttempt: boolean) {
+/**
+ * Hand THIS send's claim back (a send that went stale and was taken over must
+ * not clear its successor's), recording why. `outcomeUnknown` is what the
+ * quote carries afterwards: false once QuickBooks is known to hold no Estimate
+ * for it, true while that is unknown.
+ */
+async function releaseClaim(
+  quoteId: string,
+  claimedAt: Date,
+  error: string,
+  opts: { nextAttempt?: boolean; outcomeUnknown: boolean },
+) {
   await db.crmQuote
     .updateMany({
-      where: { id: quoteId, qboEstimateId: null },
-      data: { qboSendStartedAt: null, qboLastError: error.slice(0, 500), ...(nextAttempt ? { qboSendAttempt: { increment: 1 } } : {}) },
+      where: { id: quoteId, qboEstimateId: null, qboSendStartedAt: claimedAt },
+      data: {
+        qboSendStartedAt: null,
+        qboLastError: error.slice(0, 500),
+        qboOutcomeUnknown: opts.outcomeUnknown,
+        ...(opts.nextAttempt ? { qboSendAttempt: { increment: 1 } } : {}),
+      },
     })
     .catch((err: unknown) => apiLogger.error({ msg: "crm-quickbooks:release-failed", quoteId, err: err instanceof Error ? err.message : String(err) }));
 }
@@ -323,19 +365,23 @@ async function releaseClaim(quoteId: string, error: string, nextAttempt: boolean
 async function liveChecks(
   organizationId: string,
   quote: SendQuote,
-  plan: { customerId: string; itemIds: string[] },
+  plan: { customerId: string; itemIds: string[]; taxCodeId: string },
 ): Promise<{ ok: true; currency: string | null; classId: string | null } | CrmQuickBooksFail> {
   const eventCode = quote.deal.event?.code?.trim() || null;
-  const [customer, items, company, klass] = await Promise.all([
+  const [customer, items, company, klass, numbering, codes] = await Promise.all([
     getCustomer(organizationId, plan.customerId),
     getItems(organizationId, [...new Set(plan.itemIds)]),
     getCompanyInfo(organizationId),
     eventCode ? findClassByName(organizationId, eventCode) : Promise.resolve(null),
+    getCustomTxnNumbers(organizationId),
+    listTaxCodes(organizationId),
   ]);
   if (!customer.ok) return qboFail(customer, organizationId, "send:customer");
   if (!items.ok) return qboFail(items, organizationId, "send:items");
   if (!company.ok) return qboFail(company, organizationId, "send:company");
   if (klass && !klass.ok) return qboFail(klass, organizationId, "send:class");
+  if (!numbering.ok) return qboFail(numbering, organizationId, "send:preferences");
+  if (!codes.ok) return qboFail(codes, organizationId, "send:tax-codes");
 
   const problems: string[] = [];
   if (!customer.data || !customer.data.active) problems.push("The linked QuickBooks customer is gone or inactive. Link the company again.");
@@ -353,6 +399,17 @@ async function liveChecks(
   }
   if (eventCode && klass?.ok && !klass.data) {
     problems.push(`QuickBooks has no active Class named ${eventCode} for this deal's event.`);
+  }
+  // Without kept numbers a lost answer could not be found again by the quote's number.
+  if (numbering.data === false) {
+    problems.push("QuickBooks numbers Estimates itself. Finance turns on Custom transaction numbers (Account and settings → Sales) first.");
+  }
+  // The rate was stored when the codes were chosen; finance may have changed it since.
+  const taxCode = codes.data.find((c) => c.id === plan.taxCodeId);
+  const quoteRate = quote.taxRate === null ? 0 : Number(quote.taxRate);
+  if (!taxCode || !taxCode.active) problems.push("The QuickBooks VAT code chosen for quotes is gone or inactive. An admin chooses it again on Products.");
+  else if (taxCode.rate !== null && Math.abs(taxCode.rate - quoteRate) >= 0.005) {
+    problems.push(`The QuickBooks tax code ${taxCode.name} is now ${taxCode.rate}%, but the quote charges ${quoteRate}%.`);
   }
 
   if (problems.length > 0) {
@@ -432,21 +489,30 @@ export async function sendQuoteToQuickBooks(
     const live = await liveChecks(args.organizationId, quote, readiness.plan);
     if (!live.ok) return live;
 
-    // The claim: a second click, a second tab or a retried request stops here.
+    // The claim: a second click, a second tab, a retried request or an edit
+    // saved since the checks above (the version moved) stops here.
+    const claimedAt = new Date();
     const claim = await db.crmQuote.updateMany({
       where: {
         id: quote.id,
         organizationId: args.organizationId,
         archivedAt: null,
+        version: quote.version,
         qboEstimateId: null,
-        OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: new Date(Date.now() - QBO_SEND_STALE_MS) } }],
+        OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: new Date(claimedAt.getTime() - QBO_SEND_STALE_MS) } }],
       },
-      data: { qboSendStartedAt: new Date() },
+      data: { qboSendStartedAt: claimedAt, qboOutcomeUnknown: true },
     });
     if (claim.count === 0) {
-      apiLogger.warn({ msg: "crm-quickbooks:send-in-progress", ...ctx });
-      return { ok: false, code: "QUOTE_SEND_IN_PROGRESS", message: "This quote is being sent right now. Refresh in a moment." };
+      apiLogger.warn({ msg: "crm-quickbooks:send-claim-lost", ...ctx });
+      return {
+        ok: false,
+        code: "QUOTE_SEND_IN_PROGRESS",
+        message: "This quote changed or is being sent right now. Refresh and try again.",
+      };
     }
+    // Until the lookup below answers, what QuickBooks holds is what it held before this send.
+    const priorUnknown = quote.qboOutcomeUnknown;
 
     const sentByName = await userName(args.userId);
     const marker = estimateMarker(quote.id);
@@ -454,12 +520,12 @@ export async function sendQuoteToQuickBooks(
     // An Estimate with this number may already exist: ours from a lost answer, or someone else's.
     const existing = await findEstimatesByDocNumber(args.organizationId, quote.number);
     if (!existing.ok) {
-      await releaseClaim(quote.id, `Lookup failed: ${existing.message}`, false);
+      await releaseClaim(quote.id, claimedAt, `Lookup failed: ${existing.message}`, { outcomeUnknown: priorUnknown });
       return qboFail(existing, args.organizationId, "send:lookup");
     }
     const ours = existing.data.find((e) => e.privateNote?.includes(marker));
     if (!ours && existing.data.length > 0) {
-      await releaseClaim(quote.id, `QuickBooks already has an Estimate numbered ${quote.number}`, false);
+      await releaseClaim(quote.id, claimedAt, `QuickBooks already has an Estimate numbered ${quote.number}`, { outcomeUnknown: false });
       apiLogger.warn({ msg: "crm-quickbooks:doc-number-taken", ...ctx, estimateIds: existing.data.map((e) => e.id) });
       return {
         ok: false,
@@ -469,6 +535,8 @@ export async function sendQuoteToQuickBooks(
     }
 
     let estimate = ours ?? null;
+    let realmId = realm.data.realmId;
+    let environment = realm.data.environment;
     if (!estimate) {
       const body = buildEstimateBody({
         customerId: readiness.plan.customerId,
@@ -491,7 +559,12 @@ export async function sendQuoteToQuickBooks(
       const created = await createEstimate(args.organizationId, body, estimateRequestId(quote.id, quote.qboSendAttempt));
       if (!created.ok) {
         if (created.outcomeUnknown) {
-          await releaseClaim(quote.id, "QuickBooks did not confirm. Sending again checks QuickBooks first, so it never makes a second Estimate.", false);
+          await releaseClaim(
+            quote.id,
+            claimedAt,
+            "QuickBooks did not confirm. Sending again checks QuickBooks first, so it never makes a second Estimate.",
+            { outcomeUnknown: true },
+          );
           return {
             ok: false,
             code: "QBO_OUTCOME_UNKNOWN",
@@ -499,19 +572,25 @@ export async function sendQuoteToQuickBooks(
           };
         }
         if (NOT_CONNECTED.has(created.code)) {
-          await releaseClaim(quote.id, created.message, false);
+          await releaseClaim(quote.id, claimedAt, created.message, { outcomeUnknown: false });
           return qboFail(created, args.organizationId, "send:create");
         }
-        await releaseClaim(quote.id, `QuickBooks refused: ${created.message}`, true);
+        await releaseClaim(quote.id, claimedAt, `QuickBooks refused: ${created.message}`, { nextAttempt: true, outcomeUnknown: false });
         apiLogger.warn({ msg: "crm-quickbooks:estimate-refused", ...ctx, status: created.status, message: created.message });
         return { ok: false, code: "QBO_REFUSED", message: `QuickBooks refused the Estimate: ${created.message}` };
       }
       estimate = created.data;
+      // Record the company QuickBooks answered from, not the one read at the start.
+      if (created.realmId !== realm.data.realmId) {
+        apiLogger.warn({ msg: "crm-quickbooks:realm-changed-mid-send", ...ctx, before: realm.data.realmId, after: created.realmId });
+      }
+      realmId = created.realmId;
+      environment = created.environment;
     }
 
     const quoteTotal = Number(quote.total);
     const totalWarning =
-      estimate.totalAmt !== null && Math.abs(estimate.totalAmt - quoteTotal) > TOTAL_TOLERANCE
+      estimate.totalAmt !== null && Math.abs(estimate.totalAmt - quoteTotal) > totalTolerance(quote.lines.length)
         ? `QuickBooks' total is ${estimate.totalAmt.toFixed(2)}, the quote's is ${quoteTotal.toFixed(2)}. Check the Estimate's VAT.`
         : null;
 
@@ -520,12 +599,13 @@ export async function sendQuoteToQuickBooks(
       data: {
         qboEstimateId: estimate.id,
         qboEstimateNumber: estimate.docNumber,
-        qboRealmId: realm.data.realmId,
-        qboEnvironment: realm.data.environment,
+        qboRealmId: realmId,
+        qboEnvironment: environment,
         qboSentAt: new Date(),
         qboSentById: args.userId,
         qboSentByName: sentByName,
         qboSendStartedAt: null,
+        qboOutcomeUnknown: false,
         qboLastError: totalWarning,
       },
     });
@@ -534,8 +614,8 @@ export async function sendQuoteToQuickBooks(
     await recordSent(args, quote, sent, sentByName);
     return { ok: true, estimate: sent };
   } catch (err) {
-    // The claim is left to go stale: whether the Estimate was made is unknown,
-    // and the next send's number lookup settles it.
+    // The claim goes stale but `qboOutcomeUnknown` stays raised, so the quote
+    // stays locked; the next send's number lookup settles it.
     return unknownFail(err, "crm-quickbooks:send-failed", ctx);
   }
 }

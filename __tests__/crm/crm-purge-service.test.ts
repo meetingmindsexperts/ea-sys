@@ -53,7 +53,7 @@ beforeEach(() => {
 const dealRow = (over: Record<string, unknown> = {}) => ({
   id: "d-1", name: "Abbott — Gold", status: "LOST", dealValue: null, currency: "USD",
   eventId: "e-1", companyId: "c-1", ownerId: null, archivedAt: new Date(),
-  _count: { contacts: 2, products: 1, notes: 3, tasks: 1 }, ...over,
+  _count: { contacts: 2, products: 1, notes: 3, tasks: 1 }, quotes: [], ...over,
 });
 
 describe("purgeDeal", () => {
@@ -79,6 +79,16 @@ describe("purgeDeal", () => {
     expect(audit.entityType).toBe("CrmDeal");
     expect(audit.changes.name).toBe("Abbott — Gold");
     expect(audit.changes.cascaded).toMatchObject({ contacts: 2, products: 1 });
+    expect(audit.changes).not.toHaveProperty("quickBooksEstimates");
+  });
+
+  it("keeps the record of the QuickBooks Estimates its quotes became (review of 4e72284d L2)", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue(
+      dealRow({ quotes: [{ number: "Q-2026-0006", qboEstimateId: "est-1", qboRealmId: "realm-1" }] }) as never,
+    );
+    await purgeDeal({ ...base, dealId: "d-1" });
+    const audit = vi.mocked(db.auditLog.create).mock.calls[0]![0].data as { changes: Record<string, unknown> };
+    expect(audit.changes.quickBooksEstimates).toEqual([{ quoteNumber: "Q-2026-0006", estimateId: "est-1", realmId: "realm-1" }]);
   });
 });
 

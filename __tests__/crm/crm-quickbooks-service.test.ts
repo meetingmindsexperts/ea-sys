@@ -32,6 +32,7 @@ const { qbo } = vi.hoisted(() => ({
     findEstimatesByDocNumber: vi.fn(),
     createEstimate: vi.fn(),
     listTaxCodes: vi.fn(),
+    getCustomTxnNumbers: vi.fn(),
     getCompanyInfo: vi.fn(),
   },
 }));
@@ -44,6 +45,7 @@ vi.mock("@/lib/quickbooks/sales", async (importOriginal) => ({
   findEstimatesByDocNumber: qbo.findEstimatesByDocNumber,
   createEstimate: qbo.createEstimate,
   listTaxCodes: qbo.listTaxCodes,
+  getCustomTxnNumbers: qbo.getCustomTxnNumbers,
 }));
 vi.mock("@/lib/quickbooks/client", () => ({ getCompanyInfo: qbo.getCompanyInfo }));
 
@@ -66,11 +68,13 @@ function quote(overrides: Record<string, unknown> = {}) {
     total: "78750",
     notes: null,
     archivedAt: null,
+    version: 3,
     qboEstimateId: null,
     qboEstimateNumber: null,
     qboSentAt: null,
     qboSendStartedAt: null,
     qboSendAttempt: 2,
+    qboOutcomeUnknown: false,
     lines: [
       {
         name: "Sponsorship - Gold",
@@ -109,6 +113,14 @@ beforeEach(() => {
   qbo.getCompanyInfo.mockResolvedValue({ ok: true, data: { homeCurrency: "AED", multiCurrencyEnabled: true } });
   qbo.findClassByName.mockResolvedValue({ ok: true, data: { id: "cls-1", name: "EHBPU2026" } });
   qbo.findEstimatesByDocNumber.mockResolvedValue({ ok: true, data: [] });
+  qbo.getCustomTxnNumbers.mockResolvedValue({ ok: true, data: true });
+  qbo.listTaxCodes.mockResolvedValue({
+    ok: true,
+    data: [
+      { id: "tc-5", name: "SR 5%", description: null, active: true, rate: 5 },
+      { id: "tc-0", name: "Zero", description: null, active: true, rate: 0 },
+    ],
+  });
   qbo.createEstimate.mockResolvedValue({
     ok: true,
     data: { id: "est-1", docNumber: "Q-2026-0006", privateNote: "EA-SYS quote q-1", totalAmt: 78750, currency: "USD", status: null },
@@ -182,12 +194,13 @@ describe("sendQuoteToQuickBooks", () => {
     );
   });
 
-  it("an unknown outcome releases the claim but keeps the requestid, so a retry is answered with the first result", async () => {
+  it("an unknown outcome keeps the requestid and leaves the quote locked as unresolved", async () => {
     qbo.createEstimate.mockResolvedValue({ ok: false, code: "NETWORK", message: "timeout", outcomeUnknown: true });
     const res = await sendQuoteToQuickBooks(args);
     expect(res).toMatchObject({ ok: false, code: "QBO_OUTCOME_UNKNOWN" });
     const last = dbMock.crmQuote.updateMany.mock.calls.at(-1)![0];
     expect(last.data).not.toHaveProperty("qboSendAttempt");
+    expect(last.data).toMatchObject({ qboSendStartedAt: null, qboOutcomeUnknown: true });
     expect(dbMock.crmQuote.update).not.toHaveBeenCalled();
   });
 
@@ -261,6 +274,66 @@ describe("linkCompanyToCustomer", () => {
     expect(qbo.getCustomer).not.toHaveBeenCalled();
     expect(dbMock.crmCompany.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { qboCustomerId: null, qboCustomerName: null, qboCustomerCurrency: null, qboRealmId: null } }),
+    );
+  });
+});
+
+describe("review of 4e72284d", () => {
+  it("H1: claims only the version it checked, so an edit saved meanwhile stops the send", async () => {
+    await sendQuoteToQuickBooks(args);
+    const claim = dbMock.crmQuote.updateMany.mock.calls[0]![0];
+    expect(claim.where).toMatchObject({ id: "q-1", version: 3, qboEstimateId: null });
+    expect(claim.data).toMatchObject({ qboOutcomeUnknown: true });
+  });
+
+  it("H2: a successful send clears the unresolved flag", async () => {
+    await sendQuoteToQuickBooks(args);
+    expect(dbMock.crmQuote.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ qboOutcomeUnknown: false }) }));
+  });
+
+  it("H2: a failed lookup keeps what was known before this send", async () => {
+    dbMock.crmQuote.findFirst.mockResolvedValue(quote({ qboOutcomeUnknown: true }));
+    qbo.findEstimatesByDocNumber.mockResolvedValue({ ok: false, code: "HTTP_ERROR", message: "503" });
+    await sendQuoteToQuickBooks(args);
+    expect(dbMock.crmQuote.updateMany.mock.calls.at(-1)![0].data).toMatchObject({ qboOutcomeUnknown: true });
+  });
+
+  it("H2: a lookup that finds nothing, then a definite refusal, settles it", async () => {
+    dbMock.crmQuote.findFirst.mockResolvedValue(quote({ qboOutcomeUnknown: true }));
+    qbo.createEstimate.mockResolvedValue({ ok: false, code: "HTTP_ERROR", status: 400, message: "bad", outcomeUnknown: false });
+    await sendQuoteToQuickBooks(args);
+    expect(dbMock.crmQuote.updateMany.mock.calls.at(-1)![0].data).toMatchObject({ qboOutcomeUnknown: false });
+  });
+
+  it("M1: a release clears only the claim this send made", async () => {
+    qbo.createEstimate.mockResolvedValue({ ok: false, code: "HTTP_ERROR", status: 400, message: "bad", outcomeUnknown: false });
+    await sendQuoteToQuickBooks(args);
+    const claimedAt = dbMock.crmQuote.updateMany.mock.calls[0]![0].data.qboSendStartedAt;
+    expect(claimedAt).toBeInstanceOf(Date);
+    expect(dbMock.crmQuote.updateMany.mock.calls.at(-1)![0].where).toMatchObject({ qboSendStartedAt: claimedAt });
+  });
+
+  it("M2: refuses a company that numbers Estimates itself", async () => {
+    qbo.getCustomTxnNumbers.mockResolvedValue({ ok: true, data: false });
+    expect(await sendQuoteToQuickBooks(args)).toMatchObject({ ok: false, code: "QUOTE_NOT_READY", message: expect.stringContaining("Custom transaction numbers") });
+    expect(dbMock.crmQuote.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("M4: refuses when finance changed the VAT code's rate since it was chosen", async () => {
+    qbo.listTaxCodes.mockResolvedValue({ ok: true, data: [{ id: "tc-5", name: "SR", description: null, active: true, rate: 7.5 }] });
+    expect(await sendQuoteToQuickBooks(args)).toMatchObject({ ok: false, code: "QUOTE_NOT_READY", message: expect.stringContaining("7.5%") });
+  });
+
+  it("L4: records the QuickBooks company the create answered from", async () => {
+    qbo.createEstimate.mockResolvedValue({
+      ok: true,
+      data: { id: "est-1", docNumber: "Q-2026-0006", privateNote: null, totalAmt: 78750, currency: "USD", status: null },
+      realmId: "realm-2",
+      environment: "production",
+    });
+    await sendQuoteToQuickBooks(args);
+    expect(dbMock.crmQuote.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ qboRealmId: "realm-2", qboEnvironment: "production" }) }),
     );
   });
 });

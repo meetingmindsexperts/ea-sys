@@ -368,6 +368,11 @@ model CrmQuote {
   /// a retry after a lost answer repeats the same request and QuickBooks
   /// answers it with the first result instead of making a second Estimate.
   qboSendAttempt    Int       @default(0)
+  /// Set when a send claims the quote and cleared only by a DEFINITE outcome
+  /// (made, adopted, refused, nothing sent). Left set by a lost answer or a
+  /// crash, so the quote stays locked until a later send settles whether the
+  /// Estimate exists; the claim alone goes stale after two minutes.
+  qboOutcomeUnknown Boolean   @default(false)
 
   lines CrmQuoteLine[]
 

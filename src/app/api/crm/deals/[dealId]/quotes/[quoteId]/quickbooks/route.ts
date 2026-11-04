@@ -11,7 +11,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
-import { requireCrmRead, requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
+import { requireCrmRead, requireCrmWrite, crmCan, crmErrorResponse } from "@/crm/lib/crm-route";
 import { getQuoteQuickBooksState, sendQuoteToQuickBooks } from "@/crm/services/crm-quickbooks-service";
 
 interface RouteParams {
@@ -60,6 +60,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       quoteId,
     });
     if (!result.ok) return crmErrorResponse(result);
-    return NextResponse.json({ estimate: result.estimate });
+    // The total warning names both totals: money, for those who may see it.
+    const canSeeMoney = crmCan(ctx, "crm.dealValues.view");
+    const estimate = canSeeMoney
+      ? result.estimate
+      : { ...result.estimate, totalWarning: result.estimate.totalWarning ? "QuickBooks' total differs from the quote's. Ask finance to check the Estimate." : null };
+    return NextResponse.json({ estimate });
   });
 }

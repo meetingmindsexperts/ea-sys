@@ -3,8 +3,9 @@
 -- product to a QuickBooks product/service, and a quote records the Estimate it
 -- became. Each link carries the QuickBooks company (realm) it was made in.
 -- Additive and idempotent: nullable (or defaulted) columns and one unique index on existing
--- tables, no new table (so no RLS file). No rollback hazard: an older image
--- never reads these columns.
+-- tables, no new table (so no RLS file). Rollback note: an older image never
+-- reads these columns, so it also ignores the lock on a sent quote and would
+-- let it be edited or deleted; roll back only with no quotes mid-send.
 
 ALTER TABLE "CrmCompany" ADD COLUMN IF NOT EXISTS "qboCustomerId" TEXT;
 ALTER TABLE "CrmCompany" ADD COLUMN IF NOT EXISTS "qboCustomerName" TEXT;

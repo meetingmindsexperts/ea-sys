@@ -136,7 +136,11 @@ interface PurgeCtx {
 export async function purgeDeal(input: PurgeCtx & { dealId: string }): Promise<{ ok: true } | Fail> {
   const deal = await db.crmDeal.findFirst({
     where: { id: input.dealId, organizationId: input.organizationId },
-    include: { _count: { select: { contacts: true, products: true, notes: true, tasks: true } } },
+    include: {
+      _count: { select: { contacts: true, products: true, notes: true, tasks: true } },
+      // A quote sent to QuickBooks goes with the deal; its Estimate does not.
+      quotes: { where: { qboEstimateId: { not: null } }, select: { number: true, qboEstimateId: true, qboRealmId: true } },
+    },
   });
   if (!deal) return reject("DEAL_NOT_FOUND", "Deal not found", { organizationId: input.organizationId, dealId: input.dealId });
   if (!deal.archivedAt) {
@@ -163,6 +167,10 @@ export async function purgeDeal(input: PurgeCtx & { dealId: string }): Promise<{
         ownerId: deal.ownerId,
         archivedAt: deal.archivedAt.toISOString(),
         cascaded: deal._count, // people links / line items / notes / tasks deleted with it
+        // The only EA-SYS record of which QuickBooks Estimates came from this deal's quotes.
+        ...(deal.quotes.length > 0
+          ? { quickBooksEstimates: deal.quotes.map((q) => ({ quoteNumber: q.number, estimateId: q.qboEstimateId, realmId: q.qboRealmId })) }
+          : {}),
       },
     },
     label: "deal",

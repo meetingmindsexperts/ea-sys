@@ -143,6 +143,7 @@ function savedQuote(overrides: Record<string, unknown> = {}) {
     qboSentByName: null,
     qboSendStartedAt: null,
     qboLastError: null,
+    qboOutcomeUnknown: false,
     createdAt: new Date("2026-09-15T08:00:00.000Z"),
     updatedAt: new Date("2026-09-15T08:00:00.000Z"),
     lines: [
@@ -398,7 +399,7 @@ describe("updateDealQuote", () => {
 
     expect(tx.crmQuote.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "q-1", organizationId: ORG, version: 1, archivedAt: null, qboEstimateId: null, OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: expect.any(Date) } }] },
+        where: { id: "q-1", organizationId: ORG, version: 1, archivedAt: null, qboEstimateId: null, qboOutcomeUnknown: false, OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: expect.any(Date) } }] },
         data: expect.objectContaining({ title: "Abbott Quote - revised", version: { increment: 1 } }),
       }),
     );
@@ -461,7 +462,7 @@ describe("listDealQuotes and archiveDealQuote", () => {
 
     expect(res).toEqual({ ok: true, removedUrl: OLD_URL });
     expect(tx.crmQuote.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "q-1", organizationId: ORG, archivedAt: null, qboEstimateId: null, OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: expect.any(Date) } }] } }),
+      expect.objectContaining({ where: { id: "q-1", organizationId: ORG, archivedAt: null, qboEstimateId: null, qboOutcomeUnknown: false, OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: expect.any(Date) } }] } }),
     );
     expect(tx.crmQuote.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "q-1", organizationId: ORG }, data: { documentId: null } }),
@@ -522,7 +523,7 @@ describe("a quote in QuickBooks is locked (Nov 4, 2026)", () => {
   });
 
   it("refuses a delete once the quote is an Estimate", async () => {
-    dbMock.crmQuote.findFirst.mockResolvedValue({ id: "q-1", number: "Q-2026-0003", archivedAt: null, qboEstimateId: "est-9", qboSendStartedAt: null });
+    dbMock.crmQuote.findFirst.mockResolvedValue({ id: "q-1", number: "Q-2026-0003", archivedAt: null, qboEstimateId: "est-9", qboSendStartedAt: null, qboOutcomeUnknown: false });
     const res = await archiveDealQuote({ ...actor, dealId: "d-1", quoteId: "q-1" });
     expect(res).toMatchObject({ ok: false, code: "QUOTE_IN_QUICKBOOKS" });
     expect(tx.crmQuote.updateMany).not.toHaveBeenCalled();
@@ -537,5 +538,26 @@ describe("a quote in QuickBooks is locked (Nov 4, 2026)", () => {
       ok: true,
       quotes: [{ quickBooks: { estimateId: "est-9", estimateNumber: "Q-2026-0003", sentAt: "2026-11-04T09:00:00.000Z", sentByName: "Atiq", sending: false } }],
     });
+  });
+});
+
+describe("an unresolved send keeps the quote locked (review of 4e72284d H2)", () => {
+  it("refuses an edit after QuickBooks did not confirm, however old the claim", async () => {
+    dbMock.crmQuote.findFirst.mockResolvedValue({
+      ...savedQuote({ qboOutcomeUnknown: true, qboSendStartedAt: null }),
+      archivedAt: null,
+      document: null,
+    });
+    const res = await updateDealQuote({ ...actor, dealId: "d-1", quoteId: "q-1", expectedVersion: 1, input });
+    expect(res).toMatchObject({ ok: false, code: "QUOTE_IN_QUICKBOOKS", message: expect.stringContaining("did not confirm") });
+  });
+
+  it("L1: a delete that lost its claim to a send says so instead of reporting success", async () => {
+    dbMock.crmQuote.findFirst
+      .mockResolvedValueOnce({ id: "q-1", number: "Q-2026-0003", archivedAt: null, qboEstimateId: null, qboSendStartedAt: null, qboOutcomeUnknown: false })
+      .mockResolvedValueOnce({ qboEstimateId: null, qboSendStartedAt: new Date(), qboOutcomeUnknown: true });
+    tx.crmQuote.updateMany.mockResolvedValueOnce({ count: 0 });
+    const res = await archiveDealQuote({ ...actor, dealId: "d-1", quoteId: "q-1" });
+    expect(res).toMatchObject({ ok: false, code: "QUOTE_IN_QUICKBOOKS" });
   });
 });

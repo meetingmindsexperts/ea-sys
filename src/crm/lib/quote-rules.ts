@@ -232,6 +232,8 @@ export interface CrmQuoteRow {
     sentByName: string | null;
     /** A send holds the quote right now. */
     sending: boolean;
+    /** The last send's answer was lost: locked until a send settles it. */
+    unresolved: boolean;
     /** The last refusal, or a total warning on a sent quote. */
     lastError: string | null;
   };

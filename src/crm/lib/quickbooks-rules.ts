@@ -53,6 +53,7 @@ export type QuickBooksProblem =
   | { code: "CURRENCY_MISMATCH"; message: string }
   | { code: "TAX_CODES_NOT_SET"; message: string }
   | { code: "TAX_RATE_MISMATCH"; message: string }
+  | { code: "NOTES_TOO_LONG"; message: string }
   | { code: "LINE_NOT_FROM_CATALOGUE"; message: string; line: number }
   | { code: "PRODUCT_NOT_LINKED"; message: string; line: number; crmProductId: string };
 
@@ -65,7 +66,7 @@ export interface ReadinessInput {
     qboCustomerCurrency: string | null;
     qboRealmId: string | null;
   } | null;
-  quote: { currency: string; taxRate: number | null };
+  quote: { currency: string; taxRate: number | null; notes?: string | null };
   lines: Array<{
     name: string;
     crmProductId: string | null;
@@ -128,6 +129,13 @@ export function quickBooksReadiness(input: ReadinessInput): { ok: true; plan: Re
     taxCodeId = settings.noVatTaxCodeId;
   }
 
+  if ((input.quote.notes?.length ?? 0) > NOTES_MAX) {
+    problems.push({
+      code: "NOTES_TOO_LONG",
+      message: `QuickBooks prints at most ${NOTES_MAX.toLocaleString("en")} characters of notes on an Estimate. Shorten the quote's notes.`,
+    });
+  }
+
   const itemIds: string[] = [];
   input.lines.forEach((l, i) => {
     const line = i + 1;
@@ -160,8 +168,17 @@ export function estimateMarker(quoteId: string): string {
   return `EA-SYS quote ${quoteId}`;
 }
 
-/** QuickBooks' own totals may round per line; more than this is a real difference. */
-export const TOTAL_TOLERANCE = 0.05;
+/** QuickBooks' limit on the message an Estimate prints (its CustomerMemo). */
+export const NOTES_MAX = 1000;
+
+/**
+ * How far QuickBooks' total may sit from the quote's before it is flagged. The
+ * quote taxes its subtotal; QuickBooks may round the tax line by line, so each
+ * line can move the total by up to half a cent.
+ */
+export function totalTolerance(lineCount: number): number {
+  return 0.05 + 0.005 * lineCount;
+}
 
 /** A send that holds its claim longer than this was left by a process that died. */
 export const QBO_SEND_STALE_MS = 2 * 60 * 1000;

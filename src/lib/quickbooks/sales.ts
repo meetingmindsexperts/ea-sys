@@ -166,6 +166,22 @@ export async function findClassByName(organizationId: string, name: string): Pro
   return { ok: true, data: row ? { id: String(row.Id ?? ""), name: str(row.Name) ?? name } : null };
 }
 
+/**
+ * Whether the company keeps the transaction numbers it is sent. With "Custom
+ * transaction numbers" off, QuickBooks ignores a sent DocNumber and numbers the
+ * Estimate itself, so a send could no longer find its own Estimate by the
+ * quote's number after a lost answer. Null when the preference is absent.
+ */
+export async function getCustomTxnNumbers(organizationId: string): Promise<QboResult<boolean | null>> {
+  const rows = await qboQuery<Record<string, unknown>>(organizationId, "SELECT * FROM Preferences", "Preferences");
+  if (!rows.ok) return rows;
+  const value = (rows.data[0]?.SalesFormsPrefs as { CustomTxnNumbers?: unknown } | undefined)?.CustomTxnNumbers;
+  return { ok: true, data: typeof value === "boolean" ? value : null };
+}
+
+/** QuickBooks' limit on the message printed on an Estimate. */
+export const CUSTOMER_MEMO_MAX = 1000;
+
 export interface QboEstimateSummary {
   id: string;
   docNumber: string | null;
@@ -229,7 +245,7 @@ export function buildEstimateBody(input: EstimateInput): Record<string, unknown>
     ExpirationDate: input.expirationDate,
     ...(input.currency ? { CurrencyRef: { value: input.currency } } : {}),
     ...(input.classId ? { ClassRef: { value: input.classId } } : {}),
-    ...(input.customerMemo ? { CustomerMemo: { value: input.customerMemo.slice(0, 1000) } } : {}),
+    ...(input.customerMemo ? { CustomerMemo: { value: input.customerMemo.slice(0, CUSTOMER_MEMO_MAX) } } : {}),
     PrivateNote: input.privateNote.slice(0, 4000),
     // Quote prices are VAT-exclusive (computeQuoteTotals adds the tax on top).
     GlobalTaxCalculation: "TaxExcluded",
@@ -288,7 +304,15 @@ export async function createEstimate(
     return { ok: false, code: "NETWORK", message, outcomeUnknown: true };
   }
 
-  const text = await res.text();
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (err) {
+    // The answer arrived and broke off: QuickBooks may have made the Estimate.
+    const message = err instanceof Error ? err.message : String(err);
+    apiLogger.error({ msg: "quickbooks:estimate-body-lost", organizationId, requestId, status: res.status, err: message });
+    return { ok: false, code: "NETWORK", message, outcomeUnknown: res.ok || res.status >= 500 };
+  }
   if (!res.ok) {
     const outcomeUnknown = res.status >= 500;
     apiLogger.error({
