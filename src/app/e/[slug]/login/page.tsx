@@ -71,7 +71,8 @@ function EventLoginForm() {
 
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "" },
+    // The register form's "Sign in instead" names the email it checked.
+    defaultValues: { email: searchParams.get("email") ?? "", password: "" },
   });
 
   useEffect(() => {

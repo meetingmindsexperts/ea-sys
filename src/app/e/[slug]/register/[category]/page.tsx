@@ -274,6 +274,11 @@ function CategoryRegistrationContent() {
   const [promoValidating, setPromoValidating] = useState(false);
   const [promoResult, setPromoResult] = useState<{ valid: boolean; code?: string; discountType?: string; discountValue?: number; discountAmount?: number; originalPrice?: number; finalPrice?: number; coveredBySponsor?: string | null; error?: string } | null>(null);
   const [showPromoInput, setShowPromoInput] = useState(false);
+  // Signing in from this form comes back to this form, not to My Registration,
+  // which for a new event only says "Not registered yet" and links here again.
+  const signInBackHere = (email?: string) =>
+    `/e/${slug}/login?redirect=${encodeURIComponent(`/e/${slug}/register/${categorySlug}`)}` +
+    (email ? `&email=${encodeURIComponent(email)}` : "");
   const [emailCheck, setEmailCheck] = useState<
     | { state: "idle" }
     | { state: "checking" }
@@ -1012,7 +1017,7 @@ function CategoryRegistrationContent() {
                           You already have an account with this email. Sign in with your existing password to manage
                           your registration later; the password typed here won&apos;t change it.{" "}
                           <a
-                            href={`/e/${slug}/login?redirect=registration&email=${encodeURIComponent(emailCheck.email)}`}
+                            href={signInBackHere(emailCheck.email)}
                             className="text-primary hover:underline font-medium"
                           >
                             Sign in instead
@@ -1072,7 +1077,7 @@ function CategoryRegistrationContent() {
 
                       <p className="text-center  text-slate-400">
                         <span className="text-xs">Already have an account?{" "}</span>
-                        <a href={`/e/${slug}/login?redirect=registration`} className="text-md text-primary hover:underline font-medium">Sign in</a>
+                        <a href={signInBackHere()} className="text-md text-primary hover:underline font-medium">Sign in</a>
                       </p>
                       </div>
                     </div>
