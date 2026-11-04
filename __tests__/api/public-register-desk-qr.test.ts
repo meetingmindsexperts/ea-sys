@@ -27,6 +27,7 @@ const { mockDb, tx, mockApiLogger, rateKeys, rateLimits, claimPromo, ensureAccou
       ticketType: { findFirst: vi.fn() },
       pricingTier: { findFirst: vi.fn(), findMany: vi.fn() },
       auditLog: { create: vi.fn() },
+      user: { findUnique: vi.fn() },
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     rateKeys: [] as string[],
@@ -279,14 +280,33 @@ describe("a token that does not hold", () => {
 });
 
 describe("signed in while registering", () => {
-  it("links the registration to the account when the session is the email registered", async () => {
+  beforeEach(() => {
+    mockDb.user.findUnique.mockResolvedValue({ email: "hajar@example.com" });
+  });
+
+  it("links the registration to the account when the session is the email registered, never making one", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u1", email: "Hajar@Example.com" } });
     ensureAccount.mockResolvedValueOnce("linked");
     const r = await post();
     expect(r.status).toBe(201);
-    expect(ensureAccount).toHaveBeenCalledWith(expect.objectContaining({ email: "hajar@example.com", password: undefined, withoutPassword: true }));
+    expect(mockDb.user.findUnique).toHaveBeenCalledWith({ where: { id: "u1" }, select: { email: true } });
+    expect(ensureAccount).toHaveBeenCalledWith(expect.objectContaining({ email: "hajar@example.com", password: undefined, withoutPassword: true, linkOnly: true }));
+    expect(mockApiLogger.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "public-register:session-link", account: "linked" }));
     // Not a desk registration: no set-password link.
     expect(sendConfirmation.mock.calls[0][0].setPasswordUrl).toBeNull();
+  });
+
+  it("stays a guest registration when the account's email has changed since sign-in", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", email: "hajar@example.com" } });
+    mockDb.user.findUnique.mockResolvedValue({ email: "hajar.new@example.com" });
+    await post();
+    expect(ensureAccount).toHaveBeenCalledWith(expect.objectContaining({ withoutPassword: false, linkOnly: false }));
+  });
+
+  it("uses the typed password, not the session, when one is sent", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", email: "hajar@example.com" } });
+    await post({ password: "secret123" });
+    expect(ensureAccount).toHaveBeenCalledWith(expect.objectContaining({ password: "secret123", withoutPassword: false, linkOnly: false }));
   });
 
   it("stays a guest registration when the session is someone else", async () => {

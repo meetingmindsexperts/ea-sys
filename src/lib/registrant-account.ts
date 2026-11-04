@@ -40,6 +40,12 @@ export async function ensureRegistrantAccount(args: {
   password: string | undefined;
   /** Make the account even with no password (the desk QR). */
   withoutPassword?: boolean;
+  /**
+   * Link to an existing account only, never make one: the caller is linking a
+   * signed-in person, and a miss means their account is not this email any
+   * more, which must not become a second account behind their back.
+   */
+  linkOnly?: boolean;
   specialty: string | null;
   clientIp: string | null;
   /** Notification body — each caller keeps its own wording. */
@@ -57,6 +63,7 @@ export async function ensureRegistrantAccount(args: {
     clientIp,
     signupMessage,
     withoutPassword,
+    linkOnly,
   } = args;
 
   if (!password && !withoutPassword) return "none";
@@ -95,6 +102,9 @@ export async function ensureRegistrantAccount(args: {
         });
       }
       return "linked";
+    } else if (linkOnly) {
+      apiLogger.warn({ msg: "registrant-account:link-only-no-account", registrationId, eventId });
+      return "none";
     } else {
       const passwordHash = await bcrypt.hash(password ?? crypto.randomBytes(32).toString("hex"), 10);
       const newUser = await db.user.create({

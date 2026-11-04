@@ -60,6 +60,22 @@ beforeEach(() => {
 });
 
 describe("ensureRegistrantAccount", () => {
+  it("linkOnly links an existing account with no password", async () => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-exist", role: "REGISTRANT", termsAcceptedAt: new Date() });
+    const out = await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true, linkOnly: true });
+    expect(out).toBe("linked");
+    expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg1" }, data: { userId: "u-exist" } });
+  });
+
+  it("linkOnly never makes an account when none has this email, and logs it", async () => {
+    const out = await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true, linkOnly: true });
+    expect(out).toBe("none");
+    expect(mockDb.user.create).not.toHaveBeenCalled();
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(notifySpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.objectContaining({ msg: "registrant-account:link-only-no-account" }));
+  });
+
   it("no-ops when no password (guest registration) — touches nothing", async () => {
     await ensureRegistrantAccount({ ...base, password: undefined });
     expect(mockDb.user.findFirst).not.toHaveBeenCalled();

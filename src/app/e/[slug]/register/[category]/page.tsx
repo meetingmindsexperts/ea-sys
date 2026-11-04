@@ -1,10 +1,11 @@
 "use client";
 
-import { showsField, type FormFieldVisibility } from "@/lib/registration-form-fields";
+import { ALL_FORM_FIELDS_SHOWN, showsField, type FormFieldVisibility, type OptionalFormField } from "@/lib/registration-form-fields";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { isTeamRole } from "@/lib/team-roles";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type FieldErrors } from "react-hook-form";
 import * as Sentry from "@sentry/nextjs";
@@ -243,6 +244,7 @@ const PROFILE_FIELDS = [
   "city", "state", "zipCode", "country", "specialty", "customSpecialty", "dietaryReqs",
 ] as const satisfies readonly (keyof RegistrationForm)[];
 type ProfileField = (typeof PROFILE_FIELDS)[number];
+const isOptionalFormField = (key: ProfileField): key is ProfileField & OptionalFormField => key in ALL_FORM_FIELDS_SHOWN;
 
 function CategoryRegistrationContent() {
   const params = useParams();
@@ -286,15 +288,20 @@ function CategoryRegistrationContent() {
   const [showPromoInput, setShowPromoInput] = useState(false);
   // Signing in from this form comes back to this form, not to My Registration,
   // which for a new event only says "Not registered yet" and links here again.
-  const signInBackHere = (email?: string) =>
-    `/e/${slug}/login?redirect=${encodeURIComponent(`/e/${slug}/register/${categorySlug}`)}` +
-    (email ? `&email=${encodeURIComponent(email)}` : "");
+  // The query string comes along: a ?promo= or UTM link survives signing in.
+  const signInBackHere = (email?: string) => {
+    const query = searchParams.toString();
+    const back = `/e/${slug}/register/${categorySlug}${query ? `?${query}` : ""}`;
+    return `/e/${slug}/login?redirect=${encodeURIComponent(back)}` + (email ? `&email=${encodeURIComponent(email)}` : "");
+  };
   // Signed in: the account step is the session, and the details start from
   // the person's last registration. "Not you?" registers someone else on this
-  // browser (a shared laptop, an assistant) without signing anyone out.
+  // browser (a shared laptop, an assistant) without signing anyone out. Not
+  // for staff: they open public forms to register other people.
   const { data: session } = useSession();
   const [notYou, setNotYou] = useState(false);
-  const signedInEmail = deskQr || notYou ? null : session?.user?.email?.toLowerCase() ?? null;
+  const staffSession = isTeamRole(session?.user?.role);
+  const signedInEmail = deskQr || notYou || staffSession ? null : session?.user?.email?.toLowerCase() ?? null;
   const stepOneSubtitle = signedInEmail ? "You're signed in. Continue to your details." : "Create your account to get started.";
   const [emailCheck, setEmailCheck] = useState<
     | { state: "idle" }
@@ -522,8 +529,6 @@ function CategoryRegistrationContent() {
     if (signedInEmail) form.setValue("email", signedInEmail);
   }, [signedInEmail, regTypeOptions.length, form]);
 
-  // The values the prefill put in, so "Not you?" can take back exactly those.
-  const prefilled = useRef<Partial<Record<ProfileField, string>>>({});
   const prefillRequested = useRef(false);
   const signedInRef = useRef(signedInEmail);
   signedInRef.current = signedInEmail;
@@ -545,22 +550,23 @@ function CategoryRegistrationContent() {
           // Fills only what is empty: a restored draft, or anything already
           // typed, wins over the last registration.
           if (!value || form.getValues(key)) continue;
+          // A field this event's form hides is never filled: it would be
+          // submitted without the person seeing it.
+          if (isOptionalFormField(key) && !showsField(event?.formFields, key)) continue;
           form.setValue(key, value);
-          prefilled.current[key] = value;
         }
       } catch (err) {
         console.warn("[register] profile prefill failed", err);
       }
     })();
-  }, [signedInEmail, regTypeOptions.length, form]);
+  }, [signedInEmail, regTypeOptions.length, form, event?.formFields]);
 
+  // Every personal field is cleared, not only what the prefill wrote: a draft
+  // restored on this browser is someone's details too.
   function registerSomeoneElse() {
     setNotYou(true);
     form.setValue("email", "");
-    for (const [key, value] of Object.entries(prefilled.current) as [ProfileField, string][]) {
-      if (form.getValues(key) === value) form.setValue(key, "");
-    }
-    prefilled.current = {};
+    for (const key of PROFILE_FIELDS) form.setValue(key, "");
     setEmailCheck({ state: "idle" });
   }
 

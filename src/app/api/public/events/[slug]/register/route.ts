@@ -157,13 +157,18 @@ function rateLimited(retryAfterSeconds: number): NextResponse {
 }
 
 /**
- * True when the browser is signed in as `email` (already lowercased). Never
- * throws: a session that cannot be read is a guest registration, as before.
+ * True when the browser is signed in as `email` (already lowercased). The
+ * session's email is the one from sign-in and is never refreshed, so the
+ * account's CURRENT email decides: after an email change, the old address no
+ * longer counts. Never throws: a session that cannot be read is a guest
+ * registration, as before.
  */
 async function sessionEmailIs(email: string): Promise<boolean> {
   try {
     const session = await auth();
-    return session?.user?.email?.toLowerCase() === email;
+    if (!session?.user?.id || session.user.email?.toLowerCase() !== email) return false;
+    const user = await db.user.findUnique({ where: { id: session.user.id }, select: { email: true } });
+    return user?.email.toLowerCase() === email;
   } catch (err) {
     apiLogger.warn({ err, msg: "public-register:session-read-failed" });
     return false;
@@ -887,8 +892,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // sibling registrations on this email (failure-isolated — never blocks the
     // registration). No-ops when no password was supplied (guest registration),
     // unless the person is signed in as this email: the form asks them for no
-    // password then, and the registration joins the account they are in.
-    const signedInAsRegistrant = await sessionEmailIs(email);
+    // password then, and the registration joins the account they are in
+    // (linked only: a session never makes a second account).
+    const sessionLink = !desk && !password && (await sessionEmailIs(email));
     const account = await ensureRegistrantAccount({
       registrationId: registration.id,
       eventId: event.id,
@@ -898,11 +904,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       lastName,
       password,
       // The desk QR asks for no password: the account is made without one (§8.3).
-      withoutPassword: !!desk || signedInAsRegistrant,
+      withoutPassword: !!desk || sessionLink,
+      linkOnly: sessionLink,
       specialty: specialty || null,
       clientIp: getClientIp(req),
       signupMessage: `${firstName} ${lastName} (${email}) created a registrant account`,
     });
+    if (sessionLink) {
+      apiLogger.info({ msg: "public-register:session-link", registrationId: registration.id, eventId: event.id, account });
+    }
 
     const finalPrice = registrationFinalPrice;
     const finalCurrency = pricingTier ? pricingTier.currency : ticketType.currency;
