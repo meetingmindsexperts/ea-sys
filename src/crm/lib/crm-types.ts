@@ -187,6 +187,10 @@ export interface CrmProductRow {
   sortOrder: number;
   archivedAt?: string | null;
   createdAt: string;
+  /** The QuickBooks product/service a quote line for this product posts to (Nov 4, 2026). */
+  qboItemId?: string | null;
+  qboItemName?: string | null;
+  qboRealmId?: string | null;
 }
 
 /** A product on a deal (line item). `unitPrice` is absent (redacted) for MEMBER. */
@@ -376,6 +380,11 @@ export interface CrmCompanyRow {
   dealTotals?: Array<{ currency: string; total: number }>;
   /** Derived: PRIMARY on the newest deal, else the newest company contact. */
   primaryContact?: CrmPersonRef | null;
+  /** The QuickBooks customer this sponsor is invoiced as (Nov 4, 2026). */
+  qboCustomerId?: string | null;
+  qboCustomerName?: string | null;
+  qboCustomerCurrency?: string | null;
+  qboRealmId?: string | null;
 }
 
 export interface CrmCompanyDetail extends CrmCompanyRow {

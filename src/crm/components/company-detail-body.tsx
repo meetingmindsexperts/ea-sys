@@ -45,6 +45,7 @@ import { DEAL_STATUS_COLORS, LIFECYCLE_COLORS, LIFECYCLE_LABELS, formatDealValue
 import { companyDealValueBreakdown } from "@/crm/lib/company-rollup";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/components/record-layout";
 import { CrmNotesCard } from "@/crm/components/crm-notes-card";
+import { CompanyQuickBooksLink } from "@/crm/components/crm-quickbooks";
 import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
 import { useCrmStages } from "@/crm/hooks/use-crm-api";
@@ -263,6 +264,9 @@ export function CompanyDetailBody({
                     </span>
                   </Fact>
                 )}
+                <Fact label="QuickBooks">
+                  <CompanyQuickBooksLink company={company} canWrite={canWrite && !company.archivedAt} />
+                </Fact>
                 <Fact label="Created">{new Date(company.createdAt).toLocaleDateString()}</Fact>
               </Facts>
             </RecordCard>

@@ -419,7 +419,13 @@ export function DealDetailBody({
 
         {/* ── Documents (prospectus + quotes + supporting PDFs → Email attachments) ─ */}
         <RecordCard icon={Paperclip} title="Documents">
-          <CrmDealDocumentsCard dealId={deal.id} canWrite={canWrite} canDelete={canDelete} />
+          <CrmDealDocumentsCard
+            dealId={deal.id}
+            dealWon={deal.status === "WON"}
+            companyId={deal.company?.id ?? null}
+            canWrite={canWrite}
+            canDelete={canDelete}
+          />
         </RecordCard>
 
         {/* ── History (system change log) ────────────────────────────────── */}

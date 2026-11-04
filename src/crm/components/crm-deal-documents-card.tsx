@@ -6,7 +6,9 @@
  * attachment in the deal's Email dialog.
  *
  * Quotes (Sep 15 2026) are SAVED and editable: the list shows the quote rows
- * with Open PDF / Edit / Delete, and the editor dialog holds every option.
+ * with Open PDF / Edit / Delete, and the editor dialog holds every option. On
+ * a won deal a quote can be sent to QuickBooks as an Estimate (Nov 4 2026),
+ * after which it is locked: no Edit or Delete.
  * Deleting a quote needs the CRM delete permission (admin or CRM user), like
  * archiving any other CRM record; editing needs write. Quote PDFs generated
  * before that date have no saved row; they stay listed underneath as PDF-only
@@ -29,6 +31,7 @@ import {
   useUploadCrmDealDocument,
 } from "@/crm/hooks/use-crm-api";
 import { QuoteEditorDialog } from "@/crm/components/crm-quote-editor-dialog";
+import { QuoteQuickBooksControl, quoteEditable } from "@/crm/components/crm-quickbooks";
 import { formatQuoteDate, formatQuoteMoney, type CrmQuoteRow } from "@/crm/lib/quote-rules";
 import type { CrmDealDocumentRow } from "@/crm/lib/crm-types";
 import { uploadSizeHint } from "@/lib/utils";
@@ -96,6 +99,8 @@ function DocRow({
 function QuoteRow({
   quote,
   dealId,
+  dealWon,
+  companyId,
   canWrite,
   canDelete,
   deleting,
@@ -104,12 +109,16 @@ function QuoteRow({
 }: {
   quote: CrmQuoteRow;
   dealId: string;
+  dealWon: boolean;
+  companyId: string | null;
   canWrite: boolean;
   canDelete: boolean;
   deleting: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  // A quote in QuickBooks is the Estimate's now: no Edit or Delete here.
+  const editable = quoteEditable(quote);
   return (
     <li className="flex items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-1.5 text-sm">
       <ReceiptText className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -136,12 +145,13 @@ function QuoteRow({
           </a>
         </Button>
       )}
-      {canWrite && (
+      <QuoteQuickBooksControl dealId={dealId} quote={quote} dealWon={dealWon} companyId={companyId} canWrite={canWrite} />
+      {canWrite && editable && (
         <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onEdit} title="Edit quote">
           <Pencil className="h-3.5 w-3.5" />
         </Button>
       )}
-      {canDelete && (
+      {canDelete && editable && (
         <Button
           variant="ghost"
           size="icon"
@@ -162,10 +172,15 @@ function QuoteRow({
 
 export function CrmDealDocumentsCard({
   dealId,
+  dealWon,
+  companyId,
   canWrite,
   canDelete,
 }: {
   dealId: string;
+  /** Only a won deal's quote can go to QuickBooks. */
+  dealWon: boolean;
+  companyId: string | null;
   canWrite: boolean;
   /** The CRM delete permission (admin or CRM user): deleting a quote needs it. */
   canDelete: boolean;
@@ -244,6 +259,8 @@ export function CrmDealDocumentsCard({
                 key={q.id}
                 quote={q}
                 dealId={dealId}
+                dealWon={dealWon}
+                companyId={companyId}
                 canWrite={canWrite}
                 canDelete={canDelete}
                 deleting={archiveQuote.isPending}

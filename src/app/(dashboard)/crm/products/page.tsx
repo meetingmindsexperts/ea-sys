@@ -16,11 +16,12 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { useCrmProducts, useSetCrmProductArchived } from "@/crm/hooks/use-crm-api";
+import { useCrmProducts, useCrmQuickBooksStatus, useSetCrmProductArchived } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { CrmProductDialog } from "@/crm/components/crm-product-dialog";
+import { ProductQuickBooksCell, QuickBooksProductsPanel } from "@/crm/components/crm-quickbooks";
 import { formatDealValue, PRODUCT_SOURCE_LABELS, type CrmProductRow } from "@/crm/lib/crm-types";
 
 const ALL_CATEGORIES = "__all__";
@@ -48,6 +49,10 @@ export default function CrmProductsPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   const { data: products = [], isLoading, isError, refetch } = useCrmProducts(showArchived);
+  // QuickBooks (Nov 4 2026): a product a quote line uses must be linked before the quote can be sent.
+  const { data: qbo } = useCrmQuickBooksStatus();
+  const qboRealm = qbo?.connected ? qbo.realmId : null;
+  const unlinked = qboRealm ? products.filter((p) => !p.archivedAt && !(p.qboItemId && p.qboRealmId === qboRealm)).length : 0;
 
   const categories = useMemo(
     () => [...new Set(products.map((p) => p.category))].sort((a, b) => a.localeCompare(b)),
@@ -79,10 +84,12 @@ export default function CrmProductsPage() {
         )}
       </div>
 
+      <QuickBooksProductsPanel unlinkedCount={unlinked} />
+
       <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-2">
         <div className="relative min-w-[12rem] flex-1">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or SKU…" className="pl-8" />
+          <Input name="product-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or SKU…" className="pl-8" />
         </div>
         <Select value={category} onValueChange={setCategory}>
           <SelectTrigger className="w-[14rem]">
@@ -142,12 +149,13 @@ export default function CrmProductsPage() {
                 <TableHead>SKU</TableHead>
                 <TableHead>Sourcing</TableHead>
                 <TableHead className="text-right">List price</TableHead>
+                {qboRealm && <TableHead>QuickBooks</TableHead>}
                 {canWrite && <TableHead className="w-24" />}
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((p) => (
-                <ProductRow key={p.id} product={p} canWrite={canWrite} categories={categories} />
+                <ProductRow key={p.id} product={p} canWrite={canWrite} categories={categories} qboRealm={qboRealm} />
               ))}
             </TableBody>
           </Table>
@@ -170,10 +178,13 @@ function ProductRow({
   product,
   canWrite,
   categories,
+  qboRealm,
 }: {
   product: CrmProductRow;
   canWrite: boolean;
   categories: string[];
+  /** The connected QuickBooks company, or null when not connected (no column). */
+  qboRealm: string | null;
 }) {
   const canDelete = useCan("crm.delete") === "allowed";
   const [editOpen, setEditOpen] = useState(false);
@@ -199,6 +210,11 @@ function ProductRow({
       <TableCell className="text-right tabular-nums">
         {price ?? <span className="text-muted-foreground">—</span>}
       </TableCell>
+      {qboRealm && (
+        <TableCell>
+          <ProductQuickBooksCell product={product} canWrite={canWrite && !archived} currentRealm={qboRealm} />
+        </TableCell>
+      )}
       {canWrite && (
         <TableCell>
           <div className="flex items-center justify-end gap-1">

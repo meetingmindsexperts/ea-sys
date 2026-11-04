@@ -19,7 +19,7 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BreakdownRow, CrmReportDimension } from "@/crm/lib/reports";
 import { toast } from "sonner";
-import { ApiError, apiFetch, apiPostJson, apiPatchJson, apiDelete } from "@/lib/api-fetch";
+import { ApiError, apiFetch, apiPostJson, apiPatchJson, apiPutJson, apiDelete } from "@/lib/api-fetch";
 import type { CrmListMeta } from "@/crm/lib/list-caps";
 import type {
   CrmActivityRow,
@@ -45,6 +45,7 @@ import type {
   SponsorRecipient,
 } from "@/crm/lib/crm-types";
 import type { CrmQuoteDraft, CrmQuoteRow, QuoteInput } from "@/crm/lib/quote-rules";
+import type { CrmQuickBooksSettings, QuickBooksProblem } from "@/crm/lib/quickbooks-rules";
 
 export interface CrmDealFilters {
   eventId?: string;
@@ -92,6 +93,9 @@ export const crmKeys = {
   dealDocuments: (dealId: string) => ["crm", "deal-documents", dealId] as const,
   dealQuotes: (dealId: string) => ["crm", "deal-quotes", dealId] as const,
   quoteDraft: (dealId: string) => ["crm", "quote-draft", dealId] as const,
+  quickBooks: ["crm", "quickbooks"] as const,
+  quickBooksLookup: (kind: "customers" | "items" | "tax-codes", search: string) => ["crm", "quickbooks", kind, search] as const,
+  quoteQuickBooks: (dealId: string, quoteId: string) => ["crm", "quickbooks", "quote", dealId, quoteId] as const,
   notifications: ["crm", "notifications"] as const,
   inbox: (dealId?: string) => ["crm", "inbox", dealId ?? ""] as const,
   inboxThread: (threadId: string) => ["crm", "inbox-thread", threadId] as const,
@@ -1472,5 +1476,133 @@ export function useCrmReps() {
       apiFetch<{ reps: Array<{ id: string; firstName: string; lastName: string; role: string }> }>(
         "/api/crm/reps",
       ).then((r) => r.reps),
+  });
+}
+
+// ── QuickBooks Estimates (Nov 4 2026) ─────────────────────────────────────────
+
+export interface CrmQuickBooksStatus {
+  connected: boolean;
+  environment: "sandbox" | "production" | null;
+  companyName: string | null;
+  realmId: string | null;
+  taxCodes: CrmQuickBooksSettings | null;
+  canManage: boolean;
+}
+
+export interface QboCustomerOption {
+  id: string;
+  displayName: string;
+  currency: string | null;
+  email: string | null;
+}
+
+export interface QboItemOption {
+  id: string;
+  name: string;
+  type: string | null;
+}
+
+export interface QboTaxCodeOption {
+  id: string;
+  name: string;
+  description: string | null;
+  rate: number | null;
+}
+
+export interface QuoteQuickBooksState {
+  sent: boolean;
+  /** The last send's answer was lost; sending again settles it. */
+  unresolved: boolean;
+  estimateId: string | null;
+  estimateNumber: string | null;
+  sentAt: string | null;
+  problems: QuickBooksProblem[];
+}
+
+/** Connected or not, and the VAT codes quotes post with. */
+export function useCrmQuickBooksStatus(enabled = true) {
+  return useQuery({
+    queryKey: crmKeys.quickBooks,
+    queryFn: () => apiFetch<CrmQuickBooksStatus>("/api/crm/quickbooks"),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+/** A live QuickBooks search; only runs while its picker is open. */
+export function useQboLookup<T>(kind: "customers" | "items" | "tax-codes", search: string, enabled: boolean) {
+  const key = kind === "tax-codes" ? "taxCodes" : kind;
+  return useQuery({
+    queryKey: crmKeys.quickBooksLookup(kind, search),
+    queryFn: () =>
+      apiFetch<Record<string, T[]>>(`/api/crm/quickbooks/${kind}${search ? `?search=${encodeURIComponent(search)}` : ""}`).then(
+        (r) => r[key] ?? [],
+      ),
+    enabled,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+export function useSaveQuickBooksTaxCodes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { vatTaxCodeId: string; noVatTaxCodeId: string }) =>
+      apiPutJson<{ taxCodes: CrmQuickBooksSettings }>("/api/crm/quickbooks", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: crmKeys.quickBooks }),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not save the VAT codes"),
+  });
+}
+
+export function useLinkCompanyToQuickBooks(companyId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (customerId: string | null) => apiPutJson(`/api/crm/companies/${companyId}/quickbooks`, { customerId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: crmKeys.company(companyId) });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("COMPANY", companyId) });
+      qc.invalidateQueries({ queryKey: ["crm", "quickbooks", "quote"] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not link the QuickBooks customer"),
+  });
+}
+
+export function useLinkProductToQuickBooks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ productId, itemId }: { productId: string; itemId: string | null }) =>
+      apiPutJson(`/api/crm/products/${productId}/quickbooks`, { itemId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm", "products"] });
+      qc.invalidateQueries({ queryKey: ["crm", "quickbooks", "quote"] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not link the QuickBooks product"),
+  });
+}
+
+/** Whether a quote is in QuickBooks, else what still stops it. */
+export function useQuoteQuickBooksState(dealId: string, quoteId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: crmKeys.quoteQuickBooks(dealId, quoteId),
+    queryFn: () =>
+      apiFetch<{ state: QuoteQuickBooksState }>(`/api/crm/deals/${dealId}/quotes/${quoteId}/quickbooks`).then((r) => r.state),
+    enabled,
+    retry: false,
+  });
+}
+
+export function useSendQuoteToQuickBooks(dealId: string) {
+  const invalidate = useInvalidateDealQuotes(dealId);
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (quoteId: string) =>
+      apiPostJson<{ estimate: { estimateId: string; estimateNumber: string | null; adopted: boolean; totalWarning: string | null } }>(
+        `/api/crm/deals/${dealId}/quotes/${quoteId}/quickbooks`,
+      ),
+    onSettled: (_data, _err, quoteId) => {
+      invalidate();
+      qc.invalidateQueries({ queryKey: crmKeys.quoteQuickBooks(dealId, quoteId) });
+    },
   });
 }
