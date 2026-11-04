@@ -17,6 +17,8 @@ type PayableInput = {
   overrideSalesWindow?: boolean;
   suppressPayNow?: boolean;
   createdSource?: string;
+  identity?: { memberId: string | null; studentId: string | null; studentIdExpiry: string | null };
+  supportingDocument?: { url: string; filename: string | null } | null;
 };
 
 const { ensureCompanionSpy, createAndLinkSpy, findManySpy, findUniqueSpy, quotePdfSpy } = vi.hoisted(() => ({
@@ -52,6 +54,7 @@ import {
   ensureSubmitterRegistration,
   resolvePresenterRateSelection,
   buildPresenterFeeEmailExtras,
+  checkPresenterEvidence,
 } from "@/lib/presenter-signup";
 // The mocked instance — asserting the refusal is VISIBLE, not just correct.
 import { apiLogger } from "@/lib/logger";
@@ -310,10 +313,12 @@ describe("resolvePresenterRateSelection", () => {
 
   it("resolves a valid choice to its tier", async () => {
     const sel = await resolvePresenterRateSelection("ev1", "tt-phys");
-    expect(sel).toEqual({
+    expect(sel).toMatchObject({
       kind: "resolved",
       ticketTypeId: "tt-phys",
       pricingTierId: expect.any(String),
+      // The type's ID and document switches ride along for the door's check.
+      policy: expect.any(Object),
     });
   });
 });
@@ -384,5 +389,91 @@ describe("presenter fee block copy follows the Pay Now toggle", () => {
       expect(r?.attachment).toBeNull();
     }
     expect(quotePdfSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The chosen type's ID and document (Nov 4, 2026). The abstract doors ignored
+ * the type's switches, so 46 MEHF2027 Student presenter registrations arrived
+ * with neither the student ID nor the document the Student type requires.
+ */
+describe("the chosen type's student ID and supporting document", () => {
+  const STUDENT = {
+    requiresStudentId: true,
+    requiresStudentIdExpiry: true,
+    requiresDocument: true,
+    documentRequired: true,
+    documentLabel: "Valid Student ID",
+  };
+  const OUR_UPLOAD = "/uploads/resident-letters/ev1/0b6f3c1e-1111-4222-8333-944455556666.pdf";
+
+  function studentTypeWithPresenterRate() {
+    const types = typeWithPresenterRate();
+    return [{ ...types[0], id: "tt-stu", name: "Student", ...STUDENT }];
+  }
+
+  it("names every missing ID field", () => {
+    const r = checkPresenterEvidence(STUDENT, "ev1", {});
+    expect(r).toMatchObject({ ok: false, code: "IDENTITY_EVIDENCE_REQUIRED" });
+    expect(!r.ok && r.message).toBe("Student ID and Student ID expiry date are required for this registration type.");
+  });
+
+  it("refuses an expiry that is not a date", () => {
+    const r = checkPresenterEvidence(STUDENT, "ev1", { studentId: "S1", studentIdExpiry: "soon" });
+    expect(r).toMatchObject({ ok: false, code: "INVALID_EXPIRY_DATE" });
+  });
+
+  it("refuses a missing required document, by the organiser's label", () => {
+    const r = checkPresenterEvidence(STUDENT, "ev1", { studentId: "S1", studentIdExpiry: "2027-06-30" });
+    expect(r).toMatchObject({ ok: false, code: "DOCUMENT_REQUIRED", message: "Valid Student ID is required for this registration type." });
+  });
+
+  it("does not count another event's upload as the document", () => {
+    const r = checkPresenterEvidence(STUDENT, "ev1", {
+      studentId: "S1",
+      studentIdExpiry: "2027-06-30",
+      supportingDocumentUrl: OUR_UPLOAD.replace("/ev1/", "/ev2/"),
+    });
+    expect(r).toMatchObject({ ok: false, code: "DOCUMENT_REQUIRED" });
+  });
+
+  it("accepts the full set", () => {
+    expect(
+      checkPresenterEvidence(STUDENT, "ev1", { studentId: "S1", studentIdExpiry: "2027-06-30", supportingDocumentUrl: OUR_UPLOAD }),
+    ).toEqual({ ok: true });
+  });
+
+  it("asks nothing of a type with no switches", () => {
+    expect(checkPresenterEvidence({}, "ev1", {})).toEqual({ ok: true });
+  });
+
+  it("stores the ID and the document on the new registration", async () => {
+    findManySpy.mockResolvedValue(studentTypeWithPresenterRate());
+    await ensureSubmitterRegistration({
+      ...BASE,
+      ticketTypeId: "tt-stu",
+      evidence: {
+        studentId: " S1 ",
+        studentIdExpiry: "2027-06-30",
+        memberId: "M-should-not-be-kept",
+        supportingDocumentUrl: OUR_UPLOAD,
+        supportingDocumentFilename: "card.pdf",
+      },
+    });
+    const arg = createAndLinkSpy.mock.calls[0][0];
+    // Only what the type asks for is kept; the Student type asks for no member ID.
+    expect(arg.identity).toEqual({ memberId: null, studentId: "S1", studentIdExpiry: "2027-06-30" });
+    expect(arg.supportingDocument).toEqual({ url: OUR_UPLOAD, filename: "card.pdf" });
+  });
+
+  it("drops, and logs, a document path that is not our upload for this event", async () => {
+    findManySpy.mockResolvedValue(studentTypeWithPresenterRate());
+    await ensureSubmitterRegistration({
+      ...BASE,
+      ticketTypeId: "tt-stu",
+      evidence: { studentId: "S1", studentIdExpiry: "2027-06-30", supportingDocumentUrl: "/etc/passwd" },
+    });
+    expect(createAndLinkSpy.mock.calls[0][0].supportingDocument).toBeNull();
+    expect(apiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "presenter-signup:document-dropped" }));
   });
 });

@@ -11,7 +11,7 @@ import { presenterDetailsSchema, refinePresenterSpecialty } from "@/lib/schemas"
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { upsertEventSpeaker } from "@/lib/speaker-companion";
-import { ensureSubmitterRegistration, checkPresenterRateSelection } from "@/lib/presenter-signup";
+import { ensureSubmitterRegistration, checkPresenterRateSelection, presenterEvidenceShape } from "@/lib/presenter-signup";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
@@ -30,6 +30,8 @@ const registerSchema = refinePresenterSpecialty(
      *  with no presenter tiers configured (plan D4). The TIER and the price are
      *  resolved server-side, never taken from the client. */
     ticketTypeId: z.string().max(100).optional(),
+    /** The chosen type's ID and document switches decide which of these are required (Nov 4, 2026). */
+    ...presenterEvidenceShape,
   }),
 );
 
@@ -202,13 +204,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     // was "Enforced again server-side", and it was not — so omitting this one
     // optional field bought a free COMPLIMENTARY Faculty registration on an
     // event charging presenters USD 100-125.
-    const rateCheck = await checkPresenterRateSelection(event.id, data.source, data.ticketTypeId);
+    const rateCheck = await checkPresenterRateSelection(event.id, data.source, data.ticketTypeId, {
+      email: emailLower,
+      evidence: data,
+    });
     if (!rateCheck.ok) {
       apiLogger.warn({
-        msg: "public/submitter:presenter-rate-required",
+        msg: rateCheck.code === "REGISTRATION_TYPE_REQUIRED"
+          ? "public/submitter:presenter-rate-required"
+          : "public/submitter:presenter-evidence-missing",
+        code: rateCheck.code,
         eventId: event.id,
         chosenTicketTypeId: data.ticketTypeId ?? null,
-        availableCount: rateCheck.availableCount,
+        ...("availableCount" in rateCheck && { availableCount: rateCheck.availableCount }),
         ip: clientIp,
       });
       return NextResponse.json({ error: rateCheck.message, code: rateCheck.code }, { status: 400 });
@@ -388,6 +396,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         eventSettings: event.settings,
         source: data.source,
         ticketTypeId: data.ticketTypeId ?? null,
+        evidence: data,
         expectedLink: speakerRow.sourceRegistrationId,
         requestIp: getClientIp(req),
         // This door has a welcome email, so the fee rides in THAT rather than

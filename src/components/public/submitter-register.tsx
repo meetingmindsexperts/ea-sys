@@ -28,6 +28,19 @@ import {
   type PresenterTicketTypeCandidate,
 } from "@/lib/presenter-tiers";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { SupportingDocumentField, type UploadedDocument } from "@/components/public/registration-form-extras";
+import {
+  readIdentityEvidencePolicy,
+  missingIdentityEvidence,
+  type IdentityEvidencePolicy,
+} from "@/lib/identity-evidence";
+import {
+  requiresSupportingDocument,
+  supportingDocumentBlocks,
+  supportingDocumentLabel,
+  supportingDocumentInstructions,
+  type SupportingDocumentPolicy,
+} from "@/lib/supporting-document";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -87,8 +100,9 @@ interface Event {
     allowAbstractSubmissions: boolean;
     abstractDeadline: string | null;
   };
-  /** Used to offer presenter rates on the abstract flow (plan D2). */
-  ticketTypes?: PresenterTicketTypeCandidate[];
+  /** Used to offer presenter rates on the abstract flow (plan D2), and for the
+   *  chosen type's ID and document switches (Nov 4, 2026). */
+  ticketTypes?: (PresenterTicketTypeCandidate & Partial<IdentityEvidencePolicy> & SupportingDocumentPolicy)[];
 }
 
 const VARIANT_COPY: Record<
@@ -150,6 +164,10 @@ const registerSchema = z.object({
   customSpecialty: z.string().optional(),
   /** Presenter rate. Only required when the event offers any (plan D4). */
   ticketTypeId: z.string().optional(),
+  /** Required only when the chosen type asks for them; checked in onSubmit. */
+  memberId: z.string().optional(),
+  studentId: z.string().optional(),
+  studentIdExpiry: z.string().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
@@ -292,8 +310,21 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       phone: "", city: "", country: "",
       specialty: "", customSpecialty: "",
       ticketTypeId: "",
+      memberId: "", studentId: "", studentIdExpiry: "",
     },
   });
+  // The chosen presenter rate's type asks for these exactly as on the delegate
+  // form. Someone already registered for the event keeps that registration, so
+  // they are not asked (the server applies the same rule).
+  const [supportingDoc, setSupportingDoc] = useState<UploadedDocument | null>(null);
+  const [docError, setDocError] = useState<string | null>(null);
+  const [registeredHere, setRegisteredHere] = useState(false);
+  const chosenTypeId = form.watch("ticketTypeId");
+  const chosenType = offersRates && !registeredHere
+    ? event?.ticketTypes?.find((t) => t.id === chosenTypeId) ?? null
+    : null;
+  const evidencePolicy = readIdentityEvidencePolicy(chosenType);
+  const needsDocument = requiresSupportingDocument(chosenType);
   // The notice describes the LAST tap; once the person changes anything it is
   // out of date (review of e7cd2b2d: picking the missing category left it up).
   useEffect(() => {
@@ -362,6 +393,20 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       showBlockedSubmit();
       return;
     }
+    // The chosen type's ID and document, named field by field. Enforced again
+    // server-side.
+    const missing = missingIdentityEvidence(evidencePolicy, data);
+    if (missing.includes("Member ID")) form.setError("memberId", { message: "Member ID is required" });
+    if (missing.includes("Student ID")) form.setError("studentId", { message: "Student ID is required" });
+    if (missing.includes("Student ID expiry date")) {
+      form.setError("studentIdExpiry", { message: "Student ID expiry date is required" });
+    }
+    const documentMissing = needsDocument && !supportingDoc && supportingDocumentBlocks(chosenType);
+    if (documentMissing) setDocError(`Please attach your ${supportingDocumentLabel(chosenType)} to continue.`);
+    if (missing.length > 0 || documentMissing) {
+      showBlockedSubmit();
+      return;
+    }
     // An existing account fills in the SAME page, but its details go to the
     // sign-in door, which verifies the password again and sets them up.
     if (existingPerson) {
@@ -388,6 +433,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
           jobTitle: data.jobTitle || undefined,
           phone: data.phone || undefined,
           ticketTypeId: data.ticketTypeId || undefined,
+          ...evidencePayload(data),
           city: data.city || undefined,
           country: data.country || undefined,
           specialty: data.specialty || undefined,
@@ -482,6 +528,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       // just verified, so mirror it rather than asking twice.
       form.setValue("confirmPassword", password);
       const name = [prefill.firstName, prefill.lastName].filter(Boolean).join(" ");
+      setRegisteredHere(data.registeredHere === true);
       setExistingPerson({ name, email });
       setStep(2);
     } catch (err) {
@@ -507,6 +554,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
           password: data.password,
           source: variant,
           ticketTypeId: data.ticketTypeId || undefined,
+          ...evidencePayload(data),
           details: {
             title: data.title || undefined,
             role: data.role || undefined,
@@ -554,6 +602,73 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
     }
   }
 
+  /** Only what the chosen type asks for is sent. */
+  function evidencePayload(data: RegisterForm) {
+    return {
+      memberId: evidencePolicy.requiresMemberId ? data.memberId || undefined : undefined,
+      studentId: evidencePolicy.requiresStudentId ? data.studentId || undefined : undefined,
+      studentIdExpiry: evidencePolicy.requiresStudentIdExpiry ? data.studentIdExpiry || undefined : undefined,
+      supportingDocumentUrl: needsDocument ? supportingDoc?.url : undefined,
+      supportingDocumentFilename: needsDocument ? supportingDoc?.filename : undefined,
+    };
+  }
+
+  // What the chosen rate's type asks for, worded as on the delegate form.
+  const evidenceFields = chosenType ? (
+    <>
+      {evidencePolicy.requiresMemberId && (
+        <FormField control={form.control} name="memberId"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-sm font-medium text-slate-600">Member ID <span className="text-red-400">*</span></FormLabel>
+              <FormControl><Input placeholder="e.g. MEM-12345" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+      )}
+      {evidencePolicy.requiresStudentId && (
+        <div className="space-y-3">
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Please provide your student ID details below. You will be required to present a valid student ID at the time of event attendance for verification.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <FormField control={form.control} name="studentId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-medium text-slate-600">Student ID <span className="text-red-400">*</span></FormLabel>
+                  <FormControl><Input placeholder="e.g. STU-2024-001" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            {evidencePolicy.requiresStudentIdExpiry && (
+              <FormField control={form.control} name="studentIdExpiry"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm font-medium text-slate-600">Student ID Expiry Date <span className="text-red-400">*</span></FormLabel>
+                    <FormControl><Input type="date" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+            )}
+          </div>
+        </div>
+      )}
+      {needsDocument && (
+        <SupportingDocumentField
+          slug={slug}
+          label={supportingDocumentLabel(chosenType)}
+          required={supportingDocumentBlocks(chosenType)}
+          instructions={supportingDocumentInstructions(chosenType)}
+          value={supportingDoc}
+          onChange={setSupportingDoc}
+          error={docError}
+          onError={setDocError}
+          onBeforeUpload={() => setSubmitNotice(null)}
+        />
+      )}
+    </>
+  ) : null;
+
   // The presenter-rate picker, at the foot of step 2's details form, which new
   // and existing accounts share.
   const ratePicker = offersRates ? (
@@ -584,7 +699,13 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                       name="ticketTypeId"
                       value={o.ticketTypeId}
                       checked={field.value === o.ticketTypeId}
-                      onChange={() => { field.onChange(o.ticketTypeId); form.clearErrors("ticketTypeId"); }}
+                      onChange={() => {
+                        field.onChange(o.ticketTypeId);
+                        form.clearErrors("ticketTypeId");
+                        // A document uploaded for another type is not this type's evidence.
+                        setSupportingDoc(null);
+                        setDocError(null);
+                      }}
                       className="h-4 w-4 shrink-0 accent-[#00aade]"
                     />
                     <span className="min-w-0">
@@ -608,6 +729,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
             <FormMessage />
           </FormItem>
         )} />
+      {evidenceFields}
     </div>
   ) : null;
 

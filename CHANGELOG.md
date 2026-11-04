@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Abstract sign-ups ask for the registration type's ID and document (November 4)
+
+- **The abstract submission form now honours the chosen registration type's own switches**, exactly like the delegate form: member number, student ID, its expiry date and the supporting document, worded and labelled from the type. Before this both abstract doors ignored them, so on MEHF2027 every Student (46) and Resident (27) presenter registration arrived with no ID and no document
+- Refused at the door, before any account is created, with the missing fields named (`IDENTITY_EVIDENCE_REQUIRED`, `INVALID_EXPIRY_DATE`, `DOCUMENT_REQUIRED`). Someone who already holds a registration on the event is not asked: nothing new is created for them, and the sign-in lookup now says so (`registeredHere`) so the form hides the fields
+- Only what the type asks for is stored, and the document only when it is this event's own upload; one the type does not own is dropped and logged. The checks are `checkPresenterEvidence()` in `src/lib/presenter-signup.ts`, built on the same `identity-evidence.ts` and `supporting-document.ts` rules as the delegate form
+- The 73 registrations already in are not changed; collecting their IDs and documents is a separate step
+
 ### DTCM: reverse unused DET tickets (November 3)
 
 - **Registrations page, organisers: "Unused DET tickets"**, shown only when there are some: tickets bought from DET whose registration was cancelled or deleted, or now carries a different code. **Reverse** gives the seat back to the permit, stops the barcode working and removes it from the registration if it is still there. Never automatic (owner decision): a cancelled attendee may still carry a printed badge. Step 5 of `docs/DTCM_ETICKET_PLAN.md`

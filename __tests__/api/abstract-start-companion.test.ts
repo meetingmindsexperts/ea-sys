@@ -237,6 +237,32 @@ describe("abstract-start — lookup, then confirmed details", () => {
     expect(mockDb.ticketType.findMany).not.toHaveBeenCalled(); // no rate check on a lookup
   });
 
+  it("lookup says whether the person already holds a registration here, so the form skips the ID fields", async () => {
+    // Order: the prefill's on-event row, its latest-anywhere row, then holdsLiveRegistration.
+    mockDb.registration.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "reg-here" });
+    mockDb.speaker.findFirst.mockResolvedValue(null);
+    const res = await POST(makeReq({ ...validBody, intent: "lookup" }), params);
+    expect(((await res.json()) as { registeredHere: boolean }).registeredHere).toBe(true);
+  });
+
+  it("start refuses a Student rate without the student ID, before setting anyone up", async () => {
+    mockDb.ticketType.findMany.mockResolvedValueOnce([
+      {
+        id: "tt-stu", name: "Student", isActive: true, requiresStudentId: true,
+        pricingTiers: [{ id: "tier-p", name: "Presenter", price: 0, currency: "USD", sortOrder: 3,
+          quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null }],
+      },
+    ]);
+    const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-stu" }), params);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: string }).code).toBe("IDENTITY_EVIDENCE_REQUIRED");
+    expect(upsertSpy).not.toHaveBeenCalled();
+    expect(ensureCompanionSpy).not.toHaveBeenCalled();
+  });
+
   it("lookup with a wrong password is a 401 and reveals nothing", async () => {
     compareSpy.mockResolvedValue(false);
     const res = await POST(makeReq({ ...validBody, intent: "lookup" }), params);

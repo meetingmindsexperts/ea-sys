@@ -25,6 +25,8 @@ const { mockDb, ensureCompanionSpy } = vi.hoisted(() => {
       // every assertion in this file is about. The route asks BEFORE creating
       // the account (Sep 21, 2026), so the mock has to answer.
       ticketType: { findMany: vi.fn().mockResolvedValue([]) },
+      // An existing registration on the event means nothing is created, so no ID is asked for.
+      registration: { findFirst: vi.fn().mockResolvedValue(null) },
       $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)),
       _tx: tx,
     },
@@ -100,6 +102,7 @@ beforeEach(() => {
   // presenter rate would otherwise leak into every test after it — which is
   // exactly what happened the first time these were added.
   mockDb.ticketType.findMany.mockResolvedValue([]);
+  mockDb.registration.findFirst.mockResolvedValue(null);
 });
 
 /**
@@ -382,5 +385,71 @@ describe("submitter route — abstract gate vs proposal source (July 30, 2026)",
     expect(abstractRes.status).toBe(403);
     const proposalRes = await POST(makeReq({ ...validBody, source: "proposal" }), { params });
     expect(proposalRes.status).toBeLessThan(400);
+  });
+});
+
+/**
+ * The chosen type's ID and document (Nov 4, 2026). Refused at the door, before
+ * any account exists, exactly like a missing rate: the registration itself is
+ * made post-commit and can no longer answer with a 400.
+ */
+describe("submitter route — the chosen type's student ID and document", () => {
+  const UPLOAD = "/uploads/resident-letters/ev1/0b6f3c1e-1111-4222-8333-944455556666.pdf";
+  function withStudentRate() {
+    mockDb.ticketType.findMany.mockResolvedValue([
+      {
+        id: "tt-stu",
+        name: "Student",
+        isActive: true,
+        requiresStudentId: true,
+        requiresStudentIdExpiry: true,
+        requiresDocument: true,
+        documentRequired: true,
+        documentLabel: "Valid Student ID",
+        pricingTiers: [
+          { id: "tier-p", name: "Presenter", price: 0, currency: "USD", sortOrder: 3,
+            quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null },
+        ],
+      },
+    ]);
+  }
+
+  it("400s a Student rate without the student ID, and creates NO account", async () => {
+    withStudentRate();
+    const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-stu" }), { params });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("IDENTITY_EVIDENCE_REQUIRED");
+    expect(mockDb._tx.user.create).not.toHaveBeenCalled();
+  });
+
+  it("400s a Student rate without the required document", async () => {
+    withStudentRate();
+    const res = await POST(
+      makeReq({ ...validBody, ticketTypeId: "tt-stu", studentId: "S1", studentIdExpiry: "2027-06-30" }),
+      { params },
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("DOCUMENT_REQUIRED");
+    expect(mockDb._tx.user.create).not.toHaveBeenCalled();
+  });
+
+  it("lets the full set through", async () => {
+    withStudentRate();
+    const res = await POST(
+      makeReq({ ...validBody, ticketTypeId: "tt-stu", studentId: "S1", studentIdExpiry: "2027-06-30", supportingDocumentUrl: UPLOAD }),
+      { params },
+    );
+
+    expect(res.status).toBeLessThan(400);
+  });
+
+  it("asks nothing of someone already registered for the event: nothing new is created", async () => {
+    withStudentRate();
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-existing" });
+    const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-stu" }), { params });
+
+    expect(res.status).toBeLessThan(400);
   });
 });

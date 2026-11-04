@@ -22,6 +22,7 @@
  * everything here is caught, logged, and swallowed, and the organizer can put
  * it right from the Grant registration button.
  */
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
@@ -33,6 +34,47 @@ import { isPresenterPayNowEnabled } from "@/lib/presenter-registration-settings"
 import { presenterRateOptions } from "@/lib/presenter-tiers";
 import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
 import { escapeHtml } from "@/lib/html";
+import {
+  IDENTITY_EVIDENCE_SELECT,
+  readIdentityEvidencePolicy,
+  missingIdentityEvidence,
+  hasInvalidExpiryDate,
+  type IdentityEvidencePolicy,
+} from "@/lib/identity-evidence";
+import {
+  SUPPORTING_DOCUMENT_POLICY_SELECT,
+  resolveSupportingDocument,
+  requiresSupportingDocument,
+  supportingDocumentLabel,
+  type SupportingDocumentPolicy,
+} from "@/lib/supporting-document";
+
+/**
+ * The student ID, member ID and supporting document a submitter gave for the
+ * registration type they chose (Nov 4, 2026). The type's own switches decide
+ * what is asked, exactly as on the delegate form: before this the abstract
+ * doors ignored them, so 46 MEHF2027 Student presenter registrations arrived
+ * with neither the ID nor the document the Student type requires.
+ */
+export interface PresenterEvidenceInput {
+  memberId?: string | null;
+  studentId?: string | null;
+  studentIdExpiry?: string | null;
+  supportingDocumentUrl?: string | null;
+  supportingDocumentFilename?: string | null;
+}
+
+/** The request fields for that evidence, shared by both abstract doors (same limits as the delegate form). */
+export const presenterEvidenceShape = {
+  memberId: z.string().max(100).optional(),
+  studentId: z.string().max(100).optional(),
+  studentIdExpiry: z.string().max(20).optional(),
+  supportingDocumentUrl: z.string().max(500).optional(),
+  supportingDocumentFilename: z.string().max(255).optional(),
+};
+
+/** A ticket type's identity and document switches, as the rate lookup reads them. */
+type TypeEvidencePolicy = Partial<IdentityEvidencePolicy> & SupportingDocumentPolicy;
 
 /**
  * What the caller needs in order to tell the submitter about their fee.
@@ -69,6 +111,8 @@ export interface PresenterSignupInput {
    * keeps the confirmation, otherwise the quote would silently never arrive.
    */
   callerSendsFeeEmail?: boolean;
+  /** What the submitter gave for the chosen type's ID and document switches. */
+  evidence?: PresenterEvidenceInput;
 }
 
 /**
@@ -98,7 +142,7 @@ export type PresenterRateSelection =
   /** No presenter rates configured on this event. D4: comp companion. */
   | { kind: "none" }
   /** A rate is on sale and the submitter's choice resolved to it. */
-  | { kind: "resolved"; ticketTypeId: string; pricingTierId: string }
+  | { kind: "resolved"; ticketTypeId: string; pricingTierId: string; policy: TypeEvidencePolicy }
   /**
    * This event DOES charge presenters, but no usable rate was chosen — either
    * the field was absent, or it named a type whose presenter tier is closed,
@@ -122,6 +166,8 @@ export async function resolvePresenterRateSelection(
       id: true,
       name: true,
       isActive: true,
+      ...IDENTITY_EVIDENCE_SELECT,
+      ...SUPPORTING_DOCUMENT_POLICY_SELECT,
       pricingTiers: {
         where: { isActive: true },
         select: {
@@ -172,7 +218,85 @@ export async function resolvePresenterRateSelection(
   const chosen = options.find((o) => o.ticketTypeId === ticketTypeId);
   if (!chosen) return { kind: "required", availableCount: options.length };
 
-  return { kind: "resolved", ticketTypeId: chosen.ticketTypeId, pricingTierId: chosen.tierId };
+  const type = ticketTypes.find((tt) => tt.id === chosen.ticketTypeId);
+  const policy: TypeEvidencePolicy = {
+    requiresMemberId: type?.requiresMemberId,
+    requiresStudentId: type?.requiresStudentId,
+    requiresStudentIdExpiry: type?.requiresStudentIdExpiry,
+    requiresDocument: type?.requiresDocument,
+    documentRequired: type?.documentRequired,
+    documentLabel: type?.documentLabel,
+    documentInstructions: type?.documentInstructions,
+  };
+  return { kind: "resolved", ticketTypeId: chosen.ticketTypeId, pricingTierId: chosen.tierId, policy };
+}
+
+/**
+ * Does this person already hold a live registration on the event? Then the
+ * signup links that one and creates nothing, so there is nothing to verify.
+ * Same match as the registration service's duplicate check (case-insensitive
+ * email, any status but CANCELLED), so the two cannot disagree about whether a
+ * registration is about to be made.
+ */
+export async function holdsLiveRegistration(eventId: string, email: string): Promise<boolean> {
+  const existing = await db.registration.findFirst({
+    where: {
+      eventId,
+      attendee: { email: { equals: email, mode: "insensitive" } },
+      status: { not: "CANCELLED" },
+    },
+    select: { id: true },
+  });
+  return existing !== null;
+}
+
+export type PresenterEvidenceRefusal = {
+  ok: false;
+  code: "IDENTITY_EVIDENCE_REQUIRED" | "INVALID_EXPIRY_DATE" | "DOCUMENT_REQUIRED";
+  message: string;
+};
+
+/**
+ * The chosen type's ID and document rules, checked against what was given.
+ * Pure: the same rules as the delegate form (identity-evidence.ts and
+ * supporting-document.ts), applied to the presenter rate's type.
+ */
+export function checkPresenterEvidence(
+  policy: TypeEvidencePolicy,
+  eventId: string,
+  evidence: PresenterEvidenceInput | undefined,
+): { ok: true } | PresenterEvidenceRefusal {
+  const missing = missingIdentityEvidence(readIdentityEvidencePolicy(policy), evidence ?? {});
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      code: "IDENTITY_EVIDENCE_REQUIRED",
+      message: `${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} required for this registration type.`,
+    };
+  }
+  if (hasInvalidExpiryDate(evidence ?? {})) {
+    return { ok: false, code: "INVALID_EXPIRY_DATE", message: "Please enter a valid student ID expiry date." };
+  }
+  const document = resolveSupportingDocument(
+    policy,
+    eventId,
+    evidence?.supportingDocumentUrl,
+    evidence?.supportingDocumentFilename,
+  );
+  if (document.missingRequired) {
+    return {
+      ok: false,
+      code: "DOCUMENT_REQUIRED",
+      message: `${supportingDocumentLabel(policy)} is required for this registration type.`,
+    };
+  }
+  return { ok: true };
+}
+
+/** True when the type asks for anything the submitter has to give. */
+function asksForEvidence(policy: TypeEvidencePolicy): boolean {
+  const identity = readIdentityEvidencePolicy(policy);
+  return identity.requiresMemberId || identity.requiresStudentId || requiresSupportingDocument(policy);
 }
 
 /**
@@ -192,16 +316,27 @@ export async function checkPresenterRateSelection(
   eventId: string,
   source: string,
   ticketTypeId: string | null | undefined,
+  /** Who is signing up and what they gave for the chosen type's ID and document switches. */
+  applicant?: { email: string; evidence?: PresenterEvidenceInput },
 ): Promise<
   | { ok: true }
   | { ok: false; code: "REGISTRATION_TYPE_REQUIRED"; message: string; availableCount: number }
+  | PresenterEvidenceRefusal
 > {
   // Session proposals create no registration at all (Aug 5), so a presenter
   // rate is not a thing they can or should choose.
   if (source === "proposal") return { ok: true };
 
   const selection = await resolvePresenterRateSelection(eventId, ticketTypeId);
-  if (selection.kind !== "required") return { ok: true };
+  if (selection.kind === "none") return { ok: true };
+  if (selection.kind === "resolved") {
+    // Asked only when a registration is about to be made on that type: someone
+    // already registered keeps the registration they hold, so nothing is created
+    // and there is nothing to verify.
+    if (!applicant || !asksForEvidence(selection.policy)) return { ok: true };
+    if (await holdsLiveRegistration(eventId, applicant.email)) return { ok: true };
+    return checkPresenterEvidence(selection.policy, eventId, applicant.evidence);
+  }
 
   return {
     ok: false,
@@ -262,6 +397,7 @@ export async function ensureSubmitterRegistration(
     }
 
     const rate = selection;
+    const evidence = acceptedEvidence(rate.policy, speaker.eventId, input.evidence, speaker.id);
 
     const outcome = await createAndLinkPayableRegistration({
       eventId: speaker.eventId,
@@ -287,6 +423,8 @@ export async function ensureSubmitterRegistration(
       },
       ticketTypeId: rate.ticketTypeId,
       pricingTierId: rate.pricingTierId,
+      identity: evidence.identity,
+      supportingDocument: evidence.document,
       requestIp: input.requestIp ?? null,
       source: "api",
       // A public door, so the sales window applies. Only an organizer grant
@@ -332,6 +470,38 @@ export async function ensureSubmitterRegistration(
     );
   }
   return null;
+}
+
+/**
+ * What to store from the submitter's evidence: only the fields the chosen type
+ * asks for, and the document only when it is our own upload for this event.
+ * The door already refused anything missing, so this keeps rather than judges;
+ * a dropped document path can only come from a tampered request, so it is logged.
+ */
+function acceptedEvidence(
+  policy: TypeEvidencePolicy,
+  eventId: string,
+  evidence: PresenterEvidenceInput | undefined,
+  speakerId: string,
+) {
+  const identity = readIdentityEvidencePolicy(policy);
+  const document = resolveSupportingDocument(
+    policy,
+    eventId,
+    evidence?.supportingDocumentUrl,
+    evidence?.supportingDocumentFilename,
+  );
+  if (document.dropped) {
+    apiLogger.warn({ msg: "presenter-signup:document-dropped", eventId, speakerId, reason: document.dropped });
+  }
+  return {
+    identity: {
+      memberId: identity.requiresMemberId ? evidence?.memberId?.trim() || null : null,
+      studentId: identity.requiresStudentId ? evidence?.studentId?.trim() || null : null,
+      studentIdExpiry: identity.requiresStudentIdExpiry ? evidence?.studentIdExpiry?.trim() || null : null,
+    },
+    document: document.url ? { url: document.url, filename: document.filename } : null,
+  };
 }
 
 /**

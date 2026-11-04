@@ -9,7 +9,12 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
 import { readUserAgent } from "@/lib/login-audit";
 import { upsertEventSpeaker } from "@/lib/speaker-companion";
-import { ensureSubmitterRegistration, checkPresenterRateSelection } from "@/lib/presenter-signup";
+import {
+  ensureSubmitterRegistration,
+  checkPresenterRateSelection,
+  holdsLiveRegistration,
+  presenterEvidenceShape,
+} from "@/lib/presenter-signup";
 import { presenterDetailsSchema, refinePresenterSpecialty } from "@/lib/schemas";
 
 /**
@@ -47,6 +52,8 @@ const bodySchema = z.object({
   source: z.enum(["abstract", "proposal"]).default("abstract"),
   /** Presenter rate, for someone signing in who holds no registration yet. */
   ticketTypeId: z.string().max(100).optional(),
+  /** The chosen type's ID and document switches decide which of these are required (Nov 4, 2026). */
+  ...presenterEvidenceShape,
   /** "lookup" = check the password and return the details on file, nothing else. */
   intent: z.enum(["lookup", "start"]).default("start"),
   /** The details the person confirmed on the page. Absent only from a page
@@ -219,8 +226,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         hereAttendee: att,
         user,
       });
+      // Someone already registered here keeps that registration, so the form
+      // must not ask them for the chosen type's ID or document.
+      const registeredHere = await holdsLiveRegistration(event.id, emailLower);
       apiLogger.info({ msg: "public/abstract-start:lookup", eventId: event.id, userId: user.id });
-      return NextResponse.json({ ok: true, prefill });
+      return NextResponse.json({ ok: true, prefill, registeredHere });
     }
 
     // The confirmed details win; without them (a page loaded before Sep 29,
@@ -270,13 +280,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       event.id,
       parsed.data.source,
       parsed.data.ticketTypeId,
+      { email: emailLower, evidence: parsed.data },
     );
     if (!rateCheck.ok) {
       apiLogger.warn({
-        msg: "public/abstract-start:presenter-rate-required",
+        msg: rateCheck.code === "REGISTRATION_TYPE_REQUIRED"
+          ? "public/abstract-start:presenter-rate-required"
+          : "public/abstract-start:presenter-evidence-missing",
+        code: rateCheck.code,
         eventId: event.id,
         chosenTicketTypeId: parsed.data.ticketTypeId ?? null,
-        availableCount: rateCheck.availableCount,
+        ...("availableCount" in rateCheck && { availableCount: rateCheck.availableCount }),
         ip,
       });
       return NextResponse.json({ error: rateCheck.message, code: rateCheck.code }, { status: 400 });
@@ -347,6 +361,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventSettings: event.settings,
       source: parsed.data.source,
       ticketTypeId: parsed.data.ticketTypeId ?? null,
+      evidence: parsed.data,
       // The rate the person chose on the details page (Sep 29, 2026). Where the
       // event charges presenters it is required above; where it charges
       // nothing they get the complimentary companion (D4) or keep the

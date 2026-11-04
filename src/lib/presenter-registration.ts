@@ -89,6 +89,10 @@ export interface CreateAndLinkPayableInput {
   speaker: PayableFacetSpeaker;
   ticketTypeId: string;
   pricingTierId: string | null;
+  /** The student / member ID the public door collected for the chosen type. Absent on an organizer grant. */
+  identity?: { memberId: string | null; studentId: string | null; studentIdExpiry: string | null };
+  /** The supporting document the public door accepted, already checked as ours. */
+  supportingDocument?: { url: string; filename: string | null } | null;
   /** Audit attribution. Null for a public self-signup. */
   actorUserId?: string | null;
   actorFirstName?: string | null;
@@ -151,7 +155,9 @@ export async function createAndLinkPayableRegistration(
       zipCode: speaker.zipCode,
       country: speaker.country,
       specialty: speaker.specialty,
+      ...input.identity,
     },
+    supportingDocument: input.supportingDocument ?? null,
     source: input.source,
     requestIp: input.requestIp ?? undefined,
     actorFirstName: input.actorFirstName ?? null,
