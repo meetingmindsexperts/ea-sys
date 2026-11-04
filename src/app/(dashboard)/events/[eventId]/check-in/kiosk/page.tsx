@@ -212,7 +212,6 @@ export default function KioskCheckInPage() {
   const eventBannerMobile = event?.bannerImage ? event?.bannerImageMobile ?? null : null;
   // A LOGO (drawn for a light background) only when the event has no artwork.
   const logoMark = eventBanner ? null : branding?.logo || null;
-  const footerMark = event?.emailFooterImage || null;
   // Read through a ref so the scan handler is not re-created (and its debounce
   // state reset) every time the event query refetches.
   const allowReprintRef = useRef(allowReprint);
@@ -662,10 +661,13 @@ export default function KioskCheckInPage() {
             banner={eventBanner}
             bannerMobile={eventBannerMobile}
             name={event?.name ?? "Event"}
-            /* The scan area is what the screen is for (owner, Nov 4 2026: "increase
-               the body height"), so the band also stops at 18vh: the artwork
-               narrows at its own proportions rather than being cropped. */
-            className="[&_img]:mx-auto [&_img]:max-h-[18vh] [&_img]:w-auto [&_img]:max-w-full"
+            /* Capped by height so the scan area keeps most of the screen, and the
+               artwork narrows at its own proportions rather than being cropped.
+               18vh made a typical 4.7:1 banner only ~650px wide on a 768px
+               screen; 26vh gives it ~930px there and
+               the full 1200px on a 1080px screen (owner, Nov 4 2026: "increase
+               the width of header"). */
+            className="[&_img]:mx-auto [&_img]:max-h-[26vh] [&_img]:w-auto [&_img]:max-w-full"
           />
         )}
         {/* The white chip this used to sit on is gone with the gradient. It
@@ -776,26 +778,8 @@ export default function KioskCheckInPage() {
 
       </main>
 
-      {/* Event footer mark. Bottom-centre and deliberately small: this is the
-          event's sign-off, not a second headline, and the scan area between the
-          two marks has to stay the thing your eye lands on. `pointer-events-none`
-          so it can never swallow a tap meant for the corner exit target, which
-          sits at the same edge. */}
-      {footerMark && (
-        <div className="shrink-0 w-full flex justify-center px-8 pt-4 pb-6 pointer-events-none [@media(max-height:820px)]:pt-2 [@media(max-height:820px)]:pb-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={footerMark}
-            alt=""
-            /* At its own proportions, sized to be read: the email footer is
-               artwork drawn for a ~600px email, and squeezed to 48px tall it
-               was a postage stamp (owner, Nov 4 2026). Capped by height so the
-               scan area keeps the room, and by width so a tall one
-               does not turn it into a second banner. */
-            className="h-auto w-auto max-h-[14vh] max-w-[min(720px,90vw)] [@media(max-height:820px)]:max-h-[10vh] object-contain"
-          />
-        </div>
-      )}
+      {/* No footer mark: the email footer artwork is drawn for an email,
+          and on the kiosk it competed with the scan area (owner, Nov 4 2026). */}
 
       {/* Staff exit PIN pad (H1) */}
       {exitOpen && (
