@@ -4,12 +4,12 @@
  */
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
+import { crmErrorResponse } from "@/crm/lib/crm-route";
 import { searchItems } from "@/lib/quickbooks/sales";
-import { qboLookupFail } from "@/crm/lib/quickbooks-route";
+import { qboLookupFail, requireQboLookup } from "@/crm/lib/quickbooks-route";
 
 export async function GET(req: Request) {
-  const { error, ctx } = await requireCrmWrite(req);
+  const { error, ctx } = await requireQboLookup(req, "crm/quickbooks/items:GET");
   if (error) return error;
   return await runWithTenant(ctx.organizationId, async () => {
     const search = new URL(req.url).searchParams.get("search") ?? "";

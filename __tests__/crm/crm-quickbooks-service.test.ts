@@ -51,6 +51,11 @@ vi.mock("@/lib/quickbooks/client", () => ({ getCompanyInfo: qbo.getCompanyInfo }
 
 import { linkCompanyToCustomer, sendQuoteToQuickBooks } from "@/crm/services/crm-quickbooks-service";
 
+/** The write that records an Estimate on the quote (an updateMany bound to the send's claim). */
+function recordingWrite() {
+  return dbMock.crmQuote.updateMany.mock.calls.map((c) => c[0]).find((a) => a.data && "qboEstimateId" in a.data);
+}
+
 const ORG = "org-1";
 const REALM = "realm-1";
 const actor = { organizationId: ORG, userId: "u-1", source: "rest" as const };
@@ -144,11 +149,10 @@ describe("sendQuoteToQuickBooks", () => {
       PrivateNote: "EA-SYS quote q-1, sent by Saleh Mahmoud",
       Line: [{ SalesItemLineDetail: { ItemRef: { value: "i-1" }, TaxCodeRef: { value: "tc-5" } } }],
     });
-    expect(dbMock.crmQuote.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ qboEstimateId: "est-1", qboRealmId: REALM, qboEnvironment: "sandbox", qboSendStartedAt: null, qboLastError: null }),
-      }),
-    );
+    expect(recordingWrite()).toMatchObject({
+      where: { id: "q-1", qboSendStartedAt: expect.any(Date) },
+      data: { qboEstimateId: "est-1", qboRealmId: REALM, qboEnvironment: "sandbox", qboSendStartedAt: null, qboLastError: null },
+    });
     expect(dbMock.crmActivity.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: "QUICKBOOKS_ESTIMATE_SENT", entityId: "d-1" }) }),
     );
@@ -201,7 +205,7 @@ describe("sendQuoteToQuickBooks", () => {
     const last = dbMock.crmQuote.updateMany.mock.calls.at(-1)![0];
     expect(last.data).not.toHaveProperty("qboSendAttempt");
     expect(last.data).toMatchObject({ qboSendStartedAt: null, qboOutcomeUnknown: true });
-    expect(dbMock.crmQuote.update).not.toHaveBeenCalled();
+    expect(recordingWrite()).toBeUndefined();
   });
 
   it("refuses a quote already in QuickBooks without calling it", async () => {
@@ -288,7 +292,7 @@ describe("review of 4e72284d", () => {
 
   it("H2: a successful send clears the unresolved flag", async () => {
     await sendQuoteToQuickBooks(args);
-    expect(dbMock.crmQuote.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ qboOutcomeUnknown: false }) }));
+    expect(recordingWrite()).toMatchObject({ data: { qboOutcomeUnknown: false } });
   });
 
   it("H2: a failed lookup keeps what was known before this send", async () => {
@@ -332,8 +336,60 @@ describe("review of 4e72284d", () => {
       environment: "production",
     });
     await sendQuoteToQuickBooks(args);
-    expect(dbMock.crmQuote.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ qboRealmId: "realm-2", qboEnvironment: "production" }) }),
+    expect(recordingWrite()).toMatchObject({ data: { qboRealmId: "realm-2", qboEnvironment: "production" } });
+  });
+});
+
+describe("settling an unconfirmed send first (review of 1ad88f53 HIGH)", () => {
+  const unknownQuote = (overrides: Record<string, unknown> = {}) => quote({ qboOutcomeUnknown: true, ...overrides });
+
+  it("adopts its own Estimate even when readiness has broken since", async () => {
+    dbMock.crmQuote.findFirst.mockResolvedValue(unknownQuote({ deal: { ...quote().deal, status: "OPEN" } }));
+    qbo.findEstimatesByDocNumber.mockResolvedValue({
+      ok: true,
+      data: [{ id: "est-0", docNumber: "Q-2026-0006", privateNote: "EA-SYS quote q-1", totalAmt: 78750, currency: "USD", status: null }],
+    });
+    const res = await sendQuoteToQuickBooks(args);
+    expect(res).toMatchObject({ ok: true, estimate: { estimateId: "est-0", adopted: true } });
+    expect(qbo.getCustomer).not.toHaveBeenCalled();
+    expect(qbo.createEstimate).not.toHaveBeenCalled();
+  });
+
+  it("lowers the flag when QuickBooks holds nothing, then refuses on readiness with the quote unlocked", async () => {
+    dbMock.crmQuote.findFirst
+      .mockResolvedValueOnce(unknownQuote({ deal: { ...quote().deal, status: "OPEN" } }))
+      .mockResolvedValueOnce(quote({ deal: { ...quote().deal, status: "OPEN" } }));
+    const res = await sendQuoteToQuickBooks(args);
+    expect(res).toMatchObject({ ok: false, code: "QUOTE_NOT_READY" });
+    const release = dbMock.crmQuote.updateMany.mock.calls.at(-1)![0];
+    expect(release.data).toMatchObject({ qboSendStartedAt: null, qboOutcomeUnknown: false });
+    expect(qbo.createEstimate).not.toHaveBeenCalled();
+  });
+
+  it("goes on to send after settling when the quote is ready", async () => {
+    dbMock.crmQuote.findFirst.mockResolvedValueOnce(unknownQuote()).mockResolvedValueOnce(quote());
+    const res = await sendQuoteToQuickBooks(args);
+    expect(res).toMatchObject({ ok: true, estimate: { estimateId: "est-1", adopted: false } });
+    expect(qbo.createEstimate).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the quote locked when an Estimate holds its number without its mark", async () => {
+    dbMock.crmQuote.findFirst.mockResolvedValue(unknownQuote());
+    qbo.findEstimatesByDocNumber.mockResolvedValue({
+      ok: true,
+      data: [{ id: "est-x", docNumber: "Q-2026-0006", privateNote: "edited by finance", totalAmt: 1, currency: "USD", status: null }],
+    });
+    const res = await sendQuoteToQuickBooks(args);
+    expect(res).toMatchObject({ ok: false, code: "QBO_DOC_NUMBER_TAKEN" });
+    expect(dbMock.crmQuote.updateMany.mock.calls.at(-1)![0].data).toMatchObject({ qboOutcomeUnknown: true });
+  });
+
+  it("does not record or log twice when a stale send's successor already holds the claim", async () => {
+    dbMock.crmQuote.updateMany.mockImplementation(async (a: { data?: Record<string, unknown> }) =>
+      a.data && "qboEstimateId" in a.data ? { count: 0 } : { count: 1 },
     );
+    const res = await sendQuoteToQuickBooks(args);
+    expect(res.ok).toBe(true);
+    expect(dbMock.crmActivity.create).not.toHaveBeenCalled();
   });
 });

@@ -54,6 +54,7 @@ function lookupError(err: unknown): string {
 function QboSearchPicker<T extends { id: string }>({
   kind,
   label,
+  ariaLabel,
   placeholder,
   disabled,
   optionLabel,
@@ -62,6 +63,8 @@ function QboSearchPicker<T extends { id: string }>({
 }: {
   kind: "customers" | "items";
   label: string;
+  /** What the button does, for screen readers ("Link Gold to a QuickBooks product"). */
+  ariaLabel: string;
   placeholder: string;
   disabled?: boolean;
   optionLabel: (o: T) => string;
@@ -76,7 +79,7 @@ function QboSearchPicker<T extends { id: string }>({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={disabled}>
+        <Button type="button" variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={disabled} aria-label={ariaLabel}>
           {label}
           <ChevronsUpDown className="h-3 w-3 opacity-50" />
         </Button>
@@ -129,9 +132,10 @@ export function CompanyQuickBooksLink({
   company: { id: string; qboCustomerId?: string | null; qboCustomerName?: string | null; qboCustomerCurrency?: string | null; qboRealmId?: string | null };
   canWrite: boolean;
 }) {
-  const { data: status } = useCrmQuickBooksStatus();
+  const { data: status, isError } = useCrmQuickBooksStatus();
   const link = useLinkCompanyToQuickBooks(company.id);
 
+  if (isError) return <span className="text-muted-foreground">QuickBooks status unavailable</span>;
   if (!status) return <span className="text-muted-foreground">…</span>;
   if (!status.connected) return <span className="text-muted-foreground">Not connected</span>;
 
@@ -150,6 +154,7 @@ export function CompanyQuickBooksLink({
         <QboSearchPicker<QboCustomerOption>
           kind="customers"
           label={linked ? "Change" : "Link"}
+          ariaLabel={linked ? "Change the linked QuickBooks customer" : "Link this account to a QuickBooks customer"}
           placeholder="Search QuickBooks customers…"
           disabled={link.isPending}
           optionLabel={(c) => c.displayName}
@@ -164,6 +169,7 @@ export function CompanyQuickBooksLink({
           size="icon"
           className="h-7 w-7"
           title="Unlink from QuickBooks"
+          aria-label="Unlink this account from its QuickBooks customer"
           disabled={link.isPending}
           onClick={() => link.mutate(null, { onSuccess: () => toast.success("Unlinked from QuickBooks") })}
         >
@@ -181,7 +187,7 @@ export function ProductQuickBooksCell({
   canWrite,
   currentRealm,
 }: {
-  product: { id: string; qboItemId?: string | null; qboItemName?: string | null; qboRealmId?: string | null };
+  product: { id: string; name: string; qboItemId?: string | null; qboItemName?: string | null; qboRealmId?: string | null };
   canWrite: boolean;
   currentRealm: string | null;
 }) {
@@ -195,6 +201,7 @@ export function ProductQuickBooksCell({
         <QboSearchPicker<QboItemOption>
           kind="items"
           label={linked ? "Change" : "Link"}
+          ariaLabel={`${linked ? "Change" : "Link"} the QuickBooks product for ${product.name}`}
           placeholder="Search QuickBooks products/services…"
           disabled={link.isPending}
           optionLabel={(i) => i.name}
@@ -209,8 +216,9 @@ export function ProductQuickBooksCell({
           size="icon"
           className="h-7 w-7"
           title="Unlink from QuickBooks"
+          aria-label={`Unlink ${product.name} from QuickBooks`}
           disabled={link.isPending}
-          onClick={() => link.mutate({ productId: product.id, itemId: null })}
+          onClick={() => link.mutate({ productId: product.id, itemId: null }, { onSuccess: () => toast.success(`${product.name} unlinked`) })}
         >
           <Unlink className="h-3.5 w-3.5" />
         </Button>
@@ -408,7 +416,8 @@ function SendQuoteDialog({
   const [sendProblems, setSendProblems] = useState<Array<{ code: string; message: string }> | null>(null);
 
   const problems = sendProblems ?? state?.problems ?? [];
-  const ready = !!state && !state.sent && problems.length === 0;
+  // An unconfirmed quote can always be sent: the send settles it first, whatever else is missing.
+  const ready = !!state && !state.sent && (state.unresolved || problems.length === 0);
 
   function handleSend() {
     setSendProblems(null);
@@ -461,7 +470,8 @@ function SendQuoteDialog({
         {state?.unresolved && (
           <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             QuickBooks did not confirm the last send. Sending again first looks for that Estimate and links it if it exists, so
-            it never makes a second one.
+            it never makes a second one. If it is not there, the quote unlocks and the send goes ahead when nothing below is
+            missing.
           </p>
         )}
         {ready && (
@@ -525,9 +535,9 @@ export function QuoteQuickBooksControl({
       </Badge>
     );
   }
-  if (!canWrite || !dealWon) {
-    return qb.unresolved ? <UnresolvedBadge /> : null;
-  }
+  // Settling an unconfirmed send needs no won deal: it only asks QuickBooks.
+  if (!canWrite) return qb.unresolved ? <UnresolvedBadge /> : null;
+  if (!dealWon && !qb.unresolved) return null;
   return (
     <>
       <Button

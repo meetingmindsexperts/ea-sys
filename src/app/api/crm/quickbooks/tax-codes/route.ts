@@ -6,12 +6,12 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { requireCrmWrite, crmCan, crmErrorResponse } from "@/crm/lib/crm-route";
+import { crmCan, crmErrorResponse } from "@/crm/lib/crm-route";
 import { listTaxCodes } from "@/lib/quickbooks/sales";
-import { qboLookupFail } from "@/crm/lib/quickbooks-route";
+import { qboLookupFail, requireQboLookup } from "@/crm/lib/quickbooks-route";
 
 export async function GET(req: Request) {
-  const { error, ctx } = await requireCrmWrite(req);
+  const { error, ctx } = await requireQboLookup(req, "crm/quickbooks/tax-codes:GET");
   if (error) return error;
   return await runWithTenant(ctx.organizationId, async () => {
     if (!crmCan(ctx, "crm.quoteDefaults.manage")) {

@@ -38,6 +38,9 @@ const READ_GATES = [
   "requireCrmDelete",
   "requireCrmPurge",
   "requireCrmExport",
+  // QuickBooks lookups (Nov 4, 2026): wraps requireCrmRead, then demands
+  // crm.write, on its own per-person bucket instead of the org write bucket.
+  "requireQboLookup",
 ];
 /**
  * Mutations must use the WRITE gate or a stronger one — requireCrmDelete wraps

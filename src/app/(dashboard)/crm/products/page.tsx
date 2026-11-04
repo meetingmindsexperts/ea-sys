@@ -52,6 +52,7 @@ export default function CrmProductsPage() {
   // QuickBooks (Nov 4 2026): a product a quote line uses must be linked before the quote can be sent.
   const { data: qbo } = useCrmQuickBooksStatus();
   const qboRealm = qbo?.connected ? qbo.realmId : null;
+  // Over the whole catalogue loaded, never the filtered rows, so the count does not move with the search box.
   const unlinked = qboRealm ? products.filter((p) => !p.archivedAt && !(p.qboItemId && p.qboRealmId === qboRealm)).length : 0;
 
   const categories = useMemo(

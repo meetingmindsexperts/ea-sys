@@ -139,7 +139,11 @@ export async function purgeDeal(input: PurgeCtx & { dealId: string }): Promise<{
     include: {
       _count: { select: { contacts: true, products: true, notes: true, tasks: true } },
       // A quote sent to QuickBooks goes with the deal; its Estimate does not.
-      quotes: { where: { qboEstimateId: { not: null } }, select: { number: true, qboEstimateId: true, qboRealmId: true } },
+      // Unconfirmed ones too: their Estimate may exist (review of 1ad88f53).
+      quotes: {
+        where: { OR: [{ qboEstimateId: { not: null } }, { qboOutcomeUnknown: true }] },
+        select: { number: true, qboEstimateId: true, qboRealmId: true, qboOutcomeUnknown: true },
+      },
     },
   });
   if (!deal) return reject("DEAL_NOT_FOUND", "Deal not found", { organizationId: input.organizationId, dealId: input.dealId });
@@ -169,7 +173,14 @@ export async function purgeDeal(input: PurgeCtx & { dealId: string }): Promise<{
         cascaded: deal._count, // people links / line items / notes / tasks deleted with it
         // The only EA-SYS record of which QuickBooks Estimates came from this deal's quotes.
         ...(deal.quotes.length > 0
-          ? { quickBooksEstimates: deal.quotes.map((q) => ({ quoteNumber: q.number, estimateId: q.qboEstimateId, realmId: q.qboRealmId })) }
+          ? {
+              quickBooksEstimates: deal.quotes.map((q) => ({
+                quoteNumber: q.number,
+                estimateId: q.qboEstimateId,
+                realmId: q.qboRealmId,
+                ...(q.qboEstimateId ? {} : { unconfirmed: q.qboOutcomeUnknown }),
+              })),
+            }
           : {}),
       },
     },
