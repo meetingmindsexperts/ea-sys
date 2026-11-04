@@ -31,6 +31,7 @@ import { updateOrganizationSettings } from "@/lib/event-settings";
 import { loadLocalLogo, toAddressLines } from "@/lib/pdf/document-layout";
 import { diffFields, recordCrmActivity } from "@/crm/lib/crm-activity";
 import { renderQuotePdf, type QuotePdfInput } from "@/crm/lib/quote-pdf";
+import { QBO_SEND_STALE_MS } from "@/crm/lib/quickbooks-rules";
 import {
   DEFAULT_QUOTE_TERMS,
   DEFAULT_QUOTE_VALIDITY_DAYS,
@@ -54,6 +55,7 @@ export type QuoteFailCode =
   | "QUOTE_ARCHIVED"
   | "STALE_WRITE"
   | "QUOTE_TOTAL_TOO_LARGE"
+  | "QUOTE_IN_QUICKBOOKS"
   | "UNKNOWN";
 
 export interface QuoteFail {
@@ -88,6 +90,12 @@ const QUOTE_SELECT = {
   notes: true,
   version: true,
   documentId: true,
+  qboEstimateId: true,
+  qboEstimateNumber: true,
+  qboSentAt: true,
+  qboSentByName: true,
+  qboSendStartedAt: true,
+  qboLastError: true,
   createdAt: true,
   updatedAt: true,
   lines: {
@@ -143,6 +151,14 @@ export function toQuoteRow(q: QuoteRecord): CrmQuoteRow {
     notes: q.notes,
     version: q.version,
     documentId: q.documentId,
+    quickBooks: {
+      estimateId: q.qboEstimateId,
+      estimateNumber: q.qboEstimateNumber,
+      sentAt: q.qboSentAt?.toISOString() ?? null,
+      sentByName: q.qboSentByName,
+      sending: q.qboSendStartedAt !== null && Date.now() - q.qboSendStartedAt.getTime() < QBO_SEND_STALE_MS,
+      lastError: q.qboLastError,
+    },
     createdAt: q.createdAt.toISOString(),
     updatedAt: q.updatedAt.toISOString(),
     lines: q.lines.map((l) => ({
@@ -155,6 +171,27 @@ export function toQuoteRow(q: QuoteRecord): CrmQuoteRow {
       amount: Number(l.amount),
       crmProductId: l.crmProductId,
     })),
+  };
+}
+
+/**
+ * A quote in QuickBooks (or on its way there) is frozen: the Estimate is the
+ * record now, and an edit here would leave two different versions of it.
+ */
+function lockedByQuickBooks(
+  q: { qboEstimateId: string | null; qboSendStartedAt: Date | null },
+  quoteId: string,
+  verb: string,
+): QuoteFail | null {
+  const sending = q.qboSendStartedAt !== null && Date.now() - q.qboSendStartedAt.getTime() < QBO_SEND_STALE_MS;
+  if (!q.qboEstimateId && !sending) return null;
+  apiLogger.warn({ msg: "crm-quote:locked-by-quickbooks", quoteId, verb, sent: Boolean(q.qboEstimateId) });
+  return {
+    ok: false,
+    code: "QUOTE_IN_QUICKBOOKS",
+    message: q.qboEstimateId
+      ? `This quote is in QuickBooks and can no longer be ${verb} here. Change the Estimate in QuickBooks.`
+      : "This quote is being sent to QuickBooks right now.",
   };
 }
 
@@ -591,6 +628,8 @@ export async function updateDealQuote(
       apiLogger.warn({ msg: "crm-quote:update-archived", quoteId: args.quoteId });
       return { ok: false, code: "QUOTE_ARCHIVED", message: "This quote was deleted" };
     }
+    const locked = lockedByQuickBooks(existing, args.quoteId, "edited");
+    if (locked) return locked;
     if (existing.version !== args.expectedVersion) {
       apiLogger.warn({ msg: "crm-quote:stale-write", quoteId: args.quoteId, expected: args.expectedVersion, current: existing.version });
       return {
@@ -630,6 +669,9 @@ export async function updateDealQuote(
           organizationId: args.organizationId,
           version: args.expectedVersion,
           archivedAt: null,
+          // A send that claimed the quote after the check above wins.
+          qboEstimateId: null,
+          OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: new Date(Date.now() - QBO_SEND_STALE_MS) } }],
         },
         data: { ...quoteFields(args.input, prepared.totals), version: { increment: 1 } },
       });
@@ -759,17 +801,25 @@ export async function archiveDealQuote(
   try {
     const existing = await db.crmQuote.findFirst({
       where: { id: args.quoteId, dealId: args.dealId, organizationId: args.organizationId },
-      select: { id: true, number: true, archivedAt: true },
+      select: { id: true, number: true, archivedAt: true, qboEstimateId: true, qboSendStartedAt: true },
     });
     if (!existing) {
       apiLogger.warn({ msg: "crm-quote:archive-not-found", quoteId: args.quoteId, dealId: args.dealId, organizationId: args.organizationId });
       return { ok: false, code: "QUOTE_NOT_FOUND", message: "Quote not found" };
     }
     if (existing.archivedAt) return { ok: true, removedUrl: null };
+    const locked = lockedByQuickBooks(existing, args.quoteId, "deleted");
+    if (locked) return locked;
 
     const outcome = await tenantTransaction(async (tx) => {
       const claim = await tx.crmQuote.updateMany({
-        where: { id: args.quoteId, organizationId: args.organizationId, archivedAt: null },
+        where: {
+          id: args.quoteId,
+          organizationId: args.organizationId,
+          archivedAt: null,
+          qboEstimateId: null,
+          OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: new Date(Date.now() - QBO_SEND_STALE_MS) } }],
+        },
         data: { archivedAt: new Date() },
       });
       if (claim.count === 0) return { claimed: false, removedUrl: null };

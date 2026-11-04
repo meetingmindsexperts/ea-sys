@@ -1,0 +1,25 @@
+/**
+ * GET /api/crm/quickbooks/tax-codes: QuickBooks tax codes with their sales
+ * rates, for the VAT-code picker (Nov 4, 2026). Quote-defaults admins only,
+ * the same people who may save the choice.
+ */
+import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
+import { apiLogger } from "@/lib/logger";
+import { requireCrmWrite, crmCan, crmErrorResponse } from "@/crm/lib/crm-route";
+import { listTaxCodes } from "@/lib/quickbooks/sales";
+import { qboLookupFail } from "@/crm/lib/quickbooks-route";
+
+export async function GET(req: Request) {
+  const { error, ctx } = await requireCrmWrite(req);
+  if (error) return error;
+  return await runWithTenant(ctx.organizationId, async () => {
+    if (!crmCan(ctx, "crm.quoteDefaults.manage")) {
+      apiLogger.warn({ msg: "crm/quickbooks:tax-codes-list-forbidden", role: ctx.role, userId: ctx.userId, organizationId: ctx.organizationId });
+      return NextResponse.json({ error: "Only an admin can choose the QuickBooks VAT codes", code: "FORBIDDEN" }, { status: 403 });
+    }
+    const res = await listTaxCodes(ctx.organizationId);
+    if (!res.ok) return crmErrorResponse(qboLookupFail(res, ctx.organizationId, "tax-codes"));
+    return NextResponse.json({ taxCodes: res.data.filter((c) => c.active) });
+  });
+}

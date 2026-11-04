@@ -137,6 +137,12 @@ function savedQuote(overrides: Record<string, unknown> = {}) {
     notes: null,
     version: 1,
     documentId: "doc-1",
+    qboEstimateId: null,
+    qboEstimateNumber: null,
+    qboSentAt: null,
+    qboSentByName: null,
+    qboSendStartedAt: null,
+    qboLastError: null,
     createdAt: new Date("2026-09-15T08:00:00.000Z"),
     updatedAt: new Date("2026-09-15T08:00:00.000Z"),
     lines: [
@@ -392,7 +398,7 @@ describe("updateDealQuote", () => {
 
     expect(tx.crmQuote.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "q-1", organizationId: ORG, version: 1, archivedAt: null },
+        where: { id: "q-1", organizationId: ORG, version: 1, archivedAt: null, qboEstimateId: null, OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: expect.any(Date) } }] },
         data: expect.objectContaining({ title: "Abbott Quote - revised", version: { increment: 1 } }),
       }),
     );
@@ -455,7 +461,7 @@ describe("listDealQuotes and archiveDealQuote", () => {
 
     expect(res).toEqual({ ok: true, removedUrl: OLD_URL });
     expect(tx.crmQuote.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "q-1", organizationId: ORG, archivedAt: null } }),
+      expect.objectContaining({ where: { id: "q-1", organizationId: ORG, archivedAt: null, qboEstimateId: null, OR: [{ qboSendStartedAt: null }, { qboSendStartedAt: { lt: expect.any(Date) } }] } }),
     );
     expect(tx.crmQuote.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "q-1", organizationId: ORG }, data: { documentId: null } }),
@@ -490,5 +496,46 @@ describe("listDealQuotes and archiveDealQuote", () => {
 
     expect(res).toEqual({ ok: true, removedUrl: null });
     expect(tx.crmQuote.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("a quote in QuickBooks is locked (Nov 4, 2026)", () => {
+  it("refuses an edit once the quote is an Estimate, without rendering or writing", async () => {
+    dbMock.crmQuote.findFirst.mockResolvedValue({ ...savedQuote({ qboEstimateId: "est-9" }), archivedAt: null, document: null });
+    const res = await updateDealQuote({ ...actor, dealId: "d-1", quoteId: "q-1", expectedVersion: 1, input });
+    expect(res).toMatchObject({ ok: false, code: "QUOTE_IN_QUICKBOOKS" });
+    expect(tx.crmQuote.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses an edit while a send holds the quote, but not once that claim is stale", async () => {
+    dbMock.crmQuote.findFirst.mockResolvedValue({ ...savedQuote({ qboSendStartedAt: new Date() }), archivedAt: null, document: null });
+    const held = await updateDealQuote({ ...actor, dealId: "d-1", quoteId: "q-1", expectedVersion: 1, input });
+    expect(held).toMatchObject({ ok: false, code: "QUOTE_IN_QUICKBOOKS" });
+
+    dbMock.crmQuote.findFirst.mockResolvedValue({
+      ...savedQuote({ qboSendStartedAt: new Date(Date.now() - 10 * 60 * 1000) }),
+      archivedAt: null,
+      document: null,
+    });
+    const stale = await updateDealQuote({ ...actor, dealId: "d-1", quoteId: "q-1", expectedVersion: 1, input });
+    expect(stale).not.toMatchObject({ code: "QUOTE_IN_QUICKBOOKS" });
+  });
+
+  it("refuses a delete once the quote is an Estimate", async () => {
+    dbMock.crmQuote.findFirst.mockResolvedValue({ id: "q-1", number: "Q-2026-0003", archivedAt: null, qboEstimateId: "est-9", qboSendStartedAt: null });
+    const res = await archiveDealQuote({ ...actor, dealId: "d-1", quoteId: "q-1" });
+    expect(res).toMatchObject({ ok: false, code: "QUOTE_IN_QUICKBOOKS" });
+    expect(tx.crmQuote.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("shows the QuickBooks state on the quote row", async () => {
+    dbMock.crmQuote.findMany.mockResolvedValue([
+      { ...savedQuote({ qboEstimateId: "est-9", qboEstimateNumber: "Q-2026-0003", qboSentAt: new Date("2026-11-04T09:00:00Z"), qboSentByName: "Atiq" }) },
+    ]);
+    const res = await listDealQuotes({ organizationId: ORG, dealId: "d-1" });
+    expect(res).toMatchObject({
+      ok: true,
+      quotes: [{ quickBooks: { estimateId: "est-9", estimateNumber: "Q-2026-0003", sentAt: "2026-11-04T09:00:00.000Z", sentByName: "Atiq", sending: false } }],
+    });
   });
 });

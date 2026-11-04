@@ -634,6 +634,9 @@ export const CRM_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   QUOTE_GENERATED: "Generated a quote",
   QUOTE_UPDATED: "Edited a quote",
   QUOTE_ARCHIVED: "Deleted a quote",
+  QUICKBOOKS_ESTIMATE_SENT: "Sent a quote to QuickBooks",
+  QUICKBOOKS_LINKED: "Linked to a QuickBooks customer",
+  QUICKBOOKS_UNLINKED: "Unlinked from QuickBooks",
   EMAIL_RECEIVED: "Email received",
 };
 

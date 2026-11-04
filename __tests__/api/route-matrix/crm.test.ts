@@ -32,6 +32,14 @@ vi.mock("@/lib/email", async (importOriginal) => ({
 }));
 
 import { domainMatrix, type HandlerCase } from "./harness";
+import { PUT as hQbCompany } from "@/app/api/crm/companies/[companyId]/quickbooks/route";
+import { PUT as hQbProduct } from "@/app/api/crm/products/[productId]/quickbooks/route";
+import { GET as hQbQuoteGet, POST as hQbQuoteSend } from "@/app/api/crm/deals/[dealId]/quotes/[quoteId]/quickbooks/route";
+import { GET as hQbStatus, PUT as hQbSettings } from "@/app/api/crm/quickbooks/route";
+import { GET as hQbCustomers } from "@/app/api/crm/quickbooks/customers/route";
+import { GET as hQbItems } from "@/app/api/crm/quickbooks/items/route";
+import { GET as hQbTaxCodes } from "@/app/api/crm/quickbooks/tax-codes/route";
+
 import { GET as h1 } from "@/app/api/crm/activity/export/route";
 import { GET as h2 } from "@/app/api/crm/activity/feed/route";
 import { GET as h3 } from "@/app/api/crm/activity/route";
@@ -164,6 +172,16 @@ const CASES: HandlerCase[] = [
   { name: "DELETE crm/tasks/[taskId]", handler: h76, method: "DELETE", params: {"taskId": "task1"}, ...org },
   { name: "GET crm/tasks", handler: h77, method: "GET", ...org },
   { name: "POST crm/tasks", handler: h78, method: "POST", body: {}, ...org },
+  // QuickBooks Estimates (Nov 4, 2026)
+  { name: "PUT crm/companies/[companyId]/quickbooks", handler: hQbCompany, method: "PUT", params: {"companyId": "company1"}, body: {}, ...org },
+  { name: "PUT crm/products/[productId]/quickbooks", handler: hQbProduct, method: "PUT", params: {"productId": "product1"}, body: {}, ...org },
+  { name: "GET crm/deals/[dealId]/quotes/[quoteId]/quickbooks", handler: hQbQuoteGet, method: "GET", params: {"dealId": "deal1", "quoteId": "quote1"}, ...org },
+  { name: "POST crm/deals/[dealId]/quotes/[quoteId]/quickbooks", handler: hQbQuoteSend, method: "POST", params: {"dealId": "deal1", "quoteId": "quote1"}, body: {}, ...org },
+  { name: "GET crm/quickbooks", handler: hQbStatus, method: "GET", ...org },
+  { name: "PUT crm/quickbooks", handler: hQbSettings, method: "PUT", body: {}, ...org },
+  { name: "GET crm/quickbooks/customers", handler: hQbCustomers, method: "GET", ...org },
+  { name: "GET crm/quickbooks/items", handler: hQbItems, method: "GET", ...org },
+  { name: "GET crm/quickbooks/tax-codes", handler: hQbTaxCodes, method: "GET", ...org },
 ];
 
 describe("route status matrix: CRM", () => {

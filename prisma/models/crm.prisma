@@ -211,6 +211,13 @@ model CrmProduct {
   sortOrder  Int       @default(0)
   archivedAt DateTime?
 
+  /// The QuickBooks product/service a quote line for this product posts to
+  /// (Nov 4, 2026). Valid only for the QuickBooks company `qboRealmId`: a
+  /// sandbox link never counts against the real books. Name is a snapshot.
+  qboItemId   String?
+  qboItemName String?
+  qboRealmId  String?
+
   createdById String?
   createdBy   User?   @relation("CrmProductCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
@@ -344,12 +351,32 @@ model CrmQuote {
   version    Int       @default(1)
   archivedAt DateTime?
 
+  /// The QuickBooks Estimate this quote became (Nov 4, 2026). Once set, the
+  /// quote is locked: a change is made on the Estimate. `qboSendStartedAt` is
+  /// the claim a send holds while it talks to QuickBooks, so two clicks cannot
+  /// both create one; `qboLastError` is the last refusal, shown on the deal.
+  qboEstimateId     String?
+  qboEstimateNumber String?
+  qboRealmId        String?
+  qboEnvironment    String?
+  qboSentAt         DateTime?
+  qboSentById       String?
+  qboSentByName     String?
+  qboSendStartedAt  DateTime?
+  qboLastError      String?
+  /// Part of QuickBooks' requestid. Moves on only after a DEFINITE refusal, so
+  /// a retry after a lost answer repeats the same request and QuickBooks
+  /// answers it with the first result instead of making a second Estimate.
+  qboSendAttempt    Int       @default(0)
+
   lines CrmQuoteLine[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([organizationId, number])
+  /// One Estimate belongs to one quote. NULLs (unsent quotes) are distinct.
+  @@unique([qboRealmId, qboEstimateId])
   @@index([dealId])
 }
 
@@ -578,6 +605,15 @@ model CrmCompany {
   /// user must never block or destroy the account, it just becomes unowned.
   ownerId String?
   owner   User?   @relation("CrmCompanyOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  /// The existing QuickBooks customer this sponsor is invoiced as (Nov 4,
+  /// 2026). EA-SYS only links, never creates customers (owner decision).
+  /// Valid only for the QuickBooks company `qboRealmId`; the currency is the
+  /// customer's, which a quote's currency must match. Name is a snapshot.
+  qboCustomerId       String?
+  qboCustomerName     String?
+  qboCustomerCurrency String?
+  qboRealmId          String?
 
   contacts CrmContact[]
   deals    CrmDeal[]
@@ -1052,4 +1088,3 @@ model CrmDealContact {
   @@index([crmContactId])
   @@index([organizationId])
 }
-

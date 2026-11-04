@@ -224,6 +224,17 @@ export interface CrmQuoteRow {
   notes: string | null;
   version: number;
   documentId: string | null;
+  /** The QuickBooks Estimate the quote became (Nov 4, 2026); a sent quote is locked. */
+  quickBooks: {
+    estimateId: string | null;
+    estimateNumber: string | null;
+    sentAt: string | null;
+    sentByName: string | null;
+    /** A send holds the quote right now. */
+    sending: boolean;
+    /** The last refusal, or a total warning on a sent quote. */
+    lastError: string | null;
+  };
   createdAt: string;
   updatedAt: string;
   lines: CrmQuoteLineRow[];

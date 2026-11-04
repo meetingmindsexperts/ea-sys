@@ -256,6 +256,21 @@ const STATUS_BY_CODE: Record<string, number> = {
   QUOTE_ARCHIVED: 409,
   STALE_WRITE: 409,
   QUOTE_TOTAL_TOO_LARGE: 400,
+  // QuickBooks Estimates (Nov 4 2026): a sent quote is frozen; a send that
+  // cannot go yet lists what is missing; QuickBooks being unreachable or not
+  // connected is not the client's fault
+  QUOTE_IN_QUICKBOOKS: 409,
+  QUOTE_ALREADY_SENT: 409,
+  QUOTE_SEND_IN_PROGRESS: 409,
+  QUOTE_NOT_READY: 422,
+  QBO_DOC_NUMBER_TAKEN: 409,
+  QBO_REFUSED: 422,
+  QBO_OUTCOME_UNKNOWN: 502,
+  QBO_ERROR: 502,
+  QBO_NOT_CONNECTED: 409,
+  QBO_CUSTOMER_NOT_FOUND: 404,
+  QBO_ITEM_NOT_FOUND: 404,
+  QBO_TAX_CODE_NOT_FOUND: 404,
   // forbidden — you may be in the CRM, but this row isn't yours to rewrite
   NOT_AUTHOR: 403,
   // conflict — someone else got there first, or the state moved under us
