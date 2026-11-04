@@ -9,61 +9,63 @@ import {
   accreditorLabel,
   buildFaq,
   eventPageJsonLd,
-  lowestPublicOffer,
   offerLabel,
+  publicRegistration,
   readAccreditations,
-  registrationState,
   type OverviewFacts,
   type PublicTicketType,
 } from "@/lib/event-overview";
 
 const NOW = new Date("2026-11-04T08:00:00Z");
 const D = (n: number) => new Prisma.Decimal(n);
-const type = (over: Partial<PublicTicketType> = {}): PublicTicketType => ({
-  price: D(500), currency: "AED", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null, pricingTiers: [], ...over,
+const tier = (name: string, price: number, over: Partial<PublicTicketType["pricingTiers"][number]> = {}) => ({
+  name, sortOrder: null, price: D(price), currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null, ...over,
 });
-const tier = (price: number, over: Partial<PublicTicketType["pricingTiers"][number]> = {}) => ({
-  price: D(price), currency: "AED", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null, ...over,
+const type = (tiers: PublicTicketType["pricingTiers"], over: Partial<PublicTicketType> = {}): PublicTicketType => ({
+  quantity: 999999, soldCount: 0, pricingTiers: tiers, ...over,
 });
+const reg = (ticketTypes: PublicTicketType[], over: Partial<Parameters<typeof publicRegistration>[0]> = {}) =>
+  publicRegistration({ endDate: new Date("2027-01-17"), registrationOpen: true, eventFull: false, eventType: "CONFERENCE", settings: {}, ticketTypes, ...over }, NOW);
 
-describe("lowestPublicOffer", () => {
-  it("the cheapest tier on sale now, not a cheaper one whose window has shut", () => {
-    const offer = lowestPublicOffer([type({ pricingTiers: [tier(300, { salesEnd: new Date("2026-10-01") }), tier(450), tier(600)] })], NOW);
-    expect(offer).toEqual({ price: 450, currency: "AED", onSale: true, soldOut: false });
-    expect(offerLabel(offer!)).toMatch(/^From AED\s450\.00$/);
+describe("publicRegistration (the register page's own rule)", () => {
+  it("open at the rate the main link lands on, priced at its lowest paid price across types", () => {
+    const r = reg([type([tier("Early Bird", 300, { salesEnd: new Date("2026-10-01") }), tier("Standard", 450)]), type([tier("Standard", 200)]), type([tier("Standard", 0)])]);
+    expect(r.state).toBe("open");
+    expect(r.offer).toEqual({ price: 200, currency: "USD", onSale: true, soldOut: false });
+    expect(offerLabel(r.offer!)).toMatch(/^From \$200\.00$/);
   });
 
-  it("a type without tiers sells on its own window, and the type's seats cap its tiers", () => {
-    expect(lowestPublicOffer([type({ price: D(750) })], NOW)?.price).toBe(750);
-    const full = lowestPublicOffer([type({ quantity: 10, soldCount: 10, pricingTiers: [tier(200, { quantity: 50 })] })], NOW);
-    expect(full).toMatchObject({ onSale: false, soldOut: true });
+  it("REVIEW 1: the event-wide cap closes it as full, except on a hybrid event", () => {
+    expect(reg([type([tier("Standard", 200)])], { eventFull: true }).state).toBe("sold-out");
+    expect(reg([type([tier("Standard", 200)])], { eventFull: true, eventType: "HYBRID" }).state).toBe("open");
   });
 
-  it("nothing on sale yet: still a price to quote, but not sold out", () => {
-    const offer = lowestPublicOffer([type({ salesStart: new Date("2026-12-01") })], NOW);
-    expect(offer).toEqual({ price: 500, currency: "AED", onSale: false, soldOut: false });
+  it("REVIEW 2: a sponsor-code-only rate is never a reason to say Register", () => {
+    const tiers = [tier("Standard", 450, { quantity: 1, soldCount: 1 }), tier("Inclusive", 0)];
+    expect(reg([type(tiers)], { settings: { mainRegisterTiers: ["standard", "inclusive"], codeRequiredTiers: ["inclusive"] } }).state).toBe("sold-out");
   });
 
-  it("a free type does not make a paid event read Free", () => {
-    const offer = lowestPublicOffer([type({ price: D(0) }), type({ pricingTiers: [tier(200), tier(350)] })], NOW);
-    expect(offer).toMatchObject({ price: 200, onSale: true });
+  it("an unticked rate is not a landing, so only it being open is closed", () => {
+    expect(reg([type([tier("Complimentary", 0)])]).state).toBe("closed");
   });
 
-  it("free reads Free; no types is no offer", () => {
-    expect(offerLabel(lowestPublicOffer([type({ price: D(0) })], NOW)!)).toBe("Free");
-    expect(lowestPublicOffer([], NOW)).toBeNull();
+  it("REVIEW 4: early bird over and standard full reads Fully booked, not Closed", () => {
+    const r = reg([type([tier("Early Bird", 300, { salesEnd: new Date("2026-10-01") }), tier("Standard", 450, { quantity: 5, soldCount: 5 })])]);
+    expect(r.state).toBe("sold-out");
+    expect(r.offer?.price).toBe(450);
   });
-});
 
-describe("registrationState", () => {
-  const offer = { price: 100, currency: "AED", onSale: true, soldOut: false };
-  const future = new Date("2027-01-01");
-  it("open, closed by the organiser, full, or over", () => {
-    expect(registrationState({ endDate: future, registrationOpen: true, offer }, NOW)).toBe("open");
-    expect(registrationState({ endDate: future, registrationOpen: false, offer }, NOW)).toBe("closed");
-    expect(registrationState({ endDate: future, registrationOpen: true, offer: { ...offer, onSale: false, soldOut: true } }, NOW)).toBe("sold-out");
-    expect(registrationState({ endDate: future, registrationOpen: true, offer: null }, NOW)).toBe("closed");
-    expect(registrationState({ endDate: new Date("2026-10-01"), registrationOpen: true, offer }, NOW)).toBe("ended");
+  it("switched off, or before any window opens, is closed with no price", () => {
+    expect(reg([type([tier("Standard", 200)])], { registrationOpen: false })).toEqual({ state: "closed", offer: null });
+    expect(reg([type([tier("Standard", 200, { salesStart: new Date("2026-12-01") })])])).toEqual({ state: "closed", offer: null });
+  });
+
+  it("over is over", () => {
+    expect(reg([type([tier("Standard", 200)])], { endDate: new Date("2026-10-01") })).toEqual({ state: "ended", offer: null });
+  });
+
+  it("a free event at every price reads Free", () => {
+    expect(offerLabel(reg([type([tier("Standard", 0)])]).offer!)).toBe("Free");
   });
 });
 

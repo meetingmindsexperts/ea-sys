@@ -16,7 +16,7 @@ interface RouteParams {
 
 // Get public event details (supports both slug and event ID)
 /** `quantity` at or above this means "no seat limit" (the schema default). */
-const UNLIMITED_SEAT_SENTINEL = 999999;
+import { UNLIMITED_SEAT_SENTINEL, eventIsFull, tierAvailability } from "@/lib/public-availability";
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
@@ -189,24 +189,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       // The ticket type's own limit is the ceiling over all of its tiers
       // (registration-seat.ts): a tier with 40 seats free under a type with 3
       // left has 3 available, and "seats left" must say so.
-      const typeAvailable = ticket.quantity - ticket.soldCount;
       const typeLimited = ticket.quantity < UNLIMITED_SEAT_SENTINEL;
-      const pricingTiers = ticket.pricingTiers.map((tier) => {
-        const available = Math.min(tier.quantity - tier.soldCount, typeAvailable);
-        const salesStarted = !tier.salesStart || new Date(tier.salesStart) <= now;
-        const salesEnded = tier.salesEnd ? new Date(tier.salesEnd) < now : false;
-        return {
-          ...tier,
-          available,
-          // True when EITHER limit is real, so the public form can show
-          // "N seats left" for an unlimited tier under a limited type.
-          seatLimited: typeLimited || tier.quantity < UNLIMITED_SEAT_SENTINEL,
-          soldOut: available <= 0,
-          salesStarted,
-          salesEnded,
-          canPurchase: available > 0 && salesStarted && !salesEnded,
-        };
-      });
+      // The one availability rule every public surface shares (public-availability.ts).
+      const pricingTiers = ticket.pricingTiers.map((tier) => ({ ...tier, ...tierAvailability(tier, ticket, now) }));
 
       // Legacy: compute from old fields for backward compat (pre-migration data)
       const legacyAvailable = ticket.quantity - ticket.soldCount;
@@ -259,7 +244,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       // Event-wide attendee cap reached (Settings → Registration → Maximum
       // Attendees). The register pages show a "Registration Full" state; the
       // register POST enforces it atomically regardless.
-      eventFull: event.maxAttendees != null && event.seatCount >= event.maxAttendees,
+      eventFull: eventIsFull(event),
       ticketTypes,
       hasPromoCodes,
       abstractSettings: {

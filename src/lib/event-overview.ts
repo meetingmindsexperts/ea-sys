@@ -2,6 +2,9 @@ import type { EventType } from "@prisma/client";
 import type { AccreditationEntry } from "@/lib/certificates/types";
 import { friendlyAccreditorName } from "@/lib/certificates/template";
 import { formatCurrency } from "@/lib/utils";
+import { mainRegisterTarget, tierAvailability } from "@/lib/public-availability";
+import { readMainRegisterTiers, registerTierSlug } from "@/lib/main-register-tiers";
+import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import { eventJsonLd, type SeoEvent } from "@/lib/seo";
 
 /**
@@ -16,15 +19,13 @@ import { eventJsonLd, type SeoEvent } from "@/lib/seo";
  * answering for one) needs in the HTML, and the form stays one tap away.
  */
 
-/** A seat the public can buy: what the public registration API sells. */
+/** A registration type as the event page loads it: its rates with their windows and seats. */
 export interface PublicTicketType {
-  price: { toString(): string };
-  currency: string;
   quantity: number;
   soldCount: number;
-  salesStart: Date | null;
-  salesEnd: Date | null;
   pricingTiers: {
+    name: string;
+    sortOrder: number | null;
     price: { toString(): string };
     currency: string;
     quantity: number;
@@ -35,67 +36,75 @@ export interface PublicTicketType {
 }
 
 export interface PublicOffer {
-  /** Lowest price on sale now, in the currency it is sold in. */
+  /** Lowest paid price at the rate the Register link lands on, in its currency. */
   price: number;
   currency: string;
   /** Something can be bought right now. */
   onSale: boolean;
-  /** Every window is open but every seat is taken. */
+  /** Every place is taken. */
   soldOut: boolean;
-}
-
-function windowOpen(w: { salesStart: Date | null; salesEnd: Date | null }, now: Date): boolean {
-  return (!w.salesStart || w.salesStart <= now) && (!w.salesEnd || w.salesEnd >= now);
-}
-
-/**
- * The lowest price someone can register at now, the way the public API
- * decides availability: a tier is bought within its type's seats (the type is
- * the ceiling), a type without tiers sells on its own window. Types and tiers
- * whose window is shut do not set the price; if nothing is on sale, the
- * lowest listed price is still shown so the page can say "from".
- *
- * A free type (exhibitor, student, a sponsored delegate) does not set the
- * "from" price while any paid type exists: "Free" on a paid conference would
- * mislead the reader and Google's event result alike. Free only when every
- * type is free.
- */
-export function lowestPublicOffer(types: PublicTicketType[], now: Date): PublicOffer | null {
-  const candidates: { price: number; currency: string; onSale: boolean; open: boolean }[] = [];
-  for (const t of types) {
-    const typeLeft = t.quantity - t.soldCount;
-    const sellables = t.pricingTiers.length > 0 ? t.pricingTiers : [t];
-    for (const s of sellables) {
-      const left = Math.min(s.quantity - s.soldCount, typeLeft);
-      const open = windowOpen(s, now);
-      candidates.push({ price: Number(s.price.toString()), currency: s.currency, onSale: open && left > 0, open });
-    }
-  }
-  if (candidates.length === 0) return null;
-  const paid = candidates.filter((c) => c.price > 0);
-  const priced = paid.length > 0 ? paid : candidates;
-  const pool = priced.some((c) => c.onSale) ? priced.filter((c) => c.onSale) : priced;
-  const best = pool.reduce((a, b) => (b.price < a.price ? b : a));
-  return {
-    price: best.price,
-    currency: best.currency,
-    onSale: candidates.some((c) => c.onSale),
-    soldOut: candidates.every((c) => c.open) && !candidates.some((c) => c.onSale),
-  };
-}
-
-export function offerLabel(offer: PublicOffer): string {
-  return offer.price === 0 ? "Free" : `From ${formatCurrency(offer.price, offer.currency)}`;
 }
 
 export type RegistrationState = "open" | "closed" | "sold-out" | "ended";
 
-/** What the call to action says: register, closed, full, or over. */
-export function registrationState(input: { endDate: Date; registrationOpen: boolean; offer: PublicOffer | null }, now: Date): RegistrationState {
-  if (input.endDate < now) return "ended";
-  if (!input.registrationOpen || !input.offer) return "closed";
-  if (input.offer.soldOut) return "sold-out";
-  return input.offer.onSale ? "open" : "closed";
+/**
+ * Whether a visitor can register and from what price, answered by the SAME
+ * rules the public API and the register page use (public-availability.ts):
+ * "open" exactly when the main Register link has a rate to land on, and the
+ * price is that rate's lowest paid price across the registration types,
+ * which is what the visitor sees on the form. A free rate (exhibitor, a
+ * sponsored delegate) never makes a paid event read Free; Free only when
+ * every price at the rate is 0.
+ */
+export function publicRegistration(
+  input: {
+    endDate: Date;
+    registrationOpen: boolean;
+    eventFull: boolean;
+    eventType: string | null;
+    settings: unknown;
+    ticketTypes: PublicTicketType[];
+  },
+  now: Date,
+): { state: RegistrationState; offer: PublicOffer | null } {
+  if (input.endDate < now) return { state: "ended", offer: null };
+  const types = input.ticketTypes.map((t) => ({
+    pricingTiers: t.pricingTiers.map((tier) => ({ ...tier, ...tierAvailability(tier, t, now) })),
+  }));
+  const codeRequiredTiers = readCodeRequiredTiers(input.settings);
+  const target = mainRegisterTarget({
+    registrationOpen: input.registrationOpen,
+    eventFull: input.eventFull,
+    eventType: input.eventType,
+    ticketTypes: types,
+    mainRegisterTiers: (input.settings as { mainRegisterTiers?: unknown } | null)?.mainRegisterTiers,
+    codeRequiredTiers,
+  });
+  const allTiers = types.flatMap((t) => t.pricingTiers);
+  if (target) {
+    const slug = registerTierSlug(target.name);
+    return { state: "open", offer: cheapest(allTiers.filter((t) => t.canPurchase && registerTierSlug(t.name) === slug), true, false) };
+  }
+  // Full, rather than closed: the event cap is reached, or every ticked public
+  // rate whose window is open has no seats left.
+  const ticked = readMainRegisterTiers(input.settings).filter((s) => !codeRequiredTiers.includes(s));
+  const inWindow = allTiers.filter((t) => ticked.includes(registerTierSlug(t.name)) && t.salesStarted && !t.salesEnded);
+  const full = (input.eventFull && input.eventType !== "HYBRID") || (inWindow.length > 0 && inWindow.every((t) => t.soldOut));
+  if (input.registrationOpen && full) return { state: "sold-out", offer: cheapest(inWindow, false, true) };
+  return { state: "closed", offer: null };
+}
+
+function cheapest(tiers: { price: { toString(): string }; currency: string }[], onSale: boolean, soldOut: boolean): PublicOffer | null {
+  const priced = tiers.map((t) => ({ price: Number(t.price.toString()), currency: t.currency }));
+  const paid = priced.filter((p) => p.price > 0);
+  const pool = paid.length > 0 ? paid : priced;
+  if (pool.length === 0) return null;
+  const best = pool.reduce((a, b) => (b.price < a.price ? b : a));
+  return { ...best, onSale, soldOut };
+}
+
+export function offerLabel(offer: PublicOffer): string {
+  return offer.price === 0 ? "Free" : `From ${formatCurrency(offer.price, offer.currency)}`;
 }
 
 /** An accreditor as a person would read it; an unnamed OTHER is left out rather than shown as "The Accrediting Body". */

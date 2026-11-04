@@ -45,7 +45,8 @@ test("ticket types page", async ({ page }) => {
 test("public registration page (category-picker landing)", async ({ page, context }) => {
   // Public flow — clear cookies so we land as an anonymous visitor.
   await context.clearCookies();
-  await page.goto(`/e/${EVENT_SLUG}`);
+  // /e/{slug} is the event's public page since Nov 4, 2026; the form is /register.
+  await page.goto(`/e/${EVENT_SLUG}/register`);
   await page.waitForLoadState("networkidle");
   await snap(page, { chapter: CHAPTER, name: "04-public-register-landing" });
 });

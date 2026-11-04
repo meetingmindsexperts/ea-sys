@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { sanitizeHtml } from "@/lib/sanitize";
-import { pickMainRegisterTier, readMainRegisterTiers } from "@/lib/main-register-tiers";
+import { mainRegisterTarget } from "@/lib/public-availability";
 import { useSession } from "next-auth/react";
 import {
   Calendar,
@@ -110,25 +110,19 @@ function mainLinkTarget(event: Event) {
   // Master switch (Settings → Registration). When OFF, registration is closed
   // regardless of which individual tiers (standard/onsite) are active — so we
   // skip the redirect and show the branded closed page.
-  const registrationOpen = event.registrationOpen !== false;
-  // Event-wide cap reached: block like closed — EXCEPT on HYBRID events,
-  // where virtual attendance (uncapped) is still open, so we redirect to the
-  // tier page which shows the in-person-full notice.
-  const eventFullBlocks = event.eventFull === true && event.eventType !== "HYBRID";
-  // In tier order, the first tier on sale whose name the organiser ticked
-  // (Registration Types page). Only ticked names are candidates, so a
-  // Complimentary or Workshop tier is reached by its own link, never by
-  // falling through here. Presenter tiers can never be ticked.
-  // readMainRegisterTiers re-cleans the list and supplies the default when
-  // an older API response has no field.
-  return !registrationOpen || eventFullBlocks
-    ? undefined
-    : pickMainRegisterTier(
-        event.ticketTypes,
-        readMainRegisterTiers({ mainRegisterTiers: event.mainRegisterTiers }).filter(
-          (slug) => !(event.codeRequiredTiers ?? []).includes(slug),
-        ),
-      );
+  // The shared rule (public-availability.ts), so the public event page that
+  // links here can never say "Register" when this page would say closed.
+  // Event-wide cap: blocks like closed EXCEPT on HYBRID events, where virtual
+  // attendance (uncapped) is still open, so we redirect to the tier page which
+  // shows the in-person-full notice. Only ticked tier names are candidates.
+  return mainRegisterTarget({
+    registrationOpen: event.registrationOpen !== false,
+    eventFull: event.eventFull === true,
+    eventType: event.eventType,
+    ticketTypes: event.ticketTypes,
+    mainRegisterTiers: event.mainRegisterTiers,
+    codeRequiredTiers: event.codeRequiredTiers,
+  });
 }
 
 export default function RegisterOverviewPage() {

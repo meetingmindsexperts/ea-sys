@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { cache } from "react";
 import type { SessionType } from "@prisma/client";
 import {
   ArrowRight,
@@ -22,6 +23,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { publicEventWhereForHost } from "@/lib/public-event";
+import { eventIsFull } from "@/lib/public-availability";
 import { buildEventMetadata, toPlainText, truncate } from "@/lib/public-event-metadata";
 import { formatEventDateRange, localDateInTz } from "@/lib/event-time";
 import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
@@ -33,11 +35,10 @@ import {
   accreditorLabel,
   buildFaq,
   eventPageJsonLd,
-  lowestPublicOffer,
   mapsUrl,
   offerLabel,
+  publicRegistration,
   readAccreditations,
-  registrationState,
   type OverviewFacts,
   type RegistrationState,
 } from "@/lib/event-overview";
@@ -68,13 +69,14 @@ interface Props {
 
 const PUBLIC_STATUSES = ["PUBLISHED", "LIVE", "COMPLETED"] as const;
 
-async function findScope(slug: string) {
+/** Once per request: metadata and the page both ask. */
+const findScope = cache(async (slug: string) => {
   const host = (await headers()).get("host");
   return db.event.findFirst({
     where: await publicEventWhereForHost(host, slug, { allowIdFallback: true, statuses: [...PUBLIC_STATUSES] }),
     select: { id: true, organizationId: true, slug: true, settings: true },
   });
-}
+});
 
 function isListed(settings: unknown): boolean {
   return (settings as { showInCatalogue?: unknown } | null)?.showInCatalogue === true;
@@ -87,7 +89,14 @@ function isListed(settings: unknown): boolean {
  */
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const [base, scope, h] = await Promise.all([buildEventMetadata({ slug }), findScope(slug).catch(() => null), headers()]);
+  const [base, scope, h] = await Promise.all([
+    buildEventMetadata({ slug }),
+    findScope(slug).catch((err) => {
+      apiLogger.warn({ err, slug, msg: "event-overview:metadata-scope-failed" });
+      return null;
+    }),
+    headers(),
+  ]);
   if (!scope) return base;
   const origin = siteOrigin(h.get("host"), h.get("x-forwarded-proto"));
   const canonical = `${origin}/e/${scope.slug}`;
@@ -107,16 +116,17 @@ async function loadEvent(id: string) {
         id: true, slug: true, name: true, description: true, startDate: true, endDate: true, timezone: true,
         venue: true, address: true, city: true, country: true, eventType: true, specialty: true, status: true,
         bannerImage: true, bannerImageMobile: true, cmeHours: true, settings: true, supportEmail: true,
+        maxAttendees: true, seatCount: true,
         organization: { select: { name: true, logo: true } },
         ticketTypes: {
           // What the public form sells: active, never the hidden Faculty type.
           where: { isActive: true, isFaculty: false },
           orderBy: { sortOrder: "asc" },
           select: {
-            name: true, price: true, currency: true, quantity: true, soldCount: true, salesStart: true, salesEnd: true,
+            name: true, quantity: true, soldCount: true,
             pricingTiers: {
               where: { isActive: true },
-              select: { price: true, currency: true, quantity: true, soldCount: true, salesStart: true, salesEnd: true },
+              select: { name: true, sortOrder: true, price: true, currency: true, quantity: true, soldCount: true, salesStart: true, salesEnd: true },
             },
           },
         },
@@ -133,7 +143,13 @@ async function loadEvent(id: string) {
       },
     }),
   ]);
-  return { event, sessions };
+  // A webinar's real clock is its anchor session (a console retime moves the
+  // session, not Event.startDate), as the public API and calendar links use.
+  const anchorId = event?.eventType === "WEBINAR" ? (event.settings as { webinar?: { sessionId?: string } } | null)?.webinar?.sessionId : undefined;
+  const anchor = anchorId
+    ? await db.eventSession.findFirst({ where: { id: anchorId, eventId: id }, select: { startTime: true, endTime: true } })
+    : null;
+  return { event: event && anchor ? { ...event, startDate: anchor.startTime, endDate: anchor.endTime } : event, sessions };
 }
 
 type Speaker = { id: string; name: string; jobTitle: string | null; organization: string | null; photo: string | null };
@@ -163,14 +179,31 @@ export default async function EventOverviewPage({ params }: Props) {
     throw err;
   }
   const { event } = loaded;
-  if (!event) notFound();
+  if (!event) {
+    apiLogger.warn({ slug, eventId: scope.id, msg: "event-overview:event-vanished" });
+    notFound();
+  }
 
   const now = new Date();
   const settings = (event.settings ?? {}) as Record<string, unknown>;
   const listed = isListed(settings);
   const agendaPublished = !!(settings.agendaPublished || settings.programmePublished);
-  const offer = lowestPublicOffer(event.ticketTypes, now);
-  const state = registrationState({ endDate: event.endDate, registrationOpen: settings.registrationOpen !== false, offer }, now);
+  // The rule the API and the register page share, so this page never says
+  // Register when the form would say closed or full.
+  const { state, offer } = publicRegistration(
+    {
+      endDate: event.endDate,
+      registrationOpen: settings.registrationOpen !== false,
+      eventFull: eventIsFull(event),
+      eventType: event.eventType,
+      settings,
+      ticketTypes: event.ticketTypes,
+    },
+    now,
+  );
+  // The public agenda serves PUBLISHED and LIVE events only, so a past
+  // event's programme is summarised here without a link to a page that 404s.
+  const agendaLinked = event.status !== "COMPLETED";
   const dates = formatEventDateRange(event.startDate, event.endDate, event.timezone);
   const accreditations = readAccreditations(settings);
   const accreditors = [...new Set(accreditations.map(accreditorLabel).filter((a): a is string => !!a))];
@@ -346,10 +379,15 @@ export default async function EventOverviewPage({ params }: Props) {
               </ul>
               {speakers.length > 12 && (
                 <p className="mt-3 text-sm text-slate-500">
-                  And {speakers.length - 12} more.{" "}
-                  <Link href={`/e/${event.slug}/agenda`} className="font-medium text-primary hover:underline">
-                    See everyone in the programme
-                  </Link>
+                  And {speakers.length - 12} more.
+                  {agendaLinked && (
+                    <>
+                      {" "}
+                      <Link href={`/e/${event.slug}/agenda`} className="font-medium text-primary hover:underline">
+                        See everyone in the programme
+                      </Link>
+                    </>
+                  )}
                 </p>
               )}
             </Section>
@@ -357,20 +395,12 @@ export default async function EventOverviewPage({ params }: Props) {
 
           {sessions.length > 0 && (
             <Section id="programme" eyebrow="Programme" title="Scientific programme">
-              <Link
-                href={`/e/${event.slug}/agenda`}
-                className="group flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-md sm:flex-row sm:items-center sm:justify-between sm:p-6"
-              >
-                <div className="flex flex-wrap gap-x-8 gap-y-3">
-                  <Stat value={sessions.length} label={sessions.length === 1 ? "session" : "sessions"} />
-                  <Stat value={programmeDays} label={programmeDays === 1 ? "day" : "days"} />
-                  {event.tracks.length > 0 && <Stat value={event.tracks.length} label={event.tracks.length === 1 ? "track" : "tracks"} />}
-                </div>
-                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary">
-                  View the full programme
-                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                </span>
-              </Link>
+              <ProgrammeSummary
+                href={agendaLinked ? `/e/${event.slug}/agenda` : null}
+                sessions={sessions.length}
+                days={programmeDays}
+                tracks={event.tracks.length}
+              />
             </Section>
           )}
 
@@ -401,7 +431,7 @@ export default async function EventOverviewPage({ params }: Props) {
                   // and it opens without any script.
                   <details key={item.question} className="group" open={i === 0}>
                     <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-left font-medium text-slate-900 [&::-webkit-details-marker]:hidden">
-                      <h3 className="text-[15px] leading-snug">{item.question}</h3>
+                      <span className="text-[15px] leading-snug">{item.question}</span>
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
                     </summary>
                     <p className="px-5 pb-5 text-sm leading-relaxed text-slate-600">{item.answer}</p>
@@ -474,13 +504,7 @@ function TopBar({
   return (
     <div className="border-b border-slate-200 bg-white">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
-        <Link href={listed ? "/catalogue" : "#"} className="flex min-w-0 items-center gap-2.5">
-          {organization.logo && (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={organization.logo} alt="" className="h-8 max-w-[56px] shrink-0 object-contain" />
-          )}
-          <span className="truncate text-sm font-semibold text-slate-800">{organization.name}</span>
-        </Link>
+        <OrgMark organization={organization} href={listed ? "/catalogue" : null} />
         <div className="flex shrink-0 items-center gap-2">
           {listed && (
             <Link href="/catalogue" className="hidden text-sm font-medium text-slate-600 hover:text-slate-900 sm:inline">
@@ -610,7 +634,7 @@ function Stat({ value, label }: { value: number; label: string }) {
 function SpeakerPhoto({ speaker }: { speaker: Speaker }) {
   if (speaker.photo) {
     /* eslint-disable-next-line @next/next/no-img-element */
-    return <img src={speaker.photo} alt={speaker.name} loading="lazy" className="h-20 w-20 rounded-full object-cover ring-4 ring-slate-50" />;
+    return <img src={speaker.photo} alt="" loading="lazy" className="h-20 w-20 rounded-full object-cover ring-4 ring-slate-50" />;
   }
   const initials = speaker.name
     .replace(/^(Dr|Prof|Mr|Mrs|Ms|Miss)\.?\s+/i, "")
@@ -626,3 +650,45 @@ function SpeakerPhoto({ speaker }: { speaker: Speaker }) {
   );
 }
 
+
+/** The organiser's logo and name; a link to the catalogue only when the event is in it. */
+function OrgMark({ organization, href }: { organization: { name: string; logo: string | null }; href: string | null }) {
+  const inner = (
+    <>
+      {organization.logo && (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img src={organization.logo} alt="" className="h-8 max-w-[56px] shrink-0 object-contain" />
+      )}
+      <span className="truncate text-sm font-semibold text-slate-800">{organization.name}</span>
+    </>
+  );
+  if (!href) return <div className="flex min-w-0 items-center gap-2.5">{inner}</div>;
+  return (
+    <Link href={href} className="flex min-w-0 items-center gap-2.5">
+      {inner}
+    </Link>
+  );
+}
+
+function ProgrammeSummary({ href, sessions, days, tracks }: { href: string | null; sessions: number; days: number; tracks: number }) {
+  const stats = (
+    <div className="flex flex-wrap gap-x-8 gap-y-3">
+      <Stat value={sessions} label={sessions === 1 ? "session" : "sessions"} />
+      <Stat value={days} label={days === 1 ? "day" : "days"} />
+      {tracks > 0 && <Stat value={tracks} label={tracks === 1 ? "track" : "tracks"} />}
+    </div>
+  );
+  if (!href) return <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">{stats}</div>;
+  return (
+    <Link
+      href={href}
+      className="group flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-md sm:flex-row sm:items-center sm:justify-between sm:p-6"
+    >
+      {stats}
+      <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary">
+        View the full programme
+        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+      </span>
+    </Link>
+  );
+}
