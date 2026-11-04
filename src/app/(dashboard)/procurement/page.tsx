@@ -32,7 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { budgetableEvents, budgetEventLabel, uncodedRunningCount } from "@/procurement/lib/budget-events";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -285,52 +285,53 @@ export default function ProcurementBudgetsPage() {
             <div className="space-y-2">
               <Label>Start from</Label>
               <Tabs value={form.startFrom} onValueChange={(v) => setForm((f) => ({ ...f, startFrom: v as StartFrom }))}>
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList aria-label="Start from" className="grid w-full grid-cols-3">
                   {START_FROM.map(([value, text]) => <TabsTrigger key={value} value={value}>{text}</TabsTrigger>)}
                 </TabsList>
+                {/* Each option's fields are its tab's panel, so every trigger points at a panel that exists. */}
+                <TabsContent value="sheet" className="pt-2">
+                  <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+                    Continue to upload the costing sheet (in Excel: File, Save As, CSV). You check every line, its category and product, and set the contingency and attendance there before the draft is created.
+                  </p>
+                </TabsContent>
+                <TabsContent value="template" className="pt-2">
+                  <div className="space-y-2">
+                    <Label>Template</Label>
+                    <Select value={form.templateId || "none"} onValueChange={(v) => setForm((f) => ({ ...f, templateId: v === "none" ? "" : v }))}>
+                      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No template (start empty)</SelectItem>
+                        {templates.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>{t.name} · {t.lines.length} lines</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </TabsContent>
+                <TabsContent value="copy" className="pt-2">
+                  <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
+                    <div className="min-w-0 space-y-2">
+                      <Label>Budget to copy</Label>
+                      <Select value={form.fromBudgetId} onValueChange={pickSource}>
+                        <SelectTrigger className="w-full min-w-0"><SelectValue placeholder="Pick a past budget" /></SelectTrigger>
+                        <SelectContent>
+                          {copySources.map((b) => (
+                            <SelectItem key={b.id} value={b.id}>{sourceLabel(b)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="price-change">Price change %</Label>
+                      <Input id="price-change" type="number" min={-50} max={100} step="0.5" value={form.priceChange} onChange={(e) => setForm((f) => ({ ...f, priceChange: e.target.value }))} />
+                    </div>
+                    <p className="text-xs text-muted-foreground sm:col-span-2">
+                      {copyHint(source, source?.eventId ? eventById.get(source.eventId)?.name : undefined, form.priceChange, canSeeRevenue)}
+                    </p>
+                  </div>
+                </TabsContent>
               </Tabs>
             </div>
-            {form.startFrom === "sheet" && (
-              <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
-                Continue to upload the costing sheet (in Excel: File, Save As, CSV). You check every line, its category and product, and set the contingency and attendance there before the draft is created.
-              </p>
-            )}
-            {form.startFrom === "template" && (
-              <div className="space-y-2">
-                <Label>Template</Label>
-                <Select value={form.templateId || "none"} onValueChange={(v) => setForm((f) => ({ ...f, templateId: v === "none" ? "" : v }))}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No template (start empty)</SelectItem>
-                    {templates.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.name} · {t.lines.length} lines</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {form.startFrom === "copy" && (
-              <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
-                <div className="min-w-0 space-y-2">
-                  <Label>Budget to copy</Label>
-                  <Select value={form.fromBudgetId} onValueChange={pickSource}>
-                    <SelectTrigger className="w-full min-w-0"><SelectValue placeholder="Pick a past budget" /></SelectTrigger>
-                    <SelectContent>
-                      {copySources.map((b) => (
-                        <SelectItem key={b.id} value={b.id}>{sourceLabel(b)}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="price-change">Price change %</Label>
-                  <Input id="price-change" type="number" min={-50} max={100} step="0.5" value={form.priceChange} onChange={(e) => setForm((f) => ({ ...f, priceChange: e.target.value }))} />
-                </div>
-                <p className="text-xs text-muted-foreground sm:col-span-2">
-                  {copyHint(source, source?.eventId ? eventById.get(source.eventId)?.name : undefined, form.priceChange, canSeeRevenue)}
-                </p>
-              </div>
-            )}
             {form.startFrom !== "sheet" && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
