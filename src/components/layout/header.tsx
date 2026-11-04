@@ -426,16 +426,23 @@ export function Header() {
               sends an organiser email, so the page has nothing for them.
             */}
             {isTeamRole(session?.user?.role) && (
-              <>
-                <DropdownMenuItem asChild>
-                  <Link href="/profile" className="flex items-center">
-                    <User className="mr-2 h-4 w-4" />
-                    Profile
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
+              <DropdownMenuItem asChild>
+                <Link href="/profile" className="flex items-center">
+                  <User className="mr-2 h-4 w-4" />
+                  Profile
+                </Link>
+              </DropdownMenuItem>
             )}
+            {/* Everyone: the events this person is registered for and the
+                certificates sent to them. Staff register for events too, and
+                the page says so plainly when there are none. */}
+            <DropdownMenuItem asChild>
+              <Link href="/my-registration" className="flex items-center">
+                <Ticket className="mr-2 h-4 w-4" />
+                My registrations
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-amber-600 focus:text-amber-600"
               onClick={() => setConfirmSignOut(true)}

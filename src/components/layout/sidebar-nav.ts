@@ -36,6 +36,7 @@ import {
   ScanSearch,
   ScrollText,
   Settings,
+  Ticket,
   UserCheck,
   Users,
   Video,
@@ -276,12 +277,17 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
   // REGISTRANT sees no sidebar — only the portal page
   if (isRegistrant) return { baseNavigation: [], visibleEventSections: [], hidden: true };
   if (isReviewer || isSubmitter) {
+    // Their own registrations and certificates (Nov 4, 2026). Once a submitter
+    // or reviewer went into Events there was no way back to /my-registration:
+    // their sidebar held only Events. Staff reach it from the account menu.
+    const myRegistrations: NavItem = { name: "My registrations", href: "/my-registration", icon: Ticket, areas: [] };
     const restrictedNavigation: NavItem[] = isReviewer
       ? [
           { name: "My Reviews", href: "/my-reviews", icon: ClipboardCheck, areas: [] },
           ...navigation.filter((item) => item.name === "Events"),
+          myRegistrations,
         ]
-      : navigation.filter((item) => item.name === "Events");
+      : [...navigation.filter((item) => item.name === "Events"), myRegistrations];
     // Submitter surface separation (July 30, 2026): a SUBMITTER sees only the
     // surface their signup flow covers (abstracts vs session proposals), plus
     // any surface where they actually have content — one truth table shared
