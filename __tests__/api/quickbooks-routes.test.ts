@@ -27,25 +27,25 @@ vi.mock("@/lib/logger", () => ({ apiLogger: logger }));
 vi.mock("@/lib/db", () => ({ db: {}, dbOperator: {} }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
 vi.mock("@/procurement/lib/route-helpers", () => ({ procurementGuard: guard }));
-vi.mock("@/procurement/integrations/quickbooks/app", async () => {
-  const actual = await vi.importActual<typeof import("@/procurement/integrations/quickbooks/app")>(
-    "@/procurement/integrations/quickbooks/app",
+vi.mock("@/lib/quickbooks/app", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/quickbooks/app")>(
+    "@/lib/quickbooks/app",
   );
   return { ...actual, loadQuickBooksApp: mockLoadApp };
 });
-vi.mock("@/procurement/integrations/quickbooks/connection", async () => {
-  const actual = await vi.importActual<typeof import("@/procurement/integrations/quickbooks/connection")>(
-    "@/procurement/integrations/quickbooks/connection",
+vi.mock("@/lib/quickbooks/connection", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/quickbooks/connection")>(
+    "@/lib/quickbooks/connection",
   );
   return { ...actual, storeNewConnection: mockStoreNew, loadConnection: mockLoad, clearConnection: mockClear };
 });
-vi.mock("@/procurement/integrations/quickbooks/oauth", async () => {
-  const actual = await vi.importActual<typeof import("@/procurement/integrations/quickbooks/oauth")>(
-    "@/procurement/integrations/quickbooks/oauth",
+vi.mock("@/lib/quickbooks/oauth", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/quickbooks/oauth")>(
+    "@/lib/quickbooks/oauth",
   );
   return { ...actual, exchangeCode: mockExchange, revokeToken: mockRevoke };
 });
-vi.mock("@/procurement/integrations/quickbooks/client", () => ({
+vi.mock("@/lib/quickbooks/client", () => ({
   runHealthCheck: mockHealth,
   listClasses: mockClasses,
   listAccounts: mockAccounts,
@@ -57,7 +57,7 @@ import { GET as connectGet } from "@/app/api/integrations/quickbooks/connect/rou
 import { GET as callbackGet } from "@/app/api/integrations/quickbooks/callback/route";
 import { POST as testPost } from "@/app/api/integrations/quickbooks/test/route";
 import { GET as chartGet } from "@/app/api/integrations/quickbooks/chart/route";
-import { mintConnectState } from "@/procurement/integrations/quickbooks/state";
+import { mintConnectState } from "@/lib/quickbooks/state";
 
 const SECRET = "test-secret-for-quickbooks-route-tests";
 

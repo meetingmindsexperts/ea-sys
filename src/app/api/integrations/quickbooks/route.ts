@@ -4,9 +4,9 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { decryptSecret } from "@/lib/eventsair-client";
 import { procurementGuard } from "@/procurement/lib/route-helpers";
-import { loadQuickBooksApp } from "@/procurement/integrations/quickbooks/app";
-import { clearConnection, loadConnection, toStatus } from "@/procurement/integrations/quickbooks/connection";
-import { revokeToken } from "@/procurement/integrations/quickbooks/oauth";
+import { loadQuickBooksApp } from "@/lib/quickbooks/app";
+import { clearConnection, loadConnection, toStatus } from "@/lib/quickbooks/connection";
+import { revokeToken } from "@/lib/quickbooks/oauth";
 
 const ROUTE = "integrations/quickbooks";
 

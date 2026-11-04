@@ -36,7 +36,7 @@ vi.mock("@/lib/security", async () => {
 
 import { NextResponse } from "next/server";
 import { GET, PUT, DELETE } from "@/app/api/integrations/quickbooks/credentials/route";
-import { QBO_CALLBACK_PATH, readStoredApp } from "@/procurement/integrations/quickbooks/app";
+import { QBO_CALLBACK_PATH, readStoredApp } from "@/lib/quickbooks/app";
 import { decryptSecret, encryptSecret } from "@/lib/eventsair-client";
 
 const SECRET = "test-secret-for-quickbooks-credentials-tests";

@@ -19,11 +19,11 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/event-settings", () => ({ updateOrganizationSettings: mockUpdateOrgSettings }));
 
 import { encryptSecret } from "@/lib/eventsair-client";
-import { qboApiBase } from "@/procurement/integrations/quickbooks/config";
-import { QBO_CALLBACK_PATH, readStoredApp, resolveStoredApp, toAppStatus, validateRedirectUri } from "@/procurement/integrations/quickbooks/app";
-import { mintConnectState, verifyConnectState } from "@/procurement/integrations/quickbooks/state";
-import { getAccessToken, readConnection, toStatus } from "@/procurement/integrations/quickbooks/connection";
-import { listAccounts, listClasses, qboQuery } from "@/procurement/integrations/quickbooks/client";
+import { qboApiBase } from "@/lib/quickbooks/config";
+import { QBO_CALLBACK_PATH, readStoredApp, resolveStoredApp, toAppStatus, validateRedirectUri } from "@/lib/quickbooks/app";
+import { mintConnectState, verifyConnectState } from "@/lib/quickbooks/state";
+import { getAccessToken, readConnection, toStatus } from "@/lib/quickbooks/connection";
+import { listAccounts, listClasses, qboQuery } from "@/lib/quickbooks/client";
 
 const SECRET = "test-secret-for-quickbooks-unit-tests";
 const REDIRECT = `https://x.test${QBO_CALLBACK_PATH}`;

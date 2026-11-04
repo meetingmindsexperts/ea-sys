@@ -27,8 +27,8 @@ import {
   toAppStatus,
   validateRedirectUri,
   type StoredQuickBooksApp,
-} from "@/procurement/integrations/quickbooks/app";
-import type { QuickBooksEnvironment } from "@/procurement/integrations/quickbooks/config";
+} from "@/lib/quickbooks/app";
+import type { QuickBooksEnvironment } from "@/lib/quickbooks/config";
 import { z } from "zod";
 
 const ROUTE = "integrations/quickbooks/credentials";

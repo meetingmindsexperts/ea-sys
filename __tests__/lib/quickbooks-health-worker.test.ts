@@ -14,9 +14,9 @@ const { mockDb, mockHealth, logger } = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: logger }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
-vi.mock("@/procurement/integrations/quickbooks/client", () => ({ runHealthCheck: mockHealth }));
+vi.mock("@/lib/quickbooks/client", () => ({ runHealthCheck: mockHealth }));
 
-import { runQuickBooksHealthTick } from "@/procurement/integrations/quickbooks/health-worker";
+import { runQuickBooksHealthTick } from "@/lib/quickbooks/health-worker";
 
 const connected = { realmId: "r", environment: "sandbox", accessTokenEncrypted: "a", refreshTokenEncrypted: "b" };
 

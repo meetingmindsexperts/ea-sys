@@ -446,7 +446,7 @@ OPERATOR_LANE_ALLOWLIST=(
   "src/lib/certificates/auto-issue.ts"       # survey-completed candidate sweep
   "src/lib/certificates/issue-worker.ts"     # active-run scan + stall reclamation
   "src/lib/dtcm-eticket/issue-worker.ts"     # RUNNING DET-run scan (each run worked in its own lane)
-  "src/procurement/integrations/quickbooks/health-worker.ts" # which orgs hold a QuickBooks connection (the probe itself runs in the org's lane)
+  "src/lib/quickbooks/health-worker.ts" # which orgs hold a QuickBooks connection (the probe itself runs in the org's lane)
   "src/crm/reminders-worker.ts"              # due-task scan
   "src/crm/inbound-email-worker.ts"          # reply-token → thread resolve (the tenant is the ANSWER)
   "src/crm/contact-score-worker.ts"          # which-orgs-have-contacts scan; each repair runs in that org's lane (Oct 29, 2026)

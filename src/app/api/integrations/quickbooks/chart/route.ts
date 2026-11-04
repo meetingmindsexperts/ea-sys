@@ -9,7 +9,7 @@ import { apiLogger } from "@/lib/logger";
 import { rateLimited } from "@/lib/api-errors";
 import { checkRateLimit } from "@/lib/security";
 import { procurementGuard } from "@/procurement/lib/route-helpers";
-import { listAccounts, listClasses } from "@/procurement/integrations/quickbooks/client";
+import { listAccounts, listClasses } from "@/lib/quickbooks/client";
 
 const ROUTE = "integrations/quickbooks/chart";
 

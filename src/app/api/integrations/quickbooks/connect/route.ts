@@ -5,9 +5,9 @@ import { apiLogger } from "@/lib/logger";
 import { rateLimited } from "@/lib/api-errors";
 import { checkRateLimit } from "@/lib/security";
 import { procurementGuard } from "@/procurement/lib/route-helpers";
-import { loadQuickBooksApp } from "@/procurement/integrations/quickbooks/app";
-import { buildAuthorizeUrl } from "@/procurement/integrations/quickbooks/oauth";
-import { mintConnectState } from "@/procurement/integrations/quickbooks/state";
+import { loadQuickBooksApp } from "@/lib/quickbooks/app";
+import { buildAuthorizeUrl } from "@/lib/quickbooks/oauth";
+import { mintConnectState } from "@/lib/quickbooks/state";
 
 const ROUTE = "integrations/quickbooks/connect";
 

@@ -10,11 +10,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { procurementGuard } from "@/procurement/lib/route-helpers";
-import { loadQuickBooksApp } from "@/procurement/integrations/quickbooks/app";
-import { storeNewConnection } from "@/procurement/integrations/quickbooks/connection";
-import { exchangeCode } from "@/procurement/integrations/quickbooks/oauth";
-import { verifyConnectState } from "@/procurement/integrations/quickbooks/state";
-import { runHealthCheck } from "@/procurement/integrations/quickbooks/client";
+import { loadQuickBooksApp } from "@/lib/quickbooks/app";
+import { storeNewConnection } from "@/lib/quickbooks/connection";
+import { exchangeCode } from "@/lib/quickbooks/oauth";
+import { verifyConnectState } from "@/lib/quickbooks/state";
+import { runHealthCheck } from "@/lib/quickbooks/client";
 
 const ROUTE = "integrations/quickbooks/callback";
 

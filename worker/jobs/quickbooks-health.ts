@@ -6,7 +6,7 @@
  * daily digest (05:30), so a connection that broke overnight is already
  * recorded when the digest is written.
  */
-import { runQuickBooksHealthTick } from "@/procurement/integrations/quickbooks/health-worker";
+import { runQuickBooksHealthTick } from "@/lib/quickbooks/health-worker";
 import { apiLogger } from "@/lib/logger";
 import { withJobLock } from "../lib/job-lease";
 import { JOB_IDS } from "../lib/job-ids";

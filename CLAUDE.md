@@ -112,7 +112,7 @@ ea-sys/
 │   ├── procurement/               # Budget & Procurement module. LIVE IN PRODUCTION since
 │   │                              #   Sep 14, 2026, gated by PROCUREMENT_MODULE_ENABLED. Same
 │   │                              #   one-way boundary as crm/ and hr/. components/ · hooks/ ·
-│   │                              #   integrations/ (QuickBooks) · lib/ · services/
+│   │                              #   lib/ · services/ (QuickBooks moved to src/lib/quickbooks/)
 │   │                              #   Surfaces: (dashboard)/procurement/ + api/procurement/
 │   ├── analytics/                 # first-party visitor analytics (no third-party JS, no
 │   │                              #   cookies). core/ is written for extraction and may not
@@ -123,6 +123,8 @@ ea-sys/
 │   │   ├── ai/                    # provider abstraction (Anthropic, OpenAI)
 │   │   ├── certificates/          # render · issue-worker · bundle · tokens
 │   │   ├── zoom/ webinar/         # Zoom API clients · webinar state machines
+│   │   ├── quickbooks/            # QuickBooks Online connector (OAuth, reads, CRM Estimate
+│   │   │                          #   writes); shared by Budgets, the CRM and later invoices
 │   │   ├── tenant/                # multi-tenancy spine (host resolver, RLS assert)
 │   │   ├── pdf/                   # shared PDF layout primitives (invoice/quote/receipt)
 │   │   ├── survey/ rsvp/ reimbursement/ speaker-profile/ help-chat/ infra/

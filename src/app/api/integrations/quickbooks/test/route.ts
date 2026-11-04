@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { rateLimited } from "@/lib/api-errors";
 import { checkRateLimit } from "@/lib/security";
 import { procurementGuard } from "@/procurement/lib/route-helpers";
-import { runHealthCheck } from "@/procurement/integrations/quickbooks/client";
+import { runHealthCheck } from "@/lib/quickbooks/client";
 
 const ROUTE = "integrations/quickbooks/test";
 

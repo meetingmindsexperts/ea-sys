@@ -287,7 +287,7 @@ Disconnect revokes and clears. A daily worker job keeps the token warm and
 records whether the connection still works, because a refresh token unused
 for about 100 days stops working and nothing would otherwise say so.
 
-**Files.** `src/procurement/integrations/quickbooks/` (`config.ts` the
+**Files.** `src/lib/quickbooks/` (`config.ts` the
 fixed Intuit constants, `app.ts` the per-organisation Intuit app,
 `state.ts` the signed OAuth state, `oauth.ts` the
 three Intuit calls, `connection.ts` the stored per-organisation connection,
@@ -401,7 +401,7 @@ FX. `AccountMapping` is not needed yet because nothing is posted.
 
 **Tables:** `Outbox`, `SyncLog`, `FxRate`, `AccountMapping`, `SupplierInvoice`, `SupplierInvoiceLine`.
 
-**Files.** `src/lib/outbox/` (core), `src/procurement/integrations/quickbooks/` (`AccountingProvider` interface, `QuickBooksProvider`, OAuth token lifecycle, vendor, chart of accounts, tax code and Class pulls, PO create and close, read-back of POs, bills, vendor credits and payments since a cursor), `src/procurement/integrations/fx/` (`FxRateProvider`, the Central Bank adapter), the mapping admin and Integration Monitor pages, the unallocated-bills page with link-or-write-off. Worker: `outbox-drain` (every minute), `qbo-readback` (nightly plus an on-demand route that enqueues one run), `fx-rates` (daily). The `WORKER_JOBS` allow-list (§1.4) lands with the first of these.
+**Files.** `src/lib/outbox/` (core), `src/lib/quickbooks/` (`AccountingProvider` interface, `QuickBooksProvider`, OAuth token lifecycle, vendor, chart of accounts, tax code and Class pulls, PO create and close, read-back of POs, bills, vendor credits and payments since a cursor), `src/procurement/integrations/fx/` (`FxRateProvider`, the Central Bank adapter), the mapping admin and Integration Monitor pages, the unallocated-bills page with link-or-write-off. Worker: `outbox-drain` (every minute), `qbo-readback` (nightly plus an on-demand route that enqueues one run), `fx-rates` (daily). The `WORKER_JOBS` allow-list (§1.4) lands with the first of these.
 
 **Tests.** Outbox claim under concurrency and backoff schedule (real Postgres), producer-and-state in one transaction (a failed commit leaves no outbox row), dead-letter alerts, adapter tests against recorded QuickBooks responses (fixtures, no network), read-back matching (from-PO bill matched, standalone bill unallocated, credit note reduces the line), FX applied at the bill's rate for actual and the payment's rate for paid.
 
