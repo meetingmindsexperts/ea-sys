@@ -379,8 +379,13 @@ export function drawInfoBoxes(
   leftLines += extraLines.length;
   const leftHeight = 12 + leftLines * lineH + 8;
 
-  const rightLines = input.meta.length;
-  const rightHeight = 12 + rightLines * labelLineH + 8;
+  // Each value is fitted before anything is drawn, so the box can be sized
+  // to what will actually print. `lineBreak: false` did not stop pdfkit
+  // wrapping a value given a width: a 34-character billing email broke across
+  // two lines and printed over the Billing Phone row below (Nov 4, 2026).
+  const valueWidth = rightWidth * 0.60 - 10;
+  const fitted = input.meta.map((item) => fitMetaValue(doc, item.value, valueWidth));
+  const rightHeight = 12 + fitted.reduce((sum, f) => sum + Math.max(labelLineH, f.height + 3), 0) + 8;
 
   const boxHeight = Math.max(leftHeight, rightHeight, 60);
 
@@ -424,24 +429,34 @@ export function drawInfoBoxes(
   doc.lineWidth(0.5).strokeColor(COLOR_BORDER)
     .rect(rightX, y, rightWidth, boxHeight).stroke();
 
-  // Label column narrowed to ~38% of the box; value column widened to
-  // ~62% so longer emails/references stay on one line. lineBreak: false
-  // is a belt-and-braces guard — for truly extreme inputs pdfkit will
-  // clip instead of wrapping, which is preferable to overlapping rows.
+  // Label column ~38% of the box, value column ~62%. A value too long for
+  // one line at 9pt is set smaller (down to 7pt); only past that does it wrap,
+  // and then its row is as tall as the wrapped text, so no row overlaps.
   let rY = y + 10;
-  for (const item of input.meta) {
+  input.meta.forEach((item, i) => {
+    const fit = fitted[i];
     doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica")
       .text(item.label, rightX + 10, rY, { width: rightWidth * 0.38 });
-    doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica")
-      .text(item.value, rightX + rightWidth * 0.40, rY, {
-        width: rightWidth * 0.60 - 10,
+    doc.fontSize(fit.size).fillColor(COLOR_TEXT).font("Helvetica")
+      .text(item.value, rightX + rightWidth * 0.40, rY + (9 - fit.size) / 2, {
+        width: valueWidth,
         align: "left",
-        lineBreak: false,
       });
-    rY += labelLineH;
-  }
+    rY += Math.max(labelLineH, fit.height + 3);
+  });
 
   return y + boxHeight + 18;
+}
+
+/** The font size a meta value prints at, and the height it takes. */
+function fitMetaValue(doc: PDFKit.PDFDocument, value: string, width: number): { size: number; height: number } {
+  doc.font("Helvetica");
+  for (const size of [9, 8.5, 8, 7.5, 7]) {
+    doc.fontSize(size);
+    if (doc.widthOfString(value) <= width) return { size, height: doc.currentLineHeight() };
+  }
+  doc.fontSize(7);
+  return { size: 7, height: doc.heightOfString(value, { width }) };
 }
 
 // ── Region 3: line items table ──
