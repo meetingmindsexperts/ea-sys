@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Public event catalogue, event pages, and search engines (November 4)
+
+- **`/catalogue`: every event an organiser lists, public and server-rendered.** Search, country / type / specialty filters (a plain GET form), Upcoming and Past tabs, paging, mobile first. An event appears only when **Settings, Registration, "Show in the event catalogue"** is on (off by default, so a closed or invite-only meeting is never advertised) and it is PUBLISHED or LIVE (COMPLETED under Past). Cards use the mobile banner and show the wide banner whole rather than cropped
+- **Topic pages** for every specialty and country with a listed event: `/catalogue/specialty/cardiology`, `/catalogue/country/oman`, with a heading written the way people search, an intro written from the upcoming events, and "Browse by specialty / country" links. Free-text spellings group by slug ("Cardiology", "cardiology ", "cardiology") so one page lists them all; a value with no listed event has no page
+- **`/e/{slug}` is now the event's own page** instead of a redirect into the form (the form's HTML gave a crawler six words; the page gives 220 to 470). Banner, headline, key facts (dates, venue, CME hours and accreditor, format), the organiser's description, CME credits with references, registration types, faculty and programme once the agenda is published, venue with a Maps link, and a Q&A. A sticky registration card on desktop and a fixed Register bar on phones; the form is unchanged at `/e/{slug}/register`. Anything not public still goes to the form, as before
+- **One availability rule for every public surface:** `src/lib/public-availability.ts` (each rate's seats and window, the event-wide cap, where the main Register link lands). The public event API, the register page and the event page all call it, so the event page never says Register when the form says closed or full. The "from" price is the lowest paid price at that landing rate; a free rate never makes a paid event read Free
+- **Search engines and AI assistants:** `robots.txt` (everyone, AI crawlers included, may read the catalogue and event pages; dashboard, sign-in, personal and secret-link pages are disallowed), `sitemap.xml`, `llms.txt`, per-site titles and canonicals, filtered catalogue views `noindex`, and JSON-LD (Organization, BreadcrumbList, ItemList, Event with offers and performers, FAQPage). An event page is indexed only when the event is listed. Everything is built from the request's host, so the platform instance gets its own
+- Not-found pages still answer HTTP 200 with `noindex`: the root `loading.tsx` streams every page before it decides. Guide: `docs/PUBLIC_CATALOGUE_SEO.md`
+
+### My events: every registration and certificate in one place (November 4)
+
+- **`/my-registration` lists every event a person is registered for**, each linking to that event's own page, which is still where a registration is viewed, edited and paid for (the April 21 rule). It always shows the list, even of one
+- **Certificates with their CME hours and a download**, on the list and on each event's own page (first, since they arrive after the event). Only certificates actually released: a run's certificate once the run has emailed it (read from the run items, so a certificate reused by a later run still counts), one issued directly from the detail sheet, or one resent; never revoked or unrendered. `GET /api/registrant/certificates` and `.../[id]/download` both go through `findReleasedCertificates`. A speaker's appreciation certificate is matched by the Speaker's account or email (owner decision). Titles use the template's role, else its name, so "CME (Speaker)" and "CME (Moderator)" differ
+- **CME total:** hours this year and in total, from ATTENDANCE certificates only, each event once, by the event's year in its own time zone
+- **Ways back:** "My registrations" in the account menu for everyone and in the submitter and reviewer sidebar; a visible "All my events" button on every event page; "Not registered yet" lists the person's other registrations. Signing in on an event's login page lands on that event
+- Mobile first on both pages: stacked layouts and full-width 44px buttons on a phone (Open registration, Download, Pay Now, Invoice / Receipt via an opt-in `stretch` on `InvoiceDownloadButtons`)
+
+### Settings, Integrations: review fixes (November 4)
+
+- **QuickBooks:** the OAuth callback refuses a state started by another person; Settings opens the tab named in `?tab=` (only one the person can see), so the callback lands on Integrations; the card shows only where Budgets is on and to ADMIN / SUPER_ADMIN, and a refused status read shows an error instead of "no app configured"
+- **EventsAir:** credentials save (10/hr) and connection test (30/hr) are rate limited per organisation, a save is audited (client id as a fingerprint, the secret only as rotated), and the old test result resets after a save. AI key saves and deletes are audited too
+
+### Registration form: signed in, details prefilled (November 4)
+
+- Someone who already has an account and signs in from the "You already have an account" notice comes back to the form (query string kept) with their details filled from their latest registration, not a loop to an empty My Registration. "Not you? Register someone else" clears it. Staff sessions and the desk QR never enter signed-in mode, and a hidden form field is never prefilled
+- A signed-in registration links to the account without asking for a password, only when the session's email still matches the account (`linkOnly` on `ensureRegistrantAccount`, which never creates a second account)
+
 ### DTCM: the code from a DET purchase shows straight away (November 4)
 
 - **Fixed: right after "Get code from DET" the sheet could say the code was not on the registration.** The detail load started when the sheet opened could land after the refresh that followed the purchase and put the pre-purchase row back. Only the newest load of the registration now replaces the row.

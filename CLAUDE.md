@@ -56,7 +56,12 @@ ea-sys/
 │   │   │   ├── contacts/ invoices/ media/ activity/ logs/ settings/   # org-level
 │   │   │   ├── my-registration/ my-reviews/ profile/                  # per-user portals
 │   │   │   └── layout.tsx         # sidebar + header shell
-│   │   ├── e/[slug]/              # PUBLIC event pages (no auth)
+│   │   ├── catalogue/             # PUBLIC event catalogue + [kind]/[topic] topic pages
+│   │   │                          #   (specialty / country). robots.ts, sitemap.ts and
+│   │   │                          #   llms.txt/ sit beside it at the app root. Guide:
+│   │   │                          #   docs/PUBLIC_CATALOGUE_SEO.md
+│   │   ├── e/[slug]/              # PUBLIC event pages (no auth); page.tsx is the
+│   │   │                          #   server-rendered event page (Nov 4, 2026)
 │   │   │   │                      #   register · group/register · abstract/register ·
 │   │   │   │                      #   proposal/register · complete-registration ·
 │   │   │   │                      #   confirmation · agenda · session/[id] · survey ·
@@ -191,6 +196,9 @@ spine you need in order to start, and the files where the obvious call is the wr
 - [src/hooks/use-api.ts](src/hooks/use-api.ts) - the client data layer, 168 React Query hooks.
 
 ### Where the obvious call is the wrong one
+
+- `src/lib/public-availability.ts` - THE rule for whether the public can register and at which rate (Nov 4, 2026): `tierAvailability` (a rate's seats under its type and its sales window), `eventIsFull` (the event-wide cap), `mainRegisterTarget` / `mainLinkTiers` (where the main Register link lands: ticked rates only, never a sponsor-code rate). The public event API, the register page and the event page at `/e/{slug}` all call it. **Never re-derive availability on a new public surface**: the event page's first version did and said "Register" while the form said full
+- `src/lib/registrant-certificates.ts` - `findReleasedCertificates()`: which certificates a person may see and download on My events. A certificate's own run pointers do NOT say whether it was sent (a reusing run leaves them alone), so "released" is read from the run items that were emailed; the list and the download route share it
 
 - `src/lib/email-preview-data.ts` - `buildRealPreviewOverrides(eventId)` — async real-data layer for email previews/test-sends (first session + Zoom passcode/recording state, abstract titles/count, a representative speaker's real presentationDetails, real login/review links). Run by BOTH preview routes in parallel with their event lookup; failure-isolated (samples still render). The module header documents which tokens deliberately STAY representative samples (per-recipient minted links, payment artifacts, un-issued serials, entryBarcode)
 - `src/lib/submission-share.ts` and `src/lib/registration-share.ts` - The field catalogues for the shared views (Sep 29, 2026). **A field that is not in the catalogue can never be shared**, so a new shareable field is added there, never in a route; the public route projects every row through it and selects contact columns only when switched on. Sponsor attribution on registration views uses the same three-way rule as the Registrations page filter (`sponsorAttributionWhere`), which is pinned by `sponsor-attribution.test.ts`; keep the two in step.
@@ -591,11 +599,11 @@ The last few things that landed, as one-liners — enough to orient, no more. **
 full history is in [CHANGELOG.md](CHANGELOG.md)**, newest first; read it when a task
 actually touches that history, not by default.
 
+- **Public catalogue and event pages** (Nov 4): `/catalogue` (opt-in per event: Settings, Registration, "Show in the event catalogue"), topic pages per specialty and country, `/e/{slug}` as a server-rendered event page instead of a redirect into the form, plus robots.txt, sitemap.xml, llms.txt and JSON-LD for search engines and AI assistants. Guide: `docs/PUBLIC_CATALOGUE_SEO.md`
+- **My events** (Nov 4): `/my-registration` lists every event a person is registered for with their released certificates, CME hours and a CME total; each event's own page stays the place to view, edit and pay
 - **Shared views** (Sep 29): read-only secret links at `/e/<slug>/shared/<token>`: one per event for abstracts and for session proposals, up to 10 named registration views for staff. The organiser picks statuses, filters and fields; contact details are off by default and confirmed; amounts and reviews can never be shown. Plans: `docs/SUBMISSION_SHARE_PLAN.md`, `docs/REGISTRATION_SHARE_PLAN.md`
 - **Approval chains** (Sep 28): a named spend-request chain (2 to 4 people, final approver last, with a stand-in) and a budget approver with a backup, set by the super admin, who never approves; approving then signing off is allowed and flagged, not blocked
 - **QuickBooks connector** (Sep 22) — connects and READS only, never posts; the Intuit app is per organisation and entered in the UI, so the `QUICKBOOKS_*` env vars are retired and read nowhere
-- **Event Agent, Phases 0–4** (Sep 21–22) — org-level door at `/agent` with the event optional, one tool schema shared by both doors, an approval card on seven irreversible tools, every in-app run stored
-- **Budget & Procurement** (Sep 14–17) — LIVE in production: budgets, spend requests, purchase orders, approvals with reminders and escalation, revenue and margin
 
 **Keep this list short.** A new entry goes in [CHANGELOG.md](CHANGELOG.md), not here.
 If this section is growing past a handful of bullets it is drifting back into being a
@@ -699,6 +707,7 @@ were a second copy of each document and had drifted from both the docs and the c
 - `docs/SPONSOR_ATTRIBUTION_PLAN.md` - Sponsors, their promo codes, and reporting what they brought. PHASE 1 SHIPPED Sep 2, 2026 (`529e490a`); phases 2 and 3 not started, see [ROADMAP](docs/ROADMAP.md) §"Sponsor attribution".
 - `docs/MULTI_SURVEY_PLAN.md` - Several surveys per event, one of them the certificate (CME) survey, reserved and locked: BUILT Oct 6, 2026 (steps 1 to 5: Survey table, builder, per-survey links, the end-of-webinar popup, the thank-you email link). §13 holds the owner decisions, §14 what was built.
 - `docs/CUSTOM_ROLES_PLAN.md` - Customizable roles: permission-based access for org staff. IN BUILD (Sep 15, 2026; owner: "no longer WEBINARS and MEMBER, completely customizable"). Phase 0 COMPLETE Sep 30 (allow-lists, G1 to G9, `no-inline-role-lists.test.ts`). Phase 1 slice 1 BUILT Sep 30: `src/lib/permissions/{catalogue,system-roles,can}.ts` and the parity test; it EXTENDS the procurement roles' `PermissionSet` tables, never a second role system. Slices 2 to 4 BUILT Oct 1 (grant scopes, keys out of the cookie, `requirePermission()` and the route status matrix in `__tests__/api/route-matrix/`). Phase 2 (the route sweep) DONE Oct 5: all 18 domains swept (events, tickets and promo, sessions, speakers, abstracts and proposals, accommodation, communications, certificates, webinar, faculty extras, contacts, registrations desk, money, the remaining event routes, organisation settings and users, the CRM, HR and procurement, plus the organisation-level leftovers; 335 route files, gated by `scripts/check-permission-guards.sh`). A swept route calls `requirePermission(session, "<key>", { route, eventId })` and looks the event up through `gate.eventWhere`; never add `denyReviewer` or a role comparison back to one. The plan's "Behaviour changes so far" table lists every intended change.
+- `docs/PUBLIC_CATALOGUE_SEO.md` - The public catalogue, topic pages and event page (Nov 4, 2026): how an event gets listed, where every part of the public page comes from, and what robots.txt, the sitemap, llms.txt and the JSON-LD say. The operator's guide; read it before changing anything public.
 - `docs/SUBMISSION_SHARE_PLAN.md` - Shared abstracts / session proposals page (Sep 29, 2026). BUILT and deployed (`7f319d28`); the plan carries the owner rulings and the pre-build review.
 - `docs/REGISTRATION_SHARE_PLAN.md` - Shared registration views for staff (Sep 29, 2026). BUILT and deployed (`4edff7bb`). Note R3: a view is a convenience, not a restriction, for staff who have their own sign-in.
 - `docs/ONSITE_DESK_PLAN.md` - Onsite desk: one-step walk-ins and completing registration at the venue by QR or desk tablet (Oct 28, 2026). BUILT: step 1 (`Registration.completedAt`, the "Form not completed" filter, the completion form matching the public form), step 2 (the full-screen desk page `/events/[id]/check-in/desk`: search or scan, one-step walk-in via `POST .../registrations/walk-in`, `recordManualPayment()` in payment-service) and step 3 (Complete onsite: a 30-minute details-only link by QR or `mode=tablet`, `POST .../onsite-link`, the waiting list, Edit on the desk row).
