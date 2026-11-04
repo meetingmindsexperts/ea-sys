@@ -49,7 +49,8 @@ import {
 import { useEvent, useOrgBranding } from "@/hooks/use-api";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { readBadgePolicy } from "@/lib/badge-layout";
-import { formatPersonName } from "@/lib/utils";
+import { cn, formatPersonName } from "@/lib/utils";
+import { webinarBackgroundStyle } from "@/lib/webinar-page-layout";
 import { playBeep } from "@/lib/scan-feedback";
 import { readKioskExitPin } from "@/lib/kiosk-exit-pin";
 import { kioskPinKeyAction, shouldTrapKioskTab } from "@/lib/kiosk-focus";
@@ -192,7 +193,7 @@ export default function KioskCheckInPage() {
   // Reprint is OFF unless the organiser switched it on for this event
   // (Settings -> Registration -> Badge). Read through the shared reader so the
   // kiosk and the settings form cannot disagree about what the blob means.
-  const allowReprint = readBadgePolicy(event?.settings).allowKioskReprint;
+  const { allowKioskReprint: allowReprint, kioskBackgroundUrl } = readBadgePolicy(event?.settings);
 
   // EVENT branding first, organisation second (owner, 2026-08-27). The kiosk
   // stands in the lobby OF AN EVENT, so the mark above the scanner should be
@@ -627,7 +628,11 @@ export default function KioskCheckInPage() {
          lobby screen, closer to a printed sign than a page: it must look the
          same on every machine regardless of the viewer's light/dark setting,
          so nothing here may resolve differently per host. */
-      className="fixed inset-0 z-50 flex flex-col items-center bg-white text-slate-900 select-none"
+      className={cn(
+        "fixed inset-0 z-50 flex flex-col items-center text-slate-900 select-none",
+        kioskBackgroundUrl ? "bg-slate-100 bg-cover bg-center" : "bg-white",
+      )}
+      style={webinarBackgroundStyle(kioskBackgroundUrl)}
     >
       {/* Keyboard-wedge target — visually hidden, always focused */}
       <form
@@ -646,6 +651,16 @@ export default function KioskCheckInPage() {
         />
       </form>
 
+      {/* The check-in panel. With a kiosk background (owner, Nov 4 2026: "full
+          page branding on left and right like the webinar console") it is a
+          white column the banner's width, and the artwork shows either side;
+          without one it is simply the whole white screen. */}
+      <div
+        className={cn(
+          "flex min-h-0 w-full flex-1 flex-col items-center",
+          kioskBackgroundUrl && "max-w-[1200px] bg-white shadow-2xl",
+        )}
+      >
       {/* Event mark + event name */}
       {/* IN FLOW, not absolute. A full-bleed banner has a real height that
           varies with the artwork, so an absolutely-positioned header sat on top
@@ -777,6 +792,7 @@ export default function KioskCheckInPage() {
       )}
 
       </main>
+      </div>
 
       {/* No footer mark: the email footer artwork is drawn for an email,
           and on the kiosk it competed with the scan area (owner, Nov 4 2026). */}

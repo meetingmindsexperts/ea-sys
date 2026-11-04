@@ -28,6 +28,8 @@
  * would move every existing badge by a factor of 2.8.
  */
 
+import { isUploadOrHttpsUrl } from "@/lib/webinar";
+
 /** The original hardcoded badge. Every default below reproduces it exactly. */
 export const BASE_BADGE_W = 288; // 4 inches
 export const BASE_BADGE_H = 216; // 3 inches
@@ -626,9 +628,17 @@ export interface BadgePolicy {
    * by fixing the blob afterwards.
    */
   allowKioskReprint: boolean;
+  /**
+   * Full-page image behind the self-service kiosk (owner, Nov 4 2026: "full
+   * page branding on left and right like the webinar console"). Null = the
+   * plain white kiosk. Only an upload or an https URL, checked here on read
+   * because the general settings save writes `settings.badge` unvalidated
+   * (the same read-side check as the webinar page background).
+   */
+  kioskBackgroundUrl: string | null;
 }
 
-export const DEFAULT_BADGE_POLICY: BadgePolicy = { allowKioskReprint: false };
+export const DEFAULT_BADGE_POLICY: BadgePolicy = { allowKioskReprint: false, kioskBackgroundUrl: null };
 
 export function readBadgePolicy(settings: unknown): BadgePolicy {
   if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
@@ -638,7 +648,10 @@ export function readBadgePolicy(settings: unknown): BadgePolicy {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return DEFAULT_BADGE_POLICY;
   }
+  const background = (raw as Record<string, unknown>).kioskBackgroundUrl;
   return {
     allowKioskReprint: (raw as Record<string, unknown>).allowKioskReprint === true,
+    kioskBackgroundUrl:
+      typeof background === "string" && isUploadOrHttpsUrl(background) ? background : null,
   };
 }

@@ -471,6 +471,7 @@ export default function EventSettingsPage() {
           offsetYPt: String(resolvedBadge.offsetYPt),
           barcodeArrangement: resolvedBadge.barcodeArrangement,
           allowKioskReprint: readBadgePolicy(settings).allowKioskReprint,
+          kioskBackgroundUrl: readBadgePolicy(settings).kioskBackgroundUrl ?? "",
           fields: resolvedBadge.fields,
           exhibitorFields: resolvedBadge.exhibitorFields,
           fontSizes: {
@@ -744,6 +745,8 @@ export default function EventSettingsPage() {
     // Policy, not geometry — it rides in this form's state because it is one
     // card and one Save, but it is read back through readBadgePolicy.
     allowKioskReprint: false,
+    // "" = none, as BrandingImageField hands it back; saved as null.
+    kioskBackgroundUrl: "",
     fields: DEFAULT_BADGE_FIELDS,
     // Null = exhibitors print like everyone else. See fieldsForBadge.
     exhibitorFields: null as BadgeFields | null,
@@ -858,6 +861,7 @@ export default function EventSettingsPage() {
               offsetYPt: Number(badgeLayout.offsetYPt) || 0,
               barcodeArrangement: badgeLayout.barcodeArrangement,
               allowKioskReprint: badgeLayout.allowKioskReprint,
+              kioskBackgroundUrl: badgeLayout.kioskBackgroundUrl || null,
               fields: badgeLayout.fields,
               exhibitorFields: badgeLayout.exhibitorFields,
               fontSizes: badgeFontSizesPt(),
@@ -2048,6 +2052,14 @@ export default function EventSettingsPage() {
                     </span>
                   </span>
                 </label>
+                <BrandingImageField
+                  eventId={eventId}
+                  label="Kiosk background"
+                  value={badgeLayout.kioskBackgroundUrl}
+                  onChange={(url) => setBadgeLayout({ ...badgeLayout, kioskBackgroundUrl: url })}
+                  hint="Fills the kiosk screen to the left and right of the white check-in panel, like the webinar page background. About 1920×1080px, under 2 MB. Leave empty for a plain white kiosk."
+                  previewClassName="w-full h-40 object-cover"
+                />
               </div>
 
               <div className="mt-6">

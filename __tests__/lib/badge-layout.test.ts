@@ -492,7 +492,26 @@ describe("badge policy — kiosk reprint", () => {
     // Deliberately not a field on BadgeLayout: that object goes to the PDF
     // renderer, which has no business knowing about reprints.
     expect("allowKioskReprint" in DEFAULT_BADGE_LAYOUT).toBe(false);
-    expect(DEFAULT_BADGE_POLICY).toEqual({ allowKioskReprint: false });
+    expect(DEFAULT_BADGE_POLICY).toEqual({ allowKioskReprint: false, kioskBackgroundUrl: null });
+  });
+});
+
+describe("badge policy: kiosk background (Nov 4, 2026)", () => {
+  it("reads an upload or an https URL", () => {
+    expect(readBadgePolicy({ badge: { kioskBackgroundUrl: "/uploads/media/2026/11/bg.jpg" } }).kioskBackgroundUrl)
+      .toBe("/uploads/media/2026/11/bg.jpg");
+    expect(readBadgePolicy({ badge: { kioskBackgroundUrl: "https://cdn.example.com/bg.jpg" } }).kioskBackgroundUrl)
+      .toBe("https://cdn.example.com/bg.jpg");
+  });
+
+  it("is null when unset, cleared, or anything else", () => {
+    // The general settings save writes settings.badge unvalidated, so the
+    // read is the check: nothing but an upload or https reaches a CSS url().
+    expect(readBadgePolicy(undefined).kioskBackgroundUrl).toBeNull();
+    expect(readBadgePolicy({ badge: {} }).kioskBackgroundUrl).toBeNull();
+    for (const bad of ["", null, 7, "http://example.com/bg.jpg", "javascript:alert(1)", "data:image/png;base64,AAAA"]) {
+      expect(readBadgePolicy({ badge: { kioskBackgroundUrl: bad } }).kioskBackgroundUrl).toBeNull();
+    }
   });
 });
 
