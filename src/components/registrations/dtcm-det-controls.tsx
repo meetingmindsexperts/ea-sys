@@ -42,6 +42,10 @@ export function DtcmDetControls({ eventId, registrationId, currentCode, canResol
   // registration (cleared by hand, or a code arrived another way during the
   // sale). Buying again would be refused, so say what exists instead.
   const orphan = open ? undefined : data.orders.find((o) => o.status === "PURCHASED" && o.barcode && o.barcode !== currentCode);
+  // Only a sale from the environment in use now may go on the registration: a
+  // sandbox order outlives the switch to production, and its barcode would
+  // print on a badge DTCM's gate rejects.
+  const orphanUsable = Boolean(orphan && !hasCode && orphan.environment === data.environment);
 
   const handleIssue = async () => {
     try {
@@ -55,6 +59,7 @@ export function DtcmDetControls({ eventId, registrationId, currentCode, canResol
         toast.success("DTCM code issued by DET.");
       }
     } catch (err) {
+      console.error("[dtcm] get code from DET failed", err);
       toast.error(err instanceof Error ? err.message : "Could not get a code from DET", { duration: 12000 });
     }
   };
@@ -69,14 +74,13 @@ export function DtcmDetControls({ eventId, registrationId, currentCode, canResol
       )}
       {orphan && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-left text-xs text-amber-800">
-          DET sold a ticket for this person (order {orphan.orderId}) with barcode{" "}
+          DET sold a ticket for this person (order {orphan.orderId}, {envLabel(orphan.environment)}) with barcode{" "}
           <span className="font-mono">{orphan.barcode}</span>, which is not the code on this registration.{" "}
-          {hasCode
-            ? "If it is not needed, have an organiser reverse the unused DET order."
-            : "Put it on the registration rather than buying another."}
-          {/* Only onto an EMPTY registration: replacing a code someone put
-              there on purpose is a decision, not a one-click fix. */}
-          {!hasCode && (
+          {orphanAdvice(orphanUsable, orphan.environment === data.environment)}
+          {/* Only onto an EMPTY registration (replacing a code someone put
+              there on purpose is a decision, not a one-click fix), and only
+              from the environment in use now. */}
+          {orphanUsable && (
             <Button
               size="sm"
               variant="outline"
@@ -117,7 +121,7 @@ function OpenOrder({
 }) {
   const resolve = useResolveDtcmOrder(eventId, registrationId);
   const [detOrderId, setDetOrderId] = useState("");
-  const env = order.environment === "production" ? "production" : "sandbox";
+  const env = envLabel(order.environment);
 
   const run = async (body: { action: "found"; detOrderId: string } | { action: "not-bought" } | { action: "read-barcode" }, done: string) => {
     try {
@@ -125,6 +129,7 @@ function OpenOrder({
       await onCodeChanged();
       toast.success(done);
     } catch (err) {
+      console.error("[dtcm] resolve DET order failed", err);
       toast.error(err instanceof Error ? err.message : "Could not update the DET order", { duration: 12000 });
     }
   };
@@ -189,4 +194,14 @@ function OpenOrder({
       )}
     </div>
   );
+}
+
+function envLabel(environment: string): string {
+  return environment === "production" ? "production" : "sandbox";
+}
+
+function orphanAdvice(usable: boolean, sameEnvironment: boolean): string {
+  if (usable) return "Put it on the registration rather than buying another.";
+  if (!sameEnvironment) return "It was bought in another DET environment, so it cannot be used here.";
+  return "If it is not needed, have an organiser reverse the unused DET order.";
 }

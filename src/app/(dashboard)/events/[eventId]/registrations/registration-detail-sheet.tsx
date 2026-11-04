@@ -315,7 +315,18 @@ export function RegistrationDetailSheet({
   // land AFTER a refresh that followed a write (a DET purchase pressed while
   // the route was still compiling did exactly this), and putting the
   // pre-write row back made the sheet say the code was not on the registration.
+  // Every row written after a save goes through applyRow, which bumps it too.
   const detailFetchSeq = useRef(0);
+  // The registration the sheet is open on, for async work that outlives a
+  // switch: a refresh started for A must not write A's row over B.
+  const openIdRef = useRef<string | null>(registration?.id ?? null);
+  useEffect(() => {
+    openIdRef.current = registration?.id ?? null;
+  }, [registration?.id]);
+  const applyRow = (update: Registration | ((prev: Registration | null) => Registration | null)) => {
+    detailFetchSeq.current++;
+    setSelectedRegistration(update);
+  };
   if (registration !== prevRegistration) {
     setPrevRegistration(registration);
     if (registration !== null) {
@@ -362,7 +373,7 @@ export function RegistrationDetailSheet({
       apiPutJson<Registration>(`/api/events/${eventId}/registrations/${id}`, data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
-      setSelectedRegistration(data);
+      applyRow(data);
       toast.success("Registration updated");
     },
     onError: (error: Error) => {
@@ -381,11 +392,21 @@ export function RegistrationDetailSheet({
   // Promo code apply/remove (organizer). The endpoint returns the discount
   // financials; we re-fetch the full detail (with recomputed `financials`) so
   // the Payment Summary + quote reflect it, then refresh the list.
+  // Never throws: it runs AFTER a write that succeeded, so its failure must
+  // not read as the write failing.
   async function refreshSelectedRegistration(id: string) {
-    const seq = ++detailFetchSeq.current;
-    const fresh = await apiFetch<Registration>(`/api/events/${eventId}/registrations/${id}`);
-    if (seq === detailFetchSeq.current) setSelectedRegistration(fresh);
     queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+    if (id !== openIdRef.current) return;
+    const seq = ++detailFetchSeq.current;
+    try {
+      const fresh = await apiFetch<Registration>(`/api/events/${eventId}/registrations/${id}`);
+      if (seq === detailFetchSeq.current && id === openIdRef.current) setSelectedRegistration(fresh);
+    } catch (err) {
+      console.error("[RegistrationDetail] refresh after a save failed:", err);
+      // Let a load still in flight (the on-open one) apply after all.
+      if (seq === detailFetchSeq.current) detailFetchSeq.current = seq - 1;
+      toast.warning("Saved, but the sheet could not reload. Close and reopen it to see the latest.");
+    }
   }
 
   async function applyPromoCode() {
@@ -428,7 +449,7 @@ export function RegistrationDetailSheet({
       ),
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
-      setSelectedRegistration(data);
+      applyRow(data);
       setAdmitAnywayOpen(false);
       toast.success(
         variables.overridePayment
@@ -458,7 +479,7 @@ export function RegistrationDetailSheet({
       apiDelete<Registration>(`/api/events/${eventId}/registrations/${id}/check-in`),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
-      setSelectedRegistration(data);
+      applyRow(data);
       toast.success("Check-in undone — the attendee can be scanned in again");
     },
     onError: (error: Error) => {
@@ -739,6 +760,11 @@ export function RegistrationDetailSheet({
         error instanceof ApiError ? error.message : "Could not save the code",
         { duration: error instanceof ApiError && error.code === "UNIQUE_CONSTRAINT" ? 10000 : undefined },
       );
+      // Someone else changed the row (a bulk run, another desk): reload it, or
+      // every retry carries the same stale updatedAt and fails the same way.
+      if (error instanceof ApiError && error.code === "STALE_WRITE") {
+        await refreshSelectedRegistration(selectedRegistration.id);
+      }
     } finally {
       setSavingManualDtcm(false);
     }
@@ -826,7 +852,7 @@ export function RegistrationDetailSheet({
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       const d = data as { manual?: boolean; fullyRefunded?: boolean; refundedAmount?: number; amount?: number; currency?: string } | null | undefined;
       const fullyRefunded = d?.fullyRefunded ?? true;
-      setSelectedRegistration((prev) => {
+      applyRow((prev) => {
         if (!prev) return prev;
         return {
           ...prev,
@@ -885,7 +911,7 @@ export function RegistrationDetailSheet({
       const d = data as { amount?: number; currency?: string; emailed?: boolean; creditedAfter?: number } | null | undefined;
       // Reflect the new credited total inline so the Issue Refund button
       // enables immediately (it's gated on creditedAmount > 0).
-      setSelectedRegistration((prev) =>
+      applyRow((prev) =>
         prev && prev.financials
           ? { ...prev, financials: { ...prev.financials, creditedAmount: d?.creditedAfter ?? prev.financials.creditedAmount } }
           : prev,
@@ -1021,7 +1047,7 @@ export function RegistrationDetailSheet({
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       const d = data as { refunded?: boolean; refund?: { amount?: number; refundedAmount?: number; currency?: string } } | null | undefined;
-      setSelectedRegistration((prev) =>
+      applyRow((prev) =>
         prev
           ? {
               ...prev,
@@ -3536,7 +3562,7 @@ export function RegistrationDetailSheet({
       open={resetSurveyOpen}
       onOpenChange={setResetSurveyOpen}
       onReset={() => {
-        setSelectedRegistration((prev) => (prev ? { ...prev, surveyCompletedAt: null } : prev));
+        applyRow((prev) => (prev ? { ...prev, surveyCompletedAt: null } : prev));
         queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
         queryClient.invalidateQueries({ queryKey: ["activity"] });
       }}
