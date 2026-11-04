@@ -18,6 +18,7 @@ import {
   catalogueOrderBy,
   catalogueWhere,
   parseCatalogueQuery,
+  topicForValue,
   type CatalogueQuery,
 } from "@/lib/catalogue";
 import { Button } from "@/components/ui/button";
@@ -75,8 +76,13 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
 
 async function loadCatalogue(host: string | null, query: CatalogueQuery) {
   const { orgScope, organization } = await loadSiteContext(host);
-  const where = catalogueWhere(orgScope, query, new Date());
-  const [events, total, facets, topics] = await Promise.all([
+  // The menus send a topic's label; the filter matches every stored spelling.
+  const topics = await listTopicValues(orgScope);
+  const where = catalogueWhere(orgScope, query, new Date(), {
+    country: topicForValue(topics.countries, query.country)?.variants,
+    specialty: topicForValue(topics.specialties, query.specialty)?.variants,
+  });
+  const [events, total, facets] = await Promise.all([
     db.event.findMany({
       where,
       orderBy: catalogueOrderBy(query),
@@ -87,7 +93,6 @@ async function loadCatalogue(host: string | null, query: CatalogueQuery) {
     db.event.count({ where }),
     // The type menu's values; country and specialty come with the topics.
     db.event.findMany({ where: catalogueBaseWhere(orgScope), distinct: ["eventType"], select: { eventType: true } }),
-    listTopicValues(orgScope),
   ]);
   const types = [...new Set(facets.map((f) => f.eventType).filter((t): t is keyof typeof EVENT_TYPE_LABEL => !!t))].sort();
   return { events, total, types, organization, ...topics };
@@ -143,9 +148,9 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
               className="h-11 w-full rounded-md border border-input bg-white pl-9 pr-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-10"
             />
           </label>
-          <FilterSelect name="country" label="Country" allLabel="All countries" value={query.country} options={countries.map((c) => [c, c])} />
+          <FilterSelect name="country" label="Country" allLabel="All countries" value={query.country} options={countries.map((c) => [c.label, c.label])} />
           <FilterSelect name="type" label="Type" allLabel="All types" value={query.type ?? ""} options={types.map((t) => [t, EVENT_TYPE_LABEL[t]])} />
-          <FilterSelect name="specialty" label="Specialty" allLabel="All specialties" value={query.specialty} options={specialties.map((s) => [s, s])} />
+          <FilterSelect name="specialty" label="Specialty" allLabel="All specialties" value={query.specialty} options={specialties.map((s) => [s.label, s.label])} />
           <Button type="submit" className="h-11 sm:h-10">Search</Button>
         </form>
 

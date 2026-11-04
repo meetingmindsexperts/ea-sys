@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Award, Calendar, LayoutList, MapPin } from "lucide-react";
 import { formatEventDateRange } from "@/lib/event-time";
-import { EVENT_TYPE_LABEL, topicHref, type TopicKind } from "@/lib/catalogue";
+import { EVENT_TYPE_LABEL, topicHref, type Topic, type TopicKind } from "@/lib/catalogue";
 import type { CatalogueEvent } from "@/lib/catalogue-data";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -112,19 +112,19 @@ export function Pager({ page, pages, hrefFor }: { page: number; pages: number; h
  * Links to every topic page: how a person browses by subject, and the
  * internal links that let search engines find those pages.
  */
-export function BrowseTopics({ specialties, countries, current }: { specialties: string[]; countries: string[]; current?: { kind: TopicKind; value: string } }) {
+export function BrowseTopics({ specialties, countries, current }: { specialties: Topic[]; countries: Topic[]; current?: { kind: TopicKind; slug: string } }) {
   if (specialties.length === 0 && countries.length === 0) return null;
-  const group = (kind: TopicKind, title: string, values: string[]) =>
-    values.length > 0 && (
+  const group = (kind: TopicKind, title: string, topics: Topic[]) =>
+    topics.length > 0 && (
       <div>
         <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{title}</h2>
         <ul className="mt-2.5 flex flex-wrap gap-2">
-          {values.map((v) => {
-            const active = current?.kind === kind && current.value === v;
+          {topics.map((t) => {
+            const active = current?.kind === kind && current.slug === t.slug;
             return (
-              <li key={v}>
+              <li key={t.slug}>
                 <Link
-                  href={topicHref(kind, v)}
+                  href={topicHref(kind, t.label)}
                   aria-current={active ? "page" : undefined}
                   className={
                     active
@@ -132,7 +132,7 @@ export function BrowseTopics({ specialties, countries, current }: { specialties:
                       : "inline-flex h-9 items-center rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:border-primary/40 hover:text-primary"
                   }
                 >
-                  {v}
+                  {t.label}
                 </Link>
               </li>
             );

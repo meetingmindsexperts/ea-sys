@@ -9,14 +9,13 @@ import { readMainRegisterTiers } from "@/lib/main-register-tiers";
 import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { abstractSubmissionsOpen } from "@/lib/webinar";
+import { UNLIMITED_SEAT_SENTINEL, eventIsFull, tierAvailability } from "@/lib/public-availability";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
 }
 
 // Get public event details (supports both slug and event ID)
-/** `quantity` at or above this means "no seat limit" (the schema default). */
-import { UNLIMITED_SEAT_SENTINEL, eventIsFull, tierAvailability } from "@/lib/public-availability";
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {

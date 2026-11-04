@@ -2,8 +2,8 @@ import type { EventType } from "@prisma/client";
 import type { AccreditationEntry } from "@/lib/certificates/types";
 import { friendlyAccreditorName } from "@/lib/certificates/template";
 import { formatCurrency } from "@/lib/utils";
-import { mainRegisterTarget, tierAvailability } from "@/lib/public-availability";
-import { readMainRegisterTiers, registerTierSlug } from "@/lib/main-register-tiers";
+import { mainLinkTiers, mainRegisterTarget, tierAvailability } from "@/lib/public-availability";
+import { registerTierSlug } from "@/lib/main-register-tiers";
 import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import { eventJsonLd, type SeoEvent } from "@/lib/seo";
 
@@ -72,22 +72,26 @@ export function publicRegistration(
     pricingTiers: t.pricingTiers.map((tier) => ({ ...tier, ...tierAvailability(tier, t, now) })),
   }));
   const codeRequiredTiers = readCodeRequiredTiers(input.settings);
+  const mainRegisterTiers = (input.settings as { mainRegisterTiers?: unknown } | null)?.mainRegisterTiers;
   const target = mainRegisterTarget({
     registrationOpen: input.registrationOpen,
     eventFull: input.eventFull,
     eventType: input.eventType,
     ticketTypes: types,
-    mainRegisterTiers: (input.settings as { mainRegisterTiers?: unknown } | null)?.mainRegisterTiers,
+    mainRegisterTiers,
     codeRequiredTiers,
   });
   const allTiers = types.flatMap((t) => t.pricingTiers);
+  // A HYBRID event at its in-person cap is still open for virtual attendance,
+  // which has its own price (virtualPrice): no in-person price is quoted.
+  if (target && input.eventFull && input.eventType === "HYBRID") return { state: "open", offer: null };
   if (target) {
     const slug = registerTierSlug(target.name);
     return { state: "open", offer: cheapest(allTiers.filter((t) => t.canPurchase && registerTierSlug(t.name) === slug), true, false) };
   }
   // Full, rather than closed: the event cap is reached, or every ticked public
   // rate whose window is open has no seats left.
-  const ticked = readMainRegisterTiers(input.settings).filter((s) => !codeRequiredTiers.includes(s));
+  const ticked = mainLinkTiers(mainRegisterTiers, codeRequiredTiers);
   const inWindow = allTiers.filter((t) => ticked.includes(registerTierSlug(t.name)) && t.salesStarted && !t.salesEnded);
   const full = (input.eventFull && input.eventType !== "HYBRID") || (inWindow.length > 0 && inWindow.every((t) => t.soldOut));
   if (input.registrationOpen && full) return { state: "sold-out", offer: cheapest(inWindow, false, true) };

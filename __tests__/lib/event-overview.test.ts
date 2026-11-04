@@ -37,7 +37,8 @@ describe("publicRegistration (the register page's own rule)", () => {
 
   it("REVIEW 1: the event-wide cap closes it as full, except on a hybrid event", () => {
     expect(reg([type([tier("Standard", 200)])], { eventFull: true }).state).toBe("sold-out");
-    expect(reg([type([tier("Standard", 200)])], { eventFull: true, eventType: "HYBRID" }).state).toBe("open");
+    // Virtual attendance stays open at its own price: no in-person price quoted.
+    expect(reg([type([tier("Standard", 200)])], { eventFull: true, eventType: "HYBRID" })).toEqual({ state: "open", offer: null });
   });
 
   it("REVIEW 2: a sponsor-code-only rate is never a reason to say Register", () => {

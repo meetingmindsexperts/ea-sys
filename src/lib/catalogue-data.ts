@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { publicOrgScopeForHost } from "@/lib/public-event";
-import { catalogueBaseWhere } from "@/lib/catalogue";
+import { catalogueBaseWhere, groupTopics, type Topic } from "@/lib/catalogue";
 
 /**
  * Server-side reads shared by the catalogue and its topic pages (Nov 4,
@@ -41,14 +41,17 @@ export async function loadSiteContext(host: string | null) {
 
 /**
  * Every specialty and country with at least one listed event, upcoming or
- * past, sorted. These are the topic pages that exist; anything else 404s.
+ * past, as topics (grouped by slug, every stored spelling kept). These are
+ * the topic pages that exist; anything else 404s.
  */
-export async function listTopicValues(orgScope: { organizationId?: string }) {
+export async function listTopicValues(orgScope: { organizationId?: string }): Promise<{ specialties: Topic[]; countries: Topic[] }> {
   const where = catalogueBaseWhere(orgScope);
   const [specialties, countries] = await Promise.all([
-    db.event.findMany({ where: { ...where, specialty: { not: null } }, distinct: ["specialty"], select: { specialty: true } }),
-    db.event.findMany({ where: { ...where, country: { not: null } }, distinct: ["country"], select: { country: true } }),
+    db.event.groupBy({ by: ["specialty"], where: { ...where, specialty: { not: null } }, _count: { _all: true } }),
+    db.event.groupBy({ by: ["country"], where: { ...where, country: { not: null } }, _count: { _all: true } }),
   ]);
-  const clean = (values: (string | null)[]) => [...new Set(values.map((v) => v?.trim()).filter((v): v is string => !!v))].sort();
-  return { specialties: clean(specialties.map((s) => s.specialty)), countries: clean(countries.map((c) => c.country)) };
+  return {
+    specialties: groupTopics(specialties.map((r) => ({ value: r.specialty, count: r._count._all }))),
+    countries: groupTopics(countries.map((r) => ({ value: r.country, count: r._count._all }))),
+  };
 }

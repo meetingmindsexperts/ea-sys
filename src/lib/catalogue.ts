@@ -60,7 +60,17 @@ export function catalogueBaseWhere(orgScope: { organizationId?: string }): Prism
   };
 }
 
-export function catalogueWhere(orgScope: { organizationId?: string }, query: CatalogueQuery, now: Date): Prisma.EventWhereInput {
+/**
+ * `variants`: every stored spelling of the chosen country or specialty (a
+ * topic groups "Cardiology", "cardiology" and "Cardiology " under one slug),
+ * so the filter finds them all. Without it the value is matched as given.
+ */
+export function catalogueWhere(
+  orgScope: { organizationId?: string },
+  query: CatalogueQuery,
+  now: Date,
+  variants: { country?: readonly string[]; specialty?: readonly string[] } = {},
+): Prisma.EventWhereInput {
   const upcoming = query.when === "upcoming";
   const and: Prisma.EventWhereInput[] = [
     upcoming ? { status: { in: ["PUBLISHED", "LIVE"] }, endDate: { gte: now } } : { endDate: { lt: now } },
@@ -69,9 +79,9 @@ export function catalogueWhere(orgScope: { organizationId?: string }, query: Cat
     const contains = { contains: query.q, mode: "insensitive" as const };
     and.push({ OR: [{ name: contains }, { city: contains }, { country: contains }, { specialty: contains }, { venue: contains }] });
   }
-  if (query.country) and.push({ country: query.country });
+  if (query.country) and.push({ country: variants.country ? { in: [...variants.country] } : query.country });
   if (query.type) and.push({ eventType: query.type });
-  if (query.specialty) and.push({ specialty: query.specialty });
+  if (query.specialty) and.push({ specialty: variants.specialty ? { in: [...variants.specialty] } : query.specialty });
   return { ...catalogueBaseWhere(orgScope), AND: and };
 }
 
@@ -116,9 +126,50 @@ export function topicSlug(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/** The value behind a slug, among the values that have listed events. */
-export function findTopic(values: readonly string[], slug: string): string | null {
-  return values.find((v) => topicSlug(v) === slug) ?? null;
+/**
+ * One specialty or country as a page: its slug, the label people see, and
+ * every spelling stored on events. Free-text fields drift ("Cardiology",
+ * "cardiology", "Cardiology " with a trailing space); grouping by slug gives
+ * one page that lists them all, instead of two chips, duplicate sitemap URLs,
+ * or a page that exists but finds nothing.
+ */
+export interface Topic {
+  slug: string;
+  label: string;
+  variants: string[];
+}
+
+/** Group stored values (with how many events carry each) into topics; a value with no usable slug is dropped. */
+export function groupTopics(rows: { value: string | null; count: number }[]): Topic[] {
+  const groups = new Map<string, { variants: string[]; labels: Map<string, number> }>();
+  for (const { value, count } of rows) {
+    const label = value?.trim();
+    if (!value || !label) continue;
+    const slug = topicSlug(label);
+    if (!slug) continue;
+    const g = groups.get(slug) ?? { variants: [], labels: new Map<string, number>() };
+    if (!g.variants.includes(value)) g.variants.push(value);
+    g.labels.set(label, (g.labels.get(label) ?? 0) + count);
+    groups.set(slug, g);
+  }
+  return [...groups.entries()]
+    .map(([slug, g]) => ({
+      slug,
+      // The spelling most events use; ties go to the alphabetically first.
+      label: [...g.labels.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0],
+      variants: g.variants,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** The topic behind a slug, among those that have listed events. */
+export function findTopic(topics: readonly Topic[], slug: string): Topic | null {
+  return topics.find((t) => t.slug === slug) ?? null;
+}
+
+/** The topic a filter value belongs to (a dropdown sends the label). */
+export function topicForValue(topics: readonly Topic[], value: string): Topic | null {
+  return value ? findTopic(topics, topicSlug(value)) : null;
 }
 
 export function topicHref(kind: TopicKind, value: string, query?: Pick<CatalogueQuery, "when" | "page">): string {
@@ -148,18 +199,20 @@ export function topicIntro(
   kind: TopicKind,
   value: string,
   upcoming: { city: string | null; country: string | null; specialty: string | null; cmeHours: { toString(): string } | null }[],
+  /** The true number of upcoming events, when `upcoming` is a capped sample. */
+  count: number = upcoming.length,
 ): string {
-  if (upcoming.length === 0) {
+  if (count === 0 || upcoming.length === 0) {
     return `There are no upcoming ${kind === "specialty" ? `${value} events` : `events in ${value}`} right now; past events are listed below.`;
   }
-  const n = upcoming.length;
+  const n = count;
   const noun = n === 1 ? "event" : "events";
   const cme = Math.max(0, ...upcoming.map((e) => (e.cmeHours ? Number(e.cmeHours.toString()) : 0)));
   const cmeText = cme > 0 ? `, carrying up to ${cme} CME hours` : "";
   if (kind === "specialty") {
-    const places = [...new Set(upcoming.map((e) => e.city || e.country).filter((p): p is string => !!p))].slice(0, 4);
+    const places = [...new Set(upcoming.map((e) => (e.city || e.country)?.trim()).filter((p): p is string => !!p))].slice(0, 4);
     return `${n} upcoming ${value} ${noun}${places.length > 0 ? ` in ${listWords(places)}` : ""}${cmeText}.`;
   }
-  const specialties = [...new Set(upcoming.map((e) => e.specialty).filter((s): s is string => !!s))].slice(0, 4);
+  const specialties = [...new Set(upcoming.map((e) => e.specialty?.trim()).filter((s): s is string => !!s))].slice(0, 4);
   return `${n} upcoming medical ${noun} in ${value}${specialties.length > 0 ? ` across ${listWords(specialties)}` : ""}${cmeText}.`;
 }

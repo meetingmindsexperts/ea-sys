@@ -37,8 +37,8 @@ export async function GET(req: Request) {
       events,
       formatDates: (e) => formatEventDateRange(e.startDate, e.endDate, e.timezone),
       topics: [
-        ...topics.specialties.map((v): [string, string] => [topicTitle("specialty", v), topicHref("specialty", v)]),
-        ...topics.countries.map((v): [string, string] => [topicTitle("country", v), topicHref("country", v)]),
+        ...topics.specialties.map((t): [string, string] => [topicTitle("specialty", t.label), topicHref("specialty", t.label)]),
+        ...topics.countries.map((t): [string, string] => [topicTitle("country", t.label), topicHref("country", t.label)]),
       ],
     });
     return new NextResponse(body, {

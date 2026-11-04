@@ -126,6 +126,7 @@ async function loadEvent(id: string) {
             name: true, quantity: true, soldCount: true,
             pricingTiers: {
               where: { isActive: true },
+              orderBy: { sortOrder: "asc" },
               select: { name: true, sortOrder: true, price: true, currency: true, quantity: true, soldCount: true, salesStart: true, salesEnd: true },
             },
           },

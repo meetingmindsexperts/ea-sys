@@ -44,16 +44,21 @@ const resolveTopic = cache(async (kind: string, slug: string) => {
   const host = (await headers()).get("host");
   const { orgScope, organization } = await loadSiteContext(host);
   const values = await listTopicValues(orgScope);
-  const value = findTopic(kind === "specialty" ? values.specialties : values.countries, slug);
-  return value ? { kind: kind as TopicKind, value, orgScope, organization, values } : null;
+  const topic = findTopic(kind === "specialty" ? values.specialties : values.countries, slug);
+  return topic ? { kind: kind as TopicKind, topic, value: topic.label, orgScope, organization, values } : null;
 });
 
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const [{ kind, topic }, sp, h] = await Promise.all([params, searchParams, headers()]);
-  const resolved = await resolveTopic(kind, topic).catch((err) => {
-    apiLogger.warn({ err, kind, topic, msg: "catalogue-topic:metadata-failed" });
-    return null;
-  });
+  // A database error is thrown, never turned into a 404: a crawler that sees
+  // a 404 for a real topic during a blip may drop it from its index.
+  let resolved: Awaited<ReturnType<typeof resolveTopic>>;
+  try {
+    resolved = await resolveTopic(kind, topic);
+  } catch (err) {
+    apiLogger.error({ err, kind, topic, msg: "catalogue-topic:metadata-failed" });
+    throw err;
+  }
   // Here, not only in the page: crawlers get metadata before any HTML is
   // streamed, so a 404 thrown now is a real 404 rather than a 200 with a
   // "not found" body (a soft 404 to search engines).
@@ -81,16 +86,23 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   };
 }
 
-async function loadTopicEvents(orgScope: { organizationId?: string }, query: CatalogueQuery, now: Date) {
-  const where = catalogueWhere(orgScope, query, now);
-  const upcomingWhere = catalogueWhere(orgScope, { ...query, when: "upcoming", page: 1 }, now);
-  const [events, total, upcomingFacts] = await Promise.all([
+async function loadTopicEvents(
+  orgScope: { organizationId?: string },
+  query: CatalogueQuery,
+  variants: { country?: readonly string[]; specialty?: readonly string[] },
+  now: Date,
+) {
+  const where = catalogueWhere(orgScope, query, now, variants);
+  const upcomingWhere = catalogueWhere(orgScope, { ...query, when: "upcoming", page: 1 }, now, variants);
+  const [events, total, upcomingCount, upcomingFacts] = await Promise.all([
     db.event.findMany({ where, orderBy: catalogueOrderBy(query), skip: (query.page - 1) * CATALOGUE_PAGE_SIZE, take: CATALOGUE_PAGE_SIZE, select: CATALOGUE_EVENT_SELECT }),
     db.event.count({ where }),
-    // The intro speaks about upcoming events, whichever tab is open.
+    // The intro speaks about upcoming events, whichever tab is open: counted
+    // exactly, described from a sample.
+    db.event.count({ where: upcomingWhere }),
     db.event.findMany({ where: upcomingWhere, take: 200, select: { city: true, country: true, specialty: true, cmeHours: true } }),
   ]);
-  return { events, total, upcomingFacts };
+  return { events, total, upcomingCount, upcomingFacts };
 }
 
 export default async function CatalogueTopicPage({ params, searchParams }: Props) {
@@ -121,17 +133,22 @@ export default async function CatalogueTopicPage({ params, searchParams }: Props
 
   let data: Awaited<ReturnType<typeof loadTopicEvents>>;
   try {
-    data = await loadTopicEvents(resolved.orgScope, query, new Date());
+    data = await loadTopicEvents(
+      resolved.orgScope,
+      query,
+      resolved.kind === "country" ? { country: resolved.topic.variants } : { specialty: resolved.topic.variants },
+      new Date(),
+    );
   } catch (err) {
     apiLogger.error({ err, kind, topic, msg: "catalogue-topic:load-failed" });
     throw err;
   }
-  const { events, total, upcomingFacts } = data;
+  const { events, total, upcomingCount, upcomingFacts } = data;
   const pages = Math.max(1, Math.ceil(total / CATALOGUE_PAGE_SIZE));
   if (query.page > pages) redirect(topicHref(resolved.kind, resolved.value, { when: query.when, page: pages }));
 
   const heading = topicTitle(resolved.kind, resolved.value);
-  const intro = topicIntro(resolved.kind, resolved.value, upcomingFacts);
+  const intro = topicIntro(resolved.kind, resolved.value, upcomingFacts, upcomingCount);
   const path = topicHref(resolved.kind, resolved.value);
 
   return (
@@ -178,7 +195,7 @@ export default async function CatalogueTopicPage({ params, searchParams }: Props
 
         <Pager page={query.page} pages={pages} hrefFor={(page) => topicHref(resolved.kind, resolved.value, { when: query.when, page })} />
 
-        <BrowseTopics specialties={resolved.values.specialties} countries={resolved.values.countries} current={{ kind: resolved.kind, value: resolved.value }} />
+        <BrowseTopics specialties={resolved.values.specialties} countries={resolved.values.countries} current={{ kind: resolved.kind, slug: resolved.topic.slug }} />
       </main>
 
       <CatalogueFooter organization={resolved.organization} />

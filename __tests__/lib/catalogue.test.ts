@@ -4,7 +4,7 @@
  * keep or reset the right parts.
  */
 import { describe, it, expect } from "vitest";
-import { catalogueBaseWhere, catalogueHref, catalogueOrderBy, catalogueWhere, findTopic, parseCatalogueQuery, topicHref, topicIntro, topicSlug, topicTitle } from "@/lib/catalogue";
+import { catalogueBaseWhere, catalogueHref, catalogueOrderBy, catalogueWhere, findTopic, groupTopics, parseCatalogueQuery, topicForValue, topicHref, topicIntro, topicSlug, topicTitle } from "@/lib/catalogue";
 
 const NOW = new Date("2026-11-04T10:00:00Z");
 const ORG = { organizationId: "org1" };
@@ -74,9 +74,28 @@ describe("topic pages", () => {
     expect(topicSlug("  Cardiology ")).toBe("cardiology");
   });
 
-  it("a slug finds only a value that has listed events", () => {
-    expect(findTopic(["Cardiology", "Hematology"], "hematology")).toBe("Hematology");
-    expect(findTopic(["Cardiology"], "oncology")).toBeNull();
+  it("spellings group under one slug, labelled by the most common, with every raw value kept", () => {
+    const topics = groupTopics([
+      { value: "Cardiology", count: 3 },
+      { value: "cardiology", count: 1 },
+      { value: "Cardiology ", count: 1 },
+      { value: "Hematology", count: 2 },
+      { value: "—", count: 1 },
+      { value: "  ", count: 1 },
+      { value: null, count: 4 },
+    ]);
+    expect(topics).toEqual([
+      { slug: "cardiology", label: "Cardiology", variants: ["Cardiology", "cardiology", "Cardiology "] },
+      { slug: "hematology", label: "Hematology", variants: ["Hematology"] },
+    ]);
+    expect(findTopic(topics, "hematology")?.label).toBe("Hematology");
+    expect(findTopic(topics, "oncology")).toBeNull();
+    expect(topicForValue(topics, "cardiology ")?.variants).toHaveLength(3);
+  });
+
+  it("a filter with variants matches every stored spelling", () => {
+    const where = catalogueWhere(ORG, parseCatalogueQuery({ specialty: "Cardiology" }), NOW, { specialty: ["Cardiology", "Cardiology "] });
+    expect(where.AND as unknown[]).toContainEqual({ specialty: { in: ["Cardiology", "Cardiology "] } });
   });
 
   it("links carry only the tab and the page", () => {
@@ -96,5 +115,7 @@ describe("topic pages", () => {
     );
     expect(topicIntro("country", "Oman", [e("Muscat", "Oman", "Hematology", null)])).toBe("1 upcoming medical event in Oman across Hematology.");
     expect(topicIntro("country", "Qatar", [])).toBe("There are no upcoming events in Qatar right now; past events are listed below.");
+    // The count is the true total when the facts are a capped sample.
+    expect(topicIntro("country", "Oman", [e("Muscat", "Oman", "Hematology", null)], 240)).toBe("240 upcoming medical events in Oman across Hematology.");
   });
 });

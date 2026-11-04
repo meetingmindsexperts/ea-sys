@@ -30,8 +30,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ]);
     return [
       { url: `${origin}/catalogue`, changeFrequency: "daily", priority: 1 },
-      ...topics.specialties.map((v) => ({ url: `${origin}${topicHref("specialty", v)}`, changeFrequency: "weekly" as const, priority: 0.7 })),
-      ...topics.countries.map((v) => ({ url: `${origin}${topicHref("country", v)}`, changeFrequency: "weekly" as const, priority: 0.7 })),
+      ...topics.specialties.map((t) => ({ url: `${origin}${topicHref("specialty", t.label)}`, changeFrequency: "weekly" as const, priority: 0.7 })),
+      ...topics.countries.map((t) => ({ url: `${origin}${topicHref("country", t.label)}`, changeFrequency: "weekly" as const, priority: 0.7 })),
       ...events.map((e) => ({ url: `${origin}/e/${e.slug}`, lastModified: e.updatedAt, changeFrequency: "weekly" as const, priority: 0.8 })),
     ];
   } catch (err) {

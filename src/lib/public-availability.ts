@@ -66,8 +66,14 @@ export function mainRegisterTarget<T extends { name: string; sortOrder?: number 
 }): T | undefined {
   if (!event.registrationOpen) return undefined;
   if (event.eventFull && event.eventType !== "HYBRID") return undefined;
-  const ticked = readMainRegisterTiers({ mainRegisterTiers: event.mainRegisterTiers }).filter(
-    (slug) => !(event.codeRequiredTiers ?? []).includes(slug),
-  );
-  return pickMainRegisterTier(event.ticketTypes, ticked);
+  return pickMainRegisterTier(event.ticketTypes, mainLinkTiers(event.mainRegisterTiers, event.codeRequiredTiers));
+}
+
+/**
+ * The tier-name slugs the main link may land on: the organiser's ticked
+ * names (or the default) minus sponsor-code-only rates. One list for the
+ * landing and for anything that reasons about it.
+ */
+export function mainLinkTiers(mainRegisterTiers: unknown, codeRequiredTiers: readonly string[] | null | undefined): string[] {
+  return readMainRegisterTiers({ mainRegisterTiers }).filter((slug) => !(codeRequiredTiers ?? []).includes(slug));
 }
