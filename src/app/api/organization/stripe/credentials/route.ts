@@ -141,8 +141,9 @@ export async function PUT(req: Request) {
     // Same-process immediacy; other processes converge within the 5-min TTL.
     invalidateStripeClientCache(orgId);
 
-    // Review L5: a Stripe key swap redirects MONEY — unlike the Zoom/EventsAir
-    // siblings this write earns an AuditLog row (fire-and-forget; never keys).
+    // Review L5: a Stripe key swap redirects MONEY, so this write earns an
+    // AuditLog row (fire-and-forget; never keys). Zoom, EventsAir and AI now
+    // audit theirs too.
     db.auditLog
       .create({
         data: {

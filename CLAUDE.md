@@ -383,6 +383,8 @@ Clients (including AI agents) should parse `retryAfterSeconds` and back off. Do 
 | CRM inbox reply (per user) | 60 | 1 hr |
 | `speaker-agreement-template` upload (per user) | 10 | 1 hr |
 | DET eTicketing credentials save (per org) | 10 | 1 hr |
+| EventsAir credentials save (per org) | 10 | 1 hr |
+| EventsAir test connection (per org) | 30 | 1 hr |
 | DET eTicketing test connection (per org) | 30 | 1 hr |
 | Public register — burst (per IP) | 15 | 60 s |
 | Public register — sustained (per IP) | 100 | 15 min |
