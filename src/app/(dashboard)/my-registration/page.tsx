@@ -9,7 +9,7 @@ import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { formatEventDateRange } from "@/lib/event-time";
 import { formatDate } from "@/lib/utils";
-import { PORTAL_CERTIFICATE_SELECT, releasedCertificatesWhere } from "@/lib/registrant-certificates";
+import { cmeHoursOf, findReleasedCertificates } from "@/lib/registrant-certificates";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,7 +59,8 @@ async function loadPortal(userId: string, email: string) {
   return runWithTenantLane(orgId, { route: "page:/my-registration", userId }, () =>
     Promise.all([
       db.registration.findMany({
-        where: { status: { not: "CANCELLED" }, OR: [{ userId }, { attendee: { email } }] },
+        // A blank email matches nothing, rather than every row with no email.
+        where: { status: { not: "CANCELLED" }, OR: [{ userId }, ...(email ? [{ attendee: { email } }] : [])] },
         select: {
           id: true,
           status: true,
@@ -70,11 +71,7 @@ async function loadPortal(userId: string, email: string) {
         },
         orderBy: { createdAt: "desc" },
       }),
-      db.issuedCertificate.findMany({
-        where: releasedCertificatesWhere(userId, email),
-        select: PORTAL_CERTIFICATE_SELECT,
-        orderBy: { issuedAt: "desc" },
-      }),
+      findReleasedCertificates(userId, email),
     ]),
   );
 }
@@ -183,7 +180,7 @@ export default async function MyRegistrationPage({ searchParams }: { searchParam
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {[
-                            c.cmeHoursSnapshot != null && `${c.cmeHoursSnapshot.toString()} CME hours`,
+                            cmeHoursOf(c) && `${cmeHoursOf(c)} CME hours`,
                             `No. ${c.serial}`,
                             `Issued ${formatDate(c.issuedAt)}`,
                           ]

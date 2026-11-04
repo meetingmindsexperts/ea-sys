@@ -1,15 +1,15 @@
 /**
  * A person's own certificates on /my-registration (Nov 4, 2026).
  *
- * The load-bearing rule is `releasedCertificatesWhere`: the list and the
- * download both ask it, so a certificate that is not theirs, revoked, or still
+ * The load-bearing rule is `isReleased`: the list and the download both go
+ * through `findReleasedCertificates`, so a certificate that is not theirs, revoked, or still
  * sitting in a run the organiser has not sent is invisible AND undownloadable.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockAuth, mockLoad, mockRateLimit, logger } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
-  mockDb: { issuedCertificate: { findFirst: vi.fn() } },
+  mockDb: { issuedCertificate: { findMany: vi.fn() }, certificateIssueRunItem: { findMany: vi.fn() } },
   mockLoad: vi.fn(),
   mockRateLimit: vi.fn(),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -24,7 +24,8 @@ vi.mock("@/lib/certificates/pdf-loader", () => ({ loadCertificatePdfBytes: mockL
 vi.mock("@/lib/security", () => ({ checkRateLimit: mockRateLimit }));
 
 import { GET } from "@/app/api/registrant/certificates/[certificateId]/download/route";
-import { releasedCertificatesWhere } from "@/lib/registrant-certificates";
+import { Prisma } from "@prisma/client";
+import { cmeHoursOf, findReleasedCertificates, isReleased, type EmailedRunItem } from "@/lib/registrant-certificates";
 
 function get(certificateId = "cert1") {
   return GET(new Request("http://x"), { params: Promise.resolve({ certificateId }) });
@@ -35,31 +36,107 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { id: "u1", email: "Anna@Example.com", role: "REGISTRANT" } });
   mockRateLimit.mockReturnValue({ allowed: true, remaining: 59, retryAfterSeconds: 0 });
   mockLoad.mockResolvedValue(Buffer.from("%PDF-1.7 test"));
+  mockDb.certificateIssueRunItem.findMany.mockResolvedValue([]);
 });
 
-describe("releasedCertificatesWhere", () => {
-  const where = releasedCertificatesWhere("u1", "anna@example.com");
-  const [owner, released] = where.AND as [{ OR: unknown[] }, { OR: unknown[] }];
+/** A released certificate row as findMany returns it (made directly, so released). */
+function row(over: Record<string, unknown> = {}) {
+  return {
+    id: "cert1", serial: "MMF-ATT-007", pdfUrl: "/uploads/certificates/ev1/cert1.pdf", event: { id: "ev1" },
+    eventId: "ev1", registrationId: "reg1", speakerId: null, certificateTemplateId: "tplA",
+    issueRunItemId: null, lastResentAt: null, issueRunItem: null, ...over,
+  };
+}
 
-  it("never a revoked certificate or one with no PDF yet", () => {
-    expect(where.revokedAt).toBeNull();
-    expect(where.pdfUrl).toEqual({ not: null });
+type Facts = Parameters<typeof isReleased>[0];
+const cert = (over: Partial<Facts> = {}): Facts => ({
+  eventId: "ev1",
+  registrationId: "reg1",
+  speakerId: null,
+  certificateTemplateId: "tplA",
+  issueRunItemId: null,
+  lastResentAt: null,
+  issueRunItem: null,
+  ...over,
+});
+const emailed = (over: Partial<EmailedRunItem> = {}): EmailedRunItem => ({
+  registrationId: "reg1",
+  speakerId: null,
+  templateIds: ["tplA"],
+  run: { eventId: "ev1", certificateTemplateId: null },
+  ...over,
+});
+const unsentItem = (reissue = false) => ({ emailedAt: null, run: { reissue } });
+
+describe("isReleased", () => {
+  it("a run's certificate stays hidden while the run waits for review", () => {
+    expect(isReleased(cert({ issueRunItemId: "itemA", issueRunItem: unsentItem() }), [])).toBe(false);
   });
 
-  it("finds the person through their registrations and their speaker records, by account or email", () => {
-    expect(owner.OR).toEqual([
-      { registration: { OR: [{ userId: "u1" }, { attendee: { email: "anna@example.com" } }] } },
-      { speaker: { OR: [{ userId: "u1" }, { email: "anna@example.com" }] } },
-    ]);
+  it("a certificate made directly from the detail sheet is released, issue-only included", () => {
+    expect(isReleased(cert(), [])).toBe(true);
   });
 
-  it("a run's certificate only once it was emailed; a directly issued or resent one always", () => {
-    expect(released.OR).toEqual([
-      { issueRunItemId: null, issueRunItem: { is: null } },
-      { deliveredViaItem: { emailedAt: { not: null } } },
-      { issueRunItem: { emailedAt: { not: null } } },
-      { lastResentAt: { not: null } },
+  it("its own item emailed, or a resend since: released", () => {
+    expect(isReleased(cert({ issueRunItemId: "itemA", issueRunItem: { emailedAt: new Date(), run: { reissue: false } } }), [])).toBe(true);
+    expect(isReleased(cert({ issueRunItemId: "itemA", issueRunItem: unsentItem(), lastResentAt: new Date() }), [])).toBe(true);
+  });
+
+  it("REVIEW A: rendered by a cancelled run, then emailed by a later run that reused it", () => {
+    // The reuse leaves both pointers on the cancelled run's unsent item.
+    const c = cert({ issueRunItemId: "itemA", issueRunItem: unsentItem() });
+    expect(isReleased(c, [emailed()])).toBe(true);
+  });
+
+  it("REVIEW B: a direct certificate stays released while a bulk reissue run is pending or cancelled", () => {
+    expect(isReleased(cert({ issueRunItem: unsentItem(true) }), [])).toBe(true);
+  });
+
+  it("an original run's primary pointer on a legacy certificate still has to be emailed", () => {
+    expect(isReleased(cert({ certificateTemplateId: null, issueRunItem: unsentItem(false) }), [])).toBe(false);
+  });
+
+  it("someone else's, another event's or another template's email does not release it", () => {
+    const c = cert({ issueRunItemId: "itemA", issueRunItem: unsentItem() });
+    expect(isReleased(c, [emailed({ registrationId: "reg2" })])).toBe(false);
+    expect(isReleased(c, [emailed({ run: { eventId: "ev2", certificateTemplateId: null } })])).toBe(false);
+    expect(isReleased(c, [emailed({ templateIds: ["tplB"] })])).toBe(false);
+  });
+
+  it("a speaker's certificate is matched on the speaker, and a single-template run on its template", () => {
+    const c = cert({ registrationId: null, speakerId: "sp1", issueRunItemId: "itemA", issueRunItem: unsentItem() });
+    expect(isReleased(c, [emailed({ registrationId: null, speakerId: "sp1", templateIds: [], run: { eventId: "ev1", certificateTemplateId: "tplA" } })])).toBe(true);
+  });
+});
+
+describe("cmeHoursOf", () => {
+  const base = { cmeHoursSnapshot: null, certificateTemplate: null, event: { cmeHours: null } } as unknown as Parameters<typeof cmeHoursOf>[0];
+  it("the snapshot, else the template's hours, else the event's, as the worker snapshots", () => {
+    expect(cmeHoursOf({ ...base, cmeHoursSnapshot: new Prisma.Decimal(6.5) } as typeof base)).toBe("6.5");
+    expect(cmeHoursOf({ ...base, certificateTemplate: { cmeHours: new Prisma.Decimal(3) } } as typeof base)).toBe("3");
+    expect(cmeHoursOf({ ...base, event: { cmeHours: new Prisma.Decimal(12) } } as typeof base)).toBe("12");
+    expect(cmeHoursOf(base)).toBeNull();
+  });
+});
+
+describe("who owns a certificate", () => {
+  it("their registrations and speaker records, by account or email; a blank email matches by account only", async () => {
+    mockDb.issuedCertificate.findMany.mockResolvedValue([]);
+    await findReleasedCertificates("u1", "anna@example.com");
+    expect(mockDb.issuedCertificate.findMany.mock.calls[0][0].where).toMatchObject({
+      revokedAt: null,
+      pdfUrl: { not: null },
+      OR: [
+        { registration: { OR: [{ userId: "u1" }, { attendee: { email: "anna@example.com" } }] } },
+        { speaker: { OR: [{ userId: "u1" }, { email: "anna@example.com" }] } },
+      ],
+    });
+    await findReleasedCertificates("u1", "");
+    expect(mockDb.issuedCertificate.findMany.mock.calls[1][0].where.OR).toEqual([
+      { registration: { OR: [{ userId: "u1" }] } },
+      { speaker: { OR: [{ userId: "u1" }] } },
     ]);
+    expect(mockDb.certificateIssueRunItem.findMany).not.toHaveBeenCalled();
   });
 });
 
@@ -67,19 +144,25 @@ describe("GET /api/registrant/certificates/[certificateId]/download", () => {
   it("refuses a signed-out request", async () => {
     mockAuth.mockResolvedValue(null);
     expect((await get()).status).toBe(401);
-    expect(mockDb.issuedCertificate.findFirst).not.toHaveBeenCalled();
+    expect(mockDb.issuedCertificate.findMany).not.toHaveBeenCalled();
   });
 
-  it("looks the certificate up through the released rule, with the email lowercased", async () => {
-    mockDb.issuedCertificate.findFirst.mockResolvedValue(null);
+  it("looks the one certificate up among the person's own, with the email lowercased", async () => {
+    mockDb.issuedCertificate.findMany.mockResolvedValue([]);
     await get("cert9");
-    expect(mockDb.issuedCertificate.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "cert9", ...releasedCertificatesWhere("u1", "anna@example.com") } }),
-    );
+    const where = mockDb.issuedCertificate.findMany.mock.calls[0][0].where;
+    expect(where.id).toBe("cert9");
+    expect(JSON.stringify(where)).toContain("anna@example.com");
   });
 
-  it("someone else's, unsent or revoked certificate is a logged 404 and no file is read", async () => {
-    mockDb.issuedCertificate.findFirst.mockResolvedValue(null);
+  it("an unsent run certificate of their own is a 404, like someone else's", async () => {
+    mockDb.issuedCertificate.findMany.mockResolvedValue([row({ issueRunItemId: "itemA", issueRunItem: { emailedAt: null, run: { reissue: false } } })]);
+    expect((await get()).status).toBe(404);
+    expect(mockLoad).not.toHaveBeenCalled();
+  });
+
+  it("someone else's or a revoked certificate is a logged 404 and no file is read", async () => {
+    mockDb.issuedCertificate.findMany.mockResolvedValue([]);
     const res = await get();
     expect(res.status).toBe(404);
     expect(mockLoad).not.toHaveBeenCalled();
@@ -87,7 +170,7 @@ describe("GET /api/registrant/certificates/[certificateId]/download", () => {
   });
 
   it("streams the person's own PDF as a private attachment named by serial", async () => {
-    mockDb.issuedCertificate.findFirst.mockResolvedValue({ id: "cert1", eventId: "ev1", serial: "MMF-ATT-007", pdfUrl: "/uploads/certificates/ev1/cert1.pdf" });
+    mockDb.issuedCertificate.findMany.mockResolvedValue([row()]);
     const res = await get();
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/pdf");
@@ -97,7 +180,7 @@ describe("GET /api/registrant/certificates/[certificateId]/download", () => {
   });
 
   it("keeps the filename to safe characters", async () => {
-    mockDb.issuedCertificate.findFirst.mockResolvedValue({ id: "c", eventId: "e", serial: 'A"B\r\nC/..', pdfUrl: "/uploads/certificates/e/c.pdf" });
+    mockDb.issuedCertificate.findMany.mockResolvedValue([row({ serial: 'A"B\r\nC/..' })]);
     const res = await get();
     expect(res.headers.get("Content-Disposition")).toBe('attachment; filename="Certificate-ABC...pdf"');
   });
@@ -107,11 +190,11 @@ describe("GET /api/registrant/certificates/[certificateId]/download", () => {
     const res = await get();
     expect(res.status).toBe(429);
     expect(await res.json()).toMatchObject({ code: "RATE_LIMITED", retryAfterSeconds: 90, limit: 60, windowSeconds: 3600 });
-    expect(mockDb.issuedCertificate.findFirst).not.toHaveBeenCalled();
+    expect(mockDb.issuedCertificate.findMany).not.toHaveBeenCalled();
   });
 
   it("a storage failure is a logged 500", async () => {
-    mockDb.issuedCertificate.findFirst.mockResolvedValue({ id: "cert1", eventId: "ev1", serial: "S1", pdfUrl: "/uploads/certificates/ev1/cert1.pdf" });
+    mockDb.issuedCertificate.findMany.mockResolvedValue([row()]);
     mockLoad.mockRejectedValue(new Error("gone"));
     expect((await get()).status).toBe(500);
     expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: expect.stringContaining(":failed") }));
