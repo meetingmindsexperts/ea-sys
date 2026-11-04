@@ -211,6 +211,29 @@ export default function KioskCheckInPage() {
   // the fallback for an event that only has that.
   const eventBanner = event?.bannerImage || event?.emailHeaderImage || null;
   const eventBannerMobile = event?.bannerImage ? event?.bannerImageMobile ?? null : null;
+  // The banner's width/height, so the panel over a kiosk background can be
+  // exactly as wide as the banner draws (owner, Nov 4 2026). Null until the
+  // image has loaded, and for an event with no banner: the panel then stays
+  // at the banner band's own 1200px.
+  // Keyed by the image it was measured from, so a changed banner never borrows
+  // the previous one's width.
+  const [measuredBanner, setMeasuredBanner] = useState<{ src: string; aspect: number } | null>(null);
+  const bannerAspect = measuredBanner && measuredBanner.src === eventBanner ? measuredBanner.aspect : null;
+  useEffect(() => {
+    if (!eventBanner || !kioskBackgroundUrl) return;
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (!cancelled && img.naturalHeight > 0) {
+        setMeasuredBanner({ src: eventBanner, aspect: img.naturalWidth / img.naturalHeight });
+      }
+    };
+    img.onerror = () => console.warn("kiosk: banner did not load, panel stays 1200px wide", eventBanner);
+    img.src = eventBanner;
+    return () => {
+      cancelled = true;
+    };
+  }, [eventBanner, kioskBackgroundUrl]);
   // A LOGO (drawn for a light background) only when the event has no artwork.
   const logoMark = eventBanner ? null : branding?.logo || null;
   // Read through a ref so the scan handler is not re-created (and its debounce
@@ -653,13 +676,24 @@ export default function KioskCheckInPage() {
 
       {/* The check-in panel. With a kiosk background (owner, Nov 4 2026: "full
           page branding on left and right like the webinar console") it is a
-          white column the banner's width, and the artwork shows either side;
-          without one it is simply the whole white screen. */}
+          white column exactly the banner's width, and the artwork shows either
+          side; without one it is simply the whole white screen. The width is
+          the banner's own: its height cap (26vh, on the band below) times its
+          proportions, never past the band's 1200px, so the two stay flush on
+          any screen height. */}
       <div
         className={cn(
           "flex min-h-0 w-full flex-1 flex-col items-center",
-          kioskBackgroundUrl && "max-w-[1200px] bg-white shadow-2xl",
+          // Frosted, not solid (owner, Nov 4 2026: "make the middle
+          // transparent"): the artwork shows through faintly, and the blur
+          // keeps the scan prompt readable over a busy image.
+          kioskBackgroundUrl && "max-w-[1200px] bg-white/75 shadow-2xl backdrop-blur-md",
         )}
+        style={
+          kioskBackgroundUrl && bannerAspect
+            ? { maxWidth: `min(1200px, calc(26vh * ${bannerAspect.toFixed(4)}))` }
+            : undefined
+        }
       >
       {/* Event mark + event name */}
       {/* IN FLOW, not absolute. A full-bleed banner has a real height that
