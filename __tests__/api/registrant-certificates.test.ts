@@ -25,7 +25,7 @@ vi.mock("@/lib/security", () => ({ checkRateLimit: mockRateLimit }));
 
 import { GET } from "@/app/api/registrant/certificates/[certificateId]/download/route";
 import { Prisma } from "@prisma/client";
-import { cmeHoursOf, findReleasedCertificates, isReleased, type EmailedRunItem } from "@/lib/registrant-certificates";
+import { certificateMeta, certificateTitle, cmeHoursOf, findReleasedCertificates, isReleased, type EmailedRunItem } from "@/lib/registrant-certificates";
 
 function get(certificateId = "cert1") {
   return GET(new Request("http://x"), { params: Promise.resolve({ certificateId }) });
@@ -229,7 +229,7 @@ describe("GET /api/registrant/certificates", () => {
 
     const one = (await (await list("?event=MEHF2027")).json()) as { certificates: unknown[] };
     expect(one.certificates).toEqual([
-      { id: "a", eventSlug: "MEHF2027", title: "Certificate of attendance", meta: expect.stringMatching(/^6\.5 CME hours · No\. S-a · Issued /) },
+      { id: "a", eventSlug: "MEHF2027", title: "Standard", meta: expect.stringMatching(/^Attendance · 6\.5 CME hours · No\. S-a · Issued /) },
     ]);
   });
 
@@ -238,5 +238,39 @@ describe("GET /api/registrant/certificates", () => {
       { ...full("a", "MEHF2027"), issueRunItemId: "itemA", issueRunItem: { emailedAt: null, run: { reissue: false } } },
     ]);
     expect(((await (await list()).json()) as { certificates: unknown[] }).certificates).toEqual([]);
+  });
+});
+
+describe("certificateTitle", () => {
+  const t = (role: string | null, name: string | null, type = "ATTENDANCE") =>
+    certificateTitle({ type, certificateTemplate: name === null && role === null ? null : { role, name, cmeHours: null } } as Parameters<typeof certificateTitle>[0]);
+
+  it("the role, else the template's name, so two of one kind can be told apart", () => {
+    expect(t("Speaker", "CME (Speaker)")).toBe("Speaker");
+    expect(t(null, "CME (Speaker)")).toBe("CME (Speaker)");
+    expect(t(null, "CME (Moderator)")).toBe("CME (Moderator)");
+  });
+
+  it("the kind when there is no template to name it", () => {
+    expect(t(null, null)).toBe("Certificate of attendance");
+    expect(t(null, null, "APPRECIATION")).toBe("Certificate of appreciation");
+    expect(t("  ", "")).toBe("Certificate of attendance");
+  });
+});
+
+describe("certificateMeta", () => {
+  const meta = (template: { role: string | null; name: string } | null) =>
+    certificateMeta({
+      type: "ATTENDANCE",
+      serial: "S1",
+      issuedAt: new Date("2026-07-10T08:00:00Z"),
+      cmeHoursSnapshot: null,
+      certificateTemplate: template && { ...template, cmeHours: null },
+      event: { cmeHours: null },
+    } as unknown as Parameters<typeof certificateMeta>[0]);
+
+  it("names the kind when the title is a template's name, not when the title already is the kind", () => {
+    expect(meta({ role: null, name: "CME (Speaker)" })).toMatch(/^Attendance · No\. S1 · Issued /);
+    expect(meta(null)).toMatch(/^No\. S1 · Issued /);
   });
 });

@@ -135,17 +135,30 @@ export function cmeHoursOf(cert: Pick<PortalCertificate, "cmeHoursSnapshot" | "c
 }
 
 const CERT_TYPE_LABEL: Record<string, string> = {
-  ATTENDANCE: "Certificate of attendance",
-  APPRECIATION: "Certificate of appreciation",
+  ATTENDANCE: "Attendance",
+  APPRECIATION: "Appreciation",
 };
 
-/** What the certificate is called: its template's role ("Speaker"), else its kind. */
+/**
+ * What the certificate is called: its template's role ("Speaker"), else the
+ * template's own name, else its kind. The name before the kind because one
+ * person can hold several of the same kind for one event: on production a
+ * registrant held "CME (Speaker)" and "CME (Moderator)", both ATTENDANCE with
+ * no role, and a kind-only title showed two identical rows.
+ */
 export function certificateTitle(cert: Pick<PortalCertificate, "type" | "certificateTemplate">): string {
-  return cert.certificateTemplate?.role ?? CERT_TYPE_LABEL[cert.type] ?? "Certificate";
+  const name = cert.certificateTemplate?.role?.trim() || cert.certificateTemplate?.name?.trim();
+  return name || `Certificate of ${(CERT_TYPE_LABEL[cert.type] ?? "attendance").toLowerCase()}`;
 }
 
-/** The line under the title: CME hours, serial, issue date. */
+/**
+ * The line under the title: kind (unless the title already is the kind), CME
+ * hours, serial, issue date.
+ */
 export function certificateMeta(cert: PortalCertificate): string {
   const hours = cmeHoursOf(cert);
-  return [hours && `${hours} CME hours`, `No. ${cert.serial}`, `Issued ${formatDate(cert.issuedAt)}`].filter(Boolean).join(" · ");
+  const titled = cert.certificateTemplate?.role?.trim() || cert.certificateTemplate?.name?.trim();
+  return [titled && CERT_TYPE_LABEL[cert.type], hours && `${hours} CME hours`, `No. ${cert.serial}`, `Issued ${formatDate(cert.issuedAt)}`]
+    .filter(Boolean)
+    .join(" · ");
 }
