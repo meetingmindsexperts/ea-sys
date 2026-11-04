@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { isBaseRole } from "@/lib/team-roles";
+import { canManageAccountingIntegration } from "@/lib/procurement-visibility";
 import { useRuntimeFlags } from "@/components/runtime-flags";
 import { ProcurementGrantsDialog, hasProcurementAccess } from "@/components/settings/procurement-grants-dialog";
 import { UserRolesDialog } from "@/components/settings/user-roles-dialog";
@@ -244,6 +246,25 @@ export default function SettingsPage() {
   // Billing's org details stay read-only below Admin).
   const canManageOnsiteStaff = useCan("events.staff.assign") === "allowed";
   const canManageBilling = useCan("billingAccounts.manage") === "allowed";
+  // QuickBooks answers to the Budgets guard, not org.credentials: the module
+  // must be on and linking it is ADMIN and SUPER_ADMIN by role only, so a
+  // custom role holding org.credentials would otherwise see a card whose every
+  // call is refused.
+  const canLinkQuickBooks = procurementEnabled && canManageAccountingIntegration(session?.user);
+
+  // The tab named in the URL (the QuickBooks callback sends people back to
+  // ?tab=integrations), but only one this person can see: anything else,
+  // including a tab whose permission is still loading, shows General.
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState(() => searchParams.get("tab") ?? "general");
+  const visibleTabs = new Set<string>(["general", "team"]);
+  if (isSuperAdmin && rolesTabEnabled) visibleTabs.add("roles");
+  if (isSuperAdmin && procurementEnabled) visibleTabs.add("approvals");
+  if (canManageOnsiteStaff) visibleTabs.add("onsite");
+  if (canManageBilling) visibleTabs.add("billing");
+  if (canUseIntegrations) visibleTabs.add("integrations");
+  if (canManageApiKeys) visibleTabs.add("api-keys");
+  if (isSuperAdmin) visibleTabs.add("system");
 
   useEffect(() => {
     fetchOrganization();
@@ -648,15 +669,16 @@ export default function SettingsPage() {
       {/* Nine tabs do not fit a phone, so below md the strip scrolls sideways
           (scrollbar hidden) and the chosen tab is brought into view. */}
       <Tabs
-        defaultValue="general"
+        value={visibleTabs.has(tab) ? tab : "general"}
         className="space-y-6"
-        onValueChange={() =>
+        onValueChange={(next) => {
+          setTab(next);
           requestAnimationFrame(() =>
             tabListRef.current
               ?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')
               ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" }),
-          )
-        }
+          );
+        }}
       >
         <TabsList
           ref={tabListRef}
@@ -1411,7 +1433,7 @@ export default function SettingsPage() {
               <OrgStripeCredentials />
               <OrgDtcmEticketCredentials />
               <OrgAiCredentials />
-              <OrgQuickBooksConnection />
+              {canLinkQuickBooks && <OrgQuickBooksConnection />}
             </div>
           </TabsContent>
         )}
@@ -1573,6 +1595,8 @@ function EventsAirCard() {
       await saveCredentials.mutateAsync({ clientId: displayClientId.trim(), clientSecret: clientSecret.trim() });
       toast.success("EventsAir credentials saved");
       setClientSecret("");
+      // The last test was of the old credentials; these have not been tried.
+      setConnectionStatus("idle");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save credentials");
     }

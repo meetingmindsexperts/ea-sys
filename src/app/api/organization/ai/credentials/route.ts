@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { encryptSecret } from "@/lib/eventsair-client";
-import { checkRateLimit } from "@/lib/security";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { z } from "zod";
 import type { Session } from "next-auth";
@@ -54,6 +54,15 @@ const ENV_KEY: Record<"anthropic" | "openai", () => string | undefined> = {
   anthropic: () => process.env.ANTHROPIC_API_KEY,
   openai: () => process.env.OPENAI_API_KEY,
 };
+
+/** An AuditLog row for a key change; the caller passes only non-secret facts. */
+function audit(req: Request, userId: string, organizationId: string, action: string, changes: Record<string, string | { rotated: true } | null>) {
+  void db.auditLog
+    .create({
+      data: { userId, organizationId, action, entityType: "Organization", entityId: organizationId, changes, ipAddress: getClientIp(req) },
+    })
+    .catch((err) => apiLogger.error({ err, userId }, "ai:credentials-audit-failed"));
+}
 
 export async function GET() {
   try {
@@ -175,6 +184,13 @@ export async function PUT(req: Request) {
       { userId: session!.user.id, savedAnthropicKey: !!validated.data.anthropicApiKey, savedOpenaiKey: !!validated.data.openaiApiKey, helpChatProvider: chosen ?? null },
       "ai:credentials-saved",
     );
+    // Which keys rotated and which provider was chosen, never a key. Fire-and-
+    // forget: the save has already succeeded.
+    audit(req, session!.user.id, orgId, "UPDATE_AI_CREDENTIALS", {
+      anthropicApiKey: validated.data.anthropicApiKey ? { rotated: true } : null,
+      openaiApiKey: validated.data.openaiApiKey ? { rotated: true } : null,
+      helpChatProvider: chosen ?? null,
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     apiLogger.error({ err: error }, "ai:credentials-save-failed");
@@ -210,6 +226,7 @@ export async function DELETE(req: Request) {
     });
 
     apiLogger.info({ userId: session!.user.id, provider }, "ai:credentials-deleted");
+    audit(req, session!.user.id, orgId, "DELETE_AI_CREDENTIALS", { provider });
     return NextResponse.json({ success: true });
   } catch (error) {
     apiLogger.error({ err: error }, "ai:credentials-delete-failed");

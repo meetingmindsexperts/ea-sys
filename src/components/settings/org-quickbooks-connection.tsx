@@ -80,7 +80,7 @@ function CredentialsDisclosure({ startOpen, environment }: { startOpen: boolean;
 
 export function OrgQuickBooksConnection() {
   const params = useSearchParams();
-  const { data, isLoading, refetch } = useQuickBooksConnection();
+  const { data, isLoading, isError, error, refetch } = useQuickBooksConnection();
   const testConnection = useTestQuickBooksConnection();
   const disconnect = useDisconnectQuickBooks();
   const [showChart, setShowChart] = useState(false);
@@ -101,6 +101,10 @@ export function OrgQuickBooksConnection() {
     } else {
       toast.error(CALLBACK_REASONS[params.get("reason") ?? ""] ?? "The QuickBooks connection failed.");
     }
+    // Shown once: a reload must not repeat it. The tab stays in the URL.
+    const url = new URL(window.location.href);
+    for (const key of ["quickbooks", "reason", "company"]) url.searchParams.delete(key);
+    window.history.replaceState(null, "", url);
   }, [outcome, params, refetch]);
 
   const connection = data?.connection;
@@ -134,6 +138,19 @@ export function OrgQuickBooksConnection() {
       <Card>
         <CardContent className="flex items-center gap-2 py-8 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading QuickBooks…
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // A refused or failed status read is not "no app configured": saying so
+  // would send the person to a credentials form they cannot save either.
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="flex items-center gap-2 py-8 text-sm text-destructive">
+          <XCircle className="h-4 w-4" />
+          {error instanceof Error ? error.message : "Could not load the QuickBooks connection."}
         </CardContent>
       </Card>
     );

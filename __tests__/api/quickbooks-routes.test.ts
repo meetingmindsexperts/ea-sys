@@ -207,6 +207,16 @@ describe("the callback", () => {
     expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: expect.stringContaining("state-org-mismatch") }));
   });
 
+  it("REFUSES a state another person in the same organisation started, before the code is spent", async () => {
+    allow("org1", "u2");
+    const colleagues = mintConnectState({ organizationId: "org1", userId: "u1" });
+    const res = await callbackGet(callbackReq({ code: "the-code", realmId: "realm-9", state: colleagues }));
+    expect(redirectTarget(res).searchParams.get("reason")).toBe("state_invalid");
+    expect(mockExchange).not.toHaveBeenCalled();
+    expect(mockStoreNew).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: expect.stringContaining("state-user-mismatch"), sessionUser: "u2", stateUser: "u1" }));
+  });
+
   it("refuses an unsigned or expired state", async () => {
     allow();
     const bad = await callbackGet(callbackReq({ code: "c", realmId: "r", state: "not-a-state" }));

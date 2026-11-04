@@ -36,10 +36,11 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 vi.mock("@/lib/event-settings", () => ({ updateOrganizationSettings: mockUpdateOrgSettings }));
-vi.mock("@/lib/security", () => ({ checkRateLimit: mockCheckRateLimit }));
+vi.mock("@/lib/security", () => ({ checkRateLimit: mockCheckRateLimit, getClientIp: () => "1.2.3.4" }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/stripe", () => ({ invalidateStripeClientCache: mockInvalidate }));
 
+import { db } from "@/lib/db";
 import { GET as stripeGet, PUT as stripePut, DELETE as stripeDelete } from "@/app/api/organization/stripe/credentials/route";
 import { GET as aiGet, PUT as aiPut, DELETE as aiDelete } from "@/app/api/organization/ai/credentials/route";
 import { encryptSecret } from "@/lib/eventsair-client";
@@ -202,6 +203,13 @@ describe("ai credentials", () => {
     const patch = mockUpdateOrgSettings.mock.calls[0][1] as Record<string, { apiKeyLast4?: string; helpChatProvider?: string }>;
     expect(patch.openai.apiKeyLast4).toBe("-new");
     expect(patch.ai.helpChatProvider).toBe("openai");
+    // The audit row says the key rotated and never carries it.
+    const row = (db.auditLog.create as unknown as { mock: { calls: [{ data: Record<string, unknown> }][] } }).mock.calls[0][0].data;
+    expect(row).toMatchObject({
+      action: "UPDATE_AI_CREDENTIALS",
+      changes: { anthropicApiKey: null, openaiApiKey: { rotated: true }, helpChatProvider: "openai" },
+    });
+    expect(JSON.stringify(row)).not.toContain("sk-oai-new");
   });
 
   it("PUT saving one provider's key leaves the other's stored ciphertext untouched (no patch key)", async () => {
@@ -235,6 +243,9 @@ describe("ai credentials", () => {
     });
     const res = await aiDelete(deleteReq({ provider: "openai" }));
     expect(res.status).toBe(200);
+    expect(db.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: "DELETE_AI_CREDENTIALS", changes: { provider: "openai" } }),
+    });
   });
 
   it("DELETE with an invalid provider → 400 + warn", async () => {

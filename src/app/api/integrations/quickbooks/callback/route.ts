@@ -60,6 +60,13 @@ export async function GET(req: NextRequest) {
       apiLogger.error({ msg: `${ROUTE}:state-org-mismatch`, sessionOrg: g.orgId, stateOrg: verdict.organizationId, userId: g.user.id });
       return back(req, { quickbooks: "error", reason: "state_invalid" });
     }
+    // And the person: the connection is stored under whoever finishes the
+    // flow, so a colleague completing someone else's link would be recorded
+    // as the one who connected it.
+    if (verdict.userId !== g.user.id) {
+      apiLogger.warn({ msg: `${ROUTE}:state-user-mismatch`, organizationId: g.orgId, sessionUser: g.user.id, stateUser: verdict.userId });
+      return back(req, { quickbooks: "error", reason: "state_invalid" });
+    }
 
     const app = await loadQuickBooksApp(g.orgId);
     if (!app) {
