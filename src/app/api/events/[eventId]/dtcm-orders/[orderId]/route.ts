@@ -51,6 +51,7 @@ const REVERSE_STATUS: Record<ReverseDtcmOrderErrorCode, number> = {
   WRONG_STATUS: 409,
   STILL_IN_USE: 409,
   NOT_CONFIGURED: 400,
+  CREDENTIALS_CHANGED: 409,
   DET_NOT_FOUND: 409,
   DET_FAILED: 502,
 };
@@ -65,6 +66,7 @@ const HTTP_STATUS: Partial<Record<ResolveDtcmOrderErrorCode, number>> = {
   DET_FAILED: 502,
   PURCHASED_NO_BARCODE: 202,
   CODE_ARRIVED_MEANWHILE: 409,
+  CREDENTIALS_CHANGED: 409,
 };
 
 export async function PATCH(req: Request, { params }: RouteParams) {
@@ -105,6 +107,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         return NextResponse.json({
           order: { id: out.order.id, status: out.order.status, orderId: out.order.orderId },
           clearedRegistrationCode: out.clearedRegistrationCode,
+          codeStillInUse: out.codeStillInUse,
         });
       }
       const action =

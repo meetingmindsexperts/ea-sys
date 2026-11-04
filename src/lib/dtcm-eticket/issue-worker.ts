@@ -9,6 +9,11 @@
  * Runs are worked one after another, never in parallel: DET is a government
  * API behind a whitelist, and the Laravel app's one recorded regret was
  * dispatching everything at once.
+ *
+ * Each run gets a fair share of the tick (what is left, divided by the runs
+ * still to go), least recently worked first, so one long run cannot starve
+ * every other event's (review of steps 0 to 5, MED 5). A run that finishes
+ * early leaves its unused share to the runs after it.
  */
 import { dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -32,16 +37,17 @@ export async function tickAllDtcmRuns(): Promise<{ runs: number }> {
   const runs = await dbOperator.dtcmIssueRun.findMany({
     where: { status: "RUNNING" },
     select: { id: true, organizationId: true },
-    orderBy: { startedAt: "asc" },
+    // Never-worked runs (null) first, then the one waiting longest.
+    orderBy: [{ lastTickAt: { sort: "asc", nulls: "first" } }, { startedAt: "asc" }],
   });
   const deadline = Date.now() + TICK_BUDGET_MS;
-  for (const run of runs) {
-    const left = deadline - Date.now();
-    if (left <= 0) break;
+  for (const [i, run] of runs.entries()) {
+    const share = Math.floor((deadline - Date.now()) / (runs.length - i));
+    if (share <= 0) break;
     try {
       if (stopping) break;
       await runWithTenantLane(run.organizationId, { route: "dtcm-eticket:issue-worker" }, () =>
-        tickDtcmRun(run.id, left, undefined, () => stopping),
+        tickDtcmRun(run.id, share, undefined, () => stopping),
       );
     } catch (err) {
       // One run's failure must not stop the others. A purchase that threw has

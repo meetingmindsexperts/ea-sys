@@ -139,7 +139,15 @@ describe("start", () => {
     mockDb.registration.findMany.mockResolvedValue([reg("r1")]);
     mockDb.dtcmIssueRun.create.mockResolvedValueOnce({ id: "run1", expected: 1, environment: "staging", performanceCode: "P1" });
     expect(await start({ environment: "staging", count: 1 })).toMatchObject({ ok: true });
-    expect(mockDb.dtcmIssueRun.create.mock.calls[0][0].data).toMatchObject({ activeKey: "evt1", expected: 1, environment: "staging", status: "RUNNING" });
+    expect(mockDb.dtcmIssueRun.create.mock.calls[0][0].data).toMatchObject({
+      activeKey: "evt1",
+      expected: 1,
+      environment: "staging",
+      status: "RUNNING",
+      // What the organiser confirmed, frozen (HIGH 1).
+      registrationIds: ["r1"],
+      sections: { "tt-a": { area: "SVIP2", priceTypeCode: "C" } },
+    });
     mockDb.dtcmIssueRun.create.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "x" }));
     expect(await start({ environment: "staging", count: 1 })).toMatchObject({ ok: false, code: "RUN_ACTIVE" });
   });
@@ -155,6 +163,9 @@ describe("tick", () => {
     performanceCode: "P1",
     soldOutAreas: [] as string[],
     createdById: "u1",
+    // Frozen at the start (review of steps 0 to 5, HIGH 1).
+    registrationIds: ["r1", "r2", "r3", "r4", "r5", "r6"],
+    sections: event.settings.dtcm.sections,
     ...over,
   });
   const stopWrite = () =>
@@ -179,10 +190,11 @@ describe("tick", () => {
     mockDb.registration.findMany.mockResolvedValueOnce([reg("r1", { attendee: { ...attendee, phone: null } }), reg("r2")]);
     svc.buyForRegistration.mockResolvedValue({ ok: true });
     await tickDtcmRun("run1", 10_000, 0);
-    expect(svc.buyForRegistration.mock.calls.map(([, r]) => r.id)).toEqual(["r2"]);
+    expect(svc.buyForRegistration.mock.calls.map(([, id]) => id)).toEqual(["r2"]);
     expect(stopWrite()).toMatchObject({ status: "COMPLETED" });
     const where = mockDb.registration.findMany.mock.calls[0][0].where;
     expect(where.ticketTypeId).toEqual({ in: ["tt-a", "tt-b"] });
+    expect(where.id).toEqual({ in: ["r1", "r2", "r3", "r4", "r5", "r6"] });
     expect(mockDb.registration.findMany.mock.calls[0][0]).not.toHaveProperty("take");
   });
 
@@ -210,7 +222,7 @@ describe("tick", () => {
       .mockResolvedValueOnce({ ok: false, code: "DET_REFUSED", message: "x", detCode: "5005" })
       .mockResolvedValueOnce({ ok: true });
     await tickDtcmRun("run1", 10_000, 0);
-    expect(svc.buyForRegistration.mock.calls.map(([, r]) => r.id)).toEqual(["r1", "r3"]);
+    expect(svc.buyForRegistration.mock.calls.map(([, id]) => id)).toEqual(["r1", "r3"]);
     expect(mockDb.dtcmIssueRun.update).toHaveBeenCalledWith({ where: { id: "run1" }, data: { soldOutAreas: ["SVIP2"] } });
   });
 
@@ -273,10 +285,40 @@ describe("tick", () => {
     expect(stopWrite()).toMatchObject({ status: "STOPPED" });
   });
 
-  it("buys only for people registered when the run started (review M6)", async () => {
+  it("buys only for the registrations and types frozen at the start (review of steps 0 to 5, HIGH 1)", async () => {
+    // Since the run was confirmed for r1 on tt-a, someone mapped tt-b too.
+    // Neither people fixed later nor a newly mapped type may be bought for.
+    mockDb.dtcmIssueRun.findUnique.mockImplementation(async ({ select }) =>
+      select ? { status: "RUNNING" } : running({ registrationIds: ["r1"], sections: { "tt-a": event.settings.dtcm.sections["tt-a"] } }),
+    );
+    mockDb.registration.findMany.mockResolvedValueOnce([reg("r1")]);
+    svc.buyForRegistration.mockResolvedValue({ ok: true });
+    await tickDtcmRun("run1", 10_000, 0);
+    const where = mockDb.registration.findMany.mock.calls[0][0].where;
+    expect(where.id).toEqual({ in: ["r1"] });
+    expect(where.ticketTypeId).toEqual({ in: ["tt-a"] });
+    expect(svc.buyForRegistration.mock.calls.map(([, id]) => id)).toEqual(["r1"]);
+  });
+
+  it("stops, buying nothing, when a confirmed type's section changed mid-run (HIGH 1)", async () => {
+    mockDb.dtcmIssueRun.findUnique.mockImplementation(async ({ select }) =>
+      select ? { status: "RUNNING" } : running({ sections: { "tt-a": { area: "SGOLDA", priceTypeCode: "D" } } }),
+    );
+    mockDb.registration.findMany.mockResolvedValue([reg("r1")]);
+    await tickDtcmRun("run1", 10_000, 0);
+    expect(svc.buyForRegistration).not.toHaveBeenCalled();
+    expect(stopWrite()).toMatchObject({ status: "STOPPED" });
+    expect(stopWrite()?.stopReason).toMatch(/moved from SGOLDA\/D to SVIP2\/C/);
+  });
+
+  it("a run with no frozen registrations buys for nobody", async () => {
+    mockDb.dtcmIssueRun.findUnique.mockImplementation(async ({ select }) =>
+      select ? { status: "RUNNING" } : running({ registrationIds: [], sections: null }),
+    );
     mockDb.registration.findMany.mockResolvedValueOnce([]);
     await tickDtcmRun("run1", 10_000, 0);
-    expect(mockDb.registration.findMany.mock.calls[0][0].where.createdAt).toHaveProperty("lte");
+    expect(mockDb.registration.findMany.mock.calls[0][0].where.id).toEqual({ in: [] });
+    expect(svc.buyForRegistration).not.toHaveBeenCalled();
   });
 
   it("stops, never 'finishes', when the mapping went stale mid-run (review LOW 7)", async () => {

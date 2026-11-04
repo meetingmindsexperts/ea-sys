@@ -38,7 +38,9 @@ vi.mock("@/lib/dtcm-eticket/client", async (importOriginal) => ({
 }));
 
 import {
+  buyForRegistration,
   issueDtcmTicket,
+  loadDtcmPurchaseContext,
   listUnusedDtcmOrders,
   markDtcmOrderReversed,
   resolveDtcmOrder,
@@ -460,5 +462,103 @@ describe("reversing an unused ticket (step 5)", () => {
     det.getDetOrder.mockResolvedValueOnce({ orderId: "O5", barcode: "BAR-5" });
     expect(await reverse()).toMatchObject({ ok: false, code: "DET_FAILED" });
     expect(row.status).toBe("PURCHASED");
+  });
+});
+
+describe("review of steps 0 to 5", () => {
+  const bought = (over: Record<string, unknown> = {}) => ({
+    id: "do-5",
+    eventId: "evt1",
+    registrationId: "reg-1",
+    environment: "production",
+    status: "PURCHASED",
+    orderId: "O5",
+    barcode: "BAR-5",
+    detClientId: "AMMEE1",
+    amount: new Prisma.Decimal(0),
+    updatedAt: new Date(),
+    registration: { status: "CANCELLED", dtcmBarcode: "BAR-5" },
+    ...over,
+  });
+  const reverse = () => reverseDtcmOrder({ organizationId: "org1", eventId: "evt1", dtcmOrderId: "do-5", userId: "u1" });
+  const markReversed = () => markDtcmOrderReversed({ organizationId: "org1", eventId: "evt1", dtcmOrderId: "do-5", userId: "u1" });
+
+  it("MED 2: the purchase re-reads the registration, so a code assigned since the caller's list blocks it", async () => {
+    const loaded = await loadDtcmPurchaseContext("org1", "evt1", "u1", "worker", "run1");
+    if (!loaded.ok) throw new Error("context");
+    // The run's list (a tick old) said no code; the registration has one now.
+    mockDb.registration.findFirst.mockResolvedValue(registration({ dtcmBarcode: "POOL-1" }));
+    expect(await buyForRegistration(loaded.context, "reg-1")).toMatchObject({ ok: false, code: "ALREADY_HAS_CODE" });
+    expect(mockDb.registration.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "reg-1", eventId: "evt1" } }));
+    expect(mockDb.dtcmOrder.create).not.toHaveBeenCalled();
+    expect(det.createDetBasket).not.toHaveBeenCalled();
+  });
+
+  it("MED 2: and a registration cancelled since is not bought for", async () => {
+    const loaded = await loadDtcmPurchaseContext("org1", "evt1", "u1", "worker", "run1");
+    if (!loaded.ok) throw new Error("context");
+    mockDb.registration.findFirst.mockResolvedValue(registration({ status: "CANCELLED" }));
+    expect(await buyForRegistration(loaded.context, "reg-1")).toMatchObject({ ok: false, code: "CANCELLED" });
+    expect(mockDb.dtcmOrder.create).not.toHaveBeenCalled();
+  });
+
+  it("MED 4: a purchase records the DET client id it was bought with", async () => {
+    await issueDtcmTicket(input);
+    expect(mockDb.dtcmOrder.create.mock.calls[0][0].data).toMatchObject({ detClientId: "AMMEE1" });
+  });
+
+  describe("reverse and mark-reversed", () => {
+    beforeEach(() => {
+      row = bought();
+      mockDb.dtcmOrder.findFirst.mockResolvedValue(row);
+      mockGetCreds.mockResolvedValue(creds("production"));
+    });
+
+    it("MED 3: a code put on an active registration while DET reversed is reported, not hidden", async () => {
+      det.reverseDetOrder.mockResolvedValue("reversed");
+      // Free before the DET call; on someone's badge again by the time it is recorded.
+      mockDb.registration.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+      expect(await reverse()).toMatchObject({ ok: true, codeStillInUse: true });
+      expect(row.status).toBe("REVERSED");
+      expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "dtcm-eticket:reversed-code-in-use" }));
+    });
+
+    it("MED 4: 'mark reversed' refuses a ticket still in use, without asking DET", async () => {
+      mockDb.dtcmOrder.findFirst.mockResolvedValue(bought({ registration: { status: "CONFIRMED", dtcmBarcode: "BAR-5" } }));
+      expect(await markReversed()).toMatchObject({ ok: false, code: "STILL_IN_USE" });
+      expect(det.getDetOrder).not.toHaveBeenCalled();
+    });
+
+    it("MED 4: neither reverse nor mark-reversed acts with another DET client's credentials", async () => {
+      mockDb.dtcmOrder.findFirst.mockResolvedValue(bought({ detClientId: "OLDSELLER" }));
+      expect(await reverse()).toMatchObject({ ok: false, code: "CREDENTIALS_CHANGED" });
+      expect(await markReversed()).toMatchObject({ ok: false, code: "CREDENTIALS_CHANGED" });
+      expect(det.reverseDetOrder).not.toHaveBeenCalled();
+      expect(det.getDetOrder).not.toHaveBeenCalled();
+    });
+
+    it("MED 4: an order from before the column (null client id) is not refused", async () => {
+      mockDb.dtcmOrder.findFirst.mockResolvedValue((row = bought({ detClientId: null })));
+      det.reverseDetOrder.mockResolvedValue("reversed");
+      expect(await reverse()).toMatchObject({ ok: true });
+    });
+  });
+
+  it("MED 4: resolving an order refuses another DET client's credentials", async () => {
+    mockDb.dtcmOrder.findFirst.mockResolvedValue({
+      id: "do-1",
+      eventId: "evt1",
+      registrationId: "reg-1",
+      environment: "staging",
+      status: "UNCERTAIN",
+      detClientId: "OLDSELLER",
+      area: "SVIP2",
+      priceTypeCode: "C",
+      updatedAt: new Date(),
+    });
+    expect(
+      await resolveDtcmOrder({ organizationId: "org1", eventId: "evt1", dtcmOrderId: "do-1", userId: "u1", action: { kind: "found", detOrderId: "O9" } }),
+    ).toMatchObject({ ok: false, code: "CREDENTIALS_CHANGED" });
+    expect(det.getDetOrder).not.toHaveBeenCalled();
   });
 });

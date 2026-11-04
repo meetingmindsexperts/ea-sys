@@ -14,6 +14,13 @@ import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api-fetch";
 import { useDtcmUnusedOrders, useReverseDtcmOrder, type DtcmUnusedOrder } from "@/hooks/use-api";
 
+/**
+ * DET reversed it, but while it did, the code went onto an active registration
+ * (reactivated, or typed onto a replacement). That badge no longer works.
+ */
+const CODE_NOW_DEAD =
+  "Reversed, but this code is now on an active registration, so that badge will not work at the door. Give that registration a new DTCM code.";
+
 const WHY: Record<DtcmUnusedOrder["reason"], string> = {
   REGISTRATION_CANCELLED: "registration cancelled",
   REGISTRATION_DELETED: "registration deleted",
@@ -31,6 +38,10 @@ export function DtcmUnusedCard({ eventId }: { eventId: string }) {
     if (!window.confirm(`Reverse DET order ${o.orderId} (${who})? Its DTCM barcode stops working and the seat goes back to the permit.`)) return;
     try {
       const out = await reverse.mutateAsync({ dtcmOrderId: o.id, action: "reverse" });
+      if (out.codeStillInUse) {
+        toast.error(CODE_NOW_DEAD, { duration: 20000 });
+        return;
+      }
       toast.success(out.clearedRegistrationCode ? "Reversed, and the code was removed from the registration." : "Reversed.");
     } catch (err) {
       // DET has no such order: reversed already (a lost answer, or in DET's
@@ -47,7 +58,11 @@ export function DtcmUnusedCard({ eventId }: { eventId: string }) {
 
   const markReversed = async (o: DtcmUnusedOrder) => {
     try {
-      await reverse.mutateAsync({ dtcmOrderId: o.id, action: "mark-reversed" });
+      const out = await reverse.mutateAsync({ dtcmOrderId: o.id, action: "mark-reversed" });
+      if (out.codeStillInUse) {
+        toast.error(CODE_NOW_DEAD, { duration: 20000 });
+        return;
+      }
       toast.success("Marked as reversed.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not mark the order reversed", { duration: 12000 });

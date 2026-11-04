@@ -15,9 +15,14 @@
  *   - DET unreachable, credentials missing, the mapping no longer current, or
  *     the environment / performance code changed since the run was confirmed;
  *   - five definite DET refusals in a row that were not "section sold out",
- *     counted across ticks from the run's own orders.
- * A run buys only for people registered when it started: the organiser
- * confirmed a count, and later registrants are the desk's or the next run's.
+ *     counted across ticks from the run's own orders;
+ *   - the section mapping of a confirmed registration type changed.
+ * A run buys ONLY for the registrations the organiser confirmed, frozen on the
+ * run at the start (`registrationIds`, `sections`): not people who registered
+ * later, not people fixed later (a phone added), not a type mapped later. Each
+ * is tried at most once per run, so the run can never buy more than it was
+ * confirmed for (review of steps 0 to 5, HIGH 1). Anyone else is the desk's,
+ * or the next run's, which the preflight shows.
  * A section DET refuses as sold out (5005) is added to `soldOutAreas` and its
  * remaining registrations are skipped; the rest of the run carries on.
  *
@@ -28,7 +33,7 @@ import { Prisma, type DtcmIssueRun } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { dtcmEligibility, type IneligibleReason } from "@/lib/dtcm-eticket/eligibility";
-import { readDtcmEventSettings, sectionHeadroom } from "@/lib/dtcm-eticket/sections";
+import { readDtcmEventSettings, sectionHeadroom, type DtcmSectionMapping } from "@/lib/dtcm-eticket/sections";
 import { DET_CODES, type DetEnvironment } from "@/lib/dtcm-eticket/types";
 import { buyForRegistration, loadDtcmPurchaseContext, type DtcmPurchaseContext } from "@/services/dtcm-eticket-service";
 
@@ -57,6 +62,8 @@ export interface DtcmRunPreflight {
   performanceCode: string;
   /** Registrations a run would buy for, in the order it would. */
   eligibleIds: string[];
+  /** The mapping of every registration type among them, as it is now; frozen on the run. */
+  mapping: Record<string, DtcmSectionMapping>;
   /** People a run would skip because something must be fixed first. */
   problems: Partial<Record<IneligibleReason | "AWAITING_RESOLUTION", number>>;
   notNeeded: number;
@@ -82,6 +89,7 @@ export async function dtcmRunPreflight(organizationId: string, eventId: string, 
   const withLiveOrder = new Set(live.map((o) => o.registrationId));
 
   const eligibleIds: string[] = [];
+  const mapping: Record<string, DtcmSectionMapping> = {};
   const problems: DtcmRunPreflight["problems"] = {};
   const neededByArea = new Map<string, number>();
   let notNeeded = 0;
@@ -105,6 +113,7 @@ export async function dtcmRunPreflight(organizationId: string, eventId: string, 
       continue;
     }
     eligibleIds.push(r.id);
+    if (r.ticketTypeId) mapping[r.ticketTypeId] = { area: e.mapping.area, priceTypeCode: e.mapping.priceTypeCode };
     neededByArea.set(e.mapping.area, (neededByArea.get(e.mapping.area) ?? 0) + 1);
   }
 
@@ -121,6 +130,7 @@ export async function dtcmRunPreflight(organizationId: string, eventId: string, 
       environment: ctx.creds.environment,
       performanceCode: ctx.event.dtcmPerformanceCode ?? "",
       eligibleIds,
+      mapping,
       problems,
       notNeeded,
       sections,
@@ -195,6 +205,8 @@ export async function startDtcmRun(input: {
         status: "RUNNING",
         activeKey: input.eventId,
         expected: p.eligibleIds.length,
+        registrationIds: p.eligibleIds,
+        sections: p.mapping as unknown as Prisma.InputJsonValue,
         createdById: input.userId,
       },
     });
@@ -293,10 +305,13 @@ export async function tickDtcmRun(
     );
   }
 
+  const confirmed = confirmedMapping(run.sections);
+  const changed = mappingChange(confirmed, readDtcmEventSettings(ctx.event.settings).sections ?? {});
+  if (changed) return stopRun(run.id, `${changed} since the run was confirmed. Check again and start a new run.`);
+
   const soldOut = new Set(run.soldOutAreas);
-  const mappedTypes = Object.keys(readDtcmEventSettings(ctx.event.settings).sections ?? {});
   let refusalsInARow = await trailingRefusals(run.id);
-  for (const registration of await nextCandidates(run.id, run.eventId, mappedTypes, run.startedAt)) {
+  for (const registration of await nextCandidates(run.id, run.eventId, run.registrationIds, Object.keys(confirmed))) {
     if (Date.now() > deadline || shouldStop()) return;
     const e = dtcmEligibility(ctx.event, registration, ctx.creds.environment);
     // A stale mapping or DTCM switched off refuses EVERYONE: stop, never finish
@@ -310,7 +325,7 @@ export async function tickDtcmRun(
 
     let result: Awaited<ReturnType<typeof buyForRegistration>>;
     try {
-      result = await buyForRegistration(ctx, registration);
+      result = await buyForRegistration(ctx, registration.id);
     } catch (err) {
       // Not a DET answer: a database write failed mid-purchase, perhaps after
       // the sale. Stop rather than buy on (review of step 4, HIGH 2).
@@ -371,21 +386,46 @@ async function trailingRefusals(runId: string): Promise<number> {
   return n;
 }
 
+/** The mapping frozen on the run; anything malformed reads as empty, which buys for nobody. */
+function confirmedMapping(stored: Prisma.JsonValue | null): Record<string, DtcmSectionMapping> {
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
+  const out: Record<string, DtcmSectionMapping> = {};
+  for (const [typeId, m] of Object.entries(stored)) {
+    if (m && typeof m === "object" && !Array.isArray(m) && typeof m.area === "string" && typeof m.priceTypeCode === "string") {
+      out[typeId] = { area: m.area, priceTypeCode: m.priceTypeCode };
+    }
+  }
+  return out;
+}
+
+/** What changed in the mapping of a confirmed type, or null when nothing did. */
+export function mappingChange(confirmed: Record<string, DtcmSectionMapping>, current: Record<string, DtcmSectionMapping>): string | null {
+  for (const [typeId, was] of Object.entries(confirmed)) {
+    const now = current[typeId];
+    if (!now) return `A confirmed registration type is no longer mapped to a DET section`;
+    if (now.area !== was.area || now.priceTypeCode !== was.priceTypeCode) {
+      return `A confirmed registration type moved from ${was.area}/${was.priceTypeCode} to ${now.area}/${now.priceTypeCode}`;
+    }
+  }
+  return null;
+}
+
 /**
- * Registrations on a mapped type that this run has not tried yet, with no
- * code and no live order. Eligibility proper (phone, country, mapping
- * current...) is checked per person by the caller, with the desk's rule.
+ * The confirmed registrations this run has not tried yet, still on a confirmed
+ * type, with no code and no live order. Eligibility proper (phone, country,
+ * mapping current...) is checked per person by the caller, with the desk's
+ * rule, and the purchase re-reads the registration itself.
  */
-function nextCandidates(runId: string, eventId: string, mappedTypeIds: string[], startedAt: Date): Promise<RunRegistration[]> {
+function nextCandidates(runId: string, eventId: string, registrationIds: string[], confirmedTypeIds: string[]): Promise<RunRegistration[]> {
   // No `take`: a page could fill with people who can never be bought for (no
-  // phone), and those behind them would never be reached. Event-sized, and the
-  // select is small.
+  // phone), and those behind them would never be reached. Bounded by the
+  // confirmed list, and the select is small.
   return db.registration.findMany({
     where: {
+      id: { in: registrationIds },
       eventId,
-      ticketTypeId: { in: mappedTypeIds },
-      // Only people registered when the run was confirmed (review of step 4, M6).
-      createdAt: { lte: startedAt },
+      // A registration moved to another type since the start is not confirmed for it.
+      ticketTypeId: { in: confirmedTypeIds },
       dtcmBarcode: null,
       status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
       attendanceMode: "IN_PERSON",

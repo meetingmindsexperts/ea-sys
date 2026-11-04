@@ -1065,6 +1065,28 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
+    // ── DET tickets guard: an order row is the only record of a ticket that
+    // still exists at DET, and it cascades with the event. Once gone, an unused
+    // ticket can no longer be found or reversed from here (review of DTCM
+    // steps 0 to 5, LOW 8). PENDING and UNCERTAIN may have sold, so they count.
+    const liveDtcmTickets = await db.dtcmOrder.count({
+      where: { eventId, status: { in: ["PURCHASED", "UNCERTAIN", "PENDING"] } },
+    });
+    if (liveDtcmTickets > 0) {
+      apiLogger.warn({ msg: "event:delete-blocked-dtcm-tickets", eventId, liveDtcmTickets, userId: session.user.id });
+      return NextResponse.json(
+        {
+          error:
+            `This event holds ${liveDtcmTickets} DTCM ticket(s) bought from DET. ` +
+            "Deleting it would lose EA-SYS's only record of them, and unused ones could no longer be reversed. " +
+            "Keep the event (mark it completed or cancelled instead), or reverse the unused tickets and resolve any uncertain ones first.",
+          code: "EVENT_HAS_DTCM_TICKETS",
+          liveDtcmTickets,
+        },
+        { status: 409 },
+      );
+    }
+
     await db.event.delete({
       where: { id: eventId },
     });

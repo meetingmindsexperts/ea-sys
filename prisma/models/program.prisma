@@ -1184,6 +1184,11 @@ model DtcmOrder {
   orderId         String?
   barcode         String?
   detCustomerId   String?
+  /// The DET client id (seller account) the ticket was bought with. Later calls
+  /// on the order refuse when the saved credentials are for another client:
+  /// DET answers "not found" for another seller's order, which must never read
+  /// as "already reversed" (review of steps 0 to 5, MED 4).
+  detClientId     String?
   errorStage      String?
   errorStatus     Int?
   errorMessage    String?
@@ -1242,6 +1247,12 @@ model DtcmIssueRun {
   activeKey       String?            @unique
   /// How many registrations the organiser confirmed buying for at the start.
   expected        Int
+  /// The registrations the organiser confirmed, frozen at the start. The run
+  /// buys for these and nobody else (review of steps 0 to 5, HIGH 1).
+  registrationIds String[]           @default([])
+  /// The section mapping (ticket type id -> area and price type) as confirmed.
+  /// The run stops if the event's mapping for those types changes.
+  sections        Json?
   /// Sections DET refused as sold out during the run; their rows are skipped.
   soldOutAreas    String[]           @default([])
   stopReason      String?

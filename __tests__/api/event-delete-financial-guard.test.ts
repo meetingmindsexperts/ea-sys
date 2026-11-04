@@ -11,6 +11,7 @@ const { mockDb, mockAuth } = vi.hoisted(() => ({
     event: { findFirst: vi.fn(), delete: vi.fn().mockResolvedValue({}) },
     invoice: { count: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     payment: { count: vi.fn() },
+    dtcmOrder: { count: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
   mockAuth: vi.fn(),
@@ -37,6 +38,7 @@ beforeEach(() => {
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", name: "Test Event" });
   mockDb.invoice.count.mockResolvedValue(0);
   mockDb.payment.count.mockResolvedValue(0);
+  mockDb.dtcmOrder.count.mockResolvedValue(0);
   mockDb.invoice.findMany.mockResolvedValue([]);
 });
 
@@ -82,5 +84,22 @@ describe("event DELETE — financial-records guard", () => {
     expect(mockDb.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: "DELETE", entityType: "Event" }) }),
     );
+  });
+});
+
+describe("event DELETE: DET tickets guard", () => {
+  it("blocks (409) while the event holds bought, uncertain or pending DET tickets", async () => {
+    mockDb.dtcmOrder.count.mockResolvedValue(2);
+
+    const res = await DELETE(delReq(), { params });
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body.code).toBe("EVENT_HAS_DTCM_TICKETS");
+    expect(body.liveDtcmTickets).toBe(2);
+    expect(mockDb.dtcmOrder.count).toHaveBeenCalledWith({
+      where: { eventId: "ev1", status: { in: ["PURCHASED", "UNCERTAIN", "PENDING"] } },
+    });
+    expect(mockDb.event.delete).not.toHaveBeenCalled();
   });
 });

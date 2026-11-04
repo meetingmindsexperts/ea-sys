@@ -20,7 +20,10 @@
  *   4. A purchase that succeeded but whose order cannot be read is PURCHASED
  *      without a barcode; `refreshDtcmOrderBarcode()` reads it again later.
  *   5. Every later call on an order uses the environment stored on the row,
- *      never the organisation's active one.
+ *      never the organisation's active one, and refuses when the saved
+ *      credentials are for a different DET client than the one that bought it.
+ *   6. The registration is read fresh right before the intent row, never
+ *      taken from a caller's list: a bulk run's list can be a tick old.
  */
 import { Prisma, type DtcmOrder } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -125,15 +128,7 @@ export function issueDtcmTicket(input: IssueDtcmTicketInput): Promise<IssueDtcmT
   return runWithTenant(input.organizationId, async () => {
     const ctx = await loadDtcmPurchaseContext(input.organizationId, input.eventId, input.userId, input.source, null);
     if (!ctx.ok) return fail(ctx.code, ctx.message, { eventId: input.eventId, registrationId: input.registrationId });
-
-    const registration = await db.registration.findFirst({
-      where: { id: input.registrationId, eventId: input.eventId },
-      select: REGISTRATION_SELECT,
-    });
-    if (!registration) {
-      return fail("REGISTRATION_NOT_FOUND", "Registration not found", { eventId: input.eventId, registrationId: input.registrationId });
-    }
-    return buyForRegistration(ctx.context, registration);
+    return buyForRegistration(ctx.context, input.registrationId);
   });
 }
 
@@ -171,8 +166,16 @@ export async function loadDtcmPurchaseContext(
 }
 
 /** One purchase, under the rules in the header. Callers have checked access; this checks everything else. */
-export async function buyForRegistration(ctx: DtcmPurchaseContext, registration: PurchaseRegistration): Promise<IssueDtcmTicketResult> {
-  const log = { eventId: ctx.eventId, registrationId: registration.id, environment: ctx.creds.environment, source: ctx.source };
+export async function buyForRegistration(ctx: DtcmPurchaseContext, registrationId: string): Promise<IssueDtcmTicketResult> {
+  const log = { eventId: ctx.eventId, registrationId, environment: ctx.creds.environment, source: ctx.source };
+
+  // Rule 6: fresh, so a code assigned or a cancel made since the caller's
+  // list was read is seen (review of steps 0 to 5, MED 2).
+  const registration: PurchaseRegistration | null = await db.registration.findFirst({
+    where: { id: registrationId, eventId: ctx.eventId },
+    select: REGISTRATION_SELECT,
+  });
+  if (!registration) return fail("REGISTRATION_NOT_FOUND", "Registration not found", log);
 
   const eligibility = dtcmEligibility(ctx.event, registration, ctx.creds.environment);
   if (!eligibility.ok) return fail(eligibility.reason, eligibility.message, log);
@@ -198,6 +201,7 @@ export async function buyForRegistration(ctx: DtcmPurchaseContext, registration:
         area: mapping.area,
         priceTypeCode: mapping.priceTypeCode,
         amount: new Prisma.Decimal(price),
+        detClientId: ctx.creds.clientId,
         runId: ctx.runId,
         createdById: ctx.userId,
       },
@@ -368,6 +372,18 @@ function alreadyInProgressMessage(live: DtcmOrder | null): string {
   return "A DET purchase for this registration is already in progress";
 }
 
+/**
+ * Rule 5's second half: why these credentials may not act on this order, or
+ * null. DET answers "not found" for another client's order, the same answer as
+ * for a reversed one, so acting across clients would misread every order
+ * (review of steps 0 to 5, MED 4). Rows bought before the column existed
+ * carry null and are not checked.
+ */
+function clientMismatch(order: Pick<DtcmOrder, "detClientId" | "environment">, creds: DetCredentials): string | null {
+  if (!order.detClientId || order.detClientId === creds.clientId) return null;
+  return `This ticket was bought with DET client ${order.detClientId}, but the saved ${order.environment} credentials are for client ${creds.clientId}. Restore the original credentials to work on it.`;
+}
+
 function markFailed(orderId: string, err: DetApiError) {
   return db.dtcmOrder.update({
     where: { id: orderId },
@@ -408,6 +424,8 @@ export type ResolveDtcmOrderErrorCode =
   | "NOT_CONFIGURED"
   | "DET_ORDER_NOT_FOUND"
   | "DET_FAILED"
+  /** The saved credentials are for another DET client than the one that bought the order. */
+  | "CREDENTIALS_CHANGED"
   | IssueDtcmTicketErrorCode;
 
 export type ResolveDtcmOrderResult =
@@ -470,6 +488,11 @@ export function resolveDtcmOrder(input: ResolveDtcmOrderInput): Promise<ResolveD
       apiLogger.warn({ msg: "dtcm-eticket:resolve-not-configured", ...log, environment: order.environment });
       return { ok: false, code: "NOT_CONFIGURED", message: `DET ${order.environment} credentials are not set up` };
     }
+    const otherClient = clientMismatch(order, creds);
+    if (otherClient) {
+      apiLogger.warn({ msg: "dtcm-eticket:resolve-credentials-changed", ...log, environment: order.environment });
+      return { ok: false, code: "CREDENTIALS_CHANGED", message: otherClient, order };
+    }
 
     const detOrderId = input.action.kind === "found" ? input.action.detOrderId : (order.orderId ?? "");
     if (input.action.kind === "found") {
@@ -526,11 +549,17 @@ export type ReverseDtcmOrderErrorCode =
   | "WRONG_STATUS"
   | "STILL_IN_USE"
   | "NOT_CONFIGURED"
+  | "CREDENTIALS_CHANGED"
   | "DET_NOT_FOUND"
   | "DET_FAILED";
 
 export type ReverseDtcmOrderResult =
-  | { ok: true; order: DtcmOrder; clearedRegistrationCode: boolean }
+  /**
+   * `codeStillInUse`: the reverse is recorded (DET did it), but the barcode is
+   * on an active registration again, put there while DET was reversing. That
+   * badge no longer works and needs a new code.
+   */
+  | { ok: true; order: DtcmOrder; clearedRegistrationCode: boolean; codeStillInUse: boolean }
   | { ok: false; code: ReverseDtcmOrderErrorCode; message: string };
 
 /**
@@ -556,9 +585,35 @@ export function unusedReason(
  * cancelled attendee's code can be on their replacement's badge: the order's
  * OWN registration is not the whole answer (review of step 5, HIGH 1).
  */
-async function barcodeInUseElsewhere(eventId: string, barcode: string | null): Promise<boolean> {
+async function barcodeInUseElsewhere(eventId: string, barcode: string | null, client: Pick<typeof db, "registration"> = db): Promise<boolean> {
   if (!barcode) return false;
-  return (await db.registration.count({ where: { eventId, dtcmBarcode: barcode, status: { not: "CANCELLED" } } })) > 0;
+  return (await client.registration.count({ where: { eventId, dtcmBarcode: barcode, status: { not: "CANCELLED" } } })) > 0;
+}
+
+/**
+ * The checks both reverse and mark-reversed make before touching DET: the
+ * ticket is unused (shared codes included) and these credentials are the
+ * buyer's. Null when it may go ahead.
+ */
+async function reverseRefusal(
+  order: DtcmOrder & { registration: { status: string; dtcmBarcode: string | null } | null },
+  creds: DetCredentials,
+  log: Record<string, unknown>,
+): Promise<{ ok: false; code: ReverseDtcmOrderErrorCode; message: string } | null> {
+  if (!unusedReason(order, order.registration) || (await barcodeInUseElsewhere(order.eventId, order.barcode))) {
+    apiLogger.warn({ msg: "dtcm-eticket:reverse-still-in-use", ...log });
+    return {
+      ok: false,
+      code: "STILL_IN_USE",
+      message: "This ticket's barcode is on an active registration (possibly someone else's, if the code was shared). Cancel that registration first if nobody will use it.",
+    };
+  }
+  const otherClient = clientMismatch(order, creds);
+  if (otherClient) {
+    apiLogger.warn({ msg: "dtcm-eticket:reverse-credentials-changed", ...log, environment: order.environment });
+    return { ok: false, code: "CREDENTIALS_CHANGED", message: otherClient };
+  }
+  return null;
 }
 
 /**
@@ -567,12 +622,17 @@ async function barcodeInUseElsewhere(eventId: string, barcode: string | null): P
  * registration's code is cleared only if that registration still holds this
  * barcode and is still cancelled or the order's own: a re-activated attendee
  * keeps theirs.
+ *
+ * It also asks again whether the code is in use: DET can take thirty seconds,
+ * and a registration reactivated (or given this code) meanwhile now holds a
+ * dead code. The reverse happened, so it is recorded either way; the caller
+ * reports it (review of steps 0 to 5, MED 3).
  */
 async function recordReversal(
-  order: Pick<DtcmOrder, "id" | "registrationId" | "barcode">,
+  order: Pick<DtcmOrder, "id" | "eventId" | "registrationId" | "barcode">,
   userId: string,
   how: "DTCM_ORDER_REVERSED" | "DTCM_ORDER_MARKED_REVERSED",
-): Promise<{ ok: true; order: DtcmOrder; clearedRegistrationCode: boolean } | { ok: false }> {
+): Promise<{ ok: true; order: DtcmOrder; clearedRegistrationCode: boolean; codeStillInUse: boolean } | { ok: false }> {
   return db.$transaction(async (tx) => {
     const done = await tx.dtcmOrder.updateMany({ where: { id: order.id, status: "PURCHASED" }, data: { status: "REVERSED", activeKey: null } });
     if (done.count === 0) return { ok: false as const };
@@ -583,6 +643,7 @@ async function recordReversal(
             data: { dtcmBarcode: null },
           })
         : { count: 0 };
+    const codeStillInUse = await barcodeInUseElsewhere(order.eventId, order.barcode, tx);
     const row = await tx.dtcmOrder.findUniqueOrThrow({ where: { id: order.id } });
     await tx.auditLog.create({
       data: {
@@ -591,10 +652,17 @@ async function recordReversal(
         action: how,
         entityType: "Registration",
         entityId: row.registrationId ?? row.id,
-        changes: { source: "rest", dtcmOrderId: row.id, environment: row.environment, detOrderId: row.orderId, clearedRegistrationCode: cleared.count > 0 },
+        changes: {
+          source: "rest",
+          dtcmOrderId: row.id,
+          environment: row.environment,
+          detOrderId: row.orderId,
+          clearedRegistrationCode: cleared.count > 0,
+          codeStillInUse,
+        },
       },
     });
-    return { ok: true as const, order: row, clearedRegistrationCode: cleared.count > 0 };
+    return { ok: true as const, order: row, clearedRegistrationCode: cleared.count > 0, codeStillInUse };
   });
 }
 
@@ -628,21 +696,14 @@ export function reverseDtcmOrder(input: {
       apiLogger.warn({ msg: "dtcm-eticket:reverse-wrong-status", ...log, status: order.status });
       return { ok: false, code: "WRONG_STATUS", message: `Only a bought ticket can be reversed; this one is ${order.status.toLowerCase()}` };
     }
-    // Re-checked right before DET is called, shared codes included.
-    if (!unusedReason(order, order.registration) || (await barcodeInUseElsewhere(input.eventId, order.barcode))) {
-      apiLogger.warn({ msg: "dtcm-eticket:reverse-still-in-use", ...log });
-      return {
-        ok: false,
-        code: "STILL_IN_USE",
-        message: "This ticket's barcode is on an active registration (possibly someone else's, if the code was shared). Cancel that registration first if nobody will use it.",
-      };
-    }
-
     const creds = await getDetCredentials(input.organizationId, order.environment as DetEnvironment);
     if (!creds) {
       apiLogger.warn({ msg: "dtcm-eticket:reverse-not-configured", ...log, environment: order.environment });
       return { ok: false, code: "NOT_CONFIGURED", message: `DET ${order.environment} credentials are not set up` };
     }
+    // Re-checked right before DET is called, shared codes included.
+    const refusal = await reverseRefusal(order, creds, log);
+    if (refusal) return refusal;
 
     const amount = Number(order.amount);
     let reversed: boolean;
@@ -683,6 +744,7 @@ export function reverseDtcmOrder(input: {
       apiLogger.error({ msg: "dtcm-eticket:reverse-row-raced", ...log });
       return { ok: false, code: "WRONG_STATUS", message: "Someone else changed this DET order a moment ago. Refresh the list." };
     }
+    logCodeStillInUse(recorded, log);
     apiLogger.info({ msg: "dtcm-eticket:reversed", ...log, clearedRegistrationCode: recorded.clearedRegistrationCode });
     return recorded;
   });
@@ -715,6 +777,10 @@ export function markDtcmOrderReversed(input: {
       apiLogger.warn({ msg: "dtcm-eticket:mark-reversed-not-configured", ...log });
       return { ok: false, code: "NOT_CONFIGURED", message: `DET ${order.environment} credentials are not set up` };
     }
+    // The same checks as Reverse: a "not found" from DET is believed only for
+    // an unused ticket, asked with the buyer's own credentials (MED 4).
+    const refusal = await reverseRefusal(order, creds, log);
+    if (refusal) return refusal;
     let stillAtDet: boolean;
     try {
       stillAtDet = (await getDetOrder(creds, order.orderId)) !== null;
@@ -729,9 +795,14 @@ export function markDtcmOrderReversed(input: {
     }
     const recorded = await recordReversal(order, input.userId, "DTCM_ORDER_MARKED_REVERSED");
     if (!recorded.ok) return { ok: false, code: "WRONG_STATUS", message: "Someone else changed this DET order a moment ago" };
+    logCodeStillInUse(recorded, log);
     apiLogger.info({ msg: "dtcm-eticket:marked-reversed", ...log });
     return recorded;
   });
+}
+
+function logCodeStillInUse(recorded: { codeStillInUse: boolean }, log: Record<string, unknown>) {
+  if (recorded.codeStillInUse) apiLogger.error({ msg: "dtcm-eticket:reversed-code-in-use", ...log });
 }
 
 /** The event's bought tickets nobody is using, for the organiser to reverse. */

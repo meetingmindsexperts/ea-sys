@@ -2576,7 +2576,10 @@ export function useResolveDtcmOrder(eventId: string, registrationId: string) {
         { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args.body) },
       ),
     onSettled: () => {
+      // A resolve can put a code on the registration or settle an unused ticket.
       queryClient.invalidateQueries({ queryKey: queryKeys.dtcmRegistrationOrders(eventId, registrationId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmUnusedOrders(eventId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
     },
   });
 }
@@ -2667,14 +2670,18 @@ export function useReverseDtcmOrder(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (args: { dtcmOrderId: string; action: "reverse" | "mark-reversed" }) =>
-      fetchApi<{ clearedRegistrationCode: boolean }>(`/api/events/${eventId}/dtcm-orders/${args.dtcmOrderId}`, {
+      fetchApi<{ clearedRegistrationCode: boolean; codeStillInUse: boolean }>(`/api/events/${eventId}/dtcm-orders/${args.dtcmOrderId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: args.action }),
       }),
     onSettled: () => {
-      // Every DTCM view (the unused list, a registration's DET panel, the run card).
-      queryClient.invalidateQueries({ queryKey: ["dtcm-eticket"] });
+      // The unused list, every registration's DET panel, the run card. NOT the
+      // DET sections map: refetching it calls DET and can drop an unsaved
+      // mapping on the settings page.
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmUnusedOrders(eventId) });
+      queryClient.invalidateQueries({ queryKey: ["dtcm-eticket", "registration", eventId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmRun(eventId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
     },
   });

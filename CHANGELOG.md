@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### DTCM: review fixes for buying and reversing DET tickets (November 4)
+
+- **A bulk run buys only what the organiser confirmed.** The registrations and DET sections shown at the check are frozen on the run: nobody registered, fixed or mapped later is bought for, and the run stops if a confirmed type's section changes. Each purchase re-reads the registration first, so a code given at the desk or a cancel made meanwhile is respected. Several events' runs now share the worker fairly.
+- **Reversing is stricter.** "Mark reversed" checks the ticket is unused, like Reverse. Every order records the DET client id it was bought with, and reverse, mark-reversed and resolve refuse when the saved credentials are another client's. If a code goes onto an active registration while DET is reversing it, the organiser is told that badge no longer works.
+- **An event holding live DET tickets cannot be deleted** (409 `EVENT_HAS_DTCM_TICKETS`): its order rows are the only record of those tickets.
+- Migration `20261104140000_dtcm_run_frozen_set` (three additive columns). Details: docs/DTCM_ETICKET_PLAN.md, "Review of steps 0 to 5".
+
 ### Request ID and document: a personal link per registration (November 4)
 
 - **Registrations page: "Missing ID or document" filter and a "Request ID / Document" action.** The filter lists everyone whose registration type asks for a member ID, a student ID and its expiry, or a supporting document that the registration does not hold. The action emails each selected person their own link, valid for the number of days chosen (14 by default). People whose type asks for nothing, or who have already provided everything, are skipped and counted by reason. Built to collect the IDs of the 73 MEHF2027 Student and Resident presenters whose abstract sign-up never asked

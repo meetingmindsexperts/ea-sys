@@ -208,6 +208,16 @@ roughly 1 to 2 s each is about 5 s a person, so 500 people is about 40 minutes.
 That is fine a day before the event and is why this is a worker job, not a
 request.
 
+**A run buys only what was confirmed** (review of steps 0 to 5, Nov 4). The
+registrations and the section mapping the organiser confirmed are frozen on
+the run (`DtcmIssueRun.registrationIds`, `.sections`). Nobody else is bought
+for: not a later registrant, not someone whose phone was added later, not a
+type mapped later. Each is tried once per run, so purchases never exceed the
+confirmed count. If a confirmed type's section or price type changes, the run
+stops. Each purchase re-reads its registration first, because the run's list
+can be a tick old. Several runs share a tick fairly, least recently worked
+first.
+
 ### 5.4 Desk
 
 A Generate DTCM button on the desk row and the detail sheet, and offered after a
@@ -439,6 +449,35 @@ Still open:
   bulk run, which holds one basket at a time anyway.
 - **Q7.** Is a production barcode also a UUID? It decides whether the badge
   renders it as QR (current DTCM handling in `src/lib/barcode.ts`) or Code 128.
+
+### Review of steps 0 to 5, Nov 4, 2026
+
+An independent adversarial review (no context) found 0 BLOCKER, 1 HIGH, 4 MED,
+6 LOW. Fixed in one commit, each with a test that fails without the fix:
+
+- **HIGH 1.** A run was not held to its confirmation: the mapping and the
+  candidates were re-read every tick. Frozen on the run now (§5.3).
+- **MED 2.** A purchase used a registration read up to a tick earlier. It
+  re-reads it before the intent row (rule 6 in the service header).
+- **MED 3.** Reverse checked "in use" only before DET's call. The recording
+  step asks again and reports `codeStillInUse` (logged at error, shown to the
+  organiser) when the code went onto an active registration meanwhile.
+- **MED 4.** "Mark reversed" skipped the in-use check, and an order did not
+  record its DET client id. Both added (`DtcmOrder.detClientId`); reverse,
+  mark-reversed and resolve refuse `CREDENTIALS_CHANGED` when the saved
+  credentials are another client's. Rows from before the column are not
+  checked.
+- **MED 5.** One run took the whole tick. Each run now gets a fair share.
+- **LOW 8.** Deleting an event cascaded its DET order rows away. The event
+  DELETE refuses (409 `EVENT_HAS_DTCM_TICKETS`) while it holds PURCHASED,
+  UNCERTAIN or PENDING orders.
+- **LOW 11.** Reversing refetched the DET sections map (which can drop an
+  unsaved mapping); resolving left the unused list stale. Both corrected.
+
+Deferred until real production answers from DET are seen: **LOW 6** (resolving
+by order number trusts a match when DET omits the customer, and does not
+compare the performance), **LOW 7** (a price DET sends as a string reads as 0),
+**LOW 9** (a basket call that times out may leave a seat held, unlogged).
 
 ## 11. Related
 
