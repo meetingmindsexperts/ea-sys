@@ -4,6 +4,7 @@ import { showsField, type FormFieldVisibility } from "@/lib/registration-form-fi
 import { EventBannerBand } from "@/components/public/event-banner";
 import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type FieldErrors } from "react-hook-form";
 import * as Sentry from "@sentry/nextjs";
@@ -218,9 +219,11 @@ const registrationSchema = z.object({
   confirmPassword: z.string(),
   // Registering by a desk QR asks for no password (docs/ONSITE_DESK_PLAN.md §8.2).
   deskMode: z.boolean(),
+  // Signed in as the email being registered: no password either.
+  signedIn: z.boolean(),
   agreeTerms: z.literal(true, { message: "You must agree to the terms and conditions" }),
 }).superRefine((data, ctx) => {
-  if (data.deskMode) return;
+  if (data.deskMode || data.signedIn) return;
   if (data.password.length < 6) ctx.addIssue({ code: "custom", path: ["password"], message: "Password must be at least 6 characters" });
   if (!data.confirmPassword) ctx.addIssue({ code: "custom", path: ["confirmPassword"], message: "Please confirm your password" });
   else if (data.password !== data.confirmPassword) ctx.addIssue({ code: "custom", path: ["confirmPassword"], message: "Passwords do not match" });
@@ -233,6 +236,13 @@ const registrationSchema = z.object({
 );
 
 type RegistrationForm = z.infer<typeof registrationSchema>;
+
+/** What /api/registrant/profile returns, all of them plain text fields here. */
+const PROFILE_FIELDS = [
+  "title", "role", "firstName", "lastName", "organization", "jobTitle", "phone",
+  "city", "state", "zipCode", "country", "specialty", "customSpecialty", "dietaryReqs",
+] as const satisfies readonly (keyof RegistrationForm)[];
+type ProfileField = (typeof PROFILE_FIELDS)[number];
 
 function CategoryRegistrationContent() {
   const params = useParams();
@@ -279,6 +289,13 @@ function CategoryRegistrationContent() {
   const signInBackHere = (email?: string) =>
     `/e/${slug}/login?redirect=${encodeURIComponent(`/e/${slug}/register/${categorySlug}`)}` +
     (email ? `&email=${encodeURIComponent(email)}` : "");
+  // Signed in: the account step is the session, and the details start from
+  // the person's last registration. "Not you?" registers someone else on this
+  // browser (a shared laptop, an assistant) without signing anyone out.
+  const { data: session } = useSession();
+  const [notYou, setNotYou] = useState(false);
+  const signedInEmail = deskQr || notYou ? null : session?.user?.email?.toLowerCase() ?? null;
+  const stepOneSubtitle = signedInEmail ? "You're signed in. Continue to your details." : "Create your account to get started.";
   const [emailCheck, setEmailCheck] = useState<
     | { state: "idle" }
     | { state: "checking" }
@@ -315,7 +332,7 @@ function CategoryRegistrationContent() {
       associationName: "", memberId: "", studentId: "", studentIdExpiry: "",
       taxNumber: "", billingFirstName: "", billingLastName: "", billingEmail: "",
       billingPhone: "", billingAddress: "", billingCity: "", billingState: "", billingZipCode: "", billingCountry: "",
-      password: "", confirmPassword: "", deskMode: !!deskQr,
+      password: "", confirmPassword: "", deskMode: !!deskQr, signedIn: false,
       agreeTerms: undefined as unknown as true,
     },
   });
@@ -497,6 +514,56 @@ function CategoryRegistrationContent() {
     if (draft.step === 2 && values.email && values.password && values.password === values.confirmPassword) setStep(2);
   }, [regTypeOptions, draftKey, form, deskQr]);
 
+  // After the draft restore above (declared first, so it runs first): the
+  // session decides the email and whether a password is asked, never a draft.
+  useEffect(() => {
+    if (regTypeOptions.length === 0) return;
+    form.setValue("signedIn", !!signedInEmail);
+    if (signedInEmail) form.setValue("email", signedInEmail);
+  }, [signedInEmail, regTypeOptions.length, form]);
+
+  // The values the prefill put in, so "Not you?" can take back exactly those.
+  const prefilled = useRef<Partial<Record<ProfileField, string>>>({});
+  const prefillRequested = useRef(false);
+  const signedInRef = useRef(signedInEmail);
+  signedInRef.current = signedInEmail;
+  useEffect(() => {
+    if (!signedInEmail || regTypeOptions.length === 0 || prefillRequested.current) return;
+    prefillRequested.current = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/registrant/profile");
+        if (!res.ok) {
+          console.warn("[register] profile prefill unavailable", res.status);
+          return;
+        }
+        const { profile } = (await res.json()) as { profile: Partial<Record<ProfileField, string | null>> | null };
+        // "Not you?" pressed while this was loading: these are not their details.
+        if (!profile || signedInRef.current !== signedInEmail) return;
+        for (const key of PROFILE_FIELDS) {
+          const value = profile[key];
+          // Fills only what is empty: a restored draft, or anything already
+          // typed, wins over the last registration.
+          if (!value || form.getValues(key)) continue;
+          form.setValue(key, value);
+          prefilled.current[key] = value;
+        }
+      } catch (err) {
+        console.warn("[register] profile prefill failed", err);
+      }
+    })();
+  }, [signedInEmail, regTypeOptions.length, form]);
+
+  function registerSomeoneElse() {
+    setNotYou(true);
+    form.setValue("email", "");
+    for (const [key, value] of Object.entries(prefilled.current) as [ProfileField, string][]) {
+      if (form.getValues(key) === value) form.setValue(key, "");
+    }
+    prefilled.current = {};
+    setEmailCheck({ state: "idle" });
+  }
+
   // Resolve tier-specific content with event-level fallback
   // Event-level content (shared across all tiers)
   const selectedTierContent = useMemo(() => {
@@ -519,6 +586,39 @@ function CategoryRegistrationContent() {
     requestAnimationFrame(() =>
       document.getElementById(next === 2 ? "register-card" : "create-account")?.scrollIntoView({ block: "start" }),
     );
+  }
+
+  /**
+   * Is this email already registered here, or already an account? Null when
+   * the check could not run (network, 429): step 2 goes ahead, and the
+   * register POST is the safety net.
+   */
+  async function checkEmail(email: string): Promise<{ exists?: boolean; reason?: string; hasAccount?: boolean } | null> {
+    try {
+      const res = await fetch(`/api/public/events/${slug}/check-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (res.ok) return await res.json();
+      console.warn("[register] check-email refused, continuing", res.status);
+    } catch (err) {
+      console.warn("[register] check-email failed, continuing", err);
+    }
+    return null;
+  }
+
+  /** Signed in: only "already registered here" can stop step 1. */
+  async function continueSignedIn() {
+    if (!signedInEmail) return;
+    setEmailCheck({ state: "checking" });
+    const data = await checkEmail(signedInEmail);
+    if (data?.exists && data.reason === "already_registered") {
+      setEmailCheck({ state: "conflict", reason: "already_registered" });
+      return;
+    }
+    setEmailCheck({ state: "idle" });
+    goToStep(2);
   }
 
   /** Step 1's password rules, with the messages the form shows on submit. */
@@ -637,6 +737,8 @@ function CategoryRegistrationContent() {
           ...data,
           // Desk mode sends the QR's token and no password (§8.3).
           ...(deskQr && { password: undefined, confirmPassword: undefined, deskToken }),
+          // Signed in: the session is the account (the route links it).
+          ...(signedInEmail && { password: undefined, confirmPassword: undefined }),
           supportingDocumentUrl: supportingDoc?.url,
           supportingDocumentFilename: supportingDoc?.filename,
           promoCode: promoResult?.valid ? promoResult.code : undefined,
@@ -892,7 +994,7 @@ function CategoryRegistrationContent() {
           <div className="px-4 sm:px-10 py-6 border-b border-slate-100">
             <h2 className="text-2xl font-bold text-slate-900">{formLabel} Registration</h2>
             <p className="text-sm text-slate-500 mt-1">
-              {step === 1 ? "Create your account to get started." : "Fill in the details below to complete your registration."}
+              {step === 1 ? stepOneSubtitle : "Fill in the details below to complete your registration."}
             </p>
             {/* Step indicator (desk mode is one step) */}
             {!deskQr && (
@@ -959,7 +1061,34 @@ function CategoryRegistrationContent() {
                           dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedTierContent.welcomeHtml!) }} />
                       )}
 
-                      {/* Account form — narrower centered */}
+                      {signedInEmail ? (
+                        <div id="create-account" className="max-w-md mx-auto space-y-5 pt-4 scroll-mt-4">
+                          <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm text-slate-700">
+                            Signed in as <span className="font-medium text-slate-900 break-all">{signedInEmail}</span>.
+                            {" "}Your details from your last registration are filled in on the next step; check them before you register.
+                            <button type="button" onClick={registerSomeoneElse} className="mt-2 block text-primary hover:underline font-medium">
+                              Not you? Register someone else
+                            </button>
+                          </div>
+
+                          {emailCheck.state === "conflict" && (
+                            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                              You&apos;re already registered for this event.{" "}
+                              <a href={`/e/${slug}/my-registration`} className="underline text-md font-medium">View your registration</a>.
+                            </div>
+                          )}
+
+                          <Button type="button" className="w-full rounded-lg font-semibold btn-gradient py-3 text-base"
+                            disabled={emailCheck.state === "checking"} onClick={continueSignedIn}>
+                            {emailCheck.state === "checking" ? (
+                              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking…</>
+                            ) : (
+                              <>Continue <ChevronRight className="ml-1 h-5 w-5" /></>
+                            )}
+                          </Button>
+                        </div>
+                      ) : (
+                      /* Account form — narrower centered */
                       <div id="create-account" className="max-w-md mx-auto space-y-5 pt-4 scroll-mt-4">
                       <div className="flex items-center gap-4 pb-4 mb-2">
                         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -1042,28 +1171,15 @@ function CategoryRegistrationContent() {
                           if (!valid || !accountStepPasses()) return;
                           const email = form.getValues("email").trim().toLowerCase();
                           setEmailCheck((prev) => (prev.state === "has-account" && prev.email === email ? prev : { state: "checking" }));
-                          try {
-                            const res = await fetch(`/api/public/events/${slug}/check-email`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ email: form.getValues("email") }),
-                            });
-                            if (res.ok) {
-                              const data = await res.json();
-                              if (data.exists && data.reason === "already_registered") {
-                                setEmailCheck({ state: "conflict", reason: "already_registered" });
-                                return;
-                              }
-                              // Shown once per email: pressing Continue again goes on as before.
-                              if (data.hasAccount && !(emailCheck.state === "has-account" && emailCheck.email === email)) {
-                                setEmailCheck({ state: "has-account", email });
-                                return;
-                              }
-                            }
-                          } catch (err) {
-                            // Network or 429 — fall through to step 2; the
-                            // register POST is the safety net.
-                            console.warn("[register] check-email failed, continuing", err);
+                          const data = await checkEmail(form.getValues("email"));
+                          if (data?.exists && data.reason === "already_registered") {
+                            setEmailCheck({ state: "conflict", reason: "already_registered" });
+                            return;
+                          }
+                          // Shown once per email: pressing Continue again goes on as before.
+                          if (data?.hasAccount && !(emailCheck.state === "has-account" && emailCheck.email === email)) {
+                            setEmailCheck({ state: "has-account", email });
+                            return;
                           }
                           setEmailCheck({ state: "idle" });
                           goToStep(2);
@@ -1080,6 +1196,7 @@ function CategoryRegistrationContent() {
                         <a href={signInBackHere()} className="text-md text-primary hover:underline font-medium">Sign in</a>
                       </p>
                       </div>
+                      )}
                     </div>
                   )}
 

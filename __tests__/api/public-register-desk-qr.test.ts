@@ -5,6 +5,9 @@
  * anything that would cost money; an expired or forged one is refused, and
  * no token at all is the ordinary public form.
  *
+ * Also the other way to register with no password: signed in as the email
+ * being registered, which links the registration to that account.
+ *
  * The transaction runs against a mocked client so the code and price rules,
  * which are decided inside it, are the route's own.
  */
@@ -12,7 +15,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 process.env.NEXTAUTH_SECRET = "test-secret-for-desk-qr";
 
-const { mockDb, tx, mockApiLogger, rateKeys, rateLimits, claimPromo, ensureAccount, sendConfirmation } = vi.hoisted(() => {
+const { mockDb, tx, mockApiLogger, rateKeys, rateLimits, claimPromo, ensureAccount, sendConfirmation, mockAuth } = vi.hoisted(() => {
   const tx = {
     registration: { findFirst: vi.fn(), create: vi.fn() },
     attendee: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
@@ -31,6 +34,7 @@ const { mockDb, tx, mockApiLogger, rateKeys, rateLimits, claimPromo, ensureAccou
     claimPromo: vi.fn(),
     ensureAccount: vi.fn(),
     sendConfirmation: vi.fn(),
+    mockAuth: vi.fn(),
   };
 });
 
@@ -59,6 +63,7 @@ vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn(async () => und
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/dtcm-pool", () => ({ claimSpareDtcmCode: vi.fn(async () => undefined) }));
 vi.mock("@/lib/registrant-account", () => ({ ensureRegistrantAccount: ensureAccount }));
+vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
 vi.mock("@/lib/registration-seat-db", () => ({ claimEventSeats: vi.fn(async () => true), claimSeats: vi.fn(async () => true) }));
 vi.mock("@/lib/registration-confirmation", () => ({ buildEventConfirmationFields: () => ({}) }));
 vi.mock("@/services/promo-code-service", () => ({ claimPromoCodeInTx: claimPromo, recordPromoRedemptionInTx: vi.fn(async () => undefined) }));
@@ -118,6 +123,7 @@ beforeEach(() => {
   rateKeys.length = 0;
   rateLimits.clear();
   ensureAccount.mockResolvedValue("created-without-password");
+  mockAuth.mockResolvedValue(null);
   mockDb.event.findFirst.mockResolvedValue({
     id: EVENT_ID, name: "BHS", eventType: "CONFERENCE", organizationId: "org-1",
     settings: { codeRequiredTiers: ["inclusive"] }, maxAttendees: null, seatCount: 0,
@@ -269,5 +275,31 @@ describe("a token that does not hold", () => {
     expect(rateKeys.some((k) => k.startsWith("public-register:burst:"))).toBe(true);
     expect(ensureAccount).toHaveBeenCalledWith(expect.objectContaining({ withoutPassword: false }));
     expect(sendConfirmation.mock.calls[0][0].setPasswordUrl).toBeNull();
+  });
+});
+
+describe("signed in while registering", () => {
+  it("links the registration to the account when the session is the email registered", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", email: "Hajar@Example.com" } });
+    ensureAccount.mockResolvedValueOnce("linked");
+    const r = await post();
+    expect(r.status).toBe(201);
+    expect(ensureAccount).toHaveBeenCalledWith(expect.objectContaining({ email: "hajar@example.com", password: undefined, withoutPassword: true }));
+    // Not a desk registration: no set-password link.
+    expect(sendConfirmation.mock.calls[0][0].setPasswordUrl).toBeNull();
+  });
+
+  it("stays a guest registration when the session is someone else", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u2", email: "assistant@example.com" } });
+    await post();
+    expect(ensureAccount).toHaveBeenCalledWith(expect.objectContaining({ withoutPassword: false }));
+  });
+
+  it("registers as a guest, and logs, when the session cannot be read", async () => {
+    mockAuth.mockRejectedValue(new Error("bad cookie"));
+    const r = await post();
+    expect(r.status).toBe(201);
+    expect(ensureAccount).toHaveBeenCalledWith(expect.objectContaining({ withoutPassword: false }));
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "public-register:session-read-failed" }));
   });
 });

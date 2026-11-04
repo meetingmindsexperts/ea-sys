@@ -19,6 +19,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
+import { auth } from "@/lib/auth";
 import { claimEventSeats, claimSeats } from "@/lib/registration-seat-db";
 import { verifyDeskQrToken, type DeskQrPayload } from "@/lib/desk-qr-token";
 import { deskQrPriceRefusal, deskQrTypeRefusal, DESK_QR_REFUSAL_MESSAGE, type DeskQrRefusal } from "@/lib/desk-qr-rules";
@@ -153,6 +154,20 @@ function rateLimited(retryAfterSeconds: number): NextResponse {
     { error: "Too many requests. Please try again later." },
     { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
   );
+}
+
+/**
+ * True when the browser is signed in as `email` (already lowercased). Never
+ * throws: a session that cannot be read is a guest registration, as before.
+ */
+async function sessionEmailIs(email: string): Promise<boolean> {
+  try {
+    const session = await auth();
+    return session?.user?.email?.toLowerCase() === email;
+  } catch (err) {
+    apiLogger.warn({ err, msg: "public-register:session-read-failed" });
+    return false;
+  }
 }
 
 /** The event's Forgot password page with their email filled in (docs/ONSITE_DESK_PLAN.md §8.3). */
@@ -870,7 +885,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Account creation: create or link the REGISTRANT account + sweep any
     // sibling registrations on this email (failure-isolated — never blocks the
-    // registration). No-ops when no password was supplied (guest registration).
+    // registration). No-ops when no password was supplied (guest registration),
+    // unless the person is signed in as this email: the form asks them for no
+    // password then, and the registration joins the account they are in.
+    const signedInAsRegistrant = await sessionEmailIs(email);
     const account = await ensureRegistrantAccount({
       registrationId: registration.id,
       eventId: event.id,
@@ -880,7 +898,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       lastName,
       password,
       // The desk QR asks for no password: the account is made without one (§8.3).
-      withoutPassword: !!desk,
+      withoutPassword: !!desk || signedInAsRegistrant,
       specialty: specialty || null,
       clientIp: getClientIp(req),
       signupMessage: `${firstName} ${lastName} (${email}) created a registrant account`,

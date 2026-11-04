@@ -71,6 +71,8 @@ vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn() }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/registrant-account", () => ({ ensureRegistrantAccount: vi.fn() }));
+// The route reads the session to link a signed-in registrant; signed out here.
+vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }));
 vi.mock("@/lib/registration-seat-db", () => ({ claimEventSeats: vi.fn(async () => true) }));
 vi.mock("@/lib/registration-confirmation", () => ({ buildEventConfirmationFields: () => ({}) }));
 
