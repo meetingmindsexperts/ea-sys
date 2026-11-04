@@ -1,4 +1,5 @@
 import { BUILT_IN_SPONSOR_TIER_KEYS } from "@/lib/sponsor-tiers";
+import { isUploadOrHttpsUrl } from "@/lib/safe-image-url";
 
 export const WEBINAR_HIDDEN_MODULES = [
   "Accommodation",
@@ -156,11 +157,8 @@ export interface WebinarPageBranding {
   footerImageUrl: string | null;
 }
 
-/** An uploaded file (/uploads/…) or an https address: the only image URLs the
- *  webinar settings accept. Shared by the settings save and the public read. */
-export function isUploadOrHttpsUrl(value: string): boolean {
-  return value.startsWith("/uploads/") || value.startsWith("https://");
-}
+/** Re-exported for the webinar route; it lives in safe-image-url. */
+export { isUploadOrHttpsUrl };
 
 /**
  * The attendee-page images. A cleared upload (empty string) reads as null, and

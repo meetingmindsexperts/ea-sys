@@ -28,7 +28,7 @@
  * would move every existing badge by a factor of 2.8.
  */
 
-import { isUploadOrHttpsUrl } from "@/lib/webinar";
+import { isUploadOrHttpsUrl } from "@/lib/safe-image-url";
 
 /** The original hardcoded badge. Every default below reproduces it exactly. */
 export const BASE_BADGE_W = 288; // 4 inches
