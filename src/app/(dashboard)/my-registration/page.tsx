@@ -1,59 +1,211 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import Link from "next/link";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Award, Calendar, Download, MapPin, Ticket } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
+import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
+import { formatEventDateRange } from "@/lib/event-time";
+import { formatDate } from "@/lib/utils";
+import { PORTAL_CERTIFICATE_SELECT, releasedCertificatesWhere } from "@/lib/registrant-certificates";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/typography";
 
 /**
- * The global /my-registration route no longer renders a cross-event list.
- * Per-event isolation rule: users only interact with their registration in
- * the context of the specific event they registered for. This route exists
- * purely as a gateway for:
+ * Every event a person is registered for, and the certificates they have been
+ * sent (Nov 4, 2026).
  *
- *   1. REGISTRANT auth redirects (middleware + login fallback) that don't
- *      know the right event slug upfront. We look up the user's most-recent
- *      registration and forward them to /e/{slug}/my-registration.
- *   2. Users who type the URL directly. Same thing — land them on the
- *      event-scoped page for the event they actually registered for.
+ * A LIST, NOT A SECOND PORTAL. Until April 21 this route rendered a full
+ * cross-event registration page, which was removed so that a registration is
+ * viewed, edited and paid for on its own event's page (`322b421e`). That still
+ * holds: each card links to /e/{slug}/my-registration and nothing here edits.
+ * What the redirect that replaced it lost was the way BETWEEN events: it sent
+ * everyone to their latest registration, so someone registered for three had
+ * no route to the other two.
  *
- * When the user has zero registrations we render a minimal empty state so
- * the page doesn't return 404 for valid auth'd sessions.
+ * One registration and no certificates still goes straight to that event's
+ * page, exactly as before: a list of one is a click nobody needs. Unless the
+ * person asked for the list (`?all=1`), or that link would bounce them back.
  */
-export default async function MyRegistrationGatewayPage() {
-  const session = await auth();
+
+const statusColors: Record<string, string> = {
+  PENDING: "bg-yellow-100 text-yellow-800",
+  CONFIRMED: "bg-green-100 text-green-800",
+  WAITLISTED: "bg-blue-100 text-blue-800",
+  CHECKED_IN: "bg-purple-100 text-purple-800",
+};
+
+const CERT_TYPE_LABEL: Record<string, string> = {
+  ATTENDANCE: "Certificate of attendance",
+  APPRECIATION: "Certificate of appreciation",
+};
+
+interface EventSummary {
+  id: string;
+  name: string;
+  slug: string;
+  startDate: Date;
+  endDate: Date;
+  timezone: string;
+}
+
+async function loadPortal(userId: string, email: string) {
+  // A registrant is org-null, so the lane comes from the host, as sign-in does.
+  const { orgId } = await resolveTenantOrg(normalizeHost((await headers()).get("host")));
+  return runWithTenantLane(orgId, { route: "page:/my-registration", userId }, () =>
+    Promise.all([
+      db.registration.findMany({
+        where: { status: { not: "CANCELLED" }, OR: [{ userId }, { attendee: { email } }] },
+        select: {
+          id: true,
+          status: true,
+          ticketType: { select: { name: true } },
+          event: {
+            select: { id: true, name: true, slug: true, startDate: true, endDate: true, timezone: true, venue: true, city: true, country: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      db.issuedCertificate.findMany({
+        where: releasedCertificatesWhere(userId, email),
+        select: PORTAL_CERTIFICATE_SELECT,
+        orderBy: { issuedAt: "desc" },
+      }),
+    ]),
+  );
+}
+
+export default async function MyRegistrationPage({ searchParams }: { searchParams: Promise<{ all?: string }> }) {
+  const [session, { all }] = await Promise.all([auth(), searchParams]);
   if (!session?.user?.id) {
     redirect("/login?callbackUrl=/my-registration");
   }
+  const userId = session.user.id;
+  const email = session.user.email?.toLowerCase() ?? "";
 
-  const latest = await db.registration.findFirst({
-    where: {
-      userId: session.user.id,
-      status: { not: "CANCELLED" },
-    },
-    select: { event: { select: { slug: true } } },
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (latest?.event?.slug) {
-    redirect(`/e/${latest.event.slug}/my-registration`);
+  let registrations: Awaited<ReturnType<typeof loadPortal>>[0];
+  let certificates: Awaited<ReturnType<typeof loadPortal>>[1];
+  try {
+    [registrations, certificates] = await loadPortal(userId, email);
+  } catch (err) {
+    apiLogger.error({ err, msg: "my-registration:load-failed", userId });
+    throw err;
   }
 
+  // `?all=1` is the event page's "All my events" link, which asked for the list.
+  if (registrations.length === 1 && certificates.length === 0 && all !== "1") {
+    redirect(`/e/${registrations[0].event.slug}/my-registration`);
+  }
+
+  // One card per event: its registrations and its certificates. A speaker's
+  // appreciation certificate can belong to an event they never registered for.
+  const events = new Map<string, EventSummary>();
+  for (const r of registrations) events.set(r.event.id, r.event);
+  for (const c of certificates) if (!events.has(c.event.id)) events.set(c.event.id, c.event);
+  const ordered = [...events.values()].sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
+
   return (
-    <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-white rounded-xl border border-slate-200 p-8 text-center space-y-4">
-        <AlertCircle className="h-10 w-10 text-slate-300 mx-auto" />
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">No registrations yet</h2>
-          <p className="text-slate-500 text-sm">
-            You haven&apos;t registered for any events. Use the event link
-            provided by the organizer to sign up.
-          </p>
-        </div>
-        <Button asChild variant="outline">
-          <Link href="/login">Sign out</Link>
-        </Button>
-      </div>
+    <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-6">
+      <PageHeader
+        title="My events"
+        description={email ? `Everything registered to ${email}` : "Your registrations and certificates"}
+      />
+
+      {ordered.length === 0 && (
+        <Card>
+          <CardContent className="space-y-2 py-10 text-center">
+            <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground/40" />
+            <p className="font-medium">No registrations yet</p>
+            <p className="text-sm text-muted-foreground">
+              Use the event link from the organiser to register. It will show here once you have.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {ordered.map((event) => {
+        const regs = registrations.filter((r) => r.event.id === event.id);
+        const certs = certificates.filter((c) => c.event.id === event.id);
+        const where = regs[0] ? [regs[0].event.venue, regs[0].event.city, regs[0].event.country].filter(Boolean).join(", ") : "";
+        return (
+          <Card key={event.id}>
+            <CardHeader className="space-y-2">
+              <CardTitle>{event.name}</CardTitle>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5" />
+                  {formatEventDateRange(event.startDate, event.endDate, event.timezone)}
+                </span>
+                {where && (
+                  <span className="flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {where}
+                  </span>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {regs.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {regs.map((r) => (
+                    <span key={r.id} className="flex items-center gap-2">
+                      <Badge variant="outline" className={statusColors[r.status]}>
+                        {r.status.replace("_", " ")}
+                      </Badge>
+                      {r.ticketType?.name && (
+                        <Badge variant="outline">
+                          <Ticket className="mr-1 h-3 w-3" />
+                          {r.ticketType.name}
+                        </Badge>
+                      )}
+                    </span>
+                  ))}
+                  <Button asChild size="sm" className="ml-auto">
+                    <Link href={`/e/${event.slug}/my-registration`}>Open registration</Link>
+                  </Button>
+                </div>
+              )}
+
+              {certs.length > 0 && (
+                <ul className="divide-y rounded-md border">
+                  {certs.map((c) => (
+                    <li key={c.id} className="flex flex-wrap items-center gap-3 p-3">
+                      <Award className="h-5 w-5 shrink-0 text-primary" />
+                      {/* A floor on the text's width, so on a phone the button
+                          wraps below it rather than squeezing it to a column. */}
+                      <div className="min-w-[12rem] flex-1">
+                        <p className="text-sm font-medium">
+                          {c.certificateTemplate?.role ?? CERT_TYPE_LABEL[c.type] ?? "Certificate"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {[
+                            c.cmeHoursSnapshot != null && `${c.cmeHoursSnapshot.toString()} CME hours`,
+                            `No. ${c.serial}`,
+                            `Issued ${formatDate(c.issuedAt)}`,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      </div>
+                      <Button asChild size="sm" variant="outline">
+                        {/* A plain link: the route answers with the PDF as an attachment. */}
+                        <a href={`/api/registrant/certificates/${c.id}/download`}>
+                          <Download className="mr-1.5 h-4 w-4" />
+                          Download
+                        </a>
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }

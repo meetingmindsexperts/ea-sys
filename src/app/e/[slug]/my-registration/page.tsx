@@ -187,6 +187,15 @@ export default function EventMyRegistrationPage() {
 
   // Filter to this event only
   const registrations = allRegistrations.filter((r) => r.event.slug === slug);
+  // The person's other events, one entry each, for the "not registered here"
+  // screen: arriving on the wrong event's page should not be a dead end.
+  const otherEvents = [
+    ...new Map(
+      allRegistrations
+        .filter((r) => r.event.slug !== slug && r.status !== "CANCELLED")
+        .map((r) => [r.event.slug, r.event] as const),
+    ).values(),
+  ];
 
   const updateMutation = useMutation({
     mutationFn: async ({ registrationId, attendee }: { registrationId: string; attendee: Record<string, string | null | undefined> }) => {
@@ -372,6 +381,20 @@ export default function EventMyRegistrationPage() {
               <a href={`/e/${slug}/register`}>Register for this event</a>
             </Button>
           </div>
+          {otherEvents.length > 0 && (
+            <div className="border-t border-slate-100 pt-4 text-left">
+              <p className="text-sm font-medium text-slate-700 mb-2">Your other registrations</p>
+              <ul className="space-y-1">
+                {otherEvents.map((e) => (
+                  <li key={e.slug}>
+                    <a href={`/e/${e.slug}/my-registration`} className="text-sm text-primary hover:underline">
+                      {e.name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       );
     }
@@ -794,6 +817,10 @@ export default function EventMyRegistrationPage() {
               <span className="hidden sm:inline text-sm text-slate-500 truncate max-w-[240px]">
                 {session.user.email}
               </span>
+              {/* Every event and the certificates sent, on one page. */}
+              <Button asChild variant="ghost" size="sm">
+                <a href="/my-registration?all=1">All my events</a>
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
