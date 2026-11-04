@@ -47,6 +47,7 @@ import {
   Delete,
 } from "lucide-react";
 import { useEvent, useOrgBranding } from "@/hooks/use-api";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { readBadgePolicy } from "@/lib/badge-layout";
 import { formatPersonName } from "@/lib/utils";
 import { playBeep } from "@/lib/scan-feedback";
@@ -202,12 +203,15 @@ export default function KioskCheckInPage() {
   // email footer image, and only 2 an email header — including the one being
   // rehearsed with, which has a banner and nothing else. Picking a single field
   // would have shown nothing on the very screen this was asked for.
-  const eventMark = event?.emailHeaderImage || event?.bannerImage || null;
-  const headerMark = eventMark || branding?.logo || null;
-  // Whether the mark is a BANNER (a wide band designed to run edge to edge) or
-  // a LOGO (a mark drawn for a light background). They need opposite treatment,
-  // so the distinction is carried rather than guessed from the image.
-  const headerIsBanner = !!eventMark;
+  //
+  // The banner leads (owner, Nov 4 2026: "make it like the public registration
+  // banner"): the kiosk shows the same artwork, the same way, as the event's
+  // registration page, through the same EventBannerBand. The email header is
+  // the fallback for an event that only has that.
+  const eventBanner = event?.bannerImage || event?.emailHeaderImage || null;
+  const eventBannerMobile = event?.bannerImage ? event?.bannerImageMobile ?? null : null;
+  // A LOGO (drawn for a light background) only when the event has no artwork.
+  const logoMark = eventBanner ? null : branding?.logo || null;
   const footerMark = event?.emailFooterImage || null;
   // Read through a ref so the scan handler is not re-created (and its debounce
   // state reset) every time the event query refetches.
@@ -650,46 +654,39 @@ export default function KioskCheckInPage() {
           through the barcode icon. Letting it take its own space and centring
           what remains composes at any banner height. */}
       <div className="w-full shrink-0 flex flex-col items-center">
-        {/* eslint-disable @next/next/no-img-element -- organiser-uploaded paths, not build-time assets (same reason the sidebar does it) */}
-        {headerMark &&
-          (headerIsBanner ? (
-            /* Full-bleed. An event header or banner is artwork designed to run
-               the width of a page, and boxing it into a centred chip wasted
-               most of a lobby screen. `object-contain` rather than `cover`
-               because cropping a customer's artwork to fill is worse than
-               letterboxing it; `max-h` so a square image used in the header
-               slot cannot swallow the scan area below.
-
-               `max-h` is a SAFETY NET, not a size: with object-contain it binds
-               before the width does, so at 26vh a real banner came out
-               letterboxed across ~60% of the screen rather than full width. At
-               45vh no banner of ordinary proportions reaches it — a 4.5:1 band
-               is about 22vh at full width on 16:9 — so width governs, which is
-               what "full width" means. It only engages for something close to
-               square dropped into the header slot. */
-            <img
-              src={headerMark}
-              alt={event?.name ?? "Event"}
-              className="w-full h-auto max-h-[45vh] object-contain"
-            />
-          ) : (
-            /* The white chip this used to sit on is gone with the gradient. It
-               existed because a logo is drawn for a light background and a dark
-               mark laid onto the brand colour disappeared; on a white page the
-               logo is already on the background it was drawn for, and the chip
-               would just be a box around it. */
-            <img
-              src={headerMark}
-              alt={branding?.name ?? "Organiser"}
-              className="mt-8 h-24 w-auto max-w-[680px] object-contain px-5 py-3"
-            />
-          ))}
-        {/* eslint-enable @next/next/no-img-element */}
-        <p
-          className={`${headerMark ? "mt-3" : "mt-8"} px-8 text-2xl font-semibold text-slate-500 truncate max-w-full`}
-        >
-          {event?.name ?? ""}
-        </p>
+        {/* The public registration page's banner band: the artwork at its own
+            proportions, centred, never wider than 1200px. Full-bleed at up to
+            45vh took close to half a lobby screen (owner, Nov 4 2026). */}
+        {eventBanner && (
+          <EventBannerBand
+            banner={eventBanner}
+            bannerMobile={eventBannerMobile}
+            name={event?.name ?? "Event"}
+            /* The scan area is what the screen is for (owner, Nov 4 2026: "increase
+               the body height"), so the band also stops at 18vh: the artwork
+               narrows at its own proportions rather than being cropped. */
+            className="[&_img]:mx-auto [&_img]:max-h-[18vh] [&_img]:w-auto [&_img]:max-w-full"
+          />
+        )}
+        {/* The white chip this used to sit on is gone with the gradient. It
+            existed because a logo is drawn for a light background and a dark
+            mark laid onto the brand colour disappeared; on a white page the
+            logo is already on the background it was drawn for. */}
+        {logoMark && (
+          /* eslint-disable-next-line @next/next/no-img-element -- organiser-uploaded path, not a build-time asset */
+          <img
+            src={logoMark}
+            alt={branding?.name ?? "Organiser"}
+            className="mt-8 h-24 w-auto max-w-[680px] object-contain px-5 py-3"
+          />
+        )}
+        {/* The banner already carries the event's name; the line is for an
+            event with no artwork of its own. */}
+        {!eventBanner && (
+          <p className={`${logoMark ? "mt-3" : "mt-8"} px-8 text-2xl font-semibold text-slate-500 truncate max-w-full`}>
+            {event?.name ?? ""}
+          </p>
+        )}
       </div>
 
       {/* `min-h-0` so flex-1 can actually shrink below its content: without it a
@@ -702,13 +699,13 @@ export default function KioskCheckInPage() {
               brand gradient does not mean losing the brand: it lands on the one
               thing the attendee is meant to look at. */}
           <div
-            className="mb-10 rounded-full p-10 animate-pulse"
+            className="mb-10 rounded-full p-10 animate-pulse [@media(max-height:820px)]:mb-5 [@media(max-height:820px)]:p-6"
             style={{ backgroundColor: "color-mix(in oklch, var(--primary) 12%, white)" }}
           >
-            <ScanBarcode className="h-28 w-28" style={{ color: "var(--primary)" }} />
+            <ScanBarcode className="h-28 w-28 [@media(max-height:820px)]:h-16 [@media(max-height:820px)]:w-16" style={{ color: "var(--primary)" }} />
           </div>
-          <h1 className="text-5xl font-bold mb-4">Welcome!</h1>
-          <p className="text-2xl text-slate-600 max-w-xl">
+          <h1 className="text-5xl font-bold mb-4 [@media(max-height:820px)]:text-4xl [@media(max-height:820px)]:mb-2">Welcome!</h1>
+          <p className="text-2xl text-slate-600 max-w-xl [@media(max-height:820px)]:text-xl">
             Scan the barcode from your confirmation email to check in and print your badge.
           </p>
         </div>
@@ -723,8 +720,8 @@ export default function KioskCheckInPage() {
 
       {state.kind === "success" && (
         <div className="flex flex-col items-center text-center px-8">
-          <div className="mb-8 rounded-full bg-emerald-50 p-8">
-            <CheckCircle2 className="h-28 w-28 text-emerald-600" />
+          <div className="mb-8 rounded-full bg-emerald-50 p-8 [@media(max-height:820px)]:mb-4 [@media(max-height:820px)]:p-5">
+            <CheckCircle2 className="h-28 w-28 [@media(max-height:820px)]:h-16 [@media(max-height:820px)]:w-16 text-emerald-600" />
           </div>
           <h1 className="text-5xl font-bold mb-4">
             {state.reprint ? "You're already checked in" : `Welcome, ${state.name}!`}
@@ -753,8 +750,8 @@ export default function KioskCheckInPage() {
 
       {state.kind === "denied" && (
         <div className="flex flex-col items-center text-center px-8">
-          <div className="mb-8 rounded-full bg-amber-50 p-8">
-            <AlertTriangle className="h-28 w-28 text-amber-600" />
+          <div className="mb-8 rounded-full bg-amber-50 p-8 [@media(max-height:820px)]:mb-4 [@media(max-height:820px)]:p-5">
+            <AlertTriangle className="h-28 w-28 [@media(max-height:820px)]:h-16 [@media(max-height:820px)]:w-16 text-amber-600" />
           </div>
           <h1 className="text-5xl font-bold mb-4">{state.title}</h1>
           <p className="text-2xl text-slate-600 max-w-xl mb-6">{state.detail}</p>
@@ -766,8 +763,8 @@ export default function KioskCheckInPage() {
 
       {state.kind === "staff-needed" && (
         <div className="flex flex-col items-center text-center px-8">
-          <div className="mb-8 rounded-full bg-red-50 p-8">
-            <ShieldAlert className="h-28 w-28 text-red-600" />
+          <div className="mb-8 rounded-full bg-red-50 p-8 [@media(max-height:820px)]:mb-4 [@media(max-height:820px)]:p-5">
+            <ShieldAlert className="h-28 w-28 [@media(max-height:820px)]:h-16 [@media(max-height:820px)]:w-16 text-red-600" />
           </div>
           <h1 className="text-5xl font-bold mb-4">Kiosk needs attention</h1>
           <p className="text-2xl text-slate-600 max-w-xl">{state.detail}</p>
@@ -785,12 +782,17 @@ export default function KioskCheckInPage() {
           so it can never swallow a tap meant for the corner exit target, which
           sits at the same edge. */}
       {footerMark && (
-        <div className="shrink-0 w-full flex justify-center px-8 pb-6 pointer-events-none">
+        <div className="shrink-0 w-full flex justify-center px-8 pt-4 pb-6 pointer-events-none [@media(max-height:820px)]:pt-2 [@media(max-height:820px)]:pb-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={footerMark}
             alt=""
-            className="h-12 w-auto max-w-[420px] object-contain px-4 py-2 opacity-90"
+            /* At its own proportions, sized to be read: the email footer is
+               artwork drawn for a ~600px email, and squeezed to 48px tall it
+               was a postage stamp (owner, Nov 4 2026). Capped by height so the
+               scan area keeps the room, and by width so a tall one
+               does not turn it into a second banner. */
+            className="h-auto w-auto max-h-[14vh] max-w-[min(720px,90vw)] [@media(max-height:820px)]:max-h-[10vh] object-contain rounded-lg"
           />
         </div>
       )}
