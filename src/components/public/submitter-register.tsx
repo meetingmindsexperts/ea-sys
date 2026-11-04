@@ -19,7 +19,7 @@
  * still auto-mint the comp Faculty companion (badge/barcode), unchanged.
  */
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { scrollToFirstFormError } from "@/lib/form-error-scroll";
 import { useParams, useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
@@ -31,7 +31,6 @@ import { EventBannerBand } from "@/components/public/event-banner";
 import { SupportingDocumentField, type UploadedDocument } from "@/components/public/registration-form-extras";
 import {
   readIdentityEvidencePolicy,
-  missingIdentityEvidence,
   type IdentityEvidencePolicy,
 } from "@/lib/identity-evidence";
 import {
@@ -319,6 +318,9 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
   const [supportingDoc, setSupportingDoc] = useState<UploadedDocument | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
   const [registeredHere, setRegisteredHere] = useState(false);
+  // The rate an upload started under: a file that finishes after the person
+  // picked another rate is not that rate's evidence.
+  const uploadForType = useRef<string | undefined>(undefined);
   const chosenTypeId = form.watch("ticketTypeId");
   const chosenType = offersRates && !registeredHere
     ? event?.ticketTypes?.find((t) => t.id === chosenTypeId) ?? null
@@ -393,20 +395,11 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       showBlockedSubmit();
       return;
     }
-    // The chosen type's ID and document, named field by field. Enforced again
-    // server-side.
-    const missing = missingIdentityEvidence(evidencePolicy, data);
-    if (missing.includes("Member ID")) form.setError("memberId", { message: "Member ID is required" });
-    if (missing.includes("Student ID")) form.setError("studentId", { message: "Student ID is required" });
-    if (missing.includes("Student ID expiry date")) {
-      form.setError("studentIdExpiry", { message: "Student ID expiry date is required" });
-    }
-    const documentMissing = needsDocument && !supportingDoc && supportingDocumentBlocks(chosenType);
-    if (documentMissing) setDocError(`Please attach your ${supportingDocumentLabel(chosenType)} to continue.`);
-    if (missing.length > 0 || documentMissing) {
-      showBlockedSubmit();
-      return;
-    }
+    // The chosen type's ID and document are NOT pre-checked here: someone who
+    // already holds a registration on this event is not asked for them (nothing
+    // new is made), and only the server can know that without telling a stranger
+    // who is registered. The server names what is missing and showEvidenceRefusal
+    // marks each field.
     // An existing account fills in the SAME page, but its details go to the
     // sign-in door, which verifies the password again and sets them up.
     if (existingPerson) {
@@ -453,6 +446,10 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
 
       if (!res.ok) {
         console.warn(`[${copy.logPrefix}] Registration rejected:`, res.status, result.error);
+        if (showEvidenceRefusal(result)) {
+          setSubmitting(false);
+          return;
+        }
         toast.error(result.error || "Registration failed");
         setSubmitting(false);
         return;
@@ -573,6 +570,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       });
       const result = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (showEvidenceRefusal(result)) return;
         toast.error(result.error || "Something went wrong. Please try again.");
         return;
       }
@@ -600,6 +598,32 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
     } finally {
       setSubmitting(false);
     }
+  }
+
+  /**
+   * The server refused for the chosen type's ID or document: mark each field it
+   * named and take the person there. False when the refusal was something else.
+   */
+  function showEvidenceRefusal(result: { error?: string; fields?: string[] } | null): boolean {
+    const fields = result?.fields;
+    if (!Array.isArray(fields) || fields.length === 0) return false;
+    if (!chosenType) {
+      // A page that does not show these fields (loaded before they existed):
+      // a reload brings them.
+      toast.error(`${result?.error ?? "Some details are missing."} Please reload the page.`);
+      return true;
+    }
+    const required: Record<string, string> = {
+      memberId: "Member ID is required",
+      studentId: "Student ID is required",
+      studentIdExpiry: "A valid student ID expiry date is required",
+    };
+    for (const f of fields) {
+      if (f === "supportingDocument") setDocError(`Please attach your ${supportingDocumentLabel(chosenType)} to continue.`);
+      else if (f in required) form.setError(f as "memberId" | "studentId" | "studentIdExpiry", { message: required[f] });
+    }
+    showBlockedSubmit();
+    return true;
   }
 
   /** Only what the chosen type asks for is sent. */
@@ -660,10 +684,16 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
           required={supportingDocumentBlocks(chosenType)}
           instructions={supportingDocumentInstructions(chosenType)}
           value={supportingDoc}
-          onChange={setSupportingDoc}
+          onChange={(doc) => {
+            if (doc && uploadForType.current !== form.getValues("ticketTypeId")) return;
+            setSupportingDoc(doc);
+          }}
           error={docError}
           onError={setDocError}
-          onBeforeUpload={() => setSubmitNotice(null)}
+          onBeforeUpload={() => {
+            uploadForType.current = form.getValues("ticketTypeId");
+            setSubmitNotice(null);
+          }}
         />
       )}
     </>
@@ -1106,7 +1136,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
 
                     {/* Navigation: full width on a phone, the main button first */}
                     <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between pt-2">
-                      <Button type="button" variant="outline" className="rounded-lg text-base w-full sm:w-auto" onClick={() => { setExistingPerson(null); setStep(1); }}>
+                      <Button type="button" variant="outline" className="rounded-lg text-base w-full sm:w-auto" onClick={() => { setExistingPerson(null); setRegisteredHere(false); setStep(1); }}>
                         <ChevronLeft className="mr-1 h-4 w-4" /> Back
                       </Button>
                       <Button type="submit" disabled={submitting} className="rounded-lg font-semibold btn-gradient px-8 text-base w-full sm:w-auto h-12 sm:h-10">

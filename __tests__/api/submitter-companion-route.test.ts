@@ -419,7 +419,11 @@ describe("submitter route — the chosen type's student ID and document", () => 
     const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-stu" }), { params });
 
     expect(res.status).toBe(400);
-    expect((await res.json()).code).toBe("IDENTITY_EVIDENCE_REQUIRED");
+    const body = await res.json();
+    expect(body.code).toBe("IDENTITY_EVIDENCE_REQUIRED");
+    // The form marks these fields from the answer: it cannot pre-check them,
+    // because only the server knows whether this person is already registered.
+    expect(body.fields).toEqual(["studentId", "studentIdExpiry", "supportingDocument"]);
     expect(mockDb._tx.user.create).not.toHaveBeenCalled();
   });
 

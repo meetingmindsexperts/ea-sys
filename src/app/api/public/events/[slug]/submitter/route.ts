@@ -217,9 +217,13 @@ export async function POST(req: Request, { params }: RouteParams) {
         eventId: event.id,
         chosenTicketTypeId: data.ticketTypeId ?? null,
         ...("availableCount" in rateCheck && { availableCount: rateCheck.availableCount }),
+        ...("fields" in rateCheck && { fields: rateCheck.fields, dropped: rateCheck.dropped ?? null }),
         ip: clientIp,
       });
-      return NextResponse.json({ error: rateCheck.message, code: rateCheck.code }, { status: 400 });
+      return NextResponse.json(
+        { error: rateCheck.message, code: rateCheck.code, ...("fields" in rateCheck && { fields: rateCheck.fields }) },
+        { status: 400 },
+      );
     }
 
     // Hash password

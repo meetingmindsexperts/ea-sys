@@ -415,7 +415,10 @@ describe("the chosen type's student ID and supporting document", () => {
   it("names every missing ID field", () => {
     const r = checkPresenterEvidence(STUDENT, "ev1", {});
     expect(r).toMatchObject({ ok: false, code: "IDENTITY_EVIDENCE_REQUIRED" });
-    expect(!r.ok && r.message).toBe("Student ID and Student ID expiry date are required for this registration type.");
+    // The document too, in the same answer, so nobody is refused twice in a row.
+    expect(!r.ok && r.message).toBe(
+      "Student ID and Student ID expiry date and Valid Student ID are required for this registration type.",
+    );
   });
 
   it("refuses an expiry that is not a date", () => {
@@ -428,13 +431,28 @@ describe("the chosen type's student ID and supporting document", () => {
     expect(r).toMatchObject({ ok: false, code: "DOCUMENT_REQUIRED", message: "Valid Student ID is required for this registration type." });
   });
 
-  it("does not count another event's upload as the document", () => {
+  it("does not count another event's upload as the document, and says why for the log", () => {
     const r = checkPresenterEvidence(STUDENT, "ev1", {
       studentId: "S1",
       studentIdExpiry: "2027-06-30",
       supportingDocumentUrl: OUR_UPLOAD.replace("/ev1/", "/ev2/"),
     });
-    expect(r).toMatchObject({ ok: false, code: "DOCUMENT_REQUIRED" });
+    expect(r).toMatchObject({ ok: false, code: "DOCUMENT_REQUIRED", fields: ["supportingDocument"], dropped: "not-our-upload" });
+  });
+
+  it("names the fields to mark, so the form can point at each one", () => {
+    expect(checkPresenterEvidence(STUDENT, "ev1", {})).toMatchObject({
+      fields: ["studentId", "studentIdExpiry", "supportingDocument"],
+    });
+    expect(checkPresenterEvidence({ requiresMemberId: true }, "ev1", {})).toMatchObject({ fields: ["memberId"] });
+    expect(checkPresenterEvidence(STUDENT, "ev1", { studentId: "S1", studentIdExpiry: "x" })).toMatchObject({
+      code: "INVALID_EXPIRY_DATE",
+      fields: ["studentIdExpiry", "supportingDocument"],
+    });
+  });
+
+  it("does not block on a document the type asks for but does not require", () => {
+    expect(checkPresenterEvidence({ requiresDocument: true, documentRequired: false }, "ev1", {})).toEqual({ ok: true });
   });
 
   it("accepts the full set", () => {
