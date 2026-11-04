@@ -64,6 +64,15 @@ export async function publicEventWhereForHost(
   };
 }
 
+/**
+ * The organisation scope alone, for public pages that list events rather than
+ * look one up by slug (the catalogue). Same resolution and the same sentinel
+ * under host enforcement, so an unknown host lists nothing.
+ */
+export async function publicOrgScopeForHost(host: string | null | undefined): Promise<{ organizationId?: string }> {
+  return tenantOrgScope(await resolveTenantOrg(normalizeHost(host)));
+}
+
 /** Route-handler entry point — reads the Host header off the request. */
 export async function publicEventWhere(
   req: Request,

@@ -1,14 +1,14 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import Link from "next/link";
-import { AlertCircle, Calendar, MapPin, Ticket } from "lucide-react";
+import { AlertCircle, Award, Calendar, MapPin, Ticket } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { formatEventDateRange } from "@/lib/event-time";
-import { certificateMeta, certificateTitle, findReleasedCertificates } from "@/lib/registrant-certificates";
+import { certificateMeta, certificateTitle, cmeTotals, findReleasedCertificates } from "@/lib/registrant-certificates";
 import { CertificateList } from "@/components/registrant/certificate-list";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -95,6 +95,7 @@ export default async function MyRegistrationPage() {
   for (const r of registrations) events.set(r.event.id, r.event);
   for (const c of certificates) if (!events.has(c.event.id)) events.set(c.event.id, c.event);
   const ordered = [...events.values()].sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
+  const cme = cmeTotals(certificates, new Date());
 
   return (
     // Mobile first (owner, Nov 4, 2026): most people open this from the
@@ -105,6 +106,24 @@ export default async function MyRegistrationPage() {
         title="My events"
         description={email ? `Everything registered to ${email}` : "Your registrations and certificates"}
       />
+
+      {cme.allTime > 0 && (
+        <Card className="gap-0 py-0">
+          <CardContent className="flex items-center gap-4 p-4 sm:p-5">
+            <Award className="h-8 w-8 shrink-0 text-primary" />
+            <div className="grid flex-1 grid-cols-2 gap-4">
+              <div>
+                <p className="text-2xl font-semibold tabular-nums">{cme.thisYear}</p>
+                <p className="text-xs text-muted-foreground">CME hours in {new Date().getUTCFullYear()}</p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold tabular-nums">{cme.allTime}</p>
+                <p className="text-xs text-muted-foreground">CME hours in total</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {ordered.length === 0 && (
         <Card>

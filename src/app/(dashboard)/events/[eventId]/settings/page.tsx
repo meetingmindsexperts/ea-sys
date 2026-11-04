@@ -165,6 +165,7 @@ interface Event {
     requireApproval?: boolean;
     maxAttendees?: number;
     showRemainingTickets?: boolean;
+    showInCatalogue?: boolean;
     allowAbstractSubmissions?: boolean;
     abstractDeadline?: string;
     sessionProposalDeadline?: string;
@@ -320,6 +321,9 @@ export default function EventSettingsPage() {
     // OFF by default — the public register page only shows "N seats left"
     // when this is explicitly enabled (owner decision, July 2026).
     showRemainingTickets: false,
+    // OFF by default: the public catalogue lists only events an organiser
+    // switched on, so a closed meeting is never advertised (owner, Nov 4, 2026).
+    showInCatalogue: false,
   });
 
   // Optional attendee fields the forms show (registration-form-fields.ts); all shown until unticked.
@@ -490,6 +494,7 @@ export default function EventSettingsPage() {
           // (it was never enforced; organizers re-enter the cap).
           maxAttendees: data.maxAttendees ?? 0,
           showRemainingTickets: settings.showRemainingTickets ?? false,
+          showInCatalogue: settings.showInCatalogue === true,
         });
         setFormFields(readFormFields(settings));
 
@@ -1499,6 +1504,25 @@ export default function EventSettingsPage() {
                   setRegistrationSettings({
                     ...registrationSettings,
                     showRemainingTickets: checked,
+                  })
+                }
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Show in the event catalogue</Label>
+                <p className="text-sm text-muted-foreground">
+                  List this event on the public catalogue at /catalogue. Leave off for
+                  closed or invite-only meetings. Only published events are listed.
+                </p>
+              </div>
+              <Switch
+                checked={registrationSettings.showInCatalogue}
+                onCheckedChange={(checked) =>
+                  setRegistrationSettings({
+                    ...registrationSettings,
+                    showInCatalogue: checked,
                   })
                 }
               />

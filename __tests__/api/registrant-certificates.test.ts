@@ -25,7 +25,7 @@ vi.mock("@/lib/security", () => ({ checkRateLimit: mockRateLimit }));
 
 import { GET } from "@/app/api/registrant/certificates/[certificateId]/download/route";
 import { Prisma } from "@prisma/client";
-import { certificateMeta, certificateTitle, cmeHoursOf, findReleasedCertificates, isReleased, type EmailedRunItem } from "@/lib/registrant-certificates";
+import { certificateMeta, certificateTitle, cmeHoursOf, cmeTotals, findReleasedCertificates, isReleased, type EmailedRunItem } from "@/lib/registrant-certificates";
 
 function get(certificateId = "cert1") {
   return GET(new Request("http://x"), { params: Promise.resolve({ certificateId }) });
@@ -272,5 +272,20 @@ describe("certificateMeta", () => {
   it("names the kind when the title is a template's name, not when the title already is the kind", () => {
     expect(meta({ role: null, name: "CME (Speaker)" })).toMatch(/^Attendance · No\. S1 · Issued /);
     expect(meta(null)).toMatch(/^No\. S1 · Issued /);
+  });
+});
+
+describe("cmeTotals", () => {
+  const cert = (hours: number | null, year: number) =>
+    ({
+      cmeHoursSnapshot: hours === null ? null : new Prisma.Decimal(hours),
+      certificateTemplate: null,
+      event: { startDate: new Date(`${year}-06-01T00:00:00Z`), cmeHours: null },
+    }) as unknown as Parameters<typeof cmeTotals>[0][number];
+
+  it("this year by the event's year, and all time, in exact tenths", () => {
+    const now = new Date("2026-11-04T00:00:00Z");
+    expect(cmeTotals([cert(0.5, 2026), cert(0.5, 2026), cert(0.5, 2026), cert(8, 2025), cert(null, 2026)], now)).toEqual({ thisYear: 1.5, allTime: 9.5 });
+    expect(cmeTotals([], now)).toEqual({ thisYear: 0, allTime: 0 });
   });
 });

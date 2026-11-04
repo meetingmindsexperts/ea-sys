@@ -162,3 +162,24 @@ export function certificateMeta(cert: PortalCertificate): string {
     .filter(Boolean)
     .join(" · ");
 }
+
+/**
+ * A person's CME hours from the certificates they have been sent, this year
+ * and all time, counted by the year the EVENT took place (a certificate
+ * reissued in January still counts for last year's conference). Decimal hours
+ * are summed in tenths, so 0.5 + 0.5 + 0.5 is 1.5 and not 1.4999.
+ */
+export function cmeTotals(certs: Pick<PortalCertificate, "cmeHoursSnapshot" | "certificateTemplate" | "event">[], now: Date): { thisYear: number; allTime: number } {
+  const year = now.getUTCFullYear();
+  let thisYear = 0;
+  let allTime = 0;
+  for (const cert of certs) {
+    const hours = cmeHoursOf(cert);
+    if (!hours) continue;
+    const tenths = Math.round(Number(hours) * 10);
+    if (!Number.isFinite(tenths)) continue;
+    allTime += tenths;
+    if (cert.event.startDate.getUTCFullYear() === year) thisYear += tenths;
+  }
+  return { thisYear: thisYear / 10, allTime: allTime / 10 };
+}
