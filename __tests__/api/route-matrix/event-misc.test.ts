@@ -105,7 +105,7 @@ const CASES: HandlerCase[] = [
   // Added Nov 3, 2026 (DET bulk runs, step 4; born on requirePermission): dtcm.import.
   json("GET dtcm-eticket/run", dtcmRunGET, "GET"),
   json("GET dtcm-eticket/run (preflight)", dtcmRunGET, "GET", { query: "preflight=1" }),
-  json("POST dtcm-eticket/run", dtcmRunPOST, "POST", { body: { confirm: { environment: "staging", performanceCode: "P1", count: 1 } } }),
+  json("POST dtcm-eticket/run", dtcmRunPOST, "POST", { body: { confirm: { environment: "staging", performanceCode: "P1", count: 1, fingerprint: "0".repeat(64) } } }),
   json("DELETE dtcm-eticket/run", dtcmRunDELETE, "DELETE"),
   json("POST import/eventsair", importEventsAirPOST, "POST", { body: { eventsAirEventId: "ea1" } }),
   json("POST import/sessions (JSON, not multipart)", importSessionsPOST, "POST", { body: {} }),

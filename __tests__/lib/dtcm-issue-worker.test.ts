@@ -46,13 +46,20 @@ describe("tickAllDtcmRuns", () => {
     ]);
   });
 
-  it("a run that finishes early leaves its share to the runs after it", async () => {
-    mockOperator.dtcmIssueRun.findMany.mockResolvedValue([
-      { id: "a", organizationId: "o1" },
-      { id: "b", organizationId: "o1" },
-    ]);
-    await tickAllDtcmRuns();
-    // "a" returned at once, so "b" gets nearly the whole budget.
-    expect(tick.mock.calls[1][1]).toBeGreaterThan(44_000);
+  it("never hands out a sliver: with many runs, those past what fits wait for the next tick (review of 0214f336, LOW 7)", async () => {
+    mockOperator.dtcmIssueRun.findMany.mockResolvedValue(Array.from({ length: 20 }, (_, i) => ({ id: `r${i}`, organizationId: "o1" })));
+    // Each run uses its whole share.
+    vi.useFakeTimers();
+    tick.mockImplementation(async (_id: string, share: number) => {
+      vi.advanceTimersByTime(share);
+    });
+    try {
+      await tickAllDtcmRuns();
+    } finally {
+      vi.useRealTimers();
+    }
+    const shares = tick.mock.calls.map(([, share]) => share as number);
+    expect(Math.min(...shares)).toBeGreaterThanOrEqual(10_000);
+    expect(shares.length).toBe(4); // 45 s holds four 10 s shares, not twenty 2 s ones
   });
 });

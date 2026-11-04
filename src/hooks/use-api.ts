@@ -2605,6 +2605,8 @@ export interface DtcmRunPreflight {
   problems: { reason: string; count: number; message: string }[];
   sections: { area: string; name: string; needed: number; headroom: number | null; over: boolean }[];
   overCapacity: boolean;
+  /** Who and which sections were shown; handed back on start. */
+  fingerprint: string;
 }
 
 /** The latest run; polls while one is working. */
@@ -2630,7 +2632,7 @@ export function useDtcmRunPreflight(eventId: string) {
 export function useStartDtcmRun(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (confirm: { environment: DetEnvironment; performanceCode: string; count: number }) =>
+    mutationFn: (confirm: { environment: DetEnvironment; performanceCode: string; count: number; fingerprint: string }) =>
       fetchApi(`/api/events/${eventId}/dtcm-eticket/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -1069,11 +1069,25 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // still exists at DET, and it cascades with the event. Once gone, an unused
     // ticket can no longer be found or reversed from here (review of DTCM
     // steps 0 to 5, LOW 8). PENDING and UNCERTAIN may have sold, so they count.
+    // Production only: sandbox tickets hold no real permit seat, and a test
+    // event must stay deletable (review of 0214f336, LOW 4).
     const liveDtcmTickets = await db.dtcmOrder.count({
-      where: { eventId, status: { in: ["PURCHASED", "UNCERTAIN", "PENDING"] } },
+      where: { eventId, environment: "production", status: { in: ["PURCHASED", "UNCERTAIN", "PENDING"] } },
     });
     if (liveDtcmTickets > 0) {
       apiLogger.warn({ msg: "event:delete-blocked-dtcm-tickets", eventId, liveDtcmTickets, userId: session.user.id });
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "DELETE_BLOCKED",
+            entityType: "Event",
+            entityId: eventId,
+            changes: { reason: "has-dtcm-tickets", liveDtcmTickets, ip: getClientIp(req) },
+          },
+        })
+        .catch((err) => apiLogger.error({ err, msg: "Failed to create DELETE_BLOCKED audit log" }));
       return NextResponse.json(
         {
           error:

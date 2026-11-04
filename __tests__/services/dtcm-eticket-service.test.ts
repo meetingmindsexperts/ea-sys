@@ -502,6 +502,23 @@ describe("review of steps 0 to 5", () => {
     expect(mockDb.dtcmOrder.create).not.toHaveBeenCalled();
   });
 
+  it("review of 0214f336, LOW 2: a run's purchase refuses a type or section it was not confirmed for", async () => {
+    const loaded = await loadDtcmPurchaseContext("org1", "evt1", "u1", "worker", "run1");
+    if (!loaded.ok) throw new Error("context");
+    // Confirmed for tt-1 in another section than the event now maps it to.
+    expect(await buyForRegistration(loaded.context, "reg-1", { "tt-1": { area: "SGOLDA", priceTypeCode: "D" } })).toMatchObject({
+      ok: false,
+      code: "NOT_CONFIRMED_FOR_RUN",
+    });
+    // Or not confirmed for this type at all.
+    expect(await buyForRegistration(loaded.context, "reg-1", { "tt-9": { area: "SVIP2", priceTypeCode: "C" } })).toMatchObject({
+      code: "NOT_CONFIRMED_FOR_RUN",
+    });
+    expect(mockDb.dtcmOrder.create).not.toHaveBeenCalled();
+    // Matching the confirmation, it buys.
+    expect(await buyForRegistration(loaded.context, "reg-1", { "tt-1": { area: "SVIP2", priceTypeCode: "C" } })).toMatchObject({ ok: true });
+  });
+
   it("MED 4: a purchase records the DET client id it was bought with", async () => {
     await issueDtcmTicket(input);
     expect(mockDb.dtcmOrder.create.mock.calls[0][0].data).toMatchObject({ detClientId: "AMMEE1" });

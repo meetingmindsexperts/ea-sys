@@ -53,6 +53,7 @@ const HTTP_STATUS: Record<IssueDtcmTicketErrorCode, number> = {
   UNCERTAIN: 409,
   PURCHASED_NO_BARCODE: 202,
   CODE_ARRIVED_MEANWHILE: 409,
+  NOT_CONFIRMED_FOR_RUN: 409,
 };
 
 /** DET could not or would not sell, and nothing was bought: the pool may step in. */

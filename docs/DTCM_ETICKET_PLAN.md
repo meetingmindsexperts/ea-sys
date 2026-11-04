@@ -479,6 +479,28 @@ by order number trusts a match when DET omits the customer, and does not
 compare the performance), **LOW 7** (a price DET sends as a string reads as 0),
 **LOW 9** (a basket call that times out may leave a seat held, unlogged).
 
+Second round, on the fix commit itself (0214f336): 0 BLOCKER, 0 HIGH, 1 MED,
+7 LOW. Fixed:
+
+- **MED 1.** The start compared only the count, so the same number could hide
+  different people or a remapped section. The preflight now returns a
+  fingerprint of the people and sections, and the start refuses any other.
+- **LOW 2.** A registration moved to another mapped type inside one tick was
+  bought in that type's section. A run's purchase now refuses a type or section
+  it was not confirmed for (`NOT_CONFIRMED_FOR_RUN`).
+- **LOW 3.** A run with nothing frozen (older image, or created before the
+  migration) reported COMPLETED. It STOPS.
+- **LOW 4.** The delete guard counted sandbox tickets, so a test event could
+  become undeletable. Production only now, with a DELETE_BLOCKED audit row.
+- **LOW 7.** Twenty runs would each get two seconds and buy nothing. No share
+  is below ten seconds; runs past what fits go first next tick.
+
+Accepted, not fixed: the "code now dead" warning is a toast that does not name
+the registration (LOW 5); a mark-reversed refused as in use can leave a
+DET-reversed ticket recorded PURCHASED after a lost answer (LOW 6, narrow); the
+in-use re-check is not locked, so a code typed in the same instant can still
+be missed (LOW 8).
+
 ## 11. Related
 
 [DTCM.md](DTCM.md) · `src/lib/dtcm-pool.ts` · `src/lib/zoom/client.ts` (the

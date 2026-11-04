@@ -98,8 +98,11 @@ describe("event DELETE: DET tickets guard", () => {
     expect(body.code).toBe("EVENT_HAS_DTCM_TICKETS");
     expect(body.liveDtcmTickets).toBe(2);
     expect(mockDb.dtcmOrder.count).toHaveBeenCalledWith({
-      where: { eventId: "ev1", status: { in: ["PURCHASED", "UNCERTAIN", "PENDING"] } },
+      where: { eventId: "ev1", environment: "production", status: { in: ["PURCHASED", "UNCERTAIN", "PENDING"] } },
     });
     expect(mockDb.event.delete).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ action: "DELETE_BLOCKED", changes: expect.objectContaining({ reason: "has-dtcm-tickets" }) }) }),
+    );
   });
 });

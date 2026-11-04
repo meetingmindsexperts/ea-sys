@@ -54,7 +54,12 @@ export function DtcmRunCard({ eventId }: { eventId: string }) {
     const what = `Buy ${checked.eligible} ${ENV_LABEL[checked.environment]} DTCM tickets from DET for performance ${checked.performanceCode}?`;
     if (!window.confirm(what)) return;
     try {
-      await start.mutateAsync({ environment: checked.environment, performanceCode: checked.performanceCode, count: checked.eligible });
+      await start.mutateAsync({
+        environment: checked.environment,
+        performanceCode: checked.performanceCode,
+        count: checked.eligible,
+        fingerprint: checked.fingerprint,
+      });
       setChecked(null);
       toast.success("DTCM run started. Codes appear on registrations as DET issues them.");
     } catch (err) {

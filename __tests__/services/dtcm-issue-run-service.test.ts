@@ -113,8 +113,18 @@ describe("preflight", () => {
 });
 
 describe("start", () => {
-  const start = (confirm: { environment: "staging" | "production"; count: number; performanceCode?: string }) =>
-    startDtcmRun({ organizationId: "org1", eventId: "evt1", userId: "u1", confirm: { performanceCode: "P1", ...confirm } });
+  // The fingerprint the organiser was shown: taken from a preflight of the same state.
+  const shown = async () => {
+    const pre = await dtcmRunPreflight("org1", "evt1", "u1");
+    return pre.ok ? pre.preflight.fingerprint : "";
+  };
+  const start = async (confirm: { environment: "staging" | "production"; count: number; performanceCode?: string; fingerprint?: string }) =>
+    startDtcmRun({
+      organizationId: "org1",
+      eventId: "evt1",
+      userId: "u1",
+      confirm: { performanceCode: "P1", fingerprint: confirm.fingerprint ?? (await shown()), ...confirm },
+    });
 
   it("refuses when the confirmed count or environment no longer matches", async () => {
     mockDb.registration.findMany.mockResolvedValue([reg("r1"), reg("r2", { ticketTypeId: "tt-b" })]);
@@ -122,6 +132,28 @@ describe("start", () => {
     expect(await start({ environment: "production", count: 2 })).toMatchObject({ ok: false, code: "CONFIRMATION_STALE" });
     // The performance code is part of what was confirmed (review HIGH 1).
     expect(await start({ environment: "staging", count: 2, performanceCode: "P0" })).toMatchObject({ ok: false, code: "CONFIRMATION_STALE" });
+    expect(mockDb.dtcmIssueRun.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the same count hides different people or a remapped section (review of 0214f336, MED 1)", async () => {
+    mockDb.registration.findMany.mockResolvedValue([reg("r1"), reg("r2", { ticketTypeId: "tt-b" })]);
+    const seen = await shown();
+    // Before the click: r2 got a code, r9 had a phone added. Still two people.
+    mockDb.registration.findMany.mockResolvedValue([reg("r1"), reg("r9", { ticketTypeId: "tt-b" })]);
+    expect(await start({ environment: "staging", count: 2, fingerprint: seen })).toMatchObject({ ok: false, code: "CONFIRMATION_STALE" });
+    // Same people, but tt-b now buys in another section.
+    mockDb.registration.findMany.mockResolvedValue([reg("r1"), reg("r2", { ticketTypeId: "tt-b" })]);
+    svc.loadDtcmPurchaseContext.mockResolvedValue({
+      ok: true,
+      context: {
+        ...ctx(),
+        event: {
+          ...event,
+          settings: { dtcm: { ...event.settings.dtcm, sections: { ...event.settings.dtcm.sections, "tt-b": { area: "SVIP2", priceTypeCode: "C" } } } },
+        },
+      },
+    });
+    expect(await start({ environment: "staging", count: 2, fingerprint: seen })).toMatchObject({ ok: false, code: "CONFIRMATION_STALE" });
     expect(mockDb.dtcmIssueRun.create).not.toHaveBeenCalled();
   });
 
@@ -311,14 +343,20 @@ describe("tick", () => {
     expect(stopWrite()?.stopReason).toMatch(/moved from SGOLDA\/D to SVIP2\/C/);
   });
 
-  it("a run with no frozen registrations buys for nobody", async () => {
+  it("a run with no frozen registrations buys for nobody and STOPS, never 'finishes' (review of 0214f336, LOW 3)", async () => {
     mockDb.dtcmIssueRun.findUnique.mockImplementation(async ({ select }) =>
       select ? { status: "RUNNING" } : running({ registrationIds: [], sections: null }),
     );
-    mockDb.registration.findMany.mockResolvedValueOnce([]);
     await tickDtcmRun("run1", 10_000, 0);
-    expect(mockDb.registration.findMany.mock.calls[0][0].where.id).toEqual({ in: [] });
     expect(svc.buyForRegistration).not.toHaveBeenCalled();
+    expect(stopWrite()).toMatchObject({ status: "STOPPED" });
+  });
+
+  it("passes the confirmed mapping to every purchase (review of 0214f336, LOW 2)", async () => {
+    mockDb.registration.findMany.mockResolvedValueOnce([reg("r1")]);
+    svc.buyForRegistration.mockResolvedValue({ ok: true });
+    await tickDtcmRun("run1", 10_000, 0);
+    expect(svc.buyForRegistration).toHaveBeenCalledWith(expect.anything(), "r1", event.settings.dtcm.sections);
   });
 
   it("stops, never 'finishes', when the mapping went stale mid-run (review LOW 7)", async () => {

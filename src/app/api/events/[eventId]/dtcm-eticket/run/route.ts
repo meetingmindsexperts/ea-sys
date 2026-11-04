@@ -42,6 +42,7 @@ const startSchema = z.object({
     environment: z.enum(["staging", "production"]),
     performanceCode: z.string().trim().min(1).max(100),
     count: z.number().int().min(1).max(100_000),
+    fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   }),
 });
 
@@ -109,11 +110,17 @@ export async function GET(req: Request, { params }: RouteParams) {
         apiLogger.warn({ msg: "dtcm-run:preflight-refused", eventId: g.eventId, code: pre.code });
         return NextResponse.json({ run, preflight: null, preflightError: { code: pre.code, message: pre.message } });
       }
-      const { eligibleIds, problems, ...rest } = pre.preflight;
+      // The ids and mapping stay server-side; the fingerprint stands for them.
+      const { eligibleIds, problems, environment, performanceCode, notNeeded, sections, overCapacity, fingerprint } = pre.preflight;
       return NextResponse.json({
         run,
         preflight: {
-          ...rest,
+          environment,
+          performanceCode,
+          notNeeded,
+          sections,
+          overCapacity,
+          fingerprint,
           eligible: eligibleIds.length,
           problems: Object.entries(problems).map(([reason, count]) => ({
             reason,

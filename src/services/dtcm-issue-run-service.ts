@@ -29,6 +29,7 @@
  * No automatic retry anywhere: a person starts a new run, which only picks up
  * registrations that still have no code.
  */
+import { createHash } from "crypto";
 import { Prisma, type DtcmIssueRun } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -64,6 +65,12 @@ export interface DtcmRunPreflight {
   eligibleIds: string[];
   /** The mapping of every registration type among them, as it is now; frozen on the run. */
   mapping: Record<string, DtcmSectionMapping>;
+  /**
+   * Who and which sections, as one value. The start must be handed the
+   * fingerprint the organiser was shown: the same count can hide different
+   * people or a remapped section (review of 0214f336, MED 1).
+   */
+  fingerprint: string;
   /** People a run would skip because something must be fixed first. */
   problems: Partial<Record<IneligibleReason | "AWAITING_RESOLUTION", number>>;
   notNeeded: number;
@@ -131,6 +138,7 @@ export async function dtcmRunPreflight(organizationId: string, eventId: string, 
       performanceCode: ctx.event.dtcmPerformanceCode ?? "",
       eligibleIds,
       mapping,
+      fingerprint: runFingerprint(eligibleIds, mapping),
       problems,
       notNeeded,
       sections,
@@ -163,7 +171,7 @@ export async function startDtcmRun(input: {
   organizationId: string;
   eventId: string;
   userId: string;
-  confirm: { environment: DetEnvironment; performanceCode: string; count: number };
+  confirm: { environment: DetEnvironment; performanceCode: string; count: number; fingerprint: string };
 }): Promise<StartDtcmRunResult> {
   const log = { eventId: input.eventId, userId: input.userId };
   const pre = await dtcmRunPreflight(input.organizationId, input.eventId, input.userId);
@@ -180,6 +188,11 @@ export async function startDtcmRun(input: {
   if (p.overCapacity) {
     const over = p.sections.filter((s) => s.over).map((s) => `${s.area} needs ${s.needed}, DET has ${s.headroom}`);
     return refuse("OVER_CAPACITY", `More registrations than DET seats: ${over.join("; ")}. Change the DET sections or ask DET for more seats.`);
+  }
+  // The people and sections must be exactly what the organiser saw, not only
+  // as many of them (review of 0214f336, MED 1).
+  if (input.confirm.fingerprint !== p.fingerprint) {
+    return refuse("CONFIRMATION_STALE", "The people or DET sections changed since you checked. Check again and confirm.");
   }
   // Environment, performance AND count must be what the organiser saw (review
   // of step 4, HIGH 1: a code changed between the check and the click bought
@@ -306,6 +319,12 @@ export async function tickDtcmRun(
   }
 
   const confirmed = confirmedMapping(run.sections);
+  // Nothing frozen (a run started before the frozen set existed, or by an older
+  // web container during a deploy): stop, never report a hollow "finished"
+  // (review of 0214f336, LOW 3).
+  if (run.registrationIds.length === 0 || Object.keys(confirmed).length === 0) {
+    return stopRun(run.id, "This run has no confirmed registrations on record. Check again and start a new run.");
+  }
   const changed = mappingChange(confirmed, readDtcmEventSettings(ctx.event.settings).sections ?? {});
   if (changed) return stopRun(run.id, `${changed} since the run was confirmed. Check again and start a new run.`);
 
@@ -325,7 +344,7 @@ export async function tickDtcmRun(
 
     let result: Awaited<ReturnType<typeof buyForRegistration>>;
     try {
-      result = await buyForRegistration(ctx, registration.id);
+      result = await buyForRegistration(ctx, registration.id, confirmed);
     } catch (err) {
       // Not a DET answer: a database write failed mid-purchase, perhaps after
       // the sale. Stop rather than buy on (review of step 4, HIGH 2).
@@ -384,6 +403,14 @@ async function trailingRefusals(runId: string): Promise<number> {
     n++;
   }
   return n;
+}
+
+/** Who a run would buy for and in which sections, as one stable value. */
+function runFingerprint(ids: string[], mapping: Record<string, DtcmSectionMapping>): string {
+  const sections = Object.keys(mapping)
+    .sort()
+    .map((t) => [t, mapping[t].area, mapping[t].priceTypeCode]);
+  return createHash("sha256").update(JSON.stringify({ ids, sections })).digest("hex");
 }
 
 /** The mapping frozen on the run; anything malformed reads as empty, which buys for nobody. */

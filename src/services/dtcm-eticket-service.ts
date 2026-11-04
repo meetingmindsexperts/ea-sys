@@ -42,7 +42,7 @@ import {
 } from "@/lib/dtcm-eticket/client";
 import { getDetCredentials } from "@/lib/dtcm-eticket/credentials";
 import { dtcmEligibility, type IneligibleReason } from "@/lib/dtcm-eticket/eligibility";
-import { mappingProblem } from "@/lib/dtcm-eticket/sections";
+import { mappingProblem, type DtcmSectionMapping } from "@/lib/dtcm-eticket/sections";
 import type { DetCredentials, DetEnvironment, DetPerformanceSummary } from "@/lib/dtcm-eticket/types";
 
 export type DtcmSource = "rest" | "worker";
@@ -73,7 +73,9 @@ export type IssueDtcmTicketErrorCode =
   /** Bought, but the order could not be read yet. */
   | "PURCHASED_NO_BARCODE"
   /** Bought, but the registration got a code another way while we were buying. */
-  | "CODE_ARRIVED_MEANWHILE";
+  | "CODE_ARRIVED_MEANWHILE"
+  /** A bulk run's purchase for a registration type, or a section, the run was not confirmed for. */
+  | "NOT_CONFIRMED_FOR_RUN";
 
 export type IssueDtcmTicketResult =
   | { ok: true; order: DtcmOrder; barcode: string }
@@ -165,8 +167,18 @@ export async function loadDtcmPurchaseContext(
   }
 }
 
-/** One purchase, under the rules in the header. Callers have checked access; this checks everything else. */
-export async function buyForRegistration(ctx: DtcmPurchaseContext, registrationId: string): Promise<IssueDtcmTicketResult> {
+/**
+ * One purchase, under the rules in the header. Callers have checked access;
+ * this checks everything else. A bulk run passes the mapping it was confirmed
+ * for, and a registration whose type or section is not in it is refused: the
+ * fresh read can show a type moved since the run's list (review of 0214f336,
+ * LOW 2).
+ */
+export async function buyForRegistration(
+  ctx: DtcmPurchaseContext,
+  registrationId: string,
+  confirmedFor?: Record<string, DtcmSectionMapping>,
+): Promise<IssueDtcmTicketResult> {
   const log = { eventId: ctx.eventId, registrationId, environment: ctx.creds.environment, source: ctx.source };
 
   // Rule 6: fresh, so a code assigned or a cancel made since the caller's
@@ -180,6 +192,12 @@ export async function buyForRegistration(ctx: DtcmPurchaseContext, registrationI
   const eligibility = dtcmEligibility(ctx.event, registration, ctx.creds.environment);
   if (!eligibility.ok) return fail(eligibility.reason, eligibility.message, log);
   const { mapping, customer, performanceCode } = eligibility;
+  if (confirmedFor) {
+    const was = registration.ticketTypeId ? confirmedFor[registration.ticketTypeId] : undefined;
+    if (!was || was.area !== mapping.area || was.priceTypeCode !== mapping.priceTypeCode) {
+      return fail("NOT_CONFIRMED_FOR_RUN", "This registration's type or DET section is not one the run was confirmed for", log);
+    }
+  }
 
   const problem = mappingProblem(mapping, ctx.performance);
   if (problem) return fail("NOT_ON_DET_MAP", `${problem}. Check the DET sections (Settings, Registration).`, log);
