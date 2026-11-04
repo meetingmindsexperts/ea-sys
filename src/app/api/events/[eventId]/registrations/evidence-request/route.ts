@@ -36,7 +36,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: ROUTE });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const gate = requirePermission(session, "registrations.email", { route: ROUTE, eventId });
+    const gate = requirePermission(session, "communications.send", { route: ROUTE, eventId });
     if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {

@@ -7,8 +7,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb, tx } = vi.hoisted(() => {
   const tx = {
     verificationToken: { deleteMany: vi.fn() },
-    attendee: { update: vi.fn() },
-    registration: { update: vi.fn() },
+    attendee: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    registration: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     auditLog: { create: vi.fn() },
   };
   return {
@@ -38,10 +38,12 @@ vi.mock("@/lib/security", () => ({
   hashVerificationToken: (t: string) => `hash:${t}`,
 }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: string, cb: () => unknown) => cb() }));
+vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/tenant/resolver", () => ({ resolveTenantOrg: async () => ({ orgId: "org1" }), normalizeHost: (h: string) => h }));
 
 import { GET, POST } from "@/app/api/public/events/[slug]/verify-details/route";
 import { apiLogger } from "@/lib/logger";
+import { syncToContact } from "@/lib/contact-sync";
 
 const params = { params: Promise.resolve({ slug: "MEHF2027" }) };
 const UPLOAD = "/uploads/resident-letters/ev1/0b6f3c1e-1111-4222-8333-944455556666.pdf";
@@ -115,7 +117,7 @@ describe("GET", () => {
   it("refuses an unknown link, and logs it", async () => {
     mockDb.verificationToken.findUnique.mockResolvedValue(null);
     expect((await get()).status).toBe(400);
-    expect(apiLogger.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "public/verify-details:GET:token-not-found" }));
+    expect(apiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "public/verify-details:GET:token-not-found" }));
   });
 });
 
@@ -125,7 +127,7 @@ describe("POST", () => {
     const body = await res.json();
     expect(res.status).toBe(400);
     expect(body.fields).toEqual(["studentId", "studentIdExpiry", "supportingDocument"]);
-    expect(tx.attendee.update).not.toHaveBeenCalled();
+    expect(tx.attendee.updateMany).not.toHaveBeenCalled();
     expect(tx.verificationToken.deleteMany).not.toHaveBeenCalled();
   });
 
@@ -134,14 +136,20 @@ describe("POST", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).saved).toEqual(["studentId", "studentIdExpiry", "supportingDocument"]);
     expect(tx.verificationToken.deleteMany).toHaveBeenCalledWith({ where: { token: "hash:tok" } });
-    expect(tx.attendee.update).toHaveBeenCalledWith({
-      where: { id: "att1" },
-      data: { studentId: "S1", studentIdExpiry: new Date("2027-06-30") },
+    // Each write only while the field is still empty.
+    expect(tx.attendee.updateMany).toHaveBeenCalledWith({
+      where: { id: "att1", OR: [{ studentId: null }, { studentId: "" }] },
+      data: { studentId: "S1" },
     });
-    expect(tx.registration.update).toHaveBeenCalledWith({
-      where: { id: "reg1" },
+    expect(tx.attendee.updateMany).toHaveBeenCalledWith({
+      where: { id: "att1", studentIdExpiry: null },
+      data: { studentIdExpiry: new Date("2027-06-30") },
+    });
+    expect(tx.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg1", supportingDocumentUrl: null },
       data: { supportingDocumentUrl: UPLOAD, supportingDocumentFilename: "card.pdf" },
     });
+    expect(syncToContact).toHaveBeenCalledWith(expect.objectContaining({ email: "jane@x.org", studentId: "S1" }));
     expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "EVIDENCE_PROVIDED" }) }));
   });
 
@@ -151,7 +159,21 @@ describe("POST", () => {
     );
     const res = await post({ studentId: "OVERWRITE", studentIdExpiry: "2030-01-01", supportingDocumentUrl: UPLOAD });
     expect(res.status).toBe(200);
-    expect(tx.attendee.update).toHaveBeenCalledWith({ where: { id: "att1" }, data: {} });
+    expect(tx.attendee.updateMany).not.toHaveBeenCalled();
+    expect(tx.registration.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not use up the link when nothing new is given (an optional document left out)", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(
+      registration({
+        ticketType: { ...registration().ticketType, requiresStudentId: false, requiresStudentIdExpiry: false, documentRequired: false },
+      }),
+    );
+    const res = await post({});
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("NOTHING_PROVIDED");
+    expect(tx.verificationToken.deleteMany).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 
   it("refuses a document that is not this event's upload", async () => {
@@ -165,6 +187,7 @@ describe("POST", () => {
     tx.verificationToken.deleteMany.mockResolvedValue({ count: 0 });
     const res = await post({ studentId: "S1", studentIdExpiry: "2027-06-30", supportingDocumentUrl: UPLOAD });
     expect(res.status).toBe(400);
-    expect(tx.attendee.update).not.toHaveBeenCalled();
+    expect(tx.attendee.updateMany).not.toHaveBeenCalled();
+    expect(apiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "public/verify-details:POST:link-already-used", registrationId: "reg1" }));
   });
 });

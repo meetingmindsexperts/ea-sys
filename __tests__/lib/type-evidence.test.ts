@@ -32,8 +32,10 @@ describe("missingEvidenceFields", () => {
     ).toEqual(["supportingDocument"]);
   });
 
-  it("counts a blank ID as missing", () => {
-    expect(missingEvidenceFields(STUDENT, { ...NOTHING, studentId: "  " })).toContain("studentId");
+  it("counts an empty ID as missing, exactly as the server filter does", () => {
+    expect(missingEvidenceFields(STUDENT, { ...NOTHING, studentId: "" })).toContain("studentId");
+    // The where cannot trim, so neither does this: the screen and the export agree.
+    expect(missingEvidenceFields(STUDENT, { ...NOTHING, studentId: "  " })).not.toContain("studentId");
   });
 
   it("asks for an ask-but-not-block document too: the organiser asked for it", () => {

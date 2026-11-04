@@ -248,9 +248,10 @@ export default function RegistrationsPage() {
   const canUpdate = useCan("registrations.update", eventId) === "allowed";
   // The desk admits people, so it follows the check-in key, as its routes do.
   const canOpenDesk = useCan("registrations.checkin", eventId) === "allowed";
-  // Request ID and document (evidence-request route): the per-person email key.
-  const canRequestEvidence = useCan("registrations.email", eventId) === "allowed";
-  const canSelect = canBulk || canSendEmail || canImport || canRequestEvidence;
+  // Request ID and document (evidence-request route) is a bulk send, so it
+  // follows the bulk email key (review of 4d890f35).
+  const canRequestEvidence = canSendEmail;
+  const canSelect = canBulk || canSendEmail || canImport;
   // Payer column only when someone on this list actually has a third-party
   // payer. It read "-" on nearly every row, and the width is better spent on
   // Country and Paid / Due (organiser request, Sep 10 2026). The payer field

@@ -35,6 +35,7 @@ import {
   type TypeEvidenceField,
 } from "@/lib/type-evidence";
 import { parseEvidenceRequestIdentifier } from "@/lib/evidence-request";
+import { syncToContact } from "@/lib/contact-sync";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -87,7 +88,7 @@ async function lookup(req: Request, slug: string, rawToken: string, route: strin
   const hashedToken = hashVerificationToken(rawToken);
   const token = await db.verificationToken.findUnique({ where: { token: hashedToken } });
   if (!token) {
-    apiLogger.info({ msg: `${route}:token-not-found`, slug, ip });
+    apiLogger.warn({ msg: `${route}:token-not-found`, slug, ip });
     return { ok: false, response: NextResponse.json({ error: LINK_PROBLEM, code: "LINK_INVALID" }, { status: 400 }) };
   }
   const registrationId = parseEvidenceRequestIdentifier(token.identifier);
@@ -99,7 +100,7 @@ async function lookup(req: Request, slug: string, rawToken: string, route: strin
     await db.verificationToken.delete({ where: { token: hashedToken } }).catch((err) =>
       apiLogger.error({ msg: `${route}:expired-token-delete-failed`, registrationId, err }),
     );
-    apiLogger.info({ msg: `${route}:token-expired`, slug, registrationId, ip });
+    apiLogger.warn({ msg: `${route}:token-expired`, slug, registrationId, ip });
     return {
       ok: false,
       response: NextResponse.json(
@@ -141,7 +142,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const { slug } = await params;
     const rawToken = new URL(req.url).searchParams.get("token");
     if (!rawToken) {
-      apiLogger.info({ msg: `${route}:no-token`, slug });
+      apiLogger.warn({ msg: `${route}:no-token`, slug });
       return NextResponse.json({ error: LINK_PROBLEM, code: "LINK_INVALID" }, { status: 400 });
     }
     const limit = checkRateLimit({ key: `verify-details-get:ip:${getClientIp(req)}`, limit: 30, windowMs: 15 * 60 * 1000 });
@@ -255,22 +256,39 @@ export async function POST(req: Request, { params }: RouteParams) {
         ...(expiry ? (["studentIdExpiry"] as const) : []),
         ...(document?.url ? (["supportingDocument"] as const) : []),
       ];
+      // A save that adds nothing must not use up the link: an ask-but-not-block
+      // document left out, or one dropped as not ours, would otherwise burn it
+      // and show "thank you" with nothing collected (review of 4d890f35, MED).
+      if (saved.length === 0) {
+        apiLogger.warn({ msg: `${route}:nothing-provided`, registrationId: registration.id, missing, ip });
+        return NextResponse.json(
+          { error: "Please add the details below before saving.", code: "NOTHING_PROVIDED", fields: missing },
+          { status: 400 },
+        );
+      }
 
       await tenantTransaction(async (tx) => {
         // Single use: claiming the token is the first write, so two tabs cannot both save.
         const claimed = await tx.verificationToken.deleteMany({ where: { token: hashedToken } });
-        if (claimed.count === 0) throw new LinkAlreadyUsedError();
-        await tx.attendee.update({
-          where: { id: registration.attendee.id },
-          data: {
-            ...(submitted.memberId && { memberId: submitted.memberId }),
-            ...(submitted.studentId && { studentId: submitted.studentId }),
-            ...(expiry && { studentIdExpiry: expiry }),
-          },
-        });
+        if (claimed.count === 0) throw new LinkAlreadyUsedError(registration.id);
+        // Each field only while it is still empty: an organiser who filled it in
+        // since the page loaded keeps their value (review of 4d890f35, LOW).
+        for (const [field, value] of [["memberId", submitted.memberId], ["studentId", submitted.studentId]] as const) {
+          if (!value) continue;
+          await tx.attendee.updateMany({
+            where: { id: registration.attendee.id, OR: [{ [field]: null }, { [field]: "" }] },
+            data: { [field]: value },
+          });
+        }
+        if (expiry) {
+          await tx.attendee.updateMany({
+            where: { id: registration.attendee.id, studentIdExpiry: null },
+            data: { studentIdExpiry: expiry },
+          });
+        }
         if (document?.url) {
-          await tx.registration.update({
-            where: { id: registration.id },
+          await tx.registration.updateMany({
+            where: { id: registration.id, supportingDocumentUrl: null },
             data: { supportingDocumentUrl: document.url, supportingDocumentFilename: document.filename },
           });
         }
@@ -286,11 +304,23 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
 
       apiLogger.info({ msg: `${route}:saved`, registrationId: registration.id, eventId: registration.event.id, saved });
+      // The org contact carries these too, as on the registration forms.
+      // Failure-isolated: the registration already holds them.
+      await syncToContact({
+        organizationId: registration.event.organizationId,
+        eventId: registration.event.id,
+        email: registration.attendee.email,
+        firstName: registration.attendee.firstName,
+        lastName: registration.attendee.lastName,
+        ...(submitted.memberId && { memberId: submitted.memberId }),
+        ...(submitted.studentId && { studentId: submitted.studentId }),
+        ...(expiry && { studentIdExpiry: expiry }),
+      }).catch((err) => apiLogger.error({ msg: `${route}:contact-sync-failed`, registrationId: registration.id, err }));
       return NextResponse.json({ ok: true, saved });
     });
   } catch (err) {
     if (err instanceof LinkAlreadyUsedError) {
-      apiLogger.warn({ msg: `${route}:link-already-used` });
+      apiLogger.warn({ msg: `${route}:link-already-used`, registrationId: err.registrationId });
       return NextResponse.json({ error: LINK_PROBLEM, code: "LINK_INVALID" }, { status: 400 });
     }
     apiLogger.error({ err, msg: `${route}:failed` });
@@ -300,7 +330,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
 /** The token was used between the lookup and the save (a second tab). */
 class LinkAlreadyUsedError extends Error {
-  constructor() {
+  constructor(readonly registrationId: string) {
     super("LINK_ALREADY_USED");
     this.name = "LinkAlreadyUsedError";
   }

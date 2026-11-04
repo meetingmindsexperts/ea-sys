@@ -147,8 +147,11 @@ export interface EvidenceOnFile {
 export function missingEvidenceFields(policy: TypeEvidencePolicy | null | undefined, onFile: EvidenceOnFile): TypeEvidenceField[] {
   const identity = readIdentityEvidencePolicy(policy);
   const out: TypeEvidenceField[] = [];
-  if (identity.requiresMemberId && !onFile.memberId?.trim()) out.push("memberId");
-  if (identity.requiresStudentId && !onFile.studentId?.trim()) out.push("studentId");
+  // Empty means null or "", exactly as MISSING_EVIDENCE_WHERE says it, so the
+  // screen and the export cannot disagree (review of 4d890f35). Saves trim, so
+  // a whitespace-only value is not one this feature writes.
+  if (identity.requiresMemberId && !onFile.memberId) out.push("memberId");
+  if (identity.requiresStudentId && !onFile.studentId) out.push("studentId");
   if (identity.requiresStudentIdExpiry && !onFile.studentIdExpiry) out.push("studentIdExpiry");
   if (requiresSupportingDocument(policy) && !onFile.supportingDocumentUrl) out.push("supportingDocument");
   return out;
