@@ -55,6 +55,12 @@ describe("structured data", () => {
     expect(ld.description).toBe("Middle East Heart Failure Conference 2027 is a Cardiology conference in Dubai, United Arab Emirates, carrying 8 CME hours.");
   });
 
+  it("a webinar's summary says online, not the organiser's city", () => {
+    expect(eventJsonLd({ ...event, eventType: "WEBINAR" }, ORIGIN, null).description).toBe(
+      "Middle East Heart Failure Conference 2027 is an online Cardiology webinar, carrying 8 CME hours.",
+    );
+  });
+
   it("a webinar is online, at its own page", () => {
     const ld = eventJsonLd({ ...event, eventType: "WEBINAR" }, ORIGIN, null);
     expect(ld.location).toEqual({ "@type": "VirtualLocation", url: `${ORIGIN}/e/MEHF2027` });

@@ -73,3 +73,10 @@ export const apiDisplay = localFont({
   weight: "300 700",
   style: "normal",
 });
+
+/**
+ * The editorial display face of the public event pages (Nov 4, 2026): the
+ * same vendored Fraunces file, so no new download. Headlines only; body text
+ * stays Geist.
+ */
+export const editorialDisplay = apiDisplay;

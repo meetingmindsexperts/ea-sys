@@ -65,9 +65,11 @@ const ATTENDANCE_MODE: Record<EventType, string> = {
 /** One sentence an assistant can quote: what, when-ish, where, and the CME hours. */
 export function eventSummary(event: SeoEvent): string {
   const kind = event.eventType ? EVENT_TYPE_LABEL[event.eventType].toLowerCase() : "event";
-  const where = [event.city, event.country].filter(Boolean).join(", ");
+  const online = event.eventType === "WEBINAR";
+  // A webinar's city is the organiser's, not where it happens.
+  const where = online ? "" : [event.city, event.country].filter(Boolean).join(", ");
   const parts = [
-    `${event.name} is a ${event.specialty ? `${event.specialty} ` : ""}${kind}${where ? ` in ${where}` : ""}`,
+    `${event.name} is ${online ? "an online" : "a"} ${event.specialty ? `${event.specialty} ` : ""}${kind}${where ? ` in ${where}` : ""}`,
     event.cmeHours ? `carrying ${event.cmeHours.toString()} CME hours` : null,
   ].filter(Boolean);
   return `${parts.join(", ")}.`;

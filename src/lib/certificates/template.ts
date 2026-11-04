@@ -162,7 +162,7 @@ function composeVenueLine(e: CertificateData["event"]): string {
   return parts.length > 0 ? `at ${parts.join(", ")}` : "";
 }
 
-function friendlyAccreditorName(
+export function friendlyAccreditorName(
   body: "DHA" | "DOH" | "SCFHS" | "EACCME" | "ACCME" | "OTHER",
 ): string {
   switch (body) {

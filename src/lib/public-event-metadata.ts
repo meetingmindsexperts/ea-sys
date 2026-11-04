@@ -80,7 +80,7 @@ const getSessionName = cache(async (host: string | null, slug: string, sessionId
 });
 
 /** Strip HTML tags + decode the few common entities, collapse whitespace. */
-function toPlainText(html: string): string {
+export function toPlainText(html: string): string {
   return html
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;/g, " ")
@@ -93,7 +93,7 @@ function toPlainText(html: string): string {
     .trim();
 }
 
-function truncate(text: string, max: number): string {
+export function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max - 1).trimEnd()}…`;
 }
