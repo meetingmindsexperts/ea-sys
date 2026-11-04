@@ -14,9 +14,9 @@
  * someone with finance sight, the same rule as the budget page.
  */
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, Suspense, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { useEvents } from "@/hooks/use-api";
@@ -42,6 +42,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { budgetableEvents, budgetEventLabel } from "@/procurement/lib/budget-events";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowLeft, FileSpreadsheet, Loader2, TriangleAlert } from "lucide-react";
 
@@ -105,8 +107,18 @@ function needsExpenseLine(l: EditableLine): boolean {
   return l.costTotal > 0 || l.billedTotal === 0;
 }
 
+// useSearchParams (the event handed over from the New budget dialog) needs a Suspense boundary.
 export default function ImportBudgetSheetPage() {
+  return (
+    <Suspense fallback={null}>
+      <ImportBudgetSheet />
+    </Suspense>
+  );
+}
+
+function ImportBudgetSheet() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
   const canAuthor = canAuthorBudgets(session?.user);
   const withRevenue = useCan("finance.view") === "allowed";
@@ -119,17 +131,20 @@ export default function ImportBudgetSheetPage() {
   const [sheet, setSheet] = useState<ParsedSheet | null>(null);
   const [overrides, setOverrides] = useState<ReadonlyMap<number, LineOverride>>(new Map());
   const [countInternal, setCountInternal] = useState(true);
-  const [eventId, setEventId] = useState("");
+  const [pickedEventId, setEventId] = useState(() => searchParams.get("eventId") ?? "");
   const [contingency, setContingency] = useState("10");
   const [attendance, setAttendance] = useState("");
   const [allVat, setAllVat] = useState("0");
 
-  // An event can hold one budget family: offer only coded events with none yet.
+  // Coded, running (published or live) and without a budget yet: the same rule as the New budget dialog.
   const withBudget = useMemo(() => new Set(budgets.map((b) => b.eventId)), [budgets]);
   const eventOptions = useMemo(
-    () => (events as { id: string; name: string; code: string | null }[]).filter((e) => !!e.code && !withBudget.has(e.id)),
+    () => budgetableEvents(events as { id: string; name: string; code: string | null; status: string }[], withBudget),
     [events, withBudget],
   );
+  // An event handed over in the URL counts only once it is in the list, so a stale or foreign id picks nothing.
+  const pickedEvent = eventOptions.find((e) => e.id === pickedEventId);
+  const eventId = pickedEvent?.id ?? "";
   const catalogue = useMemo(() => products.map((p) => ({ id: p.id, sku: p.sku, name: p.name, isActive: p.isActive })), [products]);
   // Derived, never stored: a catalogue that arrives after the file, or the
   // internal-cost switch, re-plans the sheet without losing what was changed.
@@ -253,14 +268,18 @@ export default function ImportBudgetSheetPage() {
             <p className="text-xs text-muted-foreground">In Excel: File, Save As, CSV. Semicolon or comma both work.</p>
           </div>
           <div className="space-y-2">
-            <Label>Event</Label>
-            <Select value={eventId} onValueChange={setEventId}>
-              <SelectTrigger className="w-full"><SelectValue placeholder="Pick an event with a code and no budget" /></SelectTrigger>
-              <SelectContent>
-                {eventOptions.map((e) => <SelectItem key={e.id} value={e.id}>{e.code} · {e.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">An event without a code gets one under its Settings first.</p>
+            <Label htmlFor="sheet-event">Event</Label>
+            <SearchableSelect
+              id="sheet-event"
+              value={eventId}
+              displayLabel={pickedEvent ? budgetEventLabel(pickedEvent) : undefined}
+              onChange={setEventId}
+              options={eventOptions.map((e) => ({ value: e.id, label: budgetEventLabel(e) }))}
+              placeholder="Pick an event"
+              searchPlaceholder="Search by code or name"
+              emptyText="No published or live event without a budget."
+            />
+            <p className="text-xs text-muted-foreground">Published and live events only. An event without a code gets one under its Settings first.</p>
           </div>
         </div>
         <div className="grid gap-4 border-t pt-4 sm:grid-cols-2 lg:grid-cols-4">

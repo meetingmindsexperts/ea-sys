@@ -31,6 +31,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { budgetableEvents, budgetEventLabel, uncodedRunningCount } from "@/procurement/lib/budget-events";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FileSpreadsheet, FileText, Inbox, Loader2, Plus, TriangleAlert, Wallet, Package, Truck } from "lucide-react";
@@ -44,8 +47,12 @@ const BRANDS: { value: string; label: string }[] = [
 
 const EMPTY_FORM = { eventId: "", startFrom: "template" as StartFrom, templateId: "", fromBudgetId: "", priceChange: "0", reportingCurrency: "AED", contingencyPercent: "10", expectedAttendance: "", brand: "" };
 
-/** Where a new budget's lines come from: a template's blank lines, or a past budget's plan (owner, Oct 28, 2026). */
-type StartFrom = "template" | "copy";
+/**
+ * Where a new budget's lines come from: a template's blank lines, a past budget's plan (owner, Oct 28, 2026),
+ * or a costing sheet, which hands over to the Import sheet page with the event picked (owner, Nov 4, 2026).
+ */
+type StartFrom = "template" | "copy" | "sheet";
+const START_FROM: readonly [StartFrom, string][] = [["template", "Template"], ["copy", "Past budget"], ["sheet", "CSV sheet"]];
 
 /** Short enough to sit in the field without being cut; the event's name is shown under it instead. */
 function sourceLabel(b: BudgetRow): string {
@@ -74,18 +81,14 @@ export default function ProcurementBudgetsPage() {
     if (creating) setForm(EMPTY_FORM);
   }
 
-  // Only an event with a code can hold a budget (the archive row and the
-  // approval inbox are keyed on it); the dropdown says so rather than offering
-  // events the POST would refuse.
-  const codedEvents = useMemo(
-    () => (events as { id: string; name: string; code: string | null; eventType: string; status: string }[]).filter((e) => !!e.code),
-    [events],
-  );
-  const uncodedCount = (events as { code: string | null }[]).length - codedEvents.length;
-  const eventById = useMemo(() => new Map(codedEvents.map((e) => [e.id, e])), [codedEvents]);
-  // An event holds one budget family; the POST refuses a second, so the dropdown does not offer it.
+  const typedEvents = events as { id: string; name: string; code: string | null; eventType: string; status: string }[];
+  const eventById = useMemo(() => new Map(typedEvents.map((e) => [e.id, e])), [typedEvents]);
+  // Coded, running (published or live) and without a budget yet: the rule lives in budget-events.ts.
   const budgetedEventIds = useMemo(() => new Set(allBudgets.map((b) => b.eventId)), [allBudgets]);
-  const openEvents = useMemo(() => codedEvents.filter((e) => !budgetedEventIds.has(e.id)), [codedEvents, budgetedEventIds]);
+  const openEvents = useMemo(() => budgetableEvents(typedEvents, budgetedEventIds), [typedEvents, budgetedEventIds]);
+  const eventOptions = useMemo(() => openEvents.map((e) => ({ value: e.id, label: budgetEventLabel(e) })), [openEvents]);
+  const uncodedCount = useMemo(() => uncodedRunningCount(typedEvents, budgetedEventIds), [typedEvents, budgetedEventIds]);
+  const pickedEvent = form.eventId ? eventById.get(form.eventId) : undefined;
   const copySources = useMemo(() => [...allBudgets].sort((a, b) => a.eventCode.localeCompare(b.eventCode) || b.versionNo - a.versionNo), [allBudgets]);
   const source = form.startFrom === "copy" ? allBudgets.find((b) => b.id === form.fromBudgetId) : undefined;
 
@@ -112,6 +115,10 @@ export default function ProcurementBudgetsPage() {
   async function submitCreate() {
     if (!form.eventId) {
       toast.error("Pick the event the budget is for.");
+      return;
+    }
+    if (form.startFrom === "sheet") {
+      router.push(`/procurement/budgets/import?eventId=${encodeURIComponent(form.eventId)}`);
       return;
     }
     if (form.startFrom === "copy" && !form.fromBudgetId) {
@@ -254,44 +261,41 @@ export default function ProcurementBudgetsPage() {
           <DialogHeader>
             <DialogTitle>New budget</DialogTitle>
             <DialogDescription>
-              A draft for one event: blank lines from a template, or a copy of a past budget&apos;s plan. Adjust it, then submit for approval.
+              A draft for one event: blank lines from a template, a copy of a past budget&apos;s plan, or a costing sheet. Adjust it, then submit for approval.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Event</Label>
-              <Select value={form.eventId} onValueChange={pickEvent}>
-                <SelectTrigger className="w-full"><SelectValue placeholder="Pick an event with a code and no budget" /></SelectTrigger>
-                <SelectContent>
-                  {openEvents.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>{e.code} · {e.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {uncodedCount > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {`${uncodedCount === 1 ? "One event has" : `${uncodedCount} events have`} no code yet and cannot hold a budget until one is set under the event's Settings.`}
-                </p>
-              )}
+              <Label htmlFor="budget-event">Event</Label>
+              <SearchableSelect
+                id="budget-event"
+                value={form.eventId}
+                displayLabel={pickedEvent ? budgetEventLabel(pickedEvent) : undefined}
+                onChange={pickEvent}
+                options={eventOptions}
+                placeholder="Pick an event"
+                searchPlaceholder="Search by code or name"
+                emptyText="No published or live event without a budget."
+              />
+              <p className="text-xs text-muted-foreground">
+                Published and live events only.
+                {uncodedCount > 0 && ` ${uncodedCount === 1 ? "One more has" : `${uncodedCount} more have`} no code yet; set one under the event's Settings.`}
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Start from</Label>
-              <div role="radiogroup" aria-label="Start from" className="grid grid-cols-2 gap-1 rounded-lg border bg-muted/40 p-1">
-                {([["template", "A template"], ["copy", "A past budget"]] as const).map(([value, text]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={form.startFrom === value}
-                    onClick={() => setForm((f) => ({ ...f, startFrom: value }))}
-                    className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${form.startFrom === value ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                  >
-                    {text}
-                  </button>
-                ))}
-              </div>
+              <Tabs value={form.startFrom} onValueChange={(v) => setForm((f) => ({ ...f, startFrom: v as StartFrom }))}>
+                <TabsList className="grid w-full grid-cols-3">
+                  {START_FROM.map(([value, text]) => <TabsTrigger key={value} value={value}>{text}</TabsTrigger>)}
+                </TabsList>
+              </Tabs>
             </div>
-            {form.startFrom === "template" ? (
+            {form.startFrom === "sheet" && (
+              <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+                Continue to upload the costing sheet (in Excel: File, Save As, CSV). You check every line, its category and product, and set the contingency and attendance there before the draft is created.
+              </p>
+            )}
+            {form.startFrom === "template" && (
               <div className="space-y-2">
                 <Label>Template</Label>
                 <Select value={form.templateId || "none"} onValueChange={(v) => setForm((f) => ({ ...f, templateId: v === "none" ? "" : v }))}>
@@ -304,7 +308,8 @@ export default function ProcurementBudgetsPage() {
                   </SelectContent>
                 </Select>
               </div>
-            ) : (
+            )}
+            {form.startFrom === "copy" && (
               <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
                 <div className="min-w-0 space-y-2">
                   <Label>Budget to copy</Label>
@@ -326,42 +331,44 @@ export default function ProcurementBudgetsPage() {
                 </p>
               </div>
             )}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Reporting currency</Label>
-                <Select value={form.reportingCurrency} onValueChange={(v) => setForm((f) => ({ ...f, reportingCurrency: v }))} disabled={form.startFrom === "copy"}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">{form.startFrom === "copy" ? "A copy keeps its source's currency." : "Locked once the budget has lines."}</p>
+            {form.startFrom !== "sheet" && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Reporting currency</Label>
+                  <Select value={form.reportingCurrency} onValueChange={(v) => setForm((f) => ({ ...f, reportingCurrency: v }))} disabled={form.startFrom === "copy"}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{form.startFrom === "copy" ? "A copy keeps its source's currency." : "Locked once the budget has lines."}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="contingency">Contingency %</Label>
+                  <Input id="contingency" type="number" min={0} max={100} step="0.5" value={form.contingencyPercent} onChange={(e) => setForm((f) => ({ ...f, contingencyPercent: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="attendance">Expected attendance</Label>
+                  <Input id="attendance" type="number" min={0} value={form.expectedAttendance} onChange={(e) => setForm((f) => ({ ...f, expectedAttendance: e.target.value }))} placeholder="Required to submit" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Brand</Label>
+                  <Select value={form.brand || "none"} onValueChange={(v) => setForm((f) => ({ ...f, brand: v === "none" ? "" : v }))}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Not set</SelectItem>
+                      {BRANDS.map((b) => <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="contingency">Contingency %</Label>
-                <Input id="contingency" type="number" min={0} max={100} step="0.5" value={form.contingencyPercent} onChange={(e) => setForm((f) => ({ ...f, contingencyPercent: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="attendance">Expected attendance</Label>
-                <Input id="attendance" type="number" min={0} value={form.expectedAttendance} onChange={(e) => setForm((f) => ({ ...f, expectedAttendance: e.target.value }))} placeholder="Required to submit" />
-              </div>
-              <div className="space-y-2">
-                <Label>Brand</Label>
-                <Select value={form.brand || "none"} onValueChange={(v) => setForm((f) => ({ ...f, brand: v === "none" ? "" : v }))}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Not set</SelectItem>
-                    {BRANDS.map((b) => <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreating(false)} disabled={create.isPending}>Cancel</Button>
             <Button onClick={submitCreate} disabled={create.isPending}>
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Create draft
+              {form.startFrom === "sheet" ? "Continue to the sheet" : "Create draft"}
             </Button>
           </DialogFooter>
         </DialogContent>
