@@ -93,3 +93,73 @@ export function catalogueHref(query: CatalogueQuery, change: Partial<CatalogueQu
   const s = params.toString();
   return s ? `/catalogue?${s}` : "/catalogue";
 }
+
+// ── Topic pages (catalogue phase 3) ────────────────────────────────────────
+//
+// One indexable page per specialty and per country that has listed events:
+// /catalogue/specialty/cardiology, /catalogue/country/oman. They match how
+// people search ("cardiology conference Dubai", "CME events Oman") far better
+// than a filter URL, which the catalogue keeps noindex. A value with no listed
+// event has no page, so nothing thin or empty is ever indexed.
+
+export type TopicKind = "specialty" | "country";
+export const TOPIC_KINDS: readonly TopicKind[] = ["specialty", "country"];
+
+/** A URL slug for a value: "United Arab Emirates" -> "united-arab-emirates", diacritics dropped. */
+export function topicSlug(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** The value behind a slug, among the values that have listed events. */
+export function findTopic(values: readonly string[], slug: string): string | null {
+  return values.find((v) => topicSlug(v) === slug) ?? null;
+}
+
+export function topicHref(kind: TopicKind, value: string, query?: Pick<CatalogueQuery, "when" | "page">): string {
+  const params = new URLSearchParams();
+  if (query?.when === "past") params.set("when", "past");
+  if (query && query.page > 1) params.set("page", String(query.page));
+  const s = params.toString();
+  return `/catalogue/${kind}/${topicSlug(value)}${s ? `?${s}` : ""}`;
+}
+
+/** The page's heading, written the way people search. */
+export function topicTitle(kind: TopicKind, value: string): string {
+  return kind === "specialty" ? `${value} conferences and CME events` : `Medical conferences and CME events in ${value}`;
+}
+
+function listWords(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/**
+ * The sentence under the heading, from the topic's upcoming events: how many,
+ * where (or which specialties, on a country page), and the most CME hours one
+ * carries. Factual and self-contained, so an assistant can quote it.
+ */
+export function topicIntro(
+  kind: TopicKind,
+  value: string,
+  upcoming: { city: string | null; country: string | null; specialty: string | null; cmeHours: { toString(): string } | null }[],
+): string {
+  if (upcoming.length === 0) {
+    return `There are no upcoming ${kind === "specialty" ? `${value} events` : `events in ${value}`} right now; past events are listed below.`;
+  }
+  const n = upcoming.length;
+  const noun = n === 1 ? "event" : "events";
+  const cme = Math.max(0, ...upcoming.map((e) => (e.cmeHours ? Number(e.cmeHours.toString()) : 0)));
+  const cmeText = cme > 0 ? `, carrying up to ${cme} CME hours` : "";
+  if (kind === "specialty") {
+    const places = [...new Set(upcoming.map((e) => e.city || e.country).filter((p): p is string => !!p))].slice(0, 4);
+    return `${n} upcoming ${value} ${noun}${places.length > 0 ? ` in ${listWords(places)}` : ""}${cmeText}.`;
+  }
+  const specialties = [...new Set(upcoming.map((e) => e.specialty).filter((s): s is string => !!s))].slice(0, 4);
+  return `${n} upcoming medical ${noun} in ${value}${specialties.length > 0 ? ` across ${listWords(specialties)}` : ""}${cmeText}.`;
+}

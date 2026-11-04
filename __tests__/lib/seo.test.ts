@@ -74,6 +74,18 @@ describe("structured data", () => {
     expect(JSON.stringify(ld)).toContain(`"logo":"${ORIGIN}/uploads/logo.png"`);
   });
 
+  it("a topic page names its list and adds itself to the breadcrumb", () => {
+    const ld = catalogueJsonLd([event], ORIGIN, null, { name: "Cardiology conferences and CME events", path: "/catalogue/specialty/cardiology" });
+    const [crumbs, list] = ld["@graph"] as { "@type": string; itemListElement: { item?: unknown; name?: string }[]; name?: string; url?: string }[];
+    expect(crumbs.itemListElement.map((i) => i.item)).toEqual([`${ORIGIN}/catalogue`, `${ORIGIN}/catalogue/specialty/cardiology`]);
+    expect(list).toMatchObject({ name: "Cardiology conferences and CME events", url: `${ORIGIN}/catalogue/specialty/cardiology` });
+  });
+
+  it("llms.txt lists the topic pages", () => {
+    const text = llmsText({ origin: ORIGIN, organizationName: "MM Group", events: [], formatDates: () => "", topics: [["Medical conferences and CME events in Oman", "/catalogue/country/oman"]] });
+    expect(text).toContain(`## Browse by specialty and country\n\n- [Medical conferences and CME events in Oman](${ORIGIN}/catalogue/country/oman)`);
+  });
+
   it("absoluteUrl leaves a full URL alone", () => {
     expect(absoluteUrl(ORIGIN, "https://cdn.example/x.png")).toBe("https://cdn.example/x.png");
   });

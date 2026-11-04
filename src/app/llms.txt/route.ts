@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { catalogueBaseWhere } from "@/lib/catalogue";
+import { catalogueBaseWhere, topicHref, topicTitle } from "@/lib/catalogue";
+import { listTopicValues } from "@/lib/catalogue-data";
 import { publicOrgScopeForHost } from "@/lib/public-event";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { formatEventDateRange } from "@/lib/event-time";
@@ -17,7 +18,7 @@ export async function GET(req: Request) {
   const origin = siteOrigin(host, req.headers.get("x-forwarded-proto"));
   try {
     const [scope, tenant] = await Promise.all([publicOrgScopeForHost(host), resolveTenantOrg(normalizeHost(host))]);
-    const [events, organization] = await Promise.all([
+    const [events, organization, topics] = await Promise.all([
       db.event.findMany({
         where: { ...catalogueBaseWhere(scope), status: { in: ["PUBLISHED", "LIVE"] }, endDate: { gte: new Date() } },
         orderBy: { startDate: "asc" },
@@ -28,12 +29,17 @@ export async function GET(req: Request) {
         },
       }),
       tenant.orgId ? db.organization.findUnique({ where: { id: tenant.orgId }, select: { name: true } }) : null,
+      listTopicValues(scope),
     ]);
     const body = llmsText({
       origin,
       organizationName: organization?.name ?? null,
       events,
       formatDates: (e) => formatEventDateRange(e.startDate, e.endDate, e.timezone),
+      topics: [
+        ...topics.specialties.map((v): [string, string] => [topicTitle("specialty", v), topicHref("specialty", v)]),
+        ...topics.countries.map((v): [string, string] => [topicTitle("country", v), topicHref("country", v)]),
+      ],
     });
     return new NextResponse(body, {
       headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" },

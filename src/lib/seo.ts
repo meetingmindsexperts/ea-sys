@@ -108,8 +108,17 @@ export function eventJsonLd(event: SeoEvent, origin: string, organizer: { name: 
   };
 }
 
-/** The catalogue's structured data: the organisation, the breadcrumb and the listed events. */
-export function catalogueJsonLd(events: SeoEvent[], origin: string, organization: { name: string; logo: string | null } | null) {
+/**
+ * The catalogue's structured data: the organisation, the breadcrumb and the
+ * listed events. A topic page passes `listing` (its name and address), which
+ * becomes the list's name and the breadcrumb's second step.
+ */
+export function catalogueJsonLd(
+  events: SeoEvent[],
+  origin: string,
+  organization: { name: string; logo: string | null } | null,
+  listing?: { name: string; path: string },
+) {
   const org = organization && {
     "@type": "Organization",
     "@id": `${origin}/#organization`,
@@ -123,12 +132,15 @@ export function catalogueJsonLd(events: SeoEvent[], origin: string, organization
       ...(org ? [org] : []),
       {
         "@type": "BreadcrumbList",
-        itemListElement: [{ "@type": "ListItem", position: 1, name: "Event catalogue", item: `${origin}/catalogue` }],
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Event catalogue", item: `${origin}/catalogue` },
+          ...(listing ? [{ "@type": "ListItem", position: 2, name: listing.name, item: `${origin}${listing.path}` }] : []),
+        ],
       },
       {
         "@type": "ItemList",
-        name: "Event catalogue",
-        url: `${origin}/catalogue`,
+        name: listing?.name ?? "Event catalogue",
+        url: `${origin}${listing?.path ?? "/catalogue"}`,
         itemListElement: events.map((event, i) => ({
           "@type": "ListItem",
           position: i + 1,
@@ -210,8 +222,10 @@ export function llmsText(input: {
   organizationName: string | null;
   events: LlmsEvent[];
   formatDates: (event: LlmsEvent) => string;
+  /** Topic pages: [title, path]. */
+  topics?: [string, string][];
 }): string {
-  const { origin, organizationName, events, formatDates } = input;
+  const { origin, organizationName, events, formatDates, topics = [] } = input;
   const lines = [
     organizationName ? `# ${organizationName} events` : "# Medical events",
     "",
@@ -223,6 +237,7 @@ export function llmsText(input: {
     `- Registering: open an event from the catalogue and choose Register. An account is created during registration.`,
     `- [My events](${origin}/my-registration): after signing in, a person's registrations, payment status and CME certificates`,
     "",
+    ...(topics.length > 0 ? ["## Browse by specialty and country", "", ...topics.map(([title, path]) => `- [${title}](${origin}${path})`), ""] : []),
     "## Upcoming events",
     "",
   ];

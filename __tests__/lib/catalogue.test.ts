@@ -4,7 +4,7 @@
  * keep or reset the right parts.
  */
 import { describe, it, expect } from "vitest";
-import { catalogueBaseWhere, catalogueHref, catalogueOrderBy, catalogueWhere, parseCatalogueQuery } from "@/lib/catalogue";
+import { catalogueBaseWhere, catalogueHref, catalogueOrderBy, catalogueWhere, findTopic, parseCatalogueQuery, topicHref, topicIntro, topicSlug, topicTitle } from "@/lib/catalogue";
 
 const NOW = new Date("2026-11-04T10:00:00Z");
 const ORG = { organizationId: "org1" };
@@ -63,5 +63,38 @@ describe("order and links", () => {
     expect(catalogueHref(q, { when: "past" })).toBe("/catalogue?q=heart&country=Oman&when=past");
     expect(catalogueHref(q, { page: 4 })).toBe("/catalogue?q=heart&country=Oman&page=4");
     expect(catalogueHref(parseCatalogueQuery({}), {})).toBe("/catalogue");
+  });
+});
+
+describe("topic pages", () => {
+  it("slugs read like the words and survive accents, ampersands and punctuation", () => {
+    expect(topicSlug("United Arab Emirates")).toBe("united-arab-emirates");
+    expect(topicSlug("Côte d'Ivoire")).toBe("cote-d-ivoire");
+    expect(topicSlug("Obstetrics & Gynaecology")).toBe("obstetrics-and-gynaecology");
+    expect(topicSlug("  Cardiology ")).toBe("cardiology");
+  });
+
+  it("a slug finds only a value that has listed events", () => {
+    expect(findTopic(["Cardiology", "Hematology"], "hematology")).toBe("Hematology");
+    expect(findTopic(["Cardiology"], "oncology")).toBeNull();
+  });
+
+  it("links carry only the tab and the page", () => {
+    expect(topicHref("country", "Oman")).toBe("/catalogue/country/oman");
+    expect(topicHref("specialty", "Cardiology", { when: "past", page: 2 })).toBe("/catalogue/specialty/cardiology?when=past&page=2");
+  });
+
+  it("headings are written the way people search", () => {
+    expect(topicTitle("specialty", "Cardiology")).toBe("Cardiology conferences and CME events");
+    expect(topicTitle("country", "Oman")).toBe("Medical conferences and CME events in Oman");
+  });
+
+  it("the intro counts upcoming events, names places or specialties, and the most CME hours", () => {
+    const e = (city: string | null, country: string, specialty: string, cme: number | null) => ({ city, country, specialty, cmeHours: cme === null ? null : { toString: () => String(cme) } });
+    expect(topicIntro("specialty", "Cardiology", [e("Dubai", "UAE", "Cardiology", 8), e("Fujairah", "UAE", "Cardiology", null), e("Dubai", "UAE", "Cardiology", 6)])).toBe(
+      "3 upcoming Cardiology events in Dubai and Fujairah, carrying up to 8 CME hours.",
+    );
+    expect(topicIntro("country", "Oman", [e("Muscat", "Oman", "Hematology", null)])).toBe("1 upcoming medical event in Oman across Hematology.");
+    expect(topicIntro("country", "Qatar", [])).toBe("There are no upcoming events in Qatar right now; past events are listed below.");
   });
 });
