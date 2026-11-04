@@ -188,7 +188,8 @@ function MappingEditor({
                 <tr key={t.id} className="border-t align-middle">
                   <td className="py-2 pr-3">
                     <span className={t.isActive ? "" : "text-muted-foreground"}>{t.name}</span>
-                    {t.isFaculty && <Badge variant="outline" className="ml-2 text-[10px]">Faculty</Badge>}
+                    {/* Its name is usually "Faculty" too, so the badge says what it is. */}
+                    {t.isFaculty && <Badge variant="outline" className="ml-2 text-[10px]">Speaker companions</Badge>}
                     {!t.isActive && <span className="ml-2 text-xs text-muted-foreground">(inactive)</span>}
                   </td>
                   <td className="py-2 pr-3 text-right tabular-nums">{t.registrations}</td>
@@ -234,7 +235,7 @@ function MappingEditor({
 
       {unmapped.length > 0 && (
         <p className="text-xs text-amber-700">
-          Not mapped: {unmapped.map((t) => t.name).join(", ")}. Their registrations will not get a DTCM barcode from DET.
+          Not mapped: {unmapped.map((t) => (t.isFaculty ? `${t.name} (speaker companions)` : t.name)).join(", ")}. Their registrations will not get a DTCM barcode from DET.
         </p>
       )}
 

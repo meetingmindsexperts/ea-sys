@@ -27,9 +27,11 @@ interface Props {
   onCodeChanged: () => Promise<void> | void;
   /** Disable while the sheet's other code buttons are working. */
   busy?: boolean;
+  /** Put a DET sale's barcode on the registration (the sheet's manual save). */
+  onUseCode: (code: string) => Promise<void>;
 }
 
-export function DtcmDetControls({ eventId, registrationId, currentCode, canResolve, onCodeChanged, busy }: Props) {
+export function DtcmDetControls({ eventId, registrationId, currentCode, canResolve, onCodeChanged, busy, onUseCode }: Props) {
   const hasCode = Boolean(currentCode);
   const { data } = useRegistrationDtcmOrders(eventId, registrationId);
   const issue = useIssueDtcmFromDet(eventId, registrationId);
@@ -68,9 +70,23 @@ export function DtcmDetControls({ eventId, registrationId, currentCode, canResol
       {orphan && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-left text-xs text-amber-800">
           DET sold a ticket for this person (order {orphan.orderId}) with barcode{" "}
-          <span className="font-mono">{orphan.barcode}</span>, which is not the code on this registration. Use Enter a code
-          to put it back rather than buying another
-          {hasCode ? ", or have an organiser reverse the unused DET order" : ""}.
+          <span className="font-mono">{orphan.barcode}</span>, which is not the code on this registration.{" "}
+          {hasCode
+            ? "If it is not needed, have an organiser reverse the unused DET order."
+            : "Put it on the registration rather than buying another."}
+          {/* Only onto an EMPTY registration: replacing a code someone put
+              there on purpose is a decision, not a one-click fix. */}
+          {!hasCode && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-2 block bg-white"
+              disabled={busy}
+              onClick={() => void onUseCode(orphan.barcode as string)}
+            >
+              Use this code
+            </Button>
+          )}
         </p>
       )}
       {open && (

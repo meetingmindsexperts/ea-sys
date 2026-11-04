@@ -311,6 +311,11 @@ export function RegistrationDetailSheet({
   // on open (below) and, until it lands, show a "Loading…" state instead of the
   // misleading no-price message.
   const [financialsLoadedForId, setFinancialsLoadedForId] = useState<string | null>(null);
+  // Only the latest detail fetch may replace the row. The on-open fetch can
+  // land AFTER a refresh that followed a write (a DET purchase pressed while
+  // the route was still compiling did exactly this), and putting the
+  // pre-write row back made the sheet say the code was not on the registration.
+  const detailFetchSeq = useRef(0);
   if (registration !== prevRegistration) {
     setPrevRegistration(registration);
     if (registration !== null) {
@@ -330,10 +335,11 @@ export function RegistrationDetailSheet({
     if (!open || !registration?.id) return;
     const id = registration.id;
     let cancelled = false;
+    const seq = ++detailFetchSeq.current;
     apiFetch<Registration>(`/api/events/${eventId}/registrations/${id}`)
       .then((fresh) => {
         if (cancelled) return;
-        setSelectedRegistration(fresh);
+        if (seq === detailFetchSeq.current) setSelectedRegistration(fresh);
         setFinancialsLoadedForId(id);
       })
       .catch((err) => {
@@ -376,8 +382,9 @@ export function RegistrationDetailSheet({
   // financials; we re-fetch the full detail (with recomputed `financials`) so
   // the Payment Summary + quote reflect it, then refresh the list.
   async function refreshSelectedRegistration(id: string) {
+    const seq = ++detailFetchSeq.current;
     const fresh = await apiFetch<Registration>(`/api/events/${eventId}/registrations/${id}`);
-    setSelectedRegistration(fresh);
+    if (seq === detailFetchSeq.current) setSelectedRegistration(fresh);
     queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
   }
 
@@ -695,12 +702,17 @@ export function RegistrationDetailSheet({
   };
 
   const handleSaveManualDtcm = async () => {
-    if (!selectedRegistration) return;
     const code = manualDtcmValue.trim();
     if (!code) {
       toast.error("Enter a code first");
       return;
     }
+    await saveDtcmCode(code);
+  };
+
+  /** Typed by hand, or the barcode of a DET sale that is not on the registration. */
+  const saveDtcmCode = async (code: string) => {
+    if (!selectedRegistration) return;
     setSavingManualDtcm(true);
     try {
       // The ordinary registration PUT, with a one-field payload. It already
@@ -3011,8 +3023,9 @@ export function RegistrationDetailSheet({
                               registrationId={selectedRegistration.id}
                               currentCode={selectedRegistration.dtcmBarcode ?? null}
                               canResolve={canResolveDtcmOrders}
-                              busy={assigningDtcm}
+                              busy={assigningDtcm || savingManualDtcm}
                               onCodeChanged={() => refreshSelectedRegistration(selectedRegistration.id)}
+                              onUseCode={saveDtcmCode}
                             />
                           )}
                         </div>

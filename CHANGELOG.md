@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### DTCM: the code from a DET purchase shows straight away (November 4)
+
+- **Fixed: right after "Get code from DET" the sheet could say the code was not on the registration.** The detail load started when the sheet opened could land after the refresh that followed the purchase and put the pre-purchase row back. Only the newest load of the registration now replaces the row.
+- **"Use this code"** on the "DET sold a ticket for this person" box puts that sale's barcode on an empty registration in one click (the same save as Enter a code, so the uniqueness check still applies).
+- **DET sections card:** the hidden faculty type is badged "Speaker companions", so it no longer reads like a second "Faculty" when choosing which type to map.
+
 ### DTCM: review fixes for buying and reversing DET tickets (November 4)
 
 - **A bulk run buys only what the organiser confirmed.** The registrations and DET sections shown at the check are frozen on the run: nobody registered, fixed or mapped later is bought for, and the run stops if a confirmed type's section changes. Each purchase re-reads the registration first, so a code given at the desk or a cancel made meanwhile is respected. Several events' runs now share the worker fairly.
