@@ -61,6 +61,8 @@ const PRIMITIVES = [
   "requireCrmDelete",
   "requireCrmExport",
   "requireCrmPurge",
+  // The QuickBooks lookups' guard: requireCrmRead, then crmCan(ctx, "crm.write").
+  "requireQboLookup",
   "denyNonHr",
   "denyNonProcurement",
   "denyNonRoleAdmin",

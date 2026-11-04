@@ -112,6 +112,8 @@ const GUARD_MODULES = [
   "src/lib/mcp-oauth.ts",
   "src/lib/platform-operator.ts",
   "src/crm/lib/crm-route.ts",
+  // requireQboLookup: requireCrmRead, then crm.write (the QuickBooks lookups).
+  "src/crm/lib/quickbooks-route.ts",
   "src/hr/lib/hr-roles.ts",
   "src/procurement/lib/procurement-roles.ts",
   "src/procurement/lib/route-helpers.ts",
