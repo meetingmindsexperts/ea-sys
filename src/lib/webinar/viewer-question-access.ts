@@ -4,7 +4,8 @@
  * 2026), so the two can never gate differently.
  *
  * Same gate as the presence heartbeat and zoom-join: signed in, and either a
- * non-cancelled registrant of the event or org staff testing the page. The
+ * registrant who may watch (viewer-entitlement.ts: not pending approval, paid
+ * or free) or org staff testing the page. The
  * asker's name comes from the registration, never from the request body.
  */
 import { db } from "@/lib/db";
@@ -12,6 +13,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
+import { viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
 
 export type Asker =
   | { kind: "staff"; name: string }
@@ -27,7 +29,8 @@ export async function resolveAsker(
     return { kind: "staff", name: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || "Staff" };
   }
   const registration = await db.registration.findFirst({
-    where: { eventId, userId, status: { not: "CANCELLED" } },
+    // Only webinar rooms take questions (loadQuestionContext), so the webinar rule.
+    where: viewerRegistrationWhere(eventId, userId, "WEBINAR"),
     // Oldest first, so someone holding two registrations always votes and asks
     // as the same one.
     orderBy: { createdAt: "asc" },

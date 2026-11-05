@@ -8,6 +8,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { can, principalFromUser } from "@/lib/permissions/can";
 import { isStreamArriving } from "@/lib/webinar/stream-probe";
+import { isViewerRoomOpen, viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -15,40 +16,42 @@ type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 // doubles as the RTMP PUBLISH credential on MediaMTX — so handing the URL to
 // anyone both bypassed the registration gate zoom-join enforces AND leaked a
 // credential an attacker could hijack the stream with. The URL fields are now
-// gated on auth + (org staff | non-cancelled registration); unauthorized
+// gated on auth + (org staff | a registration that may watch, see
+// viewer-entitlement.ts) + an open room for attendees; unauthorized
 // callers get the bare liveness flag. The registration check is micro-cached
 // per (userId, eventId) so a 5k recovery-poll storm doesn't hammer the pool.
 const viewerAuthCache = new Map<string, number>(); // key → cache expiry (ms epoch)
 const VIEWER_AUTH_TTL_MS = 60_000;
 const VIEWER_AUTH_CACHE_MAX = 20_000;
 
-async function isAuthorizedViewer(
+/** Staff (and the producer role) preview whatever the room; an attendee also needs the room open. */
+async function viewerKind(
   user: { id: string; role?: string | null; organizationId?: string | null } | undefined,
   event: { id: string; organizationId: string; eventType: string | null },
-): Promise<boolean> {
-  if (!user) return false;
+): Promise<"staff" | "attendee" | null> {
+  if (!user) return null;
   const sameOrg = user.organizationId === event.organizationId;
-  if (isEventOrgStaff(user, event.organizationId)) return true;
+  if (isEventOrgStaff(user, event.organizationId)) return "staff";
   // The Zoom host roles that are not general writers (WEBINARS, the producer
   // role) get the URLs for the console's stream preview, but only on WEBINAR
   // events: that role's host control stops at webinars, and the URL carries
   // the stream key (code review, Oct 2, 2026).
-  if (can(principalFromUser(user), "zoomHost.view") && sameOrg && event.eventType === "WEBINAR") return true;
+  if (can(principalFromUser(user), "zoomHost.view") && sameOrg && event.eventType === "WEBINAR") return "staff";
   const cacheKey = `${user.id}:${event.id}`;
   const cachedUntil = viewerAuthCache.get(cacheKey);
-  if (cachedUntil && cachedUntil > Date.now()) return true;
+  if (cachedUntil && cachedUntil > Date.now()) return "attendee";
 
   const registration = await db.registration.findFirst({
-    where: { eventId: event.id, userId: user.id, status: { not: "CANCELLED" } },
+    where: viewerRegistrationWhere(event.id, user.id, event.eventType),
     select: { id: true },
   });
-  if (!registration) return false;
+  if (!registration) return null;
 
   // Positive results only — a just-registered attendee must not be blocked by
   // a cached negative. Bounded so an auth'd crawler can't grow it unbounded.
   if (viewerAuthCache.size >= VIEWER_AUTH_CACHE_MAX) viewerAuthCache.clear();
   viewerAuthCache.set(cacheKey, Date.now() + VIEWER_AUTH_TTL_MS);
-  return true;
+  return "attendee";
 }
 
 function nextStreamStatus<T extends string>(isLive: boolean, current: T): T | "ACTIVE" | "ENDED" {
@@ -79,7 +82,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // liveness boolean (M5 residual, accepted).
     const event = await db.event.findFirst({
       where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
-      select: { id: true, organizationId: true, eventType: true },
+      select: { id: true, organizationId: true, eventType: true, status: true, settings: true },
     });
 
     if (!event) {
@@ -128,8 +131,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     // authenticated to get their initial URLs from zoom-join — pass this
     // transparently. streamKey itself is never returned (a publish credential
     // the client has no use for).
-    const authorized = await isAuthorizedViewer(authSession?.user, event);
-    if (!authorized) {
+    const kind = await viewerKind(authSession?.user, event);
+    if (!kind) {
       if (authSession?.user) {
         apiLogger.warn(
           { userId: authSession.user.id, eventId: event.id, sessionId },
@@ -137,6 +140,11 @@ export async function GET(req: Request, { params }: RouteParams) {
         );
       }
       return NextResponse.json({ status });
+    }
+    // A stream running before the producer opens the room (a rehearsal) or
+    // after an early close is not the attendees' to watch (security review W-02).
+    if (kind === "attendee" && !(await isViewerRoomOpen(event, sessionId))) {
+      return NextResponse.json({ status, roomOpen: false });
     }
 
     // Build HLS URLs for the client. At 5k viewers HLS is served from a CDN

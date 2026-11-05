@@ -25,7 +25,7 @@ const { mockAuth, mockDb, mockApiLogger, mockSignature } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     eventSession: { findFirst: vi.fn() },
-    registration: { findFirst: vi.fn() },
+    registration: { findFirst: vi.fn(), findMany: vi.fn() },
   },
 }));
 
@@ -53,6 +53,7 @@ vi.mock("@/lib/zoom", () => ({
 }));
 
 import { GET } from "@/app/api/public/events/[slug]/sessions/[sessionId]/zoom-join/route";
+import { resetRoomOpenCache } from "@/lib/webinar/viewer-entitlement";
 
 const ORG = "org1";
 const DAY_MS = 24 * 3600_000;
@@ -92,6 +93,8 @@ beforeEach(() => {
     status: "PUBLISHED",
   });
   mockDb.eventSession.findFirst.mockResolvedValue(sessionStartingTomorrow());
+  mockDb.registration.findMany.mockResolvedValue([]);
+  resetRoomOpenCache();
 });
 
 describe("zoom-join window gate", () => {
@@ -165,5 +168,99 @@ describe("zoom-join window gate", () => {
 
     const res = await call();
     expect(res.status).toBe(200);
+  });
+});
+
+/**
+ * Security review W-01 / W-02 (Nov 5, 2026), on a WEBINAR event: a registration that may watch,
+ * and nothing that admits before the producer opens the room.
+ */
+describe("zoom-join on a webinar: entitlement and the waiting room", () => {
+  const webinarEvent = {
+    id: "ev1",
+    organizationId: ORG,
+    status: "PUBLISHED",
+    eventType: "WEBINAR",
+    settings: { webinar: { sessionId: "sess1" } },
+  };
+  /** The session lookup and the anchor (room) lookup both read eventSession; tell them apart. */
+  function sessions(anchorStatus: string) {
+    const start = new Date(Date.now() + 5 * 60_000); // inside the 15-minute window
+    mockDb.eventSession.findFirst.mockImplementation(async (args: { select: Record<string, unknown> }) =>
+      args.select.zoomMeeting
+        ? { ...sessionStartingTomorrow(), startTime: start, endTime: new Date(start.getTime() + 3600_000) }
+        : { status: anchorStatus },
+    );
+  }
+  const attendee = { id: "u-att", role: "REGISTRANT", organizationId: null, email: "a@x.com" };
+
+  beforeEach(() => {
+    mockDb.event.findFirst.mockResolvedValue(webinarEvent);
+    mockAuth.mockResolvedValue({ user: attendee });
+  });
+
+  it("looks up only a registration that may watch: confirmed or checked in, paid or nothing owed", async () => {
+    sessions("LIVE");
+    mockDb.registration.findFirst.mockResolvedValue({ id: "r1", attendee: { firstName: "A", lastName: "B", email: "a@x.com" } });
+    await call();
+    const where = mockDb.registration.findFirst.mock.calls[0][0].where;
+    expect(where.status).toEqual({ in: ["CONFIRMED", "CHECKED_IN"] });
+    expect(where.OR[0]).toEqual({ paymentStatus: { in: ["PAID", "COMPLIMENTARY", "INCLUSIVE"] } });
+  });
+
+  it.each([
+    ["PENDING", "PENDING_APPROVAL"],
+    ["WAITLISTED", "WAITLISTED"],
+    ["CONFIRMED", "PAYMENT_OUTSTANDING"],
+  ])("a %s registration that may not watch is refused with %s, not 'register'", async (status, code) => {
+    sessions("LIVE");
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    mockDb.registration.findMany.mockResolvedValue([{ status }]);
+    const res = await call();
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe(code);
+  });
+
+  it("someone with no registration at all is still told to register", async () => {
+    sessions("LIVE");
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    const res = await call();
+    expect((await res.json()).code).toBe("NOT_REGISTERED");
+  });
+
+  it("before the room opens an attendee gets the waiting state: no signature, link, passcode or stream URL", async () => {
+    sessions("SCHEDULED");
+    mockSignature.mockResolvedValue({ sdkKey: "k", signature: "sig" });
+    mockDb.registration.findFirst.mockResolvedValue({ id: "r1", attendee: { firstName: "A", lastName: "B", email: "a@x.com" } });
+    const res = await call();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.mode).toBe("waiting");
+    for (const k of ["signature", "sdkKey", "passcode", "meetingNumber", "hlsPlaybackUrl", "hlsOriginUrl"]) {
+      expect(body).not.toHaveProperty(k);
+    }
+    expect(body.joinUrl).toBe("");
+  });
+
+  it("once the room is open the attendee gets the join details", async () => {
+    sessions("LIVE");
+    mockDb.registration.findFirst.mockResolvedValue({ id: "r1", attendee: { firstName: "A", lastName: "B", email: "a@x.com" } });
+    const body = await (await call()).json();
+    expect(body.mode).toBe("url");
+    expect(body.joinUrl).toBe("https://zoom.us/j/9999");
+  });
+
+  it("org staff preview a closed room", async () => {
+    sessions("SCHEDULED");
+    mockAuth.mockResolvedValue({ user: { id: "u-staff", role: "ORGANIZER", organizationId: ORG, email: "o@x.com" } });
+    const body = await (await call()).json();
+    expect(body.mode).toBe("url");
+  });
+
+  it("a DRAFT webinar opens on its own, as in lobby-status", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ ...webinarEvent, status: "DRAFT" });
+    sessions("SCHEDULED");
+    mockDb.registration.findFirst.mockResolvedValue({ id: "r1", attendee: { firstName: "A", lastName: "B", email: "a@x.com" } });
+    expect((await (await call()).json()).mode).toBe("url");
   });
 });

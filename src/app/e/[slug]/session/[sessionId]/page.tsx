@@ -87,7 +87,8 @@ const ZoomWebEmbed = dynamic(
 // ── Types mirroring the detail API response ──────────────────────
 
 interface JoinInfo {
-  mode: "sdk" | "url";
+  /** "waiting": a webinar whose room is not open yet; nothing that admits is sent (W-02). */
+  mode: "sdk" | "url" | "waiting";
   sdkKey?: string;
   signature?: string;
   meetingNumber?: string;
@@ -102,10 +103,14 @@ interface JoinInfo {
   streamStatus?: string;
 }
 
+const NOT_ACTIVE_CODES = new Set(["PENDING_APPROVAL", "WAITLISTED", "PAYMENT_OUTSTANDING"]);
+
 type JoinAuthState =
   | { kind: "ok" }
   | { kind: "needs-login" }
-  | { kind: "needs-registration" };
+  | { kind: "needs-registration" }
+  /** Registered, but pending approval, waitlisted or with the fee outstanding (viewer-entitlement.ts). */
+  | { kind: "not-active"; message: string };
 
 interface LobbyStatus {
   roomOpen: boolean;
@@ -284,6 +289,8 @@ export default function PublicSessionPage() {
   const [lobby, setLobby] = useState<LobbyStatus | null>(null);
   // Ensures the "room just opened → admit" side-effects fire once per opening.
   const admittedRef = useRef(false);
+  // Bumped to retry admission: the effect's other deps do not change while the room stays open.
+  const [admitAttempt, setAdmitAttempt] = useState(0);
 
   useEffect(() => {
     async function fetchData() {
@@ -301,6 +308,8 @@ export default function PublicSessionPage() {
           setAuthState({ kind: "needs-login" });
         } else if (joinData.code === "NOT_REGISTERED") {
           setAuthState({ kind: "needs-registration" });
+        } else if (NOT_ACTIVE_CODES.has(joinData.code)) {
+          setAuthState({ kind: "not-active", message: joinData.error });
         } else if (joinData.joinableAt) {
           setJoinableAt(joinData.joinableAt);
         }
@@ -392,17 +401,23 @@ export default function PublicSessionPage() {
         const res = await fetch(
           `/api/public/events/${slug}/sessions/${sessionId}/zoom-join`,
         );
-        if (res.ok) {
-          setJoinInfo((await res.json()) as JoinInfo);
+        const info = res.ok ? ((await res.json()) as JoinInfo) : null;
+        if (info && info.mode !== "waiting") {
+          setJoinInfo(info);
           if (lobby?.viewingMode === "zoom") setIsJoining(true);
         } else {
-          admittedRef.current = false; // retry on the next lobby poll
+          // "waiting": zoom-join's room cache is up to 3 s behind lobby-status's.
+          retry();
         }
       } catch {
-        admittedRef.current = false; // transient — retry on the next poll
+        retry(); // transient
       }
     })();
-  }, [isWebinarEvent, roomOpen, lobby?.viewingMode, slug, sessionId]);
+    function retry() {
+      admittedRef.current = false;
+      setTimeout(() => setAdmitAttempt((n) => n + 1), 4000);
+    }
+  }, [isWebinarEvent, roomOpen, lobby?.viewingMode, slug, sessionId, admitAttempt]);
 
   // Presence heartbeat: while a registered attendee has the webinar page open,
   // beat every ~30–40s (jittered) so organizers see who's in the lobby / joined
@@ -1414,6 +1429,23 @@ function StickyCta({
     );
   }
 
+  // Registered, but not yet allowed in: awaiting approval, waitlisted, or unpaid.
+  if (!joinInfo && authState.kind === "not-active" && !isPast) {
+    return (
+      <Card className="border-amber-200 bg-amber-50/70 shadow-sm">
+        <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
+          <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+            <Clock className="h-6 w-6 text-amber-600" />
+          </div>
+          <div className="flex-1 text-center sm:text-left">
+            <p className="font-semibold">Your registration is not active yet</p>
+            <p className="text-xs text-muted-foreground">{authState.message}</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   // Upcoming, not yet joinable
   if (isUpcoming && !joinInfo) {
     return (
@@ -1496,7 +1528,8 @@ function StickyCta({
     const canEmbed = joinInfo.mode === "sdk" && joinInfo.sdkKey && joinInfo.signature;
 
     const renderJoinAction = () => {
-      if (playsStream) return null;
+      // The room is not open yet: the lobby poll admits them when it opens.
+      if (playsStream || joinInfo.mode === "waiting") return null;
       if (isJoining) {
         return (
           <div className="flex items-center gap-2">

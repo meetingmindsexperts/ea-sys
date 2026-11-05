@@ -7,6 +7,12 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { generateZoomSignatureForOrg } from "@/lib/zoom";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
+import {
+  isViewerRoomOpen,
+  viewerRefusal,
+  viewerRegistrationWhere,
+  VIEWER_REFUSAL_MESSAGE,
+} from "@/lib/webinar/viewer-entitlement";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -45,7 +51,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Find event by slug (tenant-scoped) — include organizationId for SDK credentials
     const event = await db.event.findFirst({
       where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
-      select: { id: true, organizationId: true, status: true },
+      select: { id: true, organizationId: true, status: true, eventType: true, settings: true },
     });
 
     if (!event) {
@@ -55,7 +61,8 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return await runWithTenant(event.organizationId, async () => {
     // Authorization: either the user is org staff (for QA / host testing)
-    // or they have a non-cancelled Registration for this event.
+    // or they hold a registration that may watch (viewer-entitlement.ts: on a
+    // webinar, confirmed and paid or free; not pending approval).
     const isOrgStaff = isEventOrgStaff(authSession.user, event.organizationId);
 
     let attendeeName = "";
@@ -65,17 +72,21 @@ export async function GET(req: Request, { params }: RouteParams) {
       attendeeEmail = authSession.user.email ?? "";
     } else {
       const registration = await db.registration.findFirst({
-        where: {
-          eventId: event.id,
-          userId: authSession.user.id,
-          status: { not: "CANCELLED" },
-        },
+        where: viewerRegistrationWhere(event.id, authSession.user.id, event.eventType),
         select: {
           id: true,
           attendee: { select: { firstName: true, lastName: true, email: true } },
         },
       });
       if (!registration?.attendee) {
+        const refusal = await viewerRefusal(event.id, authSession.user.id);
+        if (refusal) {
+          apiLogger.warn(
+            { userId: authSession.user.id, eventId: event.id, sessionId, refusal },
+            "zoom:join-denied:registration-not-active",
+          );
+          return NextResponse.json({ error: VIEWER_REFUSAL_MESSAGE[refusal], code: refusal }, { status: 403 });
+        }
         apiLogger.warn(
           { userId: authSession.user.id, eventId: event.id, sessionId },
           "zoom:join-denied:not-registered",
@@ -166,6 +177,24 @@ export async function GET(req: Request, { params }: RouteParams) {
         },
         { status: 403 },
       );
+    }
+
+    // The producer's waiting room, enforced here (security review W-02): until
+    // the anchor session is LIVE an attendee gets the page's waiting state and
+    // nothing that admits them, no Zoom signature, join link, passcode or
+    // stream URL. The page fetches again when lobby-status says the room
+    // opened. Org staff keep their preview.
+    if (!isOrgStaff && !(await isViewerRoomOpen(event, sessionId))) {
+      apiLogger.info({ sessionId, eventId: event.id, userId: authSession.user.id }, "zoom:join-waiting-room-closed");
+      return NextResponse.json({
+        mode: "waiting",
+        joinUrl: "",
+        meetingType: session.zoomMeeting.meetingType,
+        sessionName: session.name,
+        userName: attendeeName,
+        userEmail: attendeeEmail,
+        liveStreamEnabled: Boolean(session.zoomMeeting.liveStreamEnabled && session.zoomMeeting.streamKey),
+      });
     }
 
     // Generate SDK signature using org-level credentials

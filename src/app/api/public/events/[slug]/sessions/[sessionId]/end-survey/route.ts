@@ -27,6 +27,7 @@ import crypto from "crypto";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -60,10 +61,11 @@ async function loadContext(req: Request, slug: string, sessionId: string) {
   return { kind: "ok" as const, event, endSurveyId: webinar?.endSurveyId || null };
 }
 
-/** The viewer's registration on this event (staff and others have none). */
+/** The viewer's registration on this event (staff and others have none). Only one that may watch
+ *  answers: a pending registration could not watch, so it does not take the survey either. */
 async function findRegistration(userId: string, eventId: string) {
   return db.registration.findFirst({
-    where: { eventId, userId, status: { not: "CANCELLED" } },
+    where: viewerRegistrationWhere(eventId, userId, "WEBINAR"),
     // Oldest first: GET and POST always land on the same row for someone
     // holding two (a delegate registration and a speaker companion).
     orderBy: { createdAt: "asc" },

@@ -134,10 +134,10 @@ describe("POST end-survey", () => {
     expect(mockDb.surveyResponse.create).not.toHaveBeenCalled();
   });
 
-  it("looks up the viewer's own, non-cancelled registration, oldest first", async () => {
+  it("looks up the viewer's own registration that may watch (never pending approval, W-01), oldest first", async () => {
     await POST(postReq({ answers: { f1: "4" } }), params);
     expect(mockDb.registration.findFirst.mock.calls[0][0]).toMatchObject({
-      where: { eventId: "ev1", userId: "u1", status: { not: "CANCELLED" } },
+      where: { eventId: "ev1", userId: "u1", status: { in: ["CONFIRMED", "CHECKED_IN"] } },
       orderBy: { createdAt: "asc" },
     });
   });

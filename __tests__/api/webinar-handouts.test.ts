@@ -286,11 +286,11 @@ describe("review of handouts (Oct 6, 2026)", () => {
   const get = (handoutId: string) =>
     download(new Request("http://x"), { params: Promise.resolve({ slug: "web", sessionId: "s1", handoutId }) });
 
-  it("a cancelled registration never counts: the lookup excludes CANCELLED, oldest first", async () => {
+  it("only a registration that may watch counts (not cancelled, not pending approval, W-01), oldest first", async () => {
     asRegistrant();
     await get("h1");
     expect(mockDb.registration.findFirst.mock.calls[0][0]).toMatchObject({
-      where: { eventId: "ev1", userId: "u1", status: { not: "CANCELLED" } },
+      where: { eventId: "ev1", userId: "u1", status: { in: ["CONFIRMED", "CHECKED_IN"] } },
       orderBy: { createdAt: "asc" },
     });
   });

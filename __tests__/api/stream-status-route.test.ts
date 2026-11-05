@@ -17,6 +17,7 @@ const { mockAuth, mockDb, mockApiLogger } = vi.hoisted(() => ({
     event: { findFirst: vi.fn() },
     zoomMeeting: { findFirst: vi.fn(), updateMany: vi.fn() },
     registration: { findFirst: vi.fn() },
+    eventSession: { findFirst: vi.fn() },
   },
 }));
 
@@ -37,6 +38,7 @@ vi.mock("@/lib/security", () => ({
 }));
 
 import { GET } from "@/app/api/public/events/[slug]/sessions/[sessionId]/stream-status/route";
+import { resetRoomOpenCache } from "@/lib/webinar/viewer-entitlement";
 
 // The route probes MediaMTX with a global fetch — always "live" here. The
 // probe result is cached per streamKey (3s TTL), so each test uses a DISTINCT
@@ -59,7 +61,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   fetchMock.mockResolvedValue({ ok: true });
   mockAuth.mockResolvedValue(null);
-  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", eventType: "WEBINAR" });
+  resetRoomOpenCache();
+  mockDb.event.findFirst.mockResolvedValue({
+    id: "ev1",
+    organizationId: "org1",
+    eventType: "WEBINAR",
+    status: "PUBLISHED",
+    settings: { webinar: { sessionId: "sess1" } },
+  });
+  // The producer has opened the room (anchor session LIVE).
+  mockDb.eventSession.findFirst.mockResolvedValue({ status: "LIVE" });
   mockDb.zoomMeeting.findFirst.mockResolvedValue({
     streamKey: nextStreamKey(),
     streamStatus: "ACTIVE",
@@ -100,16 +111,36 @@ describe("stream-status — M3 credential gating", () => {
     expect(body.hlsUrl).toContain("/stream/live/");
     expect(body.hlsOriginUrl).toContain("/stream/live/");
     expect(body).not.toHaveProperty("streamKey");
-    // The registration lookup is scoped to this event + non-cancelled.
+    // The registration lookup is scoped to this event and to a registration that may watch
+    // (security review W-01: confirmed or checked in, never pending approval).
     expect(mockDb.registration.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           eventId: "ev1",
           userId: "u-reg-1",
-          status: { not: "CANCELLED" },
+          status: { in: ["CONFIRMED", "CHECKED_IN"] },
         }),
       }),
     );
+  });
+
+  it("a registered attendee gets NO URLs while the room is closed: a rehearsal stream is not theirs (W-02)", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u-reg-2", role: "REGISTRANT", organizationId: null } });
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg2" });
+    mockDb.eventSession.findFirst.mockResolvedValue({ status: "SCHEDULED" });
+    const body = await (await call()).json();
+    expect(body).toEqual({ status: "active", roomOpen: false });
+    // The room is read from the event's ANCHOR session, bound to the event.
+    expect(mockDb.eventSession.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "sess1", eventId: "ev1" } }),
+    );
+  });
+
+  it("staff keep their preview while the room is closed", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u-staff-3", role: "ADMIN", organizationId: "org1" } });
+    mockDb.eventSession.findFirst.mockResolvedValue({ status: "SCHEDULED" });
+    const body = await (await call()).json();
+    expect(body.hlsUrl).toBeTruthy();
   });
 
   it("org staff of the SAME org get URLs without a registration lookup", async () => {

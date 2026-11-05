@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -77,7 +78,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     if (!isOrgStaff) {
       const registration = await db.registration.findFirst({
-        where: { eventId: event.id, userId: authSession.user.id, status: { not: "CANCELLED" } },
+        where: viewerRegistrationWhere(event.id, authSession.user.id, event.eventType),
         select: { id: true },
       });
       if (!registration) {
