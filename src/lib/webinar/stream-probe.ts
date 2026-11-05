@@ -18,24 +18,25 @@ const PROBE_TTL_MS = 3000;
 const UNREACHABLE_LOG_EVERY_MS = 60_000;
 let lastUnreachableLogAt = 0;
 
-export async function isStreamArriving(
-  streamKey: string,
-  opts: { fresh?: boolean } = {},
-): Promise<boolean> {
-  // `fresh` skips the cache: the room toggle acts on the answer, and a result
-  // up to 3 s old could say "live" just after the producer pressed Stop.
-  const cached = opts.fresh ? undefined : probeCache.get(streamKey);
-  if (cached && Date.now() - cached.at < PROBE_TTL_MS) return cached.isLive;
+/**
+ * What MediaMTX says about a stream: `live` (the playlist is served), `absent` (a 404: no publisher on
+ * that path), or `unknown` (a timeout, an unreachable MediaMTX, any other status). The stream watchdog
+ * acts only on `absent`: a slow or unreachable MediaMTX must never read as a drop and send Zoom a start
+ * for a webinar that is streaming fine (review of 439b4d8e).
+ */
+export type StreamProbe = "live" | "absent" | "unknown";
+
+export async function probeStream(streamKey: string): Promise<StreamProbe> {
   const mediamtxUrl = process.env.MEDIAMTX_HLS_URL || "http://localhost:8888";
-  let isLive = false;
   try {
     const res = await fetch(`${mediamtxUrl}/live/${streamKey}/index.m3u8`, {
       signal: AbortSignal.timeout(3000),
     });
-    isLive = res.ok;
+    if (res.ok) return "live";
+    return res.status === 404 ? "absent" : "unknown";
   } catch (err) {
-    // MediaMTX unreachable (a 404 for an inactive stream is not an exception): treat as not live, and
-    // say so. It used to be silent, which hid a worker that could never reach MediaMTX (Nov 5, 2026).
+    // MediaMTX unreachable or too slow. Said once a minute per container: it used to be silent, which
+    // hid a worker that could never reach MediaMTX (Nov 5, 2026).
     const now = Date.now();
     if (now - lastUnreachableLogAt >= UNREACHABLE_LOG_EVERY_MS) {
       lastUnreachableLogAt = now;
@@ -50,7 +51,19 @@ export async function isStreamArriving(
         "stream-probe:mediamtx-unreachable",
       );
     }
+    return "unknown";
   }
+}
+
+export async function isStreamArriving(
+  streamKey: string,
+  opts: { fresh?: boolean } = {},
+): Promise<boolean> {
+  // `fresh` skips the cache: the room toggle acts on the answer, and a result
+  // up to 3 s old could say "live" just after the producer pressed Stop.
+  const cached = opts.fresh ? undefined : probeCache.get(streamKey);
+  if (cached && Date.now() - cached.at < PROBE_TTL_MS) return cached.isLive;
+  const isLive = (await probeStream(streamKey)) === "live";
   probeCache.set(streamKey, { isLive, at: Date.now() });
   return isLive;
 }

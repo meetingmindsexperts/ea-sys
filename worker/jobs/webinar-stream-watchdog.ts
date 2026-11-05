@@ -4,8 +4,8 @@
  *
  * Cadence: every minute at second 30. The other jobs all start at second 0,
  * and the stagger rule is about jobs starting together and competing for the
- * pool, so the half-minute keeps it off that crowd. A tick lasts about 30 s
- * when a stream is missing (the second look), well inside the minute.
+ * pool, so the half-minute keeps it off that crowd. A tick waits 20 s only
+ * when a room needs a second look, inside the minute and the shutdown drain.
  */
 import { runStreamWatchdogTick } from "@/lib/webinar/stream-watchdog";
 import { apiLogger } from "@/lib/logger";

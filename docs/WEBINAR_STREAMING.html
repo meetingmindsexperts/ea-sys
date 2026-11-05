@@ -198,12 +198,21 @@ restarts must not lose the audience.</p>
 <h3>5.7 Restarting a dropped stream (worker, every minute)</h3>
 <p>Job <code>webinar-stream-watchdog</code>, at second 30 of every minute, for each open room in Custom stream mode:</p>
 <ol>
-  <li>Ask MediaMTX whether the stream is arriving. Missing: look again 30 seconds later, so a quick reconnect is not a drop.</li>
-  <li>Missing twice, after having been live in this room: a <b>drop</b>. It is logged as a warning (<code>webinar-stream:dropped-while-live</code>, visible on <code>/logs</code>) and put on the console's Stream timeline.</li>
+  <li>Ask MediaMTX whether the stream is arriving. Missing: look again 20 seconds later, so a quick reconnect is not a drop.</li>
+  <li>Missing twice, after having been live since the room opened: a <b>drop</b>. It is logged as a warning (<code>webinar-stream:dropped-while-live</code>, visible on <code>/logs</code>) and put on the console's Stream timeline.</li>
   <li>Ask Zoom to start the push again, the same call as the Start stream button. At most <b>5 attempts per drop</b>, waiting 1, 2, 4, 8 then 16 minutes between them. Zoom refuses when the host has ended the webinar, so a finished webinar is never restarted.</li>
   <li>When the stream is seen again: "Stream live, back after a drop" on the timeline, and the attempt count resets.</li>
 </ol>
-<p>It leaves alone: a stream never live in this room, a stream the producer stopped with <b>Stop stream</b> (remembered until Start stream or the next room opening), Zoom embed mode, and closed rooms.</p>
+<p>Details that keep it from doing harm:</p>
+<ul>
+  <li>Only a real "not there" from MediaMTX counts. A slow or unreachable MediaMTX is "no evidence", never a drop.</li>
+  <li>Just before asking Zoom, it reads the room again. If a producer pressed Stop or Start, closed or reopened the room, or changed the stream during the wait, it does nothing.</li>
+  <li>If Zoom answers that the webinar is not running (the host ended it), it stops trying for that drop at once.</li>
+  <li>The second look is 20 seconds after the first, inside the worker's shutdown time, so a deploy never leaves it switched off.</li>
+</ul>
+<p>It leaves alone: a stream never live in this room opening, a stream the producer stopped with <b>Stop stream</b> (remembered until Start stream or the next room opening), Zoom embed mode, and closed rooms.</p>
+<div class="note warn"><b>Stop the stream from the console, not from inside Zoom.</b> The watchdog cannot tell a host pressing
+"Stop live stream" in Zoom's own client from a drop, so it would start the stream again within about a minute and a half.</div>
 
 <h3>5.8 The thank-you email</h3>
 <ul>
@@ -291,7 +300,9 @@ or Zoom's live-stream service. If MediaMTX shows a clean close from Zoom's side,
   <tr><td><code>scheduled-email:thank-you-held-room-open</code></td><td>Thank-you held because the room is open</td><td>info</td></tr>
   <tr><td><code>webinar-sequence:thank-you-moved-after-close</code></td><td>Thank-you moved to 30 minutes after the close</td><td>info</td></tr>
   <tr><td><code>stream-probe:mediamtx-unreachable</code></td><td>The app or worker could not reach MediaMTX at all (at most once a minute)</td><td>warn</td></tr>
-  <tr><td><code>webinar-stream:dropped-while-live</code></td><td>The watchdog saw the stream gone (twice, 30 s apart) while the room is open</td><td>warn</td></tr>
+  <tr><td><code>webinar-stream:dropped-while-live</code></td><td>The watchdog saw the stream gone (twice, 20 s apart) while the room is open</td><td>warn</td></tr>
+  <tr><td><code>webinar-stream:auto-restart-stopped-not-live-in-zoom</code></td><td>Zoom says the webinar is not running: no more restarts for this drop</td><td>warn</td></tr>
+  <tr><td><code>webinar-stream:skipped-room-changed</code></td><td>The room changed during the wait (a Stop, a close, a reopen): nothing done</td><td>info</td></tr>
   <tr><td><code>webinar-stream:auto-restart-requested</code> / <code>auto-restart-failed</code> / <code>auto-restart-gave-up</code></td><td>The watchdog asked Zoom to start the push again / Zoom refused / 5 attempts used</td><td>info / warn / warn</td></tr>
   <tr><td><code>webinar-stream:restored</code></td><td>The stream is back after a drop</td><td>info</td></tr>
   <tr><td><code>live-player:stalled-reconnecting</code></td><td>A viewer's player froze and reconnected</td><td>browser console only</td></tr>
@@ -306,7 +317,7 @@ or Zoom's live-stream service. If MediaMTX shows a clean close from Zoom's side,
   <li><b>MediaMTX's log reaches CloudWatch only after the box steps</b> (install the logrotate rule, re-run the CloudWatch setup, recreate the MediaMTX container outside a webinar): see <code>infra/cloudwatch/README.md</code>, "MediaMTX log".</li>
   <li>The watchdog cannot say <b>why</b> a stream dropped, only that it did; the reason is in MediaMTX's log.</li>
   <li><b>Zoom embed mode</b> cannot tell "still on air" from "left open", so a webinar running more than 2 hours past its scheduled end is closed by the safety net.</li>
-  <li>The MediaMTX image is <code>bluenviron/mediamtx:latest</code>, not a pinned version.</li>
+  <li>The MediaMTX image is <code>bluenviron/mediamtx:latest</code>, not a pinned version. Pin it: run <code>docker exec ea-sys-mediamtx /mediamtx --version</code> on the box and put that version in <code>docker-compose.prod.yml</code>, so a future MediaMTX that renames a config key cannot break the next restart.</li>
 </ul>
 
 <h2 id="files">10. Where the code lives</h2>

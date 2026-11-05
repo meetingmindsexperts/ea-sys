@@ -206,8 +206,9 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
       </Card>
 
       {/* A fixed height, the list scrolling inside it (owner, Nov 5, 2026): a busy Q&A no longer grows
-          the column and pushes everything below it down. */}
-      <Card className="h-[450px] py-4">
+          the column and pushes everything below it down. Only once there are questions: an empty one
+          stays a one-line card, not a tall blank box. */}
+      <Card className={published.length > 0 ? "h-[450px] py-4" : "py-4"}>
         <CardContent className="flex min-h-0 flex-1 flex-col gap-3 px-4 py-2">
           <div className="flex shrink-0 items-baseline justify-between gap-2">
             <p className="font-medium">Questions from the audience</p>

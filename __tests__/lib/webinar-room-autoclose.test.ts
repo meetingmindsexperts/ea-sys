@@ -18,7 +18,9 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/lib/zoom/reports", () => ({ getLastZoomEndTime: getLastZoomEndTimeSpy }));
 vi.mock("@/lib/webinar-email-sequence", () => ({ retimeThankYouAfterRoomClose: retimeSpy }));
-vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: streamArrivingSpy }));
+vi.mock("@/lib/webinar/stream-probe", () => ({
+  probeStream: async (key: string) => ((await streamArrivingSpy(key, { fresh: true })) ? "live" : "absent"),
+}));
 
 import { decideRoomClose, runWebinarRoomAutoCloseTick, SAFETY_NET_MS } from "@/lib/webinar/room-autoclose";
 import { resetStreamAbsence } from "@/lib/webinar/overrun";

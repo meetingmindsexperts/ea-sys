@@ -20,6 +20,7 @@ const STATUS_BY_CODE = {
   NO_ZOOM_MEETING: 404,
   STREAM_NOT_CONFIGURED: 400,
   ZOOM_API_FAILED: 502,
+  NOT_LIVE_IN_ZOOM: 409,
 } as const;
 
 /**
@@ -151,6 +152,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         select: { name: true },
       });
 
+      // A Stop is recorded BEFORE Zoom is asked (review of 439b4d8e): the stream watchdog must never see
+      // the stream gone while the flag still says "not stopped". A refused stop leaves it set, which is
+      // still what the producer asked for.
+      if (validated.data.action === "stop") await markProducerStreamChoice(eventId, "stop");
       const result = await controlWebinarLiveStream({
         organizationId: orgGuard.orgId,
         eventId,
@@ -168,7 +173,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
       if (validated.data.action !== "sync") {
-        await markProducerStreamChoice(eventId, validated.data.action);
+        if (validated.data.action === "start") await markProducerStreamChoice(eventId, "start");
         await recordStreamEvent({
           organizationId: orgGuard.orgId,
           eventId,

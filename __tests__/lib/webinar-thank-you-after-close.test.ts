@@ -16,7 +16,9 @@ const { mockDb, streamArrivingSpy } = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/bulk-email", () => ({ WEBINAR_EMAIL_TYPES: [], executeBulkEmail: vi.fn() }));
-vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: streamArrivingSpy }));
+vi.mock("@/lib/webinar/stream-probe", () => ({
+  probeStream: async (key: string) => ((await streamArrivingSpy(key, { fresh: true })) ? "live" : "absent"),
+}));
 
 import { retimeThankYouAfterRoomClose, shouldHoldThankYou, THANK_YOU_AFTER_CLOSE_MS } from "@/lib/webinar-email-sequence";
 import { resetStreamAbsence } from "@/lib/webinar/overrun";

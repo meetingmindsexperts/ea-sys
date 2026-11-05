@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { STREAM_TIMELINE_ACTION } from "@/lib/webinar/stream-timeline";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -38,7 +39,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     // guard above) — inert on master, the RLS backstop on the platform.
     const logs = await runWithTenant(event.organizationId, () =>
       db.auditLog.findMany({
-        where: { eventId },
+        // Stream timeline rows have their own console card (review of 439b4d8e).
+        where: { eventId, action: { not: STREAM_TIMELINE_ACTION } },
         orderBy: { createdAt: "desc" },
         take: limit,
         select: {

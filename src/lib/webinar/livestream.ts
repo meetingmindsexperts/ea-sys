@@ -31,7 +31,9 @@ export type LiveStreamResult =
     }
   | {
       ok: false;
-      code: "NO_ZOOM_MEETING" | "STREAM_NOT_CONFIGURED" | "ZOOM_API_FAILED";
+      /** NOT_LIVE_IN_ZOOM: a start refused because the webinar is not running in Zoom (never started, or
+       *  the host ended it). Only for callers that ask for it (`expectNotLive`); others get ZOOM_API_FAILED. */
+      code: "NO_ZOOM_MEETING" | "STREAM_NOT_CONFIGURED" | "ZOOM_API_FAILED" | "NOT_LIVE_IN_ZOOM";
       message: string;
     };
 
@@ -127,8 +129,13 @@ export async function controlWebinarLiveStream(input: {
   sessionName: string;
   action: LiveStreamAction;
   userId: string;
+  /** The stream watchdog (Nov 5, 2026): a start refused because the webinar is not running in Zoom is an
+   *  expected answer for it (the host ended), returned as NOT_LIVE_IN_ZOOM and logged at warn, not two
+   *  error lines and an admin alert per attempt. */
+  expectNotLive?: boolean;
 }): Promise<LiveStreamResult> {
   const { organizationId, eventId, eventSlug, sessionId, sessionName, action, userId } = input;
+  const notLiveExpected = action === "stop" || (action === "start" && input.expectNotLive === true);
   const meeting = await db.zoomMeeting.findFirst({
     where: { sessionId, eventId },
     select: { id: true, zoomMeetingId: true, meetingType: true, liveStreamEnabled: true, streamKey: true },
@@ -183,9 +190,18 @@ export async function controlWebinarLiveStream(input: {
           ? { settings: { active_speaker_name: false, display_name: sessionName.slice(0, 50) } }
           : {}),
       },
-      action === "stop" ? { isExpectedError: isNotStartedAnswer } : undefined,
+      notLiveExpected ? { isExpectedError: isNotStartedAnswer } : undefined,
     );
   } catch (err) {
+    if (
+      action === "start" &&
+      input.expectNotLive &&
+      err instanceof ZoomRequestError &&
+      isNotStartedAnswer(err.status, err.zoomBody)
+    ) {
+      apiLogger.warn({ eventId, sessionId, userId }, "webinar-livestream:start-not-live-in-zoom");
+      return { ok: false, code: "NOT_LIVE_IN_ZOOM", message: "The webinar is not running in Zoom." };
+    }
     if (action === "stop" && err instanceof ZoomRequestError && isNotStartedAnswer(err.status, err.zoomBody)) {
       apiLogger.info({ eventId, sessionId, userId }, "webinar-livestream:stop-nothing-running");
       return { ok: true, action, streamKey: meeting.streamKey, notRunning: true };

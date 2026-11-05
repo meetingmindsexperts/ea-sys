@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { STREAM_TIMELINE_ACTION } from "@/lib/webinar/stream-timeline";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -362,9 +363,9 @@ export async function GET(req: Request) {
     if (userId) {
       where.userId = userId;
     }
-    if (action) {
-      where.action = action;
-    }
+    // The stream timeline's rows (one a minute while a stream flaps) live on the webinar console's own
+    // card, not in the general feed, unless asked for by name (review of 439b4d8e).
+    where.action = action || { not: STREAM_TIMELINE_ACTION };
     if (timeRange) {
       const now = new Date();
       let since: Date | undefined;

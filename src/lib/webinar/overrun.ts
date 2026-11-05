@@ -20,7 +20,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { readWebinarSettings } from "@/lib/webinar";
-import { isStreamArriving } from "@/lib/webinar/stream-probe";
+import { probeStream } from "@/lib/webinar/stream-probe";
 
 /** Past this after the scheduled end, the room closes and the thank-you goes, stream or not. Matches the
  *  window in which a close still counts as the webinar's end (CLOSE_COUNTS_UNTIL_MS). */
@@ -62,11 +62,15 @@ export async function isWebinarStreamArriving(args: {
 
   const key = meeting.streamKey;
   const now = args.now ?? Date.now();
-  if (await isStreamArriving(key, { fresh: true })) {
+  const probe = await probeStream(key);
+  if (probe === "live") {
     missingSince.delete(key);
     return true;
   }
   const since = missingSince.get(key);
+  // MediaMTX did not answer: no evidence either way. It never starts the grace (an unreachable MediaMTX
+  // must not end a webinar); a grace already running is judged on its own clock.
+  if (probe === "unknown" && since === undefined) return true;
   if (since === undefined) {
     missingSince.set(key, now);
     apiLogger.info({ eventId: args.eventId, sessionId: args.sessionId }, "webinar-overrun:stream-missing-grace-started");

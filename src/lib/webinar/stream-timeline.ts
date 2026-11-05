@@ -96,8 +96,26 @@ export async function listStreamEvents(eventId: string, sessionId: string, limit
   return out;
 }
 
-/** The last stream observation (live or dropped) since `since`: where the watchdog picks up after a restart. */
-export async function lastStreamObservation(eventId: string, sessionId: string, since: Date | null): Promise<"up" | "down" | null> {
+/** Producer actions and room changes: each starts a fresh run for the watchdog. */
+export const RUN_BOUNDARY_KINDS: readonly StreamEventKind[] = [
+  "STREAM_START_PRESSED",
+  "STREAM_STOP_PRESSED",
+  "ROOM_OPENED",
+  "ROOM_CLOSED",
+  "ROOM_AUTO_CLOSED",
+];
+
+/**
+ * Where the stream watchdog picks up after a worker restart: the last observation of the current run
+ * (live, or dropped with how many automatic restarts since), or nothing. A producer action or a room
+ * change ends the run, so a stale "live" from before a Stop and Start never reads as a drop, and a
+ * restart of the worker does not hand a long outage a fresh budget of attempts (review of 439b4d8e).
+ */
+export async function lastStreamObservation(
+  eventId: string,
+  sessionId: string,
+  since: Date | null,
+): Promise<{ state: "up" | "down" | null; restarts: number }> {
   const rows = await db.auditLog.findMany({
     where: {
       eventId,
@@ -106,13 +124,29 @@ export async function lastStreamObservation(eventId: string, sessionId: string, 
       ...(since ? { createdAt: { gte: since } } : {}),
     },
     orderBy: { createdAt: "desc" },
-    take: 20,
+    take: 50,
     select: { changes: true },
   });
+  let restarts = 0;
   for (const row of rows) {
     const kind = (row.changes as Record<string, unknown> | null)?.kind;
-    if (kind === "STREAM_LIVE") return "up";
-    if (kind === "STREAM_DROPPED") return "down";
+    if (kind === "AUTO_RESTART_REQUESTED" || kind === "AUTO_RESTART_FAILED") restarts += 1;
+    else if (kind === "STREAM_LIVE") return { state: "up", restarts: 0 };
+    else if (kind === "STREAM_DROPPED") return { state: "down", restarts };
+    else if (isKind(kind) && RUN_BOUNDARY_KINDS.includes(kind)) return { state: null, restarts: 0 };
   }
-  return null;
+  return { state: null, restarts: 0 };
+}
+
+/** Whether a producer action or room change was recorded at or after `since` (the watchdog's re-check). */
+export async function runBoundarySince(eventId: string, sessionId: string, since: Date): Promise<boolean> {
+  const rows = await db.auditLog.findMany({
+    where: { eventId, action: STREAM_TIMELINE_ACTION, entityId: sessionId, createdAt: { gte: since } },
+    select: { changes: true },
+    take: 20,
+  });
+  return rows.some((row) => {
+    const kind = (row.changes as Record<string, unknown> | null)?.kind;
+    return isKind(kind) && RUN_BOUNDARY_KINDS.includes(kind);
+  });
 }

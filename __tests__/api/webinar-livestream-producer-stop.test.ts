@@ -66,10 +66,20 @@ describe("POST /webinar/livestream: producer intent", () => {
     expect(recordSpy).not.toHaveBeenCalled();
   });
 
-  it("a Zoom refusal records nothing", async () => {
+  it("the stop is recorded BEFORE Zoom is asked, so the watchdog never sees it lag (review of 439b4d8e)", async () => {
+    const order: string[] = [];
+    settingsSpy.mockImplementation(async () => { order.push("flag"); return {}; });
+    controlSpy.mockImplementation(async ({ action }: { action: string }) => { order.push("zoom"); return { ok: true, action, streamKey: "sk" }; });
+    await call("stop");
+    expect(order).toEqual(["flag", "zoom"]);
+  });
+
+  it("a refused Start records nothing; a refused Stop keeps the stop flag (still the producer's wish) but no timeline row", async () => {
     controlSpy.mockResolvedValue({ ok: false, code: "ZOOM_API_FAILED", message: "no" });
-    expect((await call("stop")).status).toBe(502);
+    expect((await call("start")).status).toBe(502);
     expect(settingsSpy).not.toHaveBeenCalled();
+    expect((await call("stop")).status).toBe(502);
+    expect(settingsSpy).toHaveBeenCalledTimes(1);
     expect(recordSpy).not.toHaveBeenCalled();
   });
 });

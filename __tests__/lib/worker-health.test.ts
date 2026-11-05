@@ -18,6 +18,7 @@ const HOUR = 60 * MIN;
 describe("maxIntervalMs", () => {
   it("handles the cadences the worker actually uses", () => {
     expect(maxIntervalMs("* * * * *")).toBe(MIN); // scheduled-emails
+    expect(maxIntervalMs("30 * * * * *")).toBe(MIN); // webinar-stream-watchdog: six fields, seconds first
     expect(maxIntervalMs("*/3 * * * *")).toBe(3 * MIN); // cert-issue
     expect(maxIntervalMs("*/5 * * * *")).toBe(5 * MIN); // webinar-recordings
     expect(maxIntervalMs("*/10 * * * *")).toBe(10 * MIN); // invoice-reconciliation
