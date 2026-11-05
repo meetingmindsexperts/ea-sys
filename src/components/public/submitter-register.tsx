@@ -280,6 +280,9 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
   // What stopped the last Create Account tap, shown by the button.
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // The organisers already have a speaker profile on this address: the account
+  // was made, and confirming the address takes the profile over.
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
   // Step-1 mode: "idle" = new-account sign-up; "signin" = an account already
@@ -455,6 +458,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
         return;
       }
 
+      setNeedsConfirmation(result.needsConfirmation === true);
       setSuccess(true);
     } catch (err) {
       console.error(`[${copy.logPrefix}] Submission failed:`, err);
@@ -814,7 +818,10 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
           <div className="bg-slate-50 rounded-xl p-4 text-left mb-6 border border-slate-100">
             <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-2">Next Steps</p>
             <ol className="space-y-2">
-              {["Log in with your email and password", "Find this event in your dashboard", copy.nextStep3].map(
+              {(needsConfirmation
+                ? ["Log in with your email and password", "Open the confirmation link we emailed you", copy.nextStep3]
+                : ["Log in with your email and password", "Find this event in your dashboard", copy.nextStep3]
+              ).map(
                 (s, i) => (
                   <li key={i} className="flex items-start gap-2.5 text-base text-slate-600">
                     <span className="shrink-0 h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold mt-0.5">

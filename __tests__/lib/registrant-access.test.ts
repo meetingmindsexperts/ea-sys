@@ -6,11 +6,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb } = vi.hoisted(() => ({
-  mockDb: { user: { findUnique: vi.fn() }, registration: { updateMany: vi.fn(), findFirst: vi.fn() } },
+  mockDb: { user: { findUnique: vi.fn() }, registration: { updateMany: vi.fn(), findFirst: vi.fn() }, speaker: { updateMany: vi.fn() } },
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 
-import { hasUnclaimedRegistrations, linkConfirmedRegistrations, loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
+import { hasUnclaimedRegistrations, linkConfirmedRegistrations, linkConfirmedSpeakers, loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 
 const confirmed = { userId: "u1", email: "anna@example.com", confirmed: true };
 const unconfirmed = { ...confirmed, confirmed: false };
@@ -76,5 +76,20 @@ describe("a registration already linked to another account", () => {
   it("is never matched by address, even for a confirmed account", () => {
     const where = ownRegistrationWhere(confirmed) as { OR: Record<string, unknown>[] };
     expect(where.OR[1]).toMatchObject({ userId: null });
+  });
+});
+
+describe("linkConfirmedSpeakers", () => {
+  it("claims nothing for an unconfirmed account", async () => {
+    expect(await linkConfirmedSpeakers(unconfirmed)).toBe(0);
+    expect(mockDb.speaker.updateMany).not.toHaveBeenCalled();
+  });
+  it("claims only unclaimed speaker records on the address", async () => {
+    mockDb.speaker.updateMany.mockResolvedValue({ count: 1 });
+    expect(await linkConfirmedSpeakers(confirmed)).toBe(1);
+    expect(mockDb.speaker.updateMany).toHaveBeenCalledWith({
+      where: { userId: null, email: { equals: "anna@example.com", mode: "insensitive" } },
+      data: { userId: "u1" },
+    });
   });
 });

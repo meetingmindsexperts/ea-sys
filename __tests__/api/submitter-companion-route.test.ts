@@ -51,6 +51,8 @@ vi.mock("@/lib/security", () => ({
   checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
   getClientIp: () => "1.2.3.4",
 }));
+const { sendVerifySpy } = vi.hoisted(() => ({ sendVerifySpy: vi.fn() }));
+vi.mock("@/lib/email-verification", () => ({ sendEmailVerification: sendVerifySpy }));
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn().mockResolvedValue("hashed") } }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn().mockResolvedValue(undefined) }));
@@ -249,7 +251,7 @@ describe("submitter route — speaker status default (owner decision Aug 5, 2026
   });
 
   it("an EXISTING speaker's status is NEVER touched (invited/confirmed speakers inherit)", async () => {
-    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: null });
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", userId: "u1", submitterSource: null });
     await POST(makeReq({ ...validBody, source: "proposal" }), { params });
     const updateData = mockDb._tx.speaker.update.mock.calls[0][0].data;
     expect(updateData).not.toHaveProperty("status");
@@ -257,7 +259,7 @@ describe("submitter route — speaker status default (owner decision Aug 5, 2026
 
   it("an EXISTING speaker's NAME is never rewritten by the door (Aug 5 name lock); a blank name is filled", async () => {
     mockDb._tx.speaker.findUnique.mockResolvedValue({
-      id: "sp1", submitterSource: null, firstName: "Farid", lastName: "InvitedFaculty",
+      id: "sp1", userId: "u1", submitterSource: null, firstName: "Farid", lastName: "InvitedFaculty",
     });
     await POST(makeReq({ ...validBody, source: "proposal" }), { params });
     const updateData = mockDb._tx.speaker.update.mock.calls[0][0].data;
@@ -269,7 +271,7 @@ describe("submitter route — speaker status default (owner decision Aug 5, 2026
     // A blank name on file may still be filled once.
     mockDb._tx.speaker.update.mockClear();
     mockDb._tx.speaker.findUnique.mockResolvedValue({
-      id: "sp1", submitterSource: null, firstName: "", lastName: "InvitedFaculty",
+      id: "sp1", userId: "u1", submitterSource: null, firstName: "", lastName: "InvitedFaculty",
     });
     await POST(makeReq({ ...validBody, source: "proposal" }), { params });
     const second = mockDb._tx.speaker.update.mock.calls[0][0].data;
@@ -294,7 +296,7 @@ describe("submitter route — submitterSource stamping (a door WIDENS, never nar
   });
 
   it("stamps an EXISTING speaker whose source is null", async () => {
-    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: null });
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", userId: "u1", submitterSource: null });
     await POST(makeReq({ ...validBody, source: "proposal" }), { params });
     expect(mockDb._tx.speaker.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ submitterSource: "proposal" }) }),
@@ -304,7 +306,7 @@ describe("submitter route — submitterSource stamping (a door WIDENS, never nar
   it("using the OTHER door widens to 'both' (surfaces are independent — MEHF2026 abstract-link bounce)", async () => {
     // A proposal person using /abstract/register gains the Abstracts surface
     // AND keeps Session Proposals — the registers are two separate flows.
-    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: "proposal" });
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", userId: "u1", submitterSource: "proposal" });
     await POST(makeReq({ ...validBody, source: "abstract" }), { params });
     expect(mockDb._tx.speaker.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ submitterSource: "both" }) }),
@@ -312,7 +314,7 @@ describe("submitter route — submitterSource stamping (a door WIDENS, never nar
   });
 
   it("re-using the SAME door keeps the source unchanged (no spurious widen)", async () => {
-    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: "proposal" });
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", userId: "u1", submitterSource: "proposal" });
     await POST(makeReq({ ...validBody, source: "proposal" }), { params });
     expect(mockDb._tx.speaker.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ submitterSource: "proposal" }) }),
@@ -320,7 +322,7 @@ describe("submitter route — submitterSource stamping (a door WIDENS, never nar
   });
 
   it("'both' stays 'both' whichever door is used next", async () => {
-    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: "both" });
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", userId: "u1", submitterSource: "both" });
     await POST(makeReq({ ...validBody, source: "abstract" }), { params });
     expect(mockDb._tx.speaker.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ submitterSource: "both" }) }),
@@ -455,5 +457,29 @@ describe("submitter route — the chosen type's student ID and document", () => 
     const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-stu" }), { params });
 
     expect(res.status).toBeLessThan(400);
+  });
+});
+
+describe("submitter route: an invited speaker's record waits for a confirmed address (Nov 5, 2026)", () => {
+  it("a new account does not claim or overwrite the organisers' unclaimed record, and is sent a confirmation link", async () => {
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", userId: null, submitterSource: null, firstName: "Farid", lastName: "Invited" });
+    const res = await POST(makeReq(validBody), { params });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.needsConfirmation).toBe(true);
+    // The account is made (so the person can sign in and confirm); the speaker is untouched.
+    expect(mockDb._tx.user.create).toHaveBeenCalled();
+    expect(mockDb._tx.speaker.update).not.toHaveBeenCalled();
+    expect(mockDb._tx.speaker.create).not.toHaveBeenCalled();
+    expect(ensureCompanionSpy).not.toHaveBeenCalled();
+    expect(sendVerifySpy).toHaveBeenCalledWith(expect.objectContaining({ purpose: "speaker" }));
+  });
+
+  it("a record already linked to another account is refused with 409, nothing written", async () => {
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", userId: "victim", submitterSource: null, firstName: "V", lastName: "W" });
+    const res = await POST(makeReq(validBody), { params });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("SPEAKER_LINKED_TO_OTHER_ACCOUNT");
+    expect(mockDb._tx.speaker.update).not.toHaveBeenCalled();
   });
 });

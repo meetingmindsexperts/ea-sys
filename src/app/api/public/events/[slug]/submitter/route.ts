@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { sendEmailVerification } from "@/lib/email-verification";
 import { publicEventWhere } from "@/lib/public-event";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -163,7 +164,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const existingUser = await findUserByEmail(
       { organizationId: event.organizationId },
       emailLower,
-      { select: { id: true, role: true, termsAcceptedAt: true, passwordHash: true } },
+      { select: { id: true, role: true, termsAcceptedAt: true, passwordHash: true, emailConfirmedAt: true } },
     );
 
     // Allow REGISTRANT to upgrade to SUBMITTER; reject other existing roles
@@ -229,7 +230,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Hash password
     const passwordHash = await bcrypt.hash(data.password, 10);
 
-    // Create user + speaker in a transaction
+    // Create user + speaker in a transaction. `speakerId` stays null when this
+    // event already has an unclaimed speaker record on the address and the
+    // account has not proven it (upsertEventSpeaker): the account is still
+    // made, so the person can sign in and confirm, and nothing else is touched.
+    let speakerId: string | null = null;
     await tenantTransaction(async (tx) => {
       let user: { id: string };
 
@@ -271,12 +276,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       // form → refresh the profile from the submitted details. Values pass
       // through as the original inline block did (empty-string → null to clear;
       // absent title/registrationType → undefined → left unchanged on update).
-      await upsertEventSpeaker(tx, {
+      speakerId = await upsertEventSpeaker(tx, {
         eventId: event.id,
         organizationId: event.organizationId,
         email: emailLower,
         userId: user.id,
         overwriteExisting: true,
+        accountConfirmed: !!existingUser?.emailConfirmedAt,
         profile: {
           firstName: data.firstName,
           lastName: data.lastName,
@@ -305,6 +311,19 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       });
     });
+
+    if (!speakerId) {
+      // An invited speaker's record: confirming the address claims it. No
+      // contact sync, companion registration or welcome email for details
+      // nobody has proven are theirs.
+      apiLogger.info({ msg: "public/submitter:speaker-claim-needs-confirmation", eventId: event.id });
+      void sendEmailVerification({ email: emailLower, name: `${data.firstName} ${data.lastName}`, purpose: "speaker" });
+      return NextResponse.json({
+        success: true,
+        needsConfirmation: true,
+        message: `Account created. The organisers already have a speaker profile for ${emailLower}: sign in, then open the link we sent to that address to take it over.`,
+      });
+    }
 
     // Sync submitter to org contact store (awaited — errors caught internally)
     await syncToContact({

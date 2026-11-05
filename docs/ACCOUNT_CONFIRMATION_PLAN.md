@@ -52,6 +52,29 @@ for an account needs email confirmation; registering for an event does not**;
 - **LOW:** confirmation tokens use the lower-cased address; sending a new link
   no longer deletes a pending one.
 
+## Invited speakers, and the re-review of 5b870d59 (owner: "ok add it")
+
+- **An unclaimed speaker record** (the organisers added, invited or imported
+  the speaker) is claimed only by an account that has confirmed the address.
+  `upsertEventSpeaker(…, accountConfirmed)` writes nothing otherwise and
+  returns null; the submitter sign-up still makes the account (so the person
+  can sign in and confirm), says so on its success screen and emails a
+  "speaker" confirmation link; abstract-start answers 409
+  `CONFIRM_EMAIL_TO_CLAIM` and sends the link. Confirming claims it
+  (`linkConfirmedSpeakers`). A brand-new speaker needs no confirmation.
+  Abstract-start's pre-fill from this event's speaker record follows the
+  same rule.
+- **A new registration attaches to an existing account only with proof**:
+  the caller verified the signed-in session (`linkOnly`), the password
+  matches, or the account has confirmed the address. Otherwise it stays
+  unlinked and reaches the address's proven owner through the access rule.
+- **A password reset no longer confirms the address.** Sessions from before
+  the reset live up to five more minutes and could belong to whoever made the
+  account; the new owner confirms from their own fresh session. Accepting an
+  invitation confirms and revokes earlier sessions (`tokenVersion`).
+- The confirm page offers "Reset the password" for an account with no
+  password (made at the desk) or one the person did not make.
+
 
 ## The problem this fixes
 

@@ -4,6 +4,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
+import { sendEmailVerification } from "@/lib/email-verification";
 import { loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -90,15 +91,18 @@ async function loadPresenterPrefill(args: {
   hereAttendee: DetailSource;
   user: { firstName: string | null; lastName: string | null };
 }): Promise<Record<DetailKey, string>> {
-  // Records found only by address (another event's speaker profile, a guest
-  // registration) pre-fill nothing until the address is confirmed
-  // (registrant-access.ts; security review of 7cf4eb3b). This event's own
-  // speaker by address stays: it is the invitation being taken up.
+  // Records found only by address (this or another event's speaker profile, a
+  // guest registration) pre-fill nothing until the address is confirmed
+  // (registrant-access.ts; security reviews of 7cf4eb3b and 5b870d59): an
+  // invited speaker's details are theirs until the address is proven.
   const scope = await loadRegistrantScope(args.userId);
   const confirmed = !!scope?.confirmed;
   const mine = confirmed ? { OR: [{ userId: args.userId }, { email: args.email }] } : { userId: args.userId };
   const [speakerHere, latestSpeaker, latestRegistration] = await Promise.all([
-    db.speaker.findFirst({ where: { eventId: args.eventId, email: args.email }, select: DETAIL_SELECT }),
+    db.speaker.findFirst({
+      where: { eventId: args.eventId, email: args.email, ...(confirmed ? {} : { userId: args.userId }) },
+      select: DETAIL_SELECT,
+    }),
     db.speaker.findFirst({ where: mine, orderBy: { updatedAt: "desc" }, select: DETAIL_SELECT }),
     db.registration.findFirst({
       where: { status: { not: "CANCELLED" }, ...(scope ? ownRegistrationWhere(scope) : { userId: args.userId }) },
@@ -306,7 +310,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    let speakerId = "";
+    let speakerId: string | null = null;
     await tenantTransaction(async (tx) => {
       if (wasRegistrant) {
         await tx.user.update({
@@ -328,6 +332,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         email: emailLower,
         userId: user.id,
         overwriteExisting: Boolean(d),
+        accountConfirmed: !!scope?.confirmed,
         profile: {
           firstName,
           lastName,
@@ -348,6 +353,20 @@ export async function POST(req: Request, { params }: RouteParams) {
     // PROPOSAL sign-ins are linkOnly (owner decision Aug 5, 2026): NO auto
     // comp — the organizer grants comp or payable per person; an existing
     // same-email registration is still linked.
+    if (!speakerId) {
+      // This event's speaker record is the organisers' and unclaimed: the
+      // account takes it over once it confirms the address (upsertEventSpeaker).
+      apiLogger.info({ msg: "public/abstract-start:speaker-claim-needs-confirmation", eventId: event.id });
+      void sendEmailVerification({ email: emailLower, name: `${firstName} ${lastName}`, purpose: "speaker" });
+      return NextResponse.json(
+        {
+          error: `The organisers already have a speaker profile for ${emailLower}. We sent a link to that address: sign in, then open it to take the profile over.`,
+          code: "CONFIRM_EMAIL_TO_CLAIM",
+        },
+        { status: 409 },
+      );
+    }
+
     await ensureSubmitterRegistration({
       speaker: {
         id: speakerId,

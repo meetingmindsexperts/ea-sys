@@ -59,6 +59,20 @@ export async function linkConfirmedRegistrations(scope: RegistrantScope): Promis
 }
 
 /**
+ * Claim the speaker records carrying this address that nobody has claimed
+ * (the organisers added them), once the account is confirmed; a no-op
+ * otherwise. Returns how many were claimed.
+ */
+export async function linkConfirmedSpeakers(scope: RegistrantScope): Promise<number> {
+  if (!scope.confirmed || !scope.email) return 0;
+  const { count } = await db.speaker.updateMany({
+    where: { userId: null, email: { equals: scope.email, mode: "insensitive" } },
+    data: { userId: scope.userId },
+  });
+  return count;
+}
+
+/**
  * Whether an unconfirmed account has registrations under its address that it
  * cannot see yet: the reason to send a confirmation link. Never shown to the
  * person as a count, which would tell an unproven account that the address

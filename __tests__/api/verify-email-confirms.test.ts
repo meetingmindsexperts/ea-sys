@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockFindUser, mockLink, tx, mockAuth } = vi.hoisted(() => {
+const { mockDb, mockFindUser, mockLink, mockLinkSpeakers, tx, mockAuth } = vi.hoisted(() => {
   const tx = { user: { update: vi.fn() }, verificationToken: { delete: vi.fn() } };
   return {
     tx,
@@ -17,6 +17,7 @@ const { mockDb, mockFindUser, mockLink, tx, mockAuth } = vi.hoisted(() => {
     },
     mockFindUser: vi.fn(),
     mockLink: vi.fn(),
+    mockLinkSpeakers: vi.fn(),
     mockAuth: vi.fn(),
   };
 });
@@ -29,7 +30,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true }), getClientIp: () => "1.1.1.1", hashVerificationToken: (t: string) => `h:${t}` }));
 vi.mock("@/lib/tenant/user-lookup", () => ({ findUserByEmail: mockFindUser, scopeFromRequestHost: vi.fn(async () => ({})) }));
 vi.mock("@/lib/internal-domains", () => ({ needsEmailVerification: () => false }));
-vi.mock("@/lib/registrant-access", () => ({ linkConfirmedRegistrations: mockLink }));
+vi.mock("@/lib/registrant-access", () => ({ linkConfirmedRegistrations: mockLink, linkConfirmedSpeakers: mockLinkSpeakers }));
 vi.mock("@/lib/tenant/resolver", () => ({ resolveRequestOrgId: vi.fn(async () => null) }));
 vi.mock("@/lib/tenant-lane", () => ({ runWithTenantLane: (_o: unknown, _c: unknown, fn: () => unknown) => fn() }));
 
@@ -42,6 +43,7 @@ beforeEach(() => {
   mockDb.verificationToken.findFirst.mockResolvedValue({ expires: new Date(Date.now() + 60_000) });
   mockFindUser.mockResolvedValue({ id: "u1", emailVerified: null, organizationId: null });
   mockLink.mockResolvedValue(2);
+  mockLinkSpeakers.mockResolvedValue(1);
   mockAuth.mockResolvedValue({ user: { id: "u1" } });
 });
 
@@ -75,6 +77,8 @@ describe("verify-email confirms the address", () => {
       data: { emailVerified: expect.any(Date), emailConfirmedAt: expect.any(Date) },
     });
     expect(mockLink).toHaveBeenCalledWith({ userId: "u1", email: "anna@example.com", confirmed: true });
+    // And the speaker records the organisers made on the address.
+    expect(mockLinkSpeakers).toHaveBeenCalledWith({ userId: "u1", email: "anna@example.com", confirmed: true });
   });
 
   it("still confirms when linking fails (My events shows them by address anyway)", async () => {

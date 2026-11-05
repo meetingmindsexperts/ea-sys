@@ -8,13 +8,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, hashSpy, isTrustedSpy, needsVerifySpy, sendVerifySpy, notifySpy, errorSpy, warnSpy } =
+const { mockDb, hashSpy, compareSpy, isTrustedSpy, needsVerifySpy, sendVerifySpy, notifySpy, errorSpy, warnSpy } =
   vi.hoisted(() => ({
     mockDb: {
       user: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
       registration: { update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn() },
     },
     hashSpy: vi.fn().mockResolvedValue("hashed-pw"),
+    compareSpy: vi.fn().mockResolvedValue(false),
     isTrustedSpy: vi.fn().mockReturnValue(false),
     needsVerifySpy: vi.fn().mockReturnValue(false),
     sendVerifySpy: vi.fn().mockResolvedValue(undefined),
@@ -24,7 +25,7 @@ const { mockDb, hashSpy, isTrustedSpy, needsVerifySpy, sendVerifySpy, notifySpy,
   }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
-vi.mock("bcryptjs", () => ({ default: { hash: hashSpy } }));
+vi.mock("bcryptjs", () => ({ default: { hash: hashSpy, compare: compareSpy } }));
 vi.mock("@/lib/internal-domains", () => ({
   isTrustedInternalEmail: isTrustedSpy,
   needsEmailVerification: needsVerifySpy,
@@ -57,6 +58,7 @@ beforeEach(() => {
   mockDb.registration.update.mockResolvedValue({});
   mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
   mockDb.registration.findFirst.mockResolvedValue(null);
+  compareSpy.mockResolvedValue(false);
   mockDb.user.update.mockResolvedValue({});
 });
 
@@ -108,8 +110,9 @@ describe("ensureRegistrantAccount", () => {
     expect(mockDb.user.update).not.toHaveBeenCalled();
   });
 
-  it("existing UNCONFIRMED account: links only this reg; others on the address wait for a confirmation link", async () => {
-    mockDb.user.findFirst.mockResolvedValue({ id: "u-exist", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: null });
+  it("existing UNCONFIRMED account with the right password: links only this reg; others wait for a confirmation link", async () => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-exist", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: null, passwordHash: "h" });
+    compareSpy.mockResolvedValue(true);
     mockDb.registration.findFirst.mockResolvedValue({ id: "older-guest-reg" });
     await ensureRegistrantAccount(base);
     expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg1" }, data: { userId: "u-exist" } });
@@ -181,17 +184,24 @@ describe("withoutPassword", () => {
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
   });
 
-  it("an existing account is linked, as with a password", async () => {
-    mockDb.user.findFirst.mockResolvedValue({ id: "u-old", role: "REGISTRANT", termsAcceptedAt: new Date() });
+  it("an existing CONFIRMED account is linked, as with a password", async () => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-old", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: new Date() });
     await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true });
     expect(mockDb.user.create).not.toHaveBeenCalled();
     expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg1" }, data: { userId: "u-old" } });
   });
 
+  it("an existing UNCONFIRMED account is NOT handed the desk registration (whoever made it may not be this person)", async () => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-old", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: null });
+    expect(await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true })).toBe("none");
+    expect(mockDb.registration.update).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.objectContaining({ msg: "registrant-account:existing-account-not-proven" }));
+  });
+
   it("says what it did, so only an account it made is offered a password link", async () => {
     expect(await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true })).toBe("created-without-password");
     expect(await ensureRegistrantAccount(base)).toBe("created");
-    mockDb.user.findFirst.mockResolvedValueOnce({ id: "u-old", role: "REGISTRANT", termsAcceptedAt: new Date() });
+    mockDb.user.findFirst.mockResolvedValueOnce({ id: "u-old", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: new Date() });
     expect(await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true })).toBe("linked");
     mockDb.user.create.mockRejectedValueOnce(new Error("db down"));
     expect(await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true })).toBe("failed");
@@ -201,5 +211,18 @@ describe("withoutPassword", () => {
     expect(await ensureRegistrantAccount({ ...base, password: undefined })).toBe("none");
     expect(mockDb.user.create).not.toHaveBeenCalled();
     expect(mockDb.registration.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("an existing account takes a new registration only with proof (re-review of 5b870d59)", () => {
+  it("a wrong password on an unconfirmed account leaves the registration unlinked", async () => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-x", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: null, passwordHash: "h" });
+    expect(await ensureRegistrantAccount(base)).toBe("none");
+    expect(mockDb.registration.update).not.toHaveBeenCalled();
+  });
+
+  it("linkOnly (the caller verified the signed-in session) links an unconfirmed account", async () => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-x", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: null });
+    expect(await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true, linkOnly: true })).toBe("linked");
   });
 });

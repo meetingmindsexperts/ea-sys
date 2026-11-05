@@ -540,9 +540,15 @@ export async function upsertEventSpeaker(
     userId: string;
     profile: EventSpeakerProfile;
     overwriteExisting: boolean;
+    /**
+     * The account has proven it owns `email` (User.emailConfirmedAt). An
+     * existing speaker record nobody has claimed yet (added by the organisers,
+     * invited, imported) is claimed only then.
+     */
+    accountConfirmed: boolean;
   },
-): Promise<string> {
-  const { eventId, organizationId, email, userId, profile, overwriteExisting } = args;
+): Promise<string | null> {
+  const { eventId, organizationId, email, userId, profile, overwriteExisting, accountConfirmed } = args;
 
   const existing = await tx.speaker.findUnique({
     where: { eventId_email: { eventId, email } },
@@ -555,6 +561,16 @@ export async function upsertEventSpeaker(
   if (existing?.userId && existing.userId !== userId) {
     apiLogger.warn({ msg: "speaker-companion:upsert-linked-to-other-account", speakerId: existing.id, eventId });
     throw new SpeakerLinkedElsewhereError();
+  }
+
+  // An unclaimed record (the organisers added this speaker) goes only to an
+  // account that has proven the address: otherwise anyone signing up with a
+  // speaker's email took over their profile, abstracts and certificate (owner
+  // ruling, Nov 5, 2026). Nothing is written; the caller sends a confirmation
+  // link, and confirming claims it (registrant-access.ts linkConfirmedSpeakers).
+  if (existing && !existing.userId && !accountConfirmed) {
+    apiLogger.info({ msg: "speaker-companion:claim-needs-confirmation", speakerId: existing.id, eventId });
+    return null;
   }
 
   if (existing) {

@@ -80,8 +80,25 @@ export async function ensureRegistrantAccount(args: {
     // — one org, and every external account is org-null, so the org-less half
     // of the scope finds exactly what the global lookup found.
     const existingUser = await findUserByEmail({ organizationId }, email, {
-      select: { id: true, role: true, termsAcceptedAt: true, emailConfirmedAt: true },
+      select: { id: true, role: true, termsAcceptedAt: true, emailConfirmedAt: true, passwordHash: true },
     });
+
+    // An existing account takes this registration only with proof it is the
+    // same person: the caller verified the signed-in session (linkOnly), the
+    // password matches, or the account has proven the address. Otherwise
+    // whoever made an account on someone's address would receive every later
+    // registration made under it, at the desk or online (security re-review of
+    // 5b870d59). An unlinked registration still reaches the address's proven
+    // owner through registrant-access.ts.
+    const provenOwner =
+      existingUser &&
+      (linkOnly ||
+        !!existingUser.emailConfirmedAt ||
+        (!!password && !!existingUser.passwordHash && (await bcrypt.compare(password, existingUser.passwordHash))));
+    if (existingUser && !provenOwner) {
+      apiLogger.warn({ msg: "registrant-account:existing-account-not-proven", registrationId, eventId });
+      return "none";
+    }
 
     if (existingUser) {
       // Link this registration to the existing account; the others on this

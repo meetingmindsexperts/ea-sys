@@ -110,8 +110,11 @@ export async function POST(req: Request) {
         data: {
           passwordHash,
           emailVerified: new Date(),
-          // The invitation link was sent to this address: it is proven.
+          // The invitation link was sent to this address: it is proven. Any
+          // session from before this moment is revoked, so only the person
+          // who set this password holds the confirmed account.
           emailConfirmedAt: new Date(),
+          tokenVersion: { increment: 1 },
         },
       });
 

@@ -29,7 +29,7 @@ const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export async function sendEmailVerification(params: {
   email: string;
   name: string;
-  purpose?: "team" | "registrations";
+  purpose?: "team" | "registrations" | "speaker";
 }): Promise<void> {
   const { name, purpose = "team" } = params;
   // Lower-cased as verify-email reads it, or a mixed-case address gets a link
@@ -67,7 +67,7 @@ export async function sendEmailVerification(params: {
       textContent: tpl.textContent,
       emailType: "email_verification",
       stream: "transactional",
-      logContext: { entityType: "USER", templateSlug: purpose === "registrations" ? "email-confirmation" : "email-verification" },
+      logContext: { entityType: "USER", templateSlug: purpose === "team" ? "email-verification" : "email-confirmation" },
     });
 
     if (!result.success) {

@@ -84,6 +84,17 @@ function VerifyEmailInner() {
             {nextLabel(state, needsSignIn)}
           </Link>
         )}
+        {needsSignIn && (
+          <p className="mt-4 text-sm text-slate-500">
+            {/* A desk-made account has no password yet, and the real owner of an
+                account someone else made takes it over here. */}
+            No password, or not your account?{" "}
+            <Link href="/forgot-password" className="font-medium text-[#0083ad] hover:underline">
+              Reset the password
+            </Link>
+            , then open this link again.
+          </p>
+        )}
       </div>
     </main>
   );
@@ -91,14 +102,15 @@ function VerifyEmailInner() {
 
 /** Where the button goes: My events after a success, sign-in and back for a refusal. */
 function nextHref(state: "success" | "error", needsSignIn: boolean, token: string | null, email: string | null): string {
-  if (state === "success") return "/my-registration";
+  // /dashboard lands each role on its own home (My events for a registrant).
+  if (state === "success") return "/dashboard";
   if (!needsSignIn || !token || !email) return "/login";
   const back = `/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
   return `/login?callbackUrl=${encodeURIComponent(back)}`;
 }
 
 function nextLabel(state: "success" | "error", needsSignIn: boolean): string {
-  if (state === "success") return "Go to My events";
+  if (state === "success") return "Continue";
   return needsSignIn ? "Sign in to confirm" : "Continue to sign in";
 }
 

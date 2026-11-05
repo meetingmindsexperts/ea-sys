@@ -1622,12 +1622,15 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
      * "registrations": any account proving its address so registrations made
      * earlier under it appear on My events (Nov 5, 2026).
      */
-    purpose?: "team" | "registrations";
+    purpose?: "team" | "registrations" | "speaker";
   }) => {
-    const why =
-      params.purpose === "registrations"
-        ? "Please confirm your email address so we can show every registration made under it on My events. Your new registration works either way."
-        : "Please confirm your email address to link your account to the Meeting Minds team. Your registration works either way — verifying just connects you as an internal member.";
+    const why = {
+      registrations:
+        "Please confirm your email address so we can show every registration made under it on My events. Your new registration works either way. Sign in to your account first, then open the link.",
+      speaker:
+        "The organisers already have a speaker profile for this address. Confirm it is yours to take the profile over and submit. Sign in to your account first, then open the link.",
+      team: "Please confirm your email address to link your account to the Meeting Minds team. Your registration works either way — verifying just connects you as an internal member. Sign in to your account first, then open the link.",
+    }[params.purpose ?? "team"];
     const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Verify your email</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Confirm this address belongs to you</p>

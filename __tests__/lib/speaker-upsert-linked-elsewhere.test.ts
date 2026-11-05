@@ -23,11 +23,23 @@ describe("upsertEventSpeaker and an existing record", () => {
     expect(t.speaker.create).not.toHaveBeenCalled();
   });
 
-  it("still links a record that is unlinked or already this account's", async () => {
-    for (const userId of [null, "attacker"]) {
-      const t = tx({ id: "s1", submitterSource: null, firstName: "V", lastName: "W", userId });
-      expect(await upsertEventSpeaker(t as never, args as never)).toBe("s1");
-      expect(t.speaker.update).toHaveBeenCalledTimes(1);
-    }
+  it("links a record already this account's", async () => {
+    const t = tx({ id: "s1", submitterSource: null, firstName: "V", lastName: "W", userId: "attacker" });
+    expect(await upsertEventSpeaker(t as never, { ...args, accountConfirmed: false } as never)).toBe("s1");
+    expect(t.speaker.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("an unclaimed record (the organisers made it) goes only to a confirmed account", async () => {
+    const unconfirmed = tx({ id: "s1", submitterSource: null, firstName: "V", lastName: "W", userId: null });
+    expect(await upsertEventSpeaker(unconfirmed as never, { ...args, accountConfirmed: false } as never)).toBeNull();
+    expect(unconfirmed.speaker.update).not.toHaveBeenCalled();
+    const confirmed = tx({ id: "s1", submitterSource: null, firstName: "V", lastName: "W", userId: null });
+    expect(await upsertEventSpeaker(confirmed as never, { ...args, accountConfirmed: true } as never)).toBe("s1");
+    expect(confirmed.speaker.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("a brand-new speaker is created without any confirmation", async () => {
+    const t = tx(null);
+    expect(await upsertEventSpeaker(t as never, { ...args, accountConfirmed: false } as never)).toBe("new");
   });
 });
