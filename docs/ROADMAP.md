@@ -7,6 +7,33 @@
 
 ---
 
+## Webinar streaming: what the Nov 5 security review left for later (recorded Nov 5, 2026): not started
+
+Owner: "will do later". Everything else from that review shipped (publish auth, the viewer rule,
+the server-side waiting room, export headers, presence archive); see CHANGELOG, Nov 5.
+
+1. **A dedicated `STREAM_PUBLISH_SECRET`.** It is set nowhere, so the publish passwords Zoom holds
+   are derived from `NEXTAUTH_SECRET`; rotating that would silently refuse every custom stream.
+   Either set `STREAM_PUBLISH_SECRET` in the box's `.env` (then "Re-send stream settings to Zoom"
+   on every upcoming custom-stream webinar), or at minimum add that Re-send step to the
+   `NEXTAUTH_SECRET` rotation runbook, which already re-enters the Zoom and EventsAir credentials.
+2. **Publish check on the platform instance.** `POST /api/webhooks/mediamtx-auth` looks the key up
+   with plain `db` and no tenant; with RLS enforced it finds nothing and refuses every publish.
+   Move the lookup to the operator lane (`dbOperator`, allowlisted in `check-tenant-als.sh`) and
+   check the meeting's organisation. A precondition for streaming on platform, not for master.
+3. **Shareable HLS URLs (review W-04).** `/stream/live/{key}/index.m3u8` plays for anyone holding
+   it while the stream is live. Plan: a short-lived signed HttpOnly cookie scoped to `/stream/`,
+   set by zoom-join and renewed by the presence heartbeat, checked by nginx `secure_link` (no app
+   call per segment; works with iPhone's native HLS, where a URL token would not reach the segment
+   requests). Worth it once any webinar's content is restricted (e.g. HCP-only). Also closes
+   cross-tenant playback by key on a shared instance (W-05).
+4. **Viewer capacity: no CDN exists.** No CloudFront distribution, `HLS_CDN_BASE` unset, so the box
+   serves every viewer. A t3.large sustains roughly 0.5 Gbps: about 300 to 500 viewers at 1 to 1.5
+   Mbps, not the 5,000 the LIVE_STREAMING.md §13 design assumes. Decide CloudFront (then item 3
+   becomes CloudFront signed cookies) or a viewer cap before a large custom-stream webinar.
+5. **Per-tenant egress and logs (platform).** Meter streaming egress per organisation and tag
+   MediaMTX log lines with it before billing tenants for streaming.
+
 ## Event RLS: turn on the shadow detector in production for a week (recorded Nov 5, 2026): ON since Nov 5, collect on Nov 12
 
 Owner asked to be reminded. The detector shipped in `3bff623a` / `7d701e5b` and does nothing until
