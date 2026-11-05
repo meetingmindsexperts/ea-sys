@@ -33,7 +33,7 @@ export async function GET(req: Request) {
     // it owns the address (registrant-access.ts). Before Nov 5, 2026 this
     // linked on any sign-in, so an account made with someone else's address
     // took their registrations.
-    const scope = await loadRegistrantScope(session.user.id);
+    const scope = await loadRegistrantScope(session.user.id, { sessionTokenVersion: session.user.tokenVersion });
     if (!scope) {
       apiLogger.warn({ msg: "registrant:user-not-found", userId: session.user.id });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -12,6 +12,7 @@ const { mockDb, mockFindUser, mockLink, mockLinkSpeakers, tx, mockAuth } = vi.ho
     mockDb: {
       verificationToken: { findFirst: vi.fn(), delete: vi.fn() },
       registration: { findFirst: vi.fn() },
+      speaker: { findMany: vi.fn() },
       organization: { findFirst: vi.fn() },
       $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
     },
@@ -41,7 +42,8 @@ const post = () => POST(new Request("http://x", { method: "POST", body: JSON.str
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.verificationToken.findFirst.mockResolvedValue({ expires: new Date(Date.now() + 60_000) });
-  mockFindUser.mockResolvedValue({ id: "u1", emailVerified: null, organizationId: null });
+  mockFindUser.mockResolvedValue({ id: "u1", emailVerified: null, organizationId: null, tokenVersion: 0 });
+  mockDb.speaker.findMany.mockResolvedValue([{ submitterSource: "proposal", event: { slug: "mehf", name: "MEHF" } }]);
   mockLink.mockResolvedValue(2);
   mockLinkSpeakers.mockResolvedValue(1);
   mockAuth.mockResolvedValue({ user: { id: "u1" } });
@@ -57,6 +59,14 @@ describe("only the signed-in owner of the account can confirm it (review of 7cf4
     expect(tx.verificationToken.delete).not.toHaveBeenCalled();
     expect(mockDb.verificationToken.delete).not.toHaveBeenCalled();
     expect(mockLink).not.toHaveBeenCalled();
+  });
+
+  it("a session a reset revoked (counter behind the database) cannot confirm", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", tokenVersion: 0 } });
+    mockFindUser.mockResolvedValue({ id: "u1", emailVerified: null, organizationId: null, tokenVersion: 1 });
+    const res = await post();
+    expect(res.status).toBe(401);
+    expect(tx.user.update).not.toHaveBeenCalled();
   });
 
   it("signed in as another account (the address's owner opening a link for an account someone else made): refused", async () => {
@@ -78,7 +88,12 @@ describe("verify-email confirms the address", () => {
     });
     expect(mockLink).toHaveBeenCalledWith({ userId: "u1", email: "anna@example.com", confirmed: true });
     // And the speaker records the organisers made on the address.
-    expect(mockLinkSpeakers).toHaveBeenCalledWith({ userId: "u1", email: "anna@example.com", confirmed: true });
+    expect(mockLinkSpeakers).toHaveBeenCalledWith({ userId: "u1", email: "anna@example.com", confirmed: true }, null);
+  });
+
+  it("names the events whose speaker profile it claimed, so the page sends the person back to finish", async () => {
+    const body = await (await post()).json();
+    expect(body.claimedEvents).toEqual([{ slug: "mehf", name: "MEHF", door: "proposal" }]);
   });
 
   it("still confirms when linking fails (My events shows them by address anyway)", async () => {

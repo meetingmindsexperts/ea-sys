@@ -29,6 +29,9 @@ function VerifyEmailInner() {
   // Derive the missing-params error at render (not via setState-in-effect); the
   // effect only sets state from the async fetch result.
   const [needsSignIn, setNeedsSignIn] = useState(false);
+  // Speaker profiles this confirmation claimed: the person finishes each on
+  // the event's submission page (details, presenter rate, badge registration).
+  const [claimed, setClaimed] = useState<{ slug: string; name: string; door: "abstract" | "proposal" }[]>([]);
   const [state, setState] = useState<"verifying" | "success" | "error">(
     hasParams ? "verifying" : "error"
   );
@@ -50,6 +53,7 @@ function VerifyEmailInner() {
         if (res.ok) {
           setState("success");
           setMessage(data.message || "Your email has been verified.");
+          setClaimed(Array.isArray(data.claimedEvents) ? data.claimedEvents : []);
         } else {
           // Not signed in, or signed in as someone else: the token is unspent,
           // so signing in to the right account and returning here completes it.
@@ -76,6 +80,20 @@ function VerifyEmailInner() {
           {VERIFY_HEADINGS[state]}
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-600">{message}</p>
+        {state === "success" && claimed.length > 0 && (
+          <div className="mt-5 space-y-2 text-left">
+            <p className="text-sm text-slate-600">Your speaker profile is now yours. Finish your submission:</p>
+            {claimed.map((c) => (
+              <Link
+                key={c.slug}
+                href={`/e/${c.slug}/${c.door}/register`}
+                className="block rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-900 hover:border-[#00aade]"
+              >
+                {c.name}
+              </Link>
+            ))}
+          </div>
+        )}
         {state !== "verifying" && (
           <Link
             href={nextHref(state, needsSignIn, token, email)}

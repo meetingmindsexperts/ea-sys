@@ -29,7 +29,7 @@ export async function GET(req: Request) {
     // A registrant is org-null, so the lane comes from the host, as sign-in does.
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: ROUTE, userId }, async () => {
-      const scope = await loadRegistrantScope(userId);
+      const scope = await loadRegistrantScope(userId, { sessionTokenVersion: session.user.tokenVersion });
       const certs = scope ? await findReleasedCertificates(scope) : [];
       const certificates = certs
         .filter((c) => !eventSlug || c.event.slug === eventSlug)

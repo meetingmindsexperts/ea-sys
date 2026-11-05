@@ -453,6 +453,11 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
           setSubmitting(false);
           return;
         }
+        if (result.code === "CONFIRM_EMAIL_TO_CLAIM") {
+          setNeedsConfirmation(true);
+          setSuccess(true);
+          return;
+        }
         toast.error(result.error || "Registration failed");
         setSubmitting(false);
         return;
@@ -575,6 +580,13 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       const result = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (showEvidenceRefusal(result)) return;
+        if (result.code === "CONFIRM_EMAIL_TO_CLAIM") {
+          // The organisers' speaker profile waits for a confirmed address: a
+          // lasting next-steps screen, not a toast that disappears.
+          setNeedsConfirmation(true);
+          setSuccess(true);
+          return;
+        }
         toast.error(result.error || "Something went wrong. Please try again.");
         return;
       }
@@ -810,9 +822,11 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
           <div className="mx-auto mb-5 h-16 w-16 rounded-full bg-emerald-50 flex items-center justify-center">
             <CheckCircle2 className="h-9 w-9 text-emerald-500" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Account Created!</h2>
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">{needsConfirmation ? "Confirm your email" : "Account Created!"}</h2>
           <p className="text-slate-500 text-base leading-relaxed mb-2">
-            {copy.successLead}
+            {needsConfirmation
+              ? "The organisers already have a speaker profile for this email. We sent you a link: sign in, then open it to take the profile over, and come back here to finish."
+              : copy.successLead}
           </p>
           <p className="font-semibold text-slate-800 mb-6">{event.name}</p>
           <div className="bg-slate-50 rounded-xl p-4 text-left mb-6 border border-slate-100">

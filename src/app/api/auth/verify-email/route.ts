@@ -90,7 +90,7 @@ export async function POST(req: Request) {
     const user = await findUserByEmail(
       await scopeFromRequestHost(req, "email verification: host did not resolve to a tenant"),
       email,
-      { select: { id: true, emailVerified: true, organizationId: true } },
+      { select: { id: true, emailVerified: true, organizationId: true, tokenVersion: true } },
     );
     if (!user) {
       await db.verificationToken
@@ -98,6 +98,16 @@ export async function POST(req: Request) {
         .catch((err) => apiLogger.warn({ err, msg: "verify-email:orphaned-token-cleanup-failed", email }));
       apiLogger.warn({ msg: "verify-email:user-not-found", email });
       return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+    // A session a password reset or invitation revoked still works for up to
+    // five minutes before its re-check; it must not be the one that confirms
+    // (security review of dd21f2c9).
+    if (user.id === session.user.id && (session.user.tokenVersion ?? 0) !== (user.tokenVersion ?? 0)) {
+      apiLogger.warn({ msg: "verify-email:stale-session", email, userId: user.id });
+      return NextResponse.json(
+        { error: "Your session has ended. Sign in again, then open the link.", code: "SIGN_IN_REQUIRED" },
+        { status: 401 }
+      );
     }
     if (user.id !== session.user.id) {
       apiLogger.warn({ msg: "verify-email:wrong-account", email, sessionUserId: session.user.id });
@@ -143,12 +153,29 @@ export async function POST(req: Request) {
     // The speaker records the organisers made on this address are claimed
     // too (upsertEventSpeaker waits for this step).
     const proven = { userId: user.id, email, confirmed: true };
-    const [linked, speakers] = await runWithTenantLane(await resolveRequestOrgId(req), { route: "auth/verify-email", userId: user.id }, () =>
-      Promise.all([linkConfirmedRegistrations(proven), linkConfirmedSpeakers(proven)]),
+    const hostOrgId = await resolveRequestOrgId(req);
+    const [linked, speakers] = await runWithTenantLane(hostOrgId, { route: "auth/verify-email", userId: user.id }, () =>
+      Promise.all([linkConfirmedRegistrations(proven), linkConfirmedSpeakers(proven, hostOrgId)]),
     ).catch((err) => {
       apiLogger.error({ err, msg: "verify-email:link-registrations-failed", userId: user.id });
       return [0, 0];
     });
+    // A claimed speaker record still needs the sign-up's follow-through (its
+    // details, presenter rate, badge registration): the page sends the person
+    // back to the event's submission page, which now runs the full path for
+    // this confirmed account (security review of dd21f2c9).
+    const claimedEvents = speakers > 0
+      ? await runWithTenantLane(hostOrgId, { route: "auth/verify-email", userId: user.id }, () =>
+          db.speaker.findMany({
+            where: { userId: user.id, email: { equals: email, mode: "insensitive" } },
+            select: { submitterSource: true, event: { select: { slug: true, name: true } } },
+            take: 5,
+          }),
+        ).catch((err) => {
+          apiLogger.warn({ err, msg: "verify-email:claimed-events-read-failed", userId: user.id });
+          return [];
+        })
+      : [];
 
     apiLogger.info({
       msg: "verify-email:verified",
@@ -160,7 +187,13 @@ export async function POST(req: Request) {
       wasInternal: needsEmailVerification(email),
     });
 
-    return NextResponse.json({ success: true, message: "Your email has been verified." });
+    return NextResponse.json({
+      success: true,
+      message: "Your email has been verified.",
+      claimedEvents: claimedEvents
+        .filter((s) => s.event.slug)
+        .map((s) => ({ slug: s.event.slug, name: s.event.name, door: s.submitterSource === "proposal" ? "proposal" : "abstract" })),
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "verify-email:error" });
     return NextResponse.json({ error: "Verification failed. Please try again." }, { status: 500 });

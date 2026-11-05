@@ -39,7 +39,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/resend-confirmation", userId: session?.user?.id }, async () => {
 
-    const scope = await loadRegistrantScope(session.user.id);
+    const scope = await loadRegistrantScope(session.user.id, { sessionTokenVersion: session.user.tokenVersion });
     if (!scope) {
       apiLogger.warn({ msg: "registrant/resend-confirmation:user-not-found", userId: session.user.id });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

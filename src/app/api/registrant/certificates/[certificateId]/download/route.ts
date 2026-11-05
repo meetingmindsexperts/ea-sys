@@ -39,7 +39,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ certific
     // A registrant is org-null, so the lane comes from the host, as sign-in does.
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: ROUTE, userId }, async () => {
-      const scope = await loadRegistrantScope(userId);
+      const scope = await loadRegistrantScope(userId, { sessionTokenVersion: session.user.tokenVersion });
       const [cert] = scope ? await findReleasedCertificates(scope, certificateId) : [];
       if (!cert?.pdfUrl) {
         apiLogger.warn({ msg: `${ROUTE}:not-found`, userId, certificateId });

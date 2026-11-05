@@ -75,6 +75,28 @@ for an account needs email confirmation; registering for an event does not**;
 - The confirm page offers "Reset the password" for an account with no
   password (made at the desk) or one the person did not make.
 
+## Security review of dd21f2c9, fixed in the next commit
+
+- **A revoked session counts for nothing at once.** A non-staff session is
+  re-checked only every five minutes, so one a password reset revoked still
+  worked meanwhile. The Node session callback now carries the session's
+  `tokenVersion` (server only; the Edge mapper does not), and
+  `loadRegistrantScope(userId, proof)` treats an account as confirmed only
+  when that matches the database; verify-email refuses such a session. The
+  password-checked door (abstract-start) passes `"password-checked"`.
+- **Nothing changes before the claim can happen.** `speakerClaimPending` runs
+  before any write: an existing unconfirmed account keeps its role and
+  details (409 `CONFIRM_EMAIL_TO_CLAIM`); a new person still gets the account
+  so they can sign in and confirm. The form shows a lasting "Confirm your
+  email" screen rather than a toast.
+- **The claim's follow-through:** verify-email returns the events whose
+  speaker profile it claimed, and the page links back to each event's
+  submission page, which now runs the full path (details, presenter rate,
+  badge registration) for the confirmed account.
+- `linkConfirmedSpeakers` also filters on the host's organisation;
+  confirmation emails are limited to 5 per address per hour, whoever
+  triggers them.
+
 
 ## The problem this fixes
 

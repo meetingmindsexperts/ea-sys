@@ -50,11 +50,11 @@ interface EventSummary {
   timezone: string;
 }
 
-async function loadPortal(userId: string) {
+async function loadPortal(userId: string, sessionTokenVersion: number | undefined) {
   // A registrant is org-null, so the lane comes from the host, as sign-in does.
   const { orgId } = await resolveTenantOrg(normalizeHost((await headers()).get("host")));
   return runWithTenantLane(orgId, { route: "page:/my-registration", userId }, async () => {
-    const scope = await loadRegistrantScope(userId);
+    const scope = await loadRegistrantScope(userId, { sessionTokenVersion });
     // A session for an account that no longer exists: back to sign-in.
     if (!scope) return null;
     const [registrations, certificates] = await Promise.all([
@@ -87,7 +87,7 @@ export default async function MyRegistrationPage() {
 
   let portal: Awaited<ReturnType<typeof loadPortal>>;
   try {
-    portal = await loadPortal(userId);
+    portal = await loadPortal(userId, session.user.tokenVersion);
   } catch (err) {
     apiLogger.error({ err, msg: "my-registration:load-failed", userId });
     throw err;

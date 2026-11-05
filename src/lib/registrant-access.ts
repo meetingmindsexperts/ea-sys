@@ -28,11 +28,24 @@ export interface RegistrantScope {
   confirmed: boolean;
 }
 
-/** The account's scope, read from the database (never from the session cookie). */
-export async function loadRegistrantScope(userId: string): Promise<RegistrantScope | null> {
-  const user = await db.user.findUnique({ where: { id: userId }, select: { email: true, emailConfirmedAt: true } });
+/**
+ * How the caller knows this is the account's holder: a session (its revocation
+ * counter, `session.user.tokenVersion`), or a password checked in this request.
+ */
+export type ScopeProof = { sessionTokenVersion: number | undefined } | "password-checked";
+
+/**
+ * The account's scope, read from the database (never from the session cookie).
+ * A session a password reset or invitation revoked (its counter behind the
+ * database's) gets the UNCONFIRMED view: such a session lives up to five more
+ * minutes before its re-check, and it may be whoever made this account on
+ * someone else's address (security review of dd21f2c9).
+ */
+export async function loadRegistrantScope(userId: string, proof: ScopeProof): Promise<RegistrantScope | null> {
+  const user = await db.user.findUnique({ where: { id: userId }, select: { email: true, emailConfirmedAt: true, tokenVersion: true } });
   if (!user) return null;
-  return { userId, email: user.email.trim().toLowerCase(), confirmed: !!user.emailConfirmedAt };
+  const current = proof === "password-checked" || (proof.sessionTokenVersion ?? 0) === (user.tokenVersion ?? 0);
+  return { userId, email: user.email.trim().toLowerCase(), confirmed: !!user.emailConfirmedAt && current };
 }
 
 /**
@@ -59,14 +72,31 @@ export async function linkConfirmedRegistrations(scope: RegistrantScope): Promis
 }
 
 /**
+ * This event already has a speaker record on the address that nobody has
+ * claimed (the organisers made it), and the account has not proven the
+ * address: the sign-up doors then change nothing and send a confirmation link
+ * instead. Checked BEFORE any write, so a person who never confirms keeps
+ * their account exactly as it was (security review of dd21f2c9).
+ */
+export async function speakerClaimPending(eventId: string, email: string, accountConfirmed: boolean): Promise<boolean> {
+  if (accountConfirmed) return false;
+  const speaker = await db.speaker.findFirst({
+    where: { eventId, userId: null, email: { equals: email, mode: "insensitive" } },
+    select: { id: true },
+  });
+  return !!speaker;
+}
+
+/**
  * Claim the speaker records carrying this address that nobody has claimed
  * (the organisers added them), once the account is confirmed; a no-op
  * otherwise. Returns how many were claimed.
  */
-export async function linkConfirmedSpeakers(scope: RegistrantScope): Promise<number> {
+export async function linkConfirmedSpeakers(scope: RegistrantScope, organizationId?: string | null): Promise<number> {
   if (!scope.confirmed || !scope.email) return 0;
   const { count } = await db.speaker.updateMany({
-    where: { userId: null, email: { equals: scope.email, mode: "insensitive" } },
+    // The host's organisation when there is one, on top of the tenant lane.
+    where: { userId: null, email: { equals: scope.email, mode: "insensitive" }, ...(organizationId && { organizationId }) },
     data: { userId: scope.userId },
   });
   return count;

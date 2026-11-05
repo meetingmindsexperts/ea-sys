@@ -5,7 +5,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { sendEmailVerification } from "@/lib/email-verification";
-import { loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
+import { loadRegistrantScope, ownRegistrationWhere, speakerClaimPending } from "@/lib/registrant-access";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
@@ -95,7 +95,7 @@ async function loadPresenterPrefill(args: {
   // guest registration) pre-fill nothing until the address is confirmed
   // (registrant-access.ts; security reviews of 7cf4eb3b and 5b870d59): an
   // invited speaker's details are theirs until the address is proven.
-  const scope = await loadRegistrantScope(args.userId);
+  const scope = await loadRegistrantScope(args.userId, "password-checked");
   const confirmed = !!scope?.confirmed;
   const mine = confirmed ? { OR: [{ userId: args.userId }, { email: args.email }] } : { userId: args.userId };
   const [speakerHere, latestSpeaker, latestRegistration] = await Promise.all([
@@ -206,7 +206,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Prefill source: this person's existing (non-cancelled) registration on
     // this event, if any, by the My events rule (registrant-access.ts): one
     // matched only by address counts once the address is confirmed.
-    const scope = await loadRegistrantScope(user.id);
+    const scope = await loadRegistrantScope(user.id, "password-checked");
     const registration = await db.registration.findFirst({
       where: {
         eventId: event.id,
@@ -307,6 +307,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json(
         { error: rateCheck.message, code: rateCheck.code, ...("fields" in rateCheck && { fields: rateCheck.fields }) },
         { status: 400 },
+      );
+    }
+
+    if (await speakerClaimPending(event.id, emailLower, !!scope?.confirmed)) {
+      apiLogger.info({ msg: "public/abstract-start:speaker-claim-needs-confirmation", eventId: event.id });
+      void sendEmailVerification({ email: emailLower, name: `${firstName} ${lastName}`, purpose: "speaker" });
+      return NextResponse.json(
+        {
+          error: `The organisers already have a speaker profile for ${emailLower}. We sent a link to that address: sign in, then open it to take the profile over.`,
+          code: "CONFIRM_EMAIL_TO_CLAIM",
+        },
+        { status: 409 },
       );
     }
 

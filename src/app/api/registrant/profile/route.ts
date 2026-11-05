@@ -50,7 +50,7 @@ export async function GET(req: Request) {
     // the tenant comes from the host, as sign-in does.
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/profile", userId }, async () => {
-      const scope = await loadRegistrantScope(userId);
+      const scope = await loadRegistrantScope(userId, { sessionTokenVersion: session.user.tokenVersion });
       if (!scope) {
         apiLogger.warn({ msg: "registrant-profile:user-not-found", userId });
         return NextResponse.json({ profile: null });

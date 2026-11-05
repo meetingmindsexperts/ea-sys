@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { db } from "./db";
 import { apiLogger } from "./logger";
-import { hashVerificationToken } from "./security";
+import { checkRateLimit, hashVerificationToken } from "./security";
 import { sendEmail, emailTemplates } from "./email";
 
 /**
@@ -37,6 +37,13 @@ export async function sendEmailVerification(params: {
   const email = params.email.trim().toLowerCase();
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  // Per address, whoever triggers it: refused claims and registrations under
+  // someone's address must not turn into a mail flood to them.
+  const rl = checkRateLimit({ key: `email-confirmation-send:${email}`, limit: 5, windowMs: 60 * 60 * 1000 });
+  if (!rl.allowed) {
+    apiLogger.warn({ msg: "email-verification:rate-limited", email, retryAfterSeconds: rl.retryAfterSeconds });
+    return;
+  }
   try {
     const identifier = `${EMAIL_VERIFY_PREFIX}${email}`;
     // Expired tokens only: deleting live ones would let anyone who registers

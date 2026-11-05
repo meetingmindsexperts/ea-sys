@@ -19,12 +19,19 @@ beforeEach(() => vi.clearAllMocks());
 
 describe("loadRegistrantScope", () => {
   it("reads the address and the proof from the database, lower-cased", async () => {
-    mockDb.user.findUnique.mockResolvedValue({ email: " Anna@Example.com ", emailConfirmedAt: new Date() });
-    expect(await loadRegistrantScope("u1")).toEqual(confirmed);
-    mockDb.user.findUnique.mockResolvedValue({ email: "anna@example.com", emailConfirmedAt: null });
-    expect((await loadRegistrantScope("u1"))?.confirmed).toBe(false);
+    mockDb.user.findUnique.mockResolvedValue({ email: " Anna@Example.com ", emailConfirmedAt: new Date(), tokenVersion: 2 });
+    expect(await loadRegistrantScope("u1", { sessionTokenVersion: 2 })).toEqual(confirmed);
+    mockDb.user.findUnique.mockResolvedValue({ email: "anna@example.com", emailConfirmedAt: null, tokenVersion: 0 });
+    expect((await loadRegistrantScope("u1", { sessionTokenVersion: 0 }))?.confirmed).toBe(false);
     mockDb.user.findUnique.mockResolvedValue(null);
-    expect(await loadRegistrantScope("gone")).toBeNull();
+    expect(await loadRegistrantScope("gone", { sessionTokenVersion: 0 })).toBeNull();
+  });
+
+  it("a session a reset revoked (its counter behind the database) gets the unconfirmed view", async () => {
+    mockDb.user.findUnique.mockResolvedValue({ email: "anna@example.com", emailConfirmedAt: new Date(), tokenVersion: 3 });
+    expect((await loadRegistrantScope("u1", { sessionTokenVersion: 2 }))?.confirmed).toBe(false);
+    // A password checked in this very request is current by definition.
+    expect((await loadRegistrantScope("u1", "password-checked"))?.confirmed).toBe(true);
   });
 });
 

@@ -6,6 +6,13 @@ declare module "next-auth" {
     user: {
       id: string;
       role: string;
+      /**
+       * The session's revocation counter, set by the Node session callback only
+       * (never the Edge mapper). Server code compares it with the database so a
+       * session a password reset revoked counts for nothing during the up-to-5
+       * minutes before its periodic re-check (src/lib/registrant-access.ts).
+       */
+      tokenVersion?: number;
       organizationId?: string | null;
       organizationName?: string | null;
       firstName: string;

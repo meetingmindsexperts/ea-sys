@@ -50,9 +50,9 @@ function removeStatusFor(code: string): number {
 }
 
 /** Resolve + ownership-check the registration; returns its eventId. */
-async function ownedRegistration(registrationId: string, userId: string) {
+async function ownedRegistration(registrationId: string, userId: string, sessionTokenVersion: number | undefined) {
   // The same rule as My events (registrant-access.ts).
-  const scope = await loadRegistrantScope(userId);
+  const scope = await loadRegistrantScope(userId, { sessionTokenVersion });
   if (!scope) return null;
   return db.registration.findFirst({
     where: { id: registrationId, ...ownRegistrationWhere(scope) },
@@ -87,7 +87,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const reg = await ownedRegistration(registrationId, actor.id);
+    const reg = await ownedRegistration(registrationId, actor.id, session.user.tokenVersion);
     if (!reg) return NextResponse.json({ error: "Registration not found" }, { status: 404 });
 
     const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
@@ -134,7 +134,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/promo", userId: actor.id }, async () => {
 
-    const reg = await ownedRegistration(registrationId, actor.id);
+    const reg = await ownedRegistration(registrationId, actor.id, session.user.tokenVersion);
     if (!reg) return NextResponse.json({ error: "Registration not found" }, { status: 404 });
 
     const result = await removePromoCodeFromRegistration({ registrationId, eventId: reg.eventId, source: "registrant" });

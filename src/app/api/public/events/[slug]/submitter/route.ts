@@ -5,6 +5,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { sendEmailVerification } from "@/lib/email-verification";
+import { speakerClaimPending } from "@/lib/registrant-access";
 import { publicEventWhere } from "@/lib/public-event";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -224,6 +225,22 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json(
         { error: rateCheck.message, code: rateCheck.code, ...("fields" in rateCheck && { fields: rateCheck.fields }) },
         { status: 400 },
+      );
+    }
+
+    // An existing account (password checked above) that has not proven the
+    // address changes NOTHING when the organisers' unclaimed speaker record is
+    // waiting: no role flip, no profile write. It confirms first. A NEW person
+    // still gets their account below, so they can sign in and confirm.
+    if (existingUser && (await speakerClaimPending(event.id, emailLower, !!existingUser.emailConfirmedAt))) {
+      apiLogger.info({ msg: "public/submitter:speaker-claim-needs-confirmation", eventId: event.id, existingAccount: true });
+      void sendEmailVerification({ email: emailLower, name: `${data.firstName} ${data.lastName}`, purpose: "speaker" });
+      return NextResponse.json(
+        {
+          error: `The organisers already have a speaker profile for ${emailLower}. We sent a link to that address: sign in, then open it to take the profile over.`,
+          code: "CONFIRM_EMAIL_TO_CLAIM",
+        },
+        { status: 409 },
       );
     }
 
