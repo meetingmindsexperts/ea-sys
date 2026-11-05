@@ -131,6 +131,7 @@ Everything else, from the attendee page to the emails, reads that one field.</di
 
 <h3>5.1 Cutting the video into pieces (MediaMTX)</h3>
 <ul>
+  <li>MediaMTX version <b>1.17.1</b>, pinned in <code>docker-compose.prod.yml</code> (it was <code>latest</code> until Nov 5, 2026). Upgrade on purpose, outside a webinar.</li>
   <li>Each piece is <b>4 seconds</b> of video (<code>hlsSegmentDuration</code>). The playlist lists the newest <b>7</b> (<code>hlsSegmentCount</code>), about 28 seconds.</li>
   <li>Why 4 and not 2: a piece can only be cut where Zoom sends a full frame (a keyframe), about every 3 seconds. At 2 seconds, on Nov 5, MediaMTX had to stretch the pieces mid-stream, and iPhones and iPads freeze on that change until the page is reopened. The piece length must stay at or above Zoom's keyframe gap.</li>
   <li>Players start about 3 pieces behind the newest one, so the normal delay is about <b>12 seconds</b>, plus Zoom's own delay.</li>
@@ -317,7 +318,6 @@ or Zoom's live-stream service. If MediaMTX shows a clean close from Zoom's side,
   <li><b>MediaMTX's log reaches CloudWatch only after the box steps</b> (install the logrotate rule, re-run the CloudWatch setup, recreate the MediaMTX container outside a webinar): see <code>infra/cloudwatch/README.md</code>, "MediaMTX log".</li>
   <li>The watchdog cannot say <b>why</b> a stream dropped, only that it did; the reason is in MediaMTX's log.</li>
   <li><b>Zoom embed mode</b> cannot tell "still on air" from "left open", so a webinar running more than 2 hours past its scheduled end is closed by the safety net.</li>
-  <li>The MediaMTX image is <code>bluenviron/mediamtx:latest</code>, not a pinned version. Pin it: run <code>docker exec ea-sys-mediamtx /mediamtx --version</code> on the box and put that version in <code>docker-compose.prod.yml</code>, so a future MediaMTX that renames a config key cannot break the next restart.</li>
 </ul>
 
 <h2 id="files">10. Where the code lives</h2>

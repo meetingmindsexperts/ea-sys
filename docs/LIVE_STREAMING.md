@@ -286,8 +286,9 @@ starts it when absent), so this is an owner step:
    docker exec ea-sys-mediamtx /mediamtx --version
    ```
 
-2. Pin that version (or a tested newer one) in `docker-compose.prod.yml` in
-   place of `bluenviron/mediamtx:latest`.
+2. Pin that version (or a tested newer one) in `docker-compose.prod.yml`.
+   **Done Nov 5, 2026:** pinned to `bluenviron/mediamtx:1.17.1`, the version the
+   box was running (v1.17.1 supports auth over HTTP).
 3. Add to `mediamtx.yml`. Reads are excluded so 5,000 viewers never reach the
    app; only publishes are checked:
 
@@ -449,8 +450,8 @@ run and compare it with the attendee page.
 4. **The fMP4 warning.** Low-latency HLS requires fMP4 segments. §6 records
    that "the fmp4 variant had known 404 issues serving init segments through
    the proxy". That must be re-tested, not assumed fixed.
-5. **The MediaMTX image is unpinned** (`bluenviron/mediamtx:latest`). Pin the
-   version before tuning, so a pull cannot change behaviour under us.
+5. **The MediaMTX image is pinned** (`bluenviron/mediamtx:1.17.1`, since Nov 5,
+   2026; it was `latest`), so a pull cannot change behaviour under us.
 6. **One mode for every stream.** `hlsVariant` is a server-wide setting. The
    server cannot serve low latency to one webinar and standard to another.
 7. **Switching drops live streams.** Changing the variant needs a MediaMTX

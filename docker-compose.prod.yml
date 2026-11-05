@@ -229,7 +229,11 @@ services:
 
   # ── RTMP → HLS live streaming server ─────────────────────────────────────────
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    # Pinned (Nov 5, 2026) to the version the box was running: `latest` would let a
+    # future MediaMTX that renames a config key break the next restart mid-season.
+    # The config keys in mediamtx.yml (logDestinations, logFile, hls*) are 1.17's.
+    # Upgrade deliberately: change this, recreate outside a webinar, check the log.
+    image: bluenviron/mediamtx:1.17.1
     container_name: ea-sys-mediamtx
     restart: unless-stopped
     ports:

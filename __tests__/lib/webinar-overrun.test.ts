@@ -99,3 +99,11 @@ describe("HLS piece length (Nov 5, 2026)", () => {
     expect(constant("LIVE_EDGE_OFFSET_S")).toBeLessThan(3 * seg);
   });
 });
+
+describe("MediaMTX image is pinned (Nov 5, 2026)", () => {
+  it("names an exact version, never latest: a pull must not change the stream server under a webinar", () => {
+    const compose = readFileSync(path.join(process.cwd(), "docker-compose.prod.yml"), "utf8");
+    const image = compose.match(/image:\s*(bluenviron\/mediamtx:\S+)/)?.[1];
+    expect(image).toMatch(/^bluenviron\/mediamtx:\d+\.\d+\.\d+$/);
+  });
+});
