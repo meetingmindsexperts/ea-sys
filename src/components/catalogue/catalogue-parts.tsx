@@ -42,7 +42,7 @@ export function CatalogueHero({
       <HeroBackdrop photo={organization?.heroImage ?? null} />
       <CatalogueNav organization={organization} signedIn={signedIn} />
       <div
-        className={`relative z-[2] mx-auto grid max-w-6xl gap-8 px-4 pt-6 sm:px-6 lg:items-center lg:gap-10 ${aside ? "lg:grid-cols-[1.05fr_1fr]" : ""} ${overlap ? "pb-24 sm:pb-28" : "pb-12 sm:pb-16"} sm:pt-10`}
+        className={`relative z-[2] mx-auto grid max-w-7xl gap-8 px-4 pt-6 sm:px-6 lg:items-center lg:gap-10 ${aside ? "lg:grid-cols-[1.05fr_1fr]" : ""} ${overlap ? "pb-24 sm:pb-28" : "pb-12 sm:pb-16"} sm:pt-10`}
       >
         <div className="grid min-w-0 gap-5 sm:gap-6">{children}</div>
         {aside}
@@ -77,7 +77,7 @@ function HeartbeatTrace() {
 
 function CatalogueNav({ organization, signedIn }: { organization: SiteOrganization | null; signedIn: boolean }) {
   return (
-    <nav aria-label="Site" className="relative z-[3] mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5">
+    <nav aria-label="Site" className="relative z-[3] mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5">
       <Link href="/catalogue" className="flex min-w-0 items-center gap-2.5 font-semibold">
         {organization?.logo ? (
           // White on the navy hero; the logo file stays whatever was uploaded.
@@ -513,7 +513,7 @@ export function CatalogueFooter({ organization, specialties }: { organization: S
   const heading = "mb-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-[#7fd8f3]";
   return (
     <footer className="mt-16 bg-[#0a1c2e] text-sm text-white/75">
-      <div className="mx-auto grid max-w-6xl grid-cols-2 gap-8 px-4 pb-8 pt-10 sm:px-6 md:grid-cols-[1.6fr_1fr_1fr_1fr]">
+      <div className="mx-auto grid max-w-7xl grid-cols-2 gap-8 px-4 pb-8 pt-10 sm:px-6 md:grid-cols-[1.6fr_1fr_1fr_1fr]">
         <div className="col-span-2 grid max-w-[40ch] content-start gap-3 md:col-span-1">
           {organization?.logo ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -551,7 +551,7 @@ export function CatalogueFooter({ organization, specialties }: { organization: S
           </div>
         )}
       </div>
-      <div className="mx-auto flex max-w-6xl flex-wrap justify-between gap-2 border-t border-white/10 px-4 py-4 text-xs text-white/60 sm:px-6">
+      <div className="mx-auto flex max-w-7xl flex-wrap justify-between gap-2 border-t border-white/10 px-4 py-4 text-xs text-white/60 sm:px-6">
         <span>© {new Date().getFullYear()} {name}</span>
         <span>Rates and dates are confirmed on each event&apos;s page.</span>
       </div>

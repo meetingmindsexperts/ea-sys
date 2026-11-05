@@ -267,7 +267,7 @@ export default async function EventOverviewPage({ params }: Props) {
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-60 [background-image:radial-gradient(circle_at_1px_1px,var(--color-slate-200)_1px,transparent_0)] [background-size:22px_22px] [mask-image:linear-gradient(to_bottom,black,transparent_85%)]"
         />
-        <div className="relative mx-auto max-w-6xl px-4 pb-8 pt-7 sm:px-6 sm:pb-12 sm:pt-10">
+        <div className="relative mx-auto max-w-7xl px-4 pb-8 pt-7 sm:px-6 sm:pb-12 sm:pt-10">
           <div className="flex flex-wrap items-center gap-2 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-500">
             {event.eventType && <Eyebrow>{EVENT_TYPE_LABEL[event.eventType]}</Eyebrow>}
             {event.specialty && <Eyebrow>{event.specialty}</Eyebrow>}
@@ -310,7 +310,7 @@ export default async function EventOverviewPage({ params }: Props) {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-6xl gap-8 px-4 py-8 sm:px-6 sm:py-12 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12">
+      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 sm:py-12 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12">
         <main className="min-w-0 space-y-12">
           {/* Only the organiser's own description: without one, the summary
               under the headline already says it, and repeating it adds nothing. */}
@@ -451,7 +451,7 @@ export default async function EventOverviewPage({ params }: Props) {
       </div>
 
       <footer className="border-t border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-8 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <p>
             © {now.getFullYear()} {event.organization.name}
             {event.supportEmail && (
@@ -473,7 +473,7 @@ export default async function EventOverviewPage({ params }: Props) {
 
       {/* Phone: the price and the one action, always within reach. */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-4px_20px_rgba(15,23,42,0.06)] backdrop-blur supports-[backdrop-filter]:bg-white/80 lg:hidden">
-        <div className="mx-auto flex max-w-6xl items-center gap-3">
+        <div className="mx-auto flex max-w-7xl items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-slate-900">{offer && state !== "ended" ? offerLabel(offer) : event.name}</p>
             <p className="truncate text-xs text-slate-500">{STATE_NOTE[state] ?? dates}</p>
@@ -504,7 +504,7 @@ function TopBar({
 }) {
   return (
     <div className="border-b border-slate-200 bg-white">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
         <OrgMark organization={organization} href={listed ? "/catalogue" : null} />
         <div className="flex shrink-0 items-center gap-2">
           {listed && (

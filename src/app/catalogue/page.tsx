@@ -203,7 +203,7 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
         <HeroStats stats={stats} />
       </CatalogueHero>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6">
         {/* A plain GET form: works before any script loads, and the URL is shareable. */}
         <form
           action="/catalogue"
@@ -232,7 +232,7 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
             </button>
           </div>
           {specialties.length > 0 && (
-            <nav aria-label="Specialties" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none]">
+            <nav aria-label="Specialties" className="-m-1 flex gap-2 overflow-x-auto p-1 [scrollbar-width:none]">
               <Link href={catalogueHref({ ...query, specialty: "" }, { page: 1 })} aria-current={!query.specialty ? "true" : undefined} className={chip(!query.specialty)}>
                 All specialties
               </Link>

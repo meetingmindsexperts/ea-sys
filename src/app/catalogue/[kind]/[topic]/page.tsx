@@ -184,7 +184,7 @@ export default async function CatalogueTopicPage({ params, searchParams }: Props
         <HeroLede>{intro}</HeroLede>
       </CatalogueHero>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6">
         <section aria-labelledby="events-title" className="pt-10 sm:pt-12">
           <SectionHead id="events-title" title={query.when === "upcoming" ? `Upcoming ${resolved.value} events` : `Past ${resolved.value} events`}>
             <div className="flex flex-wrap items-center gap-3">
