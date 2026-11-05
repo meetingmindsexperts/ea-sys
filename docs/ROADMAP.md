@@ -7,6 +7,25 @@
 
 ---
 
+## Event RLS: turn on the shadow detector in production for a week (recorded Nov 5, 2026): ON since Nov 5, collect on Nov 12
+
+Owner asked to be reminded. The detector shipped in `3bff623a` / `7d701e5b` and does nothing until
+the flag is set. A week of production traffic is the real inventory of Event reads that run
+outside a tenant lane (worker jobs and rarely used pages a local pass cannot reach), which is
+what step 2 of the Event RLS plan is sized from. Full plan: [SECURITY_AUDIT_ACTION_PLAN.md](SECURITY_AUDIT_ACTION_PLAN.md) §3.1.
+
+1. On the box, check the log level will not hide the lines (`info` level):
+   `grep -E '^LOG_LEVEL=' /home/ubuntu/ea-sys/.env` must print nothing or `LOG_LEVEL=info`.
+2. `echo 'RLS_SHADOW=1' >> /home/ubuntu/ea-sys/.env`
+3. Recreate the containers: `./scripts/deploy.sh`, or let the next ordinary push do it.
+4. Confirm: `docker logs ea-sys-blue 2>&1 | grep event-query-no-lane | head` (or `ea-sys-green`,
+   whichever is live), and the same on `ea-sys-worker`.
+5. **After a week:** collect the `event-query-no-lane` lines from the live slot and the worker,
+   add them to the inventory in §3.1, then remove the line from `.env` and redeploy.
+
+Safe to leave on: changes no query result, can never throw into a query, at most 500 lines per
+container, `info` level only (not written to `SystemLog`).
+
 ## A refund-button refund can be counted twice (found Nov 3, 2026): recorded, not fixed
 
 Found reviewing the dependency audit's fixes; the owner chose to leave it for
