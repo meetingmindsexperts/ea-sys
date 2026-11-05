@@ -2,7 +2,9 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { publicOrgScopeForHost } from "@/lib/public-event";
-import { catalogueBaseWhere, groupTopics, type Topic } from "@/lib/catalogue";
+import { catalogueBaseWhere, groupTopics, readCatalogueHeroImage, type Topic } from "@/lib/catalogue";
+import { eventIsFull } from "@/lib/public-availability";
+import { publicRegistration, ratesByType, type PublicOffer, type RegistrationState, type TypeRate } from "@/lib/event-overview";
 
 /**
  * Server-side reads shared by the catalogue and its topic pages (Nov 4,
@@ -30,13 +32,113 @@ export const CATALOGUE_EVENT_SELECT = {
 
 export type CatalogueEvent = Prisma.EventGetPayload<{ select: typeof CATALOGUE_EVENT_SELECT }>;
 
+export interface SiteOrganization {
+  name: string;
+  logo: string | null;
+  /** The catalogue hero's photo (Settings, General), or null for the pattern. */
+  heroImage: string | null;
+  /** The organisation's public contact, from its company details. */
+  email: string | null;
+  phone: string | null;
+}
+
 /** This site's organisation (by host) and the scope every public listing query starts from. */
 export async function loadSiteContext(host: string | null) {
   const [orgScope, tenant] = await Promise.all([publicOrgScopeForHost(host), resolveTenantOrg(normalizeHost(host))]);
-  const organization = tenant.orgId
-    ? await db.organization.findUnique({ where: { id: tenant.orgId }, select: { name: true, logo: true } })
+  const row = tenant.orgId
+    ? await db.organization.findUnique({
+        where: { id: tenant.orgId },
+        select: { name: true, logo: true, settings: true, companyEmail: true, companyPhone: true },
+      })
     : null;
+  // Only the named fields leave this function: the settings JSON also holds
+  // encrypted credentials and must never reach a page.
+  const organization: SiteOrganization | null = row && {
+    name: row.name,
+    logo: row.logo,
+    heroImage: readCatalogueHeroImage(row.settings),
+    email: row.companyEmail,
+    phone: row.companyPhone,
+  };
   return { orgScope, organization };
+}
+
+/** What the catalogue hero states about the organisation; every number is counted, never typed in. */
+export interface SiteStats {
+  events: number;
+  delegates: number;
+  faculty: number;
+  countries: number;
+}
+
+const RUN_STATUSES = ["PUBLISHED", "LIVE", "COMPLETED"] as const;
+
+/**
+ * The organisation's track record on this platform: events run (listed or
+ * not, drafts and cancelled never), delegates registered (not cancelled, the
+ * hidden Faculty type excluded, as every delegate count is), faculty counted
+ * once per person by email, and countries.
+ */
+export async function loadSiteStats(orgScope: { organizationId?: string }): Promise<SiteStats> {
+  const eventWhere = { ...orgScope, status: { in: [...RUN_STATUSES] } };
+  const [events, countries, delegates, faculty] = await Promise.all([
+    db.event.count({ where: eventWhere }),
+    db.event.groupBy({ by: ["country"], where: { ...eventWhere, country: { not: null } } }),
+    db.registration.count({ where: { event: eventWhere, status: { notIn: ["CANCELLED", "WAITLISTED"] }, ticketType: { isFaculty: false } } }),
+    db.speaker.groupBy({ by: ["email"], where: { event: eventWhere } }),
+  ]);
+  const countryCount = new Set(countries.map((c) => c.country?.trim().toLowerCase()).filter(Boolean)).size;
+  return { events, delegates, faculty: faculty.length, countries: countryCount };
+}
+
+export interface CardRegistration {
+  state: RegistrationState;
+  offer: PublicOffer | null;
+  /** The rate the Register link lands on ("Early Bird"), when open. */
+  rate: string | null;
+  rates: TypeRate[];
+}
+
+/**
+ * Each event's registration state and prices, by the one public rule
+ * (public-availability.ts via event-overview.ts): a card never says "Early
+ * bird" or "From $200" when the form would say closed or full.
+ */
+export async function loadCardRegistration(eventIds: string[], now: Date): Promise<Map<string, CardRegistration>> {
+  if (eventIds.length === 0) return new Map();
+  const rows = await db.event.findMany({
+    where: { id: { in: eventIds } },
+    select: {
+      id: true, endDate: true, eventType: true, settings: true, maxAttendees: true, seatCount: true,
+      ticketTypes: {
+        // What the public form sells: active, never the hidden Faculty type.
+        where: { isActive: true, isFaculty: false },
+        orderBy: { sortOrder: "asc" },
+        select: {
+          name: true, quantity: true, soldCount: true,
+          pricingTiers: {
+            where: { isActive: true },
+            orderBy: { sortOrder: "asc" },
+            select: { name: true, sortOrder: true, price: true, currency: true, quantity: true, soldCount: true, salesStart: true, salesEnd: true },
+          },
+        },
+      },
+    },
+  });
+  return new Map(
+    rows.map((e) => {
+      const settings = (e.settings ?? {}) as Record<string, unknown>;
+      const input = {
+        endDate: e.endDate,
+        registrationOpen: settings.registrationOpen !== false,
+        eventFull: eventIsFull(e),
+        eventType: e.eventType,
+        settings,
+        ticketTypes: e.ticketTypes,
+      };
+      return [e.id, { ...publicRegistration(input, now), ...ratesByType(input, now) }];
+    }),
+  );
 }
 
 /**

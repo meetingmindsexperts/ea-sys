@@ -20,9 +20,21 @@ import {
   type CatalogueQuery,
   type TopicKind,
 } from "@/lib/catalogue";
-import { CATALOGUE_EVENT_SELECT, listTopicValues, loadSiteContext } from "@/lib/catalogue-data";
+import { CATALOGUE_EVENT_SELECT, listTopicValues, loadCardRegistration, loadSiteContext } from "@/lib/catalogue-data";
 import { absoluteUrl, catalogueJsonLd, jsonLdText, siteOrigin } from "@/lib/seo";
-import { BrowseTopics, CatalogueFooter, CatalogueTopBar, EmptyEvents, EventGrid, Pager, WhenTabs } from "@/components/catalogue/catalogue-parts";
+import { editorialDisplay } from "@/app/fonts";
+import {
+  BrowseTopics,
+  CatalogueFooter,
+  CatalogueHero,
+  EmptyEvents,
+  EventGrid,
+  HeroLede,
+  HeroTitle,
+  Pager,
+  SectionHead,
+  WhenTabs,
+} from "@/components/catalogue/catalogue-parts";
 
 /**
  * A topic page of the catalogue (Nov 4, 2026, phase 3): every listed event in
@@ -102,7 +114,8 @@ async function loadTopicEvents(
     db.event.count({ where: upcomingWhere }),
     db.event.findMany({ where: upcomingWhere, take: 200, select: { city: true, country: true, specialty: true, cmeHours: true } }),
   ]);
-  return { events, total, upcomingCount, upcomingFacts };
+  const registration = await loadCardRegistration(events.map((e) => e.id), now);
+  return { events, total, upcomingCount, upcomingFacts, registration };
 }
 
 export default async function CatalogueTopicPage({ params, searchParams }: Props) {
@@ -143,7 +156,7 @@ export default async function CatalogueTopicPage({ params, searchParams }: Props
     apiLogger.error({ err, kind, topic, msg: "catalogue-topic:load-failed" });
     throw err;
   }
-  const { events, total, upcomingCount, upcomingFacts } = data;
+  const { events, total, upcomingCount, upcomingFacts, registration } = data;
   const pages = Math.max(1, Math.ceil(total / CATALOGUE_PAGE_SIZE));
   if (query.page > pages) redirect(topicHref(resolved.kind, resolved.value, { when: query.when, page: pages }));
 
@@ -152,53 +165,53 @@ export default async function CatalogueTopicPage({ params, searchParams }: Props
   const path = topicHref(resolved.kind, resolved.value);
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#f8f9fb]">
+    <div className={`${editorialDisplay.variable} flex min-h-screen flex-col bg-[#f3f7fa] text-[#13222f]`}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdText(catalogueJsonLd(events, origin, resolved.organization, { name: heading, path })) }}
       />
-      <CatalogueTopBar organization={resolved.organization} signedIn={!!session?.user} />
+      <CatalogueHero organization={resolved.organization} signedIn={!!session?.user}>
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1 font-mono text-xs uppercase tracking-[0.12em] text-[#7fd8f3]">
+          <Link href="/catalogue" className="hover:text-white">
+            Event catalogue
+          </Link>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <span aria-current="page" className="text-white/90">
+            {resolved.value}
+          </span>
+        </nav>
+        <HeroTitle>{heading}</HeroTitle>
+        <HeroLede>{intro}</HeroLede>
+      </CatalogueHero>
 
-      <section className="bg-gradient-primary text-white">
-        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
-          <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-xs font-medium text-white/80">
-            <Link href="/catalogue" className="hover:text-white">
-              Event catalogue
-            </Link>
-            <ChevronRight className="h-3.5 w-3.5" />
-            <span aria-current="page" className="text-white">
-              {resolved.value}
-            </span>
-          </nav>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-balance sm:text-3xl">{heading}</h1>
-          <p className="mt-2 max-w-2xl text-sm text-white/90 sm:text-base">{intro}</p>
-        </div>
-      </section>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6">
+        <section aria-labelledby="events-title" className="pt-10 sm:pt-12">
+          <SectionHead id="events-title" title={query.when === "upcoming" ? `Upcoming ${resolved.value} events` : `Past ${resolved.value} events`}>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm text-[#5a6b7b]">
+                {total} {total === 1 ? "event" : "events"}
+              </p>
+              <WhenTabs when={query.when} hrefFor={(when) => topicHref(resolved.kind, resolved.value, { when, page: 1 })} />
+            </div>
+          </SectionHead>
+          {events.length === 0 ? (
+            <EmptyEvents
+              title={`No ${query.when} events here right now`}
+              hint={query.when === "upcoming" ? "See the Past tab, or browse another topic below." : "Past events appear here once they end."}
+            />
+          ) : (
+            <EventGrid events={events} registration={registration} upcoming={query.when === "upcoming"} />
+          )}
+          <Pager page={query.page} pages={pages} hrefFor={(page) => topicHref(resolved.kind, resolved.value, { when: query.when, page })} />
+        </section>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 space-y-5 px-4 py-6 sm:px-6 sm:py-8">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <WhenTabs when={query.when} hrefFor={(when) => topicHref(resolved.kind, resolved.value, { when, page: 1 })} />
-          <p className="text-sm text-slate-500">
-            {total} {total === 1 ? "event" : "events"}
-          </p>
-        </div>
-
-        <h2 className="sr-only">{query.when === "upcoming" ? `Upcoming ${resolved.value} events` : `Past ${resolved.value} events`}</h2>
-        {events.length === 0 ? (
-          <EmptyEvents
-            title={`No ${query.when} events here right now`}
-            hint={query.when === "upcoming" ? "See the Past tab, or browse another topic below." : "Past events appear here once they end."}
-          />
-        ) : (
-          <EventGrid events={events} upcoming={query.when === "upcoming"} />
-        )}
-
-        <Pager page={query.page} pages={pages} hrefFor={(page) => topicHref(resolved.kind, resolved.value, { when: query.when, page })} />
-
-        <BrowseTopics specialties={resolved.values.specialties} countries={resolved.values.countries} current={{ kind: resolved.kind, slug: resolved.topic.slug }} />
+        <section aria-labelledby="topics-title" className="pt-12">
+          <SectionHead id="topics-title" title="More specialties and countries" />
+          <BrowseTopics specialties={resolved.values.specialties} countries={resolved.values.countries} current={{ kind: resolved.kind, slug: resolved.topic.slug }} />
+        </section>
       </main>
 
-      <CatalogueFooter organization={resolved.organization} />
+      <CatalogueFooter organization={resolved.organization} specialties={resolved.values.specialties} />
     </div>
   );
 }

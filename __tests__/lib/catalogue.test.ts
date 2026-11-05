@@ -4,7 +4,7 @@
  * keep or reset the right parts.
  */
 import { describe, it, expect } from "vitest";
-import { catalogueBaseWhere, catalogueHref, catalogueOrderBy, catalogueWhere, findTopic, groupTopics, parseCatalogueQuery, topicForValue, topicHref, topicIntro, topicSlug, topicTitle } from "@/lib/catalogue";
+import { catalogueBaseWhere, catalogueHref, catalogueOrderBy, catalogueWhere, findTopic, groupTopics, parseCatalogueQuery, readCatalogueHeroImage, topicForValue, topicHref, topicIntro, topicSlug, topicTitle } from "@/lib/catalogue";
 
 const NOW = new Date("2026-11-04T10:00:00Z");
 const ORG = { organizationId: "org1" };
@@ -117,5 +117,21 @@ describe("topic pages", () => {
     expect(topicIntro("country", "Qatar", [])).toBe("There are no upcoming events in Qatar right now; past events are listed below.");
     // The count is the true total when the facts are a capped sample.
     expect(topicIntro("country", "Oman", [e("Muscat", "Oman", "Hematology", null)], 240)).toBe("240 upcoming medical events in Oman across Hematology.");
+  });
+});
+
+describe("readCatalogueHeroImage (the catalogue hero's photo)", () => {
+  it("accepts an uploaded file or an https address", () => {
+    expect(readCatalogueHeroImage({ catalogueHeroImage: "/uploads/media/2026/11/a.jpg" })).toBe("/uploads/media/2026/11/a.jpg");
+    expect(readCatalogueHeroImage({ catalogueHeroImage: "https://cdn.example.com/a.jpg" })).toBe("https://cdn.example.com/a.jpg");
+  });
+
+  it("refuses anything that could run or break out of the attribute, and reads missing as none", () => {
+    for (const bad of ["javascript:alert(1)", "data:image/png;base64,AAAA", "http://plain.example.com/a.jpg", '/uploads/a.jpg" onerror="x', "//evil.example.com/a.jpg"]) {
+      expect(readCatalogueHeroImage({ catalogueHeroImage: bad })).toBeNull();
+    }
+    expect(readCatalogueHeroImage({})).toBeNull();
+    expect(readCatalogueHeroImage(null)).toBeNull();
+    expect(readCatalogueHeroImage({ catalogueHeroImage: 42 })).toBeNull();
   });
 });

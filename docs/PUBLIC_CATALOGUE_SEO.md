@@ -44,6 +44,13 @@ is already set on the event. Fill these in and the pages fill themselves.
 | Questions (FAQ) | Written by the page from the facts above; a question is asked only when the event can answer it |
 | Organiser name and logo, support email | Organisation settings, and the event's support email |
 | Topic page intro | Written from the topic's upcoming events: how many, where, the most CME hours |
+| Catalogue hero photo | Settings, General: **Event catalogue photo** (a landscape conference photo, about 2400 px wide, under 2 MB). Shown under a navy wash; without one the hero draws an ECG-paper pattern |
+| Banners fanned in the hero | The next three listed upcoming events' banners (the mobile banner, else the desktop one); the fan appears with two or more |
+| Headline places ("from Dubai to Muscat") | The cities of those next events, in date order; webinars are left out |
+| Hero numbers | Counted from the database: events hosted (published, live or completed, listed or not), delegates registered (not cancelled or waitlisted, Faculty type excluded), faculty (one per email), countries. Hidden for an organisation with fewer than three events |
+| Next up, rates per type | The soonest listed event: each registration type's price at the rate the Register link lands on ("Early Bird rates"), by the same rule as the form |
+| Card status and price | "Early Bird" (the rate's name), "Sold out" or "Registration closed", and "From $X": the same rule as the form |
+| Footer contact | Organisation settings, Billing: the company email and phone |
 
 ## What search engines and AI assistants receive
 
@@ -69,13 +76,14 @@ app-wide decision.
 
 ## After a deploy: the owner's steps
 
-1. Switch **Show in the event catalogue** on for the events to advertise.
-2. Add a **description** to each listed event.
-3. In **Google Search Console** and **Bing Webmaster Tools**, verify
+1. Upload an **Event catalogue photo** in Settings, General.
+2. Switch **Show in the event catalogue** on for the events to advertise.
+3. Add a **description** to each listed event.
+4. In **Google Search Console** and **Bing Webmaster Tools**, verify
    `events.meetingmindsgroup.com` and submit `/sitemap.xml`.
-4. Paste an event page into Google's **Rich Results Test** to confirm the Event
+5. Paste an event page into Google's **Rich Results Test** to confirm the Event
    and FAQ data are read.
-5. After a few weeks, use Search Console to see which searches bring people in,
+6. After a few weeks, use Search Console to see which searches bring people in,
    and add topic pages or descriptions for those.
 
 ## Files
@@ -88,6 +96,6 @@ app-wide decision.
 | Event page facts, price and state, FAQ, Event JSON-LD | `src/lib/event-overview.ts` |
 | The one availability rule (API, form, event page) | `src/lib/public-availability.ts` |
 | Pages | `src/app/catalogue/page.tsx`, `src/app/catalogue/[kind]/[topic]/page.tsx`, `src/app/e/[slug]/page.tsx` |
-| Shared catalogue components | `src/components/catalogue/catalogue-parts.tsx` |
+| Shared catalogue components | `src/components/catalogue/catalogue-parts.tsx`, the hero's banner fan in `banner-fan.tsx` |
 | robots, sitemap, llms.txt | `src/app/robots.ts`, `src/app/sitemap.ts`, `src/app/llms.txt/route.ts` |
 | Tests | `__tests__/lib/catalogue.test.ts`, `seo.test.ts`, `event-overview.test.ts`, `public-availability.test.ts` |

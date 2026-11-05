@@ -11,6 +11,7 @@ import {
   eventPageJsonLd,
   offerLabel,
   publicRegistration,
+  ratesByType,
   readAccreditations,
   type OverviewFacts,
   type PublicTicketType,
@@ -22,7 +23,7 @@ const tier = (name: string, price: number, over: Partial<PublicTicketType["prici
   name, sortOrder: null, price: D(price), currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null, ...over,
 });
 const type = (tiers: PublicTicketType["pricingTiers"], over: Partial<PublicTicketType> = {}): PublicTicketType => ({
-  quantity: 999999, soldCount: 0, pricingTiers: tiers, ...over,
+  name: "Physician", quantity: 999999, soldCount: 0, pricingTiers: tiers, ...over,
 });
 const reg = (ticketTypes: PublicTicketType[], over: Partial<Parameters<typeof publicRegistration>[0]> = {}) =>
   publicRegistration({ endDate: new Date("2027-01-17"), registrationOpen: true, eventFull: false, eventType: "CONFERENCE", settings: {}, ticketTypes, ...over }, NOW);
@@ -149,5 +150,46 @@ describe("eventPageJsonLd", () => {
     expect(listed.map((n) => n["@type"])).toEqual(["Event", "BreadcrumbList", "FAQPage"]);
     expect(listed[1].itemListElement).toHaveLength(2);
     expect((ld({}, false)["@graph"][1] as { itemListElement: unknown[] }).itemListElement).toHaveLength(1);
+  });
+});
+
+describe("ratesByType (the next-event price list)", () => {
+  const input = (ticketTypes: PublicTicketType[], over: Partial<Parameters<typeof ratesByType>[0]> = {}) =>
+    ratesByType({ endDate: new Date("2027-01-17"), registrationOpen: true, eventFull: false, eventType: "CONFERENCE", settings: {}, ticketTypes, ...over }, NOW);
+
+  it("lists each type's price at the rate the Register link lands on, not at a later rate", () => {
+    const out = input([
+      type([tier("Early Bird", 400), tier("Standard", 500)], { name: "Physician" }),
+      type([tier("Early Bird", 0), tier("Standard", 0)], { name: "Student" }),
+    ]);
+    expect(out.rate).toBe("Early Bird");
+    expect(out.rates).toEqual([
+      { type: "Physician", price: 400, currency: "USD" },
+      { type: "Student", price: 0, currency: "USD" },
+    ]);
+  });
+
+  it("leaves out a type whose seats at that rate are gone", () => {
+    const out = input([
+      type([tier("Early Bird", 400)], { name: "Physician" }),
+      type([tier("Early Bird", 200, { quantity: 5, soldCount: 5 })], { name: "Nurse" }),
+    ]);
+    expect(out.rates.map((r) => r.type)).toEqual(["Physician"]);
+  });
+
+  it("is empty whenever the state is not open: closed, ended, full", () => {
+    const types = [type([tier("Early Bird", 400)])];
+    expect(input(types, { registrationOpen: false }).rates).toEqual([]);
+    expect(input(types, { endDate: new Date("2020-01-01") }).rates).toEqual([]);
+    expect(input(types, { eventFull: true }).rates).toEqual([]);
+    // A full HYBRID event stays open for virtual, which has its own price.
+    expect(input(types, { eventFull: true, eventType: "HYBRID" }).rates).toEqual([]);
+  });
+
+  it("never lands on a sponsor-code rate", () => {
+    const out = input([type([tier("Inclusive", 0)], { name: "Sponsored" })], {
+      settings: { mainRegisterTiers: ["inclusive"], codeRequiredTiers: ["inclusive"] },
+    });
+    expect(out).toEqual({ rate: null, rates: [] });
   });
 });

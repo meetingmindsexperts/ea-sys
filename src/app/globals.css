@@ -438,3 +438,56 @@
     min-height: 2.75rem;
   }
 }
+
+/* Public catalogue hero (Nov 5, 2026). Outside every @layer for the reason the
+   rich-content note above gives: attribute selectors in @layer components are
+   tree-shaken out of the build. */
+
+/* The pattern drawn when the organisation has no hero photo: ECG paper,
+   1 mm squares with a bold line every 5, the way a 12-lead strip is printed. */
+.catalogue-ecg-paper {
+  background:
+    radial-gradient(60% 70% at 85% 30%, rgb(0 170 222 / 0.28), transparent 70%),
+    radial-gradient(40% 50% at 10% 100%, rgb(0 170 222 / 0.14), transparent 70%),
+    linear-gradient(rgb(127 216 243 / 0.1) 1px, transparent 1px) 0 0 / 40px 40px,
+    linear-gradient(90deg, rgb(127 216 243 / 0.1) 1px, transparent 1px) 0 0 / 40px 40px,
+    linear-gradient(rgb(127 216 243 / 0.045) 1px, transparent 1px) 0 0 / 8px 8px,
+    linear-gradient(90deg, rgb(127 216 243 / 0.045) 1px, transparent 1px) 0 0 / 8px 8px,
+    #0a1c2e;
+}
+.catalogue-ecg-trace {
+  fill: none;
+  stroke: #39c6f0;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-dasharray: 2600;
+  opacity: 0.5;
+  filter: drop-shadow(0 0 6px rgb(57 198 240 / 0.6));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .catalogue-ecg-trace { animation: catalogue-ecg-draw 3.2s ease-out both; }
+}
+@keyframes catalogue-ecg-draw {
+  from { stroke-dashoffset: 2600; }
+  to { stroke-dashoffset: 0; }
+}
+
+/* The banner fan: three places, the cards move between them. */
+.catalogue-fan-card {
+  position: absolute;
+  width: 62%;
+  aspect-ratio: 900 / 514;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 24px 40px -14px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.12);
+  transition: left 0.9s cubic-bezier(0.4, 0, 0.2, 1), top 0.9s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.9s cubic-bezier(0.4, 0, 0.2, 1), filter 0.9s ease, opacity 0.6s ease;
+}
+.catalogue-fan-card[data-pos="front"] { left: 19%; top: 0; z-index: 3; transform: rotate(1deg) scale(1.04); }
+.catalogue-fan-card[data-pos="left"] { left: 0; top: 13%; z-index: 1; transform: rotate(-7deg); filter: brightness(0.9); }
+.catalogue-fan-card[data-pos="right"] { left: 38%; top: 18%; z-index: 2; transform: rotate(8deg); filter: brightness(0.9); }
+.catalogue-fan-card[data-pos="back"] { left: 19%; top: 10%; z-index: 0; transform: scale(0.9); opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .catalogue-fan-card { transition: none; }
+}

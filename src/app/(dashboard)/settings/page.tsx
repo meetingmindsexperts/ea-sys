@@ -88,6 +88,7 @@ import { BillingSettingsCard } from "@/components/settings/billing-settings-card
 import { NewEventDefaultsCard } from "@/components/settings/new-event-defaults-card";
 import { BillingAccountsCard } from "@/components/settings/billing-accounts-card";
 import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
+import { CatalogueHeroPhotoField } from "@/components/settings/catalogue-hero-photo-field";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { OrgStripeCredentials } from "@/components/settings/org-stripe-credentials";
 import { OrgDtcmEticketCredentials } from "@/components/settings/org-dtcm-eticket-credentials";
@@ -120,6 +121,7 @@ interface Organization {
     dateFormat?: string;
     currency?: string;
     emailNotifications?: boolean;
+    catalogueHeroImage?: string | null;
   };
   _count: {
     events: number;
@@ -219,6 +221,7 @@ export default function SettingsPage() {
     dateFormat: "MM/DD/YYYY",
     currency: "USD",
     emailNotifications: true,
+    catalogueHeroImage: null as string | null,
   });
   const [logoUploading, setLogoUploading] = useState(false);
 
@@ -284,6 +287,7 @@ export default function SettingsPage() {
           dateFormat: data.settings?.dateFormat || "MM/DD/YYYY",
           currency: data.settings?.currency || "USD",
           emailNotifications: data.settings?.emailNotifications ?? true,
+          catalogueHeroImage: data.settings?.catalogueHeroImage ?? null,
         });
       } else {
         console.error("settings:organization-load-failed", res.status);
@@ -355,6 +359,7 @@ export default function SettingsPage() {
             dateFormat: orgFormData.dateFormat,
             currency: orgFormData.currency,
             emailNotifications: orgFormData.emailNotifications,
+            catalogueHeroImage: orgFormData.catalogueHeroImage,
           },
         }),
       });
@@ -924,6 +929,12 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
+
+              <CatalogueHeroPhotoField
+                value={orgFormData.catalogueHeroImage}
+                onChange={(url) => setOrgFormData((prev) => ({ ...prev, catalogueHeroImage: url }))}
+                disabled={!canEditOrg}
+              />
 
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">

@@ -12,6 +12,21 @@ import type { EventType, Prisma } from "@prisma/client";
  */
 
 export const CATALOGUE_PAGE_SIZE = 12;
+
+/** Organization.settings key for the catalogue hero's photo (Settings, General). */
+export const CATALOGUE_HERO_IMAGE_SETTING = "catalogueHeroImage";
+
+/**
+ * The catalogue hero's photo, or null (the page then draws its pattern). Only
+ * an uploaded file or an https URL is accepted, so a hand-edited value cannot
+ * point the public page at a `javascript:` or `data:` address.
+ */
+export function readCatalogueHeroImage(settings: unknown): string | null {
+  const value = (settings as Record<string, unknown> | null)?.[CATALOGUE_HERO_IMAGE_SETTING];
+  if (typeof value !== "string") return null;
+  return /^(\/uploads\/|https:\/\/)[^\s"'<>()]+$/.test(value) ? value : null;
+}
+
 const MAX_QUERY_LENGTH = 100;
 const EVENT_TYPES = ["CONFERENCE", "WEBINAR", "HYBRID"] as const satisfies readonly EventType[];
 

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Public catalogue redesign (November 5)
+
+- **A new look for `/catalogue` and the topic pages**, after the owner compared them with motamarat.kfshrc.edu.sa. A navy hero with the organisation's conference photo under a dark wash (an ECG-paper pattern when there is no photo), Fraunces headlines as on the event page, and the next three listed events' banners fanned on top, cycling every 4.5 s (still under reduced motion, paused on hover and in a hidden tab)
+- **The track record, counted:** events hosted, delegates registered (not cancelled or waitlisted, Faculty type excluded), faculty (one per email) and countries, from the database, never typed in. Hidden below three events
+- **Next up:** the soonest listed event, large, with a countdown and what each registration type pays today at the rate the Register link lands on (`ratesByType` in `event-overview.ts`, which shares one availability reading with `publicRegistration`, so the prices and the state cannot disagree)
+- **Cards** show the dates, the venue without the city twice, CME hours, "From $X" and the rate's name ("Early Bird"), "Sold out" or "Registration closed", by the same rule as the form. The search overlaps the hero; specialties are one-tap chips; "How registering works" and specialty and country tiles follow; a full footer with the organisation's contact details (its company email and phone)
+- **Settings, General, "Event catalogue photo":** uploaded to the media library (2 MB), stored as `Organization.settings.catalogueHeroImage`; only an uploaded file or an https address is accepted, on the way in and on the way out
+
 ### Public event catalogue, event pages, and search engines (November 4)
 
 - **`/catalogue`: every event an organiser lists, public and server-rendered.** Search, country / type / specialty filters (a plain GET form), Upcoming and Past tabs, paging, mobile first. An event appears only when **Settings, Registration, "Show in the event catalogue"** is on (off by default, so a closed or invite-only meeting is never advertised) and it is PUBLISHED or LIVE (COMPLETED under Past). Cards use the mobile banner and show the wide banner whole rather than cropped

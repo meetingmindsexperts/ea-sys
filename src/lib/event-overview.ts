@@ -21,6 +21,7 @@ import { eventJsonLd, type SeoEvent } from "@/lib/seo";
 
 /** A registration type as the event page loads it: its rates with their windows and seats. */
 export interface PublicTicketType {
+  name: string;
   quantity: number;
   soldCount: number;
   pricingTiers: {
@@ -47,28 +48,23 @@ export interface PublicOffer {
 
 export type RegistrationState = "open" | "closed" | "sold-out" | "ended";
 
+type RegistrationInput = {
+  endDate: Date;
+  registrationOpen: boolean;
+  eventFull: boolean;
+  eventType: string | null;
+  settings: unknown;
+  ticketTypes: PublicTicketType[];
+};
+
 /**
- * Whether a visitor can register and from what price, answered by the SAME
- * rules the public API and the register page use (public-availability.ts):
- * "open" exactly when the main Register link has a rate to land on, and the
- * price is that rate's lowest paid price across the registration types,
- * which is what the visitor sees on the form. A free rate (exhibitor, a
- * sponsored delegate) never makes a paid event read Free; Free only when
- * every price at the rate is 0.
+ * Every rate with its availability, and the rate the main Register link lands
+ * on: the one reading behind both `publicRegistration` and `ratesByType`, so
+ * a price list can never disagree with the state beside it.
  */
-export function publicRegistration(
-  input: {
-    endDate: Date;
-    registrationOpen: boolean;
-    eventFull: boolean;
-    eventType: string | null;
-    settings: unknown;
-    ticketTypes: PublicTicketType[];
-  },
-  now: Date,
-): { state: RegistrationState; offer: PublicOffer | null } {
-  if (input.endDate < now) return { state: "ended", offer: null };
+function availabilityView(input: RegistrationInput, now: Date) {
   const types = input.ticketTypes.map((t) => ({
+    name: t.name,
     pricingTiers: t.pricingTiers.map((tier) => ({ ...tier, ...tierAvailability(tier, t, now) })),
   }));
   const codeRequiredTiers = readCodeRequiredTiers(input.settings);
@@ -81,6 +77,21 @@ export function publicRegistration(
     mainRegisterTiers,
     codeRequiredTiers,
   });
+  return { types, target, codeRequiredTiers, mainRegisterTiers };
+}
+
+/**
+ * Whether a visitor can register and from what price, answered by the SAME
+ * rules the public API and the register page use (public-availability.ts):
+ * "open" exactly when the main Register link has a rate to land on, and the
+ * price is that rate's lowest paid price across the registration types,
+ * which is what the visitor sees on the form. A free rate (exhibitor, a
+ * sponsored delegate) never makes a paid event read Free; Free only when
+ * every price at the rate is 0.
+ */
+export function publicRegistration(input: RegistrationInput, now: Date): { state: RegistrationState; offer: PublicOffer | null } {
+  if (input.endDate < now) return { state: "ended", offer: null };
+  const { types, target, codeRequiredTiers, mainRegisterTiers } = availabilityView(input, now);
   const allTiers = types.flatMap((t) => t.pricingTiers);
   // A HYBRID event at its in-person cap is still open for virtual attendance,
   // which has its own price (virtualPrice): no in-person price is quoted.
@@ -96,6 +107,31 @@ export function publicRegistration(
   const full = (input.eventFull && input.eventType !== "HYBRID") || (inWindow.length > 0 && inWindow.every((t) => t.soldOut));
   if (input.registrationOpen && full) return { state: "sold-out", offer: cheapest(inWindow, false, true) };
   return { state: "closed", offer: null };
+}
+
+export interface TypeRate {
+  /** The registration type, as the form names it. */
+  type: string;
+  price: number;
+  currency: string;
+}
+
+/**
+ * What each registration type pays today: its price at the rate the main
+ * Register link lands on (Early Bird, Standard...), for the types that can
+ * buy at it. Empty when registration is not open, or on a HYBRID event at
+ * its in-person cap (virtual has its own price). `rate` is that rate's name.
+ */
+export function ratesByType(input: RegistrationInput, now: Date): { rate: string | null; rates: TypeRate[] } {
+  if (input.endDate < now) return { rate: null, rates: [] };
+  const { types, target } = availabilityView(input, now);
+  if (!target || (input.eventFull && input.eventType === "HYBRID")) return { rate: null, rates: [] };
+  const slug = registerTierSlug(target.name);
+  const rates = types.flatMap((t) => {
+    const tier = t.pricingTiers.find((x) => x.canPurchase && registerTierSlug(x.name) === slug);
+    return tier ? [{ type: t.name, price: Number(tier.price.toString()), currency: tier.currency }] : [];
+  });
+  return { rate: target.name, rates };
 }
 
 function cheapest(tiers: { price: { toString(): string }; currency: string }[], onSale: boolean, soldOut: boolean): PublicOffer | null {
