@@ -721,4 +721,5 @@ were a second copy of each document and had drifted from both the docs and the c
 - `docs/PROCUREMENT_ROLES_PLAN.md` - Custom roles for Budget & Procurement: BUILT Sep 16, 2026, on main (planned Sep 15; kept as the design record).
 - `docs/IDENTITY_AND_ROLES.md` - Operator runbook: "one person, many hats." The two-layer identity model (event-scoped *facets* — speaker/registration/badge/abstract — stack freely by email and never duplicate.
 - `docs/ZOOM_INTEGRATION.html` - Zoom SDK integration guide (architecture, setup, file list)
+- `docs/WEBINAR_STREAMING.html` - Webinar streaming in plain words (Nov 5, 2026): Zoom → MediaMTX → HLS → LivePlayer, the two viewing modes, the rules (stream check, player recovery and stall watchdog, waiting room, ended rule, auto-close and overrun, thank-you timing), scale, what the logs say about stream starts and drops, and known gaps.
 - `.env.example` - Environment variable template. **NOT tracked by git** (`.gitignore` ignores `.env*`), so a fresh clone will not have it.

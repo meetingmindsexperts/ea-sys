@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Webinar Streaming</title>
+<style>
+  :root { --ink:#1a2333; --muted:#5b6678; --line:#dbe1ea; --accent:#00aade; --bg:#f7f9fc; --card:#ffffff; --good:#1d8a4e; --warn:#b7791f; --bad:#c0392b; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); margin: 0; padding: 32px 16px 80px; line-height: 1.6; }
+  main { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin: 0 0 4px; }
+  h2 { font-size: 1.3rem; margin: 44px 0 12px; border-bottom: 2px solid var(--accent); padding-bottom: 6px; }
+  h3 { font-size: 1.05rem; margin: 26px 0 8px; }
+  .sub { color: var(--muted); margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin: 14px 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .86em; background: #eef2f7; padding: 1px 5px; border-radius: 4px; }
+  pre { background: #0f1722; color: #d6e2f0; border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: .82rem; line-height: 1.5; }
+  pre code { background: none; padding: 0; color: inherit; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; margin: 12px 0; background: var(--card); }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #eef4fa; }
+  /* Long file paths and log names wrap; a table still too wide scrolls inside itself on a phone. */
+  td code, li code, p code { overflow-wrap: anywhere; }
+  @media (max-width: 640px) { table { display: block; overflow-x: auto; } }
+  ul, ol { margin: 8px 0 8px 22px; padding: 0; }
+  li { margin: 4px 0; }
+  .note { border-left: 4px solid var(--accent); background: #eaf7fc; padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: .94rem; }
+  .warn { border-left-color: var(--warn); background: #fdf6e8; }
+  .bad { border-left-color: var(--bad); background: #fdeeee; }
+  .toc a { color: #0a6f92; text-decoration: none; }
+  .toc li { margin: 2px 0; }
+  /* The pipeline picture: boxes and arrows, no image needed */
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 16px 0; }
+  .box { flex: 1 1 150px; background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--accent); border-radius: 8px; padding: 10px 12px; font-size: .88rem; }
+  .box b { display: block; margin-bottom: 2px; }
+  .box small { color: var(--muted); }
+  .arrow { align-self: center; color: var(--accent); font-weight: 700; font-size: 1.3rem; }
+  .pill { display: inline-block; font-size: .72rem; font-weight: 600; padding: 2px 9px; border-radius: 99px; white-space: nowrap; }
+  .pill.on { background: #e2f6ea; color: var(--good); }
+  .pill.pending { background: #fdf3e0; color: var(--warn); }
+  @media (max-width: 640px) { .arrow { transform: rotate(90deg); width: 100%; text-align: center; } }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Webinar Streaming</h1>
+<p class="sub">How a webinar gets from the speaker's camera to thousands of attendees on our page: the architecture, the
+system design, and the rules (algorithms) each part follows. Written Nov 5, 2026, after the first full test webinar.
+For running a webinar, see the operator guide (<code>public/user-guide.html</code> §11); for setup history, see
+<code>docs/LIVE_STREAMING.md</code> and <code>docs/WEBINAR_EVENTS.md</code>.</p>
+
+<div class="card toc">
+  <b>Contents</b>
+  <ol>
+    <li><a href="#picture">The picture in one line</a></li>
+    <li><a href="#modes">Two ways to watch</a></li>
+    <li><a href="#parts">The parts and what each one does</a></li>
+    <li><a href="#life">The life of a webinar</a></li>
+    <li><a href="#algorithms">The rules each part follows</a></li>
+    <li><a href="#scale">Why it holds up at 5,000 viewers</a></li>
+    <li><a href="#drops">When the stream drops</a></li>
+    <li><a href="#logs">What the logs say, and where</a></li>
+    <li><a href="#gaps">Known gaps</a></li>
+    <li><a href="#files">Where the code lives</a></li>
+  </ol>
+</div>
+
+<h2 id="picture">1. The picture in one line</h2>
+<p>The speakers present in Zoom. Zoom pushes <b>one</b> video stream to our own media server. Our server cuts it into
+two-second pieces, and every attendee's browser downloads those pieces from our website. Zoom never sees the attendees,
+so the audience size does not cost Zoom seats.</p>
+
+<div class="flow">
+  <div class="box"><b>Speakers in Zoom</b><small>Zoom webinar, host + panelists</small></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Zoom live stream</b><small>one RTMP push to our box, port 1935</small></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>MediaMTX</b><small>container <code>ea-sys-mediamtx</code>: RTMP in, HLS out (2 s pieces)</small></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>nginx <code>/stream/</code></b><small>optional CDN in front (<code>HLS_CDN_BASE</code>)</small></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Attendee page</b><small><code>/e/{slug}/session/{id}</code>, the LivePlayer</small></div>
+</div>
+
+<p>Beside the video, the same page runs a lighter loop for everything else: the waiting room, Q&amp;A, polls, presence
+and the end-of-webinar survey all talk to our web app by polling small JSON routes.</p>
+
+<h2 id="modes">2. Two ways to watch</h2>
+<p>Each webinar picks one mode in the console (<b>Waiting Room → How attendees watch</b>).</p>
+<table>
+  <tr><th></th><th>Custom stream (HLS)</th><th>Zoom embed</th></tr>
+  <tr><td>What the attendee sees</td><td>Our video player, one-way broadcast</td><td>Zoom's own player inside our page</td></tr>
+  <tr><td>Audience size</td><td>Thousands (only the video pieces are served)</td><td>Zoom's webinar seat limit</td></tr>
+  <tr><td>Delay behind the speaker</td><td>About 6 to 15 seconds</td><td>About 1 to 2 seconds</td></tr>
+  <tr><td>Questions</td><td>Our Q&amp;A box under the video</td><td>Zoom's Q&amp;A</td></tr>
+  <tr><td>Knows when it is "really on air"</td><td>Yes: the stream is either arriving or not</td><td>Only from Zoom's reports</td></tr>
+  <tr><td>Used for</td><td>Large audiences (Nov 5 test webinar)</td><td>Small interactive sessions</td></tr>
+</table>
+<p>The rest of this document is mostly about the custom stream, since that is the part we run ourselves.</p>
+
+<h2 id="parts">3. The parts and what each one does</h2>
+<table>
+  <tr><th>Part</th><th>Where it runs</th><th>Its job</th></tr>
+  <tr><td><b>Zoom</b></td><td>Zoom's cloud</td><td>The studio: speakers, slides, screen share. When the room opens, we ask Zoom (API) to start pushing the live stream to our box.</td></tr>
+  <tr><td><b>MediaMTX</b></td><td>Container <code>ea-sys-mediamtx</code> on the EC2 box</td><td>Receives the RTMP push on <code>rtmp://{host}:1935/live/{streamKey}</code> and repackages it as HLS: a playlist plus 2-second MPEG-TS pieces, keeping the newest 7.</td></tr>
+  <tr><td><b>nginx</b></td><td>The box</td><td><code>/stream/</code> passes HLS requests to MediaMTX (<code>:8888</code>), marked no-cache.</td></tr>
+  <tr><td><b>CDN</b> (optional)</td><td>CloudFront, when <code>HLS_CDN_BASE</code> is set</td><td>Serves the video pieces from edge locations so 5,000 viewers do not all hit the box. The player falls back to the box if the CDN misbehaves.</td></tr>
+  <tr><td><b>Web app</b></td><td>Containers <code>ea-sys-blue</code> / <code>ea-sys-green</code></td><td>The attendee page and its small routes: <code>lobby-status</code>, <code>stream-status</code>, <code>zoom-join</code>, <code>questions</code>, <code>presence</code>, <code>end-survey</code>. Also the producer's console and the room switch.</td></tr>
+  <tr><td><b>Worker</b></td><td>Container <code>ea-sys-worker</code></td><td>Timed jobs: closes the room when Zoom reports the end (every 3 min), sends the email sequence (every minute) and holds the thank-you while the room is open.</td></tr>
+  <tr><td><b>Database</b></td><td>Postgres</td><td>The webinar's state. The key fact is the anchor session's status: <code>LIVE</code> means the room is open. Settings (viewing mode, survey, exit link) live in <code>Event.settings.webinar</code>.</td></tr>
+</table>
+
+<div class="note">The single source of truth is the <b>anchor session's status</b>. Pressing <b>Open the room / Go live</b>
+sets it to <code>LIVE</code>; <b>Close the room</b> sets it to <code>COMPLETED</code> (or back to <code>SCHEDULED</code> for a rehearsal before the start).
+Everything else, from the attendee page to the emails, reads that one field.</div>
+
+<h2 id="life">4. The life of a webinar</h2>
+<table>
+  <tr><th>Stage</th><th>What the producer does</th><th>What attendees see</th><th>What happens behind</th></tr>
+  <tr><td>Before the start</td><td>Starts Zoom as host, presses Start stream, checks the preview</td><td>Waiting room with countdown and lobby message</td><td>Reminder emails (24 h, 1 h, 15 min). Attendee pages ask <code>lobby-status</code> every 15 to 20 s.</td></tr>
+  <tr><td>Rehearsal</td><td>Opens and closes the room before the scheduled start</td><td>Nothing changes for them</td><td>The close returns the session to <code>SCHEDULED</code>; no email is moved.</td></tr>
+  <tr><td>Room open</td><td>Presses Open the room / Go live</td><td>Player appears and plays within about 20 s</td><td>Status <code>LIVE</code>; Zoom is told to start pushing (skipped if already arriving). The "Live now" email goes at the scheduled start, not on opening.</td></tr>
+  <tr><td>Live</td><td>Moderates Q&amp;A, launches polls</td><td>Video, Q&amp;A, one open poll at a time</td><td>Players fetch pieces every 2 s; Q&amp;A and polls refresh every 15 s; presence beats every 30 to 40 s.</td></tr>
+  <tr><td>Running late</td><td>Nothing; the console shows a "running past the scheduled end" note</td><td>Still the live view</td><td>Nothing ends on the clock. Thank-you email held. See the overrun rule below.</td></tr>
+  <tr><td>End</td><td>Presses Close the room (asks to confirm), or ends Zoom</td><td>Thank-you screen, survey popup, exit button</td><td>Status <code>COMPLETED</code>; the thank-you email is moved to 30 minutes after the close.</td></tr>
+</table>
+
+<h2 id="algorithms">5. The rules each part follows</h2>
+
+<h3>5.1 Cutting the video into pieces (MediaMTX)</h3>
+<ul>
+  <li>Each piece is <b>2 seconds</b> of video (<code>hlsSegmentDuration</code>). The playlist lists the newest <b>7</b> (<code>hlsSegmentCount</code>), about 14 seconds.</li>
+  <li>Players start about 3 pieces behind the newest one, so the normal delay is about <b>6 seconds</b>, plus Zoom's own delay.</li>
+  <li>Pieces are MPEG-TS (<code>hlsVariant: mpegts</code>), which every browser and the iPhone play. <code>hlsAlwaysRemux</code> means pieces are made even before anyone watches, so the first viewer does not wait.</li>
+  <li>When Zoom's push stops, MediaMTX removes the stream path at once. That is why a drop looks like "the stream is gone", not "the stream is slow".</li>
+</ul>
+
+<h3>5.2 Is the stream live? (stream-status)</h3>
+<ol>
+  <li>The player asks <code>/api/public/events/{slug}/sessions/{id}/stream-status</code>.</li>
+  <li>The route asks MediaMTX for the playlist. A playlist means live. The answer is <b>cached 3 seconds</b> per container, so 5,000 viewers cause about one MediaMTX check every 3 seconds, not thousands.</li>
+  <li>The stored status flips <code>IDLE → ACTIVE</code> when it appears and <code>ACTIVE → ENDED</code> when it disappears, and logs <code>zoom:stream-status-changed</code>. The flip happens only on a real change, so heavy polling cannot spam the database.</li>
+  <li>It returns two addresses: the CDN one and the box ("origin") one.</li>
+</ol>
+
+<h3>5.3 The player (LivePlayer)</h3>
+<ul>
+  <li><b>Start.</b> Ask stream-status. Live: load the playlist (the browser's own HLS on Safari and Chrome, the <code>hls.js</code> library elsewhere). Not live: show the waiting card and ask again every <b>10 seconds</b>.</li>
+  <li><b>Sound.</b> Browsers only autoplay muted, so the video starts muted with a big "Tap to turn on sound" button. The choice is remembered per browser. If a reconnect is refused sound, the button comes back, so the viewer is never silently muted.</li>
+  <li><b>CDN failover.</b> If the CDN copy fails, switch to the box copy, <b>once</b> per load (no ping-pong).</li>
+  <li><b>Recovery.</b> If both fail, go back to asking stream-status every 10 seconds, and play again when it is live. No page reload is needed. A Retry button re-runs this without reloading the page, because 5,000 full reloads at once would overload the site.</li>
+  <li><b>Stall watchdog.</b> The browser's own player often just freezes when the stream vanishes, with no error. So once a second the player checks whether the picture has moved:
+    <ul>
+      <li>It only starts watching after the picture has moved once (a slow first piece is not a drop).</li>
+      <li>Frozen for 15 to 20 s (random per viewer, so a crowd does not reconnect at the same moment): reconnect.</li>
+      <li>Each reconnect in a row doubles the wait: 15 s, 30 s, 60 s, then every 2 minutes. A minute of moving picture resets it.</li>
+      <li>A load that never shows a first frame is retried after 60 s, also backed off.</li>
+    </ul>
+  </li>
+  <li><b>Back to live.</b> A viewer who falls more than 12 s behind (Safari, Firefox) or is paused by the phone gets a "Back to live" button.</li>
+  <li><b>Wording.</b> "Waiting for stream to start" before it has played; "The stream was interrupted, reconnecting" after a drop; past the scheduled end, "The stream has stopped, this page will show it in a few minutes".</li>
+</ul>
+
+<h3>5.4 Waiting room and admission</h3>
+<ul>
+  <li>Each attendee page asks <code>lobby-status</code> every <b>15 to 20 seconds</b> (random spread). The route keeps its answer for 3 seconds, so the database sees about one query per 3 seconds per container.</li>
+  <li>When the answer flips to "room open", the page fetches fresh join details once (a link fetched at page load may have expired during a long wait) and shows the player. A latch makes this happen once per opening; closing the room resets it.</li>
+  <li>The join route lets a registrant in while the session is <code>LIVE</code>, whatever the clock says, so a late joiner during an overrun still gets in.</li>
+</ul>
+
+<h3>5.5 Has the webinar ended?</h3>
+<p>One rule, <code>webinarRoomEnded</code>, used by the attendee page, the survey and the console:</p>
+<pre><code>if the room is open (LIVE)                    → not ended, however late
+else if past the scheduled end                → ended
+else if closed (COMPLETED) after the start    → ended   (an early close is the end)
+else                                          → not ended (before start, or a rehearsal)</code></pre>
+<p>Once ended for a viewer, the page swaps the video for the thank-you screen, the survey pops up once (it comes back
+on the next visit until answered), and the exit button shows. Reopening the room brings everyone still on the page back.</p>
+
+<h3>5.6 Closing the room automatically (worker, every 3 minutes)</h3>
+<p>Ending in Zoom does not close our room by itself; the worker does, but carefully, because a host who crashes and
+restarts must not lose the audience.</p>
+<ul>
+  <li><b>Zoom says it ended.</b> Close when Zoom's last end time is after the room opened, no earlier than 15 minutes before the scheduled end, and at least 5 minutes old (time for a host to restart).</li>
+  <li><b>Safety net.</b> A room still open 2 hours after the scheduled end (or the last reopen) is closed as forgotten.</li>
+  <li><b>Overrun exception (custom stream only).</b> Before the safety net closes a room, it checks the stream itself. If the room's own stream is still arriving, the webinar is still on air: keep it open. To avoid ending on a blip:
+    <ul>
+      <li>the stream must be missing for <b>5 minutes</b> before it counts as gone (a Zoom reconnect takes about 40 s);</li>
+      <li>Zoom is still asked: a settled Zoom end closes the room even if something keeps streaming;</li>
+      <li>nothing stays open more than <b>6 hours</b> after the scheduled end.</li>
+    </ul>
+  </li>
+</ul>
+
+<h3>5.7 The thank-you email</h3>
+<ul>
+  <li>Scheduled for 30 minutes after the scheduled end.</li>
+  <li>While the room is open, the sender holds it and looks again every 10 minutes.</li>
+  <li>When the room closes (by the producer or the worker), it moves to <b>30 minutes after the close</b>, earlier or later than planned.</li>
+  <li>The hold gives up 2.5 hours after the scheduled end, unless the custom stream is still on air (same 5-minute grace and 6-hour cap as above).</li>
+</ul>
+
+<h3>5.8 Q&amp;A, polls and presence</h3>
+<ul>
+  <li><b>Q&amp;A</b> and the <b>poll</b> come in one refresh every 15 seconds, so a poll adds no extra requests.</li>
+  <li>Only the <b>open</b> poll reaches attendees. Closing it takes it off their screen at once. Results show only to people who answered, and only if the producer switched them on. Tallies are cached 5 seconds.</li>
+  <li><b>Presence</b>: each open page beats every 30 to 40 seconds (not while the tab is hidden). "Here now" means a beat in the last 60 seconds. This is our page's view, separate from Zoom's attendance report afterwards.</li>
+</ul>
+
+<h3>5.9 Who may push a stream</h3>
+<ul>
+  <li>Each webinar has a random stream key. Zoom is given the key plus a password: an HMAC of the key signed with a server secret, so viewers, who see the key in the video address, can never publish.</li>
+  <li>MediaMTX can ask our app to approve every publish (<code>/api/webhooks/mediamtx-auth</code>). <span class="pill pending">not switched on</span> See <a href="#gaps">Known gaps</a>.</li>
+</ul>
+
+<h2 id="scale">6. Why it holds up at 5,000 viewers</h2>
+<table>
+  <tr><th>Traffic</th><th>Per viewer</th><th>What keeps the server calm</th></tr>
+  <tr><td>Video pieces</td><td>One 2 s piece every 2 s</td><td>Static files; CDN in front when set</td></tr>
+  <tr><td>stream-status</td><td>On start and every 10 s only while waiting</td><td>3 s probe cache, rate limit 360/hour per IP</td></tr>
+  <tr><td>lobby-status</td><td>Every 15 to 20 s</td><td>3 s answer cache, random spread</td></tr>
+  <tr><td>Q&amp;A + poll</td><td>Every 15 s</td><td>One request carries both; 5 s tally cache</td></tr>
+  <tr><td>Presence</td><td>Every 30 to 40 s</td><td>One upsert, no transaction</td></tr>
+  <tr><td>Reconnects</td><td>Only after a freeze</td><td>Random 15 to 20 s start, doubling back-off</td></tr>
+</table>
+
+<h2 id="drops">7. When the stream drops</h2>
+
+<h3>What happened on Nov 5, 2026 (times in UTC; Dubai is +4)</h3>
+<table>
+  <tr><th>Time</th><th>Event</th><th>Log line</th></tr>
+  <tr><td>08:36:42</td><td>Stream started from the console</td><td><code>webinar-livestream:status-changed</code> (action start)</td></tr>
+  <tr><td>08:38:22</td><td>Room opened (stream already arriving, so not restarted)</td><td><code>webinar:room-opened</code>, <code>webinar:room-stream-already-arriving</code></td></tr>
+  <tr><td>08:42:03</td><td><b>Stream disappeared from MediaMTX</b></td><td><code>zoom:stream-status-changed</code> ENDED</td></tr>
+  <tr><td>08:42:38</td><td>A producer pressed Start stream</td><td><code>webinar-livestream:status-changed</code> (action start)</td></tr>
+  <tr><td>08:42:43</td><td>Stream back</td><td><code>zoom:stream-status-changed</code> ACTIVE</td></tr>
+  <tr><td>08:54:27</td><td>Stream ended</td><td><code>zoom:stream-status-changed</code> ENDED</td></tr>
+  <tr><td>08:54:47</td><td>Room closed</td><td><code>webinar:room-closed</code></td></tr>
+</table>
+
+<h3>Why did it drop?</h3>
+<p>Our app logs show <b>that</b> Zoom's push stopped at 08:42:03, not <b>why</b>. The app only sees the stream path
+disappear. The reason (Zoom closed the connection, a network timeout, a bad packet) is in MediaMTX's own log,
+which stays in Docker on the box and is not shipped to CloudWatch. It is kept for a limited time (log rotation), so read it soon:</p>
+<pre><code>docker logs --since 2026-11-05T08:35:00Z --until 2026-11-05T08:45:00Z ea-sys-mediamtx</code></pre>
+<p>Look for the RTMP connection closing just before 08:42:03, and the reason printed on that line. Typical causes:
+Zoom restarting its push (for example after a host changes the layout or the shared screen), the host's own network,
+or Zoom's live-stream service. If MediaMTX shows a clean close from Zoom's side, the cause is on Zoom's side.</p>
+
+<h3>What happens today when it drops</h3>
+<ul>
+  <li><b>Attendees:</b> the player shows "The stream was interrupted, reconnecting", checks every 10 seconds, and plays again by itself when the stream is back. The stall watchdog covers players that freeze without noticing.</li>
+  <li><b>Producers:</b> nothing restarts the push automatically. Someone must notice and press <b>Start stream</b> in the console, as happened on Nov 5 after 35 seconds.</li>
+</ul>
+<div class="note warn">A proposed improvement, <b>not built</b>: a watchdog in the worker that notices an open custom-stream room
+whose stream has been missing for about 30 seconds and asks Zoom to start the push again (the same call as the Start
+stream button), logging each attempt. Zoom refuses if the host has ended the webinar, so it cannot restart a finished one.</div>
+
+<h2 id="logs">8. What the logs say, and where</h2>
+<p>Every line below is in the <b>app log</b>: CloudWatch group <code>ea-sys/app</code> (and <code>logs/app.log</code> on the box).
+The <code>/logs</code> page in EA-SYS shows only warnings and errors, so most of these <b>do not</b> appear there.</p>
+<table>
+  <tr><th>Log line</th><th>Meaning</th><th>Level</th></tr>
+  <tr><td><code>webinar:room-opened</code> / <code>webinar:room-closed</code></td><td>Producer opened or closed the room (with user id)</td><td>info</td></tr>
+  <tr><td><code>webinar:room-closed-rehearsal</code></td><td>A close before the start, treated as a rehearsal</td><td>info</td></tr>
+  <tr><td><code>webinar-livestream:status-changed</code></td><td>Start stream / Stop stream pressed (action, user id)</td><td>info</td></tr>
+  <tr><td><code>webinar-livestream:refused</code>, <code>webinar:room-stream-control-failed</code></td><td>Zoom refused to start or stop (usually: host has not started the webinar in Zoom)</td><td>warn</td></tr>
+  <tr><td><code>zoom:stream-status-changed</code> ACTIVE / ENDED</td><td>The stream appeared in or disappeared from MediaMTX. Seen only while someone is watching, because viewers' checks trigger it.</td><td>info</td></tr>
+  <tr><td><code>webinar-room-autoclose:closed</code></td><td>The worker closed the room (with the reason)</td><td>info</td></tr>
+  <tr><td><code>webinar-room-autoclose:kept-stream-on-air</code></td><td>Past the safety net but still streaming: kept open</td><td>info</td></tr>
+  <tr><td><code>webinar-overrun:stream-missing-grace-started</code> / <code>stream-gone</code></td><td>Overrun check saw the stream missing / missing over 5 minutes</td><td>info</td></tr>
+  <tr><td><code>scheduled-email:thank-you-held-room-open</code></td><td>Thank-you held because the room is open</td><td>info</td></tr>
+  <tr><td><code>webinar-sequence:thank-you-moved-after-close</code></td><td>Thank-you moved to 30 minutes after the close</td><td>info</td></tr>
+  <tr><td><code>stream-probe:mediamtx-unreachable</code></td><td>The app or worker could not reach MediaMTX at all (at most once a minute)</td><td>warn</td></tr>
+  <tr><td><code>live-player:stalled-reconnecting</code></td><td>A viewer's player froze and reconnected</td><td>browser console only</td></tr>
+</table>
+<p>To see one webinar's stream story in CloudWatch, filter <code>ea-sys/app</code> for its event id, or for
+<code>stream-status-changed</code> and <code>livestream</code> in the time window. The Nov 5 table above was built that way.</p>
+<div class="note warn">Proposed, <b>not built</b>: a stream timeline in the console, so producers can see "started, dropped,
+back, ended" without CloudWatch. It needs the drop and start events stored, not only logged, and ideally MediaMTX's
+own connect and disconnect reasons shipped to CloudWatch.</div>
+
+<h2 id="gaps">9. Known gaps</h2>
+<ul>
+  <li><b>Publish approval is not switched on.</b> <code>mediamtx.yml</code> has no <code>authMethod: http</code>, so MediaMTX accepts a push on any path from anyone who can reach port 1935. The approval route and the publish passwords exist; switching it on is the owner step in <code>docs/LIVE_STREAMING.md</code> ("Publish authorisation").</li>
+  <li><b>No automatic restart</b> of Zoom's push after a drop (section 7).</li>
+  <li><b>MediaMTX's log is not in CloudWatch</b>, so the reason for a drop is only on the box for a limited time.</li>
+  <li><b>Stream start/stop are info lines</b>, invisible on the <code>/logs</code> page.</li>
+  <li><b>Zoom embed mode</b> cannot tell "still on air" from "left open", so a webinar running more than 2 hours past its scheduled end is closed by the safety net.</li>
+  <li>The MediaMTX image is <code>bluenviron/mediamtx:latest</code>, not a pinned version.</li>
+</ul>
+
+<h2 id="files">10. Where the code lives</h2>
+<table>
+  <tr><th>Concern</th><th>File</th></tr>
+  <tr><td>Attendee page</td><td><code>src/app/e/[slug]/session/[sessionId]/page.tsx</code></td></tr>
+  <tr><td>Player</td><td><code>src/components/zoom/live-player.tsx</code></td></tr>
+  <tr><td>Thank-you screen, survey popup</td><td><code>src/components/webinar/exit-screen.tsx</code>, <code>end-survey-dialog.tsx</code></td></tr>
+  <tr><td>Ended rule</td><td><code>src/lib/webinar-page-layout.ts</code> (<code>webinarRoomEnded</code>, <code>isWebinarOver</code>)</td></tr>
+  <tr><td>Stream check</td><td><code>src/lib/webinar/stream-probe.ts</code>, <code>.../stream-status/route.ts</code></td></tr>
+  <tr><td>Overrun rule</td><td><code>src/lib/webinar/overrun.ts</code></td></tr>
+  <tr><td>Auto-close</td><td><code>src/lib/webinar/room-autoclose.ts</code> (worker job <code>webinar-room-autoclose</code>)</td></tr>
+  <tr><td>Room switch</td><td><code>src/app/api/events/[eventId]/webinar/room/route.ts</code></td></tr>
+  <tr><td>Telling Zoom to push</td><td><code>src/lib/webinar/livestream.ts</code></td></tr>
+  <tr><td>Thank-you timing</td><td><code>src/lib/webinar-email-sequence.ts</code>, <code>src/lib/scheduled-emails-worker.ts</code></td></tr>
+  <tr><td>Exit button link</td><td><code>src/lib/webinar-exit-link.ts</code></td></tr>
+  <tr><td>Media server and proxy</td><td><code>mediamtx.yml</code>, <code>docker-compose.prod.yml</code>, <code>deploy/nginx.conf</code> (<code>/stream/</code>)</td></tr>
+  <tr><td>Producer console</td><td><code>src/app/(dashboard)/events/[eventId]/webinar/page.tsx</code></td></tr>
+</table>
+
+</main>
+</body>
+</html>
