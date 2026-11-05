@@ -2,7 +2,7 @@
 
 import { useCan } from "@/hooks/use-can";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CORE_TEMPLATE_SLUGS } from "@/lib/email-template-registry";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/use-api";
@@ -313,6 +313,10 @@ export default function EventSettingsPage() {
     dtcmPerformanceCode: "",
   });
 
+  // The catalogue switch as loaded. Settings, Catalogue can flip it while this
+  // page is open, so a save sends it only when it was changed HERE; otherwise
+  // saving an unrelated setting would undo that listing (review of 4d44bf3b).
+  const loadedShowInCatalogue = useRef<boolean | null>(null);
   const [registrationSettings, setRegistrationSettings] = useState({
     registrationOpen: true,
     waitlistEnabled: false,
@@ -496,6 +500,7 @@ export default function EventSettingsPage() {
           showRemainingTickets: settings.showRemainingTickets ?? false,
           showInCatalogue: settings.showInCatalogue === true,
         });
+        loadedShowInCatalogue.current = settings.showInCatalogue === true;
         setFormFields(readFormFields(settings));
 
         setAgendaSettings({
@@ -833,11 +838,12 @@ export default function EventSettingsPage() {
     // maxAttendees is a real Event column (enforced cap) — sent top-level so
     // the PUT runs the recompute-on-set + below-count guard; everything else
     // stays in the settings JSON blob.
-    const { maxAttendees, ...registrationSettingsJson } = registrationSettings;
+    const { maxAttendees, showInCatalogue, ...registrationSettingsJson } = registrationSettings;
     return {
       maxAttendees,
       settings: {
             ...registrationSettingsJson,
+            ...(showInCatalogue !== loadedShowInCatalogue.current && { showInCatalogue }),
             ...agendaSettings,
             ...abstractSettings,
             ...notificationSettings,

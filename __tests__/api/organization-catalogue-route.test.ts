@@ -59,6 +59,21 @@ describe("PUT /api/organization/catalogue", () => {
     expect(body.settings.showTopics).toBe(true);
   });
 
+  it("merges over what is stored, so a partial save keeps the photo and the other fields", async () => {
+    mockOrgMerge.mockImplementation(async (_id: string, fn: (c: Record<string, unknown>) => Record<string, unknown>) =>
+      fn({ catalogue: { heroImage: "/uploads/media/a.jpg", headline: "Old", showStats: false } }),
+    );
+    await put({ headline: "New" });
+    const merged = await mockOrgMerge.mock.results[0].value;
+    expect(merged.catalogue).toEqual({ heroImage: "/uploads/media/a.jpg", headline: "New", showStats: false });
+  });
+
+  it("clears a contact email made only of spaces instead of refusing it", async () => {
+    const res = await put({ contactEmail: "   " });
+    expect(res.status).toBe(200);
+    expect((await mockOrgMerge.mock.results[0].value).catalogue.contactEmail).toBeNull();
+  });
+
   it.each([
     ["a photo outside the media library", { heroImage: "/uploads/../api/x" }],
     ["a javascript: photo", { heroImage: "javascript:alert(1)" }],

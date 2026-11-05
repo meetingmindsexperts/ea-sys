@@ -249,7 +249,7 @@ export function useCatalogueSettings() {
 export function useSaveCatalogueSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (settings: Partial<CatalogueSettings>) =>
+    mutationFn: (settings: CatalogueSettings) =>
       fetchApi<{ settings: CatalogueSettings }>("/api/organization/catalogue", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

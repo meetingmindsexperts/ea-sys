@@ -76,12 +76,16 @@ function text(value: unknown, max: number): string | null {
 
 /** The organisation's catalogue settings with every default filled in; never throws. */
 export function readCatalogueSettings(orgSettings: unknown): CatalogueSettings {
-  const raw = ((orgSettings as Record<string, unknown> | null)?.[CATALOGUE_SETTING] ?? {}) as Record<string, unknown>;
-  const s = raw && typeof raw === "object" ? raw : {};
+  const org = (orgSettings && typeof orgSettings === "object" ? orgSettings : {}) as Record<string, unknown>;
+  const raw = org[CATALOGUE_SETTING];
+  const s = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  // Nov 5, 2026: the photo was briefly saved from Settings, General as a flat
+  // `catalogueHeroImage`, before the Catalogue tab; a photo saved there still shows.
+  const heroImage = s.heroImage ?? org.catalogueHeroImage;
   const L = CATALOGUE_TEXT_LIMITS;
   const email = text(s.contactEmail, L.contactEmail);
   return {
-    heroImage: typeof s.heroImage === "string" && isCatalogueHeroImageUrl(s.heroImage) ? s.heroImage : null,
+    heroImage: typeof heroImage === "string" && isCatalogueHeroImageUrl(heroImage) ? heroImage : null,
     eyebrow: text(s.eyebrow, L.eyebrow),
     headline: text(s.headline, L.headline),
     intro: text(s.intro, L.intro),

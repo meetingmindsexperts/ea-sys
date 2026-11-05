@@ -156,6 +156,11 @@ describe("readCatalogueSettings (Settings, Catalogue tab)", () => {
     expect(read({ heroImage: "https://cdn.example.com/a.jpg" }).heroImage).toBe("https://cdn.example.com/a.jpg");
   });
 
+  it("still shows a photo saved under the brief flat key from Settings, General", () => {
+    expect(readCatalogueSettings({ catalogueHeroImage: "/uploads/media/old.jpg" }).heroImage).toBe("/uploads/media/old.jpg");
+    expect(readCatalogueSettings({ catalogueHeroImage: "/uploads/media/old.jpg", catalogue: { heroImage: "/uploads/media/new.jpg" } }).heroImage).toBe("/uploads/media/new.jpg");
+  });
+
   it("refuses any other photo address", () => {
     for (const bad of [
       "javascript:alert(1)",

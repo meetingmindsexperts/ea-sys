@@ -36,11 +36,22 @@ const catalogueSchema = z
     headline: text(L.headline),
     intro: text(L.intro),
     footerAbout: text(L.footerAbout),
-    contactEmail: z.union([z.literal(""), z.string().trim().email().max(L.contactEmail)]).nullable().optional(),
+    // Trimmed first, so a field of spaces clears rather than failing as an address.
+    contactEmail: z
+      .string()
+      .trim()
+      .max(L.contactEmail)
+      .refine((v) => v === "" || z.string().email().safeParse(v).success, "Must be an email address")
+      .nullable()
+      .optional(),
     contactPhone: text(L.contactPhone),
-    ...Object.fromEntries(CATALOGUE_SECTIONS.map((k) => [k, z.boolean().optional()])),
+    showStats: z.boolean().optional(),
+    showBannerFan: z.boolean().optional(),
+    showNextUp: z.boolean().optional(),
+    showHowItWorks: z.boolean().optional(),
+    showTopics: z.boolean().optional(),
   })
-  .strict();
+  .strict() satisfies z.ZodType<Partial<Record<(typeof CATALOGUE_SECTIONS)[number], boolean>>>;
 
 const listingSchema = z.object({ eventId: z.string().min(1).max(64), listed: z.boolean() }).strict();
 
@@ -104,10 +115,14 @@ export async function PUT(req: Request) {
       apiLogger.warn({ msg: "organization/catalogue:PUT invalid", errors: parsed.error.flatten() });
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
-    // Stored as given (blank as null); the page reads it back through
-    // readCatalogueSettings, which fills every default.
+    // Merged over what is stored, field by field, so a partial save (or a
+    // second admin saving another field) never wipes the rest. Blank is null;
+    // readCatalogueSettings fills every default on the way out.
     const stored = Object.fromEntries(Object.entries(parsed.data).map(([k, v]) => [k, v === "" ? null : v]));
-    const merged = await updateOrganizationSettings(org.orgId, (cur) => ({ ...cur, [CATALOGUE_SETTING]: stored }));
+    const merged = await updateOrganizationSettings(org.orgId, (cur) => {
+      const current = cur[CATALOGUE_SETTING];
+      return { ...cur, [CATALOGUE_SETTING]: { ...(current && typeof current === "object" ? current : {}), ...stored } };
+    });
 
     await db.auditLog.create({
       data: {

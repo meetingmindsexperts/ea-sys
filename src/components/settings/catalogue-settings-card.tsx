@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { CatalogueHeroPhotoField } from "@/components/settings/catalogue-hero-photo-field";
+import { useCan } from "@/hooks/use-can";
 import { useCatalogueSettings, useSaveCatalogueSettings, useSetCatalogueListing, type CatalogueSettingsResponse } from "@/hooks/use-api";
 import { CATALOGUE_TEXT_LIMITS as L, type CatalogueSettings } from "@/lib/catalogue";
 
@@ -21,6 +22,9 @@ import { CATALOGUE_TEXT_LIMITS as L, type CatalogueSettings } from "@/lib/catalo
  * are listed. Every text field left empty falls back to the page's own
  * wording, shown as the field's placeholder.
  */
+
+/** The route returns at most this many events, newest first. */
+const EVENT_LIST_CAP = 200;
 
 type TextKey = "eyebrow" | "headline" | "intro" | "footerAbout" | "contactEmail" | "contactPhone";
 type SectionKey = "showStats" | "showBannerFan" | "showNextUp" | "showHowItWorks" | "showTopics";
@@ -245,6 +249,8 @@ function TextField({
 function ListedEvents({ events }: { events: CatalogueSettingsResponse["events"] }) {
   const setListing = useSetCatalogueListing();
   const [pending, setPending] = useState<string | null>(null);
+  // Listing changes an event's own settings, a key of its own.
+  const canList = useCan("events.settings") === "allowed";
   const now = Date.now();
   const listedCount = events.filter((e) => e.listed).length;
 
@@ -268,6 +274,8 @@ function ListedEvents({ events }: { events: CatalogueSettingsResponse["events"] 
         <CardDescription>
           {listedCount} of {events.length} published {events.length === 1 ? "event is" : "events are"} in the catalogue. Past events move to its
           Past tab. Each event&apos;s own Settings, Registration tab has the same switch.
+          {!canList && " Changing a listing needs permission to edit event settings."}
+          {events.length >= EVENT_LIST_CAP && ` Showing the ${EVENT_LIST_CAP} most recent; older events are listed from their own settings.`}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -298,7 +306,7 @@ function ListedEvents({ events }: { events: CatalogueSettingsResponse["events"] 
                     {pending === e.id && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                     <Switch
                       checked={e.listed}
-                      disabled={pending !== null}
+                      disabled={!canList || pending !== null}
                       onCheckedChange={(v) => toggle(e.id, v)}
                       aria-label={`${e.listed ? "Remove" : "List"} ${e.name} ${e.listed ? "from" : "in"} the catalogue`}
                     />
