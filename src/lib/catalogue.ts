@@ -13,26 +13,83 @@ import type { EventType, Prisma } from "@prisma/client";
 
 export const CATALOGUE_PAGE_SIZE = 12;
 
-/** Organization.settings key for the catalogue hero's photo (Settings, General). */
-export const CATALOGUE_HERO_IMAGE_SETTING = "catalogueHeroImage";
+// ── The organisation's catalogue settings (Settings, Catalogue tab) ─────────
+
+/** Organization.settings key holding every catalogue control. */
+export const CATALOGUE_SETTING = "catalogue";
+
+export const CATALOGUE_TEXT_LIMITS = {
+  eyebrow: 60,
+  headline: 120,
+  /** About what a search result shows before it cuts the description off. */
+  intro: 300,
+  footerAbout: 300,
+  contactEmail: 254,
+  contactPhone: 40,
+} as const;
+
+/**
+ * Everything the organisation controls on its public catalogue. Text left
+ * empty means the page writes its own; every section is shown unless the
+ * organisation hides it.
+ */
+export interface CatalogueSettings {
+  /** The hero's photo, or null for the ECG-paper pattern. */
+  heroImage: string | null;
+  /** The small line above the headline; null shows the organisation's name. */
+  eyebrow: string | null;
+  /** The page's h1; null writes "Medical conferences and CME, from Dubai to Muscat." */
+  headline: string | null;
+  /** The text under the headline, also the page's search description. */
+  intro: string | null;
+  /** The footer's line about the organisation. */
+  footerAbout: string | null;
+  /** The footer's contact; null uses the company email and phone (Billing). */
+  contactEmail: string | null;
+  contactPhone: string | null;
+  showStats: boolean;
+  showBannerFan: boolean;
+  showNextUp: boolean;
+  showHowItWorks: boolean;
+  showTopics: boolean;
+}
+
+export const CATALOGUE_SECTIONS = ["showStats", "showBannerFan", "showNextUp", "showHowItWorks", "showTopics"] as const;
 
 /**
  * Whether a value may be the catalogue hero's photo: a media-library upload
  * or an https address. Nothing else, so a hand-edited value cannot point the
  * public page at a `javascript:` or `data:` address, and no `..`, which the
  * browser would resolve out of /uploads/ into any route on the site, sent by
- * every visitor with their cookies. The organisation API checks it on the way
- * in and the page on the way out.
+ * every visitor with their cookies. Checked on the way in and on the way out.
  */
 export function isCatalogueHeroImageUrl(value: string): boolean {
   if (value.length > 500 || value.includes("..")) return false;
   return /^\/uploads\/media\/[\w\-./]+$/.test(value) || /^https:\/\/[^\s"'<>()\\]+$/.test(value);
 }
 
-/** The catalogue hero's photo, or null (the page then draws its pattern). */
-export function readCatalogueHeroImage(settings: unknown): string | null {
-  const value = (settings as Record<string, unknown> | null)?.[CATALOGUE_HERO_IMAGE_SETTING];
-  return typeof value === "string" && isCatalogueHeroImageUrl(value) ? value : null;
+function text(value: unknown, max: number): string | null {
+  if (typeof value !== "string") return null;
+  const clean = value.replace(/\s+/g, " ").trim();
+  return clean ? clean.slice(0, max) : null;
+}
+
+/** The organisation's catalogue settings with every default filled in; never throws. */
+export function readCatalogueSettings(orgSettings: unknown): CatalogueSettings {
+  const raw = ((orgSettings as Record<string, unknown> | null)?.[CATALOGUE_SETTING] ?? {}) as Record<string, unknown>;
+  const s = raw && typeof raw === "object" ? raw : {};
+  const L = CATALOGUE_TEXT_LIMITS;
+  const email = text(s.contactEmail, L.contactEmail);
+  return {
+    heroImage: typeof s.heroImage === "string" && isCatalogueHeroImageUrl(s.heroImage) ? s.heroImage : null,
+    eyebrow: text(s.eyebrow, L.eyebrow),
+    headline: text(s.headline, L.headline),
+    intro: text(s.intro, L.intro),
+    footerAbout: text(s.footerAbout, L.footerAbout),
+    contactEmail: email && /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(email) ? email : null,
+    contactPhone: text(s.contactPhone, L.contactPhone),
+    ...(Object.fromEntries(CATALOGUE_SECTIONS.map((k) => [k, s[k] !== false])) as Record<(typeof CATALOGUE_SECTIONS)[number], boolean>),
+  };
 }
 
 const MAX_QUERY_LENGTH = 100;

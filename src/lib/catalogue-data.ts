@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { publicOrgScopeForHost } from "@/lib/public-event";
-import { catalogueBaseWhere, groupTopics, readCatalogueHeroImage, type Topic } from "@/lib/catalogue";
+import { catalogueBaseWhere, groupTopics, readCatalogueSettings, type CatalogueSettings, type Topic } from "@/lib/catalogue";
 import { eventIsFull } from "@/lib/public-availability";
 import { publicRegistration, ratesByType, type PublicOffer, type RegistrationState, type TypeRate } from "@/lib/event-overview";
 
@@ -35,9 +35,9 @@ export type CatalogueEvent = Prisma.EventGetPayload<{ select: typeof CATALOGUE_E
 export interface SiteOrganization {
   name: string;
   logo: string | null;
-  /** The catalogue hero's photo (Settings, General), or null for the pattern. */
-  heroImage: string | null;
-  /** The organisation's public contact, from its company details. */
+  /** Everything set in Settings, Catalogue, with the defaults filled in. */
+  catalogue: CatalogueSettings;
+  /** The public contact: the Catalogue tab's, else the company details (Billing). */
   email: string | null;
   phone: string | null;
 }
@@ -53,12 +53,13 @@ export async function loadSiteContext(host: string | null) {
     : null;
   // Only the named fields leave this function: the settings JSON also holds
   // encrypted credentials and must never reach a page.
-  const organization: SiteOrganization | null = row && {
+  const catalogue = row && readCatalogueSettings(row.settings);
+  const organization: SiteOrganization | null = row && catalogue && {
     name: row.name,
     logo: row.logo,
-    heroImage: readCatalogueHeroImage(row.settings),
-    email: row.companyEmail,
-    phone: row.companyPhone,
+    catalogue,
+    email: catalogue.contactEmail ?? row.companyEmail,
+    phone: catalogue.contactPhone ?? row.companyPhone,
   };
   return { orgScope, organization };
 }

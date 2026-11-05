@@ -39,7 +39,7 @@ export function CatalogueHero({
 }) {
   return (
     <header className="relative isolate overflow-hidden bg-[#0a1c2e] text-white">
-      <HeroBackdrop photo={organization?.heroImage ?? null} />
+      <HeroBackdrop photo={organization?.catalogue.heroImage ?? null} />
       <CatalogueNav organization={organization} signedIn={signedIn} />
       <div
         className={`relative z-[2] mx-auto grid max-w-7xl gap-8 px-4 pt-6 sm:px-6 lg:items-center lg:gap-10 ${aside ? "lg:grid-cols-[1.05fr_1fr]" : ""} ${overlap ? "pb-24 sm:pb-28" : "pb-12 sm:pb-16"} sm:pt-10`}
@@ -89,8 +89,9 @@ function CatalogueNav({ organization, signedIn }: { organization: SiteOrganizati
       </Link>
       <div className="flex items-center gap-6 text-sm text-white/80">
         <Link href="/catalogue#events" className="hidden hover:text-white md:inline">Events</Link>
-        <Link href="/catalogue#topics" className="hidden hover:text-white md:inline">Specialties</Link>
-        <Link href="/catalogue#how" className="hidden hover:text-white md:inline">How it works</Link>
+        {/* A section the organisation hid (Settings, Catalogue) has no link. */}
+        {organization?.catalogue.showTopics !== false && <Link href="/catalogue#topics" className="hidden hover:text-white md:inline">Specialties</Link>}
+        {organization?.catalogue.showHowItWorks !== false && <Link href="/catalogue#how" className="hidden hover:text-white md:inline">How it works</Link>}
         {signedIn ? (
           <Link
             href="/my-registration"
@@ -521,7 +522,7 @@ export function CatalogueFooter({ organization, specialties }: { organization: S
           ) : (
             <span className="font-semibold text-white">{name}</span>
           )}
-          <p>Medical conferences, workshops and webinars{organization ? `, organised by ${organization.name}` : ""}.</p>
+          <p>{organization?.catalogue.footerAbout ?? `Medical conferences, workshops and webinars${organization ? `, organised by ${organization.name}` : ""}.`}</p>
         </div>
         <div>
           <h2 className={heading}>Events</h2>

@@ -8,7 +8,6 @@ import { getClientIp } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { can } from "@/lib/permissions/can";
 import { DEFAULT_REG_TYPES_SETTING, defaultRegistrationTypesSchema } from "@/lib/default-registration-types";
-import { CATALOGUE_HERO_IMAGE_SETTING, isCatalogueHeroImageUrl } from "@/lib/catalogue";
 import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
 
 const updateOrganizationSchema = z.object({
@@ -23,13 +22,6 @@ const updateOrganizationSchema = z.object({
     // The registration types a NEW event starts with; [] = none. Read only at
     // event creation (event-service), never by existing events.
     defaultRegistrationTypes: defaultRegistrationTypesSchema.optional(),
-    // The public catalogue's hero photo; null removes it (the page then draws
-    // its pattern). The same rule readCatalogueHeroImage applies on the way out.
-    [CATALOGUE_HERO_IMAGE_SETTING]: z
-      .string()
-      .refine(isCatalogueHeroImageUrl, "Must be a media library upload or an https address")
-      .nullable()
-      .optional(),
   }).optional(),
   // Billing / Invoice fields
   companyName: z.string().max(255).nullable().optional(),
@@ -45,7 +37,7 @@ const updateOrganizationSchema = z.object({
 });
 
 /** The organisation preferences the Settings screen reads and any staff member may see. */
-const ORG_GENERAL_SETTINGS = ["timezone", "dateFormat", "currency", "emailNotifications", DEFAULT_REG_TYPES_SETTING, CATALOGUE_HERO_IMAGE_SETTING] as const;
+const ORG_GENERAL_SETTINGS = ["timezone", "dateFormat", "currency", "emailNotifications", DEFAULT_REG_TYPES_SETTING] as const;
 
 export async function GET(req: Request) {
   try {

@@ -4,7 +4,7 @@
  * keep or reset the right parts.
  */
 import { describe, it, expect } from "vitest";
-import { catalogueBaseWhere, catalogueHref, catalogueOrderBy, catalogueWhere, findTopic, groupTopics, parseCatalogueQuery, readCatalogueHeroImage, topicForValue, topicHref, topicIntro, topicSlug, topicTitle } from "@/lib/catalogue";
+import { catalogueBaseWhere, catalogueHref, catalogueOrderBy, catalogueWhere, findTopic, groupTopics, parseCatalogueQuery, readCatalogueSettings, topicForValue, topicHref, topicIntro, topicSlug, topicTitle } from "@/lib/catalogue";
 
 const NOW = new Date("2026-11-04T10:00:00Z");
 const ORG = { organizationId: "org1" };
@@ -120,13 +120,43 @@ describe("topic pages", () => {
   });
 });
 
-describe("readCatalogueHeroImage (the catalogue hero's photo)", () => {
-  it("accepts an uploaded file or an https address", () => {
-    expect(readCatalogueHeroImage({ catalogueHeroImage: "/uploads/media/2026/11/a.jpg" })).toBe("/uploads/media/2026/11/a.jpg");
-    expect(readCatalogueHeroImage({ catalogueHeroImage: "https://cdn.example.com/a.jpg" })).toBe("https://cdn.example.com/a.jpg");
+describe("readCatalogueSettings (Settings, Catalogue tab)", () => {
+  const read = (catalogue: unknown) => readCatalogueSettings({ catalogue });
+
+  it("fills every default when nothing is set: the page's own words, every section shown", () => {
+    expect(readCatalogueSettings(null)).toEqual({
+      heroImage: null, eyebrow: null, headline: null, intro: null, footerAbout: null, contactEmail: null, contactPhone: null,
+      showStats: true, showBannerFan: true, showNextUp: true, showHowItWorks: true, showTopics: true,
+    });
+    expect(read("not an object").showStats).toBe(true);
   });
 
-  it("refuses anything that could run or break out of the attribute, and reads missing as none", () => {
+  it("reads text tidied, treats blank as not set, and caps hand-edited values", () => {
+    const out = read({ headline: "  Medical meetings\n across the Gulf ", intro: "   ", eyebrow: "x".repeat(200) });
+    expect(out.headline).toBe("Medical meetings across the Gulf");
+    expect(out.intro).toBeNull();
+    expect(out.eyebrow).toHaveLength(60);
+    expect(read({ headline: 7 }).headline).toBeNull();
+  });
+
+  it("hides a section only on an explicit false", () => {
+    const out = read({ showStats: false, showTopics: "no", showNextUp: null });
+    expect(out.showStats).toBe(false);
+    expect(out.showTopics).toBe(true);
+    expect(out.showNextUp).toBe(true);
+  });
+
+  it("drops a contact email that is not an address", () => {
+    expect(read({ contactEmail: "events@meetingmindsgroup.com" }).contactEmail).toBe("events@meetingmindsgroup.com");
+    expect(read({ contactEmail: "call us" }).contactEmail).toBeNull();
+  });
+
+  it("accepts a media-library upload or an https address as the photo", () => {
+    expect(read({ heroImage: "/uploads/media/2026/11/a.jpg" }).heroImage).toBe("/uploads/media/2026/11/a.jpg");
+    expect(read({ heroImage: "https://cdn.example.com/a.jpg" }).heroImage).toBe("https://cdn.example.com/a.jpg");
+  });
+
+  it("refuses any other photo address", () => {
     for (const bad of [
       "javascript:alert(1)",
       "data:image/png;base64,AAAA",
@@ -139,11 +169,9 @@ describe("readCatalogueHeroImage (the catalogue hero's photo)", () => {
       "https://cdn.example.com/a/../b.jpg",
       // The logo's private-photo folder is not a media-library upload.
       "/uploads/photos/2026/04/a.png",
+      42,
     ]) {
-      expect(readCatalogueHeroImage({ catalogueHeroImage: bad })).toBeNull();
+      expect(read({ heroImage: bad }).heroImage).toBeNull();
     }
-    expect(readCatalogueHeroImage({})).toBeNull();
-    expect(readCatalogueHeroImage(null)).toBeNull();
-    expect(readCatalogueHeroImage({ catalogueHeroImage: 42 })).toBeNull();
   });
 });

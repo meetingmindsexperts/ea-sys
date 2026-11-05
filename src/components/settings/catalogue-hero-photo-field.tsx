@@ -8,10 +8,10 @@ import { Label } from "@/components/ui/label";
 import { useCan } from "@/hooks/use-can";
 
 /**
- * The public catalogue's hero photo (Nov 5, 2026), in Settings, General. The
+ * The public catalogue's hero photo (Nov 5, 2026), in Settings, Catalogue. The
  * photo sits behind the catalogue's headline under a navy wash, so any
  * conference photo reads; without one the page draws its own pattern. Saved
- * with the rest of the organisation settings, as `settings.catalogueHeroImage`.
+ * with the tab's other controls, as `settings.catalogue.heroImage`.
  *
  * Uploads go to the organisation's media library (2 MB), not the 500 KB
  * photo route the logo uses: a full-width photo needs the room.
@@ -56,7 +56,7 @@ export function CatalogueHeroPhotoField({
       }
       const { url } = await res.json();
       onChange(url);
-      toast.success("Photo uploaded. Save to publish it on the catalogue.");
+      toast.success("Photo uploaded. Save the catalogue settings to publish it.");
     } catch (err) {
       console.error("settings:catalogue-hero-upload-failed", err);
       toast.error("Couldn't upload the photo. Please try again.");

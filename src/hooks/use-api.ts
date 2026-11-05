@@ -13,6 +13,7 @@ import type { EvidenceRequestSkipReason } from "@/lib/evidence-request";
 import type { DeskDaySummary } from "@/lib/desk-day-summary";
 import type { DetCredentialsStatus, DetEnvironment, DetPerformanceSummary } from "@/lib/dtcm-eticket/types";
 import type { DtcmSectionMapping } from "@/lib/dtcm-eticket/sections";
+import type { CatalogueSettings } from "@/lib/catalogue";
 
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
@@ -76,6 +77,7 @@ function useEventListQuery<T>(
 // Query keys for cache management
 export const queryKeys = {
   orgBranding: ["org-branding"] as const,
+  catalogueSettings: ["catalogue-settings"] as const,
   events: ["events"] as const,
   event: (eventId: string) => ["events", eventId] as const,
   tickets: (eventId: string) => ["events", eventId, "tickets"] as const,
@@ -227,6 +229,50 @@ export function useOrgBranding() {
     queryFn: () => fetchApi<OrgBranding>("/api/organization/branding"),
     staleTime: 10 * 60 * 1000, // 10 minutes
     enabled: status === "authenticated",
+  });
+}
+
+// ============ PUBLIC CATALOGUE (Settings, Catalogue) ============
+export interface CatalogueSettingsResponse {
+  settings: CatalogueSettings;
+  defaults: { organizationName: string; companyEmail: string | null; companyPhone: string | null };
+  events: { id: string; name: string; slug: string; status: string; startDate: string; endDate: string; city: string | null; country: string | null; listed: boolean }[];
+}
+
+export function useCatalogueSettings() {
+  return useQuery({
+    queryKey: queryKeys.catalogueSettings,
+    queryFn: () => fetchApi<CatalogueSettingsResponse>("/api/organization/catalogue"),
+  });
+}
+
+export function useSaveCatalogueSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: Partial<CatalogueSettings>) =>
+      fetchApi<{ settings: CatalogueSettings }>("/api/organization/catalogue", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.catalogueSettings }),
+  });
+}
+
+/** List or unlist one event in the catalogue (the event's own "Show in the event catalogue" switch). */
+export function useSetCatalogueListing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { eventId: string; listed: boolean }) =>
+      fetchApi<{ eventId: string; listed: boolean }>("/api/organization/catalogue", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: (_data, { eventId }) => {
+      qc.invalidateQueries({ queryKey: queryKeys.catalogueSettings });
+      qc.invalidateQueries({ queryKey: queryKeys.event(eventId) });
+    },
   });
 }
 

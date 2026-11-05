@@ -35,6 +35,7 @@ import {
   catalogueOrderBy,
   catalogueWhere,
   parseCatalogueQuery,
+  readCatalogueSettings,
   topicForValue,
   type CatalogueQuery,
 } from "@/lib/catalogue";
@@ -73,28 +74,30 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const origin = siteOrigin(host, h.get("x-forwarded-proto"));
   const tenant = await resolveTenantOrg(normalizeHost(host)).catch(() => null);
   const organization = tenant?.orgId
-    ? await db.organization.findUnique({ where: { id: tenant.orgId }, select: { name: true, logo: true } }).catch((err) => {
+    ? await db.organization.findUnique({ where: { id: tenant.orgId }, select: { name: true, logo: true, settings: true } }).catch((err) => {
         apiLogger.warn({ err, msg: "catalogue:metadata-org-failed" });
         return null;
       })
     : null;
+  // The organisation's own intro, when it wrote one, is what a search result shows.
+  const description = (organization && readCatalogueSettings(organization.settings).intro) || DESCRIPTION;
   const filtered = !!(query.q || query.country || query.type || query.specialty);
   const title = `${query.when === "past" ? "Past events" : "Upcoming medical events and conferences"}${organization ? ` | ${organization.name}` : ""}`;
   const canonical = `${origin}${catalogueHref({ ...query, q: "", country: "", type: null, specialty: "" }, { page: query.page })}`;
   return {
     title,
-    description: DESCRIPTION,
+    description,
     alternates: { canonical },
     robots: filtered ? { index: false, follow: true } : { index: true, follow: true },
     openGraph: {
       title,
-      description: DESCRIPTION,
+      description,
       url: canonical,
       type: "website",
       ...(organization && { siteName: organization.name }),
       ...(organization?.logo && { images: [{ url: absoluteUrl(origin, organization.logo) }] }),
     },
-    twitter: { card: "summary", title, description: DESCRIPTION },
+    twitter: { card: "summary", title, description },
   };
 }
 
@@ -173,7 +176,8 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
   // real one rather than an empty list under a count that says otherwise.
   if (query.page > pages) redirect(catalogueHref(query, { page: pages }));
   const filtered = !!(query.q || query.country || query.type || query.specialty);
-  const showNext = !filtered && query.when === "upcoming" && query.page === 1 && next.length > 0;
+  const show = organization?.catalogue ?? readCatalogueSettings(null);
+  const showNext = show.showNextUp && !filtered && query.when === "upcoming" && query.page === 1 && next.length > 0;
   const fan: FanItem[] = next.flatMap((e) => {
     const image = e.bannerImageMobile ?? e.bannerImage;
     return image ? [{ slug: e.slug, name: e.name, image, caption: fanCaption(e) }] : [];
@@ -192,15 +196,15 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
         organization={organization}
         signedIn={!!session?.user}
         overlap
-        aside={fan.length >= 2 ? <BannerFan items={fan} /> : undefined}
+        aside={show.showBannerFan && fan.length >= 2 ? <BannerFan items={fan} /> : undefined}
       >
-        {organization && <HeroEyebrow>{organization.name}</HeroEyebrow>}
-        <HeroTitle>Medical conferences and CME{placesPhrase(next)}.</HeroTitle>
+        {(show.eyebrow ?? organization?.name) && <HeroEyebrow>{show.eyebrow ?? organization?.name}</HeroEyebrow>}
+        <HeroTitle>{show.headline ?? <>Medical conferences and CME{placesPhrase(next)}.</>}</HeroTitle>
         <HeroLede>
-          Browse upcoming conferences, workshops and webinars, register in a few minutes, and download your certificates
-          from My events afterwards.
+          {show.intro ??
+            "Browse upcoming conferences, workshops and webinars, register in a few minutes, and download your certificates from My events afterwards."}
         </HeroLede>
-        <HeroStats stats={stats} />
+        {show.showStats && <HeroStats stats={stats} />}
       </CatalogueHero>
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6">
@@ -283,12 +287,14 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
           <Pager page={query.page} pages={pages} hrefFor={(page) => catalogueHref(query, { page })} />
         </section>
 
-        <section id="how" aria-labelledby="how-title" className="scroll-mt-6 pt-12">
-          <SectionHead id="how-title" title="How registering works" />
-          <HowItWorks />
-        </section>
+        {show.showHowItWorks && (
+          <section id="how" aria-labelledby="how-title" className="scroll-mt-6 pt-12">
+            <SectionHead id="how-title" title="How registering works" />
+            <HowItWorks />
+          </section>
+        )}
 
-        {(specialties.length > 0 || countries.length > 0) && (
+        {show.showTopics && (specialties.length > 0 || countries.length > 0) && (
           <section id="topics" aria-labelledby="topics-title" className="scroll-mt-6 pt-12">
             <SectionHead id="topics-title" title="Browse by specialty and country" />
             <BrowseTopics specialties={specialties} countries={countries} />

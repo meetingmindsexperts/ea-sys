@@ -55,6 +55,7 @@ import {
   Copy,
   Check,
   Terminal,
+  Globe,
   ExternalLink,
   Cloud,
   CheckCircle2,
@@ -88,7 +89,7 @@ import { BillingSettingsCard } from "@/components/settings/billing-settings-card
 import { NewEventDefaultsCard } from "@/components/settings/new-event-defaults-card";
 import { BillingAccountsCard } from "@/components/settings/billing-accounts-card";
 import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
-import { CatalogueHeroPhotoField } from "@/components/settings/catalogue-hero-photo-field";
+import { CatalogueSettingsCard } from "@/components/settings/catalogue-settings-card";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { OrgStripeCredentials } from "@/components/settings/org-stripe-credentials";
 import { OrgDtcmEticketCredentials } from "@/components/settings/org-dtcm-eticket-credentials";
@@ -121,7 +122,6 @@ interface Organization {
     dateFormat?: string;
     currency?: string;
     emailNotifications?: boolean;
-    catalogueHeroImage?: string | null;
   };
   _count: {
     events: number;
@@ -221,7 +221,6 @@ export default function SettingsPage() {
     dateFormat: "MM/DD/YYYY",
     currency: "USD",
     emailNotifications: true,
-    catalogueHeroImage: null as string | null,
   });
   const [logoUploading, setLogoUploading] = useState(false);
 
@@ -261,6 +260,7 @@ export default function SettingsPage() {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState(() => searchParams.get("tab") ?? "general");
   const visibleTabs = new Set<string>(["general", "team"]);
+  if (canEditOrg) visibleTabs.add("catalogue");
   if (isSuperAdmin && rolesTabEnabled) visibleTabs.add("roles");
   if (isSuperAdmin && procurementEnabled) visibleTabs.add("approvals");
   if (canManageOnsiteStaff) visibleTabs.add("onsite");
@@ -287,7 +287,6 @@ export default function SettingsPage() {
           dateFormat: data.settings?.dateFormat || "MM/DD/YYYY",
           currency: data.settings?.currency || "USD",
           emailNotifications: data.settings?.emailNotifications ?? true,
-          catalogueHeroImage: data.settings?.catalogueHeroImage ?? null,
         });
       } else {
         console.error("settings:organization-load-failed", res.status);
@@ -359,7 +358,6 @@ export default function SettingsPage() {
             dateFormat: orgFormData.dateFormat,
             currency: orgFormData.currency,
             emailNotifications: orgFormData.emailNotifications,
-            catalogueHeroImage: orgFormData.catalogueHeroImage,
           },
         }),
       });
@@ -697,6 +695,13 @@ export default function SettingsPage() {
             <Users className="h-4 w-4" />
             Team
           </TabsTrigger>
+          {/* The public event catalogue's look and listings (Nov 5, 2026). */}
+          {canEditOrg && (
+            <TabsTrigger value="catalogue" className="flex items-center gap-2">
+              <Globe className="h-4 w-4" />
+              Catalogue
+            </TabsTrigger>
+          )}
           {/* Custom roles are a super-admin surface: there are roles to make
               where Budgets is on, or where custom roles are switched on for
               everything (CUSTOM_ROLES_ENABLED). Absent rather than disabled. */}
@@ -929,12 +934,6 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
-
-              <CatalogueHeroPhotoField
-                value={orgFormData.catalogueHeroImage}
-                onChange={(url) => setOrgFormData((prev) => ({ ...prev, catalogueHeroImage: url }))}
-                disabled={!canEditOrg}
-              />
 
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
@@ -1424,6 +1423,12 @@ export default function SettingsPage() {
         {canManageOnsiteStaff && (
           <TabsContent value="onsite">
             <OnsiteStaffCard />
+          </TabsContent>
+        )}
+
+        {canEditOrg && (
+          <TabsContent value="catalogue">
+            <CatalogueSettingsCard readOnly={!canEditOrg} />
           </TabsContent>
         )}
 
