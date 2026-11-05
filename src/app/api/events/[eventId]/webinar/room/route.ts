@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { SessionStatus } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -128,14 +129,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     // before): the session goes back to SCHEDULED, so attendees arriving on the
     // day get the waiting room, not the exit screen and survey (review of
     // 66d8ef6e, HIGH). From the start on, closing the room ends the webinar.
-    let nextStatus: "LIVE" | "COMPLETED" | "SCHEDULED" = "LIVE";
+    let nextStatus: SessionStatus = "LIVE";
     if (!validated.data.open) {
       const anchorTiming = await db.eventSession.findFirst({
         where: { id: webinar.sessionId, eventId },
-        select: { startTime: true },
+        select: { startTime: true, status: true },
       });
       const rehearsal = Boolean(anchorTiming) && Date.now() < anchorTiming!.startTime.getTime();
       nextStatus = rehearsal ? "SCHEDULED" : "COMPLETED";
+      // Only an open room goes back to SCHEDULED: a DRAFT or CANCELLED anchor keeps what it was.
+      const kept = anchorTiming?.status;
+      if (rehearsal && (kept === "DRAFT" || kept === "CANCELLED")) nextStatus = kept;
       if (rehearsal) apiLogger.info({ eventId, sessionId: webinar.sessionId }, "webinar:room-closed-rehearsal");
     }
 

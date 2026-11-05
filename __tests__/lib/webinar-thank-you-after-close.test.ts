@@ -19,6 +19,7 @@ vi.mock("@/lib/bulk-email", () => ({ WEBINAR_EMAIL_TYPES: [], executeBulkEmail: 
 vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: streamArrivingSpy }));
 
 import { retimeThankYouAfterRoomClose, shouldHoldThankYou, THANK_YOU_AFTER_CLOSE_MS } from "@/lib/webinar-email-sequence";
+import { resetStreamAbsence } from "@/lib/webinar/overrun";
 
 const START = new Date("2026-11-03T10:00:00Z");
 const END = new Date("2026-11-03T11:00:00Z");
@@ -31,6 +32,7 @@ beforeEach(() => {
   mockDb.scheduledEmail.updateMany.mockResolvedValue({ count: 1 });
   mockDb.zoomMeeting.findFirst.mockResolvedValue({ liveStreamEnabled: true, streamKey: "sk-1" });
   streamArrivingSpy.mockResolvedValue(false);
+  resetStreamAbsence();
 });
 
 describe("retimeThankYouAfterRoomClose", () => {
@@ -89,8 +91,12 @@ describe("shouldHoldThankYou", () => {
     expect(await shouldHoldThankYou("ev1", t("2026-11-03T13:40:00Z"))).toBe(true);
     expect(await shouldHoldThankYou("ev1", t("2026-11-03T16:59:00Z"))).toBe(true);
     expect(await shouldHoldThankYou("ev1", t("2026-11-03T17:01:00Z"))).toBe(false);
-    streamArrivingSpy.mockResolvedValue(false);
-    expect(await shouldHoldThankYou("ev1", t("2026-11-03T13:40:00Z"))).toBe(false);
+  });
+
+  it("past that cap, a stream gone for one probe still holds; gone five minutes, it sends (review of fb4459d0)", async () => {
+    mockDb.event.findUnique.mockResolvedValue({ settings: { webinar: { sessionId: "anchor", viewingMode: "hls" } } });
+    expect(await shouldHoldThankYou("ev1", t("2026-11-03T13:40:00Z"))).toBe(true);
+    expect(await shouldHoldThankYou("ev1", t("2026-11-03T13:50:00Z"))).toBe(false);
   });
 
   it("a close late in a long overrun still moves the thank-you", async () => {

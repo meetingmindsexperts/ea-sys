@@ -21,6 +21,7 @@ vi.mock("@/lib/webinar-email-sequence", () => ({ retimeThankYouAfterRoomClose: r
 vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: streamArrivingSpy }));
 
 import { decideRoomClose, runWebinarRoomAutoCloseTick, SAFETY_NET_MS } from "@/lib/webinar/room-autoclose";
+import { resetStreamAbsence } from "@/lib/webinar/overrun";
 
 describe("decideRoomClose", () => {
   const start = new Date("2026-10-01T10:30:00Z");
@@ -96,6 +97,8 @@ describe("runWebinarRoomAutoCloseTick", () => {
     mockDb.eventSession.updateMany.mockResolvedValue({ count: 1 });
     mockDb.zoomMeeting.findFirst.mockResolvedValue({ liveStreamEnabled: true, streamKey: "sk-1" });
     streamArrivingSpy.mockResolvedValue(false);
+    getLastZoomEndTimeSpy.mockResolvedValue(null);
+    resetStreamAbsence();
   });
 
   const hlsRoom = () =>
@@ -112,10 +115,38 @@ describe("runWebinarRoomAutoCloseTick", () => {
     expect(streamArrivingSpy).toHaveBeenCalledWith("sk-1", { fresh: true });
   });
 
-  it("the safety net still closes an HLS room whose stream has stopped", async () => {
+  it("the safety net closes an HLS room only once its stream has been gone five minutes, not on one missed probe", async () => {
     mockDbOperator.eventSession.findMany.mockResolvedValue([hlsRoom()]);
+    // First miss: grace starts, the room stays (an RTMP reconnect takes ~40 s).
+    expect((await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:00:00Z"))).closed).toBe(0);
+    expect((await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:03:00Z"))).closed).toBe(0);
+    expect((await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:06:00Z"))).closed).toBe(1);
+  });
+
+  it("a stream that comes back inside the grace clears it", async () => {
+    mockDbOperator.eventSession.findMany.mockResolvedValue([hlsRoom()]);
+    await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:00:00Z"));
+    streamArrivingSpy.mockResolvedValueOnce(true);
+    await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:03:00Z"));
+    // Missing again: a fresh grace, not the old one.
+    expect((await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:06:00Z"))).closed).toBe(0);
+  });
+
+  it("past the safety net, a final Zoom end closes the room even while something still streams (an OBS loop)", async () => {
+    mockDbOperator.eventSession.findMany.mockResolvedValue([hlsRoom()]);
+    streamArrivingSpy.mockResolvedValue(true);
+    getLastZoomEndTimeSpy.mockResolvedValue(new Date("2026-10-01T13:40:00Z"));
     const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:00:00Z"));
     expect(r.closed).toBe(1);
+    // The thank-you follows Zoom's real end.
+    expect(retimeSpy).toHaveBeenCalledWith("ev1", new Date("2026-10-01T13:40:00Z"));
+  });
+
+  it("a Zoom end only minutes old (the host may restart) keeps an on-air room", async () => {
+    mockDbOperator.eventSession.findMany.mockResolvedValue([hlsRoom()]);
+    streamArrivingSpy.mockResolvedValue(true);
+    getLastZoomEndTimeSpy.mockResolvedValue(new Date("2026-10-01T13:58:00Z"));
+    expect((await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:00:00Z"))).closed).toBe(0);
   });
 
   it("past the overrun hard cap it closes even with the stream arriving", async () => {

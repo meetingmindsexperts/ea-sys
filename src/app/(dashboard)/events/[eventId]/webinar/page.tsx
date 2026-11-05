@@ -138,6 +138,7 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
 import { isHttpsLink } from "@/lib/webinar-exit-link";
+import { webinarRoomEnded } from "@/lib/webinar-page-layout";
 import { BrandingImageField } from "@/components/events/branding-image-field";
 
 type AutoRecording = "none" | "local" | "cloud";
@@ -3197,7 +3198,12 @@ function GoLiveCard({
   // rehearsal and changes nothing for them, so it needs no confirmation.
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const closeEndsWebinar = roomOpen && anchorStartMs > 0 && nowTick >= anchorStartMs;
-  const ended = !roomOpen && anchor?.status === "COMPLETED";
+  // The same rule attendees get (lobby-status), so the console never says "ended" while they see the
+  // waiting room, or the reverse (review of fb4459d0).
+  const ended =
+    !roomOpen &&
+    anchor != null &&
+    webinarRoomEnded({ status: anchor.status, startMs: anchorStartMs, endMs: anchorEndMs, now: nowTick });
 
   const handleToggleRoom = async () => {
     setConfirmCloseOpen(false);
@@ -3250,9 +3256,7 @@ function GoLiveCard({
         {/* Running past the scheduled end (Nov 5, 2026): nothing ends on the clock. */}
         {roomOpen && anchorEndMs > 0 && nowTick > anchorEndMs && (
           <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
-            Running past the scheduled end. Attendees stay in the live view, and the thank-you email and the
-            end-of-webinar survey wait until the room closes: when you close it, or a few minutes after the
-            host ends the webinar in Zoom.
+            {overrunNote(webinar.viewingMode === "hls")}
           </p>
         )}
         {/* Open / close the room */}
@@ -3313,6 +3317,14 @@ function GoLiveCard({
       </CardContent>
     </Card>
   );
+}
+
+function overrunNote(customStream: boolean): string {
+  const base =
+    "Running past the scheduled end. Attendees stay in the live view, and the thank-you email and the end-of-webinar survey wait until the room closes: when you close it, or a few minutes after the host ends the webinar in Zoom.";
+  // Zoom embed mode has no stream to tell "still on air" from "left open", so the safety net still closes
+  // the room two hours after the scheduled end (overrun.ts).
+  return customStream ? base : `${base} At the latest it closes two hours after the scheduled end.`;
 }
 
 function roomStateLine(roomOpen: boolean, ended: boolean): string {

@@ -10,8 +10,13 @@
  * room does not ask Zoom to start a stream the producer already started and
  * checked in the console preview.
  */
+import { apiLogger } from "@/lib/logger";
+
 const probeCache = new Map<string, { isLive: boolean; at: number }>();
 const PROBE_TTL_MS = 3000;
+/** An unreachable MediaMTX is logged at most this often per container, not on every probe. */
+const UNREACHABLE_LOG_EVERY_MS = 60_000;
+let lastUnreachableLogAt = 0;
 
 export async function isStreamArriving(
   streamKey: string,
@@ -28,8 +33,23 @@ export async function isStreamArriving(
       signal: AbortSignal.timeout(3000),
     });
     isLive = res.ok;
-  } catch {
-    // MediaMTX unreachable or stream not active: treat as not live.
+  } catch (err) {
+    // MediaMTX unreachable (a 404 for an inactive stream is not an exception): treat as not live, and
+    // say so. It used to be silent, which hid a worker that could never reach MediaMTX (Nov 5, 2026).
+    const now = Date.now();
+    if (now - lastUnreachableLogAt >= UNREACHABLE_LOG_EVERY_MS) {
+      lastUnreachableLogAt = now;
+      let host = "invalid-url";
+      try {
+        host = new URL(mediamtxUrl).host;
+      } catch {
+        // keep the placeholder
+      }
+      apiLogger.warn(
+        { host, code: (err as { cause?: { code?: string } })?.cause?.code ?? (err as Error)?.name },
+        "stream-probe:mediamtx-unreachable",
+      );
+    }
   }
   probeCache.set(streamKey, { isLive, at: Date.now() });
   return isLive;

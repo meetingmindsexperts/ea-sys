@@ -122,14 +122,33 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
         });
         if (decision === "keep") return decision;
         // A long overrun still on air keeps its room (Nov 5, 2026): the safety net is for rooms nobody
-        // closed, and a stream still arriving means Zoom is still broadcasting.
+        // closed, and a stream still arriving means Zoom is still broadcasting. Zoom is still asked: a
+        // final end there closes the room even while something keeps pushing to MediaMTX (an OBS loop
+        // left running), so the stream alone never holds a room for the whole hard cap.
+        let finalZoomEnd: Date | null = null;
         if (
           decision === "close-safety-net" &&
           now.getTime() <= room.endTime.getTime() + OVERRUN_HARD_CAP_MS &&
-          (await isWebinarStreamArriving({ eventId: room.eventId, sessionId: room.id, eventSettings: room.event.settings }))
+          (await isWebinarStreamArriving({ eventId: room.eventId, sessionId: room.id, eventSettings: room.event.settings, now: now.getTime() }))
         ) {
-          apiLogger.info({ eventId: room.eventId, sessionId: room.id }, "webinar-room-autoclose:kept-stream-on-air");
-          return "keep";
+          const lastEnd = await getLastZoomEndTime(
+            room.event.organizationId,
+            room.zoomMeeting!.zoomMeetingId,
+            room.zoomMeeting!.meetingType as "MEETING" | "WEBINAR" | "WEBINAR_SERIES",
+          );
+          const settledEnd =
+            lastEnd &&
+            (!roomOpenedAt || lastEnd.getTime() > roomOpenedAt.getTime()) &&
+            now.getTime() - lastEnd.getTime() >= RESTART_GRACE_MS;
+          if (!settledEnd) {
+            apiLogger.info({ eventId: room.eventId, sessionId: room.id }, "webinar-room-autoclose:kept-stream-on-air");
+            return "keep";
+          }
+          finalZoomEnd = lastEnd;
+          apiLogger.info(
+            { eventId: room.eventId, sessionId: room.id, zoomEndedAt: lastEnd.toISOString() },
+            "webinar-room-autoclose:zoom-ended-while-stream-arriving",
+          );
         }
         // Guarded on LIVE so a producer's own close (or re-open) in between wins.
         const updated = await db.eventSession.updateMany({
@@ -142,7 +161,8 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
           "webinar-room-autoclose:closed",
         );
         // The thank-you follows the close (Oct 28, 2026): Zoom's own end when it gave one, else now.
-        await retimeThankYouAfterRoomClose(room.eventId, decision === "close-zoom-ended" && zoomEndedAt ? zoomEndedAt : now);
+        const realEnd = finalZoomEnd ?? (decision === "close-zoom-ended" ? zoomEndedAt : null);
+        await retimeThankYouAfterRoomClose(room.eventId, realEnd ?? now);
         return decision;
       });
       if (outcome !== "keep") report.closed += 1;

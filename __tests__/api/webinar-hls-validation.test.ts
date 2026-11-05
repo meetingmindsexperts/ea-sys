@@ -227,11 +227,19 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
   });
 
   it("a close BEFORE the scheduled start is a rehearsal: the session goes back to SCHEDULED (review of 66d8ef6e)", async () => {
-    mockDb.eventSession.findFirst.mockResolvedValue({ name: "Webinar", startTime: new Date(Date.now() + 86_400_000) });
+    mockDb.eventSession.findFirst.mockResolvedValue({ name: "Webinar", status: "LIVE", startTime: new Date(Date.now() + 86_400_000) });
     const res = await callRoom({ open: false });
     expect(res.status).toBe(200);
     expect(mockDb.eventSession.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: "SCHEDULED" } }),
+    );
+  });
+
+  it("a rehearsal close keeps a CANCELLED anchor cancelled (review of fb4459d0)", async () => {
+    mockDb.eventSession.findFirst.mockResolvedValue({ name: "Webinar", status: "CANCELLED", startTime: new Date(Date.now() + 86_400_000) });
+    await callRoom({ open: false });
+    expect(mockDb.eventSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: "CANCELLED" } }),
     );
   });
 

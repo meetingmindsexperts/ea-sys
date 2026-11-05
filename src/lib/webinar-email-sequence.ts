@@ -465,7 +465,7 @@ export async function shouldHoldThankYou(eventId: string, now: number = Date.now
   if (now <= anchor.endTime.getTime() + HOLD_CAP_AFTER_END_MS) return true;
   const onAir =
     now <= anchor.endTime.getTime() + OVERRUN_HARD_CAP_MS &&
-    (await isWebinarStreamArriving({ eventId, sessionId: anchorSessionId, eventSettings: event?.settings }));
+    (await isWebinarStreamArriving({ eventId, sessionId: anchorSessionId, eventSettings: event?.settings, now }));
   if (onAir) {
     apiLogger.info({ eventId }, "webinar-sequence:thank-you-held-stream-on-air");
     return true;

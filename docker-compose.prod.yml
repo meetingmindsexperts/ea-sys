@@ -159,6 +159,10 @@ services:
     environment:
       - NODE_ENV=production
       - WORKER_HEALTH_PORT=3099
+      # The webinar overrun checks (room auto-close, thank-you hold) probe the
+      # stream from here. Without it the probe falls back to the worker's own
+      # localhost and always says "not streaming" (Nov 5, 2026).
+      - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
       # ── The worker MUST use a SESSION-mode connection, not the pooler ──────
       # Every job is wrapped in a Postgres advisory lock so a job can never run
       # twice concurrently. Advisory locks are SESSION-scoped: the same backend

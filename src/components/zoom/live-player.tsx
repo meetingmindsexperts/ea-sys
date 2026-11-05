@@ -34,6 +34,9 @@ const STALL_JITTER_MS = 5_000;
  *  seconds (review of 66d8ef6e). The run resets after a minute of picture. */
 const STALL_BACKOFF_MAX_STEPS = 3;
 const STALL_STREAK_RESET_MS = 60_000;
+/** A load that never shows a first frame is retried after this long (also backed off): the watchdog
+ *  only arms on a moving picture, and without this a reconnect onto a dead stream stayed frozen. */
+const NO_FIRST_FRAME_MS = 60_000;
 /**
  * The "Mini player" (picture in picture) button. Built and working, switched
  * off by the owner (Oct 7, 2026): flip to true to offer it.
@@ -466,10 +469,12 @@ export function LivePlayer({
       setIsBehind(false);
       return;
     }
-    const backoff = 2 ** Math.min(stallStreakRef.current, STALL_BACKOFF_MAX_STEPS);
-    const stallMs = (STALL_RECONNECT_MS + Math.floor(Math.random() * STALL_JITTER_MS)) * backoff;
+    const jitterMs = Math.floor(Math.random() * STALL_JITTER_MS);
+    // Read on every tick, so a streak reset after a minute of picture takes effect at once.
+    const backoff = () => 2 ** Math.min(stallStreakRef.current, STALL_BACKOFF_MAX_STEPS);
+    const startedAt = Date.now();
     let lastTime = Number.NaN;
-    let lastMovedAt = Date.now();
+    let lastMovedAt = startedAt;
     // Armed only once the picture has moved: "playing" is set when the playlist
     // loads, before the first frame, and a slow first segment is not a drop.
     let armedAt: number | null = null;
@@ -485,10 +490,15 @@ export function LivePlayer({
         if (armedAt !== null && now - armedAt > STALL_STREAK_RESET_MS) stallStreakRef.current = 0;
         lastTime = video.currentTime;
         lastMovedAt = now;
-      } else if (armedAt !== null && now - lastMovedAt > stallMs) {
+      } else if (
+        armedAt !== null
+          ? now - lastMovedAt > (STALL_RECONNECT_MS + jitterMs) * backoff()
+          : now - startedAt > (NO_FIRST_FRAME_MS + jitterMs) * backoff()
+      ) {
         stallStreakRef.current += 1;
         console.warn("live-player:stalled-reconnecting", {
           stalledMs: now - lastMovedAt,
+          firstFrame: armedAt !== null,
           streak: stallStreakRef.current,
         });
         video.src = "";
