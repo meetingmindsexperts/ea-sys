@@ -10,6 +10,9 @@ import { CheckCircle2, ExternalLink, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
+/** Where the exit button leads: one fixed link for every webinar (owner, Nov 5, 2026). */
+const EXIT_URL = "https://www.meetingmindsgroup.com";
+
 export function WebinarExitScreen({
   sessionName,
   hasRecording,
@@ -65,6 +68,10 @@ export function WebinarExitScreen({
         <p className="text-sm text-muted-foreground">
           {replayExpected ? "The replay will be available here soon. Check back later." : "You can close this page."}
         </p>
+
+        <Button asChild variant={hasRecording ? "outline" : "default"} className="gap-2">
+          <a href={EXIT_URL}>Visit Meeting Minds Group</a>
+        </Button>
 
         {onRejoin && (
           <Button variant="link" size="sm" className="text-muted-foreground" onClick={onRejoin}>

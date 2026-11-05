@@ -487,18 +487,14 @@ export default function PublicSessionPage() {
   const showPanelists = panelists.length > 0;
   const showLeftColumn = showPanelists || handouts.length > 0;
   const layout = webinarVideoLayout({ showQa, showPanelists: showLeftColumn });
-  // The end-of-webinar survey (step 4 of several surveys, Oct 6, 2026) appears
-  // once the webinar is over for this viewer: the host ended it in Zoom, or the
-  // room is closed and the scheduled end has passed (a room closed earlier is a
-  // pause). Never while it is live. See isWebinarOver.
+  // The exit screen and end-of-webinar survey appear once the webinar is over
+  // for this viewer: the host ended it in Zoom, or the producer closed the room
+  // (early or late), or the scheduled end passed with the room closed. Never
+  // while it is live. See isWebinarOver.
   const webinarEnded =
     isWebinarEvent &&
     authState.kind === "ok" &&
-    isWebinarOver({
-      hostEnded,
-      roomOpen,
-      pastScheduledEnd: lobby?.endsAt ? new Date(lobby.endsAt).getTime() < Date.now() : false,
-    });
+    isWebinarOver({ hostEnded, roomOpen, lobbyEnded: Boolean(lobby?.ended) });
 
   if (loading) {
     return (
@@ -604,11 +600,10 @@ export default function PublicSessionPage() {
 
   // Show the branded waiting room when: this is a webinar, the viewer is a
   // confirmed registrant, lobby state has loaded, the producer has NOT opened
-  // the room, and we're not past the scheduled end / replayable. Keyed on
-  // `!isPast` (wall-clock end), NOT `lobby.ended` — so a producer who CLOSES
-  // the room mid-event (status COMPLETED before end time) sends attendees back
-  // to the lobby (paused) rather than a dead-end, and a re-open re-admits them
-  // (review #4).
+  // the room yet, and we're not past the scheduled end / replayable. A room the
+  // producer CLOSED never lands here: webinarEnded is true by then and the exit
+  // screen renders instead (owner, Nov 5, 2026: closing early is the end, not a
+  // pause). A re-open still re-admits everyone (review #4).
   const showWaitingRoom =
     isWebinarEvent &&
     authState.kind === "ok" &&

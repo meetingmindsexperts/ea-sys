@@ -704,7 +704,6 @@ If you have already made the payment, please disregard this email.
     <div style="text-align: center; margin: 28px 0;">
       <a href="{{joinUrl}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 16px;">Join Webinar</a>
     </div>
-    {{passcodeBlock}}
     {{calendarBlock}}
     <p style="color: #6b7280; font-size: 13px;">You can join up to 15 minutes before the scheduled start time. We'll also send you reminders 24 hours and 1 hour before the webinar begins.</p>
     <p style="margin-bottom: 0;">See you online!</p>
@@ -720,7 +719,6 @@ Date: {{webinarDate}}
 Time: {{webinarTime}}
 
 Join link: {{joinUrl}}
-{{passcodeBlock}}
 
 {{calendarBlockText}}
 
@@ -742,7 +740,6 @@ You can join up to 15 minutes before the scheduled start time. We'll send remind
     <div style="text-align: center; margin: 28px 0;">
       <a href="{{joinUrl}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 16px;">Save Join Link</a>
     </div>
-    {{passcodeBlock}}
     <p style="color: #6b7280; font-size: 13px;">Add it to your calendar so you don't miss it.</p>
     {{organizerSignature}}
   </div>`,
@@ -756,7 +753,6 @@ Date: {{webinarDate}}
 Time: {{webinarTime}}
 
 Join link: {{joinUrl}}
-{{passcodeBlock}}
 
 {{organizerSignature}}`,
   },
@@ -768,7 +764,6 @@ Join link: {{joinUrl}}
     <div style="text-align: center; margin: 28px 0;">
       <a href="{{joinUrl}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 16px;">Join Webinar</a>
     </div>
-    {{passcodeBlock}}
     <p style="color: #6b7280; font-size: 13px;">Doors open 15 minutes before the scheduled start. See you there.</p>
     {{organizerSignature}}
   </div>`,
@@ -779,7 +774,6 @@ Hi {{firstName}},
 {{eventName}} starts in about 1 hour. Get ready!
 
 Join link: {{joinUrl}}
-{{passcodeBlock}}
 
 Doors open 15 minutes before the scheduled start.
 
@@ -793,7 +787,6 @@ Doors open 15 minutes before the scheduled start.
     <div style="text-align: center; margin: 28px 0;">
       <a href="{{joinUrl}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 16px 40px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 18px;">Join Webinar</a>
     </div>
-    {{passcodeBlock}}
     <p style="color: #6b7280; font-size: 13px;">If the host has not opened the room yet, you will wait on the page and be let in automatically.</p>
     {{organizerSignature}}
   </div>`,
@@ -804,7 +797,6 @@ Hi {{firstName}},
 {{eventName}} starts in 15 minutes and the doors are open.
 
 Join here: {{joinUrl}}
-{{passcodeBlock}}
 
 If the host has not opened the room yet, you will wait on the page and be let in automatically.
 
@@ -818,7 +810,6 @@ If the host has not opened the room yet, you will wait on the page and be let in
     <div style="text-align: center; margin: 28px 0;">
       <a href="{{joinUrl}}" style="display: inline-block; background: #dc2626; color: #ffffff; padding: 16px 40px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 18px;">Join Now</a>
     </div>
-    {{passcodeBlock}}
     {{organizerSignature}}
   </div>`,
     textContent: `We're live: {{eventName}}
@@ -828,7 +819,6 @@ Hi {{firstName}},
 {{eventName}} is starting now.
 
 Join now: {{joinUrl}}
-{{passcodeBlock}}
 
 {{organizerSignature}}`,
   },

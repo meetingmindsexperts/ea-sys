@@ -203,14 +203,15 @@ describe("the poll on the Q&A refresh", () => {
     expect(mockDb.livePollVote.findMany).not.toHaveBeenCalled();
   });
 
-  it("a closed poll shows only with results shown; switched off, nothing at all", async () => {
+  it("only an open poll reaches attendees: a closed one leaves at once, results and all (owner, Nov 5 2026)", async () => {
     asRegistrant();
-    mockDb.livePoll.findFirst.mockResolvedValue({ id: "p1", question: "Q", options: OPTS, allowMultiple: false, status: "CLOSED", showResults: false });
+    mockDb.livePoll.findFirst.mockResolvedValue(null);
     expect(((await (await getQuestions()).json()) as { poll: unknown }).poll).toBeNull();
-    mockDb.livePoll.findFirst.mockResolvedValue({ id: "p2", question: "Q", options: OPTS, allowMultiple: false, status: "CLOSED", showResults: true });
-    mockDb.livePollVote.findMany.mockResolvedValue([{ choices: ["b"] }]);
-    const shown = (await (await getQuestions()).json()) as { poll: { results: unknown } };
-    expect(shown.poll.results).toEqual({ counts: { a: 0, b: 1 }, voters: 1 });
+    expect(mockDb.livePoll.findFirst.mock.calls[0][0].where).toMatchObject({ sessionId: "s1", status: "OPEN" });
+  });
+
+  it("switched off, nothing at all", async () => {
+    asRegistrant();
     settings = { webinar: { sessionId: "s1" } };
     mockDb.livePoll.findFirst.mockClear();
     expect(((await (await getQuestions()).json()) as { poll: unknown }).poll).toBeNull();
@@ -282,7 +283,8 @@ describe("review of polls (Oct 7, 2026)", () => {
 
   it("the attendee results leave cancelled registrations out too", async () => {
     asRegistrant();
-    mockDb.livePoll.findFirst.mockResolvedValue({ id: "p-cancel", question: "Q", options: OPTS, allowMultiple: false, status: "CLOSED", showResults: true });
+    mockDb.livePoll.findFirst.mockResolvedValue({ id: "p-cancel", question: "Q", options: OPTS, allowMultiple: false, status: "OPEN", showResults: true });
+    mockDb.livePollVote.findUnique.mockResolvedValue({ choices: ["a"] });
     await listQuestions(new Request("http://x"), { params: Promise.resolve({ slug: "web", sessionId: "s1" }) });
     expect(mockDb.livePollVote.findMany.mock.calls[0][0].where).toEqual({ pollId: "p-cancel", registration: { status: { not: "CANCELLED" } } });
   });

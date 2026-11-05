@@ -1236,17 +1236,16 @@ export async function precheckBulkEmailViability(
 function buildWebinarCalendarEnrichment(args: {
   eventName: string;
   joinUrl: string;
-  passcode: string;
   start: Date | null;
   end: Date | null;
 }): { calendarBlockHtml: string; calendarBlockText: string; icsAttachment: BulkEmailAttachment | null } {
-  const { eventName, joinUrl, passcode, start, end } = args;
+  const { eventName, joinUrl, start, end } = args;
   if (!start) {
     return { calendarBlockHtml: "", calendarBlockText: "", icsAttachment: null };
   }
   const calEvent = {
     title: eventName,
-    description: `Join: ${joinUrl}${passcode ? `\nPasscode: ${passcode}` : ""}`,
+    description: `Join: ${joinUrl}`,
     location: joinUrl,
     start,
     // No end time on the anchor session ⇒ default a 1-hour slot.
@@ -1801,7 +1800,6 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         where: { sessionId: anchorSessionId, eventId },
         select: {
           joinUrl: true,
-          passcode: true,
           recordingUrl: true,
           recordingPassword: true,
           recordingStatus: true,
@@ -1837,7 +1835,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     const webinarTime = anchorSession?.startTime
       ? `${formatTimeInTz(new Date(anchorSession.startTime), eventTz)} ${tzLabel(new Date(anchorSession.startTime), eventTz)}`
       : "TBA";
-    const passcode = zoomMeeting?.passcode ?? "";
+    // The Zoom passcode is never sent to attendees (owner, Nov 5, 2026): {{joinUrl}} is our gated page,
+    // and both viewing modes join without it (the embed passes it itself; the stream needs none). The
+    // tokens stay valid so customised templates keep rendering, always empty.
+    const passcode = "";
     // Recording URL is only populated once the webinar has ended AND the
     // cron worker has successfully fetched it from Zoom. Until then, the
     // template renders a "coming soon" fallback via recordingBlock.
@@ -1860,16 +1861,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       webinarDate,
       webinarTime,
       recordingUrl,
-      passcodeBlockHtml: passcode
-        ? `<div style="text-align:center; margin:12px 0; color:#374151; font-size:14px;">Passcode: <strong style="font-family:monospace;">${passcode}</strong></div>`
-        : "",
-      passcodeBlockText: passcode ? `Passcode: ${passcode}` : "",
+      passcodeBlockHtml: "",
+      passcodeBlockText: "",
       recordingBlockHtml: webinarRecordingBlock(recordingShown, recordingUrl, "html"),
       recordingBlockText: webinarRecordingBlock(recordingShown, recordingUrl, "text"),
       ...buildWebinarCalendarEnrichment({
         eventName: event.name,
         joinUrl: `${appUrl}/e/${event.slug}/session/${anchorSessionId}`,
-        passcode,
         start: anchorSession?.startTime ?? null,
         end: anchorSession?.endTime ?? null,
       }),

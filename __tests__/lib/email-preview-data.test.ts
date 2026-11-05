@@ -64,10 +64,11 @@ describe("buildRealPreviewOverrides", () => {
     expect(String(o.webinarTime)).toContain("6:00 PM");
   });
 
-  it("passcodeBlock carries the REAL passcode; recordingBlock the real coming-soon state", async () => {
+  it("passcodeBlock is empty even with a real passcode (never sent, Nov 5 2026); recordingBlock the real coming-soon state", async () => {
     mockDb.event.findUnique.mockResolvedValue(eventRow());
     const o = await buildRealPreviewOverrides("evt-1");
-    expect(String(o.passcodeBlock)).toContain("998877");
+    expect(o.passcodeBlock).toBe("");
+    expect(JSON.stringify(o)).not.toContain("998877");
     expect(String(o.recordingBlock)).toContain("available shortly");
   });
 

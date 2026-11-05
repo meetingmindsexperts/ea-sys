@@ -4,7 +4,8 @@
  * The live poll on the attendee page (Oct 6, 2026;
  * docs/WEBINAR_INTERACTION_PLAN.md §5), above the Q&A box. It arrives with the
  * Q&A refresh, so a launched poll appears within one refresh. One answer,
- * final; the results show only when the producer shows them.
+ * final; the results show only when the producer shows them, and only while
+ * the poll is open: closing it takes the card away (Nov 5, 2026).
  */
 
 import { useState } from "react";

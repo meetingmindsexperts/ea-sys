@@ -9,8 +9,6 @@ import {
   Volume2,
   VolumeX,
   RefreshCw,
-  Pause,
-  Play,
   PictureInPicture2,
   Radio,
 } from "lucide-react";
@@ -22,6 +20,15 @@ import { useFullscreen } from "@/hooks/use-fullscreen";
 const BEHIND_LIVE_THRESHOLD_S = 12;
 /** Where "Back to live" lands on native HLS, seconds before the newest chunk. */
 const LIVE_EDGE_OFFSET_S = 4;
+/**
+ * A playing picture that has not moved for this long is a dropped stream
+ * (Nov 5, 2026). The browser's own HLS player (iPhone, Chrome) often just
+ * freezes when the stream goes away and raises no error, so the recovery poll
+ * never started and the only way back was leaving and rejoining. A few
+ * seconds of jitter per viewer so a crowd does not reconnect in lockstep.
+ */
+const STALL_RECONNECT_MS = 15_000;
+const STALL_JITTER_MS = 5_000;
 /**
  * The "Mini player" (picture in picture) button. Built and working, switched
  * off by the owner (Oct 7, 2026): flip to true to offer it.
@@ -37,6 +44,13 @@ function readSoundPref(): "on" | "off" | null {
   } catch {
     return null; // private window or blocked storage: ask again
   }
+}
+
+function offlineHint(hasPlayed: boolean, sessionName?: string): string {
+  if (hasPlayed) return "Reconnecting automatically. There is no need to refresh the page.";
+  return sessionName
+    ? `"${sessionName}" will appear here when the host starts streaming.`
+    : "The stream will appear here when it goes live.";
 }
 
 function writeSoundPref(value: "on" | "off") {
@@ -93,6 +107,9 @@ export function LivePlayer({
   // CDN→origin failover happens at most once per load (no ping-pong).
   const triedFallbackRef = useRef(false);
   const [status, setStatus] = useState<"loading" | "playing" | "offline" | "error">("loading");
+  // Played at least once on this visit: a later "offline" is a dropped stream,
+  // not one that has yet to start, and says so.
+  const [hasPlayed, setHasPlayed] = useState(false);
   // Bumped by the Retry button to re-run the init effect (instead of a full
   // window.location.reload, which at 5k viewers is a thundering-herd self-DoS).
   const [retryNonce, setRetryNonce] = useState(0);
@@ -191,8 +208,15 @@ export function LivePlayer({
           setSoundChosen(true);
         })
         .catch(() => {
-          // Sound needs a tap on this visit: fall back to muted autoplay.
+          // Sound needs a tap on this visit: fall back to muted autoplay, and
+          // say so. The buttons used to keep showing "sound on" here, so after
+          // a reconnect a viewer heard nothing with no way to tell why (Nov 5,
+          // 2026): bring back "Tap to turn on sound".
           video.muted = true;
+          if (mounted) {
+            setIsMuted(true);
+            setSoundChosen(false);
+          }
           video.play().catch((err) => console.warn("live-player:autoplay-failed", err));
         });
     }
@@ -221,6 +245,7 @@ export function LivePlayer({
         video.onloadedmetadata = () => {
           if (mounted) {
             setStatus("playing");
+            setHasPlayed(true);
             onStreamStatusChangeRef.current?.("active");
             startPlayback(video);
           }
@@ -255,6 +280,7 @@ export function LivePlayer({
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (mounted) {
             setStatus("playing");
+            setHasPlayed(true);
             onStreamStatusChangeRef.current?.("active");
             startPlayback(video);
           }
@@ -341,16 +367,6 @@ export function LivePlayer({
     video.play().catch((err) => console.warn("live-player:play-with-sound-failed", err));
   };
 
-  const togglePause = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (video.paused) {
-      video.play().catch((err) => console.warn("live-player:resume-failed", err));
-    } else {
-      video.pause();
-    }
-  };
-
   // Jump to the live moment: hls.js knows the exact sync point; native HLS
   // (Safari) gets a few seconds back from the newest chunk.
   const goLive = () => {
@@ -422,16 +438,34 @@ export function LivePlayer({
   // moment by itself after a pause or a buffer), so there "Back to live" shows
   // only while paused. Safari and hls.js (Firefox) report the range, so a
   // viewer who falls behind there sees the button (review, Oct 7, 2026).
+  // The same tick watches for a frozen picture (see STALL_RECONNECT_MS) and
+  // reconnects the way Retry does: re-check stream-status, then play again or
+  // wait in the recovery poll.
   useEffect(() => {
     if (status !== "playing") {
       setIsBehind(false);
       return;
     }
+    const stallMs = STALL_RECONNECT_MS + Math.floor(Math.random() * STALL_JITTER_MS);
+    let lastTime = -1;
+    let lastMovedAt = Date.now();
     const id = setInterval(() => {
       const video = videoRef.current;
       if (!video) return;
       // Also catches a blocked autoplay, which fires no "pause" event.
       setIsPaused(video.paused);
+      const now = Date.now();
+      // A paused picture is the viewer's (or a blocked autoplay), not a drop.
+      if (video.paused || video.currentTime !== lastTime) {
+        lastTime = video.currentTime;
+        lastMovedAt = now;
+      } else if (now - lastMovedAt > stallMs) {
+        console.warn("live-player:stalled-reconnecting", { stalledMs: now - lastMovedAt });
+        video.src = "";
+        setStatus("loading");
+        setRetryNonce((n) => n + 1);
+        return;
+      }
       if (video.seekable.length === 0) return;
       const behind = video.seekable.end(video.seekable.length - 1) - video.currentTime;
       setIsBehind(behind > BEHIND_LIVE_THRESHOLD_S);
@@ -490,20 +524,10 @@ export function LivePlayer({
         {/* Labels drop to icons on a phone so the bar never overlaps the
             LIVE badge; each button names its action in aria-label (one
             signal, no aria-pressed beside a changing name). */}
+        {/* No Pause button (owner, Nov 5, 2026): a live broadcast has nothing
+            to pause for. A pause from the phone's own controls still shows
+            "Back to live". */}
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          {status === "playing" && (
-            <Button
-              type="button"
-              size="sm"
-              onClick={togglePause}
-              className="h-8 gap-1.5 bg-white/10 text-white hover:bg-white/20"
-              aria-label={isPaused ? "Play" : "Pause"}
-              title={isPaused ? "Play" : "Pause"}
-            >
-              {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-              <span className="hidden text-xs font-medium sm:inline">{isPaused ? "Play" : "Pause"}</span>
-            </Button>
-          )}
           {status === "playing" && (
             <Button
               type="button"
@@ -554,12 +578,15 @@ export function LivePlayer({
         ref={videoRef}
         className={cn(
           "w-full object-contain",
-          isFullscreen && "min-h-0 flex-1",
+          isFullscreen ? "min-h-0 flex-1" : "aspect-video",
           status === "playing" ? "" : "hidden",
         )}
-        // On the full-width page a 16:9 picture would be taller than a laptop
-        // screen; cap it to the window so the whole picture stays in view.
-        style={isFullscreen ? undefined : { minHeight: "400px", maxHeight: "calc(100vh - 8rem)" }}
+        // The box takes the stream's 16:9 shape. It had a 400px minimum
+        // height, which on a phone (a picture about 185px tall) left a band of
+        // black above and below (Nov 5, 2026). On the full-width page a 16:9
+        // picture would be taller than a laptop screen; cap it to the window
+        // so the whole picture stays in view.
+        style={isFullscreen ? undefined : { maxHeight: "calc(100vh - 8rem)" }}
         muted={isMuted}
         playsInline
         autoPlay
@@ -584,7 +611,7 @@ export function LivePlayer({
 
       {/* Loading state */}
       {status === "loading" && (
-        <div className={cn("flex flex-col items-center justify-center min-h-[400px] text-white gap-3", isFullscreen && "flex-1")}>
+        <div className={cn("flex min-h-[240px] flex-col items-center justify-center gap-3 text-white", isFullscreen ? "flex-1" : "aspect-video")}>
           <div className="w-12 h-12 rounded-full border-4 border-white/20 border-t-white animate-spin" />
           <p className="text-sm text-white/70">Connecting to stream...</p>
         </div>
@@ -592,14 +619,16 @@ export function LivePlayer({
 
       {/* Offline / waiting state */}
       {status === "offline" && (
-        <div className={cn("flex flex-col items-center justify-center min-h-[400px] text-white gap-4", isFullscreen && "flex-1")}>
+        <div className={cn("flex min-h-[240px] flex-col items-center justify-center gap-4 px-4 text-white", isFullscreen ? "flex-1" : "aspect-video")}>
           <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
             <Video className="h-8 w-8 text-white/60" />
           </div>
+          {/* After a drop, say so: "waiting to start" mid-webinar read as if
+              it had not begun (Nov 5, 2026). */}
           <div className="text-center">
-            <p className="font-medium">Waiting for stream to start...</p>
+            <p className="font-medium">{hasPlayed ? "The stream was interrupted" : "Waiting for stream to start..."}</p>
             <p className="text-sm text-white/50 mt-1">
-              {sessionName ? `"${sessionName}" will appear here when the host starts streaming.` : "The stream will appear here when it goes live."}
+              {offlineHint(hasPlayed, sessionName)}
             </p>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-white/40">
@@ -611,7 +640,7 @@ export function LivePlayer({
 
       {/* Error state */}
       {status === "error" && (
-        <div className={cn("flex flex-col items-center justify-center min-h-[400px] text-white gap-4", isFullscreen && "flex-1")}>
+        <div className={cn("flex min-h-[240px] flex-col items-center justify-center gap-4 text-white", isFullscreen ? "flex-1" : "aspect-video")}>
           <Video className="h-10 w-10 text-white/50" />
           <p className="text-sm text-white/70">Unable to play the stream</p>
           <Button variant="secondary" size="sm" onClick={handleRetry} className="gap-1.5">

@@ -1748,8 +1748,8 @@ export function getSamplePreviewVariables(
     joinUrl: "#",
     webinarDate: "Monday, March 15, 2026",
     webinarTime: "9:00 AM GMT+4",
-    passcodeBlock:
-      '<div style="text-align:center; margin:12px 0; color:#374151; font-size:14px;">Passcode: <strong style="font-family:monospace;">123456</strong></div>',
+    // Retired Nov 5, 2026: the senders always render it empty, so the preview does too.
+    passcodeBlock: "",
     recordingBlock:
       '<div style="text-align:center; margin:20px 0;"><a href="#" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Watch Replay</a></div>',
     // The thank-you's end-of-webinar survey button (step 5 of several surveys);

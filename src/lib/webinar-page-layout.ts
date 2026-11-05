@@ -69,20 +69,24 @@ export function webinarBackgroundStyle(url: string | null): { backgroundImage: s
 }
 
 /**
- * Whether the webinar is over for this viewer, which is when the end-of-webinar
- * survey appears (step 4 of several surveys, Oct 6, 2026): the host ended it in
- * Zoom, or the room is closed and the scheduled end has passed. A room closed
- * BEFORE the scheduled end is a pause, not the end (review of step 4: the room
- * route marks the session COMPLETED on close, so `lobbyEnded` turns true during
- * a pause too). Never while the room is open: an overrun past the scheduled end
- * keeps it hidden.
+ * Whether the webinar is over for this viewer, which is when the exit screen
+ * and the end-of-webinar survey appear: the host ended it in Zoom, or the room
+ * is not open and lobby-status says it ended (the producer closed it, which
+ * marks the session COMPLETED, or the scheduled end passed).
+ *
+ * Closing the room ends the webinar whatever the clock says (owner, Nov 5,
+ * 2026). It used to count as a pause until the scheduled end, so a webinar
+ * closed early sent every attendee back to the waiting room and its "we will
+ * begin shortly" message, with no survey. Reopening the room still brings
+ * them back: roomOpen wins. Before the room ever opens the session is not
+ * COMPLETED, so the pre-start waiting room is unaffected.
  */
 export function isWebinarOver(s: {
   hostEnded: boolean;
   roomOpen: boolean;
-  /** The scheduled end time has passed. */
-  pastScheduledEnd: boolean;
+  /** lobby-status `ended`: the session is COMPLETED or its scheduled end passed. */
+  lobbyEnded: boolean;
 }): boolean {
-  return s.hostEnded || (!s.roomOpen && s.pastScheduledEnd);
+  return s.hostEnded || (!s.roomOpen && s.lobbyEnded);
 }
 

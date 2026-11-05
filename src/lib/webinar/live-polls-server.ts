@@ -110,9 +110,11 @@ function choiceList(choices: unknown): string[] {
 }
 
 /**
- * The poll an attendee sees: the session's most recently launched poll, while
- * it is open, or after it closes if the producer shows its results. Nothing
- * when the organiser has live polls switched off.
+ * The poll an attendee sees: the session's open poll, and only while it is
+ * open. Closing a poll takes it off the attendee page at once, results and all
+ * (owner, Nov 5, 2026): one poll at a time, never an earlier poll's results
+ * left on screen. The console keeps every poll and its tally. Nothing when the
+ * organiser has live polls switched off.
  */
 export async function viewerPoll(args: {
   eventId: string;
@@ -122,11 +124,11 @@ export async function viewerPoll(args: {
 }): Promise<ViewerPoll | null> {
   if (!args.enabled) return null;
   const poll = await db.livePoll.findFirst({
-    where: { eventId: args.eventId, sessionId: args.sessionId, status: { in: ["OPEN", "CLOSED"] } },
+    where: { eventId: args.eventId, sessionId: args.sessionId, status: "OPEN" },
     orderBy: { openedAt: "desc" },
     select: { id: true, question: true, options: true, allowMultiple: true, status: true, showResults: true },
   });
-  if (!poll || (poll.status === "CLOSED" && !poll.showResults)) return null;
+  if (!poll) return null;
   const options = readPollOptions(poll.options);
   const mine = args.registrationId
     ? await db.livePollVote.findUnique({
@@ -134,13 +136,11 @@ export async function viewerPoll(args: {
         select: { choices: true },
       })
     : null;
-  // Results never stand in for the question (review of polls, HIGH): while a
-  // poll is open, a registrant sees them only after answering, so showing
-  // results mid-poll (or reopening a poll whose results were shown) never
-  // stops anyone voting. Once closed, or for staff who cannot answer, they
-  // show as soon as the producer shows them.
-  const resultsVisible =
-    poll.showResults && (poll.status === "CLOSED" || mine !== null || args.registrationId === null);
+  // Results never stand in for the question (review of polls, HIGH): a
+  // registrant sees them only after answering, so showing results mid-poll
+  // never stops anyone voting. Staff, who cannot answer, see them as soon as
+  // the producer shows them.
+  const resultsVisible = poll.showResults && (mine !== null || args.registrationId === null);
   const results = resultsVisible ? await cachedTally(poll.id, options) : null;
   return {
     id: poll.id,

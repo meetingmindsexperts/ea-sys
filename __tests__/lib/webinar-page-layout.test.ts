@@ -41,19 +41,20 @@ describe("webinarBackgroundStyle", () => {
   });
 });
 
-describe("isWebinarOver (when the end-of-webinar survey may appear)", () => {
-  const base = { hostEnded: false, roomOpen: true, pastScheduledEnd: false };
-  it("is false while the webinar is live, even after the scheduled end (an overrun)", () => {
+describe("isWebinarOver (when the exit screen and end-of-webinar survey appear)", () => {
+  const base = { hostEnded: false, roomOpen: true, lobbyEnded: false };
+  it("is false while the room is open, even after the scheduled end (an overrun)", () => {
     expect(isWebinarOver(base)).toBe(false);
-    expect(isWebinarOver({ ...base, pastScheduledEnd: true })).toBe(false);
+    expect(isWebinarOver({ ...base, lobbyEnded: true })).toBe(false);
   });
-  it("a room closed BEFORE the scheduled end is a pause, not the end", () => {
+  it("is false before the room ever opens (pre-start waiting room)", () => {
     expect(isWebinarOver({ ...base, roomOpen: false })).toBe(false);
   });
   it("is true when the host ends it in Zoom", () => {
     expect(isWebinarOver({ ...base, hostEnded: true })).toBe(true);
   });
-  it("is true when the room is closed and the scheduled end has passed (also on a later visit)", () => {
-    expect(isWebinarOver({ ...base, roomOpen: false, pastScheduledEnd: true })).toBe(true);
+  it("a room closed BEFORE the scheduled end is the end, not a pause (owner, Nov 5 2026)", () => {
+    // lobby-status reports ended once the close marks the session COMPLETED.
+    expect(isWebinarOver({ ...base, roomOpen: false, lobbyEnded: true })).toBe(true);
   });
 });

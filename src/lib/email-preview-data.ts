@@ -53,7 +53,7 @@ export async function buildRealPreviewOverrides(
               startTime: true,
               location: true,
               zoomMeeting: {
-                select: { passcode: true, recordingStatus: true, recordingUrl: true },
+                select: { recordingStatus: true, recordingUrl: true },
               },
             },
           },
@@ -115,12 +115,8 @@ export async function buildRealPreviewOverrides(
       // attached; otherwise the generic samples stand (previewing a webinar
       // template on a session with no Zoom would otherwise show nothing).
       if (session.zoomMeeting) {
-        const passcode = session.zoomMeeting.passcode ?? "";
-        // Same markup as bulk-email's webinar enrichment; "" when no passcode,
-        // exactly like the real send.
-        overrides.passcodeBlock = passcode
-          ? `<div style="text-align:center; margin:12px 0; color:#374151; font-size:14px;">Passcode: <strong style="font-family:monospace;">${passcode}</strong></div>`
-          : "";
+        // Always empty, exactly like the real send: attendees are never sent the Zoom passcode (Nov 5, 2026).
+        overrides.passcodeBlock = "";
         // The organiser's recording switch applies to webinars, as in the real send.
         const recordingShown = event.eventType !== "WEBINAR" || webinarRecordingShown(event.settings);
         const recordingUrl =

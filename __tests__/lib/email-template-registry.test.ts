@@ -89,6 +89,9 @@ describe("the body-to-contract check", () => {
         // taxBlock is built by the Stripe webhook for a saved template that
         // adds it; the default body does not carry it.
         if (key === "taxBlock") continue;
+        // passcodeBlock left the default bodies on Nov 5, 2026 and always
+        // renders empty; it stays declared for saved templates that carry it.
+        if (key === "passcodeBlock") continue;
         expect(toks.has(key), `${t.slug} declares raw ${key}`).toBe(true);
       }
     }

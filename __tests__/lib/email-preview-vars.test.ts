@@ -209,7 +209,8 @@ describe("buildEventPreviewVariables", () => {
     ]) {
       expect(v[key], key).toBeDefined();
     }
-    expect(String(v.passcodeBlock)).toContain("Passcode");
+    // Retired Nov 5, 2026: attendees are never sent the Zoom passcode, so the sample is empty too.
+    expect(v.passcodeBlock).toBe("");
     expect(String(v.recordingBlock)).toContain("Watch Replay");
   });
 
