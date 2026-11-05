@@ -69,7 +69,7 @@ For running a webinar, see the operator guide (<code>public/user-guide.html</cod
 
 <h2 id="picture">1. The picture in one line</h2>
 <p>The speakers present in Zoom. Zoom pushes <b>one</b> video stream to our own media server. Our server cuts it into
-two-second pieces, and every attendee's browser downloads those pieces from our website. Zoom never sees the attendees,
+four-second pieces, and every attendee's browser downloads those pieces from our website. Zoom never sees the attendees,
 so the audience size does not cost Zoom seats.</p>
 
 <div class="flow">
@@ -77,7 +77,7 @@ so the audience size does not cost Zoom seats.</p>
   <div class="arrow">→</div>
   <div class="box"><b>Zoom live stream</b><small>one RTMP push to our box, port 1935</small></div>
   <div class="arrow">→</div>
-  <div class="box"><b>MediaMTX</b><small>container <code>ea-sys-mediamtx</code>: RTMP in, HLS out (2 s pieces)</small></div>
+  <div class="box"><b>MediaMTX</b><small>container <code>ea-sys-mediamtx</code>: RTMP in, HLS out (4 s pieces)</small></div>
   <div class="arrow">→</div>
   <div class="box"><b>nginx <code>/stream/</code></b><small>optional CDN in front (<code>HLS_CDN_BASE</code>)</small></div>
   <div class="arrow">→</div>
@@ -93,7 +93,7 @@ and the end-of-webinar survey all talk to our web app by polling small JSON rout
   <tr><th></th><th>Custom stream (HLS)</th><th>Zoom embed</th></tr>
   <tr><td>What the attendee sees</td><td>Our video player, one-way broadcast</td><td>Zoom's own player inside our page</td></tr>
   <tr><td>Audience size</td><td>Thousands (only the video pieces are served)</td><td>Zoom's webinar seat limit</td></tr>
-  <tr><td>Delay behind the speaker</td><td>About 6 to 15 seconds</td><td>About 1 to 2 seconds</td></tr>
+  <tr><td>Delay behind the speaker</td><td>About 12 to 20 seconds</td><td>About 1 to 2 seconds</td></tr>
   <tr><td>Questions</td><td>Our Q&amp;A box under the video</td><td>Zoom's Q&amp;A</td></tr>
   <tr><td>Knows when it is "really on air"</td><td>Yes: the stream is either arriving or not</td><td>Only from Zoom's reports</td></tr>
   <tr><td>Used for</td><td>Large audiences (Nov 5 test webinar)</td><td>Small interactive sessions</td></tr>
@@ -104,7 +104,7 @@ and the end-of-webinar survey all talk to our web app by polling small JSON rout
 <table>
   <tr><th>Part</th><th>Where it runs</th><th>Its job</th></tr>
   <tr><td><b>Zoom</b></td><td>Zoom's cloud</td><td>The studio: speakers, slides, screen share. When the room opens, we ask Zoom (API) to start pushing the live stream to our box.</td></tr>
-  <tr><td><b>MediaMTX</b></td><td>Container <code>ea-sys-mediamtx</code> on the EC2 box</td><td>Receives the RTMP push on <code>rtmp://{host}:1935/live/{streamKey}</code> and repackages it as HLS: a playlist plus 2-second MPEG-TS pieces, keeping the newest 7.</td></tr>
+  <tr><td><b>MediaMTX</b></td><td>Container <code>ea-sys-mediamtx</code> on the EC2 box</td><td>Receives the RTMP push on <code>rtmp://{host}:1935/live/{streamKey}</code> and repackages it as HLS: a playlist plus 4-second MPEG-TS pieces, keeping the newest 7.</td></tr>
   <tr><td><b>nginx</b></td><td>The box</td><td><code>/stream/</code> passes HLS requests to MediaMTX (<code>:8888</code>), marked no-cache.</td></tr>
   <tr><td><b>CDN</b> (optional)</td><td>CloudFront, when <code>HLS_CDN_BASE</code> is set</td><td>Serves the video pieces from edge locations so 5,000 viewers do not all hit the box. The player falls back to the box if the CDN misbehaves.</td></tr>
   <tr><td><b>Web app</b></td><td>Containers <code>ea-sys-blue</code> / <code>ea-sys-green</code></td><td>The attendee page and its small routes: <code>lobby-status</code>, <code>stream-status</code>, <code>zoom-join</code>, <code>questions</code>, <code>presence</code>, <code>end-survey</code>. Also the producer's console and the room switch.</td></tr>
@@ -131,8 +131,9 @@ Everything else, from the attendee page to the emails, reads that one field.</di
 
 <h3>5.1 Cutting the video into pieces (MediaMTX)</h3>
 <ul>
-  <li>Each piece is <b>2 seconds</b> of video (<code>hlsSegmentDuration</code>). The playlist lists the newest <b>7</b> (<code>hlsSegmentCount</code>), about 14 seconds.</li>
-  <li>Players start about 3 pieces behind the newest one, so the normal delay is about <b>6 seconds</b>, plus Zoom's own delay.</li>
+  <li>Each piece is <b>4 seconds</b> of video (<code>hlsSegmentDuration</code>). The playlist lists the newest <b>7</b> (<code>hlsSegmentCount</code>), about 28 seconds.</li>
+  <li>Why 4 and not 2: a piece can only be cut where Zoom sends a full frame (a keyframe), about every 3 seconds. At 2 seconds, on Nov 5, MediaMTX had to stretch the pieces mid-stream, and iPhones and iPads freeze on that change until the page is reopened. The piece length must stay at or above Zoom's keyframe gap.</li>
+  <li>Players start about 3 pieces behind the newest one, so the normal delay is about <b>12 seconds</b>, plus Zoom's own delay.</li>
   <li>Pieces are MPEG-TS (<code>hlsVariant: mpegts</code>), which every browser and the iPhone play. <code>hlsAlwaysRemux</code> means pieces are made even before anyone watches, so the first viewer does not wait.</li>
   <li>When Zoom's push stops, MediaMTX removes the stream path at once. That is why a drop looks like "the stream is gone", not "the stream is slow".</li>
 </ul>
@@ -159,7 +160,7 @@ Everything else, from the attendee page to the emails, reads that one field.</di
       <li>A load that never shows a first frame is retried after 60 s, also backed off.</li>
     </ul>
   </li>
-  <li><b>Back to live.</b> A viewer who falls more than 12 s behind (Safari, Firefox) or is paused by the phone gets a "Back to live" button.</li>
+  <li><b>Back to live.</b> A viewer who falls more than 24 s behind (Safari, Firefox) or is paused by the phone gets a "Back to live" button.</li>
   <li><b>Wording.</b> "Waiting for stream to start" before it has played; "The stream was interrupted, reconnecting" after a drop; past the scheduled end, "The stream has stopped, this page will show it in a few minutes".</li>
 </ul>
 
@@ -228,7 +229,7 @@ restarts must not lose the audience.</p>
 <h2 id="scale">6. Why it holds up at 5,000 viewers</h2>
 <table>
   <tr><th>Traffic</th><th>Per viewer</th><th>What keeps the server calm</th></tr>
-  <tr><td>Video pieces</td><td>One 2 s piece every 2 s</td><td>Static files; CDN in front when set</td></tr>
+  <tr><td>Video pieces</td><td>One 4 s piece every 4 s</td><td>Static files; CDN in front when set</td></tr>
   <tr><td>stream-status</td><td>On start and every 10 s only while waiting</td><td>3 s probe cache, rate limit 360/hour per IP</td></tr>
   <tr><td>lobby-status</td><td>Every 15 to 20 s</td><td>3 s answer cache, random spread</td></tr>
   <tr><td>Q&amp;A + poll</td><td>Every 15 s</td><td>One request carries both; 5 s tally cache</td></tr>
@@ -251,7 +252,12 @@ restarts must not lose the audience.</p>
 </table>
 
 <h3>Why did it drop?</h3>
-<p>Our app logs show <b>that</b> Zoom's push stopped at 08:42:03, not <b>why</b>. The app only sees the stream path
+<p><b>Answered from MediaMTX's log:</b> at 08:41:46 the RTMP connection from Zoom closed with <code>EOF</code>, a clean
+hang-up from Zoom's side, not a timeout on ours. Zoom did not reconnect by itself; the 08:42:38 connection (from a
+different Zoom server) is the producer's Start stream. Three minutes earlier, at 08:38:49, MediaMTX had warned
+<code>segment duration changed from 2s to 3s - this will cause an error in iOS clients</code>, which is the likelier cause
+of the iPhone viewers' freezes; the pieces are now 4 seconds (5.1).</p>
+<p>In general, our app logs show <b>that</b> a stream stopped, not <b>why</b>. The app only sees the stream path
 disappear. The reason (Zoom closed the connection, a network timeout, a bad packet) is in MediaMTX's own log,
 which stays in Docker on the box and is not shipped to CloudWatch. It is kept for a limited time (log rotation), so read it soon:</p>
 <pre><code>docker logs --since 2026-11-05T08:35:00Z --until 2026-11-05T08:45:00Z ea-sys-mediamtx</code></pre>

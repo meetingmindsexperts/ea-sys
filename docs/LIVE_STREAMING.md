@@ -99,7 +99,7 @@ wired in the port map but unused (reserved for a future low-latency path).
 
 3. **MediaMTX ingests + remuxes.** It accepts the publisher on `:1935` and
    exposes an HLS playlist on `:8888` at `/live/{streamKey}/index.m3u8`.
-   Config (mpegts variant, 7 × 2s segments) lives in
+   Config (mpegts variant, 7 × 4s segments; 2s until Nov 5, 2026, see mediamtx.yml) lives in
    [`mediamtx.yml`](../mediamtx.yml).
 
 4. **nginx proxies playback.** Public clients never hit `:8888` directly —
@@ -145,7 +145,7 @@ webrtcAddress: :8889
 # HLS settings — mpegts variant (fmp4 has known 404 issues)
 hlsVariant: mpegts
 hlsSegmentCount: 7
-hlsSegmentDuration: 2s
+hlsSegmentDuration: 4s
 hlsSegmentMaxSize: 50M
 hlsAlwaysRemux: true
 
@@ -157,7 +157,7 @@ paths:
 Notes:
 - **`hlsVariant: mpegts`** — the fmp4 variant had known 404 issues serving
   init segments through the proxy; mpegts is the stable choice.
-- **`hlsSegmentCount: 7` × `hlsSegmentDuration: 2s`** ≈ a 14s sliding window.
+- **`hlsSegmentCount: 7` × `hlsSegmentDuration: 4s`** ≈ a 28s sliding window. 4s, not 2s: pieces are cut at keyframes, Zoom sends one about every 3s, and a piece length that changes mid-stream freezes iOS players (Nov 5, 2026).
   Trades latency for resilience to brief network hiccups.
 - **`hlsAlwaysRemux: true`** — keep producing HLS segments even with no active
   reader, so the first viewer doesn't wait for a cold start.

@@ -18,7 +18,13 @@ webrtcAddress: :8889
 # HLS settings — mpegts variant (fmp4 has known 404 issues)
 hlsVariant: mpegts
 hlsSegmentCount: 7
-hlsSegmentDuration: 2s
+# 4s, not 2s (Nov 5, 2026): a piece can only be cut at a keyframe, and Zoom
+# sends one every ~3s (more on static slides). At 2s MediaMTX had to stretch
+# the pieces mid-stream ("segment duration changed from 2s to 3s - this will
+# cause an error in iOS clients"), which freezes iPhone/iPad playback until
+# the page is reopened. Keep it at or above Zoom's keyframe gap. The player's
+# BEHIND_LIVE_THRESHOLD_S / LIVE_EDGE_OFFSET_S assume this value.
+hlsSegmentDuration: 4s
 hlsSegmentMaxSize: 50M
 hlsAlwaysRemux: true
 

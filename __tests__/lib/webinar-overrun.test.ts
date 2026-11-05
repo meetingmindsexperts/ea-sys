@@ -78,3 +78,22 @@ describe("MediaMTX's own log reaches CloudWatch (Nov 5, 2026)", () => {
     expect(entry?.log_group_name).toBe("ea-sys/mediamtx");
   });
 });
+
+describe("HLS piece length (Nov 5, 2026)", () => {
+  // Zoom sends a keyframe about every 3 s; a shorter piece length makes MediaMTX stretch pieces
+  // mid-stream, which freezes iOS players. The player's thresholds are derived from it.
+  const read = (f: string) => readFileSync(path.join(process.cwd(), f), "utf8");
+  const seg = Number(read("mediamtx.yml").match(/^hlsSegmentDuration: (\d+)s$/m)?.[1]);
+  const player = read("src/components/zoom/live-player.tsx");
+  const constant = (name: string) => Number(player.match(new RegExp(`const ${name} = (\\d+);`))?.[1]);
+
+  it("stays at or above Zoom's keyframe gap", () => {
+    expect(seg).toBeGreaterThanOrEqual(3);
+  });
+
+  it("the player's 'Back to live' threshold sits above normal lag (3 pieces), and the live edge inside the window", () => {
+    expect(constant("BEHIND_LIVE_THRESHOLD_S")).toBeGreaterThan(3 * seg);
+    expect(constant("LIVE_EDGE_OFFSET_S")).toBeGreaterThanOrEqual(seg);
+    expect(constant("LIVE_EDGE_OFFSET_S")).toBeLessThan(3 * seg);
+  });
+});

@@ -15,11 +15,11 @@ import {
 import { cn } from "@/lib/utils";
 import { useFullscreen } from "@/hooks/use-fullscreen";
 
-/** Normal playback sits ~6 s behind the newest chunk (3 x 2 s segments).
- *  Further behind than this means a pause or a long buffer. */
-const BEHIND_LIVE_THRESHOLD_S = 12;
-/** Where "Back to live" lands on native HLS, seconds before the newest chunk. */
-const LIVE_EDGE_OFFSET_S = 4;
+/** Normal playback sits ~12 s behind the newest chunk (3 x 4 s segments, mediamtx.yml
+ *  hlsSegmentDuration; 2 s until Nov 5, 2026). Further behind than this means a pause or a long buffer. */
+const BEHIND_LIVE_THRESHOLD_S = 24;
+/** Where "Back to live" lands on native HLS, seconds before the newest chunk (two pieces back). */
+const LIVE_EDGE_OFFSET_S = 8;
 /**
  * A playing picture that has not moved for this long is a dropped stream
  * (Nov 5, 2026). The browser's own HLS player (iPhone, Chrome) often just
