@@ -24,13 +24,14 @@ const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 /**
  * Mint a verify-email token for `email` and send the verification email.
  * Best-effort: failures are logged, never thrown — registration must succeed
- * even if the verify email can't be sent (the link can be re-issued).
+ * even if the verify email can't be sent (the link can be re-issued). Says
+ * what happened, so a screen never claims a link was sent when it was not.
  */
 export async function sendEmailVerification(params: {
   email: string;
   name: string;
   purpose?: "team" | "registrations" | "speaker";
-}): Promise<void> {
+}): Promise<"sent" | "rate-limited" | "failed"> {
   const { name, purpose = "team" } = params;
   // Lower-cased as verify-email reads it, or a mixed-case address gets a link
   // that can never match its token (security review of 7cf4eb3b).
@@ -42,7 +43,7 @@ export async function sendEmailVerification(params: {
   const rl = checkRateLimit({ key: `email-confirmation-send:${email}`, limit: 5, windowMs: 60 * 60 * 1000 });
   if (!rl.allowed) {
     apiLogger.warn({ msg: "email-verification:rate-limited", email, retryAfterSeconds: rl.retryAfterSeconds });
-    return;
+    return "rate-limited";
   }
   try {
     const identifier = `${EMAIL_VERIFY_PREFIX}${email}`;
@@ -79,10 +80,12 @@ export async function sendEmailVerification(params: {
 
     if (!result.success) {
       apiLogger.warn({ msg: "email-verification:send-failed", email, error: result.error });
-    } else {
-      apiLogger.info({ msg: "email-verification:sent", email });
+      return "failed";
     }
+    apiLogger.info({ msg: "email-verification:sent", email });
+    return "sent";
   } catch (err) {
     apiLogger.error({ err, msg: "email-verification:mint-or-send-failed", email });
+    return "failed";
   }
 }

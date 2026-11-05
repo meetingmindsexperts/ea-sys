@@ -167,7 +167,12 @@ export async function POST(req: Request) {
     const claimedEvents = speakers > 0
       ? await runWithTenantLane(hostOrgId, { route: "auth/verify-email", userId: user.id }, () =>
           db.speaker.findMany({
-            where: { userId: user.id, email: { equals: email, mode: "insensitive" } },
+            where: {
+              userId: user.id,
+              email: { equals: email, mode: "insensitive" },
+              // Only events this site shows and still takes submissions on.
+              event: { status: { in: ["PUBLISHED", "LIVE"] }, ...(hostOrgId && { organizationId: hostOrgId }) },
+            },
             select: { submitterSource: true, event: { select: { slug: true, name: true } } },
             take: 5,
           }),

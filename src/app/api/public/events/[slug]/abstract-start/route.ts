@@ -312,10 +312,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (await speakerClaimPending(event.id, emailLower, !!scope?.confirmed)) {
       apiLogger.info({ msg: "public/abstract-start:speaker-claim-needs-confirmation", eventId: event.id });
-      void sendEmailVerification({ email: emailLower, name: `${firstName} ${lastName}`, purpose: "speaker" });
+      const sent = await sendEmailVerification({ email: emailLower, name: `${firstName} ${lastName}`, purpose: "speaker" });
       return NextResponse.json(
         {
-          error: `The organisers already have a speaker profile for ${emailLower}. We sent a link to that address: sign in, then open it to take the profile over.`,
+          error: `The organisers already have a speaker profile for ${emailLower}. ${claimLinkNote(sent)}`,
           code: "CONFIRM_EMAIL_TO_CLAIM",
         },
         { status: 409 },
@@ -369,10 +369,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       // This event's speaker record is the organisers' and unclaimed: the
       // account takes it over once it confirms the address (upsertEventSpeaker).
       apiLogger.info({ msg: "public/abstract-start:speaker-claim-needs-confirmation", eventId: event.id });
-      void sendEmailVerification({ email: emailLower, name: `${firstName} ${lastName}`, purpose: "speaker" });
+      const sent = await sendEmailVerification({ email: emailLower, name: `${firstName} ${lastName}`, purpose: "speaker" });
       return NextResponse.json(
         {
-          error: `The organisers already have a speaker profile for ${emailLower}. We sent a link to that address: sign in, then open it to take the profile over.`,
+          error: `The organisers already have a speaker profile for ${emailLower}. ${claimLinkNote(sent)}`,
           code: "CONFIRM_EMAIL_TO_CLAIM",
         },
         { status: 409 },
@@ -425,4 +425,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.error({ err: error, msg: "abstract-start failed" });
     return NextResponse.json({ error: "Something went wrong" }, { status: 500 });
   }
+}
+
+/** What to say about the confirmation link, truthfully. */
+function claimLinkNote(sent: "sent" | "rate-limited" | "failed"): string {
+  if (sent === "sent") return "We sent a link to that address: sign in, then open it to take the profile over.";
+  if (sent === "rate-limited") return "We sent links to that address recently: sign in, then open the latest one to take the profile over.";
+  return "We could not send the link just now. Please try again shortly.";
 }

@@ -520,9 +520,9 @@ export const {
       // /api/auth/session); the Edge middleware's mapper does not resolve
       // permissions and nothing there reads them. Cache hits cost no query.
       if (mapped.user) {
-        // Server-side revocation check for the access rules that matter at
-        // once (registrant-access.ts): a revoked session is caught on this
-        // request, not at its next 5-minute re-validation.
+        // For the access rules that must catch a revoked session at once
+        // (registrant-access.ts) rather than at its next 5-minute
+        // re-validation. Also reaches /api/auth/session: a counter, not a secret.
         mapped.user.tokenVersion = (token?.tokenVersion as number | undefined) ?? 0;
         mapped.user.procurementPermissions = await permissionsForHeldSets(
           token?.organizationId as string | null | undefined,

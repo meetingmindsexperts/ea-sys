@@ -30,6 +30,7 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { id: "u1", email: "spoofed@evil.com" } });
   mockDb.user.findUnique.mockResolvedValue({ email: "anna@example.com", firstName: "Anna", lastName: "K", emailConfirmedAt: null });
   mockRateLimit.mockReturnValue({ allowed: true });
+  mockSend.mockResolvedValue("sent");
 });
 
 describe("POST /api/registrant/confirm-email", () => {
@@ -57,6 +58,19 @@ describe("POST /api/registrant/confirm-email", () => {
   it("refuses a signed-out request", async () => {
     mockAuth.mockResolvedValue(null);
     expect((await POST(new Request("http://x", { method: "POST" }))).status).toBe(401);
+  });
+});
+
+describe("POST /api/registrant/confirm-email: says only what happened", () => {
+  it("answers 429, not 'sent', when the address's own limit stopped the email", async () => {
+    mockSend.mockResolvedValue("rate-limited");
+    const res = await POST(new Request("http://x", { method: "POST" }));
+    expect(res.status).toBe(429);
+    expect((await res.json()).sent).toBeUndefined();
+  });
+  it("answers 502 when the email could not be sent", async () => {
+    mockSend.mockResolvedValue("failed");
+    expect((await POST(new Request("http://x", { method: "POST" }))).status).toBe(502);
   });
 });
 

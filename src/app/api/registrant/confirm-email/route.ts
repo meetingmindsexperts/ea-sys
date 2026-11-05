@@ -71,13 +71,25 @@ export async function POST(req: Request) {
       }
       if (user.emailConfirmedAt) return NextResponse.json({ confirmed: true, sent: false });
 
-      await sendEmailVerification({
+      const outcome = await sendEmailVerification({
         email: user.email,
         name: `${user.firstName} ${user.lastName}`.trim() || user.email,
         // A Meeting Minds address keeps the team wording; confirming it also
         // attaches the organisation, as it always has.
         purpose: needsEmailVerification(user.email) ? "team" : "registrations",
       });
+      if (outcome === "rate-limited") {
+        // The address's own limit (any trigger), not this button's.
+        apiLogger.warn({ msg: "registrant/confirm-email:address-rate-limited", userId });
+        return NextResponse.json(
+          { error: "We sent several links to this address recently. Check your inbox, or try again in an hour.", retryAfterSeconds: 3600 },
+          { status: 429, headers: { "Retry-After": "3600" } },
+        );
+      }
+      if (outcome === "failed") {
+        apiLogger.error({ msg: "registrant/confirm-email:send-failed", userId });
+        return NextResponse.json({ error: "Could not send the link. Please try again." }, { status: 502 });
+      }
       apiLogger.info({ msg: "registrant/confirm-email:sent", userId });
       return NextResponse.json({ confirmed: false, sent: true });
     });

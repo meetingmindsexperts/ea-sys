@@ -51,7 +51,7 @@ vi.mock("@/lib/security", () => ({
   checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
   getClientIp: () => "1.2.3.4",
 }));
-const { sendVerifySpy } = vi.hoisted(() => ({ sendVerifySpy: vi.fn() }));
+const { sendVerifySpy } = vi.hoisted(() => ({ sendVerifySpy: vi.fn().mockResolvedValue("sent") }));
 vi.mock("@/lib/email-verification", () => ({ sendEmailVerification: sendVerifySpy }));
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn().mockResolvedValue("hashed"), compare: vi.fn().mockResolvedValue(true) } }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn().mockResolvedValue(undefined) }));

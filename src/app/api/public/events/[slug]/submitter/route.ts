@@ -234,10 +234,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     // still gets their account below, so they can sign in and confirm.
     if (existingUser && (await speakerClaimPending(event.id, emailLower, !!existingUser.emailConfirmedAt))) {
       apiLogger.info({ msg: "public/submitter:speaker-claim-needs-confirmation", eventId: event.id, existingAccount: true });
-      void sendEmailVerification({ email: emailLower, name: `${data.firstName} ${data.lastName}`, purpose: "speaker" });
+      const sent = await sendEmailVerification({ email: emailLower, name: `${data.firstName} ${data.lastName}`, purpose: "speaker" });
       return NextResponse.json(
         {
-          error: `The organisers already have a speaker profile for ${emailLower}. We sent a link to that address: sign in, then open it to take the profile over.`,
+          error: `The organisers already have a speaker profile for ${emailLower}. ${claimLinkNote(sent)}`,
           code: "CONFIRM_EMAIL_TO_CLAIM",
         },
         { status: 409 },
@@ -334,11 +334,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       // contact sync, companion registration or welcome email for details
       // nobody has proven are theirs.
       apiLogger.info({ msg: "public/submitter:speaker-claim-needs-confirmation", eventId: event.id });
-      void sendEmailVerification({ email: emailLower, name: `${data.firstName} ${data.lastName}`, purpose: "speaker" });
+      const sent = await sendEmailVerification({ email: emailLower, name: `${data.firstName} ${data.lastName}`, purpose: "speaker" });
       return NextResponse.json({
         success: true,
         needsConfirmation: true,
-        message: `Account created. The organisers already have a speaker profile for ${emailLower}: sign in, then open the link we sent to that address to take it over.`,
+        message: `Account created. The organisers already have a speaker profile for ${emailLower}. ${claimLinkNote(sent)}`,
       });
     }
 
@@ -530,4 +530,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       { status: 500 }
     );
   }
+}
+
+/** What to say about the confirmation link, truthfully. */
+function claimLinkNote(sent: "sent" | "rate-limited" | "failed"): string {
+  if (sent === "sent") return "We sent a link to that address: sign in, then open it to take the profile over.";
+  if (sent === "rate-limited") return "We sent links to that address recently: sign in, then open the latest one to take the profile over.";
+  return "We could not send the link just now. Please try again shortly.";
 }

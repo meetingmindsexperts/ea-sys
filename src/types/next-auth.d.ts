@@ -7,10 +7,11 @@ declare module "next-auth" {
       id: string;
       role: string;
       /**
-       * The session's revocation counter, set by the Node session callback only
-       * (never the Edge mapper). Server code compares it with the database so a
-       * session a password reset revoked counts for nothing during the up-to-5
-       * minutes before its periodic re-check (src/lib/registrant-access.ts).
+       * The session's revocation counter, set by the Node session callback (so
+       * also in /api/auth/session; it is a counter, not a secret), never the
+       * Edge mapper. Server code compares it with the database so a session a
+       * password reset revoked counts for nothing during the up-to-5 minutes
+       * before its periodic re-check (src/lib/registrant-access.ts).
        */
       tokenVersion?: number;
       organizationId?: string | null;
@@ -58,8 +59,8 @@ declare module "next-auth/jwt" {
      * Session revocation counter, stamped at sign-in and compared on the
      * periodic re-validation. Optional because tokens issued before this
      * shipped carry no claim; readers treat a missing value as 0.
-     * Deliberately NOT exposed on `Session` — it is an internal auth
-     * mechanism, not something a page should read.
+     * On `Session` since Nov 5, 2026 for one server-side comparison
+     * (registrant-access.ts); pages must not use it for anything else.
      */
     tokenVersion?: number;
     organizationId?: string | null;
@@ -68,7 +69,7 @@ declare module "next-auth/jwt" {
     lastName?: string;
     /**
      * Explicit per-person HR grant, refreshed on the same re-validation pass as
-     * `role`. Unlike `tokenVersion` this IS exposed on Session, because the
+     * `role`. This IS exposed on Session, because the
      * sidebar and the middleware both have to decide whether to show HR.
      */
     hrAccess?: boolean;
