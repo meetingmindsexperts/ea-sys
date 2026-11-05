@@ -27,6 +27,11 @@ describe("MediaMTX publish authorisation", () => {
     expect(actions).toEqual(["playback", "read"]);
   });
 
+  it("the container trusts the box's certificate authorities, or the HTTPS check fails and refuses every publish", () => {
+    expect(setting("authHTTPAddress")).toMatch(/^https:/);
+    expect(mediamtxBlock).toContain("- /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro");
+  });
+
   it("the webhook route exists where the config points", () => {
     expect(read("src/app/api/webhooks/mediamtx-auth/route.ts")).toContain("isValidPublishPassword");
   });

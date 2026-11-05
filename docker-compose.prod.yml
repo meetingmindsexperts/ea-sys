@@ -249,6 +249,11 @@ services:
       - ./mediamtx.yml:/mediamtx.yml
       # Its log file, beside app.log, for the CloudWatch agent (mediamtx.yml logFile).
       - ./logs:/logs
+      # The box's trusted certificate authorities, read-only. The image has none,
+      # so the publish check's HTTPS call to /api/webhooks/mediamtx-auth failed
+      # "x509: certificate signed by unknown authority" and EVERY publish was
+      # refused, Zoom's included (found by the wrong-key test, Nov 5, 2026).
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
     networks:
       - web
     logging:

@@ -319,6 +319,21 @@ starts it when absent), so this is an owner step:
    docker logs --tail 50 ea-sys-mediamtx
    ```
 
+   Test with H.264, the codec Zoom sends (ffmpeg's default FLV codec is refused
+   for the codec, which proves nothing about auth):
+
+   ```
+   ffmpeg -re -f lavfi -i testsrc=size=640x360:rate=25 -t 10 -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p -f flv rtmp://<host>:1935/live/0000000000000000000000000000dead
+   ```
+
+   The MediaMTX log must say `authentication failed` and the app log
+   `mediamtx-auth:publish-unknown-key`. **Read the reason, not just the
+   refusal:** on Nov 5, 2026 the first test was refused with
+   `x509: certificate signed by unknown authority`, because the image carries no
+   certificate authorities, so the check never reached the app and Zoom's real
+   publish would have been refused too. `docker-compose.prod.yml` now mounts the
+   box's `/etc/ssl/certs/ca-certificates.crt` read-only.
+
 **Publish credentials (Oct 2, 2026).** The bare stream key is also the HLS
 read path that every registered viewer receives, so the webhook does not
 trust it alone. Zoom is sent `key?user=publisher&pass=<password>`, where the
