@@ -168,14 +168,24 @@ function formatDateTime(iso: string | undefined, tz: string): string {
   }
 }
 
+/**
+ * The console's status. The room decides first (Nov 5, 2026): an open room is
+ * live however far past its scheduled end, so an overrun no longer flips the
+ * console to "Ended" (and its header from Start as Host to Watch Replay) while
+ * the webinar is on air; a room closed after the start has ended. Otherwise
+ * the clock, as before.
+ */
 function statusFromTimes(
   startTime: string | undefined,
   endTime: string | undefined,
+  anchorStatus?: string,
 ): "scheduled" | "live" | "ended" {
   if (!startTime || !endTime) return "scheduled";
   const now = Date.now();
   const start = new Date(startTime).getTime();
   const end = new Date(endTime).getTime();
+  if (anchorStatus === "LIVE") return "live";
+  if (anchorStatus === "COMPLETED" && now >= start) return "ended";
   if (now < start) return "scheduled";
   if (now >= start && now <= end) return "live";
   return "ended";
@@ -195,8 +205,9 @@ export default function WebinarConsolePage() {
       statusFromTimes(
         data?.anchorSession?.startTime,
         data?.anchorSession?.endTime,
+        data?.anchorSession?.status,
       ),
-    [data?.anchorSession?.startTime, data?.anchorSession?.endTime],
+    [data?.anchorSession?.startTime, data?.anchorSession?.endTime, data?.anchorSession?.status],
   );
 
   const hasZoom = Boolean(data?.zoomMeeting);
@@ -3235,6 +3246,14 @@ function GoLiveCard({
               </p>
             </div>
           </div>
+        )}
+        {/* Running past the scheduled end (Nov 5, 2026): nothing ends on the clock. */}
+        {roomOpen && anchorEndMs > 0 && nowTick > anchorEndMs && (
+          <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+            Running past the scheduled end. Attendees stay in the live view, and the thank-you email and the
+            end-of-webinar survey wait until the room closes: when you close it, or a few minutes after the
+            host ends the webinar in Zoom.
+          </p>
         )}
         {/* Open / close the room */}
         <div className="space-y-3">

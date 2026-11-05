@@ -920,6 +920,7 @@ export default function PublicSessionPage() {
                 slug={slug}
                 sessionId={sessionId}
                 sessionName={session?.name || joinInfo.sessionName}
+                pastScheduledEnd={endMs > 0 && now > endMs}
               />
             )}
 

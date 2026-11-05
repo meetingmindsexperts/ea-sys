@@ -7,7 +7,9 @@
  * an open room when either
  *   - Zoom reports a final-looking end (see decideRoomClose), or
  *   - the room is still open two hours after the later of the scheduled end
- *     and the last re-open (safety net).
+ *     and the last re-open (safety net), unless its own stream is still
+ *     arriving, in which case it is still on air and the net waits, up to
+ *     OVERRUN_HARD_CAP_MS after the scheduled end (Nov 5, 2026; overrun.ts).
  * Closing is exactly what the console's button does: the anchor session
  * becomes COMPLETED, so attendees see "ended" and later the replay.
  */
@@ -17,6 +19,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { getLastZoomEndTime } from "@/lib/zoom/reports";
 import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
+import { isWebinarStreamArriving, OVERRUN_HARD_CAP_MS } from "@/lib/webinar/overrun";
 
 export const SAFETY_NET_MS = 2 * 60 * 60 * 1000;
 export const MAX_ROOMS_PER_TICK = 20;
@@ -118,6 +121,16 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
           zoomEndedAt,
         });
         if (decision === "keep") return decision;
+        // A long overrun still on air keeps its room (Nov 5, 2026): the safety net is for rooms nobody
+        // closed, and a stream still arriving means Zoom is still broadcasting.
+        if (
+          decision === "close-safety-net" &&
+          now.getTime() <= room.endTime.getTime() + OVERRUN_HARD_CAP_MS &&
+          (await isWebinarStreamArriving({ eventId: room.eventId, sessionId: room.id, eventSettings: room.event.settings }))
+        ) {
+          apiLogger.info({ eventId: room.eventId, sessionId: room.id }, "webinar-room-autoclose:kept-stream-on-air");
+          return "keep";
+        }
         // Guarded on LIVE so a producer's own close (or re-open) in between wins.
         const updated = await db.eventSession.updateMany({
           where: { id: room.id, eventId: room.eventId, status: "LIVE" },

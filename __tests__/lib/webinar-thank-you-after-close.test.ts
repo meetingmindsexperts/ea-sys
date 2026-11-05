@@ -3,17 +3,20 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb } = vi.hoisted(() => ({
+const { mockDb, streamArrivingSpy } = vi.hoisted(() => ({
   mockDb: {
     event: { findUnique: vi.fn() },
     eventSession: { findFirst: vi.fn() },
     scheduledEmail: { updateMany: vi.fn() },
+    zoomMeeting: { findFirst: vi.fn() },
   },
+  streamArrivingSpy: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/bulk-email", () => ({ WEBINAR_EMAIL_TYPES: [], executeBulkEmail: vi.fn() }));
+vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: streamArrivingSpy }));
 
 import { retimeThankYouAfterRoomClose, shouldHoldThankYou, THANK_YOU_AFTER_CLOSE_MS } from "@/lib/webinar-email-sequence";
 
@@ -26,6 +29,8 @@ beforeEach(() => {
   mockDb.event.findUnique.mockResolvedValue({ settings: { webinar: { sessionId: "anchor" } } });
   mockDb.eventSession.findFirst.mockResolvedValue({ startTime: START, endTime: END, status: "LIVE" });
   mockDb.scheduledEmail.updateMany.mockResolvedValue({ count: 1 });
+  mockDb.zoomMeeting.findFirst.mockResolvedValue({ liveStreamEnabled: true, streamKey: "sk-1" });
+  streamArrivingSpy.mockResolvedValue(false);
 });
 
 describe("retimeThankYouAfterRoomClose", () => {
@@ -76,5 +81,19 @@ describe("shouldHoldThankYou", () => {
   it("stops holding two and a half hours after the scheduled end, for a room nobody closed (review MED)", async () => {
     expect(await shouldHoldThankYou("ev1", t("2026-11-03T13:20:00Z"))).toBe(true);
     expect(await shouldHoldThankYou("ev1", t("2026-11-03T13:40:00Z"))).toBe(false);
+  });
+
+  it("past that cap it keeps holding while the room's own stream is arriving, up to the hard cap (Nov 5, 2026)", async () => {
+    mockDb.event.findUnique.mockResolvedValue({ settings: { webinar: { sessionId: "anchor", viewingMode: "hls" } } });
+    streamArrivingSpy.mockResolvedValue(true);
+    expect(await shouldHoldThankYou("ev1", t("2026-11-03T13:40:00Z"))).toBe(true);
+    expect(await shouldHoldThankYou("ev1", t("2026-11-03T16:59:00Z"))).toBe(true);
+    expect(await shouldHoldThankYou("ev1", t("2026-11-03T17:01:00Z"))).toBe(false);
+    streamArrivingSpy.mockResolvedValue(false);
+    expect(await shouldHoldThankYou("ev1", t("2026-11-03T13:40:00Z"))).toBe(false);
+  });
+
+  it("a close late in a long overrun still moves the thank-you", async () => {
+    expect(await retimeThankYouAfterRoomClose("ev1", at("2026-11-03T16:30:00Z"))).toBe(1);
   });
 });

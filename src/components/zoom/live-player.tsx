@@ -51,7 +51,17 @@ function readSoundPref(): "on" | "off" | null {
   }
 }
 
-function offlineHint(hasPlayed: boolean, sessionName?: string): string {
+function offlineTitle(hasPlayed: boolean, pastScheduledEnd: boolean): string {
+  if (!hasPlayed) return "Waiting for stream to start...";
+  return pastScheduledEnd ? "The stream has stopped" : "The stream was interrupted";
+}
+
+function offlineHint(hasPlayed: boolean, pastScheduledEnd: boolean, sessionName?: string): string {
+  // Past the scheduled end a stopped stream is most likely the finish: the
+  // room closes a few minutes after the host ends in Zoom (Nov 5, 2026).
+  if (hasPlayed && pastScheduledEnd) {
+    return "If the webinar has finished, this page will show that in a few minutes. If not, it reconnects by itself.";
+  }
   if (hasPlayed) return "Reconnecting automatically. There is no need to refresh the page.";
   return sessionName
     ? `"${sessionName}" will appear here when the host starts streaming.`
@@ -86,6 +96,8 @@ interface LivePlayerProps {
    * attendees: a CDN that dropped the CORS header would stop their playback.
    */
   measurable?: boolean;
+  /** The scheduled end has passed (an overrun): a stopped stream is then probably the finish. */
+  pastScheduledEnd?: boolean;
 }
 
 export interface PlayerTimingSample {
@@ -105,6 +117,7 @@ export function LivePlayer({
   onStreamStatusChange,
   onTimingSample,
   measurable = false,
+  pastScheduledEnd = false,
 }: LivePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<unknown>(null);
@@ -643,9 +656,9 @@ export function LivePlayer({
           {/* After a drop, say so: "waiting to start" mid-webinar read as if
               it had not begun (Nov 5, 2026). */}
           <div className="text-center">
-            <p className="font-medium">{hasPlayed ? "The stream was interrupted" : "Waiting for stream to start..."}</p>
+            <p className="font-medium">{offlineTitle(hasPlayed, pastScheduledEnd)}</p>
             <p className="text-sm text-white/50 mt-1">
-              {offlineHint(hasPlayed, sessionName)}
+              {offlineHint(hasPlayed, pastScheduledEnd, sessionName)}
             </p>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-white/40">

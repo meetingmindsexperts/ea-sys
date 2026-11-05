@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { readWebinarSettings } from "@/lib/webinar";
+import { isWebinarStreamArriving, OVERRUN_HARD_CAP_MS } from "@/lib/webinar/overrun";
 import { WEBINAR_EMAIL_TYPES, executeBulkEmail } from "@/lib/bulk-email";
 import { NOTIFIED_ROLES } from "@/lib/team-roles";
 
@@ -440,15 +441,17 @@ export async function clearPendingWebinarSequence(
 export const THANK_YOU_HOLD_MS = 10 * 60_000;
 export const THANK_YOU_AFTER_CLOSE_MS = 30 * 60_000;
 /** A close counts as the webinar's end only from its scheduled start (a soundcheck closed before the
- *  start must not thank anyone, review MED) up to this long after its scheduled end. */
-const CLOSE_COUNTS_UNTIL_MS = 6 * 60 * 60_000;
+ *  start must not thank anyone, review MED) up to this long after its scheduled end: the overrun hard
+ *  cap, so a close at the very end of a long overrun still moves the thank-you (Nov 5, 2026). */
+const CLOSE_COUNTS_UNTIL_MS = OVERRUN_HARD_CAP_MS;
 /** A room still open this long after the scheduled end is a room nobody closed (an anchor with no Zoom
  *  meeting is never auto-closed, review MED): the thank-you stops waiting and the log says so. */
 const HOLD_CAP_AFTER_END_MS = 2.5 * 60 * 60_000;
 
 /**
  * Whether the sender should hold this event's thank-you now: the webinar room is open (its anchor
- * session is LIVE) and the scheduled end is not long past.
+ * session is LIVE) and the scheduled end is not long past. Past the cap it still holds while the
+ * room's own stream is arriving (a long overrun still on air, Nov 5, 2026), up to the overrun hard cap.
  */
 export async function shouldHoldThankYou(eventId: string, now: number = Date.now()): Promise<boolean> {
   const event = await db.event.findUnique({ where: { id: eventId }, select: { settings: true } });
@@ -459,11 +462,16 @@ export async function shouldHoldThankYou(eventId: string, now: number = Date.now
     select: { status: true, endTime: true },
   });
   if (anchor?.status !== "LIVE") return false;
-  if (now > anchor.endTime.getTime() + HOLD_CAP_AFTER_END_MS) {
-    apiLogger.warn({ eventId }, "webinar-sequence:thank-you-sent-room-left-open");
-    return false;
+  if (now <= anchor.endTime.getTime() + HOLD_CAP_AFTER_END_MS) return true;
+  const onAir =
+    now <= anchor.endTime.getTime() + OVERRUN_HARD_CAP_MS &&
+    (await isWebinarStreamArriving({ eventId, sessionId: anchorSessionId, eventSettings: event?.settings }));
+  if (onAir) {
+    apiLogger.info({ eventId }, "webinar-sequence:thank-you-held-stream-on-air");
+    return true;
   }
-  return true;
+  apiLogger.warn({ eventId }, "webinar-sequence:thank-you-sent-room-left-open");
+  return false;
 }
 
 /**

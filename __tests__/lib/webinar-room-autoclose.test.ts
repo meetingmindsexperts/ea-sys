@@ -5,11 +5,12 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDbOperator, mockDb, getLastZoomEndTimeSpy, retimeSpy } = vi.hoisted(() => ({
+const { mockDbOperator, mockDb, getLastZoomEndTimeSpy, retimeSpy, streamArrivingSpy } = vi.hoisted(() => ({
   mockDbOperator: { eventSession: { findMany: vi.fn() } },
-  mockDb: { eventSession: { updateMany: vi.fn() } },
+  mockDb: { eventSession: { updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn() } },
   getLastZoomEndTimeSpy: vi.fn(),
   retimeSpy: vi.fn(),
+  streamArrivingSpy: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDbOperator }));
@@ -17,6 +18,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/lib/zoom/reports", () => ({ getLastZoomEndTime: getLastZoomEndTimeSpy }));
 vi.mock("@/lib/webinar-email-sequence", () => ({ retimeThankYouAfterRoomClose: retimeSpy }));
+vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: streamArrivingSpy }));
 
 import { decideRoomClose, runWebinarRoomAutoCloseTick, SAFETY_NET_MS } from "@/lib/webinar/room-autoclose";
 
@@ -92,6 +94,43 @@ describe("runWebinarRoomAutoCloseTick", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDb.eventSession.updateMany.mockResolvedValue({ count: 1 });
+    mockDb.zoomMeeting.findFirst.mockResolvedValue({ liveStreamEnabled: true, streamKey: "sk-1" });
+    streamArrivingSpy.mockResolvedValue(false);
+  });
+
+  const hlsRoom = () =>
+    room({
+      event: { organizationId: "org1", settings: { webinar: { sessionId: "s1", viewingMode: "hls", roomOpenedAt: "2026-10-01T10:28:00Z" } } },
+    });
+
+  it("a long overrun still on air keeps its room past the safety net (Nov 5, 2026)", async () => {
+    mockDbOperator.eventSession.findMany.mockResolvedValue([hlsRoom()]);
+    streamArrivingSpy.mockResolvedValue(true);
+    const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:00:00Z"));
+    expect(r.closed).toBe(0);
+    expect(mockDb.eventSession.updateMany).not.toHaveBeenCalled();
+    expect(streamArrivingSpy).toHaveBeenCalledWith("sk-1", { fresh: true });
+  });
+
+  it("the safety net still closes an HLS room whose stream has stopped", async () => {
+    mockDbOperator.eventSession.findMany.mockResolvedValue([hlsRoom()]);
+    const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:00:00Z"));
+    expect(r.closed).toBe(1);
+  });
+
+  it("past the overrun hard cap it closes even with the stream arriving", async () => {
+    mockDbOperator.eventSession.findMany.mockResolvedValue([hlsRoom()]);
+    streamArrivingSpy.mockResolvedValue(true);
+    const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T17:31:00Z"));
+    expect(r.closed).toBe(1);
+  });
+
+  it("Zoom embed mode never probes a stream: the plain safety net applies", async () => {
+    mockDbOperator.eventSession.findMany.mockResolvedValue([room()]);
+    streamArrivingSpy.mockResolvedValue(true);
+    const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:00:00Z"));
+    expect(r.closed).toBe(1);
+    expect(streamArrivingSpy).not.toHaveBeenCalled();
   });
 
   it("closes the anchor room Zoom reports ended, guarded on LIVE", async () => {
