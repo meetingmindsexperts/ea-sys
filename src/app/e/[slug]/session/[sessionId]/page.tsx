@@ -189,6 +189,8 @@ interface EventDetail {
     backgroundUrl: string | null;
     footerImageUrl: string | null;
   } | null;
+  /** Webinars only: the thank-you screen's exit button, or null for none. */
+  webinarExitLink?: { url: string; label: string } | null;
 }
 
 const SPONSOR_TIER_ORDER: Record<string, number> = {
@@ -761,6 +763,7 @@ export default function PublicSessionPage() {
               recordingLoading={recordingLoading}
               recordingError={recordingError}
               replayExpected={replayExpected}
+              exitLink={event?.webinarExitLink ?? null}
               onWatchRecording={handleWatchRecording}
               onRejoin={
                 roomOpen

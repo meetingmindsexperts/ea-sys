@@ -2926,7 +2926,10 @@ export interface WebinarConsoleData {
     livePolls?: boolean;
     showRecording?: boolean;
     handouts?: WebinarHandout[];
+    exitUrl?: string;
   };
+  /** The organisation's website: the thank-you screen's exit button when the webinar sets none. */
+  orgWebsite?: string | null;
   anchorSession: {
     id: string;
     name: string;

@@ -10,9 +10,6 @@ import { CheckCircle2, ExternalLink, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-/** Where the exit button leads: one fixed link for every webinar (owner, Nov 5, 2026). */
-const EXIT_URL = "https://www.meetingmindsgroup.com";
-
 export function WebinarExitScreen({
   sessionName,
   hasRecording,
@@ -20,6 +17,7 @@ export function WebinarExitScreen({
   recordingLoading,
   recordingError,
   replayExpected,
+  exitLink,
   onWatchRecording,
   onRejoin,
 }: {
@@ -32,6 +30,8 @@ export function WebinarExitScreen({
   recordingError: string | null;
   /** The organiser has switched the recording on but Zoom has not delivered it yet. */
   replayExpected: boolean;
+  /** The exit button (Nov 5, 2026): the webinar's own link, else the organisation's website; null for none. */
+  exitLink: { url: string; label: string } | null;
   onWatchRecording: () => void;
   /** Back into the room, for a host who ended in Zoom and restarted while the room is still open. */
   onRejoin?: () => void;
@@ -69,9 +69,11 @@ export function WebinarExitScreen({
           {replayExpected ? "The replay will be available here soon. Check back later." : "You can close this page."}
         </p>
 
-        <Button asChild variant={hasRecording ? "outline" : "default"} className="gap-2">
-          <a href={EXIT_URL}>Visit Meeting Minds Group</a>
-        </Button>
+        {exitLink && (
+          <Button asChild variant={hasRecording ? "outline" : "default"}>
+            <a href={exitLink.url}>{exitLink.label}</a>
+          </Button>
+        )}
 
         {onRejoin && (
           <Button variant="link" size="sm" className="text-muted-foreground" onClick={onRejoin}>

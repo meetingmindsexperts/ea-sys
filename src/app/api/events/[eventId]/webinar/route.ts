@@ -10,6 +10,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { updateEventSettings } from "@/lib/event-settings";
+import { exitLinkField, readOrgWebsite } from "@/lib/webinar-exit-link";
 import { isUploadOrHttpsUrl, readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
 import { redactZoomHostFields } from "@/lib/zoom-visibility";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
@@ -61,6 +62,9 @@ const updateWebinarSchema = z.object({
   livePolls: z.boolean().optional(),
   // The recording on the attendee page (off unless turned on).
   showRecording: z.boolean().optional(),
+  // The thank-you screen's exit button for THIS webinar; "" falls back to the
+  // organisation's website (Nov 5, 2026).
+  exitUrl: exitLinkField.optional(),
 });
 
 // ── GET — Return webinar settings + anchor session + zoom meeting ───
@@ -79,7 +83,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, name: true, eventType: true, status: true, slug: true, settings: true, organizationId: true, timezone: true },
+      select: {
+        id: true, name: true, eventType: true, status: true, slug: true, settings: true, organizationId: true, timezone: true,
+        // Only to show the exit button's fallback; the rest of the org settings never leave the server.
+        organization: { select: { settings: true } },
+      },
     });
 
     if (!event) {
@@ -143,6 +151,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
         timezone: event.timezone,
       },
       webinar,
+      // The organisation's website: the exit button when this webinar sets none.
+      orgWebsite: readOrgWebsite(event.organization?.settings),
       anchorSession,
       zoomMeeting,
     };

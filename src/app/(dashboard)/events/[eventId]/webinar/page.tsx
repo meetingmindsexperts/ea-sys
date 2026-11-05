@@ -137,6 +137,7 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
+import { isHttpsLink } from "@/lib/webinar-exit-link";
 import { BrandingImageField } from "@/components/events/branding-image-field";
 
 type AutoRecording = "none" | "local" | "cloud";
@@ -431,6 +432,12 @@ export default function WebinarConsolePage() {
                 eventId={eventId}
                 endSurveyId={data?.webinar?.endSurveyId ?? ""}
                 emailLink={data?.webinar?.thankYouSurveyLink !== false}
+              />
+              <ExitButtonCard
+                key={`exit:${data ? "loaded" : "loading"}:${data?.webinar?.exitUrl ?? ""}`}
+                eventId={eventId}
+                exitUrl={data?.webinar?.exitUrl ?? ""}
+                orgWebsite={data?.orgWebsite ?? null}
               />
             </div>
             <div className="space-y-6">
@@ -3511,6 +3518,79 @@ function EndSurveyCard({
             onClick={handleSave}
             disabled={updateSettings.isPending || (choice === (endSurveyId || "none") && sendInEmail === emailLink)}
           >
+            {updateSettings.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            Save
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The thank-you screen's exit button (Nov 5, 2026). Empty uses the
+ * organisation's website from Settings; with neither, no button shows.
+ */
+function ExitButtonCard({
+  eventId,
+  exitUrl,
+  orgWebsite,
+}: {
+  eventId: string;
+  exitUrl: string;
+  orgWebsite: string | null;
+}) {
+  const updateSettings = useUpdateWebinarSettings(eventId);
+  const [value, setValue] = useState(exitUrl);
+  const trimmed = value.trim();
+  const invalid = trimmed.length > 0 && !isHttpsLink(trimmed);
+
+  const handleSave = async () => {
+    if (invalid) {
+      toast.error("The exit link must be a full https:// address");
+      return;
+    }
+    try {
+      await updateSettings.mutateAsync({ exitUrl: trimmed });
+      toast.success(trimmed ? "Exit button saved" : "Exit button uses the organisation website");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save the exit button");
+    }
+  };
+
+  const fallbackHint = orgWebsite
+    ? `Leave empty to use your organisation's website (${orgWebsite}).`
+    : "Leave empty for no button: no organisation website is set under Settings.";
+
+  return (
+    <Card>
+      <CardHeader>
+        <ConsoleTitle icon={ExternalLink} tone="emerald">
+          Exit button
+        </ConsoleTitle>
+        <CardDescription>
+          A button on the thank-you screen attendees see when the webinar ends.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-2">
+          <Label htmlFor="exit-url">Link for this webinar (optional)</Label>
+          <Input
+            id="exit-url"
+            type="url"
+            inputMode="url"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            maxLength={500}
+            placeholder={orgWebsite ?? "https://www.example.com"}
+            aria-invalid={invalid}
+          />
+          <p className={invalid ? "text-xs text-red-600" : "text-xs text-muted-foreground"}>
+            {invalid ? "Must be a full https:// address." : fallbackHint}
+          </p>
+        </div>
+        <div className="flex justify-end border-t pt-3">
+          <Button onClick={handleSave} disabled={updateSettings.isPending || trimmed === exitUrl.trim()}>
             {updateSettings.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
             Save
           </Button>

@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { isBaseRole } from "@/lib/team-roles";
 import { canManageAccountingIntegration } from "@/lib/procurement-visibility";
+import { isHttpsLink } from "@/lib/webinar-exit-link";
 import { useRuntimeFlags } from "@/components/runtime-flags";
 import { ProcurementGrantsDialog, hasProcurementAccess } from "@/components/settings/procurement-grants-dialog";
 import { UserRolesDialog } from "@/components/settings/user-roles-dialog";
@@ -122,6 +123,7 @@ interface Organization {
     dateFormat?: string;
     currency?: string;
     emailNotifications?: boolean;
+    website?: string;
   };
   _count: {
     events: number;
@@ -221,6 +223,7 @@ export default function SettingsPage() {
     dateFormat: "MM/DD/YYYY",
     currency: "USD",
     emailNotifications: true,
+    website: "",
   });
   const [logoUploading, setLogoUploading] = useState(false);
 
@@ -287,6 +290,7 @@ export default function SettingsPage() {
           dateFormat: data.settings?.dateFormat || "MM/DD/YYYY",
           currency: data.settings?.currency || "USD",
           emailNotifications: data.settings?.emailNotifications ?? true,
+          website: data.settings?.website || "",
         });
       } else {
         console.error("settings:organization-load-failed", res.status);
@@ -344,6 +348,11 @@ export default function SettingsPage() {
   }, [fetchUsers]);
 
   const handleSaveOrganization = async () => {
+    const website = orgFormData.website.trim();
+    if (website && !isHttpsLink(website)) {
+      toast.error("Website must be a full https:// address");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch("/api/organization", {
@@ -358,6 +367,7 @@ export default function SettingsPage() {
             dateFormat: orgFormData.dateFormat,
             currency: orgFormData.currency,
             emailNotifications: orgFormData.emailNotifications,
+            website,
           },
         }),
       });
@@ -933,6 +943,24 @@ export default function SettingsPage() {
                     Used as the primary accent color throughout the dashboard.
                   </p>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="org-website">Website</Label>
+                <Input
+                  id="org-website"
+                  type="url"
+                  inputMode="url"
+                  value={orgFormData.website}
+                  onChange={(e) => setOrgFormData({ ...orgFormData, website: e.target.value })}
+                  disabled={!canEditOrg}
+                  maxLength={500}
+                  placeholder="https://www.example.com"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Webinar attendees get a button to it on the thank-you screen. A webinar can point somewhere else from
+                  its console. Leave empty for no button.
+                </p>
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">

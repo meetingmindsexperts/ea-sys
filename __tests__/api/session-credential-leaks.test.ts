@@ -153,6 +153,29 @@ describe("B2 — public session detail must not leak recording credentials or DR
     expect(JSON.stringify(body)).not.toContain("recordingUrl");
   });
 
+  it("names the organisation and returns nothing else of it: its settings hold credentials (Nov 5, 2026)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1", name: "Ev", slug: "ev", status: "PUBLISHED", eventType: "WEBINAR",
+      bannerImage: null, timezone: "Asia/Dubai", settings: { webinar: {} }, organizationId: "org1",
+      organization: { name: "Org", settings: { website: "https://www.org.test", zoom: { clientSecret: "enc:SECRET" } } },
+    });
+    const body = await (await DETAIL_GET(req(), detailParams)).json();
+    expect(body.event.organization).toEqual({ name: "Org" });
+    expect(JSON.stringify(body)).not.toContain("SECRET");
+    // The website arrives only as the exit button.
+    expect(body.event.webinarExitLink).toEqual({ url: "https://www.org.test", label: "Visit org.test" });
+  });
+
+  it("a webinar's own exit link wins over the organisation website", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1", name: "Ev", slug: "ev", status: "PUBLISHED", eventType: "WEBINAR",
+      bannerImage: null, timezone: "Asia/Dubai", settings: { webinar: { exitUrl: "https://sponsor.test/thanks" } }, organizationId: "org1",
+      organization: { name: "Org", settings: { website: "https://www.org.test" } },
+    });
+    const body = await (await DETAIL_GET(req(), detailParams)).json();
+    expect(body.event.webinarExitLink).toEqual({ url: "https://sponsor.test/thanks", label: "Visit sponsor.test" });
+  });
+
   it("404s a break item (agenda time block, no detail page) — same shape as a missing session", async () => {
     mockDb.eventSession.findFirst.mockResolvedValue({
       id: "s1", name: "Coffee Break", description: null, startTime: new Date(0), endTime: new Date(0),

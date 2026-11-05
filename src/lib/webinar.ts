@@ -118,6 +118,10 @@ export interface WebinarSettings {
   handouts?: import("./webinar/handouts").WebinarHandout[];
   /** Short message shown in the waiting room (e.g. "We'll begin shortly"). */
   lobbyMessage?: string;
+  /** The thank-you screen's exit button for this webinar (an https address);
+   *  unset or "" falls back to the organisation's website. See
+   *  src/lib/webinar-exit-link.ts (Nov 5, 2026). */
+  exitUrl?: string;
   /** ISO time the producer last opened the room. The auto-close job only
    *  trusts a Zoom "ended" time later than this, so an earlier practice run
    *  of the same Zoom webinar can never close today's room (Oct 1, 2026). */

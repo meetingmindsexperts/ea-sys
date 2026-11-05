@@ -9,6 +9,7 @@ import { updateOrganizationSettings } from "@/lib/event-settings";
 import { can } from "@/lib/permissions/can";
 import { DEFAULT_REG_TYPES_SETTING, defaultRegistrationTypesSchema } from "@/lib/default-registration-types";
 import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
+import { exitLinkField } from "@/lib/webinar-exit-link";
 
 const updateOrganizationSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -22,6 +23,9 @@ const updateOrganizationSchema = z.object({
     // The registration types a NEW event starts with; [] = none. Read only at
     // event creation (event-service), never by existing events.
     defaultRegistrationTypes: defaultRegistrationTypesSchema.optional(),
+    // The organisation's website: the exit button on every webinar's thank-you
+    // screen unless the webinar sets its own (Nov 5, 2026). "" clears it.
+    website: exitLinkField.optional(),
   }).optional(),
   // Billing / Invoice fields
   companyName: z.string().max(255).nullable().optional(),
@@ -37,7 +41,7 @@ const updateOrganizationSchema = z.object({
 });
 
 /** The organisation preferences the Settings screen reads and any staff member may see. */
-const ORG_GENERAL_SETTINGS = ["timezone", "dateFormat", "currency", "emailNotifications", DEFAULT_REG_TYPES_SETTING] as const;
+const ORG_GENERAL_SETTINGS = ["timezone", "dateFormat", "currency", "emailNotifications", DEFAULT_REG_TYPES_SETTING, "website"] as const;
 
 export async function GET(req: Request) {
   try {
