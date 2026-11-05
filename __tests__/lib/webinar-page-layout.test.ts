@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isWebinarOver, webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
+import { isWebinarOver, webinarBackgroundStyle, webinarRoomEnded, webinarVideoLayout } from "@/lib/webinar-page-layout";
 
 describe("webinarVideoLayout", () => {
   it("Q&A + panelists: three columns from xl, panelists left and under the video below xl", () => {
@@ -56,5 +56,27 @@ describe("isWebinarOver (when the exit screen and end-of-webinar survey appear)"
   it("a room closed BEFORE the scheduled end is the end, not a pause (owner, Nov 5 2026)", () => {
     // lobby-status reports ended once the close marks the session COMPLETED.
     expect(isWebinarOver({ ...base, roomOpen: false, lobbyEnded: true })).toBe(true);
+  });
+});
+
+describe("webinarRoomEnded (lobby-status and the end-survey submit)", () => {
+  const start = Date.UTC(2026, 10, 5, 8, 30);
+  const end = Date.UTC(2026, 10, 5, 9, 30);
+  const at = (status: string, now: number) => webinarRoomEnded({ status, startMs: start, endMs: end, now });
+  it("closed after the start, before the scheduled end: ended (an early close)", () => {
+    expect(at("COMPLETED", start + 25 * 60_000)).toBe(true);
+  });
+  it("COMPLETED before the start is a rehearsal, not the end (review of 66d8ef6e, HIGH)", () => {
+    expect(at("COMPLETED", start - 86_400_000)).toBe(false);
+    expect(at("COMPLETED", start - 60_000)).toBe(false);
+  });
+  it("never while LIVE, even past the scheduled end (an overrun)", () => {
+    expect(at("LIVE", end + 600_000)).toBe(false);
+  });
+  it("past the scheduled end without being live: ended", () => {
+    expect(at("SCHEDULED", end + 1)).toBe(true);
+  });
+  it("scheduled and not yet started: not ended", () => {
+    expect(at("SCHEDULED", start - 60_000)).toBe(false);
   });
 });

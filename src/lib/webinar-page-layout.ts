@@ -69,22 +69,40 @@ export function webinarBackgroundStyle(url: string | null): { backgroundImage: s
 }
 
 /**
+ * Whether the webinar room has ended, from the anchor session row. ONE rule for
+ * lobby-status (which the page reads) and the end-survey submit.
+ *
+ * COMPLETED counts only from the scheduled start on (review of 66d8ef6e, HIGH):
+ * a producer who opens and closes the room the day before to test the stream
+ * is rehearsing. The room route now writes SCHEDULED for such a close, but an
+ * older row, or the generic sessions PUT, can still leave COMPLETED before the
+ * start, and attendees arriving on the day would get the exit screen and the
+ * survey instead of the waiting room. Same window as the thank-you retime
+ * (retimeThankYouAfterRoomClose ignores a close before the start).
+ */
+export function webinarRoomEnded(s: { status: string; startMs: number; endMs: number; now: number }): boolean {
+  if (s.status === "LIVE") return false;
+  if (s.endMs > 0 && s.now > s.endMs) return true;
+  return s.status === "COMPLETED" && s.now >= s.startMs;
+}
+
+/**
  * Whether the webinar is over for this viewer, which is when the exit screen
  * and the end-of-webinar survey appear: the host ended it in Zoom, or the room
  * is not open and lobby-status says it ended (the producer closed it, which
- * marks the session COMPLETED, or the scheduled end passed).
+ * marks the session COMPLETED, or the scheduled end passed). A close before
+ * the scheduled start is a rehearsal and never counts (webinarRoomEnded).
  *
  * Closing the room ends the webinar whatever the clock says (owner, Nov 5,
  * 2026). It used to count as a pause until the scheduled end, so a webinar
  * closed early sent every attendee back to the waiting room and its "we will
  * begin shortly" message, with no survey. Reopening the room still brings
- * them back: roomOpen wins. Before the room ever opens the session is not
- * COMPLETED, so the pre-start waiting room is unaffected.
+ * them back: roomOpen wins.
  */
 export function isWebinarOver(s: {
   hostEnded: boolean;
   roomOpen: boolean;
-  /** lobby-status `ended`: the session is COMPLETED or its scheduled end passed. */
+  /** lobby-status `ended` (webinarRoomEnded): closed after the start, or past the scheduled end. */
   lobbyEnded: boolean;
 }): boolean {
   return s.hostEnded || (!s.roomOpen && s.lobbyEnded);

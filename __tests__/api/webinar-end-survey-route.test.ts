@@ -63,7 +63,7 @@ beforeEach(() => {
   mockDb.surveyResponse.count.mockReset().mockResolvedValue(0);
   mockDb.surveyResponse.create.mockResolvedValue({});
   // The webinar is over unless a test says otherwise.
-  mockDb.eventSession.findFirst.mockResolvedValue({ status: "COMPLETED", endTime: new Date(0) });
+  mockDb.eventSession.findFirst.mockResolvedValue({ status: "COMPLETED", startTime: new Date(0), endTime: new Date(0) });
 });
 
 describe("GET end-survey", () => {
@@ -124,9 +124,12 @@ describe("POST end-survey", () => {
   });
 
   it("refuses answers while the webinar is still live (409)", async () => {
-    mockDb.eventSession.findFirst.mockResolvedValue({ status: "LIVE", endTime: new Date(0) });
+    mockDb.eventSession.findFirst.mockResolvedValue({ status: "LIVE", startTime: new Date(0), endTime: new Date(0) });
     expect((await POST(postReq({ answers: { f1: "4" } }), params)).status).toBe(409);
-    mockDb.eventSession.findFirst.mockResolvedValue({ status: "SCHEDULED", endTime: new Date(Date.now() + 3600_000) });
+    mockDb.eventSession.findFirst.mockResolvedValue({ status: "SCHEDULED", startTime: new Date(Date.now() - 600_000), endTime: new Date(Date.now() + 3600_000) });
+    expect((await POST(postReq({ answers: { f1: "4" } }), params)).status).toBe(409);
+    // A rehearsal close the day before left COMPLETED: still not over (review of 66d8ef6e).
+    mockDb.eventSession.findFirst.mockResolvedValue({ status: "COMPLETED", startTime: new Date(Date.now() + 86_400_000), endTime: new Date(Date.now() + 90_000_000) });
     expect((await POST(postReq({ answers: { f1: "4" } }), params)).status).toBe(409);
     expect(mockDb.surveyResponse.create).not.toHaveBeenCalled();
   });

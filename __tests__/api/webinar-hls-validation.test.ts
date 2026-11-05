@@ -75,6 +75,8 @@ beforeEach(() => {
     settings: { webinar: { sessionId: "anchor1", viewingMode: "hls" } },
   });
   mockDb.eventSession.updateMany.mockResolvedValue({ count: 1 });
+  // The anchor started an hour ago: a close now ends the webinar.
+  mockDb.eventSession.findFirst.mockResolvedValue({ name: "Webinar", startTime: new Date(Date.now() - 3600_000) });
   mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OK);
   mockIsStreamArriving.mockResolvedValue(false);
   mockControlLiveStream.mockResolvedValue({ ok: true, action: "start", streamKey: "sk-1" });
@@ -221,6 +223,15 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
     expect(res.status).toBe(200);
     expect(mockDb.eventSession.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: "COMPLETED" } }),
+    );
+  });
+
+  it("a close BEFORE the scheduled start is a rehearsal: the session goes back to SCHEDULED (review of 66d8ef6e)", async () => {
+    mockDb.eventSession.findFirst.mockResolvedValue({ name: "Webinar", startTime: new Date(Date.now() + 86_400_000) });
+    const res = await callRoom({ open: false });
+    expect(res.status).toBe(200);
+    expect(mockDb.eventSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: "SCHEDULED" } }),
     );
   });
 

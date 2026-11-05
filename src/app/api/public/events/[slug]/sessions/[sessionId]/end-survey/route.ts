@@ -15,8 +15,9 @@
  * reachable only through the personal link the organiser sends. The webinar
  * PUT refuses it as endSurveyId; this route refuses it again.
  *
- * Answers are accepted only once the webinar is over (the session COMPLETED, or
- * its scheduled end passed while not LIVE), the same condition the page uses.
+ * Answers are accepted only once the webinar is over (webinarRoomEnded: closed
+ * after the scheduled start, or its scheduled end passed while not LIVE), the
+ * same condition the page uses.
  *
  * Only the anchor session of a WEBINAR event answers, and a COMPLETED event
  * still does: people answer after the webinar ends.
@@ -31,6 +32,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
+import { webinarRoomEnded } from "@/lib/webinar-page-layout";
 import { hasAnswered, parseStoredSurveyConfig, resolveTokenSurvey, submitSurveyResponse } from "@/services/survey-service";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
@@ -184,16 +186,20 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
         return NextResponse.json({ error: "This survey is closed." }, { status: 410 });
       }
-      // Only once the webinar is over: the session COMPLETED, or its scheduled
-      // end passed while it is not live.
+      // Only once the webinar is over: the same rule lobby-status gives the page
+      // (closed after the scheduled start, or past the scheduled end, not live).
       const sessionRow = await db.eventSession.findFirst({
         where: { id: sessionId, eventId: ctx.event.id },
-        select: { status: true, endTime: true },
+        select: { status: true, startTime: true, endTime: true },
       });
       const over =
         !!sessionRow &&
-        sessionRow.status !== "LIVE" &&
-        (sessionRow.status === "COMPLETED" || sessionRow.endTime.getTime() < Date.now());
+        webinarRoomEnded({
+          status: sessionRow.status,
+          startMs: sessionRow.startTime.getTime(),
+          endMs: sessionRow.endTime.getTime(),
+          now: Date.now(),
+        });
       if (!over) {
         apiLogger.warn({ eventId: ctx.event.id, sessionId, status: sessionRow?.status }, "webinar-end-survey:not-over-yet");
         return NextResponse.json({ error: "The survey opens when the webinar ends." }, { status: 409 });

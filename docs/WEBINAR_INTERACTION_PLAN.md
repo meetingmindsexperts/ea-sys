@@ -144,8 +144,9 @@ write), Close, Reopen, "Show results to attendees" per poll, counts refreshed
 every 5 s, delete only while nobody answered, CSV per poll (counts, then each
 person's answer; `webinar.attendance.export`, recorded as an export). Attendee
 page: the poll rides the Q&A refresh (no new request; appears within 15 s),
-one answer, final; a closed poll stays visible only while its results are
-shown. Results are cached per poll for 5 s so 1,000 viewers do not each read
+one answer, final; closing a poll takes it off the attendee page at once,
+results and all (owner, Nov 5, 2026: one poll at a time, never an earlier
+poll's results left on screen). Results are cached per poll for 5 s so 1,000 viewers do not each read
 every vote. Not done: the attendance-export column (§5 export bullet).
 Tests in `live-polls.test.ts` (lib and api).
 

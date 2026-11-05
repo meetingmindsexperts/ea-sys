@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { readWebinarSettings } from "@/lib/webinar";
+import { webinarRoomEnded } from "@/lib/webinar-page-layout";
 import { runWithTenant } from "@/lib/tenant-context";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
@@ -50,7 +51,7 @@ async function computeLobbyBody(
   // Room is "open" when the producer flips the anchor session LIVE. DRAFT events
   // auto-open so organizers can test the flow end-to-end.
   const roomOpen = session.status === "LIVE" || session.event.status === "DRAFT";
-  const ended = session.status === "COMPLETED" || (endMs > 0 && now > endMs);
+  const ended = webinarRoomEnded({ status: session.status, startMs: session.startTime.getTime(), endMs, now });
 
   return {
     roomOpen,

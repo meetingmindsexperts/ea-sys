@@ -2505,7 +2505,9 @@ function LivePollsPanel({ eventId, enabled }: { eventId: string; enabled: boolea
                 <div className="flex items-center gap-2">
                   <Badge variant={p.status === "OPEN" ? "default" : "outline"}>{POLL_STATUS_LABEL[p.status]}</Badge>
                   {p.allowMultiple && <span className="text-xs text-muted-foreground">Several answers allowed</span>}
-                  {p.showResults && <span className="text-xs font-medium text-primary">Results shown to attendees</span>}
+                  {p.showResults && p.status === "OPEN" && (
+                    <span className="text-xs font-medium text-primary">Results shown to attendees who answered</span>
+                  )}
                 </div>
                 <p className="font-medium whitespace-pre-wrap break-words">{p.question}</p>
               </div>
@@ -2548,7 +2550,9 @@ function LivePollsPanel({ eventId, enabled }: { eventId: string; enabled: boolea
                   Close poll
                 </Button>
               )}
-              {canManage && p.status !== "DRAFT" && (
+              {/* Only while open: a closed poll leaves the attendee page at once,
+                  results and all (Nov 5, 2026), so the switch would do nothing. */}
+              {canManage && p.status === "OPEN" && (
                 <label className="flex items-center gap-2 text-sm">
                   <Switch
                     checked={p.showResults}
@@ -2556,9 +2560,9 @@ function LivePollsPanel({ eventId, enabled }: { eventId: string; enabled: boolea
                     onCheckedChange={(next) =>
                       void act(p.id, { showResults: next }, next ? "Results shown to attendees" : "Results hidden from attendees")
                     }
-                    aria-label="Show results to attendees"
+                    aria-label="Show results to attendees who answered"
                   />
-                  Show results to attendees
+                  Show results to attendees who answered
                 </label>
               )}
               <span className="flex-1" />
@@ -3177,8 +3181,15 @@ function GoLiveCard({
     nowTick <= anchorEndMs + ROOM_OVERDUE_GRACE_MS;
   // Same query key as LiveNowCard — React Query dedupes if both are active.
   const { data: overduePresence } = useWebinarPresence(eventId, roomOverdue);
+  // Closing ends the webinar for attendees once it has started (Nov 5, 2026):
+  // they see the thank-you screen and the survey. Before the start a close is a
+  // rehearsal and changes nothing for them, so it needs no confirmation.
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
+  const closeEndsWebinar = roomOpen && anchorStartMs > 0 && nowTick >= anchorStartMs;
+  const ended = !roomOpen && anchor?.status === "COMPLETED";
 
   const handleToggleRoom = async () => {
+    setConfirmCloseOpen(false);
     try {
       const res = await toggleRoom.mutateAsync(!roomOpen);
       toast.success(
@@ -3229,9 +3240,7 @@ function GoLiveCard({
         <div className="space-y-3">
           <div className="min-w-0">
             <p className="font-medium">
-              {roomOpen
-                ? "Attendees are being admitted into the session"
-                : "Attendees are waiting in the lobby"}
+              {roomStateLine(roomOpen, ended)}
             </p>
             <p className="text-sm text-muted-foreground">
               Opening the room admits everyone into the live{" "}
@@ -3240,7 +3249,7 @@ function GoLiveCard({
             </p>
           </div>
           <Button
-            onClick={handleToggleRoom}
+            onClick={closeEndsWebinar ? () => setConfirmCloseOpen(true) : handleToggleRoom}
             size="lg"
             disabled={toggleRoom.isPending}
             variant={roomOpen ? "outline" : "default"}
@@ -3265,9 +3274,31 @@ function GoLiveCard({
             room / Go live”.
           </p>
         )}
+        <AlertDialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>End the webinar for attendees?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Everyone watching sees the thank-you screen and the end-of-webinar survey. Reopening the room brings
+                back only the people who still have the page open.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep it open</AlertDialogCancel>
+              <Button variant="destructive" onClick={handleToggleRoom} disabled={toggleRoom.isPending}>
+                Close the room
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );
+}
+
+function roomStateLine(roomOpen: boolean, ended: boolean): string {
+  if (roomOpen) return "Attendees are being admitted into the session";
+  return ended ? "The webinar has ended: attendees see the thank-you screen" : "Attendees are waiting in the lobby";
 }
 
 /**

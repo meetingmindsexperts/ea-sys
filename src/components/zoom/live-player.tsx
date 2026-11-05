@@ -29,6 +29,11 @@ const LIVE_EDGE_OFFSET_S = 4;
  */
 const STALL_RECONNECT_MS = 15_000;
 const STALL_JITTER_MS = 5_000;
+/** Each stall reconnect in a row doubles the wait, up to 2 minutes, so a
+ *  stream that keeps freezing is not reloaded by every viewer every few
+ *  seconds (review of 66d8ef6e). The run resets after a minute of picture. */
+const STALL_BACKOFF_MAX_STEPS = 3;
+const STALL_STREAK_RESET_MS = 60_000;
 /**
  * The "Mini player" (picture in picture) button. Built and working, switched
  * off by the owner (Oct 7, 2026): flip to true to offer it.
@@ -110,6 +115,8 @@ export function LivePlayer({
   // Played at least once on this visit: a later "offline" is a dropped stream,
   // not one that has yet to start, and says so.
   const [hasPlayed, setHasPlayed] = useState(false);
+  // Stall reconnects in a row, kept across the reconnects themselves.
+  const stallStreakRef = useRef(0);
   // Bumped by the Retry button to re-run the init effect (instead of a full
   // window.location.reload, which at 5k viewers is a thundering-herd self-DoS).
   const [retryNonce, setRetryNonce] = useState(0);
@@ -446,9 +453,13 @@ export function LivePlayer({
       setIsBehind(false);
       return;
     }
-    const stallMs = STALL_RECONNECT_MS + Math.floor(Math.random() * STALL_JITTER_MS);
-    let lastTime = -1;
+    const backoff = 2 ** Math.min(stallStreakRef.current, STALL_BACKOFF_MAX_STEPS);
+    const stallMs = (STALL_RECONNECT_MS + Math.floor(Math.random() * STALL_JITTER_MS)) * backoff;
+    let lastTime = Number.NaN;
     let lastMovedAt = Date.now();
+    // Armed only once the picture has moved: "playing" is set when the playlist
+    // loads, before the first frame, and a slow first segment is not a drop.
+    let armedAt: number | null = null;
     const id = setInterval(() => {
       const video = videoRef.current;
       if (!video) return;
@@ -457,10 +468,16 @@ export function LivePlayer({
       const now = Date.now();
       // A paused picture is the viewer's (or a blocked autoplay), not a drop.
       if (video.paused || video.currentTime !== lastTime) {
+        if (!video.paused && !Number.isNaN(lastTime) && armedAt === null) armedAt = now;
+        if (armedAt !== null && now - armedAt > STALL_STREAK_RESET_MS) stallStreakRef.current = 0;
         lastTime = video.currentTime;
         lastMovedAt = now;
-      } else if (now - lastMovedAt > stallMs) {
-        console.warn("live-player:stalled-reconnecting", { stalledMs: now - lastMovedAt });
+      } else if (armedAt !== null && now - lastMovedAt > stallMs) {
+        stallStreakRef.current += 1;
+        console.warn("live-player:stalled-reconnecting", {
+          stalledMs: now - lastMovedAt,
+          streak: stallStreakRef.current,
+        });
         video.src = "";
         setStatus("loading");
         setRetryNonce((n) => n + 1);

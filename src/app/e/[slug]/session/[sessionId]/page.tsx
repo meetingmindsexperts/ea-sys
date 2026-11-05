@@ -1541,8 +1541,10 @@ function StickyCta({
     return (
       <Card className="border-blue-200 bg-blue-50/70 shadow-sm">
         {/* A thin one-line strip on a phone (owner, Nov 5, 2026): the
-            stacked card pushed the video below the fold. The hint drops
-            there; a Join button wraps under the text when it has no room. */}
+            stacked card pushed the video below the fold. On a phone the hint
+            drops only for the stream ("watch below" says nothing the video
+            does not); a Join flow keeps it, since it says where Join leads.
+            Beside a Join button the text column shrinks rather than wraps. */}
         <CardContent className="flex flex-wrap items-center gap-3 py-2 sm:flex-nowrap sm:gap-4 sm:py-4">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 sm:h-12 sm:w-12">
             {isLive ? (
@@ -1558,7 +1560,7 @@ function StickyCta({
             <p className="text-sm font-semibold sm:text-base">
               {joinCtaTitle(isLive, playsStream)}
             </p>
-            <p className="hidden text-xs text-muted-foreground sm:block">
+            <p className={cn("text-xs text-muted-foreground", playsStream && "hidden sm:block")}>
               {joinCtaHint({ playsStream, isLive, canEmbed: Boolean(canEmbed), isWebinar })}
             </p>
           </div>
