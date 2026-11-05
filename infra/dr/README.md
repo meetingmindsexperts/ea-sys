@@ -206,7 +206,11 @@ policy JSON is in [POSTGRES_BACKUP_PLAN.md §3.4](POSTGRES_BACKUP_PLAN.md#34-iam
 this command always carries all of them. Re-running an older one-rule copy
 silently drops the others.
 
-- `db-30-day-expiry`: the hourly Postgres dumps.
+- `db-30-day-expiry`: the hourly Postgres dumps. Old (noncurrent) versions are
+  kept **90 days** (raised from 7 on Nov 5, 2026): the box can overwrite a dump
+  but not delete one, so with 7 days an attacker only had to overwrite every dump
+  and wait a week for AWS to delete the good versions. See
+  [RANSOMWARE_RESPONSE.md](../../docs/RANSOMWARE_RESPONSE.md) §6 #2.
 - `mirror-archives-7-day-expiry` (Oct 8, 2026): the uploads-mirror zips built
   from /admin/backups. The worker only marks a row EXPIRED after 7 days; the
   file is deleted here, because the instance role has no delete right on this
@@ -225,7 +229,7 @@ aws s3api put-bucket-lifecycle-configuration \
         "Status": "Enabled",
         "Filter": { "Prefix": "db/" },
         "Expiration": { "Days": 30 },
-        "NoncurrentVersionExpiration": { "NoncurrentDays": 7 }
+        "NoncurrentVersionExpiration": { "NoncurrentDays": 90 }
       },
       {
         "ID": "mirror-archives-7-day-expiry",

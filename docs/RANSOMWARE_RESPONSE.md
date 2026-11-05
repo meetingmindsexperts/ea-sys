@@ -9,8 +9,9 @@
 > [infra/dr/README.md](../infra/dr/README.md) (restore mechanics), [INCIDENTS.md](INCIDENTS.md)
 > (where the write-up goes afterwards).
 >
-> **Verified against the live account on 2026-08-12.** Re-verify §2 with the commands in §7
-> before trusting the numbers.
+> **Verified against the live account on 2026-08-12; the CloudTrail and `db/` expiry rows
+> re-verified 2026-11-05 after both were fixed.** Re-verify §2 with the commands in §7 before
+> trusting the numbers.
 
 ---
 
@@ -41,9 +42,10 @@ an incident is telling them apart.
 | **C** | **AWS account compromised.** Root or an admin key. Buckets purged, instances terminated, KMS key scheduled for deletion. | Everything, including the backups. **This is the one the current controls do not survive.** See §6. | Depends entirely on AWS support and whether versions were purged. |
 | **D** | **Pure data extortion.** No encryption at all. "We have your attendee list, pay or we publish." | Reputation, PDPL exposure, sponsor and faculty trust. | There is nothing to restore. This is a legal and comms incident, not a technical one. |
 
-**D is the most likely and the least prepared for.** It is also the one where the absence of
-CloudTrail hurts most, because the first question everyone asks is "what did they take", and right
-now we cannot answer it.
+**D is the most likely and the least prepared for.** The first question everyone asks is "what
+did they take". Since 2026-11-05 CloudTrail answers it for AWS calls (who touched which bucket, key
+or instance, and from where). It still cannot see reads made through the app or straight against
+Supabase; those answers come from the app logs and Supabase's Postgres logs.
 
 ---
 
@@ -56,14 +58,14 @@ Verified read-only on 2026-08-12. Commands to re-check are in §7.
 | **Database location** | Supabase, **not on the box** | Scenario A cannot encrypt the DB. This is the single biggest structural advantage we have. |
 | **DR bucket versioning** | **Enabled** (`ea-sys-dr-singapore`, ap-southeast-1) | An overwrite creates a new version. The old one survives. |
 | **Instance role delete rights on DR bucket** | **None.** `PutObject` / `GetObject` / `ListBucket` only | A fully owned box **cannot** delete backups or versions. Verified in the `DRBackupToSingapore` inline policy. |
-| **`db/` noncurrent version expiry** | **7 days** | **The gap.** An attacker does not need delete rights: overwrite every dump with garbage, wait 8 days, and AWS's own lifecycle rule deletes the good versions. `uploads/` and `env/` have no such rule, so only the most critical prefix carries it. |
+| **`db/` noncurrent version expiry** | **90 days** (raised from 7 on 2026-11-05) | An overwrite with garbage leaves the good versions for 90 days, so an attacker with write-only rights has to stay hidden for three months, not one week, before AWS's lifecycle rule deletes them. `uploads/` and `env/` have no such rule. |
 | **`db/` current expiry** | 30 days (real depth measured: oldest object 2026-07-12) | Anything older than ~31 days is unrecoverable. Attacker dwell time is routinely longer than that. |
 | **S3 Object Lock** | **Not configured** | Nothing is immutable. Versions are deletable by any principal with `s3:DeleteObjectVersion`. |
 | **MFA Delete** | **Not enabled** | An admin credential alone can purge version history. |
 | **IMDSv2** | **Required**, hop limit 2 | A plain SSRF cannot steal the instance role. Hop limit 2 is needed for containers to reach IMDS, so a compromised **container** still can. |
 | **ECR access from the box** | **Pull only**, no push | A compromised box cannot poison the image registry. Rollback images stay trustworthy. |
 | **KMS rights from the box** | Encrypt / Decrypt / GenerateDataKey. **No** `ScheduleKeyDeletion` or `DisableKey` | The box cannot brick the key that protects the backups. |
-| **CloudTrail** | **None configured** | **No forensics.** We cannot reconstruct who called what, when, or from where. Console Event History gives ~90 days of management events, not exportable at scale, no S3 object-level events. |
+| **CloudTrail** | **On since 2026-11-05.** Trail `ea-sys-org-trail` (home ap-south-1): every region, global services included, management events read and write, log file validation on. Logs go to `aws-cloudtrail-logs-803726282629-f97c4499` (SSE-S3, public access blocked, versioned, no expiry yet) | Who called what, when and from where, for every AWS API call, with digest files that prove a log was not altered. **Not covered:** S3 object-level (data) events, so reads and overwrites of individual backup objects are not recorded, and anything inside the app or Supabase. The trail lives in the same account, so Scenario C (an admin credential) can still stop it or empty its bucket. |
 | **GuardDuty** | **None, in any region** | **No detection.** We find out from the ransom note. Dwell time is unbounded. |
 | **Supabase PITR** | Not purchased | No second-precision rollback. The hourly dump is the only DB recovery point. |
 | **Singapore DR box** | **Does not exist** | DR is bucket-only and cold. There is no warm standby to fail over to. |
@@ -198,8 +200,9 @@ expiry, so every prior version is still there (§7 has the command).
   Supabase project, the scratch container). You are not locked to the compromised project.
 
 **Choosing the restore point:** pick the newest dump that predates the earliest evidence of
-compromise. Without CloudTrail this is a judgement call from app logs, which is exactly why §6
-ranks CloudTrail first.
+compromise. CloudTrail (since 2026-11-05) dates any AWS-side access, such as an unknown
+principal listing or writing to `ea-sys-dr-singapore`; a database-side compromise is still dated
+from the app logs and Supabase's Postgres logs.
 
 ### Phase 6. Rotate everything, in this order
 
@@ -274,12 +277,13 @@ the insurer.
 
 ## 6. The gaps, ranked, with what they cost
 
-Everything below is verified missing as of 2026-08-12.
+Verified missing as of 2026-08-12. #1 and #2 were closed on 2026-11-05 and stay in the table,
+struck through, so the reasoning is not lost.
 
 | # | Gap | Consequence in an incident | Rough cost |
 |---|---|---|---|
-| 1 | **No CloudTrail** | You cannot answer "when did they get in" or "what did they take". That is the first question from the insurer, counsel and the regulator, and it also picks your restore point. | ~$2/month. One command. |
-| 2 | **`db/` noncurrent versions expire in 7 days** | An attacker needs no delete rights: overwrite the dumps, wait 8 days, and AWS deletes the good versions for them. Raise to 90 days or drop the rule. | Free. Pennies of storage. |
+| 1 | ~~**No CloudTrail**~~ **DONE 2026-11-05** (see §2). Left open: S3 data events on `ea-sys-dr-singapore` (write only) would record object overwrites; a lifecycle on the log bucket to cap storage. | You cannot answer "when did they get in" or "what did they take". That is the first question from the insurer, counsel and the regulator, and it also picks your restore point. | ~$2/month. One command. |
+| 2 | ~~**`db/` noncurrent versions expire in 7 days**~~ **DONE 2026-11-05**: raised to 90 days. | An attacker needs no delete rights: overwrite the dumps, wait 8 days, and AWS deletes the good versions for them. Raise to 90 days or drop the rule. | Free. Pennies of storage. |
 | 3 | **A backup the production credentials cannot write to** | Every backup today is written by the box, with the box's role. Versioning is the only thing between an owned box and useless backups. A pull-based copy (separate account or a Lambda the box cannot invoke) removes that dependency entirely. This is the strongest single control available. | ~$1 to $5/month. |
 | 4 | **No GuardDuty** | No detection at all. Dwell time is bounded only by when the attacker chooses to tell you. | ~$10 to $30/month. |
 | 5 | **`.env` stored plaintext in the DR bucket, daily** | The box's role has `GetObject` on the whole bucket, so a compromised box reads **every historical secret set**, including ones you rotated months ago. Move to Secrets Manager, or at minimum a separately-keyed prefix the app role cannot read. | Low. |
@@ -287,9 +291,8 @@ Everything below is verified missing as of 2026-08-12.
 | 7 | **DB backup horizon is 31 days** | Dwell time frequently exceeds a month. A discovery on day 40 has no clean restore point. | Storage only. |
 | 8 | **No Supabase PITR** | Hourly dumps are the only DB recovery point. Acceptable today, revisit if RPO tightens. | $25 to $50/month. |
 
-**If you do only two things: CloudTrail (#1) and the 7-day expiry (#2).** Together they are under
-five dollars a month and they are the difference between "we restored and we know what happened"
-and "we restored and we are guessing".
+**The two cheap ones are done (Nov 5, 2026): CloudTrail (#1) and the 7-day expiry (#2).** The
+next most valuable are #3 (a backup the box cannot write to) and #4 (GuardDuty).
 
 ---
 
@@ -312,8 +315,12 @@ aws iam get-role-policy --role-name ea-sys-mumbai-ec2-role --policy-name DRBacku
 aws ec2 describe-instances --instance-ids i-0b51ab1213d084640 --region ap-south-1 \
   --query 'Reservations[].Instances[].MetadataOptions'
 
-# Forensics + detection (want: at least one trail, at least one detector)
-aws cloudtrail describe-trails --query 'trailList[].Name'
+# Forensics + detection (want: the trail logging with validation on, at least one detector)
+aws cloudtrail describe-trails --region ap-south-1 \
+  --query 'trailList[].{Name:Name,MultiRegion:IsMultiRegionTrail,Validation:LogFileValidationEnabled}'
+aws cloudtrail get-trail-status --name ea-sys-org-trail --region ap-south-1 \
+  --query '{Logging:IsLogging,LastDelivery:LatestDeliveryTime,Error:LatestDeliveryError}'
+aws s3api get-bucket-versioning --bucket aws-cloudtrail-logs-803726282629-f97c4499
 aws guardduty list-detectors --region ap-south-1
 
 # During an incident: find the last GOOD version of an overwritten backup
