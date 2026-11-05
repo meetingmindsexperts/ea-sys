@@ -129,4 +129,24 @@ describe("noteUnlanedEventQuery", () => {
     });
     expect(() => noteUnlanedEventQuery("Event", "findFirst")).not.toThrow();
   });
+
+  it("warns once on a persistent fault, then goes quiet", () => {
+    info.mockImplementation(() => {
+      throw new Error("logger down");
+    });
+    for (let i = 0; i < 5; i++) noteUnlanedEventQuery("Event", `op${i}`);
+    expect(warn).toHaveBeenCalledTimes(1);
+    info.mockReset();
+  });
+
+  it("keeps one state per process, shared across module copies", async () => {
+    // The dev-server case: db's extension holds the first graph's copy while a
+    // second graph's event-tenant.ts marks discovery. Both must see one store.
+    vi.resetModules();
+    const second = await import("@/lib/tenant/lane-shadow");
+    await second.asEventDiscovery(async () => {
+      noteUnlanedEventQuery("Event", "findFirst");
+    });
+    expect(reported()).toHaveLength(0);
+  });
 });

@@ -20,6 +20,13 @@
  * too, with the new number to write here: that is what makes it a ratchet
  * rather than a ceiling that quietly drifts back up.
  *
+ * IT IS A HEURISTIC, and stable rather than exact. The comment stripper also
+ * eats a `/*` inside a string literal (e.g. "image/*") up to the next `*\/`;
+ * DISCOVERY_WRAP matches any name starting `ev` (an `evidence.organizationId`
+ * would count); EVENT_READ sees `db` and `tx` only, not `dbOperator` (which is
+ * deliberately outside a lane anyway). Every machine computes the same numbers,
+ * so the ratchet holds; just do not read the counts as a precise inventory.
+ *
  * The runtime counterpart is the shadow detector (src/lib/tenant/lane-shadow.ts,
  * RLS_SHADOW=1), which sees the library calls this static count cannot.
  */

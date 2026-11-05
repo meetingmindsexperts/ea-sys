@@ -46,15 +46,33 @@ export const SHADOW_MAX_SITES = 500;
  */
 const STACK_DEPTH = 60;
 
-const seen = new Set<string>();
-let capped = false;
-
 /**
- * Marks the sanctioned discovery read (src/lib/tenant/event-tenant.ts) so it is
- * not reported. A context flag rather than a file-name match, because in a
- * production bundle the frames carry chunk names, not source paths.
+ * One state per PROCESS, pinned to globalThis like `tenantAls` in
+ * tenant-context.ts. In dev, `db` is cached on globalThis, so its extension keeps
+ * calling the FIRST module graph's copy of this file; a second graph's
+ * event-tenant.ts would then mark discovery reads on a store the extension never
+ * reads, and every one would be reported as a gap.
  */
-const discovery = new AsyncLocalStorage<true>();
+const globalForShadow = globalThis as unknown as {
+  laneShadow?: {
+    discovery: AsyncLocalStorage<true>;
+    seen: Set<string>;
+    capped: boolean;
+    failed: boolean;
+  };
+};
+const state = (globalForShadow.laneShadow ??= {
+  // Marks the sanctioned discovery read (src/lib/tenant/event-tenant.ts) so it is
+  // not reported. A context flag rather than a file-name match, because in a
+  // production bundle the frames carry chunk names, not source paths.
+  discovery: new AsyncLocalStorage<true>(),
+  seen: new Set<string>(),
+  capped: false,
+  // Set after the first internal failure, so a persistent fault warns once
+  // instead of once per Event query (warn+ is written to SystemLog).
+  failed: false,
+});
+const discovery = state.discovery;
 
 /** Run `fn` as the sanctioned pre-lane Event discovery read. */
 export function asEventDiscovery<T>(fn: () => Promise<T>): Promise<T> {
@@ -92,9 +110,10 @@ function currentRoute(): string | null {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       routeStore = require("next/dist/server/app-render/work-async-storage.external").workAsyncStorage ?? null;
-    } catch {
+    } catch (err) {
       // Not inside Next (worker, scripts) or the module moved; the stack fallback still applies.
       routeStore = null;
+      dbLogger.debug({ err, msg: "tenant:event-shadow-no-route-store" });
     }
   }
   return routeStore?.getStore()?.route ?? null;
@@ -128,21 +147,22 @@ export function noteUnlanedEventQuery(model: string | undefined, operation: stri
   try {
     if (getTenantOrgId()) return;
     if (discovery.getStore()) return;
-    if (capped) return;
+    if (state.capped || state.failed) return;
     const app = frames(captureStack());
     const route = currentRoute() ?? app.find((f) => ROUTE_FRAME.test(f)) ?? null;
     const callsite = app.length ? app.slice(0, 3).join(" < ") : "unknown";
     const key = `${operation}|${route ?? callsite}`;
-    if (seen.has(key)) return;
-    if (seen.size >= SHADOW_MAX_SITES) {
-      capped = true;
-      dbLogger.info({ msg: "tenant:event-shadow-capped", sites: seen.size });
+    if (state.seen.has(key)) return;
+    if (state.seen.size >= SHADOW_MAX_SITES) {
+      state.capped = true;
+      dbLogger.info({ msg: "tenant:event-shadow-capped", sites: state.seen.size });
       return;
     }
-    seen.add(key);
+    state.seen.add(key);
     dbLogger.info({ msg: "tenant:event-query-no-lane", operation, route, callsite });
   } catch (err) {
-    // An observer must never break the query it observes. Log and carry on.
+    // An observer must never break the query it observes. Warn once and go quiet.
+    state.failed = true;
     try {
       dbLogger.warn({ err, msg: "tenant:event-shadow-failed" });
     } catch {
@@ -153,6 +173,7 @@ export function noteUnlanedEventQuery(model: string | undefined, operation: stri
 
 /** Test seam: forget every reported call site. */
 export function resetLaneShadowForTests(): void {
-  seen.clear();
-  capped = false;
+  state.seen.clear();
+  state.capped = false;
+  state.failed = false;
 }
