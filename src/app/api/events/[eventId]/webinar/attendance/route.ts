@@ -92,6 +92,23 @@ export async function GET(req: Request, { params }: RouteParams) {
       : requirePermission(session, "webinar.analytics.read", { route: "events/[eventId]/webinar/attendance:GET", eventId, onMissing: "hide" });
     if (!gate.ok) return gate.response;
 
+    // Each CSV is every attendee's email and watch time; a person downloading it
+    // dozens of times an hour is not doing their job (security review W-07).
+    if (exportCsv) {
+      const { allowed, retryAfterSeconds } = checkRateLimit({
+        key: `webinar-attendance-export:${session.user.id}`,
+        limit: 30,
+        windowMs: 3600_000,
+      });
+      if (!allowed) {
+        apiLogger.warn({ eventId, userId: session.user.id, retryAfterSeconds }, "webinar-attendance:export-rate-limited");
+        return NextResponse.json(
+          { error: "Too many exports. Try again later.", retryAfterSeconds, limit: 30, windowSeconds: 3600 },
+          { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+        );
+      }
+    }
+
     return await runWithTenant(orgGuard.orgId, async () => {
 
     // Verify access + locate anchor session via parallel queries
@@ -225,6 +242,8 @@ export async function GET(req: Request, { params }: RouteParams) {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
           "Content-Disposition": `attachment; filename="webinar-attendance-${event.id}.csv"`,
+          // Personal data: never kept by a browser or proxy cache (W-07).
+          "Cache-Control": "private, no-store",
         },
       });
     }
