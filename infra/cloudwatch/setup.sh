@@ -128,7 +128,7 @@ fi
 
 log "Verifying log groups are visible in CloudWatch..."
 sleep 5  # Give the agent a moment to create the streams
-for GROUP in "ea-sys/app" "ea-sys/error"; do
+for GROUP in "ea-sys/app" "ea-sys/error" "ea-sys/mediamtx"; do
   if aws logs describe-log-groups \
        --log-group-name-prefix "${GROUP}" \
        --region "${REGION}" \

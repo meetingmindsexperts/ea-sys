@@ -227,6 +227,35 @@ The config in this repo (`infra/cloudwatch/amazon-cloudwatch-agent.json`) is the
 
 The setup script re-applies the config + restarts the systemd service.
 
+### MediaMTX log (Nov 5, 2026)
+
+Why a webinar stream dropped is only in MediaMTX's own lines (the RTMP connection opening, publishing,
+and closing with its cause). Since Nov 5, 2026 MediaMTX also writes them to `logs/mediamtx.log`
+(`mediamtx.yml` `logFile`, mounted by `docker-compose.prod.yml`), and the agent ships that file to
+the `ea-sys/mediamtx` group (30 days). No IAM change: `CloudWatchAgentServerPolicy` covers any group.
+
+One-time box steps, as `ubuntu` in `/home/ubuntu/ea-sys`, **outside a live webinar** (step 3 drops
+any stream being pushed for a few seconds):
+
+```bash
+# 1. Rotation (MediaMTX does not rotate its own file). Archives, never deletes early.
+sudo cp infra/cloudwatch/mediamtx.logrotate /etc/logrotate.d/ea-sys-mediamtx
+sudo logrotate -d /etc/logrotate.d/ea-sys-mediamtx      # dry run: must show no error
+
+# 2. Ship the new file (re-applies the agent config).
+bash infra/cloudwatch/setup.sh
+
+# 3. Restart MediaMTX with the new config and mount (deploy.sh never restarts it).
+docker compose -f docker-compose.prod.yml up -d --force-recreate mediamtx
+
+# 4. Check: the file grows, and CloudWatch receives it.
+tail -n 5 logs/mediamtx.log
+aws logs tail ea-sys/mediamtx --since 10m --region ap-south-1
+```
+
+The same restart is the moment to switch on publish authorisation (`docs/LIVE_STREAMING.md`,
+"Publish authorisation"), so MediaMTX is restarted once, not twice.
+
 ### Troubleshooting
 
 **Agent isn't shipping any logs:**

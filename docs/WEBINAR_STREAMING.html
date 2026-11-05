@@ -108,7 +108,7 @@ and the end-of-webinar survey all talk to our web app by polling small JSON rout
   <tr><td><b>nginx</b></td><td>The box</td><td><code>/stream/</code> passes HLS requests to MediaMTX (<code>:8888</code>), marked no-cache.</td></tr>
   <tr><td><b>CDN</b> (optional)</td><td>CloudFront, when <code>HLS_CDN_BASE</code> is set</td><td>Serves the video pieces from edge locations so 5,000 viewers do not all hit the box. The player falls back to the box if the CDN misbehaves.</td></tr>
   <tr><td><b>Web app</b></td><td>Containers <code>ea-sys-blue</code> / <code>ea-sys-green</code></td><td>The attendee page and its small routes: <code>lobby-status</code>, <code>stream-status</code>, <code>zoom-join</code>, <code>questions</code>, <code>presence</code>, <code>end-survey</code>. Also the producer's console and the room switch.</td></tr>
-  <tr><td><b>Worker</b></td><td>Container <code>ea-sys-worker</code></td><td>Timed jobs: closes the room when Zoom reports the end (every 3 min), sends the email sequence (every minute) and holds the thank-you while the room is open.</td></tr>
+  <tr><td><b>Worker</b></td><td>Container <code>ea-sys-worker</code></td><td>Timed jobs: restarts a dropped stream (every minute), closes the room when Zoom reports the end (every 3 min), sends the email sequence (every minute) and holds the thank-you while the room is open.</td></tr>
   <tr><td><b>Database</b></td><td>Postgres</td><td>The webinar's state. The key fact is the anchor session's status: <code>LIVE</code> means the room is open. Settings (viewing mode, survey, exit link) live in <code>Event.settings.webinar</code>.</td></tr>
 </table>
 
@@ -194,7 +194,17 @@ restarts must not lose the audience.</p>
   </li>
 </ul>
 
-<h3>5.7 The thank-you email</h3>
+<h3>5.7 Restarting a dropped stream (worker, every minute)</h3>
+<p>Job <code>webinar-stream-watchdog</code>, at second 30 of every minute, for each open room in Custom stream mode:</p>
+<ol>
+  <li>Ask MediaMTX whether the stream is arriving. Missing: look again 30 seconds later, so a quick reconnect is not a drop.</li>
+  <li>Missing twice, after having been live in this room: a <b>drop</b>. It is logged as a warning (<code>webinar-stream:dropped-while-live</code>, visible on <code>/logs</code>) and put on the console's Stream timeline.</li>
+  <li>Ask Zoom to start the push again, the same call as the Start stream button. At most <b>5 attempts per drop</b>, waiting 1, 2, 4, 8 then 16 minutes between them. Zoom refuses when the host has ended the webinar, so a finished webinar is never restarted.</li>
+  <li>When the stream is seen again: "Stream live, back after a drop" on the timeline, and the attempt count resets.</li>
+</ol>
+<p>It leaves alone: a stream never live in this room, a stream the producer stopped with <b>Stop stream</b> (remembered until Start stream or the next room opening), Zoom embed mode, and closed rooms.</p>
+
+<h3>5.8 The thank-you email</h3>
 <ul>
   <li>Scheduled for 30 minutes after the scheduled end.</li>
   <li>While the room is open, the sender holds it and looks again every 10 minutes.</li>
@@ -202,14 +212,14 @@ restarts must not lose the audience.</p>
   <li>The hold gives up 2.5 hours after the scheduled end, unless the custom stream is still on air (same 5-minute grace and 6-hour cap as above).</li>
 </ul>
 
-<h3>5.8 Q&amp;A, polls and presence</h3>
+<h3>5.9 Q&amp;A, polls and presence</h3>
 <ul>
   <li><b>Q&amp;A</b> and the <b>poll</b> come in one refresh every 15 seconds, so a poll adds no extra requests.</li>
   <li>Only the <b>open</b> poll reaches attendees. Closing it takes it off their screen at once. Results show only to people who answered, and only if the producer switched them on. Tallies are cached 5 seconds.</li>
   <li><b>Presence</b>: each open page beats every 30 to 40 seconds (not while the tab is hidden). "Here now" means a beat in the last 60 seconds. This is our page's view, separate from Zoom's attendance report afterwards.</li>
 </ul>
 
-<h3>5.9 Who may push a stream</h3>
+<h3>5.10 Who may push a stream</h3>
 <ul>
   <li>Each webinar has a random stream key. Zoom is given the key plus a password: an HMAC of the key signed with a server secret, so viewers, who see the key in the video address, can never publish.</li>
   <li>MediaMTX can ask our app to approve every publish (<code>/api/webhooks/mediamtx-auth</code>). <span class="pill pending">not switched on</span> See <a href="#gaps">Known gaps</a>.</li>
@@ -252,15 +262,16 @@ or Zoom's live-stream service. If MediaMTX shows a clean close from Zoom's side,
 <h3>What happens today when it drops</h3>
 <ul>
   <li><b>Attendees:</b> the player shows "The stream was interrupted, reconnecting", checks every 10 seconds, and plays again by itself when the stream is back. The stall watchdog covers players that freeze without noticing.</li>
-  <li><b>Producers:</b> nothing restarts the push automatically. Someone must notice and press <b>Start stream</b> in the console, as happened on Nov 5 after 35 seconds.</li>
+  <li><b>Producers:</b> on Nov 5 someone had to notice and press <b>Start stream</b> (35 seconds). Since then the stream watchdog (5.7) does it within about a minute, and the console's <b>Stream timeline</b> card shows the drop and the restart.</li>
 </ul>
-<div class="note warn">A proposed improvement, <b>not built</b>: a watchdog in the worker that notices an open custom-stream room
-whose stream has been missing for about 30 seconds and asks Zoom to start the push again (the same call as the Start
-stream button), logging each attempt. Zoom refuses if the host has ended the webinar, so it cannot restart a finished one.</div>
 
 <h2 id="logs">8. What the logs say, and where</h2>
-<p>Every line below is in the <b>app log</b>: CloudWatch group <code>ea-sys/app</code> (and <code>logs/app.log</code> on the box).
-The <code>/logs</code> page in EA-SYS shows only warnings and errors, so most of these <b>do not</b> appear there.</p>
+<p>Three places, from easiest to deepest:</p>
+<ol>
+  <li><b>The console's Stream timeline card</b> (Webinar Console, Setup tab, right column): room opened or closed, Start or Stop pressed and by whom, stream live, dropped, restart requested or refused. Refreshes every 15 s while the room is open. Kept with the event's audit log (action <code>WEBINAR_STREAM</code>).</li>
+  <li><b>The app log</b>: CloudWatch group <code>ea-sys/app</code> (and <code>logs/app.log</code> on the box). The lines below. The <code>/logs</code> page shows only warnings and errors, so there you see drops, refused restarts and an unreachable MediaMTX, not the routine starts.</li>
+  <li><b>MediaMTX's own log</b>: CloudWatch group <code>ea-sys/mediamtx</code> (and <code>logs/mediamtx.log</code> on the box), once the box steps in <code>infra/cloudwatch/README.md</code> are done. This is where the <b>reason</b> for a drop is: the RTMP connection opening, publishing, and closing with its cause.</li>
+</ol>
 <table>
   <tr><th>Log line</th><th>Meaning</th><th>Level</th></tr>
   <tr><td><code>webinar:room-opened</code> / <code>webinar:room-closed</code></td><td>Producer opened or closed the room (with user id)</td><td>info</td></tr>
@@ -274,20 +285,20 @@ The <code>/logs</code> page in EA-SYS shows only warnings and errors, so most of
   <tr><td><code>scheduled-email:thank-you-held-room-open</code></td><td>Thank-you held because the room is open</td><td>info</td></tr>
   <tr><td><code>webinar-sequence:thank-you-moved-after-close</code></td><td>Thank-you moved to 30 minutes after the close</td><td>info</td></tr>
   <tr><td><code>stream-probe:mediamtx-unreachable</code></td><td>The app or worker could not reach MediaMTX at all (at most once a minute)</td><td>warn</td></tr>
+  <tr><td><code>webinar-stream:dropped-while-live</code></td><td>The watchdog saw the stream gone (twice, 30 s apart) while the room is open</td><td>warn</td></tr>
+  <tr><td><code>webinar-stream:auto-restart-requested</code> / <code>auto-restart-failed</code> / <code>auto-restart-gave-up</code></td><td>The watchdog asked Zoom to start the push again / Zoom refused / 5 attempts used</td><td>info / warn / warn</td></tr>
+  <tr><td><code>webinar-stream:restored</code></td><td>The stream is back after a drop</td><td>info</td></tr>
   <tr><td><code>live-player:stalled-reconnecting</code></td><td>A viewer's player froze and reconnected</td><td>browser console only</td></tr>
 </table>
 <p>To see one webinar's stream story in CloudWatch, filter <code>ea-sys/app</code> for its event id, or for
 <code>stream-status-changed</code> and <code>livestream</code> in the time window. The Nov 5 table above was built that way.</p>
-<div class="note warn">Proposed, <b>not built</b>: a stream timeline in the console, so producers can see "started, dropped,
-back, ended" without CloudWatch. It needs the drop and start events stored, not only logged, and ideally MediaMTX's
-own connect and disconnect reasons shipped to CloudWatch.</div>
+
 
 <h2 id="gaps">9. Known gaps</h2>
 <ul>
   <li><b>Publish approval is not switched on.</b> <code>mediamtx.yml</code> has no <code>authMethod: http</code>, so MediaMTX accepts a push on any path from anyone who can reach port 1935. The approval route and the publish passwords exist; switching it on is the owner step in <code>docs/LIVE_STREAMING.md</code> ("Publish authorisation").</li>
-  <li><b>No automatic restart</b> of Zoom's push after a drop (section 7).</li>
-  <li><b>MediaMTX's log is not in CloudWatch</b>, so the reason for a drop is only on the box for a limited time.</li>
-  <li><b>Stream start/stop are info lines</b>, invisible on the <code>/logs</code> page.</li>
+  <li><b>MediaMTX's log reaches CloudWatch only after the box steps</b> (install the logrotate rule, re-run the CloudWatch setup, recreate the MediaMTX container outside a webinar): see <code>infra/cloudwatch/README.md</code>, "MediaMTX log".</li>
+  <li>The watchdog cannot say <b>why</b> a stream dropped, only that it did; the reason is in MediaMTX's log.</li>
   <li><b>Zoom embed mode</b> cannot tell "still on air" from "left open", so a webinar running more than 2 hours past its scheduled end is closed by the safety net.</li>
   <li>The MediaMTX image is <code>bluenviron/mediamtx:latest</code>, not a pinned version.</li>
 </ul>
@@ -301,6 +312,8 @@ own connect and disconnect reasons shipped to CloudWatch.</div>
   <tr><td>Ended rule</td><td><code>src/lib/webinar-page-layout.ts</code> (<code>webinarRoomEnded</code>, <code>isWebinarOver</code>)</td></tr>
   <tr><td>Stream check</td><td><code>src/lib/webinar/stream-probe.ts</code>, <code>.../stream-status/route.ts</code></td></tr>
   <tr><td>Overrun rule</td><td><code>src/lib/webinar/overrun.ts</code></td></tr>
+  <tr><td>Stream watchdog</td><td><code>src/lib/webinar/stream-watchdog.ts</code> (worker job <code>webinar-stream-watchdog</code>)</td></tr>
+  <tr><td>Stream timeline</td><td><code>src/lib/webinar/stream-timeline.ts</code>, <code>.../webinar/stream-timeline/route.ts</code></td></tr>
   <tr><td>Auto-close</td><td><code>src/lib/webinar/room-autoclose.ts</code> (worker job <code>webinar-room-autoclose</code>)</td></tr>
   <tr><td>Room switch</td><td><code>src/app/api/events/[eventId]/webinar/room/route.ts</code></td></tr>
   <tr><td>Telling Zoom to push</td><td><code>src/lib/webinar/livestream.ts</code></td></tr>

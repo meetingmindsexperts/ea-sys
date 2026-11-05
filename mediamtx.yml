@@ -1,6 +1,16 @@
 # MediaMTX configuration for EA-SYS live streaming
 # RTMP ingest from Zoom → HLS output for browser playback
 
+# Logs: stdout (docker logs) AND a file the CloudWatch agent ships to the
+# ea-sys/mediamtx group (Nov 5, 2026). The app only sees that a stream
+# vanished; why (Zoom closed it, a timeout) is only in these lines, e.g.
+# "[RTMP] [conn 1.2.3.4:5678] closed: <reason>". /logs is the box's
+# ./logs folder (docker-compose.prod.yml); rotated by
+# infra/cloudwatch/mediamtx.logrotate.
+logLevel: info
+logDestinations: [stdout, file]
+logFile: /logs/mediamtx.log
+
 hlsAddress: :8888
 rtmpAddress: :1935
 webrtcAddress: :8889

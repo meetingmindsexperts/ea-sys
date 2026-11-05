@@ -1,0 +1,21 @@
+# MediaMTX's log file (Nov 5, 2026). Install on the box:
+#   sudo cp infra/cloudwatch/mediamtx.logrotate /etc/logrotate.d/ea-sys-mediamtx
+# copytruncate: MediaMTX keeps the file open and has no reopen signal.
+# Old files are compressed into logs/archive/mediamtx/ and kept for a year,
+# never deleted early (house rule: archive server logs, do not delete them);
+# CloudWatch (ea-sys/mediamtx) holds the last 30 days for searching.
+/home/ubuntu/ea-sys/logs/mediamtx.log {
+    daily
+    maxsize 50M
+    rotate 365
+    dateext
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    olddir /home/ubuntu/ea-sys/logs/archive/mediamtx
+    createolddir 0755 root root
+    # The logs folder is written by the containers; run as root so logrotate does not refuse it.
+    su root root
+}

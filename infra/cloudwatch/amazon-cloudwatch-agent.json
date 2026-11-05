@@ -33,6 +33,14 @@
             "timezone": "UTC"
           },
           {
+            "file_path": "/home/ubuntu/ea-sys/logs/mediamtx.log",
+            "log_group_name": "ea-sys/mediamtx",
+            "log_stream_name": "mumbai-{instance_id}",
+            "retention_in_days": 30,
+            "timestamp_format": "%Y/%m/%d %H:%M:%S",
+            "timezone": "UTC"
+          },
+          {
             "file_path": "/home/ubuntu/ea-sys/logs/error.log",
             "log_group_name": "ea-sys/error",
             "log_stream_name": "mumbai-{instance_id}",

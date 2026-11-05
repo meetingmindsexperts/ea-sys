@@ -241,6 +241,8 @@ services:
     mem_limit: 512m
     volumes:
       - ./mediamtx.yml:/mediamtx.yml
+      # Its log file, beside app.log, for the CloudWatch agent (mediamtx.yml logFile).
+      - ./logs:/logs
     networks:
       - web
     logging:

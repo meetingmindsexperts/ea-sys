@@ -61,3 +61,20 @@ describe("the worker can reach MediaMTX (review of fb4459d0, HIGH)", () => {
     expect(worker).toMatch(/networks:\s*\n\s*- web/);
   });
 });
+
+describe("MediaMTX's own log reaches CloudWatch (Nov 5, 2026)", () => {
+  // Why a stream dropped is only in MediaMTX's lines. Three files must agree, or nothing ships.
+  const read = (f: string) => readFileSync(path.join(process.cwd(), f), "utf8");
+  it("MediaMTX writes /logs/mediamtx.log, compose mounts ./logs there, and the agent ships that file", () => {
+    expect(read("mediamtx.yml")).toMatch(/logDestinations: \[stdout, file\]/);
+    expect(read("mediamtx.yml")).toContain("logFile: /logs/mediamtx.log");
+    const compose = read("docker-compose.prod.yml");
+    const mediamtx = compose.slice(compose.indexOf("\n  mediamtx:"));
+    expect(mediamtx).toContain("- ./logs:/logs");
+    const agent = JSON.parse(read("infra/cloudwatch/amazon-cloudwatch-agent.json"));
+    const entry = agent.logs.logs_collected.files.collect_list.find(
+      (f: { file_path: string }) => f.file_path === "/home/ubuntu/ea-sys/logs/mediamtx.log",
+    );
+    expect(entry?.log_group_name).toBe("ea-sys/mediamtx");
+  });
+});
