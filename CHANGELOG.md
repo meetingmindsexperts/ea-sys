@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinar security review: stream publishing, who may watch, the waiting room (November 5)
+
+- **Stream publishing (W-03):** every viewer's HLS URL contains the stream key, and MediaMTX had no publish check, so anyone registered could push their own video over a live webinar. `mediamtx.yml` now asks `POST /api/webhooks/mediamtx-auth` before every publish (the HMAC password Zoom is given; built Oct 1, inert until now), RTSP, WebRTC and SRT are off (each also accepts publishes), and HLS is published on `127.0.0.1` only. Takes effect at the next MediaMTX recreate. Pinned by `mediamtx-security-config.test.ts`
+- **Who may watch (W-01):** every attendee route let in any registration that was not cancelled, so people still pending approval (the "Physician" types) could watch. Owner: pending cannot watch. `src/lib/webinar/viewer-entitlement.ts` is the one rule for zoom-join, stream-status, presence, Q&A, polls, handouts, the recording and the end survey: CONFIRMED or CHECKED_IN, and paid or nothing owed on its type and rate (free rows are often UNPAID on prod, so not "PAID" alone). Conferences keep the old rule. A refused person sees "Your registration is not active yet" with the reason, not a Register button
+- **The waiting room is enforced by the server (W-02):** zoom-join used to hand out the Zoom signature, join link, passcode and stream URL inside the scheduled window whatever the producer did, and stream-status the stream URL whenever it was live. Until the anchor session is LIVE an attendee now gets `mode: "waiting"` with nothing that admits, and no stream URL; the page fetches the rest when the room opens (with a real retry). Staff keep their preview
+- **Attendance export (W-07):** the CSV is sent `private, no-store` and limited to 30 downloads an hour per person
+- **Presence data (W-06):** kept 90 days, then archived, never deleted outright: the new worker job `webinar-presence-archive` (04:20 UTC, JOB_ID 1028) writes older rows to `logs/archive/webinar-presence/*.jsonl.gz` and removes only the rows that landed in the file
+- **Deferred:** short-lived playback URLs (W-04, accepted for free webinars) and tenant-aware stream ownership (W-05, a gate for the platform instance)
+
 ### Account confirmation: an address on a registration is trusted only once proven (November 5)
 
 - **The gap:** an account saw every registration carrying its email address, and creating one (by registering with a password) linked them all, without the address ever being proven. Someone registering with another person's email could see that person's earlier guest registrations, payments and certificates.

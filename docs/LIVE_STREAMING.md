@@ -233,7 +233,7 @@ On the `ZoomMeeting` model (1:1 with `EventSession`):
 | [`mediamtx.yml`](../mediamtx.yml) | MediaMTX server config (RTMP/HLS ports + HLS tuning) |
 | [`docker-compose.yml`](../docker-compose.yml) / [`docker-compose.prod.yml`](../docker-compose.prod.yml) | `ea-sys-mediamtx` service definition + `MEDIAMTX_HLS_URL` wiring |
 | [`src/components/zoom/live-player.tsx`](../src/components/zoom/live-player.tsx) | Public HLS player (`hls.js`), polls stream status, fullscreen/mute controls |
-| [`src/app/api/public/events/[slug]/sessions/[sessionId]/stream-status/route.ts`](../src/app/api/public/events/%5Bslug%5D/sessions/%5BsessionId%5D/stream-status/route.ts) | Probes MediaMTX, flips `streamStatus`, returns playback URL (360/hr per IP) |
+| [`src/app/api/public/events/[slug]/sessions/[sessionId]/stream-status/route.ts`](../src/app/api/public/events/%5Bslug%5D/sessions/%5BsessionId%5D/stream-status/route.ts) | Probes MediaMTX, flips `streamStatus`, returns playback URL (360/hr per IP) only to staff, or to a registration that may watch while the room is open (`viewer-entitlement.ts`, Nov 5, 2026) |
 | [`src/components/zoom/zoom-meeting-form.tsx`](../src/components/zoom/zoom-meeting-form.tsx) | Admin toggle + `StreamingInfoCard` (RTMP URL / stream key / HLS URL / attendee page) |
 | [`src/app/e/[slug]/session/[sessionId]/page.tsx`](../src/app/e/%5Bslug%5D/session/%5BsessionId%5D/page.tsx) | Public session page; dynamic-imports `LivePlayer` (Live Video tab) |
 

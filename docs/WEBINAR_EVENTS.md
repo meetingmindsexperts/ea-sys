@@ -594,6 +594,35 @@ Organizers manage sponsors at `/events/[id]/sponsors`:
 
 ---
 
+## Server-side admission and who may watch (Nov 5, 2026 security review)
+
+Until Nov 5 the waiting room was enforced by the page only: `zoom-join` returned
+the Zoom signature, join link, passcode and HLS URL inside the window above
+whatever the producer had done, and `stream-status` returned the HLS URL
+whenever the stream was live. Now:
+
+- **The room gate.** For an attendee on a WEBINAR event, `zoom-join` answers
+  `{ mode: "waiting", joinUrl: "", ... }` with nothing that admits until the
+  event's anchor session is `LIVE` (`isViewerRoomOpen`, read from
+  `settings.webinar.sessionId`, bound to the event, 3 s cache; a DRAFT event
+  opens on its own as in lobby-status). `stream-status` returns no URL to an
+  attendee while the room is closed. Org staff keep their preview. The page's
+  admission fetch treats "waiting" as not yet admitted and retries every 4 s.
+- **Who may watch.** `viewerRegistrationWhere` in
+  [viewer-entitlement.ts](../src/lib/webinar/viewer-entitlement.ts):
+  `CONFIRMED` or `CHECKED_IN`, and `PAID` / `COMPLIMENTARY` / `INCLUSIVE` or
+  nothing charged on its type and rate. Used by zoom-join, stream-status,
+  presence, Q&A, polls, handouts, the recording and the end survey; never write
+  `status: { not: "CANCELLED" }` into a webinar attendee route again.
+  Conferences keep the old rule. A refused registrant gets `PENDING_APPROVAL`,
+  `WAITLISTED` or `PAYMENT_OUTSTANDING` and a card saying so.
+- **Presence retention.** `webinar-presence-archive` (04:20 UTC) archives rows
+  not seen for 90 days to `logs/archive/webinar-presence/` and removes only the
+  archived rows.
+
+Pinned by `zoom-join-window.test.ts`, `stream-status-route.test.ts`,
+`webinar-viewer-entitlement.test.ts` and `webinar-presence-archive.test.ts`.
+
 ## Waiting room, producer-gated admission & real-time presence (June 23, 2026)
 
 The attendee live-day flow is **producer-controlled**: registrants wait in a branded lobby until a producer opens the room, then are admitted into the event's chosen viewing mode. None of this involves BigMarker — attendees watch on our gated session page.

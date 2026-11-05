@@ -170,6 +170,8 @@ Everything else, from the attendee page to the emails, reads that one field.</di
   <li>Each attendee page asks <code>lobby-status</code> every <b>15 to 20 seconds</b> (random spread). The route keeps its answer for 3 seconds, so the database sees about one query per 3 seconds per container.</li>
   <li>When the answer flips to "room open", the page fetches fresh join details once (a link fetched at page load may have expired during a long wait) and shows the player. A latch makes this happen once per opening; closing the room resets it.</li>
   <li>The join route lets a registrant in while the session is <code>LIVE</code>, whatever the clock says, so a late joiner during an overrun still gets in.</li>
+  <li><b>The server holds the door, not just the page (Nov 5, 2026 security review).</b> Until the room is open, <code>zoom-join</code> answers <code>mode: "waiting"</code> with no Zoom signature, join link, passcode or stream URL, and <code>stream-status</code> gives an attendee no stream URL. So calling the API directly no longer skips the waiting room, and a stream started for rehearsal is not the attendees' to watch. Org staff keep their preview. The room check is the event's <em>anchor</em> session, cached 3 seconds; when the page gets "waiting" just after the room opened, it asks again 4 seconds later.</li>
+  <li><b>Who may watch</b> (<code>src/lib/webinar/viewer-entitlement.ts</code>): a registration that is confirmed or checked in, and paid or free. Pending approval, waitlisted or unpaid sees "Your registration is not active yet" with the reason. The same rule covers Q&amp;A, polls, handouts, presence, the recording and the survey.</li>
 </ul>
 
 <h3>5.5 Has the webinar ended?</h3>
@@ -227,7 +229,7 @@ restarts must not lose the audience.</p>
 <ul>
   <li><b>Q&amp;A</b> and the <b>poll</b> come in one refresh every 15 seconds, so a poll adds no extra requests.</li>
   <li>Only the <b>open</b> poll reaches attendees. Closing it takes it off their screen at once. Results show only to people who answered, and only if the producer switched them on. Tallies are cached 5 seconds.</li>
-  <li><b>Presence</b>: each open page beats every 30 to 40 seconds (not while the tab is hidden). "Here now" means a beat in the last 60 seconds. This is our page's view, separate from Zoom's attendance report afterwards.</li>
+  <li><b>Presence</b>: each open page beats every 30 to 40 seconds (not while the tab is hidden). "Here now" means a beat in the last 60 seconds. This is our page's view, separate from Zoom's attendance report afterwards. Rows are kept 90 days, then archived to <code>logs/archive/webinar-presence/</code> by the <code>webinar-presence-archive</code> job (never deleted outright).</li>
 </ul>
 
 <h3>5.10 Who may push a stream</h3>

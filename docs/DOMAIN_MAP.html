@@ -568,6 +568,7 @@
 <span class="oneliner">WEBINAR eventType auto-provisions anchor session + Zoom webinar + email sequence; producer-gated waiting room; post-event recording/attendance/engagement sync; MediaMTX HLS for broadcast-scale viewing.</span></summary>
 <div class="kids">
 <div class="leaf"><b class="k">Entry</b> <code>webinar/</code> console · <code>api/.../webinar/*</code> · public session page · 2 worker jobs (<code>webinar-recordings</code> 5m, <code>webinar-attendance</code> 10m)</div>
+<div class="gotcha"><b>Who may watch</b> is <code>lib/webinar/viewer-entitlement.ts</code> (confirmed or checked in, paid or free; the room open for attendees). Every attendee route uses it; never write <code>status: { not: "CANCELLED" }</code> into one (security review, Nov 5, 2026).</div>
 <div class="leaf"><b class="k">Core</b> <code>lib/webinar*.ts</code> · <code>lib/zoom/*</code> · <code>components/zoom/zoom-web-embed.tsx</code> (CDN loader — React 19 workaround, see memory) · MediaMTX container for HLS</div>
 <div class="leaf"><b class="k">Docs</b> <code>docs/WEBINAR_EVENTS.md</code> · <code>docs/LIVE_STREAMING.md</code> · <code>docs/ZOOM_INTEGRATION.html</code></div>
 </div>
