@@ -17,14 +17,22 @@ export const CATALOGUE_PAGE_SIZE = 12;
 export const CATALOGUE_HERO_IMAGE_SETTING = "catalogueHeroImage";
 
 /**
- * The catalogue hero's photo, or null (the page then draws its pattern). Only
- * an uploaded file or an https URL is accepted, so a hand-edited value cannot
- * point the public page at a `javascript:` or `data:` address.
+ * Whether a value may be the catalogue hero's photo: a media-library upload
+ * or an https address. Nothing else, so a hand-edited value cannot point the
+ * public page at a `javascript:` or `data:` address, and no `..`, which the
+ * browser would resolve out of /uploads/ into any route on the site, sent by
+ * every visitor with their cookies. The organisation API checks it on the way
+ * in and the page on the way out.
  */
+export function isCatalogueHeroImageUrl(value: string): boolean {
+  if (value.length > 500 || value.includes("..")) return false;
+  return /^\/uploads\/media\/[\w\-./]+$/.test(value) || /^https:\/\/[^\s"'<>()\\]+$/.test(value);
+}
+
+/** The catalogue hero's photo, or null (the page then draws its pattern). */
 export function readCatalogueHeroImage(settings: unknown): string | null {
   const value = (settings as Record<string, unknown> | null)?.[CATALOGUE_HERO_IMAGE_SETTING];
-  if (typeof value !== "string") return null;
-  return /^(\/uploads\/|https:\/\/)[^\s"'<>()]+$/.test(value) ? value : null;
+  return typeof value === "string" && isCatalogueHeroImageUrl(value) ? value : null;
 }
 
 const MAX_QUERY_LENGTH = 100;

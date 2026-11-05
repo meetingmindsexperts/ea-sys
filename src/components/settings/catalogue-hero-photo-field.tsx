@@ -5,6 +5,7 @@ import { ImageIcon, Upload, X as XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { useCan } from "@/hooks/use-can";
 
 /**
  * The public catalogue's hero photo (Nov 5, 2026), in Settings, General. The
@@ -33,6 +34,9 @@ export function CatalogueHeroPhotoField({
   disabled: boolean;
 }) {
   const [uploading, setUploading] = useState(false);
+  // The upload goes to the media library, a key of its own: a custom role
+  // with org.settings alone can remove the photo but not upload one.
+  const canUpload = useCan("media.library.manage") === "allowed";
 
   const upload = async (file: File) => {
     if (file.size > MAX_BYTES) {
@@ -89,7 +93,7 @@ export function CatalogueHeroPhotoField({
           )}
         </div>
         <div className="space-y-1.5">
-          {!disabled && (
+          {!disabled && canUpload && (
             <>
               <Button type="button" variant="outline" size="sm" disabled={uploading} onClick={() => document.getElementById("catalogue-hero-upload")?.click()}>
                 <Upload className="mr-2 h-4 w-4" />

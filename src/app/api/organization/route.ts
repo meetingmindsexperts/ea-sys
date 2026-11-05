@@ -8,7 +8,7 @@ import { getClientIp } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { can } from "@/lib/permissions/can";
 import { DEFAULT_REG_TYPES_SETTING, defaultRegistrationTypesSchema } from "@/lib/default-registration-types";
-import { CATALOGUE_HERO_IMAGE_SETTING } from "@/lib/catalogue";
+import { CATALOGUE_HERO_IMAGE_SETTING, isCatalogueHeroImageUrl } from "@/lib/catalogue";
 import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
 
 const updateOrganizationSchema = z.object({
@@ -24,12 +24,10 @@ const updateOrganizationSchema = z.object({
     // event creation (event-service), never by existing events.
     defaultRegistrationTypes: defaultRegistrationTypesSchema.optional(),
     // The public catalogue's hero photo; null removes it (the page then draws
-    // its pattern). An uploaded file or an https address only, the same rule
-    // readCatalogueHeroImage applies on the way out.
+    // its pattern). The same rule readCatalogueHeroImage applies on the way out.
     [CATALOGUE_HERO_IMAGE_SETTING]: z
       .string()
-      .max(500)
-      .regex(/^(\/uploads\/|https:\/\/)[^\s"'<>()]+$/, "Must be an uploaded image or an https address")
+      .refine(isCatalogueHeroImageUrl, "Must be a media library upload or an https address")
       .nullable()
       .optional(),
   }).optional(),

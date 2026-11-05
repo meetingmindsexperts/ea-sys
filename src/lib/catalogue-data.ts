@@ -73,6 +73,12 @@ export interface SiteStats {
 
 const RUN_STATUSES = ["PUBLISHED", "LIVE", "COMPLETED"] as const;
 
+// The numbers move by a few a day and every public view (crawlers included)
+// would otherwise count the org's whole history, so each container keeps
+// them for ten minutes per organisation.
+const STATS_TTL_MS = 10 * 60 * 1000;
+const statsCache = new Map<string, { stats: SiteStats; at: number }>();
+
 /**
  * The organisation's track record on this platform: events run (listed or
  * not, drafts and cancelled never), delegates registered (not cancelled, the
@@ -80,6 +86,15 @@ const RUN_STATUSES = ["PUBLISHED", "LIVE", "COMPLETED"] as const;
  * once per person by email, and countries.
  */
 export async function loadSiteStats(orgScope: { organizationId?: string }): Promise<SiteStats> {
+  const key = orgScope.organizationId ?? "*";
+  const hit = statsCache.get(key);
+  if (hit && Date.now() - hit.at < STATS_TTL_MS) return hit.stats;
+  const stats = await countSiteStats(orgScope);
+  statsCache.set(key, { stats, at: Date.now() });
+  return stats;
+}
+
+async function countSiteStats(orgScope: { organizationId?: string }): Promise<SiteStats> {
   const eventWhere = { ...orgScope, status: { in: [...RUN_STATUSES] } };
   const [events, countries, delegates, faculty] = await Promise.all([
     db.event.count({ where: eventWhere }),
@@ -88,7 +103,9 @@ export async function loadSiteStats(orgScope: { organizationId?: string }): Prom
     db.speaker.groupBy({ by: ["email"], where: { event: eventWhere } }),
   ]);
   const countryCount = new Set(countries.map((c) => c.country?.trim().toLowerCase()).filter(Boolean)).size;
-  return { events, delegates, faculty: faculty.length, countries: countryCount };
+  // One person per address however it was typed ("A@x.com" and "a@x.com").
+  const people = new Set(faculty.map((f) => f.email.trim().toLowerCase())).size;
+  return { events, delegates, faculty: people, countries: countryCount };
 }
 
 export interface CardRegistration {

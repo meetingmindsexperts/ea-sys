@@ -4,6 +4,7 @@ import { ArrowRight, Award, Calendar, LayoutList, MapPin } from "lucide-react";
 import { calendarDaysBetween, formatEventDateRange } from "@/lib/event-time";
 import { EVENT_TYPE_LABEL, topicHref, type Topic, type TopicKind } from "@/lib/catalogue";
 import type { CardRegistration, CatalogueEvent, SiteOrganization, SiteStats } from "@/lib/catalogue-data";
+import { HeroPhoto } from "@/components/catalogue/hero-photo";
 
 /**
  * The pieces the catalogue and its topic pages share (Nov 4, 2026; redesigned
@@ -50,26 +51,27 @@ export function CatalogueHero({
   );
 }
 
+/**
+ * The pattern always, the photo over it when there is one: a photo removed
+ * from the media library (nothing tracks the reference) leaves the pattern,
+ * not a broken image under a wash.
+ */
 function HeroBackdrop({ photo }: { photo: string | null }) {
-  if (photo) {
-    return (
-      <div aria-hidden="true" className="absolute inset-0 z-0">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={photo} alt="" fetchPriority="high" className="h-full w-full object-cover" />
-        {/* The wash keeps the headline readable over any photo. */}
-        <div className="absolute inset-0 bg-[linear-gradient(100deg,rgb(10_28_46/0.96)_0%,rgb(10_28_46/0.84)_40%,rgb(10_28_46/0.6)_70%,rgb(10_28_46/0.72)_100%)]" />
-      </div>
-    );
-  }
   return (
     <div aria-hidden="true" className="catalogue-ecg-paper absolute inset-0 z-0">
-      <svg viewBox="0 0 1200 120" preserveAspectRatio="none" className="absolute inset-x-0 bottom-2 h-[80px] w-full sm:bottom-4">
-        <path
-          className="catalogue-ecg-trace"
-          d="M0 70 H240 l12 -6 l12 6 H300 l8 10 l14 -70 l14 92 l10 -32 H380 l16 -12 l18 12 H640 l12 -6 l12 6 H700 l8 10 l14 -70 l14 92 l10 -32 H780 l16 -12 l18 12 H1040 l12 -6 l12 6 H1100 l8 10 l14 -70 l14 92 l10 -32 H1200"
-        />
-      </svg>
+      {photo ? <HeroPhoto src={photo} /> : <HeartbeatTrace />}
     </div>
+  );
+}
+
+function HeartbeatTrace() {
+  return (
+    <svg viewBox="0 0 1200 120" preserveAspectRatio="none" className="absolute inset-x-0 bottom-2 h-[80px] w-full sm:bottom-4">
+      <path
+        className="catalogue-ecg-trace"
+        d="M0 70 H240 l12 -6 l12 6 H300 l8 10 l14 -70 l14 92 l10 -32 H380 l16 -12 l18 12 H640 l12 -6 l12 6 H700 l8 10 l14 -70 l14 92 l10 -32 H780 l16 -12 l18 12 H1040 l12 -6 l12 6 H1100 l8 10 l14 -70 l14 92 l10 -32 H1200"
+      />
+    </svg>
   );
 }
 
@@ -358,14 +360,7 @@ export function NextUp({ event, reg, now }: { event: CatalogueEvent; reg: CardRe
       <div className="relative grid place-items-center bg-[#e8eff4] p-4 sm:p-6">
         <CardImage event={event} />
         <span className="absolute left-7 top-7 rounded-lg bg-[#0a1c2e] px-3 py-1.5 font-mono text-xs tracking-wide text-white sm:left-9 sm:top-9">
-          {days > 0 ? (
-            <>
-              <b className="mr-1 text-[15px] tabular-nums">{days}</b>
-              {days === 1 ? "day to go" : "days to go"}
-            </>
-          ) : (
-            "Under way"
-          )}
+          <Countdown days={days} started={now >= event.startDate} />
         </span>
       </div>
       <div className="grid content-start gap-4 p-5 sm:p-8">
@@ -401,7 +396,8 @@ export function NextUp({ event, reg, now }: { event: CatalogueEvent; reg: CardRe
           <div className="grid gap-1.5 border-t border-[#dbe4eb] pt-4">
             <p className="flex justify-between font-mono text-[11px] uppercase tracking-[0.1em] text-[#5a6b7b]">
               <span>{reg?.rate ? `${reg.rate} rates` : "Rates"}</span>
-              <span>{rows[0].currency}</span>
+              {/* Only when every row is in it; mixed currencies show on each price. */}
+              {rows.every((r) => r.currency === rows[0].currency) && <span>{rows[0].currency}</span>}
             </p>
             {rows.map((r) => (
               <p key={r.types} className="flex justify-between gap-4 text-[0.95rem]">
@@ -429,6 +425,17 @@ export function NextUp({ event, reg, now }: { event: CatalogueEvent; reg: CardRe
         </div>
       </div>
     </article>
+  );
+}
+
+function Countdown({ days, started }: { days: number; started: boolean }) {
+  if (started) return <>Under way</>;
+  if (days <= 0) return <>Starts today</>;
+  return (
+    <>
+      <b className="mr-1 text-[15px] tabular-nums">{days}</b>
+      {days === 1 ? "day to go" : "days to go"}
+    </>
   );
 }
 

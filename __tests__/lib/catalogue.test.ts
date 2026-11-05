@@ -127,7 +127,19 @@ describe("readCatalogueHeroImage (the catalogue hero's photo)", () => {
   });
 
   it("refuses anything that could run or break out of the attribute, and reads missing as none", () => {
-    for (const bad of ["javascript:alert(1)", "data:image/png;base64,AAAA", "http://plain.example.com/a.jpg", '/uploads/a.jpg" onerror="x', "//evil.example.com/a.jpg"]) {
+    for (const bad of [
+      "javascript:alert(1)",
+      "data:image/png;base64,AAAA",
+      "http://plain.example.com/a.jpg",
+      '/uploads/media/a.jpg" onerror="x',
+      "//evil.example.com/a.jpg",
+      // `..` would resolve out of /uploads/ into any route, requested by every visitor.
+      "/uploads/../api/organization",
+      "/uploads/media/../../api/x",
+      "https://cdn.example.com/a/../b.jpg",
+      // The logo's private-photo folder is not a media-library upload.
+      "/uploads/photos/2026/04/a.png",
+    ]) {
       expect(readCatalogueHeroImage({ catalogueHeroImage: bad })).toBeNull();
     }
     expect(readCatalogueHeroImage({})).toBeNull();
