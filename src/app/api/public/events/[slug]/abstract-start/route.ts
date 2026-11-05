@@ -9,7 +9,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
 import { readUserAgent } from "@/lib/login-audit";
-import { upsertEventSpeaker } from "@/lib/speaker-companion";
+import { upsertEventSpeaker, SpeakerLinkedElsewhereError } from "@/lib/speaker-companion";
 import {
   ensureSubmitterRegistration,
   checkPresenterRateSelection,
@@ -90,21 +90,21 @@ async function loadPresenterPrefill(args: {
   hereAttendee: DetailSource;
   user: { firstName: string | null; lastName: string | null };
 }): Promise<Record<DetailKey, string>> {
-  const mine = { OR: [{ userId: args.userId }, { email: args.email }] };
+  // Records found only by address (another event's speaker profile, a guest
+  // registration) pre-fill nothing until the address is confirmed
+  // (registrant-access.ts; security review of 7cf4eb3b). This event's own
+  // speaker by address stays: it is the invitation being taken up.
+  const scope = await loadRegistrantScope(args.userId);
+  const confirmed = !!scope?.confirmed;
+  const mine = confirmed ? { OR: [{ userId: args.userId }, { email: args.email }] } : { userId: args.userId };
   const [speakerHere, latestSpeaker, latestRegistration] = await Promise.all([
     db.speaker.findFirst({ where: { eventId: args.eventId, email: args.email }, select: DETAIL_SELECT }),
     db.speaker.findFirst({ where: mine, orderBy: { updatedAt: "desc" }, select: DETAIL_SELECT }),
-    loadRegistrantScope(args.userId).then((scope) =>
-      scope
-        ? db.registration.findFirst({
-            // A registration matched only by address pre-fills nothing until
-            // the address is confirmed (registrant-access.ts).
-            where: { status: { not: "CANCELLED" }, ...ownRegistrationWhere(scope) },
-            orderBy: { createdAt: "desc" },
-            select: { attendee: { select: DETAIL_SELECT } },
-          })
-        : null,
-    ),
+    db.registration.findFirst({
+      where: { status: { not: "CANCELLED" }, ...(scope ? ownRegistrationWhere(scope) : { userId: args.userId }) },
+      orderBy: { createdAt: "desc" },
+      select: { attendee: { select: DETAIL_SELECT } },
+    }),
   ]);
   const sources: DetailSource[] = [
     speakerHere,
@@ -384,6 +384,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json({ ok: true, eventId: event.id, wasRegistrant });
     });
   } catch (error) {
+    if (error instanceof SpeakerLinkedElsewhereError) {
+      apiLogger.warn({ msg: "public/abstract-start:speaker-linked-to-other-account" });
+      return NextResponse.json(
+        { error: "This speaker profile belongs to another account. Sign in with that account, or contact the organisers.", code: "SPEAKER_LINKED_TO_OTHER_ACCOUNT" },
+        { status: 409 }
+      );
+    }
     apiLogger.error({ err: error, msg: "abstract-start failed" });
     return NextResponse.json({ error: "Something went wrong" }, { status: 500 });
   }

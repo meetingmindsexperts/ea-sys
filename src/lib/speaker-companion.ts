@@ -524,6 +524,13 @@ function submitterSourceStamp(
  * ~40-line block verbatim; centralising it removes the Speaker-shape drift risk.
  * (Pair with `ensureSpeakerCompanionRegistration` for the badge/check-in facet.)
  */
+/** The event's speaker record for this address belongs to another account. */
+export class SpeakerLinkedElsewhereError extends Error {
+  constructor() {
+    super("SPEAKER_LINKED_TO_OTHER_ACCOUNT");
+  }
+}
+
 export async function upsertEventSpeaker(
   tx: Prisma.TransactionClient,
   args: {
@@ -539,8 +546,16 @@ export async function upsertEventSpeaker(
 
   const existing = await tx.speaker.findUnique({
     where: { eventId_email: { eventId, email } },
-    select: { id: true, submitterSource: true, firstName: true, lastName: true },
+    select: { id: true, submitterSource: true, firstName: true, lastName: true, userId: true },
   });
+
+  // A speaker record already linked to ANOTHER account stays with it, profile
+  // included: a sign-up door never moves it, and the whole transaction stops
+  // so nothing is attached to it either (security review of 7cf4eb3b).
+  if (existing?.userId && existing.userId !== userId) {
+    apiLogger.warn({ msg: "speaker-companion:upsert-linked-to-other-account", speakerId: existing.id, eventId });
+    throw new SpeakerLinkedElsewhereError();
+  }
 
   if (existing) {
     // submitterSource: a door GRANTS its surface, never narrows (Aug 4,

@@ -46,7 +46,7 @@ describe("GET /api/registrant/registrations: whose registrations (Nov 5, 2026)",
       data: { userId: "u1" },
     });
     expect(mockDb.registration.findMany.mock.calls[0][0].where).toEqual({
-      OR: [{ userId: "u1" }, { attendee: { email: { equals: "a@b.com", mode: "insensitive" } } }],
+      OR: [{ userId: "u1" }, { userId: null, attendee: { email: { equals: "a@b.com", mode: "insensitive" } } }],
     });
   });
 });

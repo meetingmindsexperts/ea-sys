@@ -30,6 +30,28 @@ for an account needs email confirmation; registering for an event does not**;
 - **Not changed, flagged:** abstract-start still finds a SPEAKER record by
   email, which is how an invited presenter's record is claimed.
 
+## Security review of 7cf4eb3b, fixed in the next commit
+
+- **BLOCKER: the link proves the mailbox, not the account.** Someone could
+  register with your address and their own password; the system mailed you
+  the link; your click (or a mail scanner's) confirmed THEIR account. Now
+  `/api/auth/verify-email` counts only from a signed-in session of the
+  account the link names (401 `SIGN_IN_REQUIRED`, 403 `WRONG_ACCOUNT`, the
+  token kept), and the page offers "Sign in to confirm" and returns. The real
+  owner of an account they did not make takes it over with Forgot password,
+  which signs the other person out.
+- **HIGH:** a staff email change (`cascadeLinkedUserEmail`) clears
+  `emailConfirmedAt`, so a confirmation never carries to a new address.
+- **HIGH, partly fixed:** a speaker record linked to one account is never
+  moved to another (`SpeakerLinkedElsewhereError`, 409), and abstract-start
+  pre-fills from another event's speaker profile only for a confirmed account.
+  **Open, owner decision:** an invited speaker with no account can still be
+  claimed by anyone who signs up as a submitter with that address.
+- **MEDIUM:** a confirmed account's address branch matches unlinked
+  registrations only, never one linked to another account.
+- **LOW:** confirmation tokens use the lower-cased address; sending a new link
+  no longer deletes a pending one.
+
 
 ## The problem this fixes
 

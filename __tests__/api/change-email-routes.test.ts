@@ -202,7 +202,8 @@ describe("PATCH /api/events/[eventId]/speakers/[speakerId]/email", () => {
     });
     expect(mockDb.user.updateMany).toHaveBeenCalledWith({
       where: { id: "u-1", role: { in: ["REGISTRANT", "SUBMITTER", "REVIEWER"] } },
-      data: { email: "new@x.com" },
+      // The new address is unproven, so its confirmation is cleared.
+      data: { email: "new@x.com", emailConfirmedAt: null },
     });
     expect(mockDb.auditLog.create).toHaveBeenCalled();
   });
@@ -332,7 +333,8 @@ describe("PATCH /api/events/[eventId]/registrations/[registrationId]/email", () 
     expect(res.status).toBe(200);
     expect(mockDb.user.updateMany).toHaveBeenCalledWith({
       where: { id: "u-1", role: { in: ["REGISTRANT", "SUBMITTER", "REVIEWER"] } },
-      data: { email: "new@x.com" },
+      // The new address is unproven, so its confirmation is cleared.
+      data: { email: "new@x.com", emailConfirmedAt: null },
     });
     expect(mockDb.attendee.update).toHaveBeenCalledWith({
       where: { id: "att-1" },

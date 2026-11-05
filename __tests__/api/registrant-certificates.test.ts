@@ -129,7 +129,7 @@ describe("who owns a certificate", () => {
       revokedAt: null,
       pdfUrl: { not: null },
       OR: [
-        { registration: { OR: [{ userId: "u1" }, { attendee: { email: { equals: "anna@example.com", mode: "insensitive" } } }] } },
+        { registration: { OR: [{ userId: "u1" }, { userId: null, attendee: { email: { equals: "anna@example.com", mode: "insensitive" } } }] } },
         { speaker: { OR: [{ userId: "u1" }, { email: { equals: "anna@example.com", mode: "insensitive" } }] } },
       ],
     });

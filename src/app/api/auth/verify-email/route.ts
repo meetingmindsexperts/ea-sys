@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
@@ -21,6 +22,16 @@ const schema = z.object({
  * the registrations made earlier under that address (registrant-access.ts), and,
  * for a verified-internal domain (meetingmindsdubai.com), attach the
  * organisation. Idempotent for an already-confirmed account.
+ *
+ * SIGNED IN AS THAT ACCOUNT, OR NOTHING (security review of 7cf4eb3b). The
+ * link proves who owns the MAILBOX, not who owns the ACCOUNT: someone could
+ * register with your address and their own password, the system would mail
+ * you this link, and your click (or your mail scanner's) would confirm THEIR
+ * account and hand it your registrations. So the click counts only from a
+ * session of the account it names. The real owner of an account they did not
+ * make takes it over with Forgot password instead, which signs the other
+ * person out. The token is not spent on a refusal, so signing in and opening
+ * the link again works.
  */
 export async function POST(req: Request) {
   try {
@@ -67,6 +78,15 @@ export async function POST(req: Request) {
     // platform one address may be two accounts, and VerificationToken is
     // keyed on the address alone, so the link's own domain is the only
     // thing that says which account this is for.
+    const session = await auth();
+    if (!session?.user?.id) {
+      apiLogger.warn({ msg: "verify-email:sign-in-required", email });
+      return NextResponse.json(
+        { error: "Sign in to the account for this email, then open the link again.", code: "SIGN_IN_REQUIRED" },
+        { status: 401 }
+      );
+    }
+
     const user = await findUserByEmail(
       await scopeFromRequestHost(req, "email verification: host did not resolve to a tenant"),
       email,
@@ -78,6 +98,13 @@ export async function POST(req: Request) {
         .catch((err) => apiLogger.warn({ err, msg: "verify-email:orphaned-token-cleanup-failed", email }));
       apiLogger.warn({ msg: "verify-email:user-not-found", email });
       return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+    if (user.id !== session.user.id) {
+      apiLogger.warn({ msg: "verify-email:wrong-account", email, sessionUserId: session.user.id });
+      return NextResponse.json(
+        { error: "You are signed in to a different account. Sign in to the account for this email, then open the link again.", code: "WRONG_ACCOUNT" },
+        { status: 403 }
+      );
     }
 
     // Resolve the org to attach — only for a verified-internal email that isn't

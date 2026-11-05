@@ -10,7 +10,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { presenterDetailsSchema, refinePresenterSpecialty } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { upsertEventSpeaker } from "@/lib/speaker-companion";
+import { upsertEventSpeaker, SpeakerLinkedElsewhereError } from "@/lib/speaker-companion";
 import { ensureSubmitterRegistration, checkPresenterRateSelection, presenterEvidenceShape } from "@/lib/presenter-signup";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
@@ -481,6 +481,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
     });
   } catch (error) {
+    if (error instanceof SpeakerLinkedElsewhereError) {
+      apiLogger.warn({ msg: "public/submitter:speaker-linked-to-other-account" });
+      return NextResponse.json(
+        { error: "This speaker profile belongs to another account. Sign in with that account, or contact the organisers.", code: "SPEAKER_LINKED_TO_OTHER_ACCOUNT" },
+        { status: 409 }
+      );
+    }
     apiLogger.error({ err: error, msg: "Error creating submitter account" });
     return NextResponse.json(
       { error: "Failed to create account" },

@@ -34,7 +34,7 @@ describe("ownRegistrationWhere", () => {
   });
   it("confirmed: linked, or carrying the address in any case", () => {
     expect(ownRegistrationWhere(confirmed)).toEqual({
-      OR: [{ userId: "u1" }, { attendee: { email: { equals: "anna@example.com", mode: "insensitive" } } }],
+      OR: [{ userId: "u1" }, { userId: null, attendee: { email: { equals: "anna@example.com", mode: "insensitive" } } }],
     });
   });
   it("never matches by a blank address, confirmed or not", () => {
@@ -69,5 +69,12 @@ describe("hasUnclaimedRegistrations", () => {
       OR: [{ userId: null }, { userId: { not: "u1" } }],
       attendee: { email: { equals: "anna@example.com", mode: "insensitive" } },
     });
+  });
+});
+
+describe("a registration already linked to another account", () => {
+  it("is never matched by address, even for a confirmed account", () => {
+    const where = ownRegistrationWhere(confirmed) as { OR: Record<string, unknown>[] };
+    expect(where.OR[1]).toMatchObject({ userId: null });
   });
 });

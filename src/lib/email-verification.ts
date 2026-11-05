@@ -31,13 +31,17 @@ export async function sendEmailVerification(params: {
   name: string;
   purpose?: "team" | "registrations";
 }): Promise<void> {
-  const { email, name, purpose = "team" } = params;
+  const { name, purpose = "team" } = params;
+  // Lower-cased as verify-email reads it, or a mixed-case address gets a link
+  // that can never match its token (security review of 7cf4eb3b).
+  const email = params.email.trim().toLowerCase();
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
   try {
     const identifier = `${EMAIL_VERIFY_PREFIX}${email}`;
-    // One live token per email — clear stale ones so a re-issue is unambiguous.
-    await db.verificationToken.deleteMany({ where: { identifier } });
+    // Expired tokens only: deleting live ones would let anyone who registers
+    // under someone's address cancel the link that person is about to click.
+    await db.verificationToken.deleteMany({ where: { identifier, expires: { lt: new Date() } } });
 
     const rawToken = crypto.randomBytes(32).toString("hex");
     await db.verificationToken.create({

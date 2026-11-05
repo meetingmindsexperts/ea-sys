@@ -9,9 +9,9 @@ import { db } from "@/lib/db";
  *
  *   - A registration LINKED to the account (`userId`) is theirs: made through
  *     the account, or linked after they proved the address.
- *   - A registration that only CARRIES their email is theirs only once the
- *     account has proven it owns that address (`User.emailConfirmedAt`, set
- *     solely by a link sent to it).
+ *   - An UNLINKED registration that only carries their email is theirs once
+ *     the account has proven it owns that address (`User.emailConfirmedAt`,
+ *     set solely by a link sent to it, opened while signed in to the account).
  *
  * WHY. The email on a registration is whatever was typed into a form. Before
  * this, anyone who registered with another person's address and a password got
@@ -35,10 +35,14 @@ export async function loadRegistrantScope(userId: string): Promise<RegistrantSco
   return { userId, email: user.email.trim().toLowerCase(), confirmed: !!user.emailConfirmedAt };
 }
 
-/** The registrations this person may see and act on. */
+/**
+ * The registrations this person may see and act on. The address branch takes
+ * only UNLINKED rows: one already linked to another account is that account's,
+ * whatever email it carries.
+ */
 export function ownRegistrationWhere(scope: RegistrantScope): Prisma.RegistrationWhereInput {
   if (!scope.confirmed || !scope.email) return { userId: scope.userId };
-  return { OR: [{ userId: scope.userId }, { attendee: { email: { equals: scope.email, mode: "insensitive" } } }] };
+  return { OR: [{ userId: scope.userId }, { userId: null, attendee: { email: { equals: scope.email, mode: "insensitive" } } }] };
 }
 
 /**

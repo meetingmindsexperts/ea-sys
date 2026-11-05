@@ -41,7 +41,10 @@ export async function cascadeLinkedUserEmail(
 ): Promise<void> {
   const res = await tx.user.updateMany({
     where: { id: userId, role: { in: CASCADABLE_ROLES } },
-    data: { email: newEmail },
+    // A new address is unproven: the old one's confirmation must not carry
+    // over, or a staff "fix my typo" would hand an account someone else's
+    // registrations (registrant-access.ts; security review of 7cf4eb3b).
+    data: { email: newEmail, emailConfirmedAt: null },
   });
   if (res.count !== 1) throw new LinkedStaffAccountError();
 }

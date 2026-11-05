@@ -12,12 +12,14 @@ const VERIFY_HEADINGS: Record<"verifying" | "success" | "error", string> = {
 };
 
 /**
- * Email-verification landing. The link in the verify email opens this page; it
- * POSTs the token to /api/auth/verify-email once on load and shows the result.
- * Verifying only attaches the org / marks the account internal — the person's
- * registration works regardless, so this is purely a confirmation screen.
+ * Email-confirmation landing. The link in the email opens this page; it POSTs
+ * the token to /api/auth/verify-email once on load and shows the result.
+ * Confirming lets registrations made earlier under the address appear on My
+ * events, and attaches the organisation for a Meeting Minds address.
  *
- * The fetch is JS-triggered, so email link-scanners (no JS) won't auto-verify.
+ * It counts only for the signed-in owner of the account (the route says why),
+ * so a signed-out visitor is sent to sign in and back here. A link scanner has
+ * no session, so it can never confirm anything.
  */
 function VerifyEmailInner() {
   const params = useSearchParams();
@@ -26,6 +28,7 @@ function VerifyEmailInner() {
   const hasParams = !!token && !!email;
   // Derive the missing-params error at render (not via setState-in-effect); the
   // effect only sets state from the async fetch result.
+  const [needsSignIn, setNeedsSignIn] = useState(false);
   const [state, setState] = useState<"verifying" | "success" | "error">(
     hasParams ? "verifying" : "error"
   );
@@ -48,6 +51,9 @@ function VerifyEmailInner() {
           setState("success");
           setMessage(data.message || "Your email has been verified.");
         } else {
+          // Not signed in, or signed in as someone else: the token is unspent,
+          // so signing in to the right account and returning here completes it.
+          setNeedsSignIn(data.code === "SIGN_IN_REQUIRED" || data.code === "WRONG_ACCOUNT");
           setState("error");
           setMessage(data.error || "We couldn't verify your email.");
         }
@@ -72,15 +78,28 @@ function VerifyEmailInner() {
         <p className="mt-2 text-sm leading-relaxed text-slate-600">{message}</p>
         {state !== "verifying" && (
           <Link
-            href="/login"
+            href={nextHref(state, needsSignIn, token, email)}
             className="mt-6 inline-block rounded-lg bg-[#00aade] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#0098c7]"
           >
-            Continue to sign in
+            {nextLabel(state, needsSignIn)}
           </Link>
         )}
       </div>
     </main>
   );
+}
+
+/** Where the button goes: My events after a success, sign-in and back for a refusal. */
+function nextHref(state: "success" | "error", needsSignIn: boolean, token: string | null, email: string | null): string {
+  if (state === "success") return "/my-registration";
+  if (!needsSignIn || !token || !email) return "/login";
+  const back = `/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
+  return `/login?callbackUrl=${encodeURIComponent(back)}`;
+}
+
+function nextLabel(state: "success" | "error", needsSignIn: boolean): string {
+  if (state === "success") return "Go to My events";
+  return needsSignIn ? "Sign in to confirm" : "Continue to sign in";
 }
 
 export default function VerifyEmailPage() {

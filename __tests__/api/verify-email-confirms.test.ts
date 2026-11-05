@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockFindUser, mockLink, tx } = vi.hoisted(() => {
+const { mockDb, mockFindUser, mockLink, tx, mockAuth } = vi.hoisted(() => {
   const tx = { user: { update: vi.fn() }, verificationToken: { delete: vi.fn() } };
   return {
     tx,
@@ -17,12 +17,14 @@ const { mockDb, mockFindUser, mockLink, tx } = vi.hoisted(() => {
     },
     mockFindUser: vi.fn(),
     mockLink: vi.fn(),
+    mockAuth: vi.fn(),
   };
 });
 vi.mock("next/server", () => ({
   NextResponse: { json: (b: unknown, i?: { status?: number }) => ({ status: i?.status ?? 200, json: async () => b }) },
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true }), getClientIp: () => "1.1.1.1", hashVerificationToken: (t: string) => `h:${t}` }));
 vi.mock("@/lib/tenant/user-lookup", () => ({ findUserByEmail: mockFindUser, scopeFromRequestHost: vi.fn(async () => ({})) }));
@@ -40,6 +42,29 @@ beforeEach(() => {
   mockDb.verificationToken.findFirst.mockResolvedValue({ expires: new Date(Date.now() + 60_000) });
   mockFindUser.mockResolvedValue({ id: "u1", emailVerified: null, organizationId: null });
   mockLink.mockResolvedValue(2);
+  mockAuth.mockResolvedValue({ user: { id: "u1" } });
+});
+
+describe("only the signed-in owner of the account can confirm it (review of 7cf4eb3b)", () => {
+  it("signed out: refused with SIGN_IN_REQUIRED, nothing confirmed, the token kept for after sign-in", async () => {
+    mockAuth.mockResolvedValue(null);
+    const res = await post();
+    expect(res.status).toBe(401);
+    expect((await res.json()).code).toBe("SIGN_IN_REQUIRED");
+    expect(tx.user.update).not.toHaveBeenCalled();
+    expect(tx.verificationToken.delete).not.toHaveBeenCalled();
+    expect(mockDb.verificationToken.delete).not.toHaveBeenCalled();
+    expect(mockLink).not.toHaveBeenCalled();
+  });
+
+  it("signed in as another account (the address's owner opening a link for an account someone else made): refused", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "someone-else" } });
+    const res = await post();
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("WRONG_ACCOUNT");
+    expect(tx.user.update).not.toHaveBeenCalled();
+    expect(mockLink).not.toHaveBeenCalled();
+  });
 });
 
 describe("verify-email confirms the address", () => {

@@ -48,7 +48,7 @@ describe("GET /api/registrant/profile", () => {
     const r = await get();
     expect(r.body.profile).toEqual({ firstName: "Anna", country: "Oman" });
     const args = mockDb.registration.findFirst.mock.calls[0][0];
-    expect(args.where).toEqual({ OR: [{ userId: "u1" }, { attendee: { email: { equals: "anna@example.com", mode: "insensitive" } } }] });
+    expect(args.where).toEqual({ OR: [{ userId: "u1" }, { userId: null, attendee: { email: { equals: "anna@example.com", mode: "insensitive" } } }] });
     expect(args.orderBy).toEqual({ createdAt: "desc" });
   });
 
