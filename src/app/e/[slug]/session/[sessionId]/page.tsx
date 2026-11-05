@@ -1537,22 +1537,25 @@ function StickyCta({
 
     return (
       <Card className="border-blue-200 bg-blue-50/70 shadow-sm">
-        <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
-          <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+        {/* A thin one-line strip on a phone (owner, Nov 5, 2026): the
+            stacked card pushed the video below the fold. The hint drops
+            there; a Join button wraps under the text when it has no room. */}
+        <CardContent className="flex flex-wrap items-center gap-3 py-2 sm:flex-nowrap sm:gap-4 sm:py-4">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 sm:h-12 sm:w-12">
             {isLive ? (
-              <span className="relative flex h-3 w-3">
+              <span className="relative flex h-2.5 w-2.5 sm:h-3 sm:w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                <span className="relative inline-flex h-full w-full rounded-full bg-red-500"></span>
               </span>
             ) : (
-              <Video className="h-6 w-6 text-blue-600" />
+              <Video className="h-4 w-4 text-blue-600 sm:h-6 sm:w-6" />
             )}
           </div>
-          <div className="flex-1 text-center sm:text-left">
-            <p className="font-semibold">
+          <div className="min-w-0 flex-1 text-left">
+            <p className="text-sm font-semibold sm:text-base">
               {joinCtaTitle(isLive, playsStream)}
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="hidden text-xs text-muted-foreground sm:block">
               {joinCtaHint({ playsStream, isLive, canEmbed: Boolean(canEmbed), isWebinar })}
             </p>
           </div>
