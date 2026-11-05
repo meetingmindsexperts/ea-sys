@@ -114,6 +114,9 @@ export async function POST(req: Request) {
         where: { id: user.id },
         data: {
           passwordHash,
+          // The reset link was sent to this address, so it is proven
+          // (registrant-access.ts trusts nothing else).
+          emailConfirmedAt: new Date(),
           // Revoke every existing session (Aug 11, 2026). Sessions are
           // stateless JWTs, so before this a password reset stopped the holder
           // getting a NEW token while leaving the one they already had fully

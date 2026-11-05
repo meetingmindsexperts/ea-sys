@@ -7,6 +7,7 @@ import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { loadCertificatePdfBytes } from "@/lib/certificates/pdf-loader";
 import { findReleasedCertificates } from "@/lib/registrant-certificates";
+import { loadRegistrantScope } from "@/lib/registrant-access";
 
 const ROUTE = "registrant/certificates/[certificateId]/download:GET";
 const DOWNLOAD_LIMIT = 60;
@@ -29,7 +30,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ certific
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const userId = session.user.id;
-    const email = session.user.email.toLowerCase();
 
     const rl = checkRateLimit({ key: `registrant-cert-download:${userId}`, limit: DOWNLOAD_LIMIT, windowMs: DOWNLOAD_WINDOW_MS });
     if (!rl.allowed) {
@@ -39,7 +39,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ certific
     // A registrant is org-null, so the lane comes from the host, as sign-in does.
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: ROUTE, userId }, async () => {
-      const [cert] = await findReleasedCertificates(userId, email, certificateId);
+      const scope = await loadRegistrantScope(userId);
+      const [cert] = scope ? await findReleasedCertificates(scope, certificateId) : [];
       if (!cert?.pdfUrl) {
         apiLogger.warn({ msg: `${ROUTE}:not-found`, userId, certificateId });
         return NextResponse.json({ error: "Certificate not found" }, { status: 404 });

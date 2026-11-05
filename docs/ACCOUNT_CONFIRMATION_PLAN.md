@@ -1,7 +1,35 @@
 # Account confirmation and account sign-up: the plan
 
-PLANNED, NOT BUILT (Nov 5, 2026). Owner ruling: **signing up for an account
-needs email confirmation; registering for an event does not.**
+PHASE 1 BUILT (Nov 5, 2026); phase 2 not started. Owner rulings: **signing up
+for an account needs email confirmation; registering for an event does not**;
+"security is top priority".
+
+## As built (differs from the plan below where noted)
+
+- **The proof is a new column, `User.emailConfirmedAt`**, not `emailVerified`.
+  Building it found that public submitter sign-up and admin-created accounts
+  set `emailVerified` without any proof, so it could not be trusted. The new
+  column is set only by a link sent to the address: `/verify-email`, invitation
+  accept, password reset. Migration `20261105120000_user_email_confirmed_at`,
+  additive, no backfill.
+- **One rule, `src/lib/registrant-access.ts`**: `ownRegistrationWhere(scope)`
+  is linked registrations, plus those carrying the address once it is
+  confirmed (case-insensitive). My events, certificates (registrations and
+  speaker records), and the registrant routes (registrations GET, profile,
+  resend-confirmation, promo) and abstract-start's registration pre-fill all
+  use it. The registrations GET no longer links on every read; it links only
+  for a confirmed account.
+- **D1 changed on security grounds: no one-time linking script.** The 192
+  email-matched registrations of 145 accounts are hidden until each person
+  confirms, rather than blessed permanently.
+- **D2 as recommended**: a short confirmation email only when there are
+  earlier registrations to claim; My events and the event's own page show a
+  "Registered before with this email?" notice with a Send button
+  (`POST /api/registrant/confirm-email`, 3 per hour, to the account's own
+  address from the database). The notice never says how many.
+- **Not changed, flagged:** abstract-start still finds a SPEAKER record by
+  email, which is how an invited presenter's record is claimed.
+
 
 ## The problem this fixes
 

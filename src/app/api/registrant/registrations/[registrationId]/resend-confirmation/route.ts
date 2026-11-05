@@ -4,6 +4,7 @@ import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
@@ -31,10 +32,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // A nested narrowing (`session.user.email`) does not survive into the
-    // closure below, so capture it.
-    const actorEmail = session.user.email;
-
     // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
     // design, and the rows below sit behind an RLS policy on the platform — so
     // the lane cannot come from the session and cannot be read out of the
@@ -42,7 +39,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/resend-confirmation", userId: session?.user?.id }, async () => {
 
-    const userEmail = actorEmail.toLowerCase();
+    const scope = await loadRegistrantScope(session.user.id);
+    if (!scope) {
+      apiLogger.warn({ msg: "registrant/resend-confirmation:user-not-found", userId: session.user.id });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     // 3 sends / registration / hour — enough for genuine recovery cases
     // (a lost email + one retry) without letting the button be weaponised.
@@ -62,10 +63,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
-        OR: [
-          { userId: session.user.id },
-          { attendee: { email: userEmail } },
-        ],
+        // The same rule as My events (registrant-access.ts).
+        ...ownRegistrationWhere(scope),
       },
       include: {
         attendee: true,

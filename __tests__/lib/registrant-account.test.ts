@@ -12,7 +12,7 @@ const { mockDb, hashSpy, isTrustedSpy, needsVerifySpy, sendVerifySpy, notifySpy,
   vi.hoisted(() => ({
     mockDb: {
       user: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
-      registration: { update: vi.fn(), updateMany: vi.fn() },
+      registration: { update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn() },
     },
     hashSpy: vi.fn().mockResolvedValue("hashed-pw"),
     isTrustedSpy: vi.fn().mockReturnValue(false),
@@ -56,6 +56,7 @@ beforeEach(() => {
   mockDb.user.create.mockResolvedValue({ id: "u-new" });
   mockDb.registration.update.mockResolvedValue({});
   mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+  mockDb.registration.findFirst.mockResolvedValue(null);
   mockDb.user.update.mockResolvedValue({});
 });
 
@@ -83,15 +84,15 @@ describe("ensureRegistrantAccount", () => {
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
   });
 
-  it("existing user: links this reg + sweeps siblings + stamps terms first time", async () => {
-    mockDb.user.findFirst.mockResolvedValue({ id: "u-exist", role: "REGISTRANT", termsAcceptedAt: null });
+  it("existing CONFIRMED account: links this reg, takes the others on its address, stamps terms first time", async () => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-exist", role: "REGISTRANT", termsAcceptedAt: null, emailConfirmedAt: new Date() });
     await ensureRegistrantAccount(base);
     expect(mockDb.registration.update).toHaveBeenCalledWith({
       where: { id: "reg1" },
       data: { userId: "u-exist" },
     });
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { attendee: { email: "jane@example.com" }, userId: null },
+      where: { userId: null, attendee: { email: { equals: "jane@example.com", mode: "insensitive" } } },
       data: { userId: "u-exist" },
     });
     expect(mockDb.user.update).toHaveBeenCalledWith({
@@ -107,7 +108,24 @@ describe("ensureRegistrantAccount", () => {
     expect(mockDb.user.update).not.toHaveBeenCalled();
   });
 
-  it("new user: creates REGISTRANT, org-null for external, sweeps siblings, notifies", async () => {
+  it("existing UNCONFIRMED account: links only this reg; others on the address wait for a confirmation link", async () => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-exist", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: null });
+    mockDb.registration.findFirst.mockResolvedValue({ id: "older-guest-reg" });
+    await ensureRegistrantAccount(base);
+    expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg1" }, data: { userId: "u-exist" } });
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(sendVerifySpy).toHaveBeenCalledWith({ email: "jane@example.com", name: "Jane Doe", purpose: "registrations" });
+  });
+
+  it("new user with earlier registrations on the address: takes none of them, is sent a confirmation link", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ id: "older-guest-reg" });
+    await ensureRegistrantAccount(base);
+    expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg1" }, data: { userId: "u-new" } });
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(sendVerifySpy).toHaveBeenCalledWith({ email: "jane@example.com", name: "Jane Doe", purpose: "registrations" });
+  });
+
+  it("new user: creates REGISTRANT, org-null for external, links only this registration, notifies", async () => {
     await ensureRegistrantAccount(base);
     expect(mockDb.user.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -120,15 +138,13 @@ describe("ensureRegistrantAccount", () => {
         }),
       }),
     );
-    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { attendee: { email: "jane@example.com" }, userId: null },
-      data: { userId: "u-new" },
-    });
+    expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg1" }, data: { userId: "u-new" } });
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
     expect(notifySpy).toHaveBeenCalledWith(
       "ev1",
       expect.objectContaining({ type: "SIGNUP", message: base.signupMessage }),
     );
-    expect(sendVerifySpy).not.toHaveBeenCalled(); // needsVerify=false
+    expect(sendVerifySpy).not.toHaveBeenCalled(); // nothing earlier to claim, not internal
   });
 
   it("new user on a trusted internal domain: attaches the org immediately", async () => {
@@ -161,7 +177,8 @@ describe("withoutPassword", () => {
     const hashed = hashSpy.mock.calls[0][0] as string;
     expect(hashed).toMatch(/^[0-9a-f]{64}$/);
     expect(mockDb.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ passwordHash: "hashed-pw", role: "REGISTRANT" }) }));
-    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({ where: { attendee: { email: base.email }, userId: null }, data: { userId: "u-new" } });
+    expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg1" }, data: { userId: "u-new" } });
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
   });
 
   it("an existing account is linked, as with a password", async () => {

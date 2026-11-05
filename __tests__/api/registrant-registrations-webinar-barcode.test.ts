@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockAuth } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
-  mockDb: { registration: { updateMany: vi.fn(), findMany: vi.fn() } },
+  mockDb: { registration: { updateMany: vi.fn(), findMany: vi.fn() }, user: { findUnique: vi.fn() } },
 }));
 
 vi.mock("next/server", () => ({
@@ -26,6 +26,29 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", email: "a@b.com", role: "REGISTRANT" } });
   mockDb.registration.updateMany.mockResolvedValue({ count: 0 });
+  mockDb.user.findUnique.mockResolvedValue({ email: "a@b.com", emailConfirmedAt: new Date() });
+});
+
+describe("GET /api/registrant/registrations: whose registrations (Nov 5, 2026)", () => {
+  it("an unconfirmed account links nothing on read and sees only its own", async () => {
+    mockDb.user.findUnique.mockResolvedValue({ email: "a@b.com", emailConfirmedAt: null });
+    mockDb.registration.findMany.mockResolvedValue([]);
+    await GET(new Request("http://x"));
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.registration.findMany.mock.calls[0][0].where).toEqual({ userId: "u1" });
+  });
+
+  it("a confirmed account takes the unlinked registrations on its address and sees them", async () => {
+    mockDb.registration.findMany.mockResolvedValue([]);
+    await GET(new Request("http://x"));
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { userId: null, attendee: { email: { equals: "a@b.com", mode: "insensitive" } } },
+      data: { userId: "u1" },
+    });
+    expect(mockDb.registration.findMany.mock.calls[0][0].where).toEqual({
+      OR: [{ userId: "u1" }, { attendee: { email: { equals: "a@b.com", mode: "insensitive" } } }],
+    });
+  });
 });
 
 describe("GET /api/registrant/registrations", () => {

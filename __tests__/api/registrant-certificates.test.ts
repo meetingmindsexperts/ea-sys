@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockAuth, mockLoad, mockRateLimit, logger } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
-  mockDb: { issuedCertificate: { findMany: vi.fn() }, certificateIssueRunItem: { findMany: vi.fn() } },
+  mockDb: { issuedCertificate: { findMany: vi.fn() }, certificateIssueRunItem: { findMany: vi.fn() }, user: { findUnique: vi.fn() } },
   mockLoad: vi.fn(),
   mockRateLimit: vi.fn(),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -37,6 +37,8 @@ beforeEach(() => {
   mockRateLimit.mockReturnValue({ allowed: true, remaining: 59, retryAfterSeconds: 0 });
   mockLoad.mockResolvedValue(Buffer.from("%PDF-1.7 test"));
   mockDb.certificateIssueRunItem.findMany.mockResolvedValue([]);
+  // A confirmed account, read from the database: the address comes from there, not the session.
+  mockDb.user.findUnique.mockResolvedValue({ email: "Anna@Example.com", emailConfirmedAt: new Date() });
 });
 
 /** A released certificate row as findMany returns it (made directly, so released). */
@@ -120,20 +122,21 @@ describe("cmeHoursOf", () => {
 });
 
 describe("who owns a certificate", () => {
-  it("their registrations and speaker records, by account or email; a blank email matches by account only", async () => {
+  it("by account always; by email only once the account has confirmed that address", async () => {
     mockDb.issuedCertificate.findMany.mockResolvedValue([]);
-    await findReleasedCertificates("u1", "anna@example.com");
+    await findReleasedCertificates({ userId: "u1", email: "anna@example.com", confirmed: true });
     expect(mockDb.issuedCertificate.findMany.mock.calls[0][0].where).toMatchObject({
       revokedAt: null,
       pdfUrl: { not: null },
       OR: [
-        { registration: { OR: [{ userId: "u1" }, { attendee: { email: "anna@example.com" } }] } },
-        { speaker: { OR: [{ userId: "u1" }, { email: "anna@example.com" }] } },
+        { registration: { OR: [{ userId: "u1" }, { attendee: { email: { equals: "anna@example.com", mode: "insensitive" } } }] } },
+        { speaker: { OR: [{ userId: "u1" }, { email: { equals: "anna@example.com", mode: "insensitive" } }] } },
       ],
     });
-    await findReleasedCertificates("u1", "");
+    // Unconfirmed: someone else's earlier registration on this address stays hidden.
+    await findReleasedCertificates({ userId: "u1", email: "anna@example.com", confirmed: false });
     expect(mockDb.issuedCertificate.findMany.mock.calls[1][0].where.OR).toEqual([
-      { registration: { OR: [{ userId: "u1" }] } },
+      { registration: { userId: "u1" } },
       { speaker: { OR: [{ userId: "u1" }] } },
     ]);
     expect(mockDb.certificateIssueRunItem.findMany).not.toHaveBeenCalled();
@@ -147,7 +150,7 @@ describe("GET /api/registrant/certificates/[certificateId]/download", () => {
     expect(mockDb.issuedCertificate.findMany).not.toHaveBeenCalled();
   });
 
-  it("looks the one certificate up among the person's own, with the email lowercased", async () => {
+  it("looks the one certificate up among the person's own, with the account's email lowercased", async () => {
     mockDb.issuedCertificate.findMany.mockResolvedValue([]);
     await get("cert9");
     const where = mockDb.issuedCertificate.findMany.mock.calls[0][0].where;

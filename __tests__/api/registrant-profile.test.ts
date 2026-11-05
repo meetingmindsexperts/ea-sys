@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockAuth } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
-  mockDb: { registration: { findFirst: vi.fn() } },
+  mockDb: { registration: { findFirst: vi.fn() }, user: { findUnique: vi.fn() } },
 }));
 
 vi.mock("next/server", () => ({
@@ -28,6 +28,7 @@ async function get() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", email: "Anna@Example.com", role: "REGISTRANT" } });
+  mockDb.user.findUnique.mockResolvedValue({ email: "Anna@Example.com", emailConfirmedAt: new Date() });
 });
 
 describe("GET /api/registrant/profile", () => {
@@ -42,13 +43,20 @@ describe("GET /api/registrant/profile", () => {
     expect((await get()).body).toEqual({ profile: null });
   });
 
-  it("reads the latest registration found by account or by email", async () => {
+  it("a confirmed account: the latest registration found by account or by its address", async () => {
     mockDb.registration.findFirst.mockResolvedValue({ attendee: { firstName: "Anna", country: "Oman" } });
     const r = await get();
     expect(r.body.profile).toEqual({ firstName: "Anna", country: "Oman" });
     const args = mockDb.registration.findFirst.mock.calls[0][0];
-    expect(args.where).toEqual({ OR: [{ userId: "u1" }, { attendee: { email: "anna@example.com" } }] });
+    expect(args.where).toEqual({ OR: [{ userId: "u1" }, { attendee: { email: { equals: "anna@example.com", mode: "insensitive" } } }] });
     expect(args.orderBy).toEqual({ createdAt: "desc" });
+  });
+
+  it("an unconfirmed account: its own registrations only, never one that only carries its address", async () => {
+    mockDb.user.findUnique.mockResolvedValue({ email: "anna@example.com", emailConfirmedAt: null });
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    await get();
+    expect(mockDb.registration.findFirst.mock.calls[0][0].where).toEqual({ userId: "u1" });
   });
 
   it("selects personal fields only: no billing, IDs, document, additional email or money", async () => {

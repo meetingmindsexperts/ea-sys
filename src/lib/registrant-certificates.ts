@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
 import { formatDate } from "@/lib/utils";
 import { localDateInTz } from "@/lib/event-time";
 
@@ -52,17 +53,18 @@ export type EmailedRunItem = {
 };
 export type PortalCertificate = Prisma.IssuedCertificateGetPayload<{ select: typeof PORTAL_FIELDS }>;
 
-function ownedWhere(userId: string, email: string): Prisma.IssuedCertificateWhereInput {
-  const registration: Prisma.RegistrationWhereInput[] = [{ userId }];
-  const speaker: Prisma.SpeakerWhereInput[] = [{ userId }];
-  if (email) {
-    registration.push({ attendee: { email } });
-    speaker.push({ email });
-  }
+/**
+ * The person's certificates: through a registration they own (registrant-access.ts)
+ * or a speaker record linked to them. A speaker record matched only by email
+ * counts once the account has proven that address, the same rule.
+ */
+function ownedWhere(scope: RegistrantScope): Prisma.IssuedCertificateWhereInput {
+  const speaker: Prisma.SpeakerWhereInput[] = [{ userId: scope.userId }];
+  if (scope.confirmed && scope.email) speaker.push({ email: { equals: scope.email, mode: "insensitive" } });
   return {
     revokedAt: null,
     pdfUrl: { not: null },
-    OR: [{ registration: { OR: registration } }, { speaker: { OR: speaker } }],
+    OR: [{ registration: ownRegistrationWhere(scope) }, { speaker: { OR: speaker } }],
   };
 }
 
@@ -100,13 +102,9 @@ export function isReleased(cert: ReleaseFacts, emailedItems: readonly EmailedRun
 }
 
 /** The person's released certificates, newest first; `certificateId` narrows to one. */
-export async function findReleasedCertificates(
-  userId: string,
-  email: string,
-  certificateId?: string,
-): Promise<PortalCertificate[]> {
+export async function findReleasedCertificates(scope: RegistrantScope, certificateId?: string): Promise<PortalCertificate[]> {
   const certs = await db.issuedCertificate.findMany({
-    where: { ...ownedWhere(userId, email), ...(certificateId && { id: certificateId }) },
+    where: { ...ownedWhere(scope), ...(certificateId && { id: certificateId }) },
     select: { ...PORTAL_FIELDS, ...RELEASE_FIELDS },
     orderBy: { issuedAt: "desc" },
   });

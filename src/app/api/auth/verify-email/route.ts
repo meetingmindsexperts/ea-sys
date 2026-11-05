@@ -6,6 +6,9 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { needsEmailVerification } from "@/lib/internal-domains";
 import { EMAIL_VERIFY_PREFIX } from "@/lib/email-verification";
+import { linkConfirmedRegistrations } from "@/lib/registrant-access";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 
 const schema = z.object({
   token: z.string().min(1).max(200),
@@ -13,10 +16,11 @@ const schema = z.object({
 });
 
 /**
- * Confirm a verify-email link. On success: set `User.emailVerified` and — for a
- * verified-internal domain (meetingmindsdubai.com) — attach the organization,
- * which is the only thing verification unlocks (they were a normal external
- * registrant until now). Idempotent for an already-verified account.
+ * Confirm a verify-email link. On success: set `User.emailVerified` and
+ * `User.emailConfirmedAt` (the address is proven: the link was sent to it), link
+ * the registrations made earlier under that address (registrant-access.ts), and,
+ * for a verified-internal domain (meetingmindsdubai.com), attach the
+ * organisation. Idempotent for an already-confirmed account.
  */
 export async function POST(req: Request) {
   try {
@@ -95,17 +99,32 @@ export async function POST(req: Request) {
     await db.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: user.id },
-        data: { emailVerified: new Date(), ...(orgIdToAttach ? { organizationId: orgIdToAttach } : {}) },
+        data: {
+          emailVerified: new Date(),
+          emailConfirmedAt: new Date(),
+          ...(orgIdToAttach ? { organizationId: orgIdToAttach } : {}),
+        },
       });
       await tx.verificationToken.delete({
         where: { identifier_token: { identifier, token: tokenHash } },
       });
     });
 
+    // The registrations made earlier under this address, inside the host's
+    // tenant lane as every registrant read is. Best-effort: My events also
+    // shows them by address now, so a failure here hides nothing.
+    const linked = await runWithTenantLane(await resolveRequestOrgId(req), { route: "auth/verify-email", userId: user.id }, () =>
+      linkConfirmedRegistrations({ userId: user.id, email, confirmed: true }),
+    ).catch((err) => {
+      apiLogger.error({ err, msg: "verify-email:link-registrations-failed", userId: user.id });
+      return 0;
+    });
+
     apiLogger.info({
       msg: "verify-email:verified",
       email,
       userId: user.id,
+      linkedRegistrations: linked,
       orgAttached: !!orgIdToAttach && !user.organizationId,
       wasInternal: needsEmailVerification(email),
     });

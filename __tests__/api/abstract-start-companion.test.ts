@@ -83,6 +83,7 @@ beforeEach(() => {
   rateLimitSpy.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   compareSpy.mockResolvedValue(true);
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
+  mockDb.user.findUnique.mockResolvedValue({ email: "anna@example.com", emailConfirmedAt: new Date() });
   mockDb.user.findFirst.mockResolvedValue({
     id: "u1",
     role: "SUBMITTER",

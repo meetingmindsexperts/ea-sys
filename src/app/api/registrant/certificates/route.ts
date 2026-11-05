@@ -4,6 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { certificateMeta, certificateTitle, findReleasedCertificates } from "@/lib/registrant-certificates";
+import { loadRegistrantScope } from "@/lib/registrant-access";
 
 const ROUTE = "registrant/certificates:GET";
 
@@ -23,13 +24,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const userId = session.user.id;
-    const email = session.user.email.toLowerCase();
     const eventSlug = new URL(req.url).searchParams.get("event");
 
     // A registrant is org-null, so the lane comes from the host, as sign-in does.
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: ROUTE, userId }, async () => {
-      const certs = await findReleasedCertificates(userId, email);
+      const scope = await loadRegistrantScope(userId);
+      const certs = scope ? await findReleasedCertificates(scope) : [];
       const certificates = certs
         .filter((c) => !eventSlug || c.event.slug === eventSlug)
         .map((c) => ({ id: c.id, eventSlug: c.event.slug, title: certificateTitle(c), meta: certificateMeta(c) }));

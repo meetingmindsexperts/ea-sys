@@ -4,6 +4,7 @@ import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 
 /**
  * The personal details a signed-in person gave on their latest registration,
@@ -44,15 +45,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const userId = session.user.id;
-    const userEmail = session.user.email.toLowerCase();
 
     // Same lane as /api/registrant/registrations: a registrant is org-null, so
     // the tenant comes from the host, as sign-in does.
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/profile", userId }, async () => {
+      const scope = await loadRegistrantScope(userId);
+      if (!scope) {
+        apiLogger.warn({ msg: "registrant-profile:user-not-found", userId });
+        return NextResponse.json({ profile: null });
+      }
       const latest = await db.registration.findFirst({
-        // The same two ways the portal finds a person's registrations.
-        where: { OR: [{ userId }, { attendee: { email: userEmail } }] },
+        // The same rule as My events (registrant-access.ts): a registration
+        // matched only by address pre-fills nothing until it is confirmed.
+        where: ownRegistrationWhere(scope),
         orderBy: { createdAt: "desc" },
         select: { attendee: { select: PROFILE_SELECT } },
       });

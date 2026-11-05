@@ -6,6 +6,7 @@ import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { linkConfirmedRegistrations, loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 
@@ -20,10 +21,6 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // A nested narrowing (`session.user.email`) does not survive into the
-    // closure below, so capture it.
-    const actorEmail = session.user.email;
-
     // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
     // design, and the rows below sit behind an RLS policy on the platform — so
     // the lane cannot come from the session and cannot be read out of the
@@ -31,39 +28,22 @@ export async function GET(req: Request) {
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/registrations", userId: session?.user?.id }, async () => {
 
-    // Auto-link orphan registrations: people often register for an event
-    // without a password (admin-created, CSV-imported, or self-signup with
-    // the password field skipped) so the Registration has no userId. When
-    // they later sign in with the same email, any unlinked Registration for
-    // that email should show up on their portal. We link-on-read here so
-    // the row both appears in THIS response and stays linked for future
-    // requests.
-    const userEmail = actorEmail.toLowerCase();
-    // Sweeps by EMAIL. Recorded as a pending identity-model question until
-    // item 6 settled it (PLATFORM_DECISIONS §6): this now runs inside the
-    // caller's tenant lane, so on the platform the sweep is tenant-local by
-    // construction rather than by a where-clause someone has to remember.
-    await db.registration.updateMany({
-      where: {
-        userId: null,
-        attendee: { email: userEmail },
-      },
-      data: { userId: session.user.id },
-    }).catch((err) => {
+    // Registrations made without an account (admin-created, imported, or a
+    // guest registration) join it here, but only once the account has proven
+    // it owns the address (registrant-access.ts). Before Nov 5, 2026 this
+    // linked on any sign-in, so an account made with someone else's address
+    // took their registrations.
+    const scope = await loadRegistrantScope(session.user.id);
+    if (!scope) {
+      apiLogger.warn({ msg: "registrant:user-not-found", userId: session.user.id });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    await linkConfirmedRegistrations(scope).catch((err) => {
       apiLogger.warn({ err, msg: "registrant:orphan-link-failed", userId: session.user.id });
     });
 
     const registrations = await db.registration.findMany({
-      where: {
-        OR: [
-          { userId: session.user.id },
-          // Safety net for any registration that slipped past the
-          // updateMany above (e.g. attendee email updated after the link
-          // race condition). Scoped strictly to rows matching the
-          // authenticated user's email — they can't see anyone else's.
-          { attendee: { email: userEmail } },
-        ],
-      },
+      where: ownRegistrationWhere(scope),
       include: {
         event: {
           select: {

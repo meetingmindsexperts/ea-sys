@@ -9,7 +9,9 @@ import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { DEFAULT_EVENT_TIMEZONE, formatEventDateRange } from "@/lib/event-time";
 import { certificateMeta, certificateTitle, cmeTotals, findReleasedCertificates } from "@/lib/registrant-certificates";
+import { loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 import { CertificateList } from "@/components/registrant/certificate-list";
+import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,14 +50,18 @@ interface EventSummary {
   timezone: string;
 }
 
-async function loadPortal(userId: string, email: string) {
+async function loadPortal(userId: string) {
   // A registrant is org-null, so the lane comes from the host, as sign-in does.
   const { orgId } = await resolveTenantOrg(normalizeHost((await headers()).get("host")));
-  return runWithTenantLane(orgId, { route: "page:/my-registration", userId }, () =>
-    Promise.all([
+  return runWithTenantLane(orgId, { route: "page:/my-registration", userId }, async () => {
+    const scope = await loadRegistrantScope(userId);
+    // A session for an account that no longer exists: back to sign-in.
+    if (!scope) return null;
+    const [registrations, certificates] = await Promise.all([
       db.registration.findMany({
-        // A blank email matches nothing, rather than every row with no email.
-        where: { status: { not: "CANCELLED" }, OR: [{ userId }, ...(email ? [{ attendee: { email } }] : [])] },
+        // Linked registrations, plus those carrying the address once the
+        // account has proven it owns it (registrant-access.ts).
+        where: { status: { not: "CANCELLED" }, ...ownRegistrationWhere(scope) },
         select: {
           id: true,
           status: true,
@@ -66,9 +72,10 @@ async function loadPortal(userId: string, email: string) {
         },
         orderBy: { createdAt: "desc" },
       }),
-      findReleasedCertificates(userId, email),
-    ]),
-  );
+      findReleasedCertificates(scope),
+    ]);
+    return { registrations, certificates, scope };
+  });
 }
 
 export default async function MyRegistrationPage() {
@@ -77,16 +84,19 @@ export default async function MyRegistrationPage() {
     redirect("/login?callbackUrl=/my-registration");
   }
   const userId = session.user.id;
-  const email = session.user.email?.toLowerCase() ?? "";
 
-  let registrations: Awaited<ReturnType<typeof loadPortal>>[0];
-  let certificates: Awaited<ReturnType<typeof loadPortal>>[1];
+  let portal: Awaited<ReturnType<typeof loadPortal>>;
   try {
-    [registrations, certificates] = await loadPortal(userId, email);
+    portal = await loadPortal(userId);
   } catch (err) {
     apiLogger.error({ err, msg: "my-registration:load-failed", userId });
     throw err;
   }
+  if (!portal) {
+    apiLogger.warn({ msg: "my-registration:user-not-found", userId });
+    redirect("/login?callbackUrl=/my-registration");
+  }
+  const { registrations, certificates, scope } = portal;
 
 
   // One card per event: its registrations and its certificates. A speaker's
@@ -104,8 +114,13 @@ export default async function MyRegistrationPage() {
     <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6 sm:space-y-6 sm:px-6 sm:py-8">
       <PageHeader
         title="My events"
-        description={email ? `Everything registered to ${email}` : "Your registrations and certificates"}
+        description={`Signed in as ${scope.email}`}
       />
+
+      {/* Registrations made earlier under this address appear once it is
+          confirmed. Never a count: that would tell an unproven account the
+          address has history. */}
+      {!scope.confirmed && <ConfirmEmailNotice email={scope.email} />}
 
       {cme.allTime > 0 && (
         <Card className="gap-0 py-0">

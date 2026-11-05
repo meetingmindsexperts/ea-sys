@@ -124,6 +124,12 @@ model User {
   role                         UserRole  @default(ORGANIZER)
   specialty                    String?
   emailVerified                DateTime?
+  /// When the person proved they own `email` by clicking a link sent to it
+  /// (email confirmation, invitation accept, password reset), and ONLY then
+  /// (Nov 5, 2026; docs/ACCOUNT_CONFIRMATION_PLAN.md). Not `emailVerified`,
+  /// which public submitter sign-up and admin-created accounts set without
+  /// proof. Gates seeing registrations by email: src/lib/registrant-access.ts
+  emailConfirmedAt             DateTime?
   termsAcceptedAt              DateTime?
   termsAcceptedIp              String?
   image                        String?

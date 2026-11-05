@@ -1617,13 +1617,23 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
     recipientName: string;
     verifyLink: string;
     expiresIn?: string;
+    /**
+     * "team": a Meeting Minds address joining the team (the original use).
+     * "registrations": any account proving its address so registrations made
+     * earlier under it appear on My events (Nov 5, 2026).
+     */
+    purpose?: "team" | "registrations";
   }) => {
+    const why =
+      params.purpose === "registrations"
+        ? "Please confirm your email address so we can show every registration made under it on My events. Your new registration works either way."
+        : "Please confirm your email address to link your account to the Meeting Minds team. Your registration works either way — verifying just connects you as an internal member.";
     const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Verify your email</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Confirm this address belongs to you</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Hi <strong>${escapeHtml(params.recipientName)}</strong>,</p>
-    <p>Please confirm your email address to link your account to the Meeting Minds team. Your registration works either way — verifying just connects you as an internal member.</p>
+    <p>${escapeHtml(why)}</p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="${escapeHtml(params.verifyLink)}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Verify my email</a>
     </div>
@@ -1637,7 +1647,7 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
 
 Hi ${params.recipientName},
 
-Please confirm your email address to link your account to the Meeting Minds team:
+${why}
 ${params.verifyLink}
 
 ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}

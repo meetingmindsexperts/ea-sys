@@ -4,6 +4,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
+import { loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
@@ -93,14 +94,17 @@ async function loadPresenterPrefill(args: {
   const [speakerHere, latestSpeaker, latestRegistration] = await Promise.all([
     db.speaker.findFirst({ where: { eventId: args.eventId, email: args.email }, select: DETAIL_SELECT }),
     db.speaker.findFirst({ where: mine, orderBy: { updatedAt: "desc" }, select: DETAIL_SELECT }),
-    db.registration.findFirst({
-      where: {
-        status: { not: "CANCELLED" },
-        OR: [{ userId: args.userId }, { attendee: { email: args.email } }],
-      },
-      orderBy: { createdAt: "desc" },
-      select: { attendee: { select: DETAIL_SELECT } },
-    }),
+    loadRegistrantScope(args.userId).then((scope) =>
+      scope
+        ? db.registration.findFirst({
+            // A registration matched only by address pre-fills nothing until
+            // the address is confirmed (registrant-access.ts).
+            where: { status: { not: "CANCELLED" }, ...ownRegistrationWhere(scope) },
+            orderBy: { createdAt: "desc" },
+            select: { attendee: { select: DETAIL_SELECT } },
+          })
+        : null,
+    ),
   ]);
   const sources: DetailSource[] = [
     speakerHere,
@@ -196,12 +200,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     const wasRegistrant = user.role === "REGISTRANT";
 
     // Prefill source: this person's existing (non-cancelled) registration on
-    // this event, if any.
+    // this event, if any, by the My events rule (registrant-access.ts): one
+    // matched only by address counts once the address is confirmed.
+    const scope = await loadRegistrantScope(user.id);
     const registration = await db.registration.findFirst({
       where: {
         eventId: event.id,
         status: { not: "CANCELLED" },
-        OR: [{ userId: user.id }, { attendee: { email: emailLower } }],
+        ...(scope ? ownRegistrationWhere(scope) : { userId: user.id }),
       },
       select: {
         id: true,

@@ -5,6 +5,11 @@ import { hashVerificationToken } from "./security";
 import { sendEmail, emailTemplates } from "./email";
 
 /**
+ * Email confirmation links. Two uses share one token flow (`/verify-email`):
+ * a Meeting Minds address joining the team (below), and, since Nov 5, 2026,
+ * any account proving it owns its address so registrations made earlier under
+ * it appear on My events (src/lib/registrant-access.ts).
+ *
  * Email verification for VERIFIED internal domains (meetingmindsdubai.com).
  *
  * The gate is light by design (see [src/lib/internal-domains.ts]): a registrant
@@ -21,8 +26,12 @@ const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  * Best-effort: failures are logged, never thrown — registration must succeed
  * even if the verify email can't be sent (the link can be re-issued).
  */
-export async function sendEmailVerification(params: { email: string; name: string }): Promise<void> {
-  const { email, name } = params;
+export async function sendEmailVerification(params: {
+  email: string;
+  name: string;
+  purpose?: "team" | "registrations";
+}): Promise<void> {
+  const { email, name, purpose = "team" } = params;
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
   try {
@@ -44,6 +53,7 @@ export async function sendEmailVerification(params: { email: string; name: strin
       recipientName: name,
       verifyLink,
       expiresIn: "7 days",
+      purpose,
     });
 
     const result = await sendEmail({
@@ -53,7 +63,7 @@ export async function sendEmailVerification(params: { email: string; name: strin
       textContent: tpl.textContent,
       emailType: "email_verification",
       stream: "transactional",
-      logContext: { entityType: "USER", templateSlug: "email-verification" },
+      logContext: { entityType: "USER", templateSlug: purpose === "registrations" ? "email-confirmation" : "email-verification" },
     });
 
     if (!result.success) {

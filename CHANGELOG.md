@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Account confirmation: an address on a registration is trusted only once proven (November 5)
+
+- **The gap:** an account saw every registration carrying its email address, and creating one (by registering with a password) linked them all, without the address ever being proven. Someone registering with another person's email could see that person's earlier guest registrations, payments and certificates.
+- **`User.emailConfirmedAt`** (migration `20261105120000`, additive): set only by a link sent to the address (`/verify-email`, invitation accept, password reset). Not `emailVerified`, which public submitter sign-up and admin-created accounts set without proof.
+- **`src/lib/registrant-access.ts`** is the one rule: linked registrations, plus those carrying the address once confirmed. My events, certificates, the registrant routes and abstract-start's pre-fill use it; registering links only the new registration; confirming links the rest.
+- **For people:** registering still needs no confirmation and works at once. An unconfirmed account sees a "Registered before with this email?" notice with a Send confirmation link button; a confirmation email is sent automatically only when there are earlier registrations to claim. On prod, 192 registrations of 145 accounts stay hidden until each person confirms (owner: security first). Plan: `docs/ACCOUNT_CONFIRMATION_PLAN.md`
+
 ### Public catalogue redesign (November 5)
 
 - **A new look for `/catalogue` and the topic pages**, after the owner compared them with motamarat.kfshrc.edu.sa. A navy hero with the organisation's conference photo under a dark wash (an ECG-paper pattern when there is no photo), Fraunces headlines as on the event page, and the next three listed events' banners fanned on top, cycling every 4.5 s (still under reduced motion, paused on hover and in a hidden tab)

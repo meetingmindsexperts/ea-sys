@@ -38,6 +38,7 @@ import {
   LayoutList,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
 import { formatCurrency, formatPersonName } from "@/lib/utils";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatSerialId } from "@/lib/registration-serial";
@@ -404,6 +405,9 @@ export default function EventMyRegistrationPage() {
       return (
         <div className="space-y-6">
         {certificatesCard}
+        {/* A registration made earlier under this address shows only once the
+            address is confirmed (src/lib/registrant-access.ts). */}
+        <ConfirmEmailNotice />
         <div className="bg-white rounded-xl border border-slate-200 p-8 text-center space-y-4">
           <AlertCircle className="h-10 w-10 text-slate-300 mx-auto" />
           <div>

@@ -110,6 +110,8 @@ export async function POST(req: Request) {
         data: {
           passwordHash,
           emailVerified: new Date(),
+          // The invitation link was sent to this address: it is proven.
+          emailConfirmedAt: new Date(),
         },
       });
 

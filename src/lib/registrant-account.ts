@@ -6,10 +6,15 @@ import { apiLogger } from "@/lib/logger";
 import { isTrustedInternalEmail, needsEmailVerification } from "@/lib/internal-domains";
 import { sendEmailVerification } from "@/lib/email-verification";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { hasUnclaimedRegistrations, linkConfirmedRegistrations } from "@/lib/registrant-access";
 
 /**
- * Create-or-link the REGISTRANT account behind a public registration, then link
- * every unlinked registration on the same email to it.
+ * Create-or-link the REGISTRANT account behind a public registration. The
+ * account owns THIS registration at once. Other unlinked registrations on the
+ * same email join it only when the account has proven it owns the address
+ * (User.emailConfirmedAt, src/lib/registrant-access.ts); until then it is sent
+ * a confirmation link. Nov 5, 2026: before, they were swept in on the spot, so
+ * registering with someone else's address showed their earlier registrations.
  *
  * Shared by the public `register` route and the token-gated
  * `complete-registration` route — the two carried byte-identical ~60-line copies
@@ -75,25 +80,18 @@ export async function ensureRegistrantAccount(args: {
     // — one org, and every external account is org-null, so the org-less half
     // of the scope finds exactly what the global lookup found.
     const existingUser = await findUserByEmail({ organizationId }, email, {
-      select: { id: true, role: true, termsAcceptedAt: true },
+      select: { id: true, role: true, termsAcceptedAt: true, emailConfirmedAt: true },
     });
 
     if (existingUser) {
-      // Link this registration to the existing account, then sweep any other
-      // unlinked registrations on the same email.
+      // Link this registration to the existing account; the others on this
+      // address only if the account has proven it owns it (inside the caller's
+      // tenant lane, so on the platform the set is tenant-local).
       await db.registration.update({
         where: { id: registrationId },
         data: { userId: existingUser.id },
       });
-      // Sweeps by EMAIL, not by org. That was recorded as a pending
-      // identity-model question; item 6 settled it (PLATFORM_DECISIONS §6) and
-      // the answer needs no change here: on the platform this runs inside the
-      // caller's tenant lane, so "every unlinked registration on this address"
-      // is already tenant-local. On master, one org, so it is the same set.
-      await db.registration.updateMany({
-        where: { attendee: { email }, userId: null },
-        data: { userId: existingUser.id },
-      });
+      await claimOrConfirm({ userId: existingUser.id, email, confirmed: !!existingUser.emailConfirmedAt }, `${firstName} ${lastName}`);
       // Record terms acceptance (first time only — never overwrite).
       if (!existingUser.termsAcceptedAt) {
         await db.user.update({
@@ -124,20 +122,16 @@ export async function ensureRegistrantAccount(args: {
           termsAcceptedIp: clientIp,
         },
       });
-      // Link this registration + any other unlinked registrations by this email.
-      // Sweeps by EMAIL, not by org. That was recorded as a pending
-      // identity-model question; item 6 settled it (PLATFORM_DECISIONS §6) and
-      // the answer needs no change here: on the platform this runs inside the
-      // caller's tenant lane, so "every unlinked registration on this address"
-      // is already tenant-local. On master, one org, so it is the same set.
-      await db.registration.updateMany({
-        where: { attendee: { email }, userId: null },
-        data: { userId: newUser.id },
-      });
+      // This registration only. A new account has proven nothing, so the
+      // others on this address wait for the confirmation link.
+      await db.registration.update({ where: { id: registrationId }, data: { userId: newUser.id } });
       // Verified-internal domain (real mailbox) → send a verify link; the org
-      // attaches when they click it. Best-effort (won't fail signup).
+      // attaches when they click it, and it also confirms the address.
+      // Best-effort (won't fail signup).
       if (needsEmailVerification(email)) {
         void sendEmailVerification({ email, name: `${firstName} ${lastName}` });
+      } else {
+        await claimOrConfirm({ userId: newUser.id, email, confirmed: false }, `${firstName} ${lastName}`);
       }
       // Notify admins of the new signup (non-blocking).
       notifyEventAdmins(eventId, {
@@ -155,4 +149,19 @@ export async function ensureRegistrantAccount(args: {
     apiLogger.error({ err, msg: "registrant-account:create-or-link-failed", registrationId, eventId });
     return "failed";
   }
+}
+
+/**
+ * A confirmed account takes the other unlinked registrations on its address;
+ * an unconfirmed one is sent a confirmation link, but only when there is
+ * something to claim, so most registrants never get an extra email.
+ */
+async function claimOrConfirm(scope: { userId: string; email: string; confirmed: boolean }, name: string): Promise<void> {
+  if (scope.confirmed) {
+    await linkConfirmedRegistrations(scope);
+    return;
+  }
+  if (!(await hasUnclaimedRegistrations(scope))) return;
+  apiLogger.info({ msg: "registrant-account:confirmation-requested", userId: scope.userId });
+  void sendEmailVerification({ email: scope.email, name, purpose: "registrations" });
 }

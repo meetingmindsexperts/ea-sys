@@ -5,6 +5,7 @@ import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import {
   applyPromoCodeToRegistration,
@@ -49,12 +50,12 @@ function removeStatusFor(code: string): number {
 }
 
 /** Resolve + ownership-check the registration; returns its eventId. */
-async function ownedRegistration(registrationId: string, userId: string, email: string) {
+async function ownedRegistration(registrationId: string, userId: string) {
+  // The same rule as My events (registrant-access.ts).
+  const scope = await loadRegistrantScope(userId);
+  if (!scope) return null;
   return db.registration.findFirst({
-    where: {
-      id: registrationId,
-      OR: [{ userId }, { attendee: { email } }],
-    },
+    where: { id: registrationId, ...ownRegistrationWhere(scope) },
     select: { id: true, eventId: true },
   });
 }
@@ -86,7 +87,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const reg = await ownedRegistration(registrationId, actor.id, actor.email.toLowerCase());
+    const reg = await ownedRegistration(registrationId, actor.id);
     if (!reg) return NextResponse.json({ error: "Registration not found" }, { status: 404 });
 
     const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
@@ -133,7 +134,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/promo", userId: actor.id }, async () => {
 
-    const reg = await ownedRegistration(registrationId, actor.id, actor.email.toLowerCase());
+    const reg = await ownedRegistration(registrationId, actor.id);
     if (!reg) return NextResponse.json({ error: "Registration not found" }, { status: 404 });
 
     const result = await removePromoCodeFromRegistration({ registrationId, eventId: reg.eventId, source: "registrant" });
