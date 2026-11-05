@@ -16,19 +16,15 @@
  */
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
+import { eventMatchesRequestTenant } from "@/lib/public-event";
+import { resolvePublicEventOrg } from "@/lib/tenant/event-tenant";
 
-/** Resolve the tenant org from the URL's event. Call BEFORE any token lookup. */
-export async function resolveTravelGrantEventOrg(
-  req: Request,
-  slug: string,
-): Promise<string | null> {
-  const event = await db.event.findFirst({
-    where: await publicEventWhere(req, slug),
-    select: { organizationId: true },
-  });
-  return event?.organizationId ?? null;
-}
+/**
+ * Resolve the tenant org from the URL's event. Call BEFORE any token lookup.
+ * The read itself is the shared discovery in src/lib/tenant/event-tenant.ts.
+ */
+export const resolveTravelGrantEventOrg = (req: Request, slug: string): Promise<string | null> =>
+  resolvePublicEventOrg(req, slug);
 
 /**
  * Load a grant by its token, then assert it belongs to the URL's event AND to

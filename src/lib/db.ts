@@ -1,6 +1,7 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import { dbLogger } from "./logger";
 import { enterTenantTx, getTenantOrgId, getTenantStore } from "./tenant-context";
+import { noteUnlanedEventQuery } from "./tenant/lane-shadow";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -301,7 +302,9 @@ function withTenantIsolation(base: ReturnType<typeof createPrismaClient>) {
     name: "tenant-set-local",
     query: {
       $allModels: {
-        async $allOperations({ args, query }) {
+        async $allOperations({ model, operation, args, query }) {
+          // Event RLS preparation: report Event reads with no lane (RLS_SHADOW=1 only).
+          noteUnlanedEventQuery(model, operation);
           if (process.env.RLS_SET_LOCAL !== "1") return query(args);
           const store = getTenantStore();
           if (!store?.orgId || store.inTenantTx) return query(args);

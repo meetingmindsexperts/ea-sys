@@ -8,7 +8,8 @@
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
+import { eventMatchesRequestTenant } from "@/lib/public-event";
+import { resolvePublicEventOrg } from "@/lib/tenant/event-tenant";
 
 /**
  * 24 random bytes → 32-char base64url token. Unguessable, URL-safe.
@@ -28,17 +29,10 @@ export function generateReimbursementToken(): string {
  * Event by host+slug FIRST (publicEventWhere), then run the token lookup +
  * all swept reads/writes inside `runWithTenant(<this org>)` at the route.
  * Returns null when the slug doesn't resolve on this host (route 404s).
+ * The read itself is the shared discovery in src/lib/tenant/event-tenant.ts.
  */
-export async function resolveReimbursementEventOrg(
-  req: Request,
-  slug: string,
-): Promise<string | null> {
-  const event = await db.event.findFirst({
-    where: await publicEventWhere(req, slug),
-    select: { organizationId: true },
-  });
-  return event?.organizationId ?? null;
-}
+export const resolveReimbursementEventOrg = (req: Request, slug: string): Promise<string | null> =>
+  resolvePublicEventOrg(req, slug);
 
 /**
  * Public-route loader: resolve a reimbursement by its unique token, then

@@ -25,8 +25,9 @@
 import { NextResponse } from "next/server";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
+import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
+import { resolvePublicEventOrg } from "@/lib/tenant/event-tenant";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rsvpSubmitSchema, violatesSelectionMode, itemIsFull } from "@/lib/rsvp/rsvp";
 
@@ -149,15 +150,10 @@ async function loadInviteForSlug(req: Request, slug: string, token: string) {
  * link would look invalid. publicEventWhere binds the host's org (unscoped /
  * behavior-preserving on master); the invite's own slug + tenant asserts inside
  * loadInviteForSlug stay as defense-in-depth. Returns null when the slug maps
- * to no accessible event on this host.
+ * to no accessible event on this host. The read itself is the shared discovery
+ * in src/lib/tenant/event-tenant.ts.
  */
-async function resolveEventOrg(req: Request, slug: string): Promise<string | null> {
-  const event = await db.event.findFirst({
-    where: await publicEventWhere(req, slug),
-    select: { organizationId: true },
-  });
-  return event?.organizationId ?? null;
-}
+const resolveEventOrg = (req: Request, slug: string): Promise<string | null> => resolvePublicEventOrg(req, slug);
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {

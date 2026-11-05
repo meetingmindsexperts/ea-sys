@@ -11,7 +11,8 @@
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
+import { eventMatchesRequestTenant } from "@/lib/public-event";
+import { resolvePublicEventOrg } from "@/lib/tenant/event-tenant";
 import { profileSlotForLabel } from "./constants";
 
 /**
@@ -27,15 +28,11 @@ export function generateProfileFormToken(): string {
  * would fail-close under platform RLS with no tenant store, so resolve the
  * org from the un-swept Event by host+slug FIRST, then run everything inside
  * runWithTenant(<this org>) at the route. Null when the slug doesn't resolve
- * on this host (route 404s).
+ * on this host (route 404s). The read itself is the shared discovery in
+ * src/lib/tenant/event-tenant.ts.
  */
-export async function resolveProfileFormEventOrg(req: Request, slug: string): Promise<string | null> {
-  const event = await db.event.findFirst({
-    where: await publicEventWhere(req, slug),
-    select: { organizationId: true },
-  });
-  return event?.organizationId ?? null;
-}
+export const resolveProfileFormEventOrg = (req: Request, slug: string): Promise<string | null> =>
+  resolvePublicEventOrg(req, slug);
 
 /**
  * Public-route loader: resolve a profile form by its unique token, assert it
