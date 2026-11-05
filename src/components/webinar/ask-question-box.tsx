@@ -189,7 +189,7 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
           {mine.length > 0 && (
             <div className="space-y-2 border-t pt-3">
               <p className="text-xs font-medium text-muted-foreground">Your questions</p>
-              <ul className="space-y-2">
+              <ul className="max-h-40 space-y-2 overflow-y-auto pr-1">
                 {mine.map((q) => (
                   <li key={q.id} className="flex items-start justify-between gap-3 text-sm">
                     <span className="whitespace-pre-wrap break-words">{q.question}</span>
@@ -205,9 +205,11 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
         </CardContent>
       </Card>
 
-      <Card className="py-4">
-        <CardContent className="space-y-3 px-4 py-2">
-          <div className="flex items-baseline justify-between gap-2">
+      {/* A fixed height, the list scrolling inside it (owner, Nov 5, 2026): a busy Q&A no longer grows
+          the column and pushes everything below it down. */}
+      <Card className="h-[450px] py-4">
+        <CardContent className="flex min-h-0 flex-1 flex-col gap-3 px-4 py-2">
+          <div className="flex shrink-0 items-baseline justify-between gap-2">
             <p className="font-medium">Questions from the audience</p>
             {upvote && published.length > 0 && <span className="text-xs text-muted-foreground">Most votes first</span>}
           </div>
@@ -216,7 +218,7 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
               No questions shared yet. Questions the moderators select appear here.
             </p>
           ) : (
-            <ul className="space-y-3">
+            <ul className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
               {published.map((q) => (
                 <li key={q.id} className="rounded-md border p-3">
                   <p className="text-sm whitespace-pre-wrap break-words">{q.question}</p>
