@@ -291,6 +291,7 @@ export default function PublicSessionPage() {
   const admittedRef = useRef(false);
   // Bumped to retry admission: the effect's other deps do not change while the room stays open.
   const [admitAttempt, setAdmitAttempt] = useState(0);
+  const admitRetryRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; tries: number }>({ timer: null, tries: 0 });
 
   useEffect(() => {
     async function fetchData() {
@@ -394,6 +395,8 @@ export default function PublicSessionPage() {
   // refreshed joinInfo. On a failed re-fetch, release the latch so the next
   // lobby poll retries instead of dead-ending (review #M-2).
   useEffect(() => {
+    const retryState = admitRetryRef.current;
+    if (!roomOpen) retryState.tries = 0; // a closed room starts the next opening afresh
     if (!isWebinarEvent || !roomOpen || admittedRef.current) return;
     admittedRef.current = true;
     (async () => {
@@ -401,23 +404,43 @@ export default function PublicSessionPage() {
         const res = await fetch(
           `/api/public/events/${slug}/sessions/${sessionId}/zoom-join`,
         );
-        const info = res.ok ? ((await res.json()) as JoinInfo) : null;
-        if (info && info.mode !== "waiting") {
-          setJoinInfo(info);
-          if (lobby?.viewingMode === "zoom") setIsJoining(true);
-        } else {
-          // "waiting": zoom-join's room cache is up to 3 s behind lobby-status's.
-          retry();
+        if (res.status === 429) {
+          // zoom-join allows 60 an hour per IP; a hospital NAT shares that, so wait as told.
+          retry(Number(res.headers.get("Retry-After")) * 1000 || 60_000);
+          return;
         }
+        if (!res.ok) {
+          // A refusal (cancelled, now pending) or a missing session: asking again
+          // every few seconds only floods the logs. The next opening retries.
+          admittedRef.current = false;
+          return;
+        }
+        const info = (await res.json()) as JoinInfo;
+        if (info.mode === "waiting") {
+          // zoom-join's room cache is up to 3 s behind lobby-status's: 4 s, then back off.
+          retry(Math.min(4000 * 2 ** retryState.tries, 60_000));
+          return;
+        }
+        retryState.tries = 0;
+        setJoinInfo(info);
+        if (lobby?.viewingMode === "zoom") setIsJoining(true);
       } catch {
-        retry(); // transient
+        retry(Math.min(4000 * 2 ** retryState.tries, 60_000)); // transient
       }
     })();
-    function retry() {
+    function retry(ms: number) {
       admittedRef.current = false;
-      setTimeout(() => setAdmitAttempt((n) => n + 1), 4000);
+      retryState.tries += 1;
+      if (retryState.timer) clearTimeout(retryState.timer);
+      retryState.timer = setTimeout(() => setAdmitAttempt((n) => n + 1), ms);
     }
   }, [isWebinarEvent, roomOpen, lobby?.viewingMode, slug, sessionId, admitAttempt]);
+  useEffect(() => {
+    const retryState = admitRetryRef.current;
+    return () => {
+      if (retryState.timer) clearTimeout(retryState.timer);
+    };
+  }, []);
 
   // Presence heartbeat: while a registered attendee has the webinar page open,
   // beat every ~30–40s (jittered) so organizers see who's in the lobby / joined
@@ -929,7 +952,8 @@ export default function PublicSessionPage() {
             {/* HLS stream takes precedence when configured — it's the
                  branded full-screen experience. Stays mounted past the
                  scheduled end while the room is open (overrun, review #9). */}
-            {joinInfo && playsStream && liveWindowActive && (
+            {/* Not in "waiting": that answer carries no stream URL (review L3). */}
+            {joinInfo && joinInfo.mode !== "waiting" && playsStream && liveWindowActive && (
               <LivePlayer
                 hlsUrl={joinInfo.hlsPlaybackUrl || ""}
                 slug={slug}

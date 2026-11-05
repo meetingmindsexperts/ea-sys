@@ -22,7 +22,7 @@ beforeEach(() => {
 });
 
 describe("viewerRegistrationWhere", () => {
-  it("on a webinar: confirmed or checked in, and paid or nothing charged on its type and rate", () => {
+  it("on a webinar: confirmed or checked in, and paid or nothing charged (a rate's price wins over its type's)", () => {
     expect(viewerRegistrationWhere("ev1", "u1", "WEBINAR")).toEqual({
       eventId: "ev1",
       userId: "u1",
@@ -30,9 +30,10 @@ describe("viewerRegistrationWhere", () => {
       OR: [
         { paymentStatus: { in: ["PAID", "COMPLIMENTARY", "INCLUSIVE"] } },
         {
-          AND: [
-            { OR: [{ ticketTypeId: null }, { ticketType: { price: 0 } }] },
-            { OR: [{ pricingTierId: null }, { pricingTier: { price: 0 } }] },
+          OR: [
+            // A free rate on a paid type owes nothing (review L2: an import marks it UNASSIGNED).
+            { pricingTier: { price: 0 } },
+            { pricingTierId: null, OR: [{ ticketTypeId: null }, { ticketType: { price: 0 } }] },
           ],
         },
       ],
@@ -76,12 +77,21 @@ describe("isViewerRoomOpen", () => {
     expect(mockDb.eventSession.findFirst).toHaveBeenCalledWith({ where: { id: "anchor", eventId: "ev1" }, select: { status: true } });
   });
 
-  it("closed unless the anchor is LIVE, and closed when the anchor is missing", async () => {
+  it("closed unless the anchor is LIVE, and closed when no session is found", async () => {
     mockDb.eventSession.findFirst.mockResolvedValue({ status: "SCHEDULED" });
     expect(await isViewerRoomOpen(webinar, "anchor")).toBe(false);
     resetRoomOpenCache();
     mockDb.eventSession.findFirst.mockResolvedValue(null);
     expect(await isViewerRoomOpen(webinar, "anchor")).toBe(false);
+  });
+
+  it("a dangling anchor pointer falls back to the URL's own session, as detail and lobby-status do (review M2)", async () => {
+    mockDb.eventSession.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ status: "LIVE" });
+    expect(await isViewerRoomOpen(webinar, "url-session")).toBe(true);
+    expect(mockDb.eventSession.findFirst).toHaveBeenLastCalledWith({
+      where: { id: "url-session", eventId: "ev1" },
+      select: { status: true },
+    });
   });
 
   it("a DRAFT webinar and any non-webinar event are open without a lookup", async () => {

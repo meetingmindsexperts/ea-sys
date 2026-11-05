@@ -54,7 +54,11 @@ describe("runWebinarPresenceArchiveTick", () => {
     const r = await runWebinarPresenceArchiveTick(NOW);
     expect(r).toEqual({ archived: 3, file: "webinar-presence-2026-11-05.jsonl.gz", capped: false });
     expect(archived(r.file!).map((x) => x.id)).toEqual(["p000000", "p000001", "p000002"]);
-    expect(mockDb.webinarPresence.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["p000000", "p000001", "p000002"] } } });
+    // Still past the cutoff at delete time: a heartbeat in between keeps its row (review L1).
+    const cutoff = new Date(NOW.getTime() - 90 * 86_400_000);
+    expect(mockDb.webinarPresence.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ["p000000", "p000001", "p000002"] }, lastSeenAt: { lt: cutoff } },
+    });
   });
 
   it("nothing old enough: no file, nothing removed", async () => {

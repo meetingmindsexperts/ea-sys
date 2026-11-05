@@ -96,7 +96,10 @@ export async function runWebinarPresenceArchiveTick(now: Date = new Date()): Pro
   const ids = rows.map((r) => r.id as string);
   let archived = 0;
   for (let i = 0; i < ids.length; i += PAGE) {
-    const res = await db.webinarPresence.deleteMany({ where: { id: { in: ids.slice(i, i + PAGE) } } });
+    // Still past the cutoff: a heartbeat between the read and here keeps the row (review L1).
+    const res = await db.webinarPresence.deleteMany({
+      where: { id: { in: ids.slice(i, i + PAGE) }, lastSeenAt: { lt: cutoff } },
+    });
     archived += res.count;
   }
 

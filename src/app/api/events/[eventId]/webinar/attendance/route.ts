@@ -248,7 +248,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       });
     }
 
-    return NextResponse.json({ kpis, rows });
+    // The same emails as the CSV, so never cached either (review M3).
+    return NextResponse.json({ kpis, rows }, { headers: { "Cache-Control": "private, no-store" } });
     });
   } catch (err) {
     apiLogger.error({ err }, "webinar-attendance:list-failed");

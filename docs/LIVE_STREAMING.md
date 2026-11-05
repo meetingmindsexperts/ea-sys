@@ -334,6 +334,15 @@ starts it when absent), so this is an owner step:
    publish would have been refused too. `docker-compose.prod.yml` now mounts the
    box's `/etc/ssl/certs/ca-certificates.crt` read-only.
 
+**Every new publish now needs the app (review, Nov 5, 2026).** MediaMTX asks
+the app before each publish and refuses when it gets no yes, so while the app
+or the database is down (a failed deploy, the maintenance page) a publish is
+refused. A stream already running is not affected (the check runs only when a
+publish starts), but Zoom reconnecting after a network blip IS a new publish.
+So **do not deploy, restart the app or touch the database while a
+custom-stream webinar is live**; if the stream drops during an outage, press
+Start stream again once the app is back (the stream watchdog also retries).
+
 **Publish credentials (Oct 2, 2026).** The bare stream key is also the HLS
 read path that every registered viewer receives, so the webhook does not
 trust it alone. Zoom is sent `key?user=publisher&pass=<password>`, where the

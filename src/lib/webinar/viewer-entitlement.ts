@@ -22,11 +22,13 @@ import { readWebinarSettings } from "@/lib/webinar";
 export const WEBINAR_VIEWER_STATUSES: RegistrationStatus[] = ["CONFIRMED", "CHECKED_IN"];
 const SETTLED_PAYMENT_STATUSES = ["PAID", "COMPLIMENTARY", "INCLUSIVE"] as const;
 
-/** Nothing is charged on the registration's type and rate (a rate's price wins over its type's). */
+/** Nothing is charged on the registration: its rate is free, or it has no rate and its type is free
+ *  (a rate's price wins over its type's, as in the register route; review L2: a free rate on a paid
+ *  type, imported as UNASSIGNED, was refused). */
 const NOTHING_OWED: Prisma.RegistrationWhereInput = {
-  AND: [
-    { OR: [{ ticketTypeId: null }, { ticketType: { price: 0 } }] },
-    { OR: [{ pricingTierId: null }, { pricingTier: { price: 0 } }] },
+  OR: [
+    { pricingTier: { price: 0 } },
+    { pricingTierId: null, OR: [{ ticketTypeId: null }, { ticketType: { price: 0 } }] },
   ],
 };
 
@@ -50,7 +52,7 @@ export type ViewerRefusal = "PENDING_APPROVAL" | "WAITLISTED" | "PAYMENT_OUTSTAN
 export const VIEWER_REFUSAL_MESSAGE: Record<ViewerRefusal, string> = {
   PENDING_APPROVAL: "Your registration is awaiting approval. You can join once it has been approved.",
   WAITLISTED: "You are on the waiting list for this webinar. You can join once your place is confirmed.",
-  PAYMENT_OUTSTANDING: "Your registration fee is still outstanding. You can join once payment is complete.",
+  PAYMENT_OUTSTANDING: "Your registration's payment is not complete. Please contact the organisers if you think this is wrong.",
 };
 
 /**
@@ -93,10 +95,16 @@ export async function isViewerRoomOpen(
   const key = `${event.id}:${anchorId}`;
   const cached = roomCache.get(key);
   if (cached && Date.now() - cached.at < ROOM_TTL_MS) return cached.open;
-  const anchor = await db.eventSession.findFirst({
+  let anchor = await db.eventSession.findFirst({
     where: { id: anchorId, eventId: event.id },
     select: { status: true },
   });
+  // A dangling anchor pointer (session deleted; the provisioner heals it): the detail route falls
+  // through to the URL's own session, and lobby-status reads that one, so this must too, or the
+  // room never opens for anyone (review M2).
+  if (!anchor && anchorId !== sessionId) {
+    anchor = await db.eventSession.findFirst({ where: { id: sessionId, eventId: event.id }, select: { status: true } });
+  }
   const open = anchor?.status === "LIVE";
   if (roomCache.size > 5000) roomCache.clear();
   roomCache.set(key, { open, at: Date.now() });
