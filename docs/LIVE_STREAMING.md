@@ -126,21 +126,30 @@ wired in the port map but unused (reserved for a future low-latency path).
 | Port | Protocol | Direction | Notes |
 |------|----------|-----------|-------|
 | `1935` | RTMP | **ingest** | Host / Zoom / OBS pushes here |
-| `8888` | HLS | **output** | nginx proxies `/stream/` here; never exposed publicly |
-| `8889` | WebRTC | output | Reserved for a future low-latency path; **unused today** |
+| `8888` | HLS | **output** | nginx proxies `/stream/` here; bound to `127.0.0.1` on the box |
+| `8889` | WebRTC | — | **Off** (`webrtc: no`) and not published, since Nov 5, 2026 |
 
-Defined in both compose files. In prod they are container-internal except as
-needed; `1935` must be reachable by whatever pushes the stream (Zoom's
-servers, or the host's encoder).
+`1935` must be reachable by whatever pushes the stream (Zoom's servers, or the
+host's encoder). Since the Nov 5, 2026 security review RTSP, WebRTC and SRT are
+switched off in `mediamtx.yml` (each also accepts publishes) and `8888` is
+published on localhost only, pinned by `__tests__/lib/mediamtx-security-config.test.ts`.
+Turning WebRTC back on for low latency means turning publish auth's question
+on for it too: re-read §11a first.
 
 ---
 
 ## 6. Configuration (`mediamtx.yml`)
 
 ```yaml
-hlsAddress: :8888
+rtmp: yes
 rtmpAddress: :1935
-webrtcAddress: :8889
+hls: yes
+hlsAddress: :8888
+rtsp: no
+webrtc: no
+srt: no
+
+authMethod: http   # publish authorisation, §11a
 
 # HLS settings — mpegts variant (fmp4 has known 404 issues)
 hlsVariant: mpegts
@@ -270,7 +279,7 @@ Stop; a failure there never blocks the room (the toast says what happened).
 The session card shows the RTMP address from the server (`rtmpIngestUrl()`,
 the same value sent to Zoom), no longer one built from the browser.
 
-**Publish authorisation (staged, needs a MediaMTX restart).** MediaMTX
+**Publish authorisation (switched on in `mediamtx.yml` Nov 5, 2026; takes effect at the next MediaMTX recreate).** MediaMTX
 accepted a publish on any path from anyone who could reach port 1935.
 `POST /api/webhooks/mediamtx-auth` now answers MediaMTX's HTTP auth: a
 publish is allowed only on `live/<key>` for a Zoom meeting with streaming on;
@@ -289,8 +298,10 @@ starts it when absent), so this is an owner step:
 2. Pin that version (or a tested newer one) in `docker-compose.prod.yml`.
    **Done Nov 5, 2026:** pinned to `bluenviron/mediamtx:1.17.1`, the version the
    box was running (v1.17.1 supports auth over HTTP).
-3. Add to `mediamtx.yml`. Reads are excluded so 5,000 viewers never reach the
-   app; only publishes are checked:
+3. Add to `mediamtx.yml` (**done Nov 5, 2026**, after the security review
+   found any registered viewer could push over a live webinar: the HLS URL
+   they receive contains the key). Reads are excluded so 5,000 viewers never
+   reach the app; only publishes are checked:
 
    ```yaml
    authMethod: http

@@ -238,8 +238,10 @@ services:
     restart: unless-stopped
     ports:
       - "1935:1935"    # RTMP ingest (Zoom pushes here)
-      - "8888:8888"    # HLS output (nginx proxies /stream/ to here)
-      - "8889:8889"    # WebRTC (future low-latency option)
+      # HLS output, localhost only: nginx proxies /stream/ to it and the worker
+      # reaches it by container name, so nothing outside the box needs it
+      # (Nov 5, 2026 security review). WebRTC (8889) is off in mediamtx.yml.
+      - "127.0.0.1:8888:8888"
     # Idles at ~11 MB; a live stream is the only thing that moves it. Capped so a
     # misbehaving ingest can't compete with the app for host memory.
     mem_limit: 512m

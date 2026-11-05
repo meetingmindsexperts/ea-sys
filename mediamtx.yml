@@ -11,9 +11,30 @@ logLevel: info
 logDestinations: [stdout, file]
 logFile: /logs/mediamtx.log
 
-hlsAddress: :8888
+# Only RTMP in (Zoom) and HLS out (viewers). RTSP, WebRTC and SRT are off
+# (Nov 5, 2026 security review): each was a listener nobody used, and WebRTC
+# and SRT also accept publishes, so each was a second door into live/<key>.
+rtmp: yes
 rtmpAddress: :1935
-webrtcAddress: :8889
+hls: yes
+hlsAddress: :8888
+rtsp: no
+webrtc: no
+srt: no
+
+# Publish authorisation (Nov 5, 2026 security review, W-03). Every viewer's
+# HLS URL contains the stream key, so without this anyone registered could
+# push their own video to rtmp://<host>:1935/live/<key> and replace the
+# webinar. MediaMTX asks the app before each publish; the app allows it only
+# with the HMAC password Zoom is given (src/app/api/webhooks/mediamtx-auth,
+# docs/LIVE_STREAMING.md §11a). Reads are excluded so viewers never reach the
+# app. A webinar set up before Oct 2, 2026 needs "Re-send stream settings to
+# Zoom" once, or its publish is refused.
+authMethod: http
+authHTTPAddress: https://events.meetingmindsgroup.com/api/webhooks/mediamtx-auth
+authHTTPExclude:
+  - action: read
+  - action: playback
 
 # HLS settings — mpegts variant (fmp4 has known 404 issues)
 hlsVariant: mpegts

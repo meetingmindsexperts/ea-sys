@@ -314,7 +314,7 @@ or Zoom's live-stream service. If MediaMTX shows a clean close from Zoom's side,
 
 <h2 id="gaps">9. Known gaps</h2>
 <ul>
-  <li><b>Publish approval is not switched on.</b> <code>mediamtx.yml</code> has no <code>authMethod: http</code>, so MediaMTX accepts a push on any path from anyone who can reach port 1935. The approval route and the publish passwords exist; switching it on is the owner step in <code>docs/LIVE_STREAMING.md</code> ("Publish authorisation").</li>
+  <li><b>Publish approval switched on Nov 5, 2026, effective at the next MediaMTX recreate.</b> Every viewer's HLS URL contains the stream key, so before this anyone registered could push their own video over a live webinar. <code>mediamtx.yml</code> now has <code>authMethod: http</code> and only RTMP and HLS listen. A webinar set up before Oct 2, 2026 needs "Re-send stream settings to Zoom" once (<code>docs/LIVE_STREAMING.md</code> §11a).</li>
   <li><b>MediaMTX's log reaches CloudWatch only after the box steps</b> (install the logrotate rule, re-run the CloudWatch setup, recreate the MediaMTX container outside a webinar): see <code>infra/cloudwatch/README.md</code>, "MediaMTX log".</li>
   <li>The watchdog cannot say <b>why</b> a stream dropped, only that it did; the reason is in MediaMTX's log.</li>
   <li><b>Zoom embed mode</b> cannot tell "still on air" from "left open", so a webinar running more than 2 hours past its scheduled end is closed by the safety net.</li>
