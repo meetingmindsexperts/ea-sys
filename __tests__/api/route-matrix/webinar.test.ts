@@ -47,6 +47,7 @@ import { GET as presenceGET } from "@/app/api/events/[eventId]/webinar/presence/
 import { GET as questionsGET, PATCH as questionsPATCH } from "@/app/api/events/[eventId]/webinar/questions/route";
 import { POST as recordingPOST } from "@/app/api/events/[eventId]/webinar/recording/fetch/route";
 import { POST as roomPOST } from "@/app/api/events/[eventId]/webinar/room/route";
+import { GET as streamTimelineGET } from "@/app/api/events/[eventId]/webinar/stream-timeline/route";
 import { GET as sequenceGET, POST as sequencePOST } from "@/app/api/events/[eventId]/webinar/sequence/route";
 import { GET as zoomSettingsGET, PUT as zoomSettingsPUT } from "@/app/api/events/[eventId]/zoom/settings/route";
 import {
@@ -85,6 +86,7 @@ const CASES: HandlerCase[] = [
   { name: "POST webinar/recording/fetch", handler: recordingPOST, method: "POST", body: {} },
   { name: "POST webinar/room", handler: roomPOST, method: "POST", body: { open: true } },
   { name: "GET webinar/sequence", handler: sequenceGET, method: "GET" },
+  { name: "GET webinar/stream-timeline", handler: streamTimelineGET, method: "GET" },
   { name: "POST webinar/sequence", handler: sequencePOST, method: "POST", body: {} },
   { name: "GET zoom/settings", handler: zoomSettingsGET, method: "GET" },
   { name: "PUT zoom/settings", handler: zoomSettingsPUT, method: "PUT", body: { enabled: true } },

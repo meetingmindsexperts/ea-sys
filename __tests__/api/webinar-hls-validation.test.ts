@@ -105,6 +105,15 @@ describe("PUT /webinar — hls mode requires a configured live stream", () => {
     expect(order.slice(0, 2)).toEqual(["openedAt", "live"]);
   });
 
+  it("opening the room clears an earlier Stop stream, so the stream watchdog guards it again (Nov 5, 2026)", async () => {
+    mockControlLiveStream.mockResolvedValue({ ok: true, action: "start", streamKey: "sk-1" });
+    await callRoom({ open: true });
+    const merge = (mockUpdateEventSettings.mock.calls[0] as unknown[])[1] as (c: Record<string, unknown>) => { webinar: Record<string, unknown> };
+    const next = merge({ webinar: { sessionId: "anchor1", streamStoppedAt: "2026-11-05T08:00:00Z" } }).webinar;
+    expect(next.streamStoppedAt).toBeNull();
+    expect(typeof next.roomOpenedAt).toBe("string");
+  });
+
   it("switching to hls sets the stream up itself (the Re-send sync), then saves", async () => {
     mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     mockControlLiveStream.mockResolvedValue({ ok: true, action: "sync", streamKey: "k" });

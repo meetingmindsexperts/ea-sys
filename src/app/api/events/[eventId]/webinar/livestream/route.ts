@@ -9,6 +9,8 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream, rtmpIngestUrl } from "@/lib/webinar/livestream";
+import { recordStreamEvent } from "@/lib/webinar/stream-timeline";
+import { updateEventSettings } from "@/lib/event-settings";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -67,6 +69,23 @@ export async function GET(_req: Request, { params }: RouteParams) {
   } catch (error) {
     apiLogger.error({ err: error }, "webinar-livestream:ingest-url-failed");
     return NextResponse.json({ error: "Failed to read the stream address" }, { status: 500 });
+  }
+}
+
+/**
+ * Stop stream is a choice, not a drop: remember it so the stream watchdog does not start the stream
+ * again; Start stream forgets it (Nov 5, 2026). Locked merge of one key; failure-isolated, because the
+ * stream itself has already been started or stopped.
+ */
+async function markProducerStreamChoice(eventId: string, action: "start" | "stop"): Promise<void> {
+  try {
+    await updateEventSettings(eventId, (current) => {
+      const webinar =
+        current.webinar && typeof current.webinar === "object" ? (current.webinar as Record<string, unknown>) : {};
+      return { ...current, webinar: { ...webinar, streamStoppedAt: action === "stop" ? new Date().toISOString() : null } };
+    });
+  } catch (err) {
+    apiLogger.error({ err, eventId, action }, "webinar-livestream:stopped-flag-write-failed");
   }
 }
 
@@ -147,6 +166,18 @@ export async function POST(req: Request, { params }: RouteParams) {
           { error: result.message, code: result.code },
           { status: STATUS_BY_CODE[result.code] },
         );
+      }
+      if (validated.data.action !== "sync") {
+        await markProducerStreamChoice(eventId, validated.data.action);
+        await recordStreamEvent({
+          organizationId: orgGuard.orgId,
+          eventId,
+          sessionId: webinar.sessionId,
+          kind: validated.data.action === "start" ? "STREAM_START_PRESSED" : "STREAM_STOP_PRESSED",
+          userId: session.user.id,
+          detail: result.notRunning ? "Nothing was running in Zoom" : null,
+          source: "rest",
+        });
       }
       return NextResponse.json({ ok: true, action: result.action, notRunning: result.notRunning === true });
     });

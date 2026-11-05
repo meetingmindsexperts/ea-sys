@@ -126,6 +126,9 @@ export interface WebinarSettings {
    *  trusts a Zoom "ended" time later than this, so an earlier practice run
    *  of the same Zoom webinar can never close today's room (Oct 1, 2026). */
   roomOpenedAt?: string;
+  /** ISO time the producer pressed Stop stream; cleared by Start stream and by opening the room. While
+   *  set, the stream watchdog leaves the stream alone: a deliberate stop is not a drop (Nov 5, 2026). */
+  streamStoppedAt?: string | null;
 }
 
 export function readWebinarSettings(

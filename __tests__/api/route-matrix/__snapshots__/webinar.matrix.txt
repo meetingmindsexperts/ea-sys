@@ -401,6 +401,25 @@ GET webinar/sequence
   API_KEY     401         401         401         401
   NONE        401         401         401         401
 
+GET webinar/stream-timeline
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 200 r       200 r       200 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       200 r       200 r       200 r       404
+  ORGANIZER   200 r       200 r       200 r       404
+  MEMBER      200 r       200 r       200 r       404
+  ONSITE      404         200 r       404         404
+  WEBINARS    404         404         200 r       404
+  CRM_USER    404         404         404         404
+  HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
 POST webinar/sequence
   caller      conf        assigned    webinar     foreign
   SUPER_ADMIN 500 r w     500 r w     500 r w     404

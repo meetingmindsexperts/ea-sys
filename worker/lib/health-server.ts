@@ -53,7 +53,10 @@ export interface HealthState {
  * exactly when we made the schedules harder to eyeball.
  */
 export function maxIntervalMs(schedule: string): number | null {
-  const parts = schedule.trim().split(/\s+/);
+  let parts = schedule.trim().split(/\s+/);
+  // A six-field schedule leads with seconds ("30 * * * * *"): node-cron runs it once per minute at that
+  // second, so the gap between ticks is the five-field schedule's (Nov 5, 2026).
+  if (parts.length === 6) parts = parts.slice(1);
   if (parts.length !== 5) return null;
   const [min, hour, dom, , dow] = parts;
 

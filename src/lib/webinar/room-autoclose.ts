@@ -20,6 +20,7 @@ import { readWebinarSettings } from "@/lib/webinar";
 import { getLastZoomEndTime } from "@/lib/zoom/reports";
 import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
 import { isWebinarStreamArriving, OVERRUN_HARD_CAP_MS } from "@/lib/webinar/overrun";
+import { recordStreamEvent } from "@/lib/webinar/stream-timeline";
 
 export const SAFETY_NET_MS = 2 * 60 * 60 * 1000;
 export const MAX_ROOMS_PER_TICK = 20;
@@ -161,6 +162,14 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
           "webinar-room-autoclose:closed",
         );
         // The thank-you follows the close (Oct 28, 2026): Zoom's own end when it gave one, else now.
+        await recordStreamEvent({
+          organizationId: room.event.organizationId,
+          eventId: room.eventId,
+          sessionId: room.id,
+          kind: "ROOM_AUTO_CLOSED",
+          detail: finalZoomEnd || decision === "close-zoom-ended" ? "Zoom reported the webinar ended" : "Safety net: still open long after the scheduled end",
+          source: "worker",
+        });
         const realEnd = finalZoomEnd ?? (decision === "close-zoom-ended" ? zoomEndedAt : null);
         await retimeThankYouAfterRoomClose(room.eventId, realEnd ?? now);
         return decision;

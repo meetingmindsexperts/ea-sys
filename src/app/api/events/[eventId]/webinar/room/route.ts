@@ -13,6 +13,7 @@ import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
 import { isStreamArriving } from "@/lib/webinar/stream-probe";
 import { updateEventSettings } from "@/lib/event-settings";
 import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
+import { recordStreamEvent } from "@/lib/webinar/stream-timeline";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -118,7 +119,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         await updateEventSettings(event.id, (current) => {
           const currentWebinar =
             current.webinar && typeof current.webinar === "object" ? (current.webinar as Record<string, unknown>) : {};
-          return { ...current, webinar: { ...currentWebinar, roomOpenedAt: openedAt } };
+          // Opening the room starts the stream, so an earlier Stop stream no longer stands (watchdog).
+          return { ...current, webinar: { ...currentWebinar, roomOpenedAt: openedAt, streamStoppedAt: null } };
         });
       } catch (err) {
         apiLogger.error({ err, eventId }, "webinar:room-opened-at-write-failed");
@@ -157,6 +159,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       { eventId, sessionId: webinar.sessionId, userId: session.user.id, status: nextStatus },
       validated.data.open ? "webinar:room-opened" : "webinar:room-closed",
     );
+    await recordStreamEvent({
+      organizationId: orgGuard.orgId,
+      eventId,
+      sessionId: webinar.sessionId,
+      kind: validated.data.open ? "ROOM_OPENED" : "ROOM_CLOSED",
+      userId: session.user.id,
+      detail: nextStatus === "COMPLETED" || validated.data.open ? null : "Before the scheduled start: a rehearsal",
+      source: "rest",
+    });
     // The thank-you follows the close, not the scheduled end (Oct 28, 2026). Never throws.
     if (!validated.data.open) await retimeThankYouAfterRoomClose(eventId);
 

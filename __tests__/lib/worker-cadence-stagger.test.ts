@@ -47,6 +47,8 @@ interface Job {
   name: string;
   schedule: string;
   minuteField: string;
+  /** The second of the minute it starts on: 0 for a five-field schedule. */
+  second: string;
   everyHour: boolean;
 }
 
@@ -55,8 +57,11 @@ const jobs: Job[] = readdirSync(JOBS_DIR)
   .map((f) => {
     const src = readFileSync(join(JOBS_DIR, f), "utf8");
     const schedule = src.match(/export const SCHEDULE = "([^"]+)"/)?.[1] ?? "";
-    const [minuteField, hourField] = schedule.split(/\s+/);
-    return { name: f.replace(/\.ts$/, ""), schedule, minuteField, everyHour: hourField === "*" };
+    const fields = schedule.split(/\s+/);
+    // A six-field schedule leads with seconds (node-cron). The rule is about jobs STARTING together and
+    // competing for the pool, so a job at second 30 does not share a slot with the ones at second 0.
+    const [second, minuteField, hourField] = fields.length === 6 ? fields : ["0", ...fields];
+    return { name: f.replace(/\.ts$/, ""), schedule, minuteField, second, everyHour: hourField === "*" };
   });
 
 describe("job cadence staggering", () => {
@@ -67,10 +72,11 @@ describe("job cadence staggering", () => {
 
   it("never puts more than 4 jobs on the same minute", () => {
     const subHourly = jobs.filter((j) => j.everyHour);
-    const load = new Map<number, string[]>();
+    const load = new Map<number | string, string[]>();
     for (const j of subHourly) {
       for (const m of firingMinutes(j.minuteField)) {
-        load.set(m, [...(load.get(m) ?? []), j.name]);
+        const slot = j.second === "0" ? m : `${m}:${j.second}`;
+        load.set(slot, [...(load.get(slot) ?? []), j.name]);
       }
     }
 

@@ -103,6 +103,8 @@ import {
   type WebinarViewerQuestionRow,
   useUpdateWebinarViewerQuestion,
   useWebinarPresence,
+  useWebinarStreamTimeline,
+  type WebinarStreamTimelineEntry,
   useEventSurveys,
   useUploadWebinarHandout,
   useLivePolls,
@@ -463,6 +465,7 @@ export default function WebinarConsolePage() {
                 eventId={eventId}
                 live={anchor?.status === "LIVE" || status === "live"}
               />
+              <StreamTimelineCard eventId={eventId} live={anchor?.status === "LIVE"} />
               {/* Handouts in the right rail (owner, Oct 6, 2026). */}
               <HandoutsCard eventId={eventId} handouts={data?.webinar?.handouts ?? []} />
               <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
@@ -3584,6 +3587,69 @@ function EndSurveyCard({
             Save
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const STREAM_EVENT_LABEL: Record<WebinarStreamTimelineEntry["kind"], { label: string; tone: string }> = {
+  ROOM_OPENED: { label: "Room opened", tone: "bg-emerald-500" },
+  ROOM_CLOSED: { label: "Room closed", tone: "bg-slate-400" },
+  ROOM_AUTO_CLOSED: { label: "Room closed automatically", tone: "bg-slate-400" },
+  STREAM_START_PRESSED: { label: "Start stream pressed", tone: "bg-sky-500" },
+  STREAM_STOP_PRESSED: { label: "Stop stream pressed", tone: "bg-slate-400" },
+  STREAM_LIVE: { label: "Stream live", tone: "bg-emerald-500" },
+  STREAM_DROPPED: { label: "Stream dropped", tone: "bg-red-500" },
+  AUTO_RESTART_REQUESTED: { label: "Restart requested automatically", tone: "bg-amber-500" },
+  AUTO_RESTART_FAILED: { label: "Automatic restart refused", tone: "bg-red-500" },
+};
+
+/**
+ * Stream timeline (Nov 5, 2026): what happened to the room and the stream, newest first, so a
+ * producer can see "dropped, restarted, back" without CloudWatch. Rows come from the room switch,
+ * the Start/Stop buttons, the auto-close and the stream watchdog (src/lib/webinar/stream-timeline.ts).
+ */
+function StreamTimelineCard({ eventId, live }: { eventId: string; live: boolean }) {
+  const tz = useEventTz();
+  const { data, isLoading, error } = useWebinarStreamTimeline(eventId, live);
+  const entries = data?.entries ?? [];
+  return (
+    <Card>
+      <CardHeader>
+        <ConsoleTitle icon={Radio} tone="violet">
+          Stream timeline
+        </ConsoleTitle>
+        <CardDescription>
+          The room and the stream, newest first. While the room is open a dropped stream is restarted
+          automatically, and it shows here.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {error && <p className="text-sm text-red-600">The timeline could not be loaded.</p>}
+        {!isLoading && !error && entries.length === 0 && (
+          <p className="text-sm text-muted-foreground">Nothing yet. Opening the room starts the timeline.</p>
+        )}
+        {entries.length > 0 && (
+          <ol className="max-h-80 space-y-2 overflow-y-auto pr-1">
+            {entries.map((e) => {
+              const meta = STREAM_EVENT_LABEL[e.kind];
+              return (
+                <li key={e.id} className="flex items-start gap-3 text-sm">
+                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${meta.tone}`} aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{meta.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {fmtTz(e.at, tz)}
+                      {e.user ? ` · ${e.user.firstName} ${e.user.lastName}` : ""}
+                    </p>
+                    {e.detail && <p className="text-xs text-muted-foreground break-words">{e.detail}</p>}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
       </CardContent>
     </Card>
   );

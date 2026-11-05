@@ -140,6 +140,7 @@ export const queryKeys = {
   webinarSequence: (eventId: string) => ["events", eventId, "webinar", "sequence"] as const,
   webinarAttendance: (eventId: string) => ["events", eventId, "webinar", "attendance"] as const,
   webinarPresence: (eventId: string) => ["events", eventId, "webinar", "presence"] as const,
+  webinarStreamTimeline: (eventId: string) => ["events", eventId, "webinar", "stream-timeline"] as const,
   webinarEngagement: (eventId: string) => ["events", eventId, "webinar", "engagement"] as const,
   webinarPanelists: (eventId: string) => ["events", eventId, "webinar", "panelists"] as const,
   sponsors: (eventId: string) => ["events", eventId, "sponsors"] as const,
@@ -3325,6 +3326,33 @@ export function useWebinarPresence(eventId: string, enabled = true) {
     queryFn: () => fetchApi<WebinarPresenceData>(`/api/events/${eventId}/webinar/presence`),
     enabled: !!eventId && enabled,
     refetchInterval: 18000,
+  });
+}
+
+export interface WebinarStreamTimelineEntry {
+  id: string;
+  kind:
+    | "ROOM_OPENED"
+    | "ROOM_CLOSED"
+    | "ROOM_AUTO_CLOSED"
+    | "STREAM_START_PRESSED"
+    | "STREAM_STOP_PRESSED"
+    | "STREAM_LIVE"
+    | "STREAM_DROPPED"
+    | "AUTO_RESTART_REQUESTED"
+    | "AUTO_RESTART_FAILED";
+  at: string;
+  user: { firstName: string; lastName: string } | null;
+  detail: string | null;
+}
+
+/** The console's Stream timeline; refreshed every 15 s while the room is open (Nov 5, 2026). */
+export function useWebinarStreamTimeline(eventId: string, live: boolean) {
+  return useQuery({
+    queryKey: queryKeys.webinarStreamTimeline(eventId),
+    queryFn: () => fetchApi<{ entries: WebinarStreamTimelineEntry[] }>(`/api/events/${eventId}/webinar/stream-timeline`),
+    enabled: !!eventId,
+    refetchInterval: live ? 15_000 : false,
   });
 }
 

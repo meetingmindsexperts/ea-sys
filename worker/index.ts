@@ -51,6 +51,7 @@ import * as scheduledEmails from "./jobs/scheduled-emails";
 import * as webinarRecordings from "./jobs/webinar-recordings";
 import * as webinarAttendance from "./jobs/webinar-attendance";
 import * as webinarRoomAutoclose from "./jobs/webinar-room-autoclose";
+import * as webinarStreamWatchdog from "./jobs/webinar-stream-watchdog";
 import * as oauthCleanup from "./jobs/oauth-cleanup";
 import * as invoiceReconciliation from "./jobs/invoice-reconciliation";
 import * as crmReminders from "./jobs/crm-reminders";
@@ -97,6 +98,7 @@ const JOBS = [
   webinarRecordings,
   webinarAttendance,
   webinarRoomAutoclose,
+  webinarStreamWatchdog,
   oauthCleanup,
   invoiceReconciliation,
   contactsCentralSync,

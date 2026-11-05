@@ -41,6 +41,7 @@ export const JOB_IDS = {
   WEBINAR_ROOM_AUTOCLOSE: 1024,
   CRM_CONTACT_SCORE: 1025,
   DTCM_ISSUE: 1026,
+  WEBINAR_STREAM_WATCHDOG: 1027,
 } as const;
 
 export type JobId = (typeof JOB_IDS)[keyof typeof JOB_IDS];

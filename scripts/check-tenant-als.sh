@@ -443,6 +443,7 @@ OPERATOR_LANE_ALLOWLIST=(
   "src/lib/webinar-recordings-worker.ts"     # ZoomMeeting candidate scan
   "src/lib/webinar-attendance-worker.ts"     # ZoomMeeting candidate scan
   "src/lib/webinar/room-autoclose.ts"        # open webinar rooms candidate scan (writes run in runWithTenant)
+  "src/lib/webinar/stream-watchdog.ts"       # open custom-stream rooms candidate scan (each room runs in runWithTenant)
   "src/lib/certificates/auto-issue.ts"       # survey-completed candidate sweep
   "src/lib/certificates/issue-worker.ts"     # active-run scan + stall reclamation
   "src/lib/dtcm-eticket/issue-worker.ts"     # RUNNING DET-run scan (each run worked in its own lane)
