@@ -19,7 +19,7 @@ const {
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
-    payment: { update: vi.fn() },
+    payment: { update: vi.fn(), updateMany: vi.fn() },
     invoice: { findFirst: vi.fn(), findMany: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     refundAttempt: { create: vi.fn(), update: vi.fn() },
@@ -102,6 +102,7 @@ beforeEach(() => {
   mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
   mockDb.registration.update.mockResolvedValue({});
   mockDb.payment.update.mockResolvedValue({});
+  mockDb.payment.updateMany.mockResolvedValue({ count: 1 });
   stripeRefundsCreate.mockResolvedValue({ id: "re_1", status: "succeeded" });
   // Verification (verify-before-rollback): Stripe reachable, refund absent.
   stripeRefundsList.mockResolvedValue({ data: [] });
@@ -112,6 +113,7 @@ beforeEach(() => {
     cb({
       registration: { updateMany: mockDb.registration.updateMany },
       refundAttempt: { create: mockDb.refundAttempt.create },
+      payment: { updateMany: mockDb.payment.updateMany },
     }),
   );
 });
@@ -147,8 +149,8 @@ describe("refund — manual/offline payment", () => {
       where: { id: "reg1", paymentStatus: "PAID", refundedAmount: 0 },
       data: { refundedAmount: 100, paymentStatus: "REFUNDED" },
     });
-    // Per-payment counter bumped + flipped in one write.
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { refundedAmount: 100, status: "REFUNDED" } });
+    // Per-payment counter booked + flipped with the claim (security audit W0-1).
+    expect(mockDb.payment.updateMany).toHaveBeenCalledWith({ where: { id: "pay1", refundedAmount: 0 }, data: { refundedAmount: { increment: 100 }, status: "REFUNDED" } });
   });
 
   it("PARTIAL manual refund keeps reg PAID + payment PAID, tracks refundedAmount", async () => {
@@ -163,7 +165,7 @@ describe("refund — manual/offline payment", () => {
       data: { refundedAmount: 40 }, // no paymentStatus flip on partial
     });
     // Per-payment counter tracks the partial; the payment's STATUS stays PAID.
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { refundedAmount: 40 } });
+    expect(mockDb.payment.updateMany).toHaveBeenCalledWith({ where: { id: "pay1", refundedAmount: 0 }, data: { refundedAmount: { increment: 40 } } });
   });
 
   it("a partial that completes the balance flips to REFUNDED", async () => {
@@ -179,7 +181,7 @@ describe("refund — manual/offline payment", () => {
       where: { id: "reg1", paymentStatus: "PAID", refundedAmount: 60 },
       data: { refundedAmount: 100, paymentStatus: "REFUNDED" },
     });
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { refundedAmount: 100, status: "REFUNDED" } });
+    expect(mockDb.payment.updateMany).toHaveBeenCalledWith({ where: { id: "pay1", refundedAmount: 60 }, data: { refundedAmount: { increment: 40 }, status: "REFUNDED" } });
   });
 });
 
@@ -209,7 +211,7 @@ describe("refund — Stripe payment", () => {
       { idempotencyKey: "refund-attempt-att1" },
     );
     // Per-payment counter tracks the partial; the payment's STATUS stays PAID.
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { refundedAmount: 30 } });
+    expect(mockDb.payment.updateMany).toHaveBeenCalledWith({ where: { id: "pay1", refundedAmount: 0 }, data: { refundedAmount: { increment: 30 } } });
   });
 
   it("rolls the refunded total back (conditionally) and 502s when Stripe fails and the refund is provably absent", async () => {

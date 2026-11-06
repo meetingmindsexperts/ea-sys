@@ -11,7 +11,7 @@ const { mockAuth, mockDb, mockApiLogger, mockStripeRefundsCreate, mockStripeRefu
     mockDb: {
       event: { findFirst: vi.fn() },
       registration: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
-      payment: { update: vi.fn() },
+      payment: { update: vi.fn(), updateMany: vi.fn() },
       invoice: { findFirst: vi.fn(), findMany: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
       refundAttempt: { create: vi.fn(), update: vi.fn() },
@@ -31,10 +31,13 @@ const { mockAuth, mockDb, mockApiLogger, mockStripeRefundsCreate, mockStripeRefu
 mockStripeRefundsList.mockResolvedValue({ data: [] });
 mockDb.refundAttempt.create.mockResolvedValue({ id: "att-1" });
 mockDb.refundAttempt.update.mockResolvedValue({});
+// The per-payment counter is booked inside the claim (security audit W0-1).
+mockDb.payment.updateMany.mockResolvedValue({ count: 1 });
 mockDb.$transaction.mockImplementation(async (cb: (tx: unknown) => unknown) =>
   cb({
     registration: { updateMany: mockDb.registration.updateMany },
     refundAttempt: { create: mockDb.refundAttempt.create },
+    payment: { updateMany: mockDb.payment.updateMany },
   }),
 );
 
@@ -214,7 +217,7 @@ describe("Refund: business rule validations", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).manual).toBe(true);
     expect(mockStripeRefundsCreate).not.toHaveBeenCalled();
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay-1" }, data: { refundedAmount: 150, status: "REFUNDED" } });
+    expect(mockDb.payment.updateMany).toHaveBeenCalledWith({ where: { id: "pay-1" }, data: { refundedAmount: { increment: 150 }, status: "REFUNDED" } });
   });
 });
 
@@ -335,7 +338,8 @@ describe("Refund: success path", () => {
 
   it("updates payment record to REFUNDED (counter + status)", async () => {
     await POST(makeRequest(), makeParams());
-    expect(mockDb.payment.update).toHaveBeenCalledWith(
+    // Booked with the claim, before Stripe (security audit W0-1).
+    expect(mockDb.payment.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "REFUNDED" }) })
     );
   });

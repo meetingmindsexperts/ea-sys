@@ -31,6 +31,16 @@ function failedSliceError(rollbackApplied: boolean, err: unknown): string {
   return `Rollback did not apply: ${truncateError(err)}`;
 }
 
+/** Aborts the refund booking transaction: a payment's counter moved since the read. */
+class PaymentCounterMoved extends Error {
+  constructor(readonly paymentId: string) {
+    super(`Payment ${paymentId} refund counter moved concurrently`);
+  }
+}
+
+/** Thrown inside a rollback transaction so a partial un-book never commits. */
+class RollbackRaced extends Error {}
+
 // ── issueCreditNoteForRegistration ───────────────────────────────────────────
 
 export type PaymentSource = "rest" | "mcp" | "agent" | "api" | "system";
@@ -396,6 +406,28 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
         },
       });
       if (locked.count === 0) return null;
+      // Each payment's own counter is booked HERE, with the registration's
+      // (security audit W0-1, Nov 6 2026). It used to be written after Stripe
+      // returned, outside any transaction, as an absolute value from the
+      // snapshot. The charge.refunded webhook decides "already counted" from
+      // this counter alone, so a webhook landing before that write, a failed
+      // write, or a process dying after Stripe each booked the same refund a
+      // second time. Booked first, the webhook for OUR refund always reads
+      // delta 0. Optimistic on the snapshot: a Stripe Dashboard refund that
+      // moved the counter since the read aborts the whole booking (LOST_LOCK)
+      // instead of being overwritten.
+      for (const s of [...stripeSlices, ...manualSlices]) {
+        const paymentAfter = round2(Number(s.payment.refundedAmount ?? 0) + s.take);
+        const claimed = await tx.payment.updateMany({
+          where: { id: s.payment.id, refundedAmount: s.payment.refundedAmount },
+          data: {
+            refundedAmount: { increment: s.take },
+            ...(paymentAfter >= Number(s.payment.amount) - 0.005 ? { status: "REFUNDED" as const } : {}),
+          },
+        });
+        // Throw, not return: returning would COMMIT the registration claim above.
+        if (claimed.count === 0) throw new PaymentCounterMoved(s.payment.id);
+      }
       const rows: { id: string }[] = [];
       let running = refundedBefore;
       for (let i = 0; i < attemptPlan.length; i++) {
@@ -424,6 +456,10 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
         running = after;
       }
       return rows;
+    }).catch((err: unknown) => {
+      if (!(err instanceof PaymentCounterMoved)) throw err;
+      apiLogger.warn({ msg: "refund:payment-counter-moved", registrationId, eventId, paymentId: err.paymentId });
+      return null;
     });
     if (!attempts) {
       apiLogger.warn({ msg: "refund:lost-lock", registrationId, eventId });
@@ -440,13 +476,19 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
     const abortRemainder = async (args: { keptUnknown: number; failedAttemptIndex: number; failedStatus: "FAILED" | "UNKNOWN"; err: unknown }) => {
       const executed = round2(completedSlices.reduce((s, r) => s + r.amount, 0));
       const rollbackPortion = round2(amount - executed - args.keptUnknown);
+      // The slices whose payment counters were booked but whose money never
+      // moved: the failed Stripe slice (unless kept UNKNOWN), every Stripe
+      // slice after it, and every manual slice (those run after Stripe).
+      const firstUnbooked = args.keptUnknown > 0 ? args.failedAttemptIndex + 1 : args.failedAttemptIndex;
+      const unbookSlices = [...stripeSlices.slice(firstUnbooked), ...manualSlices];
       let rollbackApplied = true;
       if (rollbackPortion > 0.005) {
         // Decrement (not set-back): a webhook may have adjusted OTHER charges'
         // refunds in the window — we only un-book the portion WE know never
-        // moved. Guarded so it can't go negative.
-        const rolledBack = await db.registration
-          .updateMany({
+        // moved. Guarded so it can't go negative. Registration and payment
+        // counters roll back together or not at all.
+        rollbackApplied = await tenantTransaction(async (tx) => {
+          const rolledBack = await tx.registration.updateMany({
             where: { id: registrationId, refundedAmount: { gte: rollbackPortion } },
             data: {
               refundedAmount: { decrement: rollbackPortion },
@@ -454,12 +496,23 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
               // booked; un-booking any part means the reg isn't fully refunded.
               ...(isFull ? { paymentStatus: "PAID" as const } : {}),
             },
-          })
-          .catch((rollbackErr) => {
-            apiLogger.error({ rollbackErr, msg: "refund:rollback-failed — sweep will reconcile", registrationId });
-            return null;
           });
-        rollbackApplied = !!rolledBack && rolledBack.count > 0;
+          if (rolledBack.count === 0) throw new RollbackRaced();
+          for (const s of unbookSlices) {
+            const unbooked = await tx.payment.updateMany({
+              where: { id: s.payment.id, refundedAmount: { gte: s.take } },
+              // Below its amount again, so no longer fully refunded.
+              data: { refundedAmount: { decrement: s.take }, status: "PAID" },
+            });
+            if (unbooked.count === 0) throw new RollbackRaced();
+          }
+          return true;
+        }).catch((rollbackErr: unknown) => {
+          if (!(rollbackErr instanceof RollbackRaced)) {
+            apiLogger.error({ rollbackErr, msg: "refund:rollback-failed — sweep will reconcile", registrationId });
+          }
+          return false;
+        });
         if (!rollbackApplied) {
           apiLogger.error({ msg: "refund:rollback-did-not-apply — sweep will reconcile", registrationId, rollbackPortion });
         }
@@ -561,39 +614,19 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
 
       // Slice succeeded (directly or via verification): persist per-payment truth.
       stripeRefundId ??= sliceRefundId;
+      // The payment counter was booked with the claim; only the attempt row is left.
       await db.refundAttempt
         .update({ where: { id: attemptId }, data: { status: "SUCCEEDED", stripeRefundId: sliceRefundId } })
         .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId }));
-      const paymentRefundedAfter = round2(Number(slice.payment.refundedAmount ?? 0) + slice.take);
-      await db.payment
-        .update({
-          where: { id: slice.payment.id },
-          data: {
-            refundedAmount: paymentRefundedAfter,
-            ...(paymentRefundedAfter >= Number(slice.payment.amount) - 0.005 ? { status: "REFUNDED" as const } : {}),
-          },
-        })
-        .catch((err) => apiLogger.error({ err, msg: "refund:payment-counter-update-failed", registrationId, paymentId: slice.payment.id }));
       completedSlices.push({ paymentId: slice.payment.id, kind: "stripe", amount: slice.take, stripeRefundId: sliceRefundId });
     }
 
     // Manual portion (manual-payment slices + unattributed residue): the money
-    // moves out-of-band — the booking IS the record. A missed status update is
-    // benign: the sweep confirms stale manual attempts.
+    // moves out-of-band — the booking IS the record (both counters were booked
+    // with the claim). A missed status update is benign: the sweep confirms
+    // stale manual attempts.
     if (manualPortion > 0.005) {
       const manualAttemptId = attempts[attempts.length - 1].id;
-      for (const m of manualSlices) {
-        const paymentRefundedAfter = round2(Number(m.payment.refundedAmount ?? 0) + m.take);
-        await db.payment
-          .update({
-            where: { id: m.payment.id },
-            data: {
-              refundedAmount: paymentRefundedAfter,
-              ...(paymentRefundedAfter >= Number(m.payment.amount) - 0.005 ? { status: "REFUNDED" as const } : {}),
-            },
-          })
-          .catch((err) => apiLogger.error({ err, msg: "refund:payment-counter-update-failed", registrationId, paymentId: m.payment.id }));
-      }
       await db.refundAttempt
         .update({ where: { id: manualAttemptId }, data: { status: "SUCCEEDED" } })
         .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId: manualAttemptId }));

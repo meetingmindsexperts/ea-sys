@@ -1,4 +1,4 @@
-import { db, dbOperator } from "@/lib/db";
+import { db, dbOperator, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getStripe } from "@/lib/stripe";
@@ -25,6 +25,9 @@ import { notifyEventAdmins } from "@/lib/notifications";
  */
 
 const STALE_AFTER_MS = 10 * 60 * 1000;
+
+/** Thrown inside the rollback transaction so a half un-book never commits. */
+class SweepRollbackRaced extends Error {}
 
 export type StripeRefundVerification =
   | { verified: true; found: boolean; refundId: string | null }
@@ -150,15 +153,32 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
       // sibling slices of the same refund — or webhook reconciliations of
       // other charges — may have legitimately moved the total in the
       // meantime; we only remove the portion THIS attempt booked.
-      const rolledBack = await db.registration.updateMany({
-        where: { id: attempt.registrationId, refundedAmount: { gte: Number(attempt.amount) } },
-        data: {
-          refundedAmount: { decrement: Number(attempt.amount) },
-          ...(attempt.flippedToRefunded ? { paymentStatus: "PAID" as const } : {}),
-        },
+      // The booking also raised the payment's own counter (security audit W0-1,
+      // Nov 6 2026), so both come back down together or neither does.
+      const amount = Number(attempt.amount);
+      const rolledBack = await tenantTransaction(async (tx) => {
+        const reg = await tx.registration.updateMany({
+          where: { id: attempt.registrationId, refundedAmount: { gte: amount } },
+          data: {
+            refundedAmount: { decrement: amount },
+            ...(attempt.flippedToRefunded ? { paymentStatus: "PAID" as const } : {}),
+          },
+        });
+        if (reg.count === 0) throw new SweepRollbackRaced();
+        if (attempt.paymentId) {
+          const pay = await tx.payment.updateMany({
+            where: { id: attempt.paymentId, refundedAmount: { gte: amount } },
+            data: { refundedAmount: { decrement: amount }, status: "PAID" },
+          });
+          if (pay.count === 0) throw new SweepRollbackRaced();
+        }
+        return true;
+      }).catch((err: unknown) => {
+        if (err instanceof SweepRollbackRaced) return false;
+        throw err;
       });
 
-      if (rolledBack.count === 0) {
+      if (!rolledBack) {
         // Something else already moved the registration's money state
         // (another refund, webhook reconcile). Don't guess — terminal +
         // human review.

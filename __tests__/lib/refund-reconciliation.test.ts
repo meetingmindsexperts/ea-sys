@@ -11,6 +11,7 @@ const { mockDb, mockDbOperator, mockApiLogger, refundsList, notifySpy } = vi.hoi
     // Per-attempt work; stays on the normal client inside the row's own lane.
     refundAttempt: { findMany: vi.fn(), update: vi.fn() },
     registration: { updateMany: vi.fn() },
+    payment: { updateMany: vi.fn() },
   },
   // The privileged candidate scan, and ONLY that.
   mockDbOperator: { refundAttempt: { findMany: vi.fn() } },
@@ -24,7 +25,14 @@ const { mockDb, mockDbOperator, mockApiLogger, refundsList, notifySpy } = vi.hoi
 // reverting `dbOperator.x` to `db.x` would still pass. The scan below is the
 // one statement that MUST be privileged, and on the platform a revert makes
 // it return zero rows forever without erroring, so the test distinguishes them.
-vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDbOperator }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  dbOperator: mockDbOperator,
+  // Flag off, tenantTransaction is db.$transaction: the callback gets a tx whose
+  // writes are the shared mocks. A throw inside it is the rollback.
+  tenantTransaction: (fn: (tx: unknown) => unknown) =>
+    fn({ registration: mockDb.registration, payment: mockDb.payment }),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/stripe", () => ({ getStripe: () => ({ refunds: { list: refundsList } }) }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: notifySpy }));
@@ -52,6 +60,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockDb.refundAttempt.update.mockResolvedValue({});
   mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+  mockDb.payment.updateMany.mockResolvedValue({ count: 1 });
   refundsList.mockResolvedValue({ data: [] });
   notifySpy.mockResolvedValue(undefined);
 });
@@ -104,6 +113,12 @@ describe("resolveStaleRefundAttempts", () => {
       where: { id: "reg1", refundedAmount: { gte: 50 } },
       data: { refundedAmount: { decrement: 50 }, paymentStatus: "PAID" },
     });
+    // ...and the payment's own counter, booked with the claim since W0-1, comes
+    // down in the same transaction.
+    expect(mockDb.payment.updateMany).toHaveBeenCalledWith({
+      where: { id: "p1", refundedAmount: { gte: 50 } },
+      data: { refundedAmount: { decrement: 50 }, status: "PAID" },
+    });
     expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ status: "FAILED" }) }),
     );
@@ -129,6 +144,23 @@ describe("resolveStaleRefundAttempts", () => {
       expect.objectContaining({ data: expect.objectContaining({ status: "FAILED", error: expect.stringContaining("review manually") }) }),
     );
     expect(notifySpy).toHaveBeenCalledWith("ev1", expect.objectContaining({ title: expect.stringContaining("manual review") }));
+  });
+
+  it("goes terminal when the PAYMENT counter cannot come down (both counters stay as booked)", async () => {
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt()]);
+    mockDb.payment.updateMany.mockResolvedValue({ count: 0 });
+    const r = await resolveStaleRefundAttempts();
+    // The throw aborts the transaction, so the registration decrement that ran
+    // first is rolled back with it; the sweep reports review, not a rollback.
+    expect(r).toMatchObject({ needsReview: 1, rolledBack: 0 });
+    expect(mockApiLogger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "refund-sweep:rollback-state-moved-on" }));
+  });
+
+  it("an attempt with no payment (unattributed residue) rolls back the registration only", async () => {
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt({ paymentId: null })]);
+    const r = await resolveStaleRefundAttempts();
+    expect(r).toMatchObject({ rolledBack: 1 });
+    expect(mockDb.payment.updateMany).not.toHaveBeenCalled();
   });
 
   it("leaves the attempt for the next tick when Stripe is unreachable", async () => {
