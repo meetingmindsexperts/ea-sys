@@ -23,6 +23,7 @@ import {
   Archive,
   ArchiveRestore,
   ArrowDownLeft,
+  ArrowLeft,
   ArrowUpRight,
   Inbox,
   Loader2,
@@ -322,7 +323,9 @@ export function CrmInbox() {
   return (
     <div className="grid min-h-[32rem] grid-cols-1 gap-4 lg:grid-cols-[minmax(18rem,24rem)_1fr]">
       {/* ── Folders, filters and the thread list ─────────────────────────── */}
-      <div className="flex flex-col overflow-hidden rounded-lg border bg-card">
+      {/* Below lg it is list THEN conversation: an open thread takes the screen
+          and "Back to the list" returns (CRM product review 7.2). */}
+      <div className={`flex-col overflow-hidden rounded-lg border bg-card ${selectedId ? "hidden lg:flex" : "flex"}`}>
         <div className="space-y-2 border-b p-2">
           <Button type="button" size="sm" className="w-full" onClick={() => setComposeOpen(true)}>
             <PenSquare className="mr-2 h-4 w-4" />
@@ -415,7 +418,15 @@ export function CrmInbox() {
       </div>
 
       {/* ── Conversation ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col overflow-hidden rounded-lg border bg-card">
+      <div className={`flex-col overflow-hidden rounded-lg border bg-card ${selectedId ? "flex" : "hidden lg:flex"}`}>
+        {selectedId && (
+          <div className="border-b p-2 lg:hidden">
+            <Button type="button" variant="ghost" size="sm" onClick={() => go({ thread: null })}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to the list
+            </Button>
+          </div>
+        )}
         {!selectedId && (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
             <Inbox className="h-10 w-10 opacity-30" />
@@ -429,8 +440,9 @@ export function CrmInbox() {
         )}
         {!!selectedId && !detailLoading && thread && (
           <>
-            <div className="flex items-start gap-2 border-b px-4 py-3">
-              <div className="min-w-0 flex-1">
+            {/* Wraps on a phone: the subject takes its own line and the actions sit under it. */}
+            <div className="flex flex-wrap items-start gap-2 border-b px-4 py-3">
+              <div className="min-w-0 flex-1 basis-full sm:basis-0">
                 <p className="truncate text-sm font-semibold">{thread.subject}</p>
                 <p className="truncate text-xs text-muted-foreground">
                   {thread.counterpartyName ? `${thread.counterpartyName} · ` : ""}

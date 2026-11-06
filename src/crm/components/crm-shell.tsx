@@ -43,7 +43,7 @@ export function CrmShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex flex-col">
-      <div className="border-b px-6 pt-6">
+      <div className="border-b px-4 pt-6 sm:px-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">CRM</h1>
@@ -55,7 +55,8 @@ export function CrmShell({ children }: { children: React.ReactNode }) {
           <CrmNotificationBell />
         </div>
 
-        <nav className="-mb-px mt-4 flex gap-1" aria-label="CRM sections">
+        {/* Ten tabs never fit a phone: the strip scrolls sideways and no tab shrinks (CRM product review 7.1). */}
+        <nav className="-mb-px mt-4 flex gap-1 overflow-x-auto [scrollbar-width:none]" aria-label="CRM sections">
           {tabs.map((tab) => {
             const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
             const Icon = tab.icon;
@@ -65,7 +66,7 @@ export function CrmShell({ children }: { children: React.ReactNode }) {
                 href={tab.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
+                  "flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:px-4",
                   active
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground",
