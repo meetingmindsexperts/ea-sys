@@ -4,7 +4,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { findStripeRefundForAttempt } from "@/lib/stripe-refund-lookup";
 import { recordAbsorbedRefunds } from "@/services/payment-service";
-import { unbookRefund, UnbookNeedsReview, UnbookRaced, type UnbookSlice } from "@/services/refund-unbook";
+import { unbookRefund, UnbookAttemptMoved, UnbookNeedsReview, UnbookRaced, type UnbookSlice } from "@/services/refund-unbook";
 
 // Moved to its own module (Nov 6, 2026) so the service and this sweep share it
 // without importing each other; re-exported for existing callers.
@@ -42,6 +42,8 @@ export interface RefundSweepResult {
   rolledBack: number;
   needsReview: number;
   unverifiable: number;
+  /** Touched by the refund service (or another sweep) since this tick read it: left alone. */
+  moved: number;
 }
 
 /**
@@ -63,7 +65,10 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
   const stale = await dbOperator.refundAttempt.findMany({
     where: {
       status: { in: ["PENDING", "UNKNOWN"] },
-      createdAt: { lt: new Date(Date.now() - STALE_AFTER_MS) },
+      // Untouched for 10 minutes, not merely created 10 minutes ago: the refund
+      // service touches each attempt just before sending it to Stripe, so a
+      // refund still working through its slices is never mistaken for a dead one.
+      updatedAt: { lt: new Date(Date.now() - STALE_AFTER_MS) },
     },
     orderBy: { createdAt: "asc" },
     take: limit,
@@ -78,7 +83,7 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
     },
   });
 
-  const result: RefundSweepResult = { scanned: stale.length, confirmed: 0, rolledBack: 0, needsReview: 0, unverifiable: 0 };
+  const result: RefundSweepResult = { scanned: stale.length, confirmed: 0, rolledBack: 0, needsReview: 0, unverifiable: 0, moved: 0 };
 
   for (const attempt of stale) {
     try {
@@ -88,66 +93,40 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
       // flag-off master behavior is unchanged. `continue` became `return` inside
       // the closure (same per-attempt control flow).
       const attemptOrg = attempt.organizationId ?? attempt.registration.organizationId ?? null;
-      const processAttempt = async () => {
-      // Manual/offline refunds move no Stripe money: the booking IS the record.
-      // A stale PENDING means the process died before the status write, so
-      // confirm it. UNKNOWN is different: the refund service sets it on every
-      // attempt left behind by a rollback that did not apply, so the booking
-      // still holds money that never moved. Take it back.
-      if (attempt.kind === "manual" && attempt.status === "PENDING") {
-        await db.refundAttempt.update({ where: { id: attempt.id }, data: { status: "SUCCEEDED" } });
-        apiLogger.info({ msg: "refund-sweep:manual-confirmed", attemptId: attempt.id, registrationId: attempt.registrationId });
-        result.confirmed++;
-        return;
-      }
-
-      let stripe: UnbookSlice["stripe"] = null;
-      if (attempt.kind !== "manual") {
-        if (!attempt.stripePaymentIntentId) {
-          // Shouldn't exist (stripe-kind attempts always carry the intent) —
-          // terminal so it can't churn every tick; a human decides.
-          await db.refundAttempt.update({
-            where: { id: attempt.id },
-            data: { status: "FAILED", error: "No payment intent on a stripe-kind attempt — review manually (booking NOT rolled back)" },
-          });
-          apiLogger.error({ msg: "refund-sweep:stripe-attempt-missing-intent", attemptId: attempt.id, registrationId: attempt.registrationId });
-          result.needsReview++;
-          return;
+      // Every status write is guarded on the attempt being exactly as this tick
+      // read it, so the sweep can never settle an attempt the refund service is
+      // still working on, nor reopen one already settled.
+      const settle = async (data: { status: "SUCCEEDED" | "FAILED"; error?: string; stripeRefundId?: string | null }) => {
+        const written = await db.refundAttempt.updateMany({
+          where: { id: attempt.id, status: { in: ["PENDING", "UNKNOWN"] }, updatedAt: attempt.updatedAt },
+          data,
+        });
+        if (written.count === 0) {
+          apiLogger.info({ msg: "refund-sweep:attempt-moved — left alone", attemptId: attempt.id });
+          result.moved++;
         }
-
-        const outcome = await findStripeRefundForAttempt(attempt.stripePaymentIntentId, attempt.id, attemptOrg);
-        if (!outcome.verified) {
-          // Stripe unreachable — try again next tick.
-          result.unverifiable++;
-          return;
-        }
-
-        if (outcome.found) {
-          // The refund went through; the booking was already correct.
-          await db.refundAttempt.update({
-            where: { id: attempt.id },
-            data: { status: "SUCCEEDED", stripeRefundId: outcome.refundId },
-          });
-          apiLogger.info({ msg: "refund-sweep:confirmed-at-stripe", attemptId: attempt.id, registrationId: attempt.registrationId, stripeRefundId: outcome.refundId });
-          result.confirmed++;
-          return;
-        }
-        stripe = { refundedTotal: outcome.refundedTotal, attemptIds: outcome.attemptIds };
-      }
-
+        return written.count > 0;
+      };
       // The money never moved: take this attempt's booking back out. One shared
       // rollback (src/services/refund-unbook.ts) for the service and the sweep;
       // it sets a Stripe payment's counter from Stripe's figure, so a Dashboard
       // refund that landed meanwhile is kept rather than erased, and it writes
       // everything or nothing.
+      const rollBack = async (stripe: UnbookSlice["stripe"], failureNote: string) => {
       const amount = Number(attempt.amount);
       const unbooked = await tenantTransaction((tx) =>
         unbookRefund(tx, {
           registrationId: attempt.registrationId,
-          slices: [{ attemptId: attempt.id, paymentId: attempt.paymentId, take: amount, paymentBooked: attempt.paymentBooked, stripe }],
+          slices: [{
+            attemptId: attempt.id, paymentId: attempt.paymentId, take: amount, paymentBooked: attempt.paymentBooked, stripe,
+            failureNote,
+            expectedUpdatedAt: attempt.updatedAt,
+          }],
           flippedToRefunded: attempt.flippedToRefunded,
         }),
       ).catch((err: unknown) => {
+        // Settled or touched since this tick read it: not ours to judge.
+        if (err instanceof UnbookAttemptMoved) return "moved" as const;
         if (err instanceof UnbookRaced || err instanceof UnbookNeedsReview) {
           apiLogger.warn({ msg: "refund-sweep:rollback-refused", attemptId: attempt.id, reason: err.message });
           return null;
@@ -155,14 +134,16 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         throw err;
       });
 
+      if (unbooked === "moved") {
+        apiLogger.info({ msg: "refund-sweep:attempt-moved — left alone", attemptId: attempt.id });
+        result.moved++;
+        return;
+      }
       if (!unbooked) {
         // Something else already moved the registration's money state
         // (another refund, webhook reconcile). Don't guess — terminal +
         // human review.
-        await db.refundAttempt.update({
-          where: { id: attempt.id },
-          data: { status: "FAILED", error: "No refund at Stripe but registration state moved on — booking NOT rolled back, review manually" },
-        });
+        if (!(await settle({ status: "FAILED", error: "No refund at Stripe but registration state moved on — booking NOT rolled back, review manually" }))) return;
         apiLogger.error({ msg: "refund-sweep:rollback-state-moved-on", attemptId: attempt.id, registrationId: attempt.registrationId });
         notifyAdminsSafe(attempt.registration.eventId, {
           title: "⚠ Refund attempt needs manual review",
@@ -172,10 +153,7 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         return;
       }
 
-      await db.refundAttempt.update({
-        where: { id: attempt.id },
-        data: { status: "FAILED", error: "No matching refund at Stripe — booking rolled back by sweep" },
-      });
+      // The rollback marked the attempt FAILED in its own transaction.
       apiLogger.error({
         msg: "refund-sweep:rolled-back",
         attemptId: attempt.id,
@@ -204,6 +182,73 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         });
       }
       result.rolledBack++;
+      };
+      const processAttempt = async () => {
+      // Manual/offline refunds move no Stripe money: the booking IS the record.
+      // A stale PENDING means the process died before the status write, so
+      // confirm it. UNKNOWN is different: the refund service sets it on every
+      // attempt left behind by a rollback that did not apply, so the booking
+      // still holds money that never moved. Take it back.
+      if (attempt.kind === "manual" && attempt.status === "PENDING") {
+        // A refund still sending its Stripe slices leaves its manual attempt
+        // PENDING too, so "stale" alone does not mean "the process died after
+        // recording it". Confirm only once every Stripe sibling succeeded; wait
+        // while any is unsettled; if one failed, the refund did not complete, so
+        // take the manual part back like any other unsent attempt.
+        const siblings = attempt.bookingId
+          ? await db.refundAttempt.findMany({
+              where: { bookingId: attempt.bookingId, kind: "stripe" },
+              select: { status: true },
+            })
+          : [];
+        if (siblings.some((x) => x.status === "PENDING" || x.status === "UNKNOWN")) {
+          apiLogger.info({ msg: "refund-sweep:manual-waiting-for-stripe-siblings", attemptId: attempt.id });
+          result.moved++;
+          return;
+        }
+        if (siblings.some((x) => x.status === "FAILED")) {
+          return rollBack(null, "A Stripe part of this refund failed — manual part rolled back by sweep");
+        }
+        if (!(await settle({ status: "SUCCEEDED" }))) return;
+        apiLogger.info({ msg: "refund-sweep:manual-confirmed", attemptId: attempt.id, registrationId: attempt.registrationId });
+        result.confirmed++;
+        return;
+      }
+
+      let stripe: UnbookSlice["stripe"] = null;
+      if (attempt.kind !== "manual") {
+        if (!attempt.stripePaymentIntentId) {
+          // Shouldn't exist (stripe-kind attempts always carry the intent) —
+          // terminal so it can't churn every tick; a human decides.
+          if (!(await settle({ status: "FAILED", error: "No payment intent on a stripe-kind attempt — review manually (booking NOT rolled back)" }))) return;
+          apiLogger.error({ msg: "refund-sweep:stripe-attempt-missing-intent", attemptId: attempt.id, registrationId: attempt.registrationId });
+          result.needsReview++;
+          return;
+        }
+
+        const outcome = await findStripeRefundForAttempt(attempt.stripePaymentIntentId, attempt.id, attemptOrg);
+        if (!outcome.verified) {
+          // Stripe unreachable — try again next tick.
+          result.unverifiable++;
+          return;
+        }
+
+        if (outcome.found) {
+          // The refund went through; the booking was already correct.
+          if (!(await settle({ status: "SUCCEEDED", stripeRefundId: outcome.refundId }))) return;
+          apiLogger.info({ msg: "refund-sweep:confirmed-at-stripe", attemptId: attempt.id, registrationId: attempt.registrationId, stripeRefundId: outcome.refundId });
+          result.confirmed++;
+          return;
+        }
+        stripe = { refundedTotal: outcome.refundedTotal, attemptIds: outcome.attemptIds };
+      }
+
+      return rollBack(
+        stripe,
+        attempt.kind === "manual"
+          ? "Never recorded (left UNKNOWN by the refund) — rolled back by sweep"
+          : "No matching refund at Stripe — booking rolled back by sweep",
+      );
       };
       if (attemptOrg) {
         await runWithTenant(attemptOrg, processAttempt);

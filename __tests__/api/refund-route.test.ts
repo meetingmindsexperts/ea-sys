@@ -22,7 +22,7 @@ const {
     payment: { update: vi.fn(), updateMany: vi.fn() },
     invoice: { findFirst: vi.fn(), findMany: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
-    refundAttempt: { create: vi.fn(), update: vi.fn() },
+    refundAttempt: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     $transaction: vi.fn(),
   },
   mockAuth: vi.fn(),
@@ -122,6 +122,8 @@ beforeEach(() => {
   }));
   mockDb.refundAttempt.create.mockResolvedValue({ id: "att1" });
   mockDb.refundAttempt.update.mockResolvedValue({});
+  // Guarded status writes and the pre-send claim (security audit W0-1, review 2).
+  mockDb.refundAttempt.updateMany.mockResolvedValue({ count: 1 });
   // The service's claim+attempt transaction routes to the shared mocks.
   mockDb.$transaction.mockImplementation(async (cb: (tx: unknown) => unknown) =>
     cb({
@@ -240,7 +242,7 @@ describe("refund — Stripe payment", () => {
     // The shared rollback takes the slice back with Stripe's own figure.
     expect(unbookRouteSpy).toHaveBeenCalledWith(expect.anything(), {
       registrationId: "reg1",
-      slices: [{ attemptId: "att1", paymentId: "pay1", take: 100, paymentBooked: true, stripe: { refundedTotal: 0, attemptIds: [] } }],
+      slices: [{ attemptId: "att1", paymentId: "pay1", take: 100, paymentBooked: true, stripe: { refundedTotal: 0, attemptIds: [] }, failureNote: "stripe down" }],
       flippedToRefunded: true,
     });
   });
@@ -257,8 +259,8 @@ describe("refund — Stripe payment", () => {
     // Only the claim ran — no rollback.
     expect(mockDb.registration.updateMany).toHaveBeenCalledTimes(1);
     expect(unbookRouteSpy).not.toHaveBeenCalled();
-    expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ status: "UNKNOWN" }) }),
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: "att1" }), data: expect.objectContaining({ status: "UNKNOWN" }) }),
     );
   });
 });

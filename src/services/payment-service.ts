@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getStripe, toStripeAmount } from "@/lib/stripe";
@@ -486,6 +487,8 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
       ...(residue > 0.005 ? [{ kind: "manual" as const, paymentId: null, intentId: null, take: residue }] : []),
     ];
 
+    // Ties this refund's attempts together for the sweep (see RefundAttempt.bookingId).
+    const bookingId = randomUUID();
     const attempts = await tenantTransaction(async (tx) => {
       const locked = await tx.registration.updateMany({
         where: { id: registrationId, paymentStatus: "PAID", refundedAmount: registration.refundedAmount },
@@ -537,6 +540,7 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
               flippedToRefunded: isFull && i === attemptPlan.length - 1,
               // Every attempt with a payment raised that payment's counter above.
               paymentBooked: p.paymentId != null,
+              bookingId,
               kind: p.kind,
               source,
               issuedByUserId: issuedByUserId ?? null,
@@ -602,7 +606,10 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
               stripe = { refundedTotal: v.refundedTotal, attemptIds: v.attemptIds };
             }
           }
-          slices.push({ attemptId: attempts[j].id, paymentId: p.paymentId, take: p.take, paymentBooked: p.paymentId != null, stripe });
+          slices.push({
+            attemptId: attempts[j].id, paymentId: p.paymentId, take: p.take, paymentBooked: p.paymentId != null, stripe,
+            failureNote: abortedAttemptState({ isFailedSlice: j === args.failedAttemptIndex, rollbackApplied: true, failedStatus: "FAILED", err: args.err }).error,
+          });
         }
 
         if (rollbackApplied) {
@@ -630,13 +637,17 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
         recordAbsorbedRefunds({ registrationId, eventId, organizationId: registration.event.organizationId, currency, absorbed, attendee: registration.attendee });
       }
 
-      // A rollback that didn't apply leaves the books overstated; see abortedAttemptState.
+      // An applied rollback already marked the attempts it took back, in its own
+      // transaction. What is left: the slice kept UNKNOWN, or, when the rollback
+      // did not apply, every remaining attempt (see abortedAttemptState). Only
+      // from PENDING/UNKNOWN, so a write here can never reopen one the sweep settled.
       for (let j = args.failedAttemptIndex; j < attempts.length; j++) {
+        if (rollbackApplied && j >= firstUnbooked) continue;
         const { status, error } = abortedAttemptState({
           isFailedSlice: j === args.failedAttemptIndex, rollbackApplied, failedStatus: args.failedStatus, err: args.err,
         });
         await db.refundAttempt
-          .update({ where: { id: attempts[j].id }, data: { status, error } })
+          .updateMany({ where: { id: attempts[j].id, status: { in: ["PENDING", "UNKNOWN"] } }, data: { status, error } })
           .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId: attempts[j].id }));
       }
       return { executed, rollbackPortion, rollbackApplied };
@@ -646,6 +657,36 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
       const slice = stripeSlices[i];
       const attemptId = attempts[i].id;
       let sliceRefundId: string | null = null;
+      // Claim the attempt before sending it (review MED-3, Nov 6 2026). The sweep
+      // takes attempts untouched for 10 minutes; a refund with several slow
+      // slices can outlast that, and the sweep would roll back a slice this loop
+      // was about to send. Touching it here makes the sweep's guarded rollback
+      // miss; finding it already settled means the sweep got there first, so
+      // stop and send nothing more.
+      const claimedAttempt = await db.refundAttempt.updateMany({
+        where: { id: attemptId, status: "PENDING" },
+        data: { updatedAt: new Date() },
+      });
+      if (claimedAttempt.count === 0) {
+        apiLogger.error({ msg: "refund:attempt-taken-by-sweep — stopping before Stripe", registrationId, attemptId, slice: i });
+        // Nothing after this slice was sent or recorded. Left PENDING, a manual
+        // attempt would be confirmed by the sweep as if it had been; UNKNOWN makes
+        // the sweep take every one of them back instead.
+        for (let j = i + 1; j < attempts.length; j++) {
+          await db.refundAttempt
+            .updateMany({
+              where: { id: attempts[j].id, status: "PENDING" },
+              data: { status: "UNKNOWN", error: "Not sent: the refund stopped after the sweep settled an earlier slice" },
+            })
+            .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId: attempts[j].id }));
+        }
+        return {
+          ok: false,
+          code: "REFUND_STATE_UNKNOWN",
+          message: "The refund took too long and was partly settled automatically. Check the registration's Billing tab and the Stripe Dashboard before retrying.",
+          meta: { refundedThisCall: round2(completedSlices.reduce((sum, c) => sum + c.amount, 0)), slices: completedSlices },
+        };
+      }
       try {
         // Per-org Stripe: the event's org key when configured, env fallback —
         // the same account that took the original charge for every legacy row.
@@ -728,7 +769,7 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
       stripeRefundId ??= sliceRefundId;
       // The payment counter was booked with the claim; only the attempt row is left.
       await db.refundAttempt
-        .update({ where: { id: attemptId }, data: { status: "SUCCEEDED", stripeRefundId: sliceRefundId } })
+        .updateMany({ where: { id: attemptId, status: "PENDING" }, data: { status: "SUCCEEDED", stripeRefundId: sliceRefundId } })
         .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId }));
       completedSlices.push({ paymentId: slice.payment.id, kind: "stripe", amount: slice.take, stripeRefundId: sliceRefundId });
     }
@@ -742,7 +783,7 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
       const manualAttemptIds = attempts.slice(stripeSlices.length).map((a) => a.id);
       for (const manualAttemptId of manualAttemptIds) {
         await db.refundAttempt
-          .update({ where: { id: manualAttemptId }, data: { status: "SUCCEEDED" } })
+          .updateMany({ where: { id: manualAttemptId, status: "PENDING" }, data: { status: "SUCCEEDED" } })
           .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId: manualAttemptId }));
       }
       const manualAttemptId = manualAttemptIds[0];

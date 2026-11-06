@@ -10,13 +10,13 @@
  * the charge, R = the registration's refunded total.
  */
 import { describe, it, expect } from "vitest";
-import { unbookRefund, UnbookNeedsReview, UnbookRaced, type UnbookSlice } from "@/services/refund-unbook";
+import { unbookRefund, UnbookAttemptMoved, UnbookNeedsReview, UnbookRaced, type UnbookSlice } from "@/services/refund-unbook";
 
 type Status = "PAID" | "REFUNDED";
 interface Store {
   reg: { id: string; refundedAmount: number; paymentStatus: string };
   payments: Array<{ id: string; registrationId: string; amount: number; refundedAmount: number; status: Status }>;
-  attempts: Array<{ id: string; paymentId: string | null; amount: number; status: string; paymentBooked: boolean }>;
+  attempts: Array<{ id: string; paymentId: string | null; amount: number; status: string; paymentBooked: boolean; updatedAt?: Date; error?: string }>;
   /** Simulates a concurrent writer between the read and the write. */
   raceOn?: "payment" | "registration";
   writes: number;
@@ -54,6 +54,15 @@ function fakeTx(store: Store) {
       }),
     },
     refundAttempt: {
+      updateMany: async ({ where, data }: { where: { id: string; status: { in: string[] }; updatedAt?: Date }; data: { status: string; error: string } }) => {
+        const a = store.attempts.find((x) => x.id === where.id);
+        if (!a || !where.status.in.includes(a.status)) return { count: 0 };
+        if (where.updatedAt && a.updatedAt?.getTime() !== where.updatedAt.getTime()) return { count: 0 };
+        a.status = data.status;
+        a.error = data.error;
+        store.writes++;
+        return { count: 1 };
+      },
       findMany: async ({ where }: { where: { paymentId: string; id: { notIn: string[] } } }) =>
         store.attempts.filter(
           (a) =>
@@ -66,11 +75,16 @@ function fakeTx(store: Store) {
   } as never;
 }
 
+/** The attempt being rolled back, att1, is always present and PENDING unless a test says otherwise. */
+const OWN = (extra: Partial<Store["attempts"][number]> = {}) => ({
+  id: "att1", paymentId: "p1", amount: 60, status: "PENDING", paymentBooked: true, updatedAt: new Date("2026-11-06T10:00:00Z"), ...extra,
+});
+
 function setup(opts: { C: number; R: number; amount?: number; regStatus?: string; attempts?: Store["attempts"] }): Store {
   return {
     reg: { id: "reg1", refundedAmount: opts.R, paymentStatus: opts.regStatus ?? "PAID" },
     payments: [{ id: "p1", registrationId: "reg1", amount: opts.amount ?? 100, refundedAmount: opts.C, status: "PAID" }],
-    attempts: opts.attempts ?? [],
+    attempts: [OWN(), ...(opts.attempts ?? [])],
     writes: 0,
   };
 }
@@ -81,6 +95,7 @@ const slice = (take: number, S: number | null, extra: Partial<UnbookSlice> = {})
   take,
   paymentBooked: true,
   stripe: S == null ? null : { refundedTotal: S, attemptIds: [] },
+  failureNote: "test rollback",
   ...extra,
 });
 
@@ -175,7 +190,11 @@ describe("unbookRefund: Stripe payment", () => {
   it("the counter holds more than Stripe and our in-flight attempts explain (C 90, our 60, S 0): refused, nothing written", async () => {
     const store = setup({ C: 90, R: 90 });
     await expect(run(store, [slice(60, 0)])).rejects.toBeInstanceOf(UnbookNeedsReview);
-    expect(store.writes).toBe(0);
+    // No money moved. (The attempt's status mark ran first in the fake; in the
+    // real transaction the throw rolls it back with everything else, which
+    // tests/integration-db/refund-counters.db.test.ts checks on Postgres.)
+    expect(store.payments[0].refundedAmount).toBe(90);
+    expect(store.reg.refundedAmount).toBe(90);
   });
 });
 
@@ -199,6 +218,39 @@ describe("unbookRefund: manual payments and residue", () => {
     const store = setup({ C: 60, R: 60, regStatus: "COMPLIMENTARY" });
     await run(store, [slice(60, 0)]);
     expect(store.reg.paymentStatus).toBe("COMPLIMENTARY");
+  });
+});
+
+describe("unbookRefund: once per attempt (review 2, MED-1)", () => {
+  it("marks the attempt FAILED with its note, in the same transaction as the money", async () => {
+    const store = setup({ C: 60, R: 60 });
+    await run(store, [slice(60, 0)]);
+    expect(store.attempts[0]).toMatchObject({ status: "FAILED", error: "test rollback" });
+  });
+
+  it("a second rollback of the same attempt is refused and writes nothing (it used to take the money back twice)", async () => {
+    const store = setup({ C: 60, R: 60 });
+    await run(store, [slice(60, 0)]);
+    const writes = store.writes;
+    const snapshot = JSON.stringify({ reg: store.reg, payments: store.payments });
+    await expect(run(store, [slice(60, 0)])).rejects.toBeInstanceOf(UnbookAttemptMoved);
+    expect(store.writes).toBe(writes);
+    expect(JSON.stringify({ reg: store.reg, payments: store.payments })).toBe(snapshot);
+  });
+
+  it("an attempt already SUCCEEDED (the refund went through) is never rolled back", async () => {
+    const store = setup({ C: 60, R: 60 });
+    store.attempts[0].status = "SUCCEEDED";
+    await expect(run(store, [slice(60, 0)])).rejects.toBeInstanceOf(UnbookAttemptMoved);
+    expect(store.writes).toBe(0);
+  });
+
+  it("the sweep's read is stale (the refund service touched the attempt since): refused, nothing written", async () => {
+    const store = setup({ C: 60, R: 60 });
+    store.attempts[0].updatedAt = new Date("2026-11-06T10:15:00Z");
+    await expect(run(store, [slice(60, 0, { expectedUpdatedAt: new Date("2026-11-06T10:00:00Z") })])).rejects.toBeInstanceOf(UnbookAttemptMoved);
+    expect(store.writes).toBe(0);
+    expect(store.reg.refundedAmount).toBe(60);
   });
 });
 

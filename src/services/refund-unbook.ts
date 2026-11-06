@@ -27,6 +27,12 @@ import { round2 } from "@/lib/registration-financials";
  * ALL OR NOTHING. Every write is optimistic on the value just read and the
  * whole thing runs in the caller's transaction; any surprise throws, which
  * rolls back everything already written. A throw is never a partial un-book.
+ *
+ * ONCE PER ATTEMPT. The attempts are marked FAILED in the same transaction,
+ * and only from PENDING or UNKNOWN (and, for the sweep, only if untouched since
+ * it read them). A second rollback of the same attempt therefore finds it
+ * already settled and changes nothing; written separately, a failed status
+ * write used to leave the attempt for the sweep to roll back a second time.
  */
 
 export interface UnbookSlice {
@@ -38,6 +44,10 @@ export interface UnbookSlice {
   paymentBooked: boolean;
   /** Stripe's view of the payment's intent; null for manual payments and residue. */
   stripe: { refundedTotal: number; attemptIds: string[] } | null;
+  /** RefundAttempt.error once it is marked FAILED. */
+  failureNote: string;
+  /** The sweep's read of RefundAttempt.updatedAt: the inline path touching it since means "not yours". */
+  expectedUpdatedAt?: Date;
 }
 
 export interface UnbookResult {
@@ -54,6 +64,9 @@ export class UnbookRaced extends Error {}
 /** The books hold more than Stripe and our in-flight attempts explain. A human decides. */
 export class UnbookNeedsReview extends Error {}
 
+/** An attempt is already settled, or was touched since it was read: someone else owns it. */
+export class UnbookAttemptMoved extends UnbookRaced {}
+
 export async function unbookRefund(
   tx: Prisma.TransactionClient,
   args: { registrationId: string; slices: UnbookSlice[]; flippedToRefunded: boolean },
@@ -66,6 +79,17 @@ export async function unbookRefund(
   if (!reg) throw new UnbookRaced(`registration ${registrationId} not found`);
 
   const unbookingIds = slices.map((s) => s.attemptId);
+  for (const s of slices) {
+    const marked = await tx.refundAttempt.updateMany({
+      where: {
+        id: s.attemptId,
+        status: { in: ["PENDING", "UNKNOWN"] },
+        ...(s.expectedUpdatedAt ? { updatedAt: s.expectedUpdatedAt } : {}),
+      },
+      data: { status: "FAILED", error: s.failureNote },
+    });
+    if (marked.count === 0) throw new UnbookAttemptMoved(`attempt ${s.attemptId} already settled or in use`);
+  }
   const absorbed: UnbookResult["absorbed"] = [];
   let regDelta = 0;
 

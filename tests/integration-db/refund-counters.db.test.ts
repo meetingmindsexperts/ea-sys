@@ -30,6 +30,8 @@ const { fake } = vi.hoisted(() => ({
     /** When set, refunds.create throws this after (optionally) recording the refund. */
     createError: null as null | { err: Error; recordAnyway: boolean },
     listError: null as null | Error,
+    /** Runs right AFTER refunds.list answered: the moment between our Stripe read and our rollback. */
+    afterList: null as null | ((intent: string) => Promise<void>),
   },
 }));
 function refundedMinor(intent: string) {
@@ -57,7 +59,13 @@ vi.mock("@/lib/stripe", () => ({
       },
       list: async ({ payment_intent }: { payment_intent: string }) => {
         if (fake.listError) throw fake.listError;
-        return { data: fake.refunds.get(payment_intent) ?? [], has_more: false };
+        const answer = { data: [...(fake.refunds.get(payment_intent) ?? [])], has_more: false };
+        if (fake.afterList) {
+          const hook = fake.afterList;
+          fake.afterList = null;
+          await hook(payment_intent);
+        }
+        return answer;
       },
     },
   }),
@@ -75,6 +83,8 @@ import { db } from "@/lib/db";
 import { createRegistration } from "@/services/registration-service";
 import { refundRegistration } from "@/services/payment-service";
 import { resolveStaleRefundAttempts } from "@/lib/refund-reconciliation";
+import { unbookRefund, UnbookAttemptMoved } from "@/services/refund-unbook";
+import { tenantTransaction } from "@/lib/db";
 import { handleStripeEvent } from "@/lib/stripe-webhook-handler";
 import { resetCrm, type CrmSeed } from "./helper";
 
@@ -162,8 +172,10 @@ async function expectStripeCountersMatch(registrationId: string) {
   for (const p of payments) expect(Number(p.refundedAmount)).toBe(refundedMinor(p.stripePaymentId!) / 100);
 }
 
+/** The sweep takes attempts untouched for 10 minutes; make them so. */
 async function ageAttempts(registrationId: string) {
-  await db.refundAttempt.updateMany({ where: { registrationId }, data: { createdAt: new Date(Date.now() - 60 * 60 * 1000) } });
+  const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  await db.refundAttempt.updateMany({ where: { registrationId }, data: { createdAt: hourAgo, updatedAt: hourAgo } });
 }
 
 beforeEach(async () => {
@@ -173,6 +185,7 @@ beforeEach(async () => {
   fake.beforeCreate = null;
   fake.createError = null;
   fake.listError = null;
+  fake.afterList = null;
   seed = await resetCrm();
 });
 
@@ -185,15 +198,18 @@ describe("the original bug: our own refund's webhook", () => {
   it("webhook delivered DURING our Stripe call (the race) books nothing a second time", async () => {
     const { eventId, registrationId, intents } = await seedPaid({ payments: [{ amount: 100, stripe: true }], credited: 100 });
     // Stripe records the refund and fires charge.refunded before our call returns.
+    let during = 0;
     fake.beforeCreate = async (intent) => {
       fake.beforeCreate = null;
       addRefund(intent, 3000, { refundAttemptId: "elsewhere" });
-      expect(await deliverChargeRefunded(intent)).toBe(200);
+      during = await deliverChargeRefunded(intent);
       // Undo the stand-in; the real create below records ours.
       fake.refunds.set(intent, []);
     };
     const r = await refundRegistration({ registrationId, eventId, amount: 30, source: "rest" });
     expect(r.ok).toBe(true);
+    // Our refund was in flight, so that delivery was refused (Stripe redelivers)...
+    expect(during).toBe(500);
     // ...and the real webhook for our refund, after.
     expect(await deliverChargeRefunded(intents[0])).toBe(200);
     expect(await books(registrationId)).toMatchObject({ reg: 30, pay: [30], regStatus: "PAID", creditNotes: 1 });
@@ -315,13 +331,132 @@ describe("MED-2: a rollback that cannot apply strands nothing", () => {
   });
 });
 
+describe("review 2: races between the refund, the sweep and the webhook", () => {
+  it("MED-2: a Dashboard refund lands between our Stripe read and our rollback; its webhook 500s, the redelivery books it", async () => {
+    const { eventId, registrationId, intents } = await seedPaid({ payments: [{ amount: 120, stripe: true }], credited: 60 });
+    let firstDelivery = 0;
+    fake.createError = { err: new Error("card_declined"), recordAnyway: false };
+    // Our verify read says "nothing at Stripe"; THEN the Dashboard refund lands
+    // and its webhook arrives, all before our rollback transaction.
+    fake.afterList = async (intent) => {
+      addRefund(intent, 4000);
+      firstDelivery = await deliverChargeRefunded(intent);
+    };
+    const r = await refundRegistration({ registrationId, eventId, amount: 60, source: "rest" });
+    expect(r).toMatchObject({ ok: false, code: "STRIPE_FAILED" });
+    // Our attempt was in flight, so the webhook refused to skip it.
+    expect(firstDelivery).toBe(500);
+    // The rollback used the stale read (S = 0): books at 0 for now...
+    expect(await books(registrationId)).toMatchObject({ reg: 0, pay: [0] });
+    // ...and Stripe's redelivery books the 40.
+    expect(await deliverChargeRefunded(intents[0])).toBe(200);
+    expect(await books(registrationId)).toMatchObject({ reg: 40, pay: [40] });
+    await expectStripeCountersMatch(registrationId);
+  });
+
+  it("MED-3: the sweep settles a slice we have not sent yet; the refund stops and sends nothing more; books equal Stripe", async () => {
+    const { eventId, registrationId } = await seedPaid({
+      payments: [{ amount: 50, stripe: true }, { amount: 100, stripe: true }, { amount: 30, stripe: false }],
+      credited: 180,
+    });
+    // While the first slice is with Stripe, more than 10 minutes "pass" for the
+    // untouched attempts, and the sweep runs.
+    fake.beforeCreate = async () => {
+      fake.beforeCreate = null;
+      const sent = await db.refundAttempt.findFirstOrThrow({ where: { registrationId }, orderBy: { updatedAt: "desc" }, select: { id: true } });
+      await db.refundAttempt.updateMany({ where: { registrationId, id: { not: sent.id } }, data: { updatedAt: new Date(Date.now() - 60 * 60 * 1000) } });
+      await resolveStaleRefundAttempts();
+    };
+    const r = await refundRegistration({ registrationId, eventId, source: "rest" }); // full 180
+    expect(r).toMatchObject({ ok: false, code: "REFUND_STATE_UNKNOWN" });
+    // One slice reached Stripe; the other Stripe slice was never sent.
+    expect([...fake.refunds.values()].flat()).toHaveLength(1);
+    await expectStripeCountersMatch(registrationId);
+
+    // The sweep finishes the remainder (the manual one, left UNKNOWN).
+    await ageAttempts(registrationId);
+    await resolveStaleRefundAttempts();
+    const b = await books(registrationId);
+    expect(b.pay[2]).toBe(0); // the manual payment's refund was never recorded
+    expect(b.reg).toBe(b.pay.reduce((sum, x) => sum + x, 0));
+    await expectStripeCountersMatch(registrationId);
+    const left = await db.refundAttempt.count({ where: { registrationId, status: { in: ["PENDING", "UNKNOWN"] } } });
+    expect(left).toBe(0);
+  });
+
+  it("MED-1: running the sweep again over a rolled-back attempt changes nothing (no second rollback, no credit note)", async () => {
+    const { eventId, registrationId } = await seedPaid({ payments: [{ amount: 100, stripe: true }], credited: 100 });
+    fake.createError = { err: new Error("ETIMEDOUT"), recordAnyway: false };
+    fake.listError = new Error("unreachable");
+    await refundRegistration({ registrationId, eventId, amount: 40, source: "rest" });
+    fake.createError = null;
+    fake.listError = null;
+    await ageAttempts(registrationId);
+    expect(await resolveStaleRefundAttempts()).toMatchObject({ rolledBack: 1 });
+    const after = await books(registrationId);
+
+    // Force the attempt to look stale and unsettled to a second tick: it must
+    // still refuse, because the rollback marked it in its own transaction.
+    await ageAttempts(registrationId);
+    expect(await resolveStaleRefundAttempts()).toMatchObject({ scanned: 0 });
+    await new Promise((res) => setTimeout(res, 300));
+    expect(await books(registrationId)).toEqual(after);
+  });
+});
+
+describe("review 2 MED-1 on Postgres: one attempt is taken back once", () => {
+  it("the inline path and the sweep both try to roll back the same attempt: the second is refused and moves no money", async () => {
+    const { eventId, registrationId, paymentIds } = await seedPaid({ payments: [{ amount: 100, stripe: false }], credited: 100 });
+    // A booked manual refund of 40, never recorded: exactly what both would roll back.
+    fake.createError = null;
+    expect((await refundRegistration({ registrationId, eventId, amount: 40, source: "rest" })).ok).toBe(true);
+    const attempt = await db.refundAttempt.findFirstOrThrow({ where: { registrationId }, select: { id: true } });
+    await db.refundAttempt.update({ where: { id: attempt.id }, data: { status: "UNKNOWN" } });
+    const rollback = () =>
+      tenantTransaction((tx) =>
+        unbookRefund(tx, {
+          registrationId,
+          slices: [{ attemptId: attempt.id, paymentId: paymentIds[0], take: 40, paymentBooked: true, stripe: null, failureNote: "test" }],
+          flippedToRefunded: false,
+        }),
+      );
+    await rollback();
+    expect(await books(registrationId)).toMatchObject({ reg: 0, pay: [0] });
+    await expect(rollback()).rejects.toBeInstanceOf(UnbookAttemptMoved);
+    // Without the guard this would take 40 off again (and refuse only at zero).
+    expect(await books(registrationId)).toMatchObject({ reg: 0, pay: [0] });
+    const row = await db.refundAttempt.findUniqueOrThrow({ where: { id: attempt.id }, select: { status: true, error: true } });
+    expect(row).toEqual({ status: "FAILED", error: "test" });
+  });
+
+  it("a refused rollback leaves the attempt's status untouched too (the mark and the money roll back together)", async () => {
+    const { eventId, registrationId, paymentIds } = await seedPaid({ payments: [{ amount: 100, stripe: false }], credited: 100 });
+    expect((await refundRegistration({ registrationId, eventId, amount: 40, source: "rest" })).ok).toBe(true);
+    const attempt = await db.refundAttempt.findFirstOrThrow({ where: { registrationId }, select: { id: true } });
+    await db.refundAttempt.update({ where: { id: attempt.id }, data: { status: "UNKNOWN" } });
+    // The registration total is too small for the take: refused after the mark ran.
+    await db.registration.update({ where: { id: registrationId }, data: { refundedAmount: 10 } });
+    await expect(
+      tenantTransaction((tx) =>
+        unbookRefund(tx, {
+          registrationId,
+          slices: [{ attemptId: attempt.id, paymentId: paymentIds[0], take: 40, paymentBooked: true, stripe: null, failureNote: "test" }],
+          flippedToRefunded: false,
+        }),
+      ),
+    ).rejects.toThrow();
+    const row = await db.refundAttempt.findUniqueOrThrow({ where: { id: attempt.id }, select: { status: true } });
+    expect(row.status).toBe("UNKNOWN");
+  });
+});
+
 describe("the sweep on its own", () => {
   async function staleAttempt(registrationId: string, paymentId: string, intent: string, amount: number, paymentBooked: boolean) {
     return db.refundAttempt.create({
       data: {
         organizationId: seed.orgId, registrationId, paymentId, stripePaymentIntentId: intent,
         amount, refundedBefore: 0, refundedAfter: amount, kind: "stripe", status: "PENDING", source: "rest",
-        paymentBooked, createdAt: new Date(Date.now() - 60 * 60 * 1000),
+        paymentBooked, createdAt: new Date(Date.now() - 60 * 60 * 1000), updatedAt: new Date(Date.now() - 60 * 60 * 1000),
       },
       select: { id: true },
     });

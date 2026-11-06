@@ -29,7 +29,7 @@ const { mockDb, stripeRefundsCreate, verifyRefundSpy, unbookSpy, UnbookRaced, Un
       payment: { update: vi.fn(), updateMany: vi.fn() },
       promoCode: { update: vi.fn().mockResolvedValue({}) },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
-      refundAttempt: { create: vi.fn(), update: vi.fn() },
+      refundAttempt: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
       $transaction: vi.fn(),
     },
     stripeRefundsCreate: vi.fn(),
@@ -120,6 +120,9 @@ beforeEach(() => {
   }));
   mockDb.refundAttempt.create.mockResolvedValue({ id: "att1" });
   mockDb.refundAttempt.update.mockResolvedValue({});
+  // Status writes are guarded (only from PENDING/UNKNOWN), and each Stripe
+  // slice is claimed before it is sent; both are updateMany.
+  mockDb.refundAttempt.updateMany.mockResolvedValue({ count: 1 });
   releaseSeatSpy.mockResolvedValue(undefined);
   planSeatTransitionSpy.mockReturnValue({ release: { kind: "ticketType", id: "tt1" }, claim: null });
   // $transaction routes to the shared top-level mocks so tests can control
@@ -162,7 +165,7 @@ describe("refundRegistration", () => {
       { payment_intent: "pi_1", amount: 3000, metadata: { refundAttemptId: "att1", registrationId: "reg1" } },
       { idempotencyKey: "refund-attempt-att1" },
     );
-    expect(mockDb.refundAttempt.update).toHaveBeenCalledWith({ where: { id: "att1" }, data: { status: "SUCCEEDED", stripeRefundId: "re_1" } });
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith({ where: { id: "att1", status: "PENDING" }, data: { status: "SUCCEEDED", stripeRefundId: "re_1" } });
     // Per-payment counter booked WITHOUT a status flip (payment not fully refunded).
     expect(mockDb.payment.updateMany).toHaveBeenCalledWith({ where: { id: "p1", refundedAmount: 0 }, data: { refundedAmount: { increment: 30 } } });
     await flush();
@@ -194,7 +197,7 @@ describe("refundRegistration", () => {
     expect(mockDb.refundAttempt.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ kind: "manual", stripePaymentIntentId: null, flippedToRefunded: true }),
     }));
-    expect(mockDb.refundAttempt.update).toHaveBeenCalledWith({ where: { id: "att1" }, data: { status: "SUCCEEDED" } });
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith({ where: { id: "att1", status: "PENDING" }, data: { status: "SUCCEEDED" } });
     expect(stripeRefundsCreate).not.toHaveBeenCalled();
   });
 
@@ -280,12 +283,12 @@ describe("refundRegistration", () => {
     // The shared rollback gets the slice and Stripe's own figure for its intent.
     expect(unbookSpy).toHaveBeenCalledWith(expect.anything(), {
       registrationId: "reg1",
-      slices: [{ attemptId: "att1", paymentId: "p1", take: 100, paymentBooked: true, stripe: { refundedTotal: 0, attemptIds: [] } }],
+      slices: [{ attemptId: "att1", paymentId: "p1", take: 100, paymentBooked: true, stripe: { refundedTotal: 0, attemptIds: [] }, failureNote: "down" }],
       flippedToRefunded: true,
     });
-    expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ status: "FAILED" }) }),
-    );
+    // The rollback marks the attempt FAILED itself, in its transaction; the
+    // service writes nothing more for it.
+    expect(mockDb.refundAttempt.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "FAILED" }) }));
   });
 
   it("Stripe threw but the refund EXISTS (verified via metadata) → success, booking kept, no rollback (H5)", async () => {
@@ -296,7 +299,7 @@ describe("refundRegistration", () => {
     const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", amount: 50, source: "rest" });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.refund).toMatchObject({ refundId: "re_recovered", status: "succeeded", amount: 50 });
-    expect(mockDb.refundAttempt.update).toHaveBeenCalledWith({ where: { id: "att1" }, data: { status: "SUCCEEDED", stripeRefundId: "re_recovered" } });
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith({ where: { id: "att1", status: "PENDING" }, data: { status: "SUCCEEDED", stripeRefundId: "re_recovered" } });
     // No rollback write: the only updateMany is the claim itself.
     const rollbackCalls = mockDb.registration.updateMany.mock.calls.filter((call) => {
       const where = (call[0] as { where?: Record<string, unknown> } | undefined)?.where;
@@ -312,8 +315,8 @@ describe("refundRegistration", () => {
 
     const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" });
     expect(r).toMatchObject({ ok: false, code: "REFUND_STATE_UNKNOWN" });
-    expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ status: "UNKNOWN" }) }),
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "att1", status: { in: ["PENDING", "UNKNOWN"] } }, data: expect.objectContaining({ status: "UNKNOWN" }) }),
     );
     // Booking kept: only the claim ran, no rollback shape.
     expect(mockDb.registration.updateMany).toHaveBeenCalledTimes(1);
@@ -367,8 +370,8 @@ describe("refundRegistration", () => {
     unbookSpy.mockRejectedValue(new UnbookNeedsReview("counter above Stripe"));
     const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" });
     expect(r).toMatchObject({ ok: false, code: "REFUND_STATE_UNKNOWN" });
-    expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ status: "UNKNOWN" }) }),
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "att1", status: { in: ["PENDING", "UNKNOWN"] } }, data: expect.objectContaining({ status: "UNKNOWN" }) }),
     );
   });
 
@@ -385,10 +388,14 @@ describe("refundRegistration", () => {
     .mockResolvedValueOnce({ id: "attA" })
     .mockResolvedValueOnce({ id: "attB" })
     .mockResolvedValueOnce({ id: "attM" });
+  /** Status writes the SERVICE made (claims carry no status; rollback marks happen inside the mocked rollback). */
   const statusOf = (id: string) =>
-    mockDb.refundAttempt.update.mock.calls
+    mockDb.refundAttempt.updateMany.mock.calls
       .filter((c) => (c[0] as { where: { id: string } }).where.id === id)
-      .map((c) => (c[0] as { data: { status?: string } }).data.status);
+      .map((c) => (c[0] as { data: { status?: string } }).data.status)
+      .filter(Boolean);
+  const rolledBackIds = () =>
+    unbookSpy.mock.calls.flatMap((c) => (c[1] as { slices: Array<{ attemptId: string }> }).slices.map((x) => x.attemptId));
 
   it("one attempt per payment plus one for residue; each with a payment is marked paymentBooked", async () => {
     // 150 paid across a Stripe and a manual payment, refunding the full 150.
@@ -404,6 +411,20 @@ describe("refundRegistration", () => {
       ["stripe", "pS", 100, true],
       ["manual", "pM", 50, true],
     ]);
+  });
+
+  it("every attempt of one refund carries the same bookingId, and a new refund gets a new one", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(threePayments());
+    threeAttempts();
+    await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" });
+    const ids = mockDb.refundAttempt.create.mock.calls.map((c) => (c[0] as { data: { bookingId: string } }).data.bookingId);
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(1);
+    expect(ids[0]).toMatch(/^[0-9a-f-]{36}$/);
+    mockDb.refundAttempt.create.mockClear();
+    await refundRegistration({ registrationId: "reg1", eventId: "ev1", amount: 10, source: "rest" });
+    const next = (mockDb.refundAttempt.create.mock.calls[0][0] as { data: { bookingId: string } }).data.bookingId;
+    expect(next).not.toBe(ids[0]);
   });
 
   it("unattributed residue (PAID, no payment rows) gets its own attempt with no payment and paymentBooked false", async () => {
@@ -442,12 +463,14 @@ describe("refundRegistration", () => {
     expect(verifyRefundSpy).toHaveBeenNthCalledWith(2, "pi_B", "attB", "org1");
     expect(unbookSpy).toHaveBeenCalledTimes(1);
     expect(unbookSpy.mock.calls[0][1].slices).toEqual([
-      { attemptId: "attB", paymentId: "pB", take: 50, paymentBooked: true, stripe: { refundedTotal: 10, attemptIds: [] } },
-      { attemptId: "attM", paymentId: "pM", take: 30, paymentBooked: true, stripe: null },
+      { attemptId: "attB", paymentId: "pB", take: 50, paymentBooked: true, stripe: { refundedTotal: 10, attemptIds: [] }, failureNote: expect.stringContaining("earlier refund slice failed") },
+      { attemptId: "attM", paymentId: "pM", take: 30, paymentBooked: true, stripe: null, failureNote: expect.stringContaining("earlier refund slice failed") },
     ]);
     expect(statusOf("attA")).toEqual(["UNKNOWN"]);
-    expect(statusOf("attB")).toEqual(["FAILED"]);
-    expect(statusOf("attM")).toEqual(["FAILED"]);
+    // B and M are marked FAILED by the rollback itself, not by the service.
+    expect(rolledBackIds()).toEqual(["attB", "attM"]);
+    expect(statusOf("attB")).toEqual([]);
+    expect(statusOf("attM")).toEqual([]);
   });
 
   it("keptUnknown and a later slice cannot be checked with Stripe: nothing un-booked here, every attempt left UNKNOWN", async () => {
@@ -472,6 +495,33 @@ describe("refundRegistration", () => {
     await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" });
     expect(unbookSpy).not.toHaveBeenCalled();
     expect(statusOf("attB")).toEqual(["UNKNOWN"]);
+  });
+
+  it("review 2 MED-3: each Stripe slice is claimed (touched, only if still PENDING) right before it is sent", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(reg({ id: "p1", stripePaymentId: "pi_1", amount: 100, currency: "USD" }));
+    await refundRegistration({ registrationId: "reg1", eventId: "ev1", amount: 30, source: "rest" });
+    const claimIdx = mockDb.refundAttempt.updateMany.mock.calls.findIndex(
+      (c) => (c[0] as { data: Record<string, unknown> }).data.updatedAt instanceof Date,
+    );
+    expect(mockDb.refundAttempt.updateMany.mock.calls[claimIdx][0]).toMatchObject({ where: { id: "att1", status: "PENDING" } });
+    expect(mockDb.refundAttempt.updateMany.mock.invocationCallOrder[claimIdx]).toBeLessThan(stripeRefundsCreate.mock.invocationCallOrder[0]);
+  });
+
+  it("review 2 MED-3: the sweep already settled a slice we had not sent yet → stop, send nothing more, touch nothing", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(threePayments());
+    threeAttempts();
+    stripeRefundsCreate.mockResolvedValueOnce({ id: "re_A" });
+    // Slice A's claim works; by slice B the sweep has rolled B back.
+    mockDb.refundAttempt.updateMany.mockImplementation(async (q: { where: { id: string }; data: Record<string, unknown> }) =>
+      q.where.id === "attB" && q.data.updatedAt instanceof Date ? { count: 0 } : { count: 1 });
+
+    const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" });
+    expect(r).toMatchObject({ ok: false, code: "REFUND_STATE_UNKNOWN", meta: { refundedThisCall: 100 } });
+    expect(stripeRefundsCreate).toHaveBeenCalledTimes(1);
+    expect(unbookSpy).not.toHaveBeenCalled();
+    expect(statusOf("attB")).toEqual([]);
+    // Never recorded: UNKNOWN, so the sweep takes it back (PENDING would be confirmed).
+    expect(statusOf("attM")).toEqual(["UNKNOWN"]);
   });
 
   it("MED-1: a Dashboard refund found by the rollback gets its credit note, an audit row and a notice", async () => {
@@ -587,9 +637,7 @@ describe("refundRegistration", () => {
       flippedToRefunded: true,
     });
     expect(mockDb.payment.updateMany).toHaveBeenCalledWith({ where: { id: "pA", refundedAmount: 0 }, data: { refundedAmount: { increment: 100 }, status: "REFUNDED" } });
-    expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "attB" }, data: expect.objectContaining({ status: "FAILED" }) }),
-    );
+    expect(unbookSpy.mock.calls[0][1].slices[0].failureNote).toBe("declined");
   });
 
   it("REFUND_STATE_UNKNOWN when the rollback loses its race (state moved on) → attempt UNKNOWN", async () => {
@@ -600,8 +648,8 @@ describe("refundRegistration", () => {
 
     const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" });
     expect(r).toMatchObject({ ok: false, code: "REFUND_STATE_UNKNOWN" });
-    expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ status: "UNKNOWN" }) }),
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "att1", status: { in: ["PENDING", "UNKNOWN"] } }, data: expect.objectContaining({ status: "UNKNOWN" }) }),
     );
   });
 });

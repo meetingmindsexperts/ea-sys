@@ -711,6 +711,27 @@ export async function handleStripeEvent(
       // delta of 0 means "already accounted for" → skip (idempotent on
       // retries too). Only a Stripe-Dashboard (out-of-band) refund advances it.
       if (delta <= 0) {
+        // "Nothing new" can also mean "hidden behind one of OUR refunds that is
+        // booked but not settled" (security audit W0-1 review, Nov 6 2026): a
+        // Dashboard refund landing while ours is in flight reads delta <= 0
+        // here, and if ours then fails and is rolled back, nothing would ever
+        // book it. So while any refund of ours is in flight on this payment,
+        // answer 500 and let Stripe redeliver once it has settled; the counter
+        // then shows the truth either way. The in-flight check is read BEFORE
+        // the counter is re-read: an attempt that settles in between has
+        // already moved the counter, which the re-read sees.
+        const inFlight = await db.refundAttempt.count({
+          where: { paymentId: payment.id, status: { in: ["PENDING", "UNKNOWN"] }, paymentBooked: true },
+        });
+        if (inFlight > 0) {
+          apiLogger.warn({ msg: "charge.refunded: a refund of ours is in flight on this payment — 500 so Stripe redelivers", registrationId, paymentIntentId, inFlight });
+          return NextResponse.json({ error: "Refund in flight" }, { status: 500 });
+        }
+        const fresh = await db.payment.findUnique({ where: { id: payment.id }, select: { refundedAmount: true } });
+        if (!fresh || round2(Number(fresh.refundedAmount)) !== alreadyForPayment) {
+          apiLogger.warn({ msg: "charge.refunded: payment counter moved while checking — 500 so Stripe redelivers", registrationId, paymentIntentId });
+          return NextResponse.json({ error: "Concurrent reconciliation" }, { status: 500 });
+        }
         apiLogger.info({ msg: "charge.refunded: already reconciled, skipping", registrationId: registrationId, paymentIntentId, cumulativeRefunded });
         return NextResponse.json({ received: true });
       }

@@ -30,6 +30,8 @@ const {
         aggregate: vi.fn(),
       },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
+      // No refund of ours in flight unless a test says so.
+      refundAttempt: { count: vi.fn().mockResolvedValue(0) },
       $transaction: vi.fn(),
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -383,6 +385,32 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     expect(mockDb.registration.update).not.toHaveBeenCalled();
     await flush();
     expect(issueCreditNoteSpy).not.toHaveBeenCalled();
+  });
+
+  it("review 2 MED-2: nothing new, but a refund of ours is in flight on this payment → 500 so Stripe redelivers once it settles", async () => {
+    // A Dashboard refund hidden behind our booking reads delta <= 0. If ours
+    // then failed and was rolled back, a 200 here would lose it for good.
+    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 5000 }));
+    mockDb.payment.findUnique.mockResolvedValue(paymentRow(60, 100));
+    mockDb.refundAttempt.count.mockResolvedValueOnce(1);
+
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(500);
+    expect(mockDb.refundAttempt.count).toHaveBeenCalledWith({
+      where: { paymentId: expect.any(String), status: { in: ["PENDING", "UNKNOWN"] }, paymentBooked: true },
+    });
+    expect(mockDb.payment.updateMany).not.toHaveBeenCalled();
+    await flush();
+    expect(issueCreditNoteSpy).not.toHaveBeenCalled();
+  });
+
+  it("review 2 MED-2: nothing new, and the counter moved while checking (a rollback committed) → 500, not a silent skip", async () => {
+    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 5000 }));
+    mockDb.payment.findUnique
+      .mockResolvedValueOnce(paymentRow(60, 100)) // the first read: our 60 booked
+      .mockResolvedValueOnce({ refundedAmount: 0 }); // the re-read: rolled back since
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(500);
   });
 
   it("500s (Stripe retries) when a concurrent delivery moved the payment counter", async () => {

@@ -428,6 +428,12 @@ model RefundAttempt {
   /// payment counter down. Defaults false, which is exactly right for every row
   /// the previous image writes during a blue/green switch.
   paymentBooked         Boolean             @default(false)
+  /// Shared by every attempt of one refund booking (Nov 6 2026). The sweep
+  /// confirms a stale manual attempt only once its Stripe siblings succeeded: a
+  /// refund still sending its Stripe slices leaves the manual one PENDING too,
+  /// and confirming it then recorded a refund the operator was told had failed.
+  /// Null on older rows, which keep the old rule (a stale manual PENDING is confirmed).
+  bookingId             String?
   kind                  String // "stripe" | "manual"
   status                RefundAttemptStatus @default(PENDING)
   stripeRefundId        String?
@@ -440,6 +446,7 @@ model RefundAttempt {
   @@index([registrationId])
   @@index([organizationId])
   @@index([status, createdAt])
+  @@index([bookingId])
 }
 
 enum RefundAttemptStatus {

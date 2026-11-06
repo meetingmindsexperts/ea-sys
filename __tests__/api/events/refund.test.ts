@@ -15,7 +15,7 @@ const { mockAuth, mockDb, mockApiLogger, mockStripeRefundsCreate, mockStripeRefu
       payment: { update: vi.fn(), updateMany: vi.fn() },
       invoice: { findFirst: vi.fn(), findMany: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
-      refundAttempt: { create: vi.fn(), update: vi.fn() },
+      refundAttempt: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
       $transaction: vi.fn(),
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -35,6 +35,8 @@ unbookRouteSpy.mockImplementation(async (_tx: unknown, args: { slices: Array<{ t
 }));
 mockDb.refundAttempt.create.mockResolvedValue({ id: "att-1" });
 mockDb.refundAttempt.update.mockResolvedValue({});
+// Guarded status writes and the pre-send claim (security audit W0-1, review 2).
+mockDb.refundAttempt.updateMany.mockResolvedValue({ count: 1 });
 // The per-payment counter is booked inside the claim (security audit W0-1).
 mockDb.payment.updateMany.mockResolvedValue({ count: 1 });
 mockDb.$transaction.mockImplementation(async (cb: (tx: unknown) => unknown) =>
