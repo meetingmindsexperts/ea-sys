@@ -10,7 +10,7 @@
 > (where the write-up goes afterwards).
 >
 > **Verified against the live account on 2026-08-12; the CloudTrail and `db/` expiry rows
-> re-verified 2026-11-05 after both were fixed.** Re-verify §2 with the commands in §7 before
+> re-verified 2026-11-05 and the GuardDuty row 2026-11-06, after each was fixed.** Re-verify §2 with the commands in §7 before
 > trusting the numbers.
 
 ---
@@ -66,7 +66,7 @@ Verified read-only on 2026-08-12. Commands to re-check are in §7.
 | **ECR access from the box** | **Pull only**, no push | A compromised box cannot poison the image registry. Rollback images stay trustworthy. |
 | **KMS rights from the box** | Encrypt / Decrypt / GenerateDataKey. **No** `ScheduleKeyDeletion` or `DisableKey` | The box cannot brick the key that protects the backups. |
 | **CloudTrail** | **On since 2026-11-05.** Trail `ea-sys-org-trail` (home ap-south-1): every region, global services included, management events read and write, log file validation on. Logs go to `aws-cloudtrail-logs-803726282629-f97c4499` (SSE-S3, public access blocked, versioned, no expiry yet) | Who called what, when and from where, for every AWS API call, with digest files that prove a log was not altered. **Not covered:** S3 object-level (data) events, so reads and overwrites of individual backup objects are not recorded, and anything inside the app or Supabase. The trail lives in the same account, so Scenario C (an admin credential) can still stop it or empty its bucket. |
-| **GuardDuty** | **None, in any region** | **No detection.** We find out from the ransom note. Dwell time is unbounded. |
+| **GuardDuty** | **On since 2026-11-06** in ap-south-1 and ap-southeast-1 ([infra/guardduty/setup.sh](../infra/guardduty/setup.sh)): CloudTrail, VPC flow logs and DNS analysed, plus S3 protection and EBS malware scanning. Medium and High findings (severity 4+) are emailed to `ea-sys-alerts` by EventBridge rule `ea-sys-guardduty-findings`; Singapore forwards to Mumbai's bus | We hear about stolen instance credentials, a box talking to mining or command-and-control hosts, CloudTrail being stopped or odd access to the DR bucket within minutes, not from the ransom note. **Not covered:** anything inside the containers (runtime monitoring is off; it needs an agent) and Supabase. Low findings stay in the console. |
 | **Supabase PITR** | Not purchased | No second-precision rollback. The hourly dump is the only DB recovery point. |
 | **Singapore DR box** | **Does not exist** | DR is bucket-only and cold. There is no warm standby to fail over to. |
 | **Sessions** | Stateless JWT, 24h | **The only way to sign everyone out is rotating `NEXTAUTH_SECRET`.** See §4 Phase 6, it has a sharp edge. |
@@ -277,22 +277,22 @@ the insurer.
 
 ## 6. The gaps, ranked, with what they cost
 
-Verified missing as of 2026-08-12. #1 and #2 were closed on 2026-11-05 and stay in the table,
-struck through, so the reasoning is not lost.
+Verified missing as of 2026-08-12. #1 and #2 were closed on 2026-11-05 and #4 on 2026-11-06; they
+stay in the table, struck through, so the reasoning is not lost.
 
 | # | Gap | Consequence in an incident | Rough cost |
 |---|---|---|---|
 | 1 | ~~**No CloudTrail**~~ **DONE 2026-11-05** (see §2). Left open: S3 data events on `ea-sys-dr-singapore` (write only) would record object overwrites; a lifecycle on the log bucket to cap storage. | You cannot answer "when did they get in" or "what did they take". That is the first question from the insurer, counsel and the regulator, and it also picks your restore point. | ~$2/month. One command. |
 | 2 | ~~**`db/` noncurrent versions expire in 7 days**~~ **DONE 2026-11-05**: raised to 90 days. | An attacker needs no delete rights: overwrite the dumps, wait 8 days, and AWS deletes the good versions for them. Raise to 90 days or drop the rule. | Free. Pennies of storage. |
 | 3 | **A backup the production credentials cannot write to** | Every backup today is written by the box, with the box's role. Versioning is the only thing between an owned box and useless backups. A pull-based copy (separate account or a Lambda the box cannot invoke) removes that dependency entirely. This is the strongest single control available. | ~$1 to $5/month. |
-| 4 | **No GuardDuty** | No detection at all. Dwell time is bounded only by when the attacker chooses to tell you. | ~$10 to $30/month. |
+| 4 | ~~**No GuardDuty**~~ **DONE 2026-11-06** (see §2). Decide by ~2026-12-01, when the 30-day trial ends, from the GuardDuty Usage tab. | No detection at all. Dwell time is bounded only by when the attacker chooses to tell you. | ~$10 to $30/month. |
 | 5 | **`.env` stored plaintext in the DR bucket, daily** | The box's role has `GetObject` on the whole bucket, so a compromised box reads **every historical secret set**, including ones you rotated months ago. Move to Secrets Manager, or at minimum a separately-keyed prefix the app role cannot read. | Low. |
 | 6 | **No Object Lock, no MFA Delete** | Scenario C (account compromise) destroys everything. Object Lock in governance mode makes versions undeletable for a retention window. | Free, but needs care: compliance mode cannot be undone. |
 | 7 | **DB backup horizon is 31 days** | Dwell time frequently exceeds a month. A discovery on day 40 has no clean restore point. | Storage only. |
 | 8 | **No Supabase PITR** | Hourly dumps are the only DB recovery point. Acceptable today, revisit if RPO tightens. | $25 to $50/month. |
 
-**The two cheap ones are done (Nov 5, 2026): CloudTrail (#1) and the 7-day expiry (#2).** The
-next most valuable are #3 (a backup the box cannot write to) and #4 (GuardDuty).
+**The two cheap ones are done (Nov 5, 2026): CloudTrail (#1) and the 7-day expiry (#2).** GuardDuty
+(#4) followed on Nov 6. The next most valuable is #3, a backup the box cannot write to.
 
 ---
 
@@ -321,7 +321,11 @@ aws cloudtrail describe-trails --region ap-south-1 \
 aws cloudtrail get-trail-status --name ea-sys-org-trail --region ap-south-1 \
   --query '{Logging:IsLogging,LastDelivery:LatestDeliveryTime,Error:LatestDeliveryError}'
 aws s3api get-bucket-versioning --bucket aws-cloudtrail-logs-803726282629-f97c4499
-aws guardduty list-detectors --region ap-south-1
+for r in ap-south-1 ap-southeast-1; do aws guardduty list-detectors --region $r; done
+# ...and that findings actually reach email (want: Invocations > 0, FailedInvocations absent)
+aws cloudwatch get-metric-statistics --region ap-south-1 --namespace AWS/Events \
+  --metric-name FailedInvocations --dimensions Name=RuleName,Value=ea-sys-guardduty-findings \
+  --start-time $(date -u -v-7d +%FT%TZ) --end-time $(date -u +%FT%TZ) --period 86400 --statistics Sum
 
 # During an incident: find the last GOOD version of an overwritten backup
 aws s3api list-object-versions --bucket ea-sys-dr-singapore \
