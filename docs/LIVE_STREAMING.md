@@ -375,6 +375,11 @@ publish there is refused until the lookup moves to the operator lane.
 
 ## 13. Scaling to 5,000 viewers — CloudFront CDN + origin failover
 
+> **Superseded in part (Nov 6, 2026): read [HLS_CDN_PLAN.md](HLS_CDN_PLAN.md) first.** It corrects
+> three things below: the cache settings (with nginx's `no-cache` and a minimum TTL of 0 nothing
+> would be cached), the DR origin group (dropped from v1: Zoom pushes to one box) and the custom
+> domain (not needed until signed cookies).
+
 A single MediaMTX/EC2 box **cannot** serve HLS to 5k concurrent viewers (each
 pulls a fresh playlist + segments every few seconds). At that scale we front
 MediaMTX with **CloudFront**: the box is the *origin*, CloudFront caches the

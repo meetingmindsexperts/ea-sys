@@ -31,6 +31,8 @@ the server-side waiting room, export headers, presence archive); see CHANGELOG, 
    serves every viewer. A t3.large sustains roughly 0.5 Gbps: about 300 to 500 viewers at 1 to 1.5
    Mbps, not the 5,000 the LIVE_STREAMING.md §13 design assumes. Decide CloudFront (then item 3
    becomes CloudFront signed cookies) or a viewer cap before a large custom-stream webinar.
+   **Planned Nov 6, 2026: [HLS_CDN_PLAN.md](HLS_CDN_PLAN.md)** (CloudFront, re-verified costs, and
+   the fix for §13's cache settings, which as written would have cached nothing).
 5. **Per-tenant egress and logs (platform).** Meter streaming egress per organisation and tag
    MediaMTX log lines with it before billing tenants for streaming.
 

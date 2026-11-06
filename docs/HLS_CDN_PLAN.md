@@ -1,0 +1,165 @@
+# CloudFront in front of the live stream: plan
+
+Status: PLANNED, NOT BUILT (Nov 6, 2026). Supersedes the AWS half of
+[LIVE_STREAMING.md §13](LIVE_STREAMING.md), which this plan corrects in three places (§4).
+Backlog entry: [ROADMAP](ROADMAP.md), "Webinar streaming: what the Nov 5 security review left
+for later", item 4.
+
+## 1. The problem
+
+Every viewer of a custom-stream webinar pulls the HLS stream straight from the box:
+the browser to nginx `/stream/`, then to MediaMTX on `127.0.0.1:8888`. Each viewer costs the box
+the full stream bitrate. A t3.large has a **baseline of about 0.51 Gbps** (the "up to 5 Gbps"
+figure is a burst that runs out), so:
+
+| Stream bitrate | Viewers at baseline |
+|---|---|
+| 1.5 Mbps | about 340 |
+| 2.5 Mbps | about 200 |
+
+Above that, the box runs on burst credits and then drops packets for everyone, the dashboard and
+registration included, because they share the same network card. The real bitrate Zoom sends is
+not measured yet (step 0).
+
+## 2. Decision: CloudFront, not Cloudflare
+
+| | Cloudflare free | CloudFront |
+|---|---|---|
+| Video allowed | **No.** Cloudflare's CDN terms restrict video hosted outside Cloudflare; it is allowed only through their paid Stream, Images or R2 | Yes |
+| DNS | The whole `meetingmindsgroup.com` zone moves to Cloudflare, including the SES DKIM and DMARC records | Nothing changes: the default `*.cloudfront.net` name needs no DNS and no certificate |
+| Cost | Free, until they throttle it mid-webinar | Free up to 1 TB a month, then about $0.11/GB (§3) |
+| Fits what exists | New vendor, new account | Same AWS account, same IAM, same billing, CloudWatch |
+
+Cloudflare Stream (their paid video product) would replace MediaMTX, not sit in front of it, and
+bills per minute watched (500 viewers for an hour is 30,000 minutes). Not worth it.
+
+## 3. Cost, re-verified Nov 6, 2026
+
+Prices to check against the
+[CloudFront pricing page](https://aws.amazon.com/cloudfront/pricing/) before switching on; most
+of the figures below were confirmed only by third-party pricing guides.
+
+- **Always-free tier (pay as you go):** 1 TB of data out, 10 million requests and 2 million
+  CloudFront Function calls every month, with no end date.
+- **After the free TB:** about $0.109/GB for viewers in India and about $0.11/GB for the Middle
+  East (first 10 TB band).
+- **Box to CloudFront:** AWS does not charge for data sent from EC2 to CloudFront.
+- **Today, without CloudFront:** the box pays EC2 internet egress, about $0.11/GB from ap-south-1
+  after AWS's 100 GB a month free. **So viewers already cost about this much per GB;** CloudFront
+  mostly replaces that bill rather than adding one, and its free allowance is ten times larger.
+- **Flat-rate Pro plan:** $15 a month with no overage charges, listed as 50 TB and 10 million
+  requests. Not the starting choice: it costs $15 in months with no webinar, and it is not yet
+  clear whether it accepts an EC2 origin for video or what happens past the allowance (decision D2).
+
+**What one viewer costs.** One viewer for one hour is 0.68 GB at 1.5 Mbps and 1.13 GB at
+2.5 Mbps. Requests are about 1,800 per viewer-hour (a playlist and a 4 s segment every 4 s),
+so 10 million requests is about 5,500 viewer-hours: data, not requests, runs out first.
+
+| One webinar | Data | CloudFront bill (first of the month) | Box egress today |
+|---|---|---|---|
+| 300 viewers, 1 h | 200 to 340 GB | $0 | $11 to $26 |
+| 500 viewers, 1 h | 340 to 560 GB | $0 | $26 to $51 |
+| 1,000 viewers, 1.5 h | 1.0 to 1.7 TB | $0 to $75 | the box cannot serve it |
+| 2,000 viewers, 2 h | 2.7 to 4.5 TB | $185 to $385 | the box cannot serve it |
+
+The free TB is shared across the month, so a second large webinar in the same month pays from its
+first GB.
+
+## 4. What §13 of LIVE_STREAMING.md gets wrong
+
+1. **As written, nothing would be cached.** nginx adds `Cache-Control: no-cache` to everything
+   under `/stream/`, and with a minimum TTL of 0 CloudFront honours it: every viewer request would
+   go through to the box, so the CDN would carry the bill and remove none of the load. The fix is
+   two cache behaviours with a **minimum TTL above 0**, which CloudFront applies even when the
+   origin says `no-cache` (§5 step 2). No nginx change is needed.
+2. **The DR origin group is dropped from v1.** Zoom pushes RTMP to one address, so the Singapore
+   box would have no stream to serve. Failover to it is a separate project (dual ingest).
+3. **No custom domain in v1.** The `*.cloudfront.net` name needs no certificate and no DNS change.
+   A custom domain is needed later only for signed cookies (§7).
+
+## 5. Steps
+
+AWS steps are run by the owner (house rule: instruct, never execute). I hand over every command.
+
+**Step 0. Measure the bitrate.** On the next practice custom stream, read the segment sizes in the
+browser's network panel (segment bytes x 8 / 4 s). This sets the real viewer limit for the box
+and the real cost per viewer-hour. Ten minutes.
+
+**Step 1. Create the distribution** (owner, console or CLI):
+- Origin: `events.meetingmindsgroup.com`, HTTPS only, empty origin path. CloudFront sends the
+  origin's own name as Host, which matches the nginx `server_name`.
+- Compression off (video is already compressed), HTTP/2 and HTTP/3 on, price class "All" (the
+  audience is the Gulf and India; the cheaper classes skip the Middle East edges).
+- Standard logging off at first (it costs S3 storage); CloudWatch's free default metrics show
+  requests, bytes and the cache hit rate.
+
+**Step 2. Cache behaviours** (the fix in §4.1):
+
+| Path pattern | Min TTL | Default | Max | Why |
+|---|---|---|---|---|
+| `/stream/*.m3u8` | 1 s | 1 s | 2 s | The playlist changes every 4 s; one origin fetch per edge per second |
+| `/stream/*` | 60 s | 60 s | 300 s | A segment never changes once written |
+| Default (`*`) | n/a | n/a | n/a | A CloudFront Function answers 404, so the distribution is never a mirror of the whole site |
+
+All three: GET and HEAD only; no cookies, headers or query strings in the cache key; a response
+headers policy passing `Access-Control-Allow-Origin: *` (nginx already sends it).
+Custom error response: **404 cached for 1 s** (the default is 10 s, which would hide a stream that
+has just started for up to 10 s).
+
+CloudFront also merges simultaneous requests for the same object at an edge into one origin
+fetch, so a 2,000-viewer surge becomes a few requests a second at the box.
+
+**Step 3. A spending alarm** (owner): an AWS Budget on CloudFront at $50 a month, emailing the
+owner. CloudFront has no spending cap, and the viewer URL can be shared (§7), so a leaked link
+watched by thousands would bill without one.
+
+**Step 4. Test with a throwaway stream before any real webinar:**
+- Publish an H.264 test stream with ffmpeg to a test key (as on Nov 5).
+- `curl -sI https://<id>.cloudfront.net/stream/live/<key>/index.m3u8` twice: the second shows
+  `x-cache: Hit from cloudfront`.
+- Play it through the `.cloudfront.net` URL in Chrome and iPhone Safari.
+- On the box, the nginx access log shows a few `/stream/` requests a second from CloudFront
+  addresses, however many players are open.
+- Stop the stream: within a few seconds the playlist 404s through CloudFront and the page goes to
+  "ended" (stream-status probes MediaMTX directly, never through CloudFront, so nothing changes).
+
+**Step 5. Switch it on.** Add `HLS_CDN_BASE=https://<id>.cloudfront.net` to the box's `.env`, then
+`bash scripts/deploy.sh`. zoom-join, stream-status and the console preview already read it; the
+player falls back to the box once if CloudFront fails. Unset it to switch back.
+
+**Step 6. Docs.** LIVE_STREAMING.md §13 rewritten to match, WEBINAR_STREAMING.html's scale
+section, ROADMAP item 4 closed, CHANGELOG.
+
+No code changes are expected. If step 4 turns anything up, it gets fixed and tested before step 5.
+
+## 6. What it leaves alone
+
+- **Publishing** (RTMP from Zoom to the box on 1935) and its HMAC check are untouched.
+- **The Zoom embed mode** never touches the stream.
+- **nginx `limit_conn ea_conn 100`** applies per address to `/stream/` too, but CloudFront opens
+  only a few connections per edge, and `/stream/` has no request limit, so fail2ban (which bans
+  on request-limit hits) cannot ban an edge.
+- **The origin stays public.** The player's fallback needs it, and the URL is already public
+  while a stream is live. Locking the origin to CloudFront only (the `com.amazonaws.global.cloudfront.origin-facing`
+  prefix list on port 443) would lock the whole site, since the app shares the port, and would
+  break the fallback. Not worth it.
+
+## 7. Later, not in this plan
+
+- **Signed cookies (review W-04).** CloudFront signed cookies replace the nginx `secure_link` idea
+  in ROADMAP item 3. The cookie has to be set on a domain the app shares, so this needs a custom
+  name such as `stream.events.meetingmindsgroup.com` (an ACM certificate in us-east-1 plus one DNS
+  record) and a CloudFront key pair whose private key the app holds. Worth it once a webinar's
+  content is restricted (e.g. HCP-only).
+- **DR failover** (needs Zoom to push to both boxes).
+- **Per-tenant egress** (ROADMAP item 5): CloudFront logs carry the stream key in the path, which
+  maps to an organisation.
+
+## 8. Decisions for the owner
+
+- **D1. When to do it.** Recommended: steps 0 to 4 now (an hour of console work, $0 while idle),
+  step 5 before the first custom-stream webinar expected to pass about 200 live viewers. Leaving
+  it set all the time is also fine: it is free under 1 TB a month.
+- **D2. Pay as you go or flat-rate Pro.** Recommended: pay as you go. Revisit Pro ($15 a month)
+  if two monthly bills in a row pass about $15, after confirming Pro allows an EC2 video origin.
+- **D3. The budget alarm amount.** $50 a month suggested.
