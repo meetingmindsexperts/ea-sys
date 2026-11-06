@@ -14,8 +14,8 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock("@/lib/db", () => ({
-  db: {
+vi.mock("@/lib/db", () => {
+  const db = {
     crmDeal: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     crmPipelineStage: { findFirst: vi.fn() },
     crmCompany: { findFirst: vi.fn() },
@@ -25,8 +25,11 @@ vi.mock("@/lib/db", () => ({
     crmActivity: { create: vi.fn().mockResolvedValue({}) },
     // Archiving a deal revokes its email-thread tokens (inbox review M1).
     crmEmailThread: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
-  },
-}));
+    auditLog: { create: vi.fn().mockResolvedValue({}) },
+  };
+  // Interactive tenantTransaction runs the callback on the same mock (the claim + its audit row).
+  return { db, tenantTransaction: (fn: (tx: typeof db) => unknown) => fn(db) };
+});
 
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";

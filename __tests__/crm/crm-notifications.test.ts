@@ -16,8 +16,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
-vi.mock("@/lib/db", () => ({
-  db: {
+vi.mock("@/lib/db", () => {
+  const db = {
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     crmDealProduct: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     crmNotification: {
@@ -43,8 +43,11 @@ vi.mock("@/lib/db", () => ({
     event: { findFirst: vi.fn() },
     user: { findFirst: vi.fn() },
     crmActivity: { create: vi.fn().mockResolvedValue({}) },
-  },
-}));
+    auditLog: { create: vi.fn().mockResolvedValue({}) },
+  };
+  // Interactive tenantTransaction runs the callback on the same mock (the claim + its audit row).
+  return { db, tenantTransaction: (fn: (tx: typeof db) => unknown) => fn(db) };
+});
 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";

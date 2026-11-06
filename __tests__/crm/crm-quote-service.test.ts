@@ -36,6 +36,8 @@ const { tx, dbMock } = vi.hoisted(() => {
     crmDealDocument: { create: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
     crmQuote: { create: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), findFirstOrThrow: vi.fn() },
     crmQuoteLine: { deleteMany: vi.fn(), createMany: vi.fn() },
+    // The transactional audit (crm-audit.ts) writes inside the quote's transaction.
+    auditLog: { create: vi.fn().mockResolvedValue({}) },
   };
   const dbMock = {
     crmDeal: { findFirst: vi.fn() },
@@ -280,6 +282,8 @@ describe("createDealQuote", () => {
     });
     expect(quote.lines.create[0]).toMatchObject({ organizationId: ORG, amount: 95000, sortOrder: 0, crmProductId: "p-1" });
 
+    // The authoritative trail, in the quote's own transaction (crm-audit.ts).
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "CRM_QUOTE_CREATED", organizationId: ORG }) }));
     expect(dbMock.crmActivity.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: "QUOTE_GENERATED", entityId: "d-1" }) }),
     );
@@ -416,6 +420,7 @@ describe("updateDealQuote", () => {
     expect(dbMock.crmActivity.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: "QUOTE_UPDATED" }) }),
     );
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "CRM_QUOTE_UPDATED" }) }));
   });
 
   it("mints a new document when the quote's document row was removed meanwhile, so the new PDF is never orphaned (review L2)", async () => {

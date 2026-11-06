@@ -23,6 +23,11 @@
  * days), so a line that matters can be rebuilt by hand from the record. The exception is a permanent
  * delete, whose trace is the AuditLog row written INSIDE the delete's
  * transaction (crm-purge-service.ts), never this best-effort log.
+ *
+ * SINCE NOV 6, 2026 the changes that move money or responsibility (deal value,
+ * owner, won/lost/reopen, archive/restore, quote create/edit/delete, a quote
+ * sent to QuickBooks) ALSO write an AuditLog row inside their own transaction
+ * (crm-audit.ts). This History line stays best-effort beside it.
  */
 import { Prisma, type CrmActivityEntity } from "@prisma/client";
 import { db } from "@/lib/db";

@@ -11,8 +11,8 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock("@/lib/db", () => ({
-  db: {
+vi.mock("@/lib/db", () => {
+  const db = {
     crmDeal: {
       create: vi.fn(),
       updateMany: vi.fn(),
@@ -32,11 +32,13 @@ vi.mock("@/lib/db", () => ({
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     crmActivity: { create: vi.fn().mockResolvedValue({}) },
     crmNotification: { create: vi.fn().mockResolvedValue({}) },
-  },
-}));
+  };
+  // Interactive tenantTransaction runs the callback on the same mock (the claim + its audit row).
+  return { db, tenantTransaction: (fn: (tx: typeof db) => unknown) => fn(db) };
+});
 
 import { db } from "@/lib/db";
-import { createDeal, updateDeal, moveDealStage, closeDeal } from "@/crm/services/deal-service";
+import { createDeal, updateDeal, moveDealStage, closeDeal, setDealArchived } from "@/crm/services/deal-service";
 
 const ORG = "org-1";
 const base = { organizationId: ORG, userId: "u-1", source: "rest" as const };
@@ -602,5 +604,67 @@ describe("updateDeal — product lines follow the deal's currency (owner, Oct 27
     await updateDeal({ ...base, dealId: "d-1", currency: "usd" });
     expect(vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0]!.data).toMatchObject({ currency: "USD" });
     expect(db.crmDealProduct.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { currency: "USD" } }));
+  });
+});
+
+// ── Transactional audit (CRM product review P1-10, Nov 6, 2026) ───────────────
+describe("high-impact deal changes write an AuditLog row inside their transaction", () => {
+  const before = {
+    name: "Amgen - Gold", dealValue: 15000, currency: "AED", expectedClose: null, companyId: null, eventId: null,
+    ownerId: null, pipeline: "CONFERENCE", dealTypeId: null, tags: [], archivedAt: null,
+  };
+  const audited = () => vi.mocked(db.auditLog.create).mock.calls.map((c) => (c[0] as { data: { action: string } }).data.action);
+  beforeEach(() => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue(before as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", name: "Amgen - Gold" } as never);
+  });
+
+  it("a value change is audited with before and after; a rename is not", async () => {
+    await updateDeal({ ...base, dealId: "d-1", dealValue: 20000 });
+    expect(db.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "CRM_DEAL_VALUE_CHANGED", organizationId: ORG, entityId: "d-1", changes: expect.objectContaining({ dealValue: { from: 15000, to: 20000 } }) }),
+      }),
+    );
+    vi.mocked(db.auditLog.create).mockClear();
+    await updateDeal({ ...base, dealId: "d-1", name: "Amgen - Platinum" });
+    expect(db.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("a new owner is audited", async () => {
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-2", role: "CRM_USER" } as never);
+    await updateDeal({ ...base, dealId: "d-1", ownerId: "u-2" });
+    expect(audited()).toContain("CRM_DEAL_OWNER_CHANGED");
+  });
+
+  it("no audit row when the claim lost (archived under us)", async () => {
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 0 } as never);
+    await updateDeal({ ...base, dealId: "d-1", dealValue: 20000 });
+    expect(db.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("a failed audit insert fails the change (same transaction), never a silent success", async () => {
+    vi.mocked(db.auditLog.create).mockRejectedValueOnce(new Error("insert failed"));
+    const res = await updateDeal({ ...base, dealId: "d-1", dealValue: 20000 });
+    expect(res).toMatchObject({ ok: false, code: "UNKNOWN" });
+  });
+
+  it("closing as WON and archiving are audited", async () => {
+    vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue({ id: "s-won" } as never);
+    await closeDeal({ ...base, dealId: "d-1", outcome: "WON" });
+    expect(audited()).toContain("CRM_DEAL_WON");
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", name: "Amgen", dealValue: 15000, currency: "AED", status: "WON", archivedAt: null } as never);
+    await setDealArchived({ ...base, dealId: "d-1", archived: true });
+    expect(audited()).toContain("CRM_DEAL_ARCHIVED");
+  });
+
+  it("dragging into a WON column is audited; an ordinary column move is not", async () => {
+    mockStages({ "s-neg": stage({ id: "s-neg" }), "s-won": stage({ id: "s-won", isTerminal: true, terminalOutcome: "WON" }), "s-prop": stage({ id: "s-prop" }) });
+    await moveDealStage({ ...base, dealId: "d-1", fromStageId: "s-neg", toStageId: "s-won" });
+    expect(audited()).toEqual(["CRM_DEAL_WON"]);
+    vi.mocked(db.auditLog.create).mockClear();
+    await moveDealStage({ ...base, dealId: "d-1", fromStageId: "s-neg", toStageId: "s-prop" });
+    expect(db.auditLog.create).not.toHaveBeenCalled();
   });
 });

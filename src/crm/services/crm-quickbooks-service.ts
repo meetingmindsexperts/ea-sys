@@ -32,11 +32,12 @@
  *      a change is made on the Estimate in QuickBooks.
  */
 import type { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { crmAccounting } from "@/crm/integrations/accounting";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
+import { writeCrmAudit } from "@/crm/lib/crm-audit";
 import {
   QBO_SEND_STALE_MS,
   totalTolerance,
@@ -497,20 +498,47 @@ async function recordEstimate(
       ? `QuickBooks' total is ${estimate.totalAmt.toFixed(2)}, the quote's is ${quoteTotal.toFixed(2)}. Check the Estimate's VAT.`
       : null;
 
-  const written = await db.crmQuote.updateMany({
-    where: { id: quote.id, qboSendStartedAt: claimedAt },
-    data: {
-      qboEstimateId: estimate.id,
-      qboEstimateNumber: estimate.docNumber,
-      qboRealmId: realm.realmId,
-      qboEnvironment: realm.environment,
-      qboSentAt: new Date(),
-      qboSentById: args.userId,
-      qboSentByName: sentByName,
-      qboSendStartedAt: null,
-      qboOutcomeUnknown: false,
-      qboLastError: totalWarning,
-    },
+  // Recorded with its audit row in one transaction (crm-audit.ts). If that
+  // transaction fails, the quote stays claimed-and-unconfirmed, and the next
+  // send finds this Estimate by its number and adopts it: still never twice.
+  const written = await tenantTransaction(async (tx) => {
+    const w = await tx.crmQuote.updateMany({
+      where: { id: quote.id, qboSendStartedAt: claimedAt },
+      data: {
+        qboEstimateId: estimate.id,
+        qboEstimateNumber: estimate.docNumber,
+        qboRealmId: realm.realmId,
+        qboEnvironment: realm.environment,
+        qboSentAt: new Date(),
+        qboSentById: args.userId,
+        qboSentByName: sentByName,
+        qboSendStartedAt: null,
+        qboOutcomeUnknown: false,
+        qboLastError: totalWarning,
+      },
+    });
+    if (w.count > 0) {
+      await writeCrmAudit(tx, {
+        organizationId: args.organizationId,
+        actorId: args.userId,
+        action: "CRM_QUOTE_SENT_TO_QUICKBOOKS",
+        entityType: "CrmQuote",
+        entityId: quote.id,
+        changes: {
+          source: args.source,
+          dealId: args.dealId,
+          quoteNumber: quote.number,
+          estimateId: estimate.id,
+          estimateNumber: estimate.docNumber,
+          realmId: realm.realmId,
+          environment: realm.environment,
+          adopted,
+          quoteTotal,
+          estimateTotal: estimate.totalAmt,
+        },
+      });
+    }
+    return w;
   });
   const sent: SentEstimate = { estimateId: estimate.id, estimateNumber: estimate.docNumber, adopted, totalWarning };
   if (written.count === 0) {

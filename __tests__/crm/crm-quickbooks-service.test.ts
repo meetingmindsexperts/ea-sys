@@ -18,9 +18,11 @@ const { dbMock } = vi.hoisted(() => ({
     crmProduct: { findFirst: vi.fn(), update: vi.fn() },
     user: { findUnique: vi.fn() },
     crmActivity: { create: vi.fn() },
+    auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
 }));
-vi.mock("@/lib/db", () => ({ db: dbMock }));
+// The record runs in a transaction with its audit row (crm-audit.ts); the tx is the same mock.
+vi.mock("@/lib/db", () => ({ db: dbMock, tenantTransaction: (fn: (t: typeof dbMock) => unknown) => fn(dbMock) }));
 vi.mock("@/lib/event-settings", () => ({ updateOrganizationSettings: vi.fn() }));
 
 const { qbo } = vi.hoisted(() => ({
@@ -155,6 +157,10 @@ describe("sendQuoteToQuickBooks", () => {
     });
     expect(dbMock.crmActivity.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: "QUICKBOOKS_ESTIMATE_SENT", entityId: "d-1" }) }),
+    );
+    // The authoritative trail, written with the record (crm-audit.ts).
+    expect(dbMock.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ action: "CRM_QUOTE_SENT_TO_QUICKBOOKS", entityId: "q-1", changes: expect.objectContaining({ estimateId: "est-1" }) }) }),
     );
   });
 

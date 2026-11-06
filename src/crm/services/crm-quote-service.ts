@@ -27,6 +27,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { diffFields, recordCrmActivity } from "@/crm/lib/crm-activity";
+import { writeCrmAudit } from "@/crm/lib/crm-audit";
 import type { QuotePdfInput } from "@/crm/lib/quote-pdf";
 import { crmStorage } from "@/crm/integrations/storage";
 import { crmBranding, crmQuoteRenderer, type QuoteIssuer } from "@/crm/integrations/documents";
@@ -527,7 +528,7 @@ export async function createDealQuote(
         },
         select: { id: true },
       });
-      return tx.crmQuote.create({
+      const created = await tx.crmQuote.create({
         data: {
           organizationId: args.organizationId,
           dealId: deal.id,
@@ -542,6 +543,16 @@ export async function createDealQuote(
         },
         select: QUOTE_SELECT,
       });
+      // A quote names a price to a sponsor: recorded with it (crm-audit.ts).
+      await writeCrmAudit(tx, {
+        organizationId: args.organizationId,
+        actorId: args.userId,
+        action: "CRM_QUOTE_CREATED",
+        entityType: "CrmQuote",
+        entityId: created.id,
+        changes: { source: args.source, dealId: deal.id, quoteNumber: number, currency: args.input.currency, quoteTotal: prepared.totals.total, lineCount: prepared.lines.length },
+      });
+      return created;
     });
     pendingUrl = null; // the row owns the file now
 
@@ -684,6 +695,22 @@ export async function updateDealQuote(
         data: { ...quoteFields(args.input, prepared.totals), version: { increment: 1 } },
       });
       if (claim.count === 0) throw new StaleQuoteError();
+      await writeCrmAudit(tx, {
+        organizationId: args.organizationId,
+        actorId: args.userId,
+        action: "CRM_QUOTE_UPDATED",
+        entityType: "CrmQuote",
+        entityId: args.quoteId,
+        changes: {
+          source: args.source,
+          dealId: deal.id,
+          quoteNumber: existing.number,
+          currency: args.input.currency,
+          quoteTotal: prepared.totals.total,
+          lineCount: prepared.lines.length,
+          fromVersion: args.expectedVersion,
+        },
+      });
 
       await tx.crmQuoteLine.deleteMany({ where: { quoteId: args.quoteId, organizationId: args.organizationId } });
       await tx.crmQuoteLine.createMany({
@@ -832,6 +859,14 @@ export async function archiveDealQuote(
         data: { archivedAt: new Date() },
       });
       if (claim.count === 0) return { claimed: false, removedUrl: null };
+      await writeCrmAudit(tx, {
+        organizationId: args.organizationId,
+        actorId: args.userId,
+        action: "CRM_QUOTE_DELETED",
+        entityType: "CrmQuote",
+        entityId: args.quoteId,
+        changes: { source: args.source, dealId: args.dealId, quoteNumber: existing.number },
+      });
 
       // Read the document AFTER the claim, not before it: an edit that committed
       // first has already pointed it at its new file, and that is the file to

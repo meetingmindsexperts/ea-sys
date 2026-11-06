@@ -17,8 +17,8 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock("@/lib/db", () => ({
-  db: {
+vi.mock("@/lib/db", () => {
+  const db = {
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     crmPipelineStage: { findMany: vi.fn(), findFirst: vi.fn(), createMany: vi.fn() },
     crmDeal: { findMany: vi.fn(), findFirst: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
@@ -35,8 +35,10 @@ vi.mock("@/lib/db", () => ({
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     crmActivity: { create: vi.fn().mockResolvedValue({}) },
     crmNotification: { create: vi.fn().mockResolvedValue({}) },
-  },
-}));
+  };
+  // Interactive tenantTransaction runs the callback on the same mock (the claim + its audit row).
+  return { db, tenantTransaction: (fn: (tx: typeof db) => unknown) => fn(db) };
+});
 
 import { db } from "@/lib/db";
 import { registerCrmMcpTools } from "@/crm/agent-tools";

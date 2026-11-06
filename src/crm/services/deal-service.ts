@@ -31,6 +31,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { crmEvents } from "@/crm/integrations/events";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
+import { auditValue, writeCrmAudit } from "@/crm/lib/crm-audit";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
 import { mayOwnCrmRecords } from "@/crm/services/crm-owner-eligibility";
 // The ONE CRM tag normalizer (trim, dedupe, first-casing-wins) — shared with
@@ -372,23 +373,50 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
     // Keyed by the deal alone: it is already org-bound, and an old row with a
     // null organizationId must still follow.
     const currencyChanged = data.currency !== undefined && data.currency !== before.currency;
-    const [res] = await db.$transaction([
-      db.crmDeal.updateMany({
+    const valueChanged = data.dealValue !== undefined && auditValue(data.dealValue) !== auditValue(before.dealValue);
+    const ownerChanged = data.ownerId !== undefined && data.ownerId !== before.ownerId;
+    const res = await tenantTransaction(async (tx) => {
+      const claim = await tx.crmDeal.updateMany({
         // archivedAt: null re-checked IN the write — the snapshot guard above has a
         // race window against a concurrent archive.
         where: { id: input.dealId, organizationId: input.organizationId, archivedAt: null },
         data,
-      }),
-      ...(currencyChanged
-        ? [
-            db.crmDealProduct.updateMany({
-              where: { dealId: input.dealId, deal: { archivedAt: null } },
-              data: { currency: data.currency as string },
-            }),
-          ]
-        : []),
-    ]);
-    if (res!.count === 0) {
+      });
+      if (claim.count === 0) return claim;
+      if (currencyChanged) {
+        await tx.crmDealProduct.updateMany({
+          where: { dealId: input.dealId, deal: { archivedAt: null } },
+          data: { currency: data.currency as string },
+        });
+      }
+      // Money and responsibility: recorded with the change, in the same transaction (crm-audit.ts).
+      if (valueChanged || currencyChanged) {
+        await writeCrmAudit(tx, {
+          organizationId: input.organizationId,
+          actorId: input.userId,
+          action: "CRM_DEAL_VALUE_CHANGED",
+          entityType: "CrmDeal",
+          entityId: input.dealId,
+          changes: {
+            source: input.source,
+            dealValue: { from: auditValue(before.dealValue), to: auditValue(data.dealValue ?? before.dealValue) },
+            currency: { from: before.currency, to: data.currency ?? before.currency },
+          },
+        });
+      }
+      if (ownerChanged) {
+        await writeCrmAudit(tx, {
+          organizationId: input.organizationId,
+          actorId: input.userId,
+          action: "CRM_DEAL_OWNER_CHANGED",
+          entityType: "CrmDeal",
+          entityId: input.dealId,
+          changes: { source: input.source, ownerId: { from: before.ownerId, to: data.ownerId ?? null } },
+        });
+      }
+      return claim;
+    });
+    if (res.count === 0) {
       apiLogger.warn({ msg: "crm-deal:update-archived-race", dealId: input.dealId });
       return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived — restore it before editing it" };
     }
@@ -447,6 +475,17 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
  * UI can roll its optimistic move back and refetch, instead of silently
  * clobbering a colleague's decision.
  */
+/** The audited outcome of a stage move, or null for an ordinary column change. */
+function moveAuditAction(
+  toOutcome: CrmDealStatus | null,
+  fromOutcome: CrmDealStatus | null,
+  reopened: boolean,
+): "CRM_DEAL_WON" | "CRM_DEAL_LOST" | "CRM_DEAL_REOPENED" | null {
+  if ((toOutcome === "WON" || toOutcome === "LOST") && toOutcome !== fromOutcome) return toOutcome === "WON" ? "CRM_DEAL_WON" : "CRM_DEAL_LOST";
+  if (reopened) return "CRM_DEAL_REOPENED";
+  return null;
+}
+
 export async function moveDealStage(input: MoveDealStageInput): Promise<MoveDealStageResult> {
   // Resolve BOTH ends of the move. The from-stage's terminality decides whether
   // this drag crosses a close/reopen boundary — a move between two ordinary
@@ -501,17 +540,32 @@ export async function moveDealStage(input: MoveDealStageInput): Promise<MoveDeal
   // (non-terminal → non-terminal: statusData stays empty — status untouched.)
 
   try {
-    const claim = await db.crmDeal.updateMany({
-      where: {
-        id: input.dealId,
-        organizationId: input.organizationId,
-        stageId: input.fromStageId, // ← the precondition. This is the whole fix.
-        archivedAt: null, // an archived deal is frozen — a stale board can't move it (CRM review M1)
-      },
-      data: {
-        stageId: toStage.id,
-        ...statusData,
-      },
+    // A move that closes or reopens the deal is audited with it (crm-audit.ts).
+    const auditAction = moveAuditAction(toOutcome, fromOutcome, reopened);
+    const claim = await tenantTransaction(async (tx) => {
+      const c = await tx.crmDeal.updateMany({
+        where: {
+          id: input.dealId,
+          organizationId: input.organizationId,
+          stageId: input.fromStageId, // ← the precondition. This is the whole fix.
+          archivedAt: null, // an archived deal is frozen — a stale board can't move it (CRM review M1)
+        },
+        data: {
+          stageId: toStage.id,
+          ...statusData,
+        },
+      });
+      if (c.count > 0 && auditAction) {
+        await writeCrmAudit(tx, {
+          organizationId: input.organizationId,
+          actorId: input.userId,
+          action: auditAction,
+          entityType: "CrmDeal",
+          entityId: input.dealId,
+          changes: { source: input.source, via: "stage-move", fromStageId: input.fromStageId, toStageId: toStage.id, toStage: toStage.name },
+        });
+      }
+      return c;
     });
 
     if (claim.count === 0) {
@@ -650,14 +704,27 @@ export async function closeDeal(input: CloseDealInput): Promise<CloseDealResult>
       };
     }
 
-    const claim = await db.crmDeal.updateMany({
-      where: { id: input.dealId, organizationId: input.organizationId, status: "OPEN", archivedAt: null },
-      data: {
-        status,
-        ...closeStamps(status),
-        lostReason: status === "LOST" ? (input.lostReason?.trim() || null) : null,
-        stageId: terminal.id,
-      },
+    const claim = await tenantTransaction(async (tx) => {
+      const c = await tx.crmDeal.updateMany({
+        where: { id: input.dealId, organizationId: input.organizationId, status: "OPEN", archivedAt: null },
+        data: {
+          status,
+          ...closeStamps(status),
+          lostReason: status === "LOST" ? (input.lostReason?.trim() || null) : null,
+          stageId: terminal.id,
+        },
+      });
+      if (c.count > 0) {
+        await writeCrmAudit(tx, {
+          organizationId: input.organizationId,
+          actorId: input.userId,
+          action: status === "WON" ? "CRM_DEAL_WON" : "CRM_DEAL_LOST",
+          entityType: "CrmDeal",
+          entityId: input.dealId,
+          changes: { source: input.source, via: "close", stageId: terminal.id, ...(status === "LOST" ? { lostReason: input.lostReason?.trim() || null } : {}) },
+        });
+      }
+      return c;
     });
 
     if (claim.count === 0) {
@@ -786,13 +853,26 @@ export async function setDealArchived(input: {
     // History row and a re-stamped archivedAt, exactly what the doc comment above
     // promises can't happen. The loser (and an already-in-state call) is the
     // idempotent no-op: return the row as it now is, record nothing.
-    const claim = await db.crmDeal.updateMany({
-      where: {
-        id: current.id,
-        organizationId: input.organizationId,
-        archivedAt: input.archived ? null : { not: null },
-      },
-      data: { archivedAt: input.archived ? new Date() : null },
+    const claim = await tenantTransaction(async (tx) => {
+      const c = await tx.crmDeal.updateMany({
+        where: {
+          id: current.id,
+          organizationId: input.organizationId,
+          archivedAt: input.archived ? null : { not: null },
+        },
+        data: { archivedAt: input.archived ? new Date() : null },
+      });
+      if (c.count > 0) {
+        await writeCrmAudit(tx, {
+          organizationId: input.organizationId,
+          actorId: input.userId,
+          action: input.archived ? "CRM_DEAL_ARCHIVED" : "CRM_DEAL_RESTORED",
+          entityType: "CrmDeal",
+          entityId: current.id,
+          changes: { source: input.source, name: current.name, dealValue: auditValue(current.dealValue), currency: current.currency, status: current.status },
+        });
+      }
+      return c;
     });
     if (claim.count === 0) {
       const now = await db.crmDeal.findFirst({ where: { id: current.id } });
