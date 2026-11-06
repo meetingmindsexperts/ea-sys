@@ -35,7 +35,7 @@ import type { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { updateOrganizationSettings } from "@/lib/event-settings";
-import { crmAccounting } from "@/crm/integrations/accounting";
+import { crmAccounting, type EstimateInput } from "@/crm/integrations/accounting";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import { writeCrmAudit } from "@/crm/lib/crm-audit";
 import {
@@ -635,7 +635,7 @@ async function createForQuote(args: Actor & { dealId: string; quoteId: string },
   }
 
   const sentByName = await userName(args.userId);
-  const estimate = {
+  const estimate: EstimateInput = {
     customerId: readiness.plan.customerId,
     docNumber: quote.number,
     txnDate: dateOnly(quote.quoteDate),

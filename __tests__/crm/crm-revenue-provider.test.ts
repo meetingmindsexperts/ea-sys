@@ -6,15 +6,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 
-const { findMany, orgHasModule } = vi.hoisted(() => ({ findMany: vi.fn(), orgHasModule: vi.fn() }));
+const { findMany, orgModuleState } = vi.hoisted(() => ({ findMany: vi.fn(), orgModuleState: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: { crmDeal: { findMany } } }));
-vi.mock("@/lib/module-entitlements", () => ({ orgHasModule }));
+vi.mock("@/lib/module-entitlements", () => ({ orgModuleState }));
 
 import { crmRevenueProvider } from "@/crm/integrations/revenue-provider";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  orgHasModule.mockResolvedValue(true);
+  orgModuleState.mockResolvedValue("on");
 });
 
 describe("crmRevenueProvider.wonDealsForEvent", () => {
@@ -44,8 +44,14 @@ describe("crmRevenueProvider.wonDealsForEvent", () => {
   });
 
   it("returns nothing, reading nothing, for an organisation without the CRM", async () => {
-    orgHasModule.mockResolvedValue(false);
+    orgModuleState.mockResolvedValue("off");
     expect(await crmRevenueProvider.wonDealsForEvent({ organizationId: "org-2", eventId: "e1" })).toEqual([]);
+    expect(findMany).not.toHaveBeenCalled();
+  });
+
+  it("throws when the entitlement could not be read, so a close-out never records zero revenue by accident", async () => {
+    orgModuleState.mockResolvedValue("unknown");
+    await expect(crmRevenueProvider.wonDealsForEvent({ organizationId: "org-1", eventId: "e1" })).rejects.toThrow(/unknown/);
     expect(findMany).not.toHaveBeenCalled();
   });
 });
