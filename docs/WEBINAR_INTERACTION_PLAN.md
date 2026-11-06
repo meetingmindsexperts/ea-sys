@@ -1,6 +1,8 @@
 # Webinar interaction on the Custom stream page
 
-**Status: §3 Q&A upvote, §4 handouts and §5 polls BUILT (October 6, 2026); chat PLANNED.** Written
+**Status: §3 Q&A upvote, §4 handouts and §5 polls BUILT (October 6, 2026); public chat PLANNED,
+§6 revised November 6, 2026 (owner chose attendee chat; cached polling instead of a live
+connection, see §6.2).** Written
 after the owner compared EA-SYS with another platform's host control panel
 ("how much of this can we do?"). Decisions still open are in §8.
 
@@ -36,12 +38,11 @@ logged on every refusal like the rest of EA-SYS.
 | 1 | Q&A upvote | about half a day | nothing |
 | 2 | Handouts | about half a day | nothing |
 | 3 | Polls | about 2 days | nothing |
-| 4 | Live messaging foundation (§6.1) | about 1.5 days | owner decision D2 |
-| 5 | Public chat | about 2 to 3 days | 4 |
-| 6 | Private chat | about 3 days | 4, 5 |
+| 4 | Public chat with cached polling (§6, revised Nov 6) | about 4 days | owner decisions D2 to D4, D6 to D8 |
+| 5 | Private chat | about 3 days | 4 |
 
-Items 1 to 3 need no new infrastructure and can ship one per deploy. Items 4 to
-6 add an always-on live connection per attendee and are a separate decision.
+Items 1 to 3 need no new infrastructure and can ship one per deploy. Item 4 needs no new
+infrastructure either since the Nov 6 revision (cached polling, §6.2).
 
 ## 3. Q&A upvote
 
@@ -160,42 +161,85 @@ state at write time; an open poll cannot be deleted. No cache flush per vote.
 The poll read runs beside the question reads. Switching polls off closes any
 open poll.
 
-## 6. Public chat
+## 6. Public chat (revised November 6, 2026)
 
-A chat panel beside the video. The producer can switch it on or off, mute
-everyone (auto-mute: attendees can read but not post), and delete any message.
+**Owner, Nov 6, 2026: plan attendee chat** (chosen over a one-way producer broadcast). The Oct 6
+version of this section is replaced; what changed is below.
 
-### 6.1 Live messaging foundation
+A chat panel beside the video on the Custom stream page, for the people who may watch. Attendees
+and staff post short messages; producers moderate live. Zoom embed mode keeps Zoom's own chat.
 
-Chat needs messages to reach every viewer within a second or two. The Q&A box's
-"ask every few seconds" approach is fine for questions but too heavy for chat at
-1,000+ viewers (one request per viewer every 2 to 3 seconds).
+### 6.1 What changed since October 6
 
-| Option | What it is | For | Against |
+- **The realistic audience is smaller than the old plan assumed.** There is no CDN (no CloudFront
+  distribution, `HLS_CDN_BASE` unset, checked Nov 5), so the box serves every viewer's video. A
+  t3.large sustains roughly 0.5 Gbps: about 300 to 500 live viewers. Chat sized for 5,000 is
+  premature until a CDN exists (ROADMAP, "Webinar streaming", item 4).
+- **The gate exists now.** `src/lib/webinar/viewer-entitlement.ts` (Nov 5) is the rule for who
+  may watch, and the room gate says when. Chat reads and posts go through the same two checks,
+  so a pending or unpaid registration can neither read nor post.
+
+### 6.2 Live delivery: cached polling first, not a live connection
+
+| Option | How a message reaches viewers | For | Against |
 |---|---|---|---|
-| A. Server-sent events from the app | Each viewer holds one HTTP stream from a Next.js route; messages are pushed down it; posting is a normal POST. | No new container; works through nginx; one-way push is all chat needs to receive. | Long-lived connections on the web container; a message posted on one container must reach viewers on another during a blue/green swap (needs a shared channel, e.g. Postgres LISTEN/NOTIFY). |
-| B. A separate WebSocket service | A small container beside MediaMTX (the same idea as the online venue's live colleagues in `docs/EVENT_BLUEPRINT_PLAN.md` §5.4). | Built for many open connections; isolates load from the app. | A new service to deploy, monitor and secure; auth bridging to the EA-SYS session. |
+| **A. Cached polling (recommended)** | Each open page asks `GET .../chat?after=<last id>` every 3 s. The route keeps the session's last 200 messages in a per-container cache, rebuilt at most every 2 s (one DB query per 2 s per container, as `lobby-status` does), and returns only what is newer than `after`. | No new infrastructure; nothing to drain on a blue/green swap (a page simply asks the other container); same shape as `lobby-status`, Q&A and polls, which are proven on prod. | A message takes 2 to 5 s to show. About 170 requests a second at 500 viewers, each cheap (session check plus a cache read). |
+| B. Server-sent events | Each viewer holds one HTTP stream; posts are pushed down it, shared across containers by Postgres LISTEN/NOTIFY. | Under a second. | Thousands of long-lived connections on the web container, nginx buffering and timeouts to tune, every connection dropped and replayed on each blue/green swap. |
+| C. A separate WebSocket service | A small container beside MediaMTX. | Built for many connections. | A new service to deploy, secure and monitor. |
 
-Recommendation: **A first** (server-sent events plus Postgres LISTEN/NOTIFY),
-with a load test at the largest expected audience before it is switched on for a
-big webinar. Move to B only if the test shows the web container struggling. The
-same foundation later serves live poll results and the venue's live colleagues.
+**Recommendation: A.** A 2 to 5 s delay reads as normal for webinar chat. Move to B only if a CDN
+lifts audiences past about 1,000 and a load test shows A struggling. The post route and the data
+stay the same either way, so A is not thrown away.
 
-### 6.2 Chat itself
+### 6.3 Chat itself
 
-- **Data:** `WebinarChatMessage` (`eventId`, `sessionId`, `registrationId` or
-  `userId` for staff, `authorName`, `body` up to 500 characters, `deletedAt`,
-  `deletedBy`, tenancy columns), indexed by `(sessionId, createdAt)`.
-- **Rules:** signed-in registrants and staff only; rate limited per person (for
-  example one message every 3 seconds); the existing language filter idea from
-  the venue can be reused for a profanity list later.
-- **Producer controls (console):** chat on/off, mute all, delete a message,
-  mute one person for the session.
-- **Retention and export:** the chat is exportable after the webinar and kept
-  with the event; deleted messages stay in the export marked deleted, for
-  moderation records.
-- **Privacy:** attendee names are visible to other attendees. That needs a line
-  in the registration privacy notice before it goes live (§8, D4).
+- **Data:** `WebinarChatMessage` (`eventId`, `sessionId`, `organizationId`, `registrationId` or
+  `userId` for staff, `authorName`, `authorKind` attendee / staff / speaker, `body` up to 500
+  characters, `kind` message / handout, `handoutId?`, `pinnedAt?`, `deletedAt`, `deletedBy`),
+  index `(sessionId, createdAt)`. Additive migration; an RLS policy in `prisma/rls/webinar.sql`
+  from day one, like every webinar table.
+- **Who:** staff, and registrations that may watch (`viewerRegistrationWhere`); only the anchor
+  session of a WEBINAR event in Custom stream mode (`loadQuestionContext`, as Q&A).
+- **When:** open while the room is open, read-only after it closes until the page shows the
+  thank-you screen. A producer switch "Open chat in the waiting room" for pre-show chatter.
+- **Limits:** one message every 3 s and 20 a minute per person, 500 characters, the same refusal
+  logging as Q&A. Server-side, never trusted from the page: the author name comes from the
+  registration, never the request.
+- **Sharing documents (the original ask):** a producer can share a handout into the chat. It shows
+  as a card ("Slides: Session 2.pdf, Download") that opens the existing gated handout route, so a
+  non-entitled person who gets the message still cannot open the file. A producer message can be
+  pinned at the top of the panel.
+- **Links from attendees:** shown as plain text, never clickable (phishing and spam are the main
+  chat risk). Staff messages may carry links.
+
+### 6.4 Producer controls (Webinar Console, Chat tab)
+
+- Chat on / off per webinar (off by default), and "Open chat in the waiting room".
+- **Mute everyone** (attendees read but cannot post) and **slow mode** (one message every 15 s).
+- Delete any message (gone for viewers at their next poll; kept for the record, see below).
+- Mute one person for the rest of the webinar (stored per session, logged).
+- The live feed with author, time and a delete button; the same view after the webinar.
+
+### 6.5 Records, privacy and load
+
+- **Kept with the event**, exportable as CSV after the webinar (deleted messages included, marked
+  deleted, with who deleted them). Never cached (`private, no-store`), the export rate limited, as
+  the attendance export.
+- **Names:** other attendees see the author's first name and last initial ("Sara K."); staff see
+  full names. Needs a line in the registration privacy notice before chat goes live (D4).
+- **Load test before a big webinar:** 500 simulated viewers polling while 20 post, on the local
+  standalone build, watching the web container's CPU and the pool.
+
+### 6.6 Effort
+
+| Step | What | Effort |
+|---|---|---|
+| 1 | Model, migration, RLS policy; post and read routes with the gate, limits and cache; tests | about 1.5 days |
+| 2 | Attendee panel (beside Q&A on desktop, a tab on a phone), pinned message, handout cards | about 1 day |
+| 3 | Console Chat tab: switches, mute all, slow mode, delete, mute a person, export | about 1 day |
+| 4 | Load test, browser verification on a phone and desktop, docs | about half a day |
+
+About 4 days in all, shippable in two deploys (1 + 2 behind the off-by-default switch, then 3 + 4).
 
 ## 7. Private chat
 
@@ -213,7 +257,10 @@ of this plan: it is the hardest to moderate and the least asked for.
 | # | Question | Recommendation |
 |---|---|---|
 | D1 | Build order | Upvote and handouts now, polls next, chat only on a real need. |
-| D2 | Chat at all, and which foundation | Decide when a webinar needs it; if yes, server-sent events first with a load test (§6.1). Zoom embed mode already offers chat for webinars that need it now. |
+| D2 | Chat at all, and which foundation | **Owner, Nov 6: build attendee chat.** Foundation: cached polling (§6.2); server-sent events only if a CDN lifts audiences past about 1,000. |
 | D3 | Who moderates chat during a live webinar | A named producer per webinar; chat stays off unless one is assigned. |
 | D4 | Privacy notice for chat names | Counsel adds a line before chat goes live. |
 | D5 | Show poll results to attendees by default | Off by default; the producer shows them per poll. |
+| D6 | Names other attendees see in chat | First name and last initial; staff see full names (§6.5). |
+| D7 | Links posted by attendees | Plain text, never clickable; staff links clickable (§6.3). |
+| D8 | Chat in the waiting room | Off by default; a producer switch opens it before the room (§6.3). |
