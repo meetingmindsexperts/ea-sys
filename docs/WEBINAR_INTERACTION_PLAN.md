@@ -38,7 +38,7 @@ logged on every refusal like the rest of EA-SYS.
 | 1 | Q&A upvote | about half a day | nothing |
 | 2 | Handouts | about half a day | nothing |
 | 3 | Polls | about 2 days | nothing |
-| 4 | Public chat with cached polling (§6, revised Nov 6) | about 4 days | owner decisions D2 to D4, D6 to D8 |
+| 4 | Public chat with cached polling (§6, revised Nov 6) | about 4 days | D4 (privacy notice line); the rest decided Nov 6 |
 | 5 | Private chat | about 3 days | 4 |
 
 Items 1 to 3 need no new infrastructure and can ship one per deploy. Item 4 needs no new
@@ -194,14 +194,15 @@ stay the same either way, so A is not thrown away.
 ### 6.3 Chat itself
 
 - **Data:** `WebinarChatMessage` (`eventId`, `sessionId`, `organizationId`, `registrationId` or
-  `userId` for staff, `authorName`, `authorKind` attendee / staff / speaker, `body` up to 500
+  `userId` for staff, `authorName`, `authorKind` attendee / staff / speaker, `anonymous` (bool), `body` up to 500
   characters, `kind` message / handout, `handoutId?`, `pinnedAt?`, `deletedAt`, `deletedBy`),
   index `(sessionId, createdAt)`. Additive migration; an RLS policy in `prisma/rls/webinar.sql`
   from day one, like every webinar table.
 - **Who:** staff, and registrations that may watch (`viewerRegistrationWhere`); only the anchor
   session of a WEBINAR event in Custom stream mode (`loadQuestionContext`, as Q&A).
-- **When:** open while the room is open, read-only after it closes until the page shows the
-  thank-you screen. A producer switch "Open chat in the waiting room" for pre-show chatter.
+- **When (owner, Nov 6):** open while the room is open, read-only after it closes until the page
+  shows the thank-you screen. A producer switch "Open chat in the waiting room" for pre-show
+  chatter, off by default.
 - **Limits:** one message every 3 s and 20 a minute per person, 500 characters, the same refusal
   logging as Q&A. Server-side, never trusted from the page: the author name comes from the
   registration, never the request.
@@ -209,12 +210,14 @@ stay the same either way, so A is not thrown away.
   as a card ("Slides: Session 2.pdf, Download") that opens the existing gated handout route, so a
   non-entitled person who gets the message still cannot open the file. A producer message can be
   pinned at the top of the panel.
-- **Links from attendees:** shown as plain text, never clickable (phishing and spam are the main
-  chat risk). Staff messages may carry links.
+- **Links from attendees (owner, Nov 6):** shown as plain text, never clickable (phishing and
+  spam are the main chat risk). Staff messages and shared handouts stay clickable.
 
 ### 6.4 Producer controls (Webinar Console, Chat tab)
 
-- Chat on / off per webinar (off by default), and "Open chat in the waiting room".
+- Chat on / off per webinar (off by default), and "Open chat in the waiting room". **Chat can be
+  switched on only once a moderating producer is named for that webinar** (owner, Nov 6), so it is
+  never live with nobody watching it; the named producer is shown on the Chat tab.
 - **Mute everyone** (attendees read but cannot post) and **slow mode** (one message every 15 s).
 - Delete any message (gone for viewers at their next poll; kept for the record, see below).
 - Mute one person for the rest of the webinar (stored per session, logged).
@@ -225,8 +228,10 @@ stay the same either way, so A is not thrown away.
 - **Kept with the event**, exportable as CSV after the webinar (deleted messages included, marked
   deleted, with who deleted them). Never cached (`private, no-store`), the export rate limited, as
   the attendance export.
-- **Names:** other attendees see the author's first name and last initial ("Sara K."); staff see
-  full names. Needs a line in the registration privacy notice before chat goes live (D4).
+- **Names (owner, Nov 6):** the attendee chooses, per message, "Post as <full name>" or "Post
+  anonymously" (shown as "Attendee"). Producers always see the real name in the console, so a
+  muted or deleted message is still attributable. The full name comes from the registration,
+  never the request. Needs a line in the registration privacy notice before chat goes live (D4).
 - **Load test before a big webinar:** 500 simulated viewers polling while 20 post, on the local
   standalone build, watching the web container's CPU and the pool.
 
@@ -258,9 +263,9 @@ of this plan: it is the hardest to moderate and the least asked for.
 |---|---|---|
 | D1 | Build order | Upvote and handouts now, polls next, chat only on a real need. |
 | D2 | Chat at all, and which foundation | **Owner, Nov 6: build attendee chat.** Foundation: cached polling (§6.2); server-sent events only if a CDN lifts audiences past about 1,000. |
-| D3 | Who moderates chat during a live webinar | A named producer per webinar; chat stays off unless one is assigned. |
+| D3 | Who moderates chat during a live webinar | **Owner, Nov 6: a named producer per webinar**; chat cannot be switched on until one is named. |
 | D4 | Privacy notice for chat names | Counsel adds a line before chat goes live. |
 | D5 | Show poll results to attendees by default | Off by default; the producer shows them per poll. |
-| D6 | Names other attendees see in chat | First name and last initial; staff see full names (§6.5). |
-| D7 | Links posted by attendees | Plain text, never clickable; staff links clickable (§6.3). |
-| D8 | Chat in the waiting room | Off by default; a producer switch opens it before the room (§6.3). |
+| D6 | Names other attendees see in chat | **Owner, Nov 6: the attendee chooses per message, full name or anonymous**; producers always see the real name (§6.5). |
+| D7 | Links posted by attendees | **Owner, Nov 6: plain text, never clickable**; staff links and handout cards clickable (§6.3). |
+| D8 | Chat in the waiting room | **Owner, Nov 6: with the room**; a producer switch opens it in the waiting room, off by default (§6.3). |
