@@ -39,8 +39,8 @@ export interface CrmWonDeal {
 export interface CrmRevenueProvider {
   /**
    * The WON, live (not archived) deals linked to one event of one
-   * organisation. Empty, never an error, when the organisation does not have
-   * the CRM (module-entitlements.ts): a budget then shows registrations only.
+   * organisation. Independent of the CRM entitlement: a suspended CRM's won
+   * deals are still revenue (empty for an organisation that never had deals).
    */
   wonDealsForEvent(input: { organizationId: string; eventId: string }): Promise<CrmWonDeal[]>;
 }
