@@ -14,8 +14,12 @@
 --
 -- THE INVARIANT, per registration:
 --   Registration.refundedAmount
---     = sum(Payment.refundedAmount of its payments)          (Stripe + webhook money)
---     + sum(SUCCEEDED manual RefundAttempt.amount)            (offline money)
+--     = sum(Payment.refundedAmount of its payments)          (Stripe, webhook AND manual payments)
+--     + sum(SUCCEEDED manual RefundAttempt.amount with no payment)  (unattributed residue)
+-- (Corrected Nov 6, 2026: the first version added every manual attempt, which
+-- counted a manual payment's refund twice. Since the W0-1 follow-up each
+-- payment has its own attempt and the residue has one with no payment; a
+-- pre-Nov-6 manual attempt can still carry residue on a payment id.)
 -- and the credit notes issued should add up to the same figure.
 --
 -- Only ids, amounts and statuses come out: no names or emails. A row that
@@ -39,7 +43,7 @@ WITH pay AS (
 ),
 att AS (
   SELECT "registrationId" AS rid,
-         sum(amount) FILTER (WHERE status = 'SUCCEEDED' AND kind = 'manual') AS manual_ok,
+         sum(amount) FILTER (WHERE status = 'SUCCEEDED' AND kind = 'manual' AND "paymentId" IS NULL) AS manual_ok,
          sum(amount) FILTER (WHERE status = 'SUCCEEDED' AND kind = 'stripe') AS stripe_ok,
          count(*)    FILTER (WHERE status IN ('PENDING', 'UNKNOWN'))          AS in_flight,
          count(*)                                                              AS attempts,
@@ -58,7 +62,7 @@ SELECT r.id                                         AS registration_id,
        r."paymentStatus"                            AS pay_status,
        r."refundedAmount"                           AS reg_refunded,
        coalesce(p.pay_refunded, 0)                  AS payment_refunded,
-       coalesce(a.manual_ok, 0)                     AS manual_refunded,
+       coalesce(a.manual_ok, 0)                     AS residue_refunded,
        r."refundedAmount" - coalesce(p.pay_refunded, 0) - coalesce(a.manual_ok, 0) AS gap,
        coalesce(p.paid, 0)                          AS paid,
        coalesce(c.notes, 0)                         AS credit_notes,
@@ -119,6 +123,6 @@ SELECT (SELECT count(*) FROM "Registration" WHERE "refundedAmount" > 0)  AS regi
        (SELECT coalesce(sum("refundedAmount"), 0) FROM "Registration")   AS reg_refunded_total,
        (SELECT coalesce(sum("refundedAmount"), 0) FROM "Payment")        AS payment_refunded_total,
        (SELECT coalesce(sum(amount), 0) FROM "RefundAttempt"
-         WHERE status = 'SUCCEEDED' AND kind = 'manual')                AS manual_refunded_total,
+         WHERE status = 'SUCCEEDED' AND kind = 'manual' AND "paymentId" IS NULL) AS residue_refunded_total,
        (SELECT count(*) FROM "RefundAttempt")                           AS refund_attempts,
        (SELECT count(*) FROM "Invoice" WHERE type = 'CREDIT_NOTE')      AS credit_notes;

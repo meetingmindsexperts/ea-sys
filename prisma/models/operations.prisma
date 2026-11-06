@@ -421,6 +421,13 @@ model RefundAttempt {
   /// Whether the registration was flipped to REFUNDED by this attempt's
   /// booking — the sweep needs it to roll the flip back on a failed attempt.
   flippedToRefunded     Boolean             @default(false)
+  /// Whether this attempt's booking ALSO raised `Payment.refundedAmount`
+  /// (security audit W0-1, Nov 6 2026). Before that change only the
+  /// registration was booked up front and the payment counter was written after
+  /// Stripe returned, so a rollback of an older attempt must not take the
+  /// payment counter down. Defaults false, which is exactly right for every row
+  /// the previous image writes during a blue/green switch.
+  paymentBooked         Boolean             @default(false)
   kind                  String // "stripe" | "manual"
   status                RefundAttemptStatus @default(PENDING)
   stripeRefundId        String?

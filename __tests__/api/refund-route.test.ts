@@ -48,7 +48,18 @@ vi.mock("@/lib/stripe", () => ({
   getStripe: () => ({ refunds: { create: stripeRefundsCreate, list: stripeRefundsList } }),
   // Real behaviour for USD (non-zero-decimal): major → minor units.
   toStripeAmount: (amount: number) => Math.round(amount * 100),
+  fromStripeAmount: (amount: number) => amount / 100,
 }));
+// The rollback's arithmetic is pinned in __tests__/services/refund-unbook.test.ts
+// and on real Postgres in tests/integration-db/refund-counters.db.test.ts; this
+// route test only needs it to succeed, and to see what it was handed.
+const { unbookRouteSpy } = vi.hoisted(() => ({ unbookRouteSpy: vi.fn() }));
+vi.mock("@/services/refund-unbook", () => ({
+  unbookRefund: unbookRouteSpy,
+  UnbookRaced: class UnbookRaced extends Error {},
+  UnbookNeedsReview: class UnbookNeedsReview extends Error {},
+}));
+
 vi.mock("@/lib/email", () => ({
   sendEmail: sendEmailSpy,
   loadActiveEventTemplateRow: vi.fn(),
@@ -105,7 +116,10 @@ beforeEach(() => {
   mockDb.payment.updateMany.mockResolvedValue({ count: 1 });
   stripeRefundsCreate.mockResolvedValue({ id: "re_1", status: "succeeded" });
   // Verification (verify-before-rollback): Stripe reachable, refund absent.
-  stripeRefundsList.mockResolvedValue({ data: [] });
+  stripeRefundsList.mockResolvedValue({ data: [], has_more: false });
+  unbookRouteSpy.mockImplementation(async (_tx: unknown, args: { slices: Array<{ take: number }> }) => ({
+    unbooked: args.slices.reduce((s, x) => s + x.take, 0), absorbed: [], registrationRefunded: 0,
+  }));
   mockDb.refundAttempt.create.mockResolvedValue({ id: "att1" });
   mockDb.refundAttempt.update.mockResolvedValue({});
   // The service's claim+attempt transaction routes to the shared mocks.
@@ -223,10 +237,11 @@ describe("refund — Stripe payment", () => {
     const res = await POST(req(), { params });
     expect(res.status).toBe(502);
     expect((await res.json()).code).toBe("STRIPE_FAILED");
-    // Guarded decrement of the un-executed portion (multi-slice safe).
-    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: "reg1", refundedAmount: { gte: 100 } },
-      data: { refundedAmount: { decrement: 100 }, paymentStatus: "PAID" },
+    // The shared rollback takes the slice back with Stripe's own figure.
+    expect(unbookRouteSpy).toHaveBeenCalledWith(expect.anything(), {
+      registrationId: "reg1",
+      slices: [{ attemptId: "att1", paymentId: "pay1", take: 100, paymentBooked: true, stripe: { refundedTotal: 0, attemptIds: [] } }],
+      flippedToRefunded: true,
     });
   });
 
@@ -239,8 +254,9 @@ describe("refund — Stripe payment", () => {
     const res = await POST(req(), { params });
     expect(res.status).toBe(502);
     expect((await res.json()).code).toBe("REFUND_STATE_UNKNOWN");
-    // Only the claim ran — no rollback write.
+    // Only the claim ran — no rollback.
     expect(mockDb.registration.updateMany).toHaveBeenCalledTimes(1);
+    expect(unbookRouteSpy).not.toHaveBeenCalled();
     expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ status: "UNKNOWN" }) }),
     );

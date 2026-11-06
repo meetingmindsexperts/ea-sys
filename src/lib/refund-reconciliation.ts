@@ -1,8 +1,14 @@
 import { db, dbOperator, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getStripe } from "@/lib/stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { findStripeRefundForAttempt } from "@/lib/stripe-refund-lookup";
+import { recordAbsorbedRefunds } from "@/services/payment-service";
+import { unbookRefund, UnbookNeedsReview, UnbookRaced, type UnbookSlice } from "@/services/refund-unbook";
+
+// Moved to its own module (Nov 6, 2026) so the service and this sweep share it
+// without importing each other; re-exported for existing callers.
+export { findStripeRefundForAttempt, type StripeRefundVerification } from "@/lib/stripe-refund-lookup";
 
 /**
  * Refund-attempt reconciliation (review H4/H5, July 10 2026).
@@ -22,38 +28,13 @@ import { notifyEventAdmins } from "@/lib/notifications";
  *      refund exists at Stripe → mark SUCCEEDED (booking already correct);
  *      refund provably absent   → roll the booking back + mark FAILED + alert;
  *      Stripe unreachable       → leave for the next tick.
+ *    and for manual attempts: PENDING (the process died before the status
+ *    write) is confirmed; UNKNOWN (a rollback that did not apply) is rolled back.
+ *    Every rollback goes through src/services/refund-unbook.ts, which sets a
+ *    Stripe payment's counter from Stripe's own figure.
  */
 
 const STALE_AFTER_MS = 10 * 60 * 1000;
-
-/** Thrown inside the rollback transaction so a half un-book never commits. */
-class SweepRollbackRaced extends Error {}
-
-export type StripeRefundVerification =
-  | { verified: true; found: boolean; refundId: string | null }
-  | { verified: false };
-
-/**
- * Ground-truth check against Stripe: does a refund tagged with this attempt id
- * exist? `organizationId` picks the Stripe account to ask (per-org keys) —
- * pass the registration's org; null falls back to the env account, which is
- * correct for every pre-feature row.
- */
-export async function findStripeRefundForAttempt(
-  paymentIntentId: string,
-  attemptId: string,
-  organizationId: string | null,
-): Promise<StripeRefundVerification> {
-  try {
-    const stripe = await getStripe(organizationId);
-    const refunds = await stripe.refunds.list({ payment_intent: paymentIntentId, limit: 100 });
-    const match = refunds.data.find((r) => r.metadata?.refundAttemptId === attemptId);
-    return { verified: true, found: !!match, refundId: match?.id ?? null };
-  } catch (err) {
-    apiLogger.warn({ err, msg: "refund-verify:stripe-list-failed", paymentIntentId, attemptId });
-    return { verified: false };
-  }
-}
 
 export interface RefundSweepResult {
   scanned: number;
@@ -108,77 +89,73 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
       // the closure (same per-attempt control flow).
       const attemptOrg = attempt.organizationId ?? attempt.registration.organizationId ?? null;
       const processAttempt = async () => {
-      // Manual/offline refunds move no Stripe money — the booking IS the
-      // record; a stale PENDING just means the process died before the
-      // status update. Confirm it.
-      if (attempt.kind === "manual") {
+      // Manual/offline refunds move no Stripe money: the booking IS the record.
+      // A stale PENDING means the process died before the status write, so
+      // confirm it. UNKNOWN is different: the refund service sets it on every
+      // attempt left behind by a rollback that did not apply, so the booking
+      // still holds money that never moved. Take it back.
+      if (attempt.kind === "manual" && attempt.status === "PENDING") {
         await db.refundAttempt.update({ where: { id: attempt.id }, data: { status: "SUCCEEDED" } });
         apiLogger.info({ msg: "refund-sweep:manual-confirmed", attemptId: attempt.id, registrationId: attempt.registrationId });
         result.confirmed++;
         return;
       }
 
-      if (!attempt.stripePaymentIntentId) {
-        // Shouldn't exist (stripe-kind attempts always carry the intent) —
-        // terminal so it can't churn every tick; a human decides.
-        await db.refundAttempt.update({
-          where: { id: attempt.id },
-          data: { status: "FAILED", error: "No payment intent on a stripe-kind attempt — review manually (booking NOT rolled back)" },
-        });
-        apiLogger.error({ msg: "refund-sweep:stripe-attempt-missing-intent", attemptId: attempt.id, registrationId: attempt.registrationId });
-        result.needsReview++;
-        return;
-      }
-
-      const outcome = await findStripeRefundForAttempt(attempt.stripePaymentIntentId, attempt.id, attemptOrg);
-      if (!outcome.verified) {
-        // Stripe unreachable — try again next tick.
-        result.unverifiable++;
-        return;
-      }
-
-      if (outcome.found) {
-        // The refund went through; the booking was already correct.
-        await db.refundAttempt.update({
-          where: { id: attempt.id },
-          data: { status: "SUCCEEDED", stripeRefundId: outcome.refundId },
-        });
-        apiLogger.info({ msg: "refund-sweep:confirmed-at-stripe", attemptId: attempt.id, registrationId: attempt.registrationId, stripeRefundId: outcome.refundId });
-        result.confirmed++;
-        return;
-      }
-
-      // Provably no refund at Stripe → the booking overstates by this
-      // attempt's amount. Un-book via a GUARDED DECREMENT (not a set-back):
-      // sibling slices of the same refund — or webhook reconciliations of
-      // other charges — may have legitimately moved the total in the
-      // meantime; we only remove the portion THIS attempt booked.
-      // The booking also raised the payment's own counter (security audit W0-1,
-      // Nov 6 2026), so both come back down together or neither does.
-      const amount = Number(attempt.amount);
-      const rolledBack = await tenantTransaction(async (tx) => {
-        const reg = await tx.registration.updateMany({
-          where: { id: attempt.registrationId, refundedAmount: { gte: amount } },
-          data: {
-            refundedAmount: { decrement: amount },
-            ...(attempt.flippedToRefunded ? { paymentStatus: "PAID" as const } : {}),
-          },
-        });
-        if (reg.count === 0) throw new SweepRollbackRaced();
-        if (attempt.paymentId) {
-          const pay = await tx.payment.updateMany({
-            where: { id: attempt.paymentId, refundedAmount: { gte: amount } },
-            data: { refundedAmount: { decrement: amount }, status: "PAID" },
+      let stripe: UnbookSlice["stripe"] = null;
+      if (attempt.kind !== "manual") {
+        if (!attempt.stripePaymentIntentId) {
+          // Shouldn't exist (stripe-kind attempts always carry the intent) —
+          // terminal so it can't churn every tick; a human decides.
+          await db.refundAttempt.update({
+            where: { id: attempt.id },
+            data: { status: "FAILED", error: "No payment intent on a stripe-kind attempt — review manually (booking NOT rolled back)" },
           });
-          if (pay.count === 0) throw new SweepRollbackRaced();
+          apiLogger.error({ msg: "refund-sweep:stripe-attempt-missing-intent", attemptId: attempt.id, registrationId: attempt.registrationId });
+          result.needsReview++;
+          return;
         }
-        return true;
-      }).catch((err: unknown) => {
-        if (err instanceof SweepRollbackRaced) return false;
+
+        const outcome = await findStripeRefundForAttempt(attempt.stripePaymentIntentId, attempt.id, attemptOrg);
+        if (!outcome.verified) {
+          // Stripe unreachable — try again next tick.
+          result.unverifiable++;
+          return;
+        }
+
+        if (outcome.found) {
+          // The refund went through; the booking was already correct.
+          await db.refundAttempt.update({
+            where: { id: attempt.id },
+            data: { status: "SUCCEEDED", stripeRefundId: outcome.refundId },
+          });
+          apiLogger.info({ msg: "refund-sweep:confirmed-at-stripe", attemptId: attempt.id, registrationId: attempt.registrationId, stripeRefundId: outcome.refundId });
+          result.confirmed++;
+          return;
+        }
+        stripe = { refundedTotal: outcome.refundedTotal, attemptIds: outcome.attemptIds };
+      }
+
+      // The money never moved: take this attempt's booking back out. One shared
+      // rollback (src/services/refund-unbook.ts) for the service and the sweep;
+      // it sets a Stripe payment's counter from Stripe's figure, so a Dashboard
+      // refund that landed meanwhile is kept rather than erased, and it writes
+      // everything or nothing.
+      const amount = Number(attempt.amount);
+      const unbooked = await tenantTransaction((tx) =>
+        unbookRefund(tx, {
+          registrationId: attempt.registrationId,
+          slices: [{ attemptId: attempt.id, paymentId: attempt.paymentId, take: amount, paymentBooked: attempt.paymentBooked, stripe }],
+          flippedToRefunded: attempt.flippedToRefunded,
+        }),
+      ).catch((err: unknown) => {
+        if (err instanceof UnbookRaced || err instanceof UnbookNeedsReview) {
+          apiLogger.warn({ msg: "refund-sweep:rollback-refused", attemptId: attempt.id, reason: err.message });
+          return null;
+        }
         throw err;
       });
 
-      if (!rolledBack) {
+      if (!unbooked) {
         // Something else already moved the registration's money state
         // (another refund, webhook reconcile). Don't guess — terminal +
         // human review.
@@ -203,12 +180,29 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         msg: "refund-sweep:rolled-back",
         attemptId: attempt.id,
         registrationId: attempt.registrationId,
-        amount: Number(attempt.amount),
+        amount,
+        unbooked: unbooked.unbooked,
+        absorbed: unbooked.absorbed,
       });
       notifyAdminsSafe(attempt.registration.eventId, {
         title: "⚠ Refund did not complete",
         message: `A refund attempt for ${attendeeName(attempt)} died before reaching Stripe — the books were corrected automatically. Retry the refund from the registration's Billing tab.`,
       });
+      if (unbooked.absorbed.length > 0 && !attemptOrg) {
+        // Kept on both counters, but no organisation to issue the credit note under.
+        apiLogger.error({ msg: "refund-sweep:absorbed-without-org — issue the credit note manually", attemptId: attempt.id, absorbed: unbooked.absorbed });
+      }
+      if (unbooked.absorbed.length > 0 && attemptOrg) {
+        const payment = await db.payment.findUnique({ where: { id: unbooked.absorbed[0].paymentId }, select: { currency: true } });
+        recordAbsorbedRefunds({
+          registrationId: attempt.registrationId,
+          eventId: attempt.registration.eventId,
+          organizationId: attemptOrg,
+          currency: (payment?.currency ?? "USD").toUpperCase(),
+          absorbed: unbooked.absorbed,
+          attendee: attempt.registration.attendee,
+        });
+      }
       result.rolledBack++;
       };
       if (attemptOrg) {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
+const { unbookRouteSpy } = vi.hoisted(() => ({ unbookRouteSpy: vi.fn() }));
 const { mockAuth, mockDb, mockApiLogger, mockStripeRefundsCreate, mockStripeRefundsList, mockStripeInstance } = vi.hoisted(() => {
   const mockStripeRefundsCreate = vi.fn();
   const mockStripeRefundsList = vi.fn();
@@ -28,7 +29,10 @@ const { mockAuth, mockDb, mockApiLogger, mockStripeRefundsCreate, mockStripeRefu
 // these defaults hold across every describe's own beforeEach:
 // - verification (verify-before-rollback) sees Stripe reachable + refund absent;
 // - the claim+attempt transaction routes to the shared mocks.
-mockStripeRefundsList.mockResolvedValue({ data: [] });
+mockStripeRefundsList.mockResolvedValue({ data: [], has_more: false });
+unbookRouteSpy.mockImplementation(async (_tx: unknown, args: { slices: Array<{ take: number }> }) => ({
+  unbooked: args.slices.reduce((s, x) => s + x.take, 0), absorbed: [], registrationRefunded: 0,
+}));
 mockDb.refundAttempt.create.mockResolvedValue({ id: "att-1" });
 mockDb.refundAttempt.update.mockResolvedValue({});
 // The per-payment counter is booked inside the claim (security audit W0-1).
@@ -77,7 +81,17 @@ vi.mock("@/lib/event-access", () => ({
 vi.mock("@/lib/stripe", () => ({
   getStripe: vi.fn(() => mockStripeInstance),
   toStripeAmount: (amount: number) => Math.round(amount * 100),
+  fromStripeAmount: (amount: number) => amount / 100,
 }));
+// The rollback's arithmetic is pinned in __tests__/services/refund-unbook.test.ts
+// and on real Postgres in tests/integration-db/refund-counters.db.test.ts; this
+// route test only needs it to succeed, and to see what it was handed.
+vi.mock("@/services/refund-unbook", () => ({
+  unbookRefund: unbookRouteSpy,
+  UnbookRaced: class UnbookRaced extends Error {},
+  UnbookNeedsReview: class UnbookNeedsReview extends Error {},
+}));
+
 vi.mock("@/lib/email", () => ({
   sendEmail: vi.fn(),
   loadActiveEventTemplateRow: vi.fn(),
@@ -267,11 +281,9 @@ describe("Refund: Stripe error rollback", () => {
     mockStripeRefundsCreate.mockRejectedValue(new Error("Stripe error: card_declined"));
     const res = await POST(makeRequest(), makeParams());
     expect(res.status).toBe(502);
-    // Rollback is now a CONDITIONAL updateMany (verify-before-rollback flow):
-    // restores PAID + the prior refunded total, guarded on our booked value.
-    expect(mockDb.registration.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ paymentStatus: "PAID" }) })
-    );
+    // The shared rollback (src/services/refund-unbook.ts) takes the booking
+    // back and un-flips it; it is handed the flag that the booking flipped.
+    expect(unbookRouteSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ flippedToRefunded: true }));
   });
 
   it("returns generic error message — does not leak Stripe error details", async () => {
