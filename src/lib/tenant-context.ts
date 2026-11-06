@@ -7,15 +7,14 @@
  * without every query author remembering to pass orgId (defence #2 — app-level
  * `where organizationId` scoping stays defence #1).
  *
- * Status: the CONTACTS domain is wired (Phase-2 pilot, July 2026) — every
- * /api/contacts/* handler + the contact agent executors wrap their body in
- * `runWithTenant(ctx.organizationId, …)` after auth/role guards, and the
- * domain's two interactive transactions use `tenantTransaction`. With
- * RLS_SET_LOCAL unset (master) all of it is a pure passthrough. Other
- * domains remain unwired: wiring each one + migrating its `db.$transaction`
- * sites to `tenantTransaction` (see db.ts) is that domain's Phase-2 sweep —
- * enabling the flag before ALL domains are migrated would mis-scope the
- * remaining ~86 plain `db.$transaction` sites.
+ * Status: started as the CONTACTS pilot (July 2026); the swept domains,
+ * the CRM among them (docs/CRM_TENANCY_SWEEP.md), wrap every handler body in
+ * `runWithTenant(ctx.organizationId, …)` after auth and use
+ * `tenantTransaction` for interactive transactions. Which domains are swept
+ * is pinned by scripts/check-tenant-als.sh, not by this comment (a list here
+ * goes stale; this one did). With RLS_SET_LOCAL unset (master) all of it is a
+ * pure passthrough, and a platform deployment refuses to start without it
+ * (assertPlatformClaimsRls in src/lib/tenant/rls-assert.ts).
  *
  * Deliberately import-free of db.ts/logger (leaf module, no cycles).
  */

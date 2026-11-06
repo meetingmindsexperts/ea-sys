@@ -20,6 +20,36 @@ separate deployable.
 
 ---
 
+## 0. The product boundary (Nov 6, 2026)
+
+The CRM can be licensed per organisation. Five rules hold it as a module that
+could be lifted out, without making it a separate deployment today:
+
+1. **Entitlement before permission.** An organisation must HAVE the CRM
+   (`Organization.enabledModules`, `src/lib/module-entitlements.ts`) before any
+   permission in it matters. `requireCrmRead` (so every route), the `/crm`
+   layout, the sidebar, the MCP tools and the workers all ask. Switching it off
+   suspends: nothing is deleted, inbound mail waits under `held/<org>/`.
+   The entitlement gates the CRM's own use, never another module's reading of
+   facts: Budgets still counts a suspended CRM's won deals.
+2. **Infrastructure only through `src/crm/integrations/`.** Storage, quote PDF
+   and letterhead, accounting (QuickBooks) and events each sit behind a
+   CRM-owned port with EA-SYS's implementation as the default.
+   `__tests__/crm/crm-integration-ports.test.ts` fails on a direct import.
+3. **Other modules read the CRM through a contract.** `src/lib/contracts/`
+   holds the interface, the CRM implements it, `src/lib/module-wiring.ts` (the
+   named ESLint exemption) hands it over. Procurement never names a CRM model
+   (`__tests__/procurement/no-crm-tables.test.ts`).
+4. **Email identity is per organisation** (`src/lib/crm-email-identity.ts`):
+   sender, reply mailbox, reply domain and capture address. The `CRM_*`
+   environment belongs only to the organisation it names.
+5. **Money and responsibility are audited in the transaction**
+   (`src/crm/lib/crm-audit.ts`); History stays best-effort beside it.
+
+Personal data on request: export or erase one contact
+(`services/crm-privacy-service.ts`); retention periods per organisation, off by
+default (`lib/retention-rules.ts`, the `crm-retention` job).
+
 ## 1. What it is for (scope)
 
 **Primary use case (locked, plan §9): a sponsor/exhibitor sales pipeline joined to

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM as a product: per-organisation licence, email and data rights (November 6)
+
+From the CRM product review (P0 to P2). Plan of record: §0 of `src/crm/README.md`.
+- **Per-organisation CRM:** `Organization.enabledModules` (migration `20261106130000`; existing organisations keep the CRM, a new one starts without). Every route, page, MCP tool and job asks; switching it off suspends and deletes nothing. The platform operator switches it on Settings, System
+- **Per-organisation CRM email:** sender, reply mailbox, reply domain and capture address (`src/lib/crm-email-identity.ts`), set by the operator; the `CRM_*` environment applies only to the organisation it names, so production needed no change. Fixes the cross-tenant reply forward
+- **The platform refuses to start without `RLS_SET_LOCAL=1`**
+- **Budgets reads won deals through a contract** (`src/lib/contracts/crm-revenue.ts`), independent of the CRM entitlement; the CRM reaches storage, PDFs, QuickBooks and events only through `src/crm/integrations/`
+- **Transactional audit** for deal value, owner, won/lost, archive, quotes and QuickBooks sends (`src/crm/lib/crm-audit.ts`)
+- **A contact's data on request:** export, and erasure that removes their correspondence everywhere; **retention** per organisation, off by default (`crm-retention` job)
+- **Hardening:** a reply is verified only with DMARC or the sender's own DKIM; attachments checked by their bytes (`src/lib/file-signature.ts`); a reassigned task's reminder goes to its new owner; deal products and deal contacts pinned to their organisation by composite foreign keys (migration `20261106140000`); the CRM tabs and inbox work on a phone
+
 ### Webinar attendee chat, steps 1 to 3 of 4 (November 6)
 
 - **Attendee chat beside the Custom stream**, as Chat and Q&A tabs (plan: `docs/WEBINAR_INTERACTION_PLAN.md` §6). Owner decisions: each attendee chooses per message to post with their full name or anonymously (producers always see the real name); attendee links are plain text, staff links and shared handouts clickable; chat opens with the room; it can be on only with a moderating producer named

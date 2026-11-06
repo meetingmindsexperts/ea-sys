@@ -26,10 +26,23 @@
 | **C2** | `runWithTenant` on 42 routes + agent-tools + 2 workers | `76d9efd7` | ✅ July 29 |
 | **C4** | `check-tenant-als.sh` gate covers CRM | `dfc24db2` | ✅ July 29 |
 
-The full `Crm*` model set (17): `CrmContact`, `CrmCompany`, `CrmProduct`, `CrmPipelineStage`,
-`CrmEmailTemplate`, `CrmQuoteCounter`, `CrmEmailSendClaim`, `CrmNotification`, `CrmActivity`,
-`CrmTask`, `CrmNote`, `CrmDealType`, and the 6-model deal graph (`CrmDeal`, `CrmDealContact`,
-`CrmDealProduct`, `CrmDealDocument`, `CrmEmailThread`, `CrmEmailMessage`).
+The full `Crm*` model set (21 as of Nov 6, 2026): `CrmContact`, `CrmCompany`, `CrmProduct`,
+`CrmPipelineStage`, `CrmEmailTemplate`, `CrmQuoteCounter`, `CrmEmailSendClaim`, `CrmNotification`,
+`CrmActivity`, `CrmTask`, `CrmNote`, `CrmDealType`, the 6-model deal graph (`CrmDeal`,
+`CrmDealContact`, `CrmDealProduct`, `CrmDealDocument`, `CrmEmailThread`, `CrmEmailMessage`), and
+the quote models added with quotes and QuickBooks (`CrmQuoteSequence`, `CrmQuote`, `CrmQuoteLine`).
+Every one has a policy file; `__tests__/lib/rls-coverage.test.ts` fails CI on a new model without one.
+
+**Nov 6, 2026 (CRM product review):**
+- `CrmDealProduct` / `CrmDealContact`: `organizationId` NOT NULL, and their parent foreign keys are
+  composite on `(id, organizationId)` (migration `20261106140000_crm_junction_tenant_pinned`), so a
+  link across organisations is refused by the database, not only by the services.
+- The CRM email identity (sender, reply mailbox, reply domain, capture address) is per organisation
+  (`src/lib/crm-email-identity.ts`); the inbound worker routes a reply by its thread's organisation
+  and a capture copy by its envelope address. This was the cross-tenant forward leak in
+  MULTI_TENANCY_IMPACT.md.
+- A platform deployment refuses to start without `RLS_SET_LOCAL=1` (`assertPlatformClaimsRls`).
+- The CRM module itself is entitled per organisation (`Organization.enabledModules`).
 
 ---
 

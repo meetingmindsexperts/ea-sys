@@ -108,7 +108,10 @@ ea-sys/
 │   │                              #   group-registration · speaker · abstract · session ·
 │   │                              #   accommodation · payment · promo-code · billing-account
 │   ├── crm/                       # CRM module — hard namespace boundary, one-way
-│   │                              #   imports crm→core only (components/hooks/lib/services)
+│   │                              #   imports crm→core only (components/hooks/lib/services).
+│   │                              #   integrations/ = its ports to storage, PDFs, QuickBooks,
+│   │                              #   events (Nov 6, 2026). Licensed per organisation; rules
+│   │                              #   in §0 of src/crm/README.md
 │   ├── hr/                        # HR module (attendance + UAE leave) — same one-way
 │   │                              #   boundary as crm. MASTER SILO ONLY, gated by
 │   │                              #   HR_MODULE_ENABLED; schema is tenant-correct anyway.
@@ -131,6 +134,9 @@ ea-sys/
 │   │   ├── quickbooks/            # QuickBooks Online connector (OAuth, reads, CRM Estimate
 │   │   │                          #   writes); shared by Budgets, the CRM and later invoices
 │   │   ├── tenant/                # multi-tenancy spine (host resolver, RLS assert)
+│   │   ├── contracts/             # interfaces one module reads another through (crm-revenue);
+│   │   │                          #   module-wiring.ts hands over the implementation
+│   │   │                          #   module-entitlements.ts = which organisation has which module
 │   │   ├── pdf/                   # shared PDF layout primitives (invoice/quote/receipt)
 │   │   ├── survey/ rsvp/ reimbursement/ speaker-profile/ help-chat/ infra/
 │   │   ├── approvals/ permissions/ travel-grant/   # approvals primitive · custom-role
