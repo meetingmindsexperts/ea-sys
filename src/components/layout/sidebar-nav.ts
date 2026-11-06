@@ -234,6 +234,8 @@ export interface SidebarNavInput {
   user: (Record<string, unknown> & { role?: string | null }) | null | undefined;
   hrEnabled: boolean;
   procurementEnabled: boolean;
+  /** Does the signed-in person's ORGANISATION have the CRM? (module-entitlements.ts) */
+  crmEnabled: boolean;
   /** BLUEPRINT_MODULE_ENABLED; absent means off. */
   blueprintEnabled?: boolean;
   /** On an event page: the event once loaded, `undefined` while loading. */
@@ -266,7 +268,7 @@ export function sidebarSkipsEventFetch(role: string | null | undefined, extraAre
 }
 
 export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
-  const { user, hrEnabled, procurementEnabled, currentEvent, submitterCtx } = input;
+  const { user, hrEnabled, procurementEnabled, crmEnabled, currentEvent, submitterCtx } = input;
   const blueprintEnabled = input.blueprintEnabled === true;
   const role = user?.role;
 
@@ -323,7 +325,7 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
   const baseNavigation = navigation.filter((item) => {
     const openedOneByOne = extendedOrgPages.includes(item.href);
     if (!openedOneByOne && !item.areas.some((area) => inArea(p, area))) return false;
-    if (item.crmOnly && !CRM_IN_SIDEBAR) return false;
+    if (item.crmOnly && (!CRM_IN_SIDEBAR || !crmEnabled)) return false;
     if (item.hrOnly && !hrEnabled) return false;
     if (item.blueprintOnly && !blueprintEnabled) return false;
     if (item.procurementOnly) {

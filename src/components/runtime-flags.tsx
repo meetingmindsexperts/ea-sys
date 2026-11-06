@@ -34,9 +34,15 @@ export interface RuntimeFlags {
   customRolesEnabled: boolean;
   /** The only domain this deployment may send email from (from EMAIL_FROM); null when unset. */
   senderDomain: string | null;
+  /**
+   * Does the signed-in person's ORGANISATION have the CRM? Not a deployment
+   * flag (module-entitlements.ts) but it travels the same way, read by the
+   * server layout per request. Hides the entry only; the API is the gate.
+   */
+  crmEnabled: boolean;
 }
 
-const DEFAULTS: RuntimeFlags = { hrEnabled: false, procurementEnabled: false, blueprintEnabled: false, customRolesEnabled: false, senderDomain: null };
+const DEFAULTS: RuntimeFlags = { hrEnabled: false, procurementEnabled: false, blueprintEnabled: false, customRolesEnabled: false, senderDomain: null, crmEnabled: false };
 
 const RuntimeFlagsContext = createContext<RuntimeFlags>(DEFAULTS);
 

@@ -16,6 +16,7 @@ import { zodErrorResponse } from "@/lib/api-errors";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
+import { orgHasModule } from "@/lib/module-entitlements";
 import { redactFinancialFields } from "@/lib/finance-visibility";
 import { crmCan, denyCrmAccess, denyCrmWrite, denyCrmDelete, denyCrmPurge, denyCrmExport } from "@/crm/lib/crm-visibility";
 
@@ -49,6 +50,13 @@ export async function requireCrmRead(
     }
     apiLogger.warn({ msg: "crm-route:unauthorized", method: req.method, route });
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  }
+  // Entitlement before permission: the ORGANISATION must have the CRM before
+  // any person in it may read it (module-entitlements.ts). 404, not 403, as
+  // for a module flag: a module the organisation lacks does not announce itself.
+  if (!(await orgHasModule(ctx.organizationId, "crm"))) {
+    apiLogger.warn({ msg: "crm-route:module-not-enabled", organizationId: ctx.organizationId, method: req.method });
+    return { error: NextResponse.json({ error: "Not found", code: "MODULE_NOT_ENABLED" }, { status: 404 }) };
   }
   const denied = denyCrmAccess(ctx); // logs its own refusal
   if (denied) return { error: denied };

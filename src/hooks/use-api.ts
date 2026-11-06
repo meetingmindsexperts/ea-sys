@@ -170,6 +170,8 @@ export interface OrgListItem {
   slug: string;
   logo: string | null;
   primaryColor: string | null;
+  /** Modules the organisation has (module-entitlements.ts). */
+  enabledModules: string[];
   _count: { events: number; users: number };
 }
 

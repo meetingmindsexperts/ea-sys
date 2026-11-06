@@ -9,6 +9,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+// The organisation has the CRM (module-entitlements.ts); the entitlement has its own tests.
+vi.mock("@/lib/module-entitlements", () => ({ orgHasModule: vi.fn(async () => true), forgetOrgModules: vi.fn() }));
+
 vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
@@ -63,6 +66,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
+import { orgHasModule } from "@/lib/module-entitlements";
 import {
   runTick,
   extractReplyToken,
@@ -183,6 +187,16 @@ describe("runTick", () => {
     const cmds = s3Send.mock.calls.map((c) => (c[0] as { cmd: string }).cmd);
     expect(cmds).toContain("Copy");
     expect(cmds).toContain("Delete");
+  });
+
+  it("holds a reply for an organisation whose CRM is switched off: kept under held/, not filed or forwarded", async () => {
+    vi.mocked(orgHasModule).mockResolvedValueOnce(false);
+    mockS3({ "inbound/off": rawEmail() });
+    expect(await runTick()).toMatchObject({ unmatched: 1, stored: 0 });
+    expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+    const copy = s3Send.mock.calls.map((c) => c[0] as { cmd: string; input: { Key?: string } }).find((c) => c.cmd === "Copy");
+    expect(copy?.input.Key).toBe("held/off");
   });
 
   it("files a reply once when the partnerships capture already filed it (same Message-ID)", async () => {

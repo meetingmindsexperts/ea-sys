@@ -8,6 +8,7 @@ import { AgentLauncher } from "@/components/agent/agent-launcher";
 import { RuntimeFlagsProvider } from "@/components/runtime-flags";
 import { isHrModuleEnabled, isProcurementModuleEnabled, isCustomRolesEnabled, isBlueprintModuleEnabled } from "@/lib/module-flags";
 import { senderDomain } from "@/lib/sender-domain";
+import { orgHasModule } from "@/lib/module-entitlements";
 
 export default async function DashboardLayout({
   children,
@@ -19,6 +20,7 @@ export default async function DashboardLayout({
   if (!session?.user) {
     redirect("/login");
   }
+  const crmEnabled = session.user.organizationId ? await orgHasModule(session.user.organizationId, "crm") : false;
 
   // Per-deployment flags are read HERE, on the server, at request time. They
   // cannot be NEXT_PUBLIC_ constants: master and the platform are built from one
@@ -26,7 +28,7 @@ export default async function DashboardLayout({
   // identical on both. See src/components/runtime-flags.tsx.
   return (
     <RuntimeFlagsProvider
-      flags={{ hrEnabled: isHrModuleEnabled(), procurementEnabled: isProcurementModuleEnabled(), blueprintEnabled: isBlueprintModuleEnabled(), customRolesEnabled: isCustomRolesEnabled(), senderDomain: senderDomain() }}
+      flags={{ hrEnabled: isHrModuleEnabled(), procurementEnabled: isProcurementModuleEnabled(), blueprintEnabled: isBlueprintModuleEnabled(), customRolesEnabled: isCustomRolesEnabled(), senderDomain: senderDomain(), crmEnabled }}
     >
       <SidebarProvider>
       {/* HelpChatProvider mounts the drawer once at the dashboard root

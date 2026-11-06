@@ -43,6 +43,7 @@ function render(): string {
             user: { id: "u1", organizationId: "org-1", role, ...person.extra },
             hrEnabled: flags.hrEnabled,
             procurementEnabled: flags.procurementEnabled,
+            crmEnabled: true,
             ...ctx.input,
           });
           const base = nav.baseNavigation.map((i) => i.name).join(", ");
@@ -64,6 +65,7 @@ describe("the Blueprints entry (BLUEPRINT_MODULE_ENABLED and blueprints.view)", 
       user: { id: "u1", organizationId: "org-1", role },
       hrEnabled: false,
       procurementEnabled: false,
+      crmEnabled: true,
       blueprintEnabled,
       isEventPage: false,
       currentEvent: undefined,
@@ -81,5 +83,23 @@ describe("the Blueprints entry (BLUEPRINT_MODULE_ENABLED and blueprints.view)", 
   it("nobody sees it while the module is off, or when the flag is not passed", () => {
     expect(sees("SUPER_ADMIN", false)).toBe(false);
     expect(sees("SUPER_ADMIN")).toBe(false);
+  });
+});
+
+describe("the CRM entry follows the organisation's entitlement", () => {
+  const sees = (crmEnabled: boolean) =>
+    computeSidebarNav({
+      user: { id: "u1", organizationId: "org-1", role: "SUPER_ADMIN" },
+      hrEnabled: false,
+      procurementEnabled: false,
+      crmEnabled,
+      isEventPage: false,
+      currentEvent: undefined,
+      submitterCtx: undefined,
+    }).baseNavigation.some((i) => i.name === "CRM");
+
+  it("shows it when the organisation has the CRM, hides it when not", () => {
+    expect(sees(true)).toBe(true);
+    expect(sees(false)).toBe(false);
   });
 });

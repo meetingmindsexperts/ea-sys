@@ -36,7 +36,7 @@ const pageName = (segment: string) => segment.charAt(0).toUpperCase() + segment.
 
 export function RolePreview({ grants }: { grants: readonly DraftGrant[] }) {
   const [base, setBase] = useState<string>("MEMBER");
-  const { hrEnabled, procurementEnabled } = useRuntimeFlags();
+  const { hrEnabled, procurementEnabled, crmEnabled } = useRuntimeFlags();
 
   const userWith = (withRole: boolean) => ({
     id: PREVIEW_USER,
@@ -45,7 +45,7 @@ export function RolePreview({ grants }: { grants: readonly DraftGrant[] }) {
     procurementPermissions: withRole ? grants.map((g) => encodeSessionGrant(g.permission, g.scope)) : [],
   });
   const menu = (withRole: boolean) =>
-    computeSidebarNav({ user: userWith(withRole), hrEnabled, procurementEnabled, isEventPage: false, currentEvent: undefined, submitterCtx: undefined })
+    computeSidebarNav({ user: userWith(withRole), hrEnabled, procurementEnabled, crmEnabled, isEventPage: false, currentEvent: undefined, submitterCtx: undefined })
       .baseNavigation.map((i) => i.name);
   const pages = (withRole: boolean, event: (typeof EVENTS)[keyof typeof EVENTS]) => {
     const p = principalFromUser(userWith(withRole));

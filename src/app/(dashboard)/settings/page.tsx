@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { OrgModulesCard } from "@/components/settings/org-modules-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { isBaseRole } from "@/lib/team-roles";
@@ -1523,6 +1524,8 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+            {/* The list route is operator-only, so a tenant's own SUPER_ADMIN sees nothing here. */}
+            <OrgModulesCard />
           </TabsContent>
         )}
       </Tabs>

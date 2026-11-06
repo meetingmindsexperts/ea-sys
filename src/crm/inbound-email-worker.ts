@@ -40,6 +40,7 @@ import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
 import { crmSenderFromEnv } from "@/crm/lib/crm-sender";
 import { isInternalEmail } from "@/lib/internal-domains";
+import { orgHasModule } from "@/lib/module-entitlements";
 import { mintReplyToken } from "@/crm/services/crm-email-thread-service";
 import { captureDirection, isAutomatedMail } from "@/crm/lib/inbox-capture";
 import {
@@ -553,6 +554,11 @@ async function processObject(
     return "unmatched";
   }
 
+  // The organisation no longer has the CRM (module-entitlements.ts): keep the
+  // email, untouched, under held/. Moving it back to inbound/ after the CRM is
+  // switched on again files it normally. Never filed, never forwarded.
+  if (!(await orgHasModule(thread.organizationId, "crm"))) return await holdForDisabledModule(bucket, key, basename, thread.organizationId);
+
   // Tenancy: from here on the org is known (thread resolved via its globally
   // unique reply token → exactly one thread → one org). Wrap the message-storage
   // tail in the row's tenant store; no-op passthrough while RLS_SET_LOCAL is off.
@@ -736,6 +742,7 @@ async function processCapture(args: {
     if (!tick.orgOk) apiLogger.error({ msg: "crm-capture:org-not-found", organizationId });
   }
   if (!tick.orgOk) return unmatched("capture-org-not-found");
+  if (!(await orgHasModule(organizationId, "crm"))) return await holdForDisabledModule(bucket, key, basename, organizationId);
   if (tick.contactsCreated >= MAX_CAPTURE_CONTACTS_PER_TICK) {
     apiLogger.warn({ msg: "crm-capture:deferred-contact-budget", key });
     return "deferred";
@@ -889,6 +896,13 @@ async function processCapture(args: {
     });
     return "stored";
   });
+}
+
+/** Set aside mail for an organisation whose CRM is switched off (suspended, not deleted). */
+async function holdForDisabledModule(bucket: string, key: string, basename: string, organizationId: string): Promise<ObjectOutcome> {
+  await moveObject(bucket, key, `held/${basename}`);
+  apiLogger.warn({ msg: "crm-inbound:held-module-not-enabled", key, organizationId });
+  return "unmatched";
 }
 
 /** Move an email that keeps failing to failed/, kept for a person to look at. */

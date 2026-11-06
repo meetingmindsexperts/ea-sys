@@ -7,6 +7,8 @@ model Organization {
   logo           String?
   primaryColor   String?  @map("primary_color")
   settings       Json     @default("{}")
+  /// Modules this organisation has (module-entitlements.ts). Existing organisations got "crm" in the migration; a new one starts empty.
+  enabledModules String[] @default([])
   // Billing/Company info (for invoice "From" section)
   companyName    String?
   companyAddress String?  @db.Text

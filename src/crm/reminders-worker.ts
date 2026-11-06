@@ -54,6 +54,9 @@ export async function runTick(): Promise<CrmReminderTickResult> {
       // No owner, no one to remind. These are surfaced in the UI as "Unassigned"
       // rather than silently dropped.
       ownerId: { not: null },
+      // An organisation without the CRM (module-entitlements.ts) gets no
+      // reminders; the task waits, unclaimed, until the CRM is switched back on.
+      org: { enabledModules: { has: "crm" } },
     },
     select: {
       id: true,

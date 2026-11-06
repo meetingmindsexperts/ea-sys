@@ -10,6 +10,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// The organisation has the CRM (module-entitlements.ts); the entitlement has its own tests.
+vi.mock("@/lib/module-entitlements", () => ({ orgHasModule: vi.fn(async () => true), forgetOrgModules: vi.fn() }));
+
 vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
@@ -96,6 +99,16 @@ describe("registerCrmMcpTools — the discoverable surface", () => {
         "get_crm_report",
       ].sort(),
     );
+  });
+});
+
+describe("the organisation's entitlement", () => {
+  it("refuses every tool, reading nothing, when the organisation does not have the CRM", async () => {
+    const { orgHasModule } = await import("@/lib/module-entitlements");
+    vi.mocked(orgHasModule).mockResolvedValueOnce(false);
+    const res = await collectTools().get("list_crm_deals")!({});
+    expect(res.isError).toBe(true);
+    expect(db.crmDeal.findMany).not.toHaveBeenCalled();
   });
 });
 

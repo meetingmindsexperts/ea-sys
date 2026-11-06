@@ -26,6 +26,8 @@ export interface ContactScoreTickReport {
 
 export async function runContactScoreTick(): Promise<ContactScoreTickReport> {
   const orgs = await dbOperator.crmContact.findMany({
+    // Only organisations that have the CRM (module-entitlements.ts).
+    where: { org: { enabledModules: { has: "crm" } } },
     distinct: ["organizationId"],
     select: { organizationId: true },
   });

@@ -20,6 +20,7 @@ export async function GET() {
       slug: true,
       logo: true,
       primaryColor: true,
+      enabledModules: true,
       _count: { select: { events: true, users: true } },
     },
     orderBy: { name: "asc" },

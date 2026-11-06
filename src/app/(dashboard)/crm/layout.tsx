@@ -1,85 +1,22 @@
-"use client";
-
 /**
- * CRM shell — one section, three tabs.
- *
- * The sidebar carries a single "CRM" entry; Deals / Accounts / Tasks are tabs in
- * the right pane rather than three top-level sidebar links. The module is one place
- * to look, not three — which is the whole point of the bounded-namespace design
- * (§7.0), and matters more than usual here because the owner's stated constraint is
- * mental-context load.
- *
- * The tabs are LINKS, not local state: each tab is a real route, so a deep link to
- * /crm/accounts still works, the back button behaves, and a bookmarked board
- * survives. Tab state that lives only in React would break all three.
+ * SERVER-SIDE GATE ON EVERY /crm PAGE: the organisation must have the CRM
+ * (module-entitlements.ts). Same answer as requireCrmRead, which is the real
+ * gate: notFound(), because a module the organisation lacks does not announce
+ * itself. Who may read the board inside an organisation that has it stays the
+ * API's question (and the shell hides what the person may not open).
  */
-import Link from "next/link";
-import { useCan } from "@/hooks/use-can";
-import { usePathname } from "next/navigation";
-import { Activity, BarChart3, Building2, CheckSquare, FileText, Handshake, Home, Inbox, Package, Users } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { CrmNotificationBell } from "@/crm/components/crm-notification-bell";
+import { notFound } from "next/navigation";
+import { auth } from "@/lib/auth";
+import { apiLogger } from "@/lib/logger";
+import { orgHasModule } from "@/lib/module-entitlements";
+import { CrmShell } from "@/crm/components/crm-shell";
 
-const TABS = [
-  // Home is `/crm` itself — matched EXACTLY, or every tab lights up under startsWith.
-  { href: "/crm", label: "Home", icon: Home, exact: true },
-  { href: "/crm/deals", label: "Deals", icon: Handshake },
-  { href: "/crm/accounts", label: "Accounts", icon: Building2 },
-  // Business contacts — reps, exhibitor sales, procurement. NOT the event HCP store.
-  { href: "/crm/contacts", label: "Contacts", icon: Users },
-  // Staff-only (canViewCrmInbox) — hidden for MEMBER; the API is the real gate.
-  { href: "/crm/inbox", label: "Inbox", icon: Inbox, staffOnly: true },
-  { href: "/crm/tasks", label: "Tasks", icon: CheckSquare },
-  { href: "/crm/reports", label: "Reports", icon: BarChart3 },
-  { href: "/crm/activity", label: "Activity", icon: Activity },
-  { href: "/crm/products", label: "Products", icon: Package },
-  { href: "/crm/templates", label: "Templates", icon: FileText },
-];
-
-export default function CrmLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const canSeeInbox = useCan("crm.inbox.read") === "allowed";
-  const tabs = TABS.filter((t) => !t.staffOnly || canSeeInbox);
-
-  return (
-    <div className="flex flex-col">
-      <div className="border-b px-6 pt-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">CRM</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Sponsorship pipeline, accounts and follow-ups
-            </p>
-          </div>
-          {/* The CRM's OWN bell — separate feed from the dashboard header's bell. */}
-          <CrmNotificationBell />
-        </div>
-
-        <nav className="-mb-px mt-4 flex gap-1" aria-label="CRM sections">
-          {tabs.map((tab) => {
-            const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
-            const Icon = tab.icon;
-            return (
-              <Link
-                key={tab.href}
-                href={tab.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
-                  active
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {tab.label}
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
-
-      <div className="flex-1">{children}</div>
-    </div>
-  );
+export default async function CrmLayout({ children }: { children: React.ReactNode }) {
+  const session = await auth();
+  const organizationId = session?.user?.organizationId;
+  if (!organizationId || !(await orgHasModule(organizationId, "crm"))) {
+    apiLogger.warn({ msg: "crm-page:module-not-enabled", organizationId: organizationId ?? null });
+    notFound();
+  }
+  return <CrmShell>{children}</CrmShell>;
 }

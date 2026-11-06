@@ -152,6 +152,7 @@ describe("the sidebar", () => {
       user: { id: "u1", organizationId: "org-1", role: "BASE", procurementPermissions: keys } as never,
       hrEnabled: true,
       procurementEnabled: true,
+      crmEnabled: true,
       isEventPage,
       currentEvent: isEventPage ? ({ eventType: "CONFERENCE" } as never) : undefined,
       submitterCtx: undefined,

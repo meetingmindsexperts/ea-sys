@@ -21,6 +21,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { db } from "@/lib/db";
 import { MCP_PLACEHOLDER_USER_ID } from "@/lib/agent/mcp-placeholder-user";
 import { runWithTenant } from "@/lib/tenant-context";
+import { orgHasModule } from "@/lib/module-entitlements";
 import { apiLogger } from "@/lib/logger";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
 import { crmCan } from "@/crm/lib/crm-visibility";
@@ -239,6 +240,12 @@ export function registerCrmMcpTools(
       // Tenancy: every CRM MCP tool executes in the API key's org tenant store.
       // safeTool is the single choke point for all tools, so one wrap covers the
       // whole surface. No-op passthrough while RLS_SET_LOCAL is off (master).
+      // Entitlement at call time (registration is synchronous): an
+      // organisation without the CRM gets a refusal, never its data.
+      if (!(await orgHasModule(organizationId, "crm"))) {
+        apiLogger.warn({ msg: "MCP CRM tool refused: module not enabled", tool: name, organizationId });
+        return { content: [{ type: "text" as const, text: "Error: the CRM is not enabled for this organisation" }], isError: true };
+      }
       const text = await runWithTenant(organizationId, run);
       return { content: [{ type: "text" as const, text }] };
     } catch (err) {
