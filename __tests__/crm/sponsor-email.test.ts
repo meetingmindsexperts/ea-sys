@@ -289,13 +289,36 @@ describe("sendSponsorProspectus", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
+  // A real PDF's first bytes ("%PDF-1.7 ..."), base64.
+  const PDF = Buffer.from("%PDF-1.7\n%binary content follows").toString("base64");
+
   it("accepts the prospectus PDF", async () => {
     mockDeals([deal([contact()])]);
     const res = await sendSponsorProspectus({
       ...SEND,
-      attachments: [{ name: "prospectus.pdf", content: "AAAA", contentType: "application/pdf" }],
+      attachments: [{ name: "prospectus.pdf", content: PDF, contentType: "application/pdf" }],
     });
     expect(res.ok).toBe(true);
+  });
+
+  // F-02: the type is checked whatever the sender declares, and the bytes decide.
+  it("infers the type from the name when none is declared, and still checks the bytes", async () => {
+    mockDeals([deal([contact()])]);
+    expect((await sendSponsorProspectus({ ...SEND, attachments: [{ name: "prospectus.pdf", content: PDF }] })).ok).toBe(true);
+    expect(await sendSponsorProspectus({ ...SEND, attachments: [{ name: "payload.html", content: "AAAA" }] })).toMatchObject({ code: "ATTACHMENT_TYPE_NOT_ALLOWED" });
+    expect(await sendSponsorProspectus({ ...SEND, attachments: [{ name: "noextension", content: PDF }] })).toMatchObject({ code: "ATTACHMENT_TYPE_NOT_ALLOWED" });
+  });
+
+  it("refuses an HTML page renamed to .pdf, and a .exe declared as a PDF", async () => {
+    mockDeals([deal([contact()])]);
+    const html = Buffer.from("<html><script>alert(1)</script></html>").toString("base64");
+    expect(await sendSponsorProspectus({ ...SEND, attachments: [{ name: "invoice.pdf", content: html, contentType: "application/pdf" }] })).toMatchObject({
+      code: "ATTACHMENT_TYPE_NOT_ALLOWED",
+    });
+    expect(await sendSponsorProspectus({ ...SEND, attachments: [{ name: "run.exe", content: PDF, contentType: "application/pdf" }] })).toMatchObject({
+      code: "ATTACHMENT_TYPE_NOT_ALLOWED",
+    });
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 });
 

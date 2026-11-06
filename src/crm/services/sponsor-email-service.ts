@@ -37,6 +37,7 @@ import {
 } from "@/crm/lib/sponsor-recipients";
 import type { SponsorRecipient } from "@/crm/lib/crm-types";
 import { crmEmailIdentity, type CrmEmailIdentity } from "@/lib/crm-email-identity";
+import { extensionMatches, fileExtension, signatureMatches, typeFromExtension } from "@/lib/file-signature";
 import { crmEvents, EVENT_EMAIL_FIELDS } from "@/crm/integrations/events";
 import {
   CRM_EMAIL_TOKEN_RE,
@@ -258,7 +259,7 @@ function validateSend(
   subject: string,
   message: string,
   attachments: SponsorAttachment[],
-): { ok: true; subject: string; message: string } | ServiceFail {
+): { ok: true; subject: string; message: string; attachments: Array<SponsorAttachment & { contentType: string }> } | ServiceFail {
   const s = subject.trim();
   const m = message.trim();
   // Per-site warns on every rejection (R2 rider L5) — matches the sibling
@@ -284,18 +285,40 @@ function validateSend(
   // Document/image types only (CRM review L12): this blast fans out to EXTERNAL
   // sponsor inboxes under the org's branded sender — an executable or HTML
   // payload has no business riding it. The prospectus is a PDF/DOCX/image.
+  const checked: Array<SponsorAttachment & { contentType: string }> = [];
   for (const a of attachments) {
-    const t = (a.contentType ?? "").trim().toLowerCase();
-    if (t && !ALLOWED_ATTACHMENT_TYPES.has(t)) {
-      apiLogger.warn({ msg: "crm-sponsor-email:attachment-type-rejected", contentType: t });
-      return {
-        ok: false,
-        code: "ATTACHMENT_TYPE_NOT_ALLOWED",
-        message: `Attachment type "${t}" is not allowed — send PDF, Word, PowerPoint or image files`,
-      };
-    }
+    const res = checkSponsorAttachment(a);
+    if (!res.ok) return res;
+    checked.push({ ...a, contentType: res.contentType });
   }
-  return { ok: true, subject: s, message: m };
+  return { ok: true, subject: s, message: m, attachments: checked };
+}
+
+/**
+ * One attachment's real type (CRM product review F-02). A missing content type
+ * used to skip the allow-list entirely. Now the type is the declared one, or
+ * the filename's when none was sent; it must be allowed, the filename's
+ * extension must agree with it, and the BYTES must carry its signature
+ * (src/lib/file-signature.ts): neither a declared type nor a filename proves
+ * what a file is.
+ */
+export function checkSponsorAttachment(a: SponsorAttachment): { ok: true; contentType: string } | ServiceFail {
+  const declared = (a.contentType ?? "").trim().toLowerCase();
+  const t = declared || typeFromExtension(a.name) || "";
+  const refuse = (reason: string): ServiceFail => {
+    apiLogger.warn({ msg: "crm-sponsor-email:attachment-rejected", reason, contentType: t || null, extension: fileExtension(a.name) || null });
+    return {
+      ok: false,
+      code: "ATTACHMENT_TYPE_NOT_ALLOWED",
+      message: `"${a.name}" cannot be attached: send PDF, Word, PowerPoint or image files`,
+    };
+  };
+  if (!t || !ALLOWED_ATTACHMENT_TYPES.has(t)) return refuse("type-not-allowed");
+  if (!extensionMatches(a.name, t)) return refuse("extension-mismatch");
+  // The first 16 bytes are enough for every signature in the table.
+  const head = Buffer.from(a.content.slice(0, 24), "base64");
+  if (!signatureMatches(head, t)) return refuse("content-mismatch");
+  return { ok: true, contentType: t };
 }
 
 const ALLOWED_ATTACHMENT_TYPES = new Set([
@@ -670,7 +693,7 @@ export async function sendSponsorProspectus(args: {
     eventVars: crmEventVars(resolved.event),
     subject: valid.subject,
     message: valid.message,
-    attachments,
+    attachments: valid.attachments,
     cc: args.cc,
     bcc: args.bcc,
     copyToSender: args.copyToSender,
@@ -716,7 +739,7 @@ export async function sendDealEmail(args: {
     eventVars: resolved.eventVars,
     subject: valid.subject,
     message: valid.message,
-    attachments,
+    attachments: valid.attachments,
     cc: args.cc,
     bcc: args.bcc,
     copyToSender: args.copyToSender,
@@ -912,7 +935,7 @@ export async function sendThreadReply(args: {
     eventVars: resolved.eventVars,
     subject: valid.subject,
     message: valid.message,
-    attachments,
+    attachments: valid.attachments,
     cc: args.cc,
     bcc: args.bcc,
     copyToSender: args.copyToSender,
