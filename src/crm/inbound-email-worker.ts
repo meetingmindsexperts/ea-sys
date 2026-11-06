@@ -1,7 +1,8 @@
 /**
  * CRM inbound email — the intake half of the CRM inbox. SERVER/WORKER ONLY.
  *
- * SES receives mail for $CRM_REPLY_DOMAIN and writes the raw MIME to
+ * SES receives mail for every organisation's reply domain (crm-email-identity.ts)
+ * and writes the raw MIME to
  * s3://$CRM_INBOUND_S3_BUCKET/inbound/. This tick (every minute) drains that
  * prefix: parse → spam/virus gate → resolve the reply token to its thread →
  * store the INBOUND message (+ attachments to the private upload prefix) →
@@ -38,7 +39,7 @@ import { sendEmail } from "@/lib/email";
 import { escapeHtml } from "@/lib/html";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
-import { crmSenderFromEnv } from "@/crm/lib/crm-sender";
+import { crmEmailIdentity, organisationForCaptureAddress } from "@/lib/crm-email-identity";
 import { isInternalEmail } from "@/lib/internal-domains";
 import { orgHasModule } from "@/lib/module-entitlements";
 import { mintReplyToken } from "@/crm/services/crm-email-thread-service";
@@ -107,19 +108,32 @@ function recipientAddresses(parsed: ParsedMail): string[] {
   return [...collect(parsed.to), ...collect(parsed.cc)];
 }
 
+/** How many token-shaped recipients one email may make us look up. */
+const MAX_TOKEN_CANDIDATES = 5;
+
 /**
- * Extract the thread token from the recipient list. When CRM_REPLY_DOMAIN is
- * set the domain must match (defense against stray mail landing in the
- * bucket); without it, any token-shaped local part counts.
+ * Every token-shaped recipient with its domain, in recipient order. Which
+ * domain is RIGHT depends on whose thread the token opens (each organisation
+ * has its own reply domain), so the domain is checked after the lookup, in
+ * processObject, never against one global value.
  */
-export function extractReplyToken(addresses: string[], replyDomain: string | null): string | null {
+export function replyTokenCandidates(addresses: string[]): { token: string; domain: string }[] {
+  const out: { token: string; domain: string }[] = [];
   for (const addr of addresses) {
     const m = TOKEN_RE.exec(addr.trim());
     if (!m) continue;
-    if (replyDomain && m[2].toLowerCase() !== replyDomain.toLowerCase()) continue;
-    return m[1].toLowerCase();
+    out.push({ token: m[1].toLowerCase(), domain: m[2].toLowerCase() });
+    if (out.length >= MAX_TOKEN_CANDIDATES) break;
   }
-  return null;
+  return out;
+}
+
+/** The envelope recipient SES received the copy for, from its own first Received header. */
+export function sesEnvelopeRecipient(parsed: ParsedMail): string | null {
+  const received = headerInstances(parsed, "received")[0] ?? "";
+  if (!/\bby inbound-smtp\.[a-z0-9-]+\.amazonaws\.com\b/i.test(received)) return null;
+  const m = /\bfor <?([^\s<>;]+@[^\s<>;]+)>?/i.exec(received);
+  return m ? m[1].toLowerCase() : null;
 }
 
 /**
@@ -430,10 +444,14 @@ async function notifyOwner(args: {
   const ownerName = owner
     ? `${owner.firstName ?? ""} ${owner.lastName ?? ""}`.trim() || undefined
     : undefined;
+  // The THREAD's organisation's mailbox and sender, never a global one: on a
+  // deployment serving several organisations a global value copied tenant B's
+  // sponsor replies into tenant A's mailbox (CRM product review P0-1).
+  const identity = await crmEmailIdentity(args.thread.organizationId);
   const audience = buildForwardAudience({
     ownerEmail: owner?.email,
     ownerName,
-    partnerships: crmSenderFromEnv()?.email ?? null,
+    partnerships: identity.forwardTo,
     notifyEmails: args.thread.notifyEmails,
     // Exclude whoever ACTUALLY sent this inbound (args.fromEmail) — NOT the
     // thread counterparty. They differ when a CC'd colleague replies: that
@@ -456,7 +474,7 @@ async function notifyOwner(args: {
     args.htmlBody ??
     `<pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(args.textBody ?? "")}</pre>`;
 
-  const from = crmSenderFromEnv();
+  const from = identity.sender;
   const res = await sendEmail({
     ...(from ? { from } : {}),
     to: [{ email: primary.email, name: primary.name }],
@@ -479,10 +497,44 @@ async function notifyOwner(args: {
   }
 }
 
+const THREAD_SELECT = {
+  id: true,
+  organizationId: true,
+  subject: true,
+  crmContactId: true,
+  counterpartyEmail: true,
+  notifyEmails: true,
+  expiresAt: true,
+  revokedAt: true,
+  deal: { select: { id: true, name: true, ownerId: true } },
+} as const;
+
+/**
+ * The thread a reply belongs to, or why none. A token opens a thread only on
+ * ITS organisation's reply domain: the same token at another organisation's
+ * domain (or any stray domain) is refused, so one tenant's reply address can
+ * never be made to file mail into another's inbox.
+ */
+async function resolveReplyThread(parsed: ParsedMail) {
+  let mismatched = false;
+  for (const { token, domain } of replyTokenCandidates(recipientAddresses(parsed))) {
+    // Privileged lane (item 5): an inbound reply arrives carrying only a token.
+    // Which tenant it belongs to is precisely what this lookup answers, so it
+    // cannot be scoped by the answer. Everything after it runs inside
+    // runWithTenant(thread.organizationId).
+    const thread = await dbOperator.crmEmailThread.findUnique({ where: { replyToken: token }, select: THREAD_SELECT });
+    if (!thread) continue;
+    const { replyDomain } = await crmEmailIdentity(thread.organizationId);
+    if (replyDomain && replyDomain === domain) return { thread, mismatched: false };
+    mismatched = true;
+    apiLogger.warn({ msg: "crm-inbound:token-domain-mismatch", threadId: thread.id, organizationId: thread.organizationId, domain, expected: replyDomain });
+  }
+  return { thread: null, mismatched };
+}
+
 async function processObject(
   bucket: string,
   key: string,
-  replyDomain: string | null,
   tick: CaptureTick,
 ): Promise<ObjectOutcome> {
   const basename = key.slice("inbound/".length) || key;
@@ -513,31 +565,16 @@ async function processObject(
     return "quarantined";
   }
 
-  const token = extractReplyToken(recipientAddresses(parsed), replyDomain);
-  // Privileged lane (item 5): an inbound reply arrives carrying only a token.
-  // Which tenant it belongs to is precisely what this lookup answers, so it
-  // cannot be scoped by the answer. Everything after it runs inside
-  // runWithTenant(thread.organizationId).
-  const thread = token
-    ? await dbOperator.crmEmailThread.findUnique({
-        where: { replyToken: token },
-        select: {
-          id: true,
-          organizationId: true,
-          subject: true,
-          crmContactId: true,
-          counterpartyEmail: true,
-          notifyEmails: true,
-          expiresAt: true,
-          revokedAt: true,
-          deal: { select: { id: true, name: true, ownerId: true } },
-        },
-      })
-    : null;
+  const { thread, mismatched } = await resolveReplyThread(parsed);
+  if (!thread && mismatched) {
+    await moveObject(bucket, key, `unmatched/${basename}`);
+    apiLogger.warn({ msg: "crm-inbound:unmatched", key, reason: "token-domain-mismatch" });
+    return "unmatched";
+  }
   if (!thread) {
     // No reply token: a copy of partnerships@ mail from the Microsoft 365 rule
     // (or stray mail). The capture path decides which.
-    return await processCapture({ bucket, key, basename, processedKey, parsed, replyDomain, tick });
+    return await processCapture({ bucket, key, basename, processedKey, parsed, tick });
   }
 
   // Token lifecycle (review M1): a revoked (deal archived) or expired (dormant)
@@ -680,8 +717,8 @@ const MAX_CAPTURE_CONTACTS_PER_TICK = 20;
 /** Per-tick state for the capture path. */
 interface CaptureTick {
   contactsCreated: number;
-  /** null until checked; false when CRM_CAPTURE_ORG_ID names no organisation. */
-  orgOk: boolean | null;
+  /** Capture address → its organisation (null = nobody claims it), asked once per tick. */
+  captureOrgs: Map<string, string | null>;
 }
 
 /** The message ids an email replies to, newest last (In-Reply-To + References). */
@@ -698,11 +735,13 @@ function recipientName(parsed: ParsedMail, email: string): string | null {
 
 /**
  * File a copy of partnerships@ mail (no reply token) into the CRM inbox.
- * Dormant until CRM_CAPTURE_ORG_ID is set: the organisation the partnerships
- * mailbox belongs to (master silo: one). Rules in src/crm/lib/inbox-capture.ts.
+ * The organisation is the one whose capture address SES received the copy for
+ * (crm-email-identity.ts): each organisation has its own address and mailbox,
+ * so one tenant's mailbox copy can never land in another's inbox. An address
+ * nobody claims leaves the mail unmatched. Rules in src/crm/lib/inbox-capture.ts.
  *
  * Trust (adversarial review, Oct 27, 2026): only mail SES received for the
- * SECRET capture address (CRM_CAPTURE_ADDRESS), relayed by Microsoft 365, is
+ * organisation's SECRET capture address, relayed by Microsoft 365, is
  * captured (viaCaptureRule), so it went through Microsoft's filtering and the
  * mailbox's own rule. Only SES's own headers are believed. Outbound ("From:
  * partnerships@", a rep in Outlook) needs SES's dmarc=pass, and an inbound
@@ -714,19 +753,24 @@ async function processCapture(args: {
   basename: string;
   processedKey: string;
   parsed: ParsedMail;
-  replyDomain: string | null;
   tick: CaptureTick;
 }): Promise<ObjectOutcome> {
   const { bucket, key, basename, processedKey, parsed, tick } = args;
-  const organizationId = process.env.CRM_CAPTURE_ORG_ID?.trim();
-  const captureAddress = process.env.CRM_CAPTURE_ADDRESS?.trim();
-  const mailbox = crmSenderFromEnv()?.email;
   const unmatched = async (reason: string): Promise<ObjectOutcome> => {
     await moveObject(bucket, key, `unmatched/${basename}`);
     apiLogger.warn({ msg: "crm-inbound:unmatched", key, reason });
     return "unmatched";
   };
-  if (!organizationId || !captureAddress || !mailbox) return unmatched("no-token-capture-off");
+  const envelope = sesEnvelopeRecipient(parsed);
+  if (!envelope) return unmatched("no-token-no-envelope");
+  // Cached per tick: a burst of mailbox copies asks once per address.
+  if (!tick.captureOrgs.has(envelope)) tick.captureOrgs.set(envelope, await organisationForCaptureAddress(envelope));
+  const organizationId = tick.captureOrgs.get(envelope) ?? null;
+  if (!organizationId) return unmatched("no-token-capture-address-unclaimed");
+  const identity = await crmEmailIdentity(organizationId);
+  const captureAddress = identity.captureAddress;
+  const mailbox = identity.sender?.email;
+  if (!captureAddress || !mailbox) return unmatched("no-token-capture-off");
   if (!viaCaptureRule(parsed, captureAddress)) return unmatched("capture-not-via-mailbox-rule");
   // Junk never gets here (quarantined with the SES verdicts in processObject).
   // A copy with no Microsoft report at all means the rule or the pipeline
@@ -735,13 +779,6 @@ async function processCapture(args: {
     apiLogger.warn({ msg: "crm-capture:no-microsoft-verdict", key });
   }
 
-  // A wrong CRM_CAPTURE_ORG_ID would fail every object forever (FK error,
-  // retried each tick): check it once per tick and leave the mail unmatched.
-  if (tick.orgOk === null) {
-    tick.orgOk = !!(await db.organization.findUnique({ where: { id: organizationId }, select: { id: true } }));
-    if (!tick.orgOk) apiLogger.error({ msg: "crm-capture:org-not-found", organizationId });
-  }
-  if (!tick.orgOk) return unmatched("capture-org-not-found");
   if (!(await orgHasModule(organizationId, "crm"))) return await holdForDisabledModule(bucket, key, basename, organizationId);
   if (tick.contactsCreated >= MAX_CAPTURE_CONTACTS_PER_TICK) {
     apiLogger.warn({ msg: "crm-capture:deferred-contact-budget", key });
@@ -756,7 +793,7 @@ async function processCapture(args: {
     fromEmail,
     recipients: recipientAddresses(parsed),
     isInternal: (e) => isInternalEmail(e),
-    replyDomain: args.replyDomain,
+    replyDomain: identity.replyDomain,
   });
   if (direction.kind === "skip") return unmatched(`capture-skip:${direction.reason}`);
 
@@ -932,7 +969,6 @@ export async function runTick(): Promise<InboundTickResult> {
     apiLogger.debug({ msg: "crm-inbound:dormant-no-bucket" });
     return result;
   }
-  const replyDomain = process.env.CRM_REPLY_DOMAIN?.trim() || null;
 
   const listed = await s3Client().send(
     new ListObjectsV2Command({ Bucket: bucket, Prefix: "inbound/", MaxKeys: MAX_OBJECTS_PER_TICK }),
@@ -940,10 +976,10 @@ export async function runTick(): Promise<InboundTickResult> {
   const keys = (listed.Contents ?? []).map((o) => o.Key!).filter((k) => k && k !== "inbound/");
   result.scanned = keys.length;
 
-  const tick: CaptureTick = { contactsCreated: 0, orgOk: null };
+  const tick: CaptureTick = { contactsCreated: 0, captureOrgs: new Map() };
   for (const key of keys) {
     try {
-      const outcome = await processObject(bucket, key, replyDomain, tick);
+      const outcome = await processObject(bucket, key, tick);
       objectFailures.delete(key);
       if (outcome === "stored") result.stored++;
       else if (outcome === "duplicate") result.duplicates++;

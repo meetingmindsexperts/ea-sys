@@ -3,10 +3,11 @@
  *
  * A thread = one conversation with one external person. Minted on every CRM
  * outbound send; the thread's unique `replyToken` becomes the tokenized
- * Reply-To local part (`<token>@$CRM_REPLY_DOMAIN`), so an inbound reply
- * resolves to its thread exactly — no fuzzy address matching.
+ * Reply-To local part (`<token>@<the organisation's reply domain>`, see
+ * crm-email-identity.ts), so an inbound reply resolves to its thread exactly,
+ * no fuzzy address matching.
  *
- * DORMANT WITHOUT ENV: when `CRM_REPLY_DOMAIN` is unset, outbound sends carry
+ * DORMANT WITHOUT A REPLY DOMAIN: when the organisation has none, outbound sends carry
  * no tokenized Reply-To (current behavior unchanged) but thread + message rows
  * are STILL recorded — the inbox is useful as sent-history from day one, and
  * replies start threading the moment the env + SES receiving land.
@@ -23,12 +24,6 @@ import { isInternalEmail } from "@/lib/internal-domains";
  *  rolls it forward, so an active conversation never lapses. */
 const TOKEN_TTL_MS = 180 * 24 * 60 * 60 * 1000;
 
-/** The subdomain inbound replies route to (e.g. "reply.meetingmindsdubai.com"). */
-export function crmReplyDomain(): string | null {
-  const d = process.env.CRM_REPLY_DOMAIN?.trim();
-  return d || null;
-}
-
 /**
  * 20 hex chars (~80 bits) — unguessable, safe as an email local part.
  * globalThis.crypto (not node:crypto) per the no-Node-imports-near-client rule.
@@ -37,10 +32,9 @@ export function mintReplyToken(): string {
   return globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 20);
 }
 
-/** Tokenized Reply-To address, or null while the feature is dormant. */
-export function crmReplyAddress(token: string): string | null {
-  const domain = crmReplyDomain();
-  return domain ? `${token}@${domain}` : null;
+/** Tokenized Reply-To address on the organisation's reply domain, or null while it has none. */
+export function crmReplyAddress(token: string, replyDomain: string | null): string | null {
+  return replyDomain ? `${token}@${replyDomain}` : null;
 }
 
 /** Lowercase + trim + dedupe an address list, dropping empties. */

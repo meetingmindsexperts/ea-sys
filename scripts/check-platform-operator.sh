@@ -83,6 +83,8 @@ PLATFORM_SURFACES=(
   "src/app/api/organizations/route.ts"
   # Grants an organisation a module (entitlement), so never the tenant's own call.
   "src/app/api/organizations/[orgId]/modules/route.ts"
+  # An organisation's CRM sender, reply domain and capture address: operator infrastructure.
+  "src/app/api/organizations/[orgId]/crm-email/route.ts"
   # Our repository.
   "src/app/api/admin/docs/tree/route.ts"
   "src/app/api/admin/docs/file/route.ts"

@@ -43,6 +43,8 @@ vi.mock("@/lib/db", () => {
     crmEmailMessage,
     crmEmailThread,
     user: { findUnique: vi.fn() },
+    // crm-email-identity.ts reads each organisation's own CRM email block.
+    organization: { findUnique: vi.fn(), findMany: vi.fn() },
     // Legacy array-form kept harmless; the store now uses tenantTransaction.
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   };
@@ -69,7 +71,7 @@ import { notifyCrmUser } from "@/crm/lib/crm-notifications";
 import { orgHasModule } from "@/lib/module-entitlements";
 import {
   runTick,
-  extractReplyToken,
+  replyTokenCandidates,
   verifySender,
   buildForwardAudience,
   microsoftJunkVerdict,
@@ -123,6 +125,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.CRM_INBOUND_S3_BUCKET = BUCKET;
   process.env.CRM_REPLY_DOMAIN = "reply.mmg.com";
+  // The CRM email environment belongs to org-1 (crm-email-identity.ts).
+  process.env.CRM_CAPTURE_ORG_ID = "org-1";
+  vi.mocked(db.organization.findUnique).mockImplementation((async (q: { where: { id: string } }) =>
+    q.where.id === "org-1" || q.where.id === "org-2" ? { settings: {} } : null) as never);
+  vi.mocked(db.organization.findMany).mockResolvedValue([] as never);
   vi.mocked(db.crmEmailMessage.findFirst).mockResolvedValue(null as never);
   vi.mocked(db.crmEmailMessage.create).mockResolvedValue({ id: "m-1" } as never);
   vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue(thread as never);
@@ -138,16 +145,71 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.CRM_INBOUND_S3_BUCKET;
   delete process.env.CRM_REPLY_DOMAIN;
+  delete process.env.CRM_CAPTURE_ORG_ID;
 });
 
-describe("extractReplyToken", () => {
-  it("matches only token-shaped local parts on the reply domain (case-insensitive)", () => {
-    expect(extractReplyToken([`${TOKEN.toUpperCase()}@REPLY.MMG.COM`], "reply.mmg.com")).toBe(TOKEN);
-    expect(extractReplyToken(["partnerships@meetingmindsdubai.com"], "reply.mmg.com")).toBeNull();
-    // Token shape on the WRONG domain is rejected when the domain is configured.
-    expect(extractReplyToken([`${TOKEN}@evil.com`], "reply.mmg.com")).toBeNull();
-    // First matching recipient wins across to+cc.
-    expect(extractReplyToken(["someone@else.com", `${TOKEN}@reply.mmg.com`], "reply.mmg.com")).toBe(TOKEN);
+describe("replyTokenCandidates", () => {
+  it("collects token-shaped recipients with their domain (case-insensitive), in order, capped", () => {
+    expect(replyTokenCandidates([`${TOKEN.toUpperCase()}@REPLY.MMG.COM`])).toEqual([{ token: TOKEN, domain: "reply.mmg.com" }]);
+    expect(replyTokenCandidates(["partnerships@meetingmindsdubai.com"])).toEqual([]);
+    expect(replyTokenCandidates(["someone@else.com", `${TOKEN}@evil.com`, `${TOKEN}@reply.mmg.com`]).map((c) => c.domain)).toEqual(["evil.com", "reply.mmg.com"]);
+    expect(replyTokenCandidates(Array.from({ length: 9 }, () => `${TOKEN}@x.com`))).toHaveLength(5);
+  });
+});
+
+// ── Tenant isolation (CRM product review P0, Nov 6, 2026) ─────────────────────
+describe("each reply stays inside its own organisation", () => {
+  const tenantB = { ...thread, id: "t-b", organizationId: "org-2", deal: { id: "d-b", name: "B deal", ownerId: "u-owner" } };
+  const recipientsOf = (call: unknown) => {
+    const c = call as { to: { email: string }[]; bcc?: { email: string }[] };
+    return [...c.to, ...(c.bcc ?? [])].map((r) => r.email);
+  };
+
+  it("tenant B's reply is never copied to tenant A's (the environment's) partnerships mailbox", async () => {
+    process.env.CRM_EMAIL_FROM_ADDRESS = "partnerships@meetingmindsdubai.com";
+    try {
+      vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue(tenantB as never);
+      // Tenant B has its own block, so its token is valid on its own domain.
+      vi.mocked(db.organization.findUnique).mockImplementation((async (q: { where: { id: string } }) =>
+        q.where.id === "org-2"
+          ? { settings: { crmEmail: { fromAddress: "sales@tenant-b.com", forwardTo: "deals@tenant-b.com", replyDomain: "reply.tenant-b.com" } } }
+          : { settings: {} }) as never);
+      mockS3({ "inbound/b": rawEmail({ to: `${TOKEN}@reply.tenant-b.com` }) });
+      expect(await runTick()).toMatchObject({ stored: 1 });
+      const call = vi.mocked(sendEmail).mock.calls[0]![0];
+      expect(recipientsOf(call)).toContain("deals@tenant-b.com");
+      expect(recipientsOf(call)).not.toContain("partnerships@meetingmindsdubai.com");
+      expect(call).toMatchObject({ from: { email: "sales@tenant-b.com" } });
+    } finally {
+      delete process.env.CRM_EMAIL_FROM_ADDRESS;
+    }
+  });
+
+  it("an organisation nobody configured gets no mailbox copy and no reply domain, so its token is refused", async () => {
+    process.env.CRM_EMAIL_FROM_ADDRESS = "partnerships@meetingmindsdubai.com";
+    try {
+      vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue(tenantB as never);
+      // org-2 has no block and is not the environment's organisation.
+      mockS3({ "inbound/b2": rawEmail() });
+      expect(await runTick()).toMatchObject({ unmatched: 1, stored: 0 });
+      expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
+      expect(sendEmail).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.CRM_EMAIL_FROM_ADDRESS;
+    }
+  });
+
+  it("a token at ANOTHER organisation's reply domain is refused, not filed", async () => {
+    // The thread is org-1's (reply.mmg.com) but the mail arrived for tenant B's domain.
+    mockS3({ "inbound/cross": rawEmail({ to: `${TOKEN}@reply.tenant-b.com` }) });
+    expect(await runTick()).toMatchObject({ unmatched: 1, stored: 0 });
+    expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
+  });
+
+  it("an unknown token falls to the capture path, which leaves it unmatched without a claimed address", async () => {
+    vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue(null as never);
+    mockS3({ "inbound/unknown": rawEmail() });
+    expect(await runTick()).toMatchObject({ unmatched: 1, stored: 0 });
   });
 });
 

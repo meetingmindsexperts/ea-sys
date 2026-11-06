@@ -9,7 +9,7 @@
  * Plus the send loop isolates a per-recipient failure and only records CRM history
  * on a genuine success.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
@@ -34,6 +34,10 @@ vi.mock("@/lib/email", () => ({
 
 vi.mock("@/crm/lib/crm-activity", () => ({
   recordCrmActivity: vi.fn(() => Promise.resolve({})),
+}));
+
+vi.mock("@/lib/crm-email-identity", () => ({
+  crmEmailIdentity: vi.fn(async () => ({ sender: null, forwardTo: null, replyDomain: null, captureAddress: null, source: "none" })),
 }));
 
 // Inbox threading is bookkeeping AFTER the send — covered by its own suite
@@ -569,30 +573,17 @@ describe("CRM_EMAIL_TEMPLATES", () => {
   });
 });
 
-describe("crmSenderFrom — CRM emails come from the partnerships identity, not the platform default", () => {
-  const saved = { addr: process.env.CRM_EMAIL_FROM_ADDRESS, name: process.env.CRM_EMAIL_FROM_NAME };
-  afterEach(() => {
-    if (saved.addr === undefined) delete process.env.CRM_EMAIL_FROM_ADDRESS;
-    else process.env.CRM_EMAIL_FROM_ADDRESS = saved.addr;
-    if (saved.name === undefined) delete process.env.CRM_EMAIL_FROM_NAME;
-    else process.env.CRM_EMAIL_FROM_NAME = saved.name;
-  });
+describe("crmSenderFrom — CRM emails come from the organisation's CRM identity, not the platform default", () => {
+  const sender = { email: "partnerships@meetingmindsdubai.com", name: "Partnerships" };
 
-  it("when CRM_EMAIL_FROM_ADDRESS is set, that identity wins for every CRM send", () => {
-    process.env.CRM_EMAIL_FROM_ADDRESS = "partnerships@meetingmindsdubai.com";
-    process.env.CRM_EMAIL_FROM_NAME = "Partnerships";
-    expect(crmSenderFrom()).toEqual({ email: "partnerships@meetingmindsdubai.com", name: "Partnerships" });
+  it("the organisation's CRM sender wins for every CRM send", () => {
+    expect(crmSenderFrom({ sender })).toEqual(sender);
     // Even a deal's event branding does not override the CRM sender.
-    expect(crmSenderFrom({ emailFromAddress: "events@x.com", emailFromName: "Events", emailCcAddresses: [] })).toEqual({
-      email: "partnerships@meetingmindsdubai.com",
-      name: "Partnerships",
-    });
+    expect(crmSenderFrom({ sender }, { emailFromAddress: "events@x.com", emailFromName: "Events", emailCcAddresses: [] })).toEqual(sender);
   });
 
-  it("unset → falls back to the event/global sender (brandingFrom, mocked undefined here)", () => {
-    delete process.env.CRM_EMAIL_FROM_ADDRESS;
-    delete process.env.CRM_EMAIL_FROM_NAME;
-    expect(crmSenderFrom()).toBeUndefined();
+  it("none → falls back to the event/global sender (brandingFrom, mocked undefined here)", () => {
+    expect(crmSenderFrom({ sender: null })).toBeUndefined();
   });
 });
 

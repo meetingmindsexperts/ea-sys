@@ -8,6 +8,18 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+// The organisation's reply domain (crm-email-identity.ts), driven here by
+// CRM_REPLY_DOMAIN so each test can switch it; resolveIdentity has its own tests.
+vi.mock("@/lib/crm-email-identity", () => ({
+  crmEmailIdentity: vi.fn(async () => ({
+    sender: null,
+    forwardTo: null,
+    replyDomain: process.env.CRM_REPLY_DOMAIN ?? null,
+    captureAddress: null,
+    source: "environment",
+  })),
+}));
+
 vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
@@ -40,7 +52,6 @@ import { sendEmail } from "@/lib/email";
 import { apiLogger } from "@/lib/logger";
 import {
   crmReplyAddress,
-  crmReplyDomain,
   mintReplyToken,
   recordOutboundEmail,
 } from "@/crm/services/crm-email-thread-service";
@@ -77,14 +88,12 @@ beforeEach(() => {
 });
 
 describe("env dormancy contract", () => {
-  it("no CRM_REPLY_DOMAIN → domain null, address null", () => {
-    expect(crmReplyDomain()).toBeNull();
-    expect(crmReplyAddress("tok")).toBeNull();
+  it("no reply domain on the organisation → no address", () => {
+    expect(crmReplyAddress("tok", null)).toBeNull();
   });
 
-  it("with the domain set, the address is <token>@domain", () => {
-    process.env.CRM_REPLY_DOMAIN = "reply.mmg.com";
-    expect(crmReplyAddress("abc123")).toBe("abc123@reply.mmg.com");
+  it("with the organisation's domain, the address is <token>@domain", () => {
+    expect(crmReplyAddress("abc123", "reply.mmg.com")).toBe("abc123@reply.mmg.com");
   });
 
   it("tokens are 20 hex chars and unique per mint", () => {

@@ -36,7 +36,7 @@ import {
   type RawDealForRecipients,
 } from "@/crm/lib/sponsor-recipients";
 import type { SponsorRecipient } from "@/crm/lib/crm-types";
-import { crmSenderFromEnv } from "@/crm/lib/crm-sender";
+import { crmEmailIdentity, type CrmEmailIdentity } from "@/lib/crm-email-identity";
 import {
   CRM_EMAIL_TOKEN_RE,
   SIGNATURE_TOKEN_RE,
@@ -106,18 +106,19 @@ function brandingFromEventRow(e: EventBrandingRow): EmailBranding {
 /**
  * The From identity for CRM outbound (sponsor blasts + deal emails).
  * CRM mail comes from the partnerships team, NOT the platform's default sender —
- * so a dedicated CRM_EMAIL_FROM_ADDRESS/NAME governs it, independent of the
- * system-wide EMAIL_FROM (which still brands registration confirmations etc.).
+ * so the ORGANISATION's CRM sender governs it (crm-email-identity.ts),
+ * independent of the system-wide EMAIL_FROM (which still brands registration
+ * confirmations etc.).
  *
- * Precedence: the CRM sender (env) wins for every CRM send → else the deal's
- * linked-event sender → else undefined (the global EMAIL_FROM default).
+ * Precedence: the organisation's CRM sender wins for every CRM send → else the
+ * deal's linked-event sender → else undefined (the global EMAIL_FROM default).
  *
  * NOTE: the address must be an SES-verified identity in the sending region or
  * SES rejects the send. Reply-To is unaffected — it stays the tokenized inbox
  * address so replies still thread.
  */
-export function crmSenderFrom(branding?: EmailBranding): ReturnType<typeof brandingFrom> {
-  return crmSenderFromEnv() ?? brandingFrom(branding ?? { emailCcAddresses: [] });
+export function crmSenderFrom(identity: Pick<CrmEmailIdentity, "sender">, branding?: EmailBranding): ReturnType<typeof brandingFrom> {
+  return identity.sender ?? brandingFrom(branding ?? { emailCcAddresses: [] });
 }
 
 const CONTACT_ON_DEAL_SELECT = {
@@ -433,7 +434,9 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
 
   const { signatureHtml, senderEmail, senderName } = await loadSender(args.actorUserId);
 
-  const from = crmSenderFrom(args.branding);
+  // The sending organisation's identity: its From and the domain its replies come back to.
+  const identity = await crmEmailIdentity(args.organizationId);
+  const from = crmSenderFrom(identity, args.branding);
   // CC = event-branding CC + any manual CC. BCC = manual BCC + (when copyToSender
   // is on) the sender's own address, so the rep gets the email in their Outlook.
   // These are the same on every recipient's send (not personalized) — a per-
@@ -466,6 +469,7 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
           eventVars: args.eventVars,
           branding: args.branding,
           from,
+          replyDomain: identity.replyDomain,
           cc,
           bcc,
           sendAttachments,
@@ -568,6 +572,7 @@ async function sendOne(
   r: SponsorRecipient,
   ctx: RenderInput & {
     from: ReturnType<typeof brandingFrom>;
+    replyDomain: string | null;
     cc: { email: string }[];
     bcc: { email: string }[];
     sendAttachments: SponsorAttachment[];
@@ -581,11 +586,11 @@ async function sendOne(
   const rendered = renderForRecipient(r, ctx);
 
   // Inbox threading: every recipient gets their own thread + reply token, and a
-  // reply from the inbox keeps its thread's token. While CRM_REPLY_DOMAIN is
-  // unset the address is null (no Reply-To — behavior unchanged) but the
+  // reply from the inbox keeps its thread's token. While the organisation has
+  // no reply domain the address is null (no Reply-To — behavior unchanged) but the
   // thread still records as sent-history.
   const replyToken = ctx.reply?.replyToken ?? mintReplyToken();
-  const replyAddress = crmReplyAddress(replyToken);
+  const replyAddress = crmReplyAddress(replyToken, ctx.replyDomain);
 
   const res = await sendEmail({
     to: [{ email: r.email, name: `${r.firstName} ${r.lastName}`.trim() || undefined }],

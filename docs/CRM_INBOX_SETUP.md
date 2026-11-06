@@ -5,6 +5,17 @@
 behave as before (no tokenized Reply-To) and the Inbox tab shows outbound
 sent-history only; after it, replies thread.
 
+> **Per organisation since Nov 6, 2026.** The four CRM email settings (From,
+> the mailbox replies are copied to, the reply domain, the capture address) are
+> resolved per organisation by `src/lib/crm-email-identity.ts`. The `CRM_*`
+> environment below still works, but ONLY for the organisation it names
+> (`CRM_EMAIL_ORG_ID`, else `CRM_CAPTURE_ORG_ID`, which master already sets).
+> Any other organisation gets its own block from the platform operator
+> (Settings → System → Organisation modules → **CRM email**) or nothing at all:
+> it never inherits this mailbox. A reply token is accepted only on its own
+> organisation's reply domain, and a capture copy is filed under the
+> organisation whose capture address SES received it for.
+
 ## What this enables
 
 Every email sent from the CRM (deal **Email** button + sponsor blasts) carries a

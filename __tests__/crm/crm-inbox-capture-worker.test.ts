@@ -44,7 +44,7 @@ vi.mock("@/lib/db", () => {
     crmEmailMessage,
     crmEmailThread,
     user: { findUnique: vi.fn() },
-    organization: { findUnique: vi.fn() },
+    organization: { findUnique: vi.fn(), findMany: vi.fn() },
   };
   return {
     db: client,
@@ -125,7 +125,10 @@ beforeEach(() => {
   process.env.CRM_EMAIL_FROM_ADDRESS = MAILBOX;
   process.env.CRM_CAPTURE_ORG_ID = "org-1";
   process.env.CRM_CAPTURE_ADDRESS = CAPTURE;
-  vi.mocked(db.organization.findUnique).mockResolvedValue({ id: "org-1" } as never);
+  vi.mocked(db.organization.findUnique).mockResolvedValue({ id: "org-1", settings: {} } as never);
+  // No organisation claims a capture address in its own block, so the
+  // environment's address belongs to the environment's organisation (org-1).
+  vi.mocked(db.organization.findMany).mockResolvedValue([] as never);
   vi.mocked(db.crmEmailMessage.findFirst).mockResolvedValue(null as never);
   vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue(null as never);
   vi.mocked(db.crmEmailThread.create).mockResolvedValue({ id: "t-new" } as never);
@@ -275,6 +278,28 @@ describe("partnerships capture", () => {
       "inbound/notms": rawEmail({ received: sesReceived(CAPTURE, "mx.attacker.example") }),
     });
     expect(await runTick()).toMatchObject({ stored: 0, unmatched: 2 });
+    expect(resolveCaptureContact).not.toHaveBeenCalled();
+  });
+
+  it("a copy for tenant B's own capture address is filed under tenant B, with B's mailbox deciding the direction", async () => {
+    const B_CAPTURE = "capture-b@reply.tenant-b.com";
+    vi.mocked(db.organization.findMany).mockImplementation((async (q: { where: { settings: { equals: string } } }) =>
+      q.where.settings.equals === B_CAPTURE ? [{ id: "org-2" }] : []) as never);
+    vi.mocked(db.organization.findUnique).mockImplementation((async (q: { where: { id: string } }) =>
+      q.where.id === "org-2"
+        ? { id: "org-2", settings: { crmEmail: { fromAddress: "sales@tenant-b.com", replyDomain: "reply.tenant-b.com", captureAddress: B_CAPTURE } } }
+        : { id: "org-1", settings: {} }) as never);
+    mockS3({ "inbound/b": rawEmail({ received: sesReceived(B_CAPTURE), to: "sales@tenant-b.com" }) });
+    expect(await runTick()).toMatchObject({ stored: 1 });
+    expect(resolveCaptureContact).toHaveBeenCalledWith(expect.objectContaining({ organizationId: "org-2" }));
+    const created = vi.mocked(db.crmEmailMessage.create).mock.calls[0]![0]!.data as { organizationId: string };
+    expect(created.organizationId).toBe("org-2");
+  });
+
+  it("an address two organisations claim files nowhere (never a guess between tenants)", async () => {
+    vi.mocked(db.organization.findMany).mockResolvedValue([{ id: "org-1" }, { id: "org-2" }] as never);
+    mockS3({ "inbound/dup": rawEmail() });
+    expect(await runTick()).toMatchObject({ unmatched: 1, stored: 0 });
     expect(resolveCaptureContact).not.toHaveBeenCalled();
   });
 
