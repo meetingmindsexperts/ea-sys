@@ -435,7 +435,14 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
   const { signatureHtml, senderEmail, senderName } = await loadSender(args.actorUserId);
 
   // The sending organisation's identity: its From and the domain its replies come back to.
-  const identity = await crmEmailIdentity(args.organizationId);
+  let identity: Awaited<ReturnType<typeof crmEmailIdentity>>;
+  try {
+    identity = await crmEmailIdentity(args.organizationId);
+  } catch {
+    // Logged where it failed. Sending without the identity would go out under
+    // the wrong From with no Reply-To, so the reply could never thread.
+    return { ok: false, code: "UNKNOWN", message: "Could not load the CRM email settings; nothing was sent. Try again." };
+  }
   const from = crmSenderFrom(identity, args.branding);
   // CC = event-branding CC + any manual CC. BCC = manual BCC + (when copyToSender
   // is on) the sender's own address, so the rep gets the email in their Outlook.

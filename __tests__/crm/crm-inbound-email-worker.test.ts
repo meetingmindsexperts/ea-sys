@@ -207,6 +207,13 @@ describe("each reply stays inside its own organisation", () => {
     expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
   });
 
+  it("a failed read of the organisation's settings retries next tick, never files the reply as unmatched", async () => {
+    vi.mocked(db.organization.findUnique).mockRejectedValueOnce(new Error("failover"));
+    mockS3({ "inbound/blip2": rawEmail() });
+    expect(await runTick()).toMatchObject({ failures: 1, unmatched: 0, stored: 0 });
+    expect(s3Send.mock.calls.some((c) => (c[0] as { cmd: string }).cmd === "Copy")).toBe(false);
+  });
+
   it("an unknown token falls to the capture path, which leaves it unmatched without a claimed address", async () => {
     vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue(null as never);
     mockS3({ "inbound/unknown": rawEmail() });

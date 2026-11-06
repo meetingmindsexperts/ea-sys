@@ -9,7 +9,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Blocks } from "lucide-react";
 import { toast } from "sonner";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ export function OrgModulesCard() {
   const { data: orgs = [], isLoading, isError } = useOrganizations(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [emailFor, setEmailFor] = useState<{ id: string; name: string } | null>(null);
+  const closeEmail = useCallback(() => setEmailFor(null), []);
 
   async function toggle(orgId: string, orgName: string, enabled: boolean) {
     setSaving(orgId);
@@ -91,7 +92,7 @@ export function OrgModulesCard() {
           );
         })}
       </CardContent>
-      {emailFor && <CrmEmailDialog org={emailFor} onClose={() => setEmailFor(null)} />}
+      {emailFor && <CrmEmailDialog org={emailFor} onClose={closeEmail} />}
     </Card>
   );
 }
@@ -110,6 +111,10 @@ function CrmEmailDialog({ org, onClose }: { org: { id: string; name: string }; o
   const [values, setValues] = useState<Record<FieldKey, string> | null>(null);
   const [effective, setEffective] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Read through a ref so a parent re-render (a refetch on window focus) never
+  // re-runs the load and wipes what the operator typed (review of e6dc9745, MED-3).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     let live = true;
@@ -118,18 +123,24 @@ function CrmEmailDialog({ org, onClose }: { org: { id: string; name: string }; o
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error ?? "Could not load the CRM email settings");
         if (!live) return;
-        const own = (body.crmEmail ?? {}) as Partial<Record<FieldKey, string | null>>;
+        // Env-sourced: prefill what is in effect, since a saved block is used
+        // WHOLE and a half-typed one would switch off the rest on master.
+        const fx = body.effective as { source?: string; sender?: { email?: string; name?: string } | null; forwardTo?: string | null; replyDomain?: string | null; captureAddress?: string | null } | undefined;
+        const own = (body.crmEmail ??
+          (fx?.source === "environment"
+            ? { fromAddress: fx.sender?.email, fromName: fx.sender?.name, forwardTo: fx.forwardTo, replyDomain: fx.replyDomain, captureAddress: fx.captureAddress }
+            : {})) as Partial<Record<FieldKey, string | null | undefined>>;
         setValues(Object.fromEntries(FIELDS.map((f) => [f.key, own[f.key] ?? ""])) as Record<FieldKey, string>);
         setEffective(body.effective?.source ?? null);
       })
       .catch((err: Error) => {
         toast.error(err.message);
-        onClose();
+        onCloseRef.current();
       });
     return () => {
       live = false;
     };
-  }, [org.id, onClose]);
+  }, [org.id]);
 
   async function save(clear: boolean) {
     if (!values) return;
@@ -164,7 +175,7 @@ function CrmEmailDialog({ org, onClose }: { org: { id: string; name: string }; o
           <DialogTitle>CRM email for {org.name}</DialogTitle>
           <DialogDescription>
             {effective === "environment"
-              ? "Currently taken from this deployment's environment. Saving here replaces it for this organisation."
+              ? "Currently taken from this deployment's environment (shown below). Saving stores these as this organisation's own, used whole."
               : "Only this organisation's mail uses these. Left empty, the CRM sends under the default sender and copies replies nowhere."}
           </DialogDescription>
         </DialogHeader>

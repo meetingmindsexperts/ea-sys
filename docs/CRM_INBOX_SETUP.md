@@ -15,6 +15,12 @@ sent-history only; after it, replies thread.
 > it never inherits this mailbox. A reply token is accepted only on its own
 > organisation's reply domain, and a capture copy is filed under the
 > organisation whose capture address SES received it for.
+>
+> **Trap: a reply domain is checked at READ time, not stored per thread.**
+> Changing an organisation's reply domain (including moving master from the
+> environment to its own block with a different domain) makes every token
+> already sent on the old domain land in `unmatched/` for up to 180 days. Keep
+> the domain when moving master to a block.
 
 ## What this enables
 

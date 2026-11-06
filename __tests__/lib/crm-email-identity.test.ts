@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/db", () => ({ db: {} }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
-import { environmentOrgId, readCrmEmailSettings, resolveIdentity } from "@/lib/crm-email-identity";
+import { claimsEnvironmentAddress, environmentOrgId, readCrmEmailSettings, resolveIdentity } from "@/lib/crm-email-identity";
 
 const env = {
   CRM_CAPTURE_ORG_ID: "org-master",
@@ -63,5 +63,13 @@ describe("readCrmEmailSettings", () => {
     expect(readCrmEmailSettings({ crmEmail: { fromAddress: "a@b.com", replyDomain: "no spaces allowed" } })).toBeNull();
     expect(readCrmEmailSettings({})).toBeNull();
     expect(readCrmEmailSettings(null)).toBeNull();
+  });
+});
+
+describe("claimsEnvironmentAddress", () => {
+  it("only another organisation naming the environment's capture address is a claim", () => {
+    expect(claimsEnvironmentAddress("org-b", "Capture-X@reply.meetingmindsexperts.com", env)).toBe(true);
+    expect(claimsEnvironmentAddress("org-master", "capture-x@reply.meetingmindsexperts.com", env)).toBe(false);
+    expect(claimsEnvironmentAddress("org-b", "capture-b@reply.b.com", env)).toBe(false);
   });
 });

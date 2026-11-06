@@ -5,7 +5,7 @@ import { denyNonOperator } from "@/lib/platform-operator";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { crmEmailSettingsSchema, readCrmEmailSettings, resolveIdentity } from "@/lib/crm-email-identity";
+import { claimsEnvironmentAddress, crmEmailSettingsSchema, readCrmEmailSettings, resolveIdentity } from "@/lib/crm-email-identity";
 
 /**
  * GET / PUT /api/organizations/[orgId]/crm-email: one organisation's CRM email
@@ -50,6 +50,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ orgId: s
 
   try {
     // A capture address belongs to exactly one organisation, or the worker could not tell whose mail it is.
+    if (next?.captureAddress && claimsEnvironmentAddress(orgId, next.captureAddress)) {
+      apiLogger.warn({ msg: "organizations-crm-email:env-capture-address", orgId });
+      return NextResponse.json({ error: "That capture address belongs to this deployment's own organisation", code: "CAPTURE_ADDRESS_TAKEN" }, { status: 409 });
+    }
     if (next?.captureAddress) {
       const taken = await db.organization.findFirst({
         where: { id: { not: orgId }, settings: { path: ["crmEmail", "captureAddress"], equals: next.captureAddress } },

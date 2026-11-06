@@ -60,6 +60,18 @@ describe("the CRM email identity route", () => {
     expect(auditCreate).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "CRM_EMAIL_IDENTITY_CLEARED" }) }));
   });
 
+  it("refuses the deployment's own capture address for any other organisation", async () => {
+    process.env.CRM_CAPTURE_ORG_ID = "org-master";
+    process.env.CRM_CAPTURE_ADDRESS = "capture-b@reply.b.com";
+    try {
+      expect((await call({ crmEmail: block })).status).toBe(409);
+      expect(executeRaw).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.CRM_CAPTURE_ORG_ID;
+      delete process.env.CRM_CAPTURE_ADDRESS;
+    }
+  });
+
   it("refuses a malformed block", async () => {
     expect((await call({ crmEmail: { fromAddress: "nope" } })).status).toBe(400);
   });
