@@ -1,7 +1,9 @@
 /**
  * Budget revenue (spec §6b; owner decisions of 17 September 2026): planned
  * revenue lines per income account, and the actuals and margin read at request
- * time from what EA-SYS and the CRM already hold.
+ * time from what EA-SYS and the CRM already hold. The CRM's half arrives through
+ * the revenue contract (src/lib/contracts/crm-revenue.ts): this file never reads
+ * a CRM table.
  *
  * Planned lines follow the expense rule: typed on a DRAFT version, approved
  * with the budget, changed later only through a new version. Actuals are
@@ -19,6 +21,7 @@ import { apiLogger } from "@/lib/logger";
 import type { Prisma } from "@prisma/client";
 import type { Db } from "@/lib/approvals/approvals-service";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
+import { crmRevenueProvider } from "@/lib/module-wiring";
 import { INCOME_ACCOUNTS } from "../lib/income-accounts";
 import { lineTotals, money, storedString, type MoneyInput } from "../lib/money";
 import { aggregateActuals, marginView, type MarginView, type RevenueActuals } from "../lib/revenue-rules";
@@ -87,13 +90,7 @@ export async function readRevenueActuals(organizationId: string, eventId: string
         ticketType: { select: { price: true, currency: true } },
       },
     }),
-    db.crmDeal.findMany({
-      where: { organizationId, eventId, status: "WON", archivedAt: null },
-      select: {
-        dealValue: true, currency: true,
-        products: { select: { productName: true, category: true, unitPrice: true, quantity: true, currency: true, crmProduct: { select: { source: true, category: true } } } },
-      },
-    }),
+    crmRevenueProvider().wonDealsForEvent({ organizationId, eventId }),
   ]);
   return aggregateActuals({
     reportingCurrency,
@@ -105,19 +102,7 @@ export async function readRevenueActuals(organizationId: string, eventId: string
       // Spec §6b: the currency comes from the tier or the ticket type, never the event.
       currency: r.pricingTier?.currency ?? r.ticketType?.currency ?? "USD",
     })),
-    deals: deals.map((d) => ({
-      dealValue: d.dealValue,
-      currency: d.currency,
-      products: d.products.map((p) => ({
-        productName: p.productName,
-        // The live catalogue product decides the account; a deleted one falls back to the line's snapshot and has no source.
-        category: p.crmProduct?.category ?? p.category,
-        source: p.crmProduct?.source ?? null,
-        quantity: p.quantity,
-        unitPrice: p.unitPrice,
-        currency: p.currency,
-      })),
-    })),
+    deals,
   });
 }
 

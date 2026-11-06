@@ -25,6 +25,9 @@ const { mockDb, tx } = vi.hoisted(() => {
   };
   return { mockDb, tx };
 });
+// The CRM's revenue arrives through the contract; the provider has its own tests.
+const { wonDealsForEvent } = vi.hoisted(() => ({ wonDealsForEvent: vi.fn() }));
+vi.mock("@/lib/module-wiring", () => ({ crmRevenueProvider: () => ({ wonDealsForEvent }) }));
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (cb: (t: unknown) => unknown) => mockDb.$transaction(cb) }));
 const log = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: log }));
@@ -97,12 +100,12 @@ describe("readRevenueActuals", () => {
   it("reads PAID registrations and WON live deals of the event and org, the live product deciding the account", async () => {
     mockDb.event.findFirst.mockResolvedValue({ taxRate: "5" });
     mockDb.registration.findMany.mockResolvedValue([{ originalPrice: "1000", discountAmount: null, refundedAmount: "0", pricingTier: null, ticketType: { price: "1000", currency: "USD" } }]);
-    mockDb.crmDeal.findMany.mockResolvedValue([
-      { dealValue: "20000", currency: "USD", products: [{ productName: "Gold", category: "Old snapshot", unitPrice: "15000", quantity: 1, currency: "USD", crmProduct: { source: "IN_HOUSE", category: "Sponsorship" } }] },
+    wonDealsForEvent.mockResolvedValue([
+      { dealValue: "20000", currency: "USD", products: [{ productName: "Gold", category: "Sponsorship", unitPrice: "15000", quantity: 1, currency: "USD", source: "IN_HOUSE" }] },
     ]);
     const a = await readRevenueActuals(ORG, "e1", "USD");
     expect(mockDb.registration.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { eventId: "e1", event: { organizationId: ORG }, paymentStatus: "PAID" } }));
-    expect(mockDb.crmDeal.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: ORG, eventId: "e1", status: "WON", archivedAt: null } }));
+    expect(wonDealsForEvent).toHaveBeenCalledWith({ organizationId: ORG, eventId: "e1" });
     expect(a.byAccount).toEqual({ "430005": "1000.0000", "430012": "15000.0000" });
     expect(a.notItemised).toBe("5000.0000");
   });

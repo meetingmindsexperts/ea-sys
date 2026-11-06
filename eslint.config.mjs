@@ -71,6 +71,10 @@ const eslintConfig = defineConfig([
       "src/components/layout/sidebar.tsx",
       "src/lib/agent/mcp-server-builder.ts",
       "src/lib/agent/register-mcp-tools.ts",
+      // Hands the CRM's implementation of a core contract (src/lib/contracts/)
+      // to another module, so Procurement depends on an interface, never on
+      // CRM tables (CRM product review P1-7, Nov 6, 2026). Wiring only.
+      "src/lib/module-wiring.ts",
       // NOTE: contact-detail-sheet.tsx was briefly exempted here (July 14) so the
       // CRM could put a company/lifecycle picker on the EVENT contact sheet. That
       // was reverted the same day: business contacts (pharma reps, exhibitor sales)
