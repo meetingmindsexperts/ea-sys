@@ -8,6 +8,7 @@ before running anything that writes.
 |---|---|---|---|
 | `k6/read-burst.js` | No | Prod (off-hours) OK | `k6 run -e BASE_URL=… -e EVENT_SLUG=… k6/read-burst.js` |
 | `k6/register-burst.js` | **Yes** | Staging / disposable DRAFT event + FREE ticket | needs `CONFIRM_WRITE=yes` |
+| `k6/webinar-chat.js` | **Yes** | Local copy / staging, disposable webinar, chat on, room open | needs `CONFIRM_WRITE=yes` + `COOKIES_FILE` |
 | `k6/checkin-burst.js` | **Yes** | Staging / test event | needs `CONFIRM_WRITE=yes` + session cookie |
 
 Write scripts refuse to run without `CONFIRM_WRITE=yes`, and refuse prod writes without

@@ -29,8 +29,10 @@ import {
 } from "@/lib/webinar/chat";
 
 const SNAPSHOT_TTL_MS = 2000;
-/** How far before a viewer's cursor the route looks again for messages that committed late. */
-const LATE_COMMIT_OVERLAP_MS = 5000;
+/** How far before a viewer's cursor the route looks again for messages that committed late. The race
+ *  lasts milliseconds; every message inside the window is resent on every poll, so it is kept short
+ *  (the Nov 6 load test at 200 messages a minute: 5 s meant about 15 repeats per poll). */
+const LATE_COMMIT_OVERLAP_MS = 2000;
 const VIEWER_TTL_MS = 60_000;
 const CACHE_MAX = 5000;
 

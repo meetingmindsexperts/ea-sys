@@ -242,7 +242,7 @@ stay the same either way, so A is not thrown away.
 | 1 | Model, migration, RLS policy; post and read routes with the gate, limits and cache; tests | **BUILT Nov 6** |
 | 2 | Attendee panel (beside Q&A on desktop, a tab on a phone), pinned message, handout cards | **BUILT Nov 6** |
 | 3 | Console Chat tab: switches, mute all, slow mode, delete, mute a person, export | **BUILT Nov 6** |
-| 4 | Load test, browser verification on a phone and desktop, docs | about half a day |
+| 4 | Load test, browser verification on a phone and desktop, docs | **DONE Nov 6** |
 
 About 4 days in all, shippable in two deploys (1 + 2 behind the off-by-default switch, then 3 + 4).
 
@@ -262,8 +262,17 @@ themselves, so the moderator can always moderate; switching chat on with nobody 
 the switches (on, open in the waiting room, mute everyone, slow mode), delete and restore (the row
 stays, with who and when), pin, mute and unmute a person, a host message, a handout shared as a
 card, and the CSV record (`webinar.attendance.export`, 30 an hour, `private, no-store`). Settings are
-written under the event row lock through `updateEventSettings`, only the `chat` key. Step 4, the
-500-viewer load test, is still to do before a large webinar runs chat.
+written under the event row lock through `updateEventSettings`, only the `chat` key.
+
+**Load test, Nov 6 (step 4):** `loadtest/k6/webinar-chat.js` against the production build
+(standalone, local copy of prod), 500 signed-in viewers polling every 3 s and 20 posting, 3 minutes:
+about 30,500 polls (155 a second), **0 errors**, polls p95 84 to 106 ms and p99 197 to 374 ms, posts
+p95 51 to 70 ms, about 600 messages (200 a minute, a very busy chat). The chat table was read about
+once per post (570 reads in 3 minutes); the polls themselves came from the snapshot. The first run
+showed each poll resending about 15 messages from the 5 s late-commit window, so it was cut to 2 s
+(about 6). **Limits of the test:** a laptop is faster than the t3.large, and the video was not
+running; on the box, video bandwidth is the ceiling (about 300 to 500 viewers without a CDN,
+ROADMAP "Webinar streaming"), well before chat is.
 
 ## 7. Private chat
 

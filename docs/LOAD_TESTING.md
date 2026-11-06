@@ -11,6 +11,7 @@ Scripts live in [`loadtest/k6/`](../loadtest/k6/):
 - `read-burst.js` — **safe on prod** (read-only): public event detail + email preflight.
 - `register-burst.js` — **write**: the public self-register burst.
 - `checkin-burst.js` — **write + authed**: many desk lanes scanning at once.
+- `webinar-chat.js` — **write + authed**: a live webinar's chat, every viewer polling every 3 s while some post (Nov 6, 2026). Needs one signed-in session per person (`COOKIES_FILE`, one `name=value` per line) and a disposable webinar with chat on and the room open. Results of the first run: `docs/WEBINAR_INTERACTION_PLAN.md` §6.6.
 - `config.js` — shared env config + the write-safety gates.
 
 ---
@@ -26,6 +27,7 @@ Stripe sessions. Rules:
 | `read-burst` | **Prod (off-hours) OK** — no writes, no email, no Stripe | — |
 | `register-burst` | **Staging**, or a **disposable DRAFT test event** with a **FREE ticket type** | A real prod event; a paid ticket type (→ Stripe + emails) |
 | `checkin-burst` | **Staging / test event** with seeded test registrations | Checking in real attendees |
+| `webinar-chat` | **Local copy or staging**, a disposable webinar with seeded registrants; delete the messages after | A real webinar's chat |
 
 Built-in guardrails (in `config.js`):
 - Write scenarios **refuse to run** unless `CONFIRM_WRITE=yes`.
