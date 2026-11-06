@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { useCrmContactDetail, useSetCrmContactArchived, useUpdateCrmContact } from "@/crm/hooks/use-crm-api";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { PurgeRecordButton } from "@/crm/components/purge-record-button";
+import { ContactPrivacyActions } from "@/crm/components/contact-privacy-actions";
 import {
   CrmContactFormFields,
   crmContactFormPayload,
@@ -178,6 +179,12 @@ export function ContactDetailBody({
                   Edit
                 </Button>
               )}
+              <ContactPrivacyActions
+                crmContactId={contact.id}
+                email={contact.email}
+                name={`${contact.firstName} ${contact.lastName}`.trim()}
+                onErased={() => onArchived?.()}
+              />
               <PurgeRecordButton
                 entity="contact"
                 id={contact.id}

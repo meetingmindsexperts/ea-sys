@@ -1452,6 +1452,25 @@ export function usePurgeCrmRecord() {
   });
 }
 
+/** What an erasure removed and what it left for review (crm-privacy-service.ts). */
+export interface CrmContactErasureReport {
+  erased: { emailThreads: number; emailMessages: number; attachmentFiles: number; notes: number; tasks: number; dealLinks: number; historyLines: number };
+  remaining: { quotesOnTheirDeals: number; dealHistoryMentions: number };
+}
+
+/** Erase one CRM contact on request (SUPER_ADMIN). The address must be typed to confirm. */
+export function useEraseCrmContact(crmContactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (confirmEmail: string) =>
+      apiPostJson<CrmContactErasureReport>(`/api/crm/contacts/${crmContactId}/erase`, { confirmEmail }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm"] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not erase the contact"),
+  });
+}
+
 /** Permanently delete EVERY archived record of a kind (or all kinds). SUPER_ADMIN only. */
 export function usePurgeArchived() {
   const qc = useQueryClient();
