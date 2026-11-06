@@ -86,7 +86,8 @@ export async function unbookRefund(
     where: { id: registrationId },
     select: { refundedAmount: true, paymentStatus: true },
   });
-  if (!reg) throw new UnbookRaced(`registration ${registrationId} not found`);
+  // A missing row is not a race that settles by itself: a human decides.
+  if (!reg) throw new UnbookNeedsReview(`registration ${registrationId} not found`);
 
   const unbookingIds = slices.map((s) => s.attemptId);
   for (const s of slices) {
@@ -112,7 +113,7 @@ export async function unbookRefund(
       where: { id: s.paymentId },
       select: { refundedAmount: true, amount: true },
     });
-    if (!pay) throw new UnbookRaced(`payment ${s.paymentId} not found`);
+    if (!pay) throw new UnbookNeedsReview(`payment ${s.paymentId} not found`);
 
     const counter = Number(pay.refundedAmount);
     const amount = Number(pay.amount);

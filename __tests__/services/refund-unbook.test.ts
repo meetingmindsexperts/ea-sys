@@ -254,6 +254,13 @@ describe("unbookRefund: once per attempt (review 2, MED-1)", () => {
   });
 });
 
+describe("unbookRefund: missing rows (final review M1)", () => {
+  it("a payment that no longer exists is a case for a human, not a race to retry forever", async () => {
+    const store = setup({ C: 60, R: 60 });
+    await expect(run(store, [slice(60, 0, { paymentId: "gone" })])).rejects.toBeInstanceOf(UnbookNeedsReview);
+  });
+});
+
 describe("unbookRefund: all or nothing", () => {
   it("a concurrent payment write is detected (UnbookRaced)", async () => {
     const store = setup({ C: 60, R: 60 });

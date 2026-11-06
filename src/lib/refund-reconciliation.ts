@@ -55,7 +55,7 @@ export interface RefundSweepResult {
   unverifiable: number;
   /** Touched by the refund service (or another sweep) since this tick read it: left alone. */
   moved: number;
-  /** Not settled this tick on purpose (a race, Stripe unreachable, waiting on siblings): noted and retried. */
+  /** Not settled this tick on purpose (a race, a young refusal, waiting on Stripe siblings): noted and retried. Stripe unreachable counts as unverifiable. */
   retried: number;
 }
 
@@ -114,11 +114,17 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
       // Leave the attempt unsettled, with a note saying why. The note touches
       // it, which sends it to the back of the queue and keeps it out of the
       // next 10 minutes' ticks.
+      // Returns false when the attempt moved since this tick read it (then it is
+      // counted as moved, not retried). A stuck attempt keeps its STUCK mark, so
+      // the organisers are told once however many notes follow.
       const note = async (error: string) => {
-        await db.refundAttempt.updateMany({
+        const keep = attempt.error?.startsWith(STUCK_MARK) && !error.startsWith(STUCK_MARK);
+        const written = await db.refundAttempt.updateMany({
           where: { id: attempt.id, status: { in: ["PENDING", "UNKNOWN"] }, updatedAt: attempt.updatedAt },
-          data: { error },
+          data: { error: keep ? `${STUCK_MARK} ${error}`.slice(0, 500) : error },
         });
+        if (written.count === 0) result.moved++;
+        return written.count > 0;
       };
       const ageMs = Date.now() - attempt.createdAt.getTime();
       const settle = async (data: { status: "SUCCEEDED" | "FAILED"; error?: string; stripeRefundId?: string | null }) => {
@@ -163,8 +169,7 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
       });
 
       if (typeof unbooked === "object" && unbooked !== null && "retry" in unbooked) {
-        await note(`Rollback refused, retrying: ${unbooked.retry}`.slice(0, 500));
-        result.retried++;
+        if (await note(`Rollback refused, retrying: ${unbooked.retry}`.slice(0, 500))) result.retried++;
         return;
       }
 
@@ -237,8 +242,7 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
           : [];
         if (siblings.some((x) => x.status === "PENDING" || x.status === "UNKNOWN")) {
           apiLogger.info({ msg: "refund-sweep:manual-waiting-for-stripe-siblings", attemptId: attempt.id });
-          await note("Waiting for this refund's Stripe parts to settle");
-          result.retried++;
+          if (await note("Waiting for this refund's Stripe parts to settle")) result.retried++;
           return;
         }
         if (siblings.some((x) => x.status === "FAILED")) {

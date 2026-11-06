@@ -312,6 +312,22 @@ describe("resolveStaleRefundAttempts", () => {
     expect(notifySpy).not.toHaveBeenCalled();
   });
 
+  it("final review: a later note keeps the STUCK mark, so the organisers are not told twice", async () => {
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([
+      attempt({ createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000), error: "STUCK: Stripe cannot confirm this refund; organisers notified" }),
+    ]);
+    unbookSpy.mockRejectedValue(new UnbookRaced("payment p1 moved"));
+    await resolveStaleRefundAttempts();
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith(guarded("att1", { error: expect.stringMatching(/^STUCK: Rollback refused, retrying/) }));
+  });
+
+  it("final review: a note that finds the attempt moved counts as moved, not retried", async () => {
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt()]);
+    unbookSpy.mockRejectedValue(new UnbookRaced("payment p1 moved"));
+    mockDb.refundAttempt.updateMany.mockResolvedValue({ count: 0 });
+    expect(await resolveStaleRefundAttempts()).toMatchObject({ moved: 1, retried: 0 });
+  });
+
   it("third review MED-2: the queue is read oldest touch first, so stuck rows cannot starve it", async () => {
     mockDbOperator.refundAttempt.findMany.mockResolvedValue([]);
     await resolveStaleRefundAttempts();
