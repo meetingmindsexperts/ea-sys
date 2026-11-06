@@ -36,6 +36,9 @@ export interface WebinarChatSettings {
   mutedRegistrationIds?: string[];
   /** The message pinned at the top of the panel. */
   pinnedMessageId?: string | null;
+  /** Bumped by every delete and restore, so open pages reload the window (review of f35de631: a
+   *  restored message is older than their cursor and would never come back otherwise). */
+  version?: number;
 }
 
 export function readChatSettings(webinar: { chat?: unknown } | null | undefined): WebinarChatSettings {
@@ -52,6 +55,7 @@ export function readChatSettings(webinar: { chat?: unknown } | null | undefined)
       ? c.mutedRegistrationIds.filter((x): x is string => typeof x === "string")
       : [],
     pinnedMessageId: typeof c.pinnedMessageId === "string" && c.pinnedMessageId ? c.pinnedMessageId : null,
+    version: typeof c.version === "number" ? c.version : 0,
   };
 }
 
@@ -74,12 +78,23 @@ export function chatPhase(args: { roomOpen: boolean; ended: boolean; openInLobby
   return args.openInLobby ? "open" : "closed";
 }
 
+/**
+ * What never reaches the page: control characters other than newline and tab, the bidi overrides
+ * and isolates (U+202A-202E, U+2066-2069) that can reverse how text, a URL say, is displayed, and
+ * zero-width space and BOM. The joiners and the LRM/RLM marks stay: emoji sequences and Arabic or
+ * Persian text need them (review of f35de631).
+ */
+export function cleanChatText(s: string): string {
+  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069\u200B\uFEFF]/g, "").trim();
+}
+
+export const chatBodySchema = z
+  .string()
+  .transform(cleanChatText)
+  .pipe(z.string().min(1, "Type a message").max(CHAT_MESSAGE_MAX));
+
 export const chatPostSchema = z.object({
-  body: z
-    .string()
-    // Control characters other than newline and tab never reach the page.
-    .transform((s) => s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").trim())
-    .pipe(z.string().min(1, "Type a message").max(CHAT_MESSAGE_MAX)),
+  body: chatBodySchema,
   anonymous: z.boolean().default(false),
   /** Staff only: share one of the webinar's handouts as a card. */
   handoutId: z.string().min(1).max(64).optional(),

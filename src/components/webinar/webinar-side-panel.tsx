@@ -26,9 +26,10 @@ export function WebinarSidePanel({ slug, sessionId }: { slug: string; sessionId:
   const onNewMessage = useCallback(() => {
     if (tabRef.current !== "chat") setUnread(true);
   }, [tabRef]);
+  // Q&A alone (chat off) is always in front: nothing to badge (review of f35de631).
   const onNewQaActivity = useCallback(() => {
-    if (tabRef.current !== "qa") setQaUnread(true);
-  }, [tabRef]);
+    if (chatOn && tabRef.current !== "qa") setQaUnread(true);
+  }, [chatOn, tabRef]);
   const show = (next: Tab) => {
     setTab(next);
     tabRef.current = next;

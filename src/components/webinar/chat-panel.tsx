@@ -33,6 +33,13 @@ interface ChatResponse extends Partial<ChatState> {
   removed?: string[];
   reset?: boolean;
   pinned?: ChatMessageView | null;
+  version?: number;
+}
+
+/** Oldest first; the route may resend a few seconds before the cursor, so order is restored here. */
+function byTime(a: ChatMessageView, b: ChatMessageView): number {
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+  return a.id < b.id ? -1 : 1;
 }
 
 const BLOCKED_LINE: Record<string, string> = {
@@ -127,6 +134,10 @@ export function ChatPanel({
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [, setTick] = useState(0);
   const lastIdRef = useRef<string | null>(null);
+  // The moderation version held: a delete or restore moves it and the route sends the whole window.
+  const versionRef = useRef<number | null>(null);
+  const messagesRef = useRef<ChatMessageView[]>([]);
+  const loadedRef = useRef(false);
   const listRef = useRef<HTMLUListElement | null>(null);
   const stickToBottom = useRef(true);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -136,7 +147,10 @@ export function ChatPanel({
 
   const load = useCallback(async (): Promise<number> => {
     try {
-      const url = lastIdRef.current ? `${base}?after=${encodeURIComponent(lastIdRef.current)}` : base;
+      const query = new URLSearchParams();
+      if (lastIdRef.current) query.set("after", lastIdRef.current);
+      if (versionRef.current !== null) query.set("v", String(versionRef.current));
+      const url = query.size ? `${base}?${query}` : base;
       const res = await fetch(url, { cache: "no-store" });
       if (res.status === 429) return (Number(res.headers.get("Retry-After")) || 30) * 1000;
       if (!res.ok) {
@@ -163,19 +177,21 @@ export function ChatPanel({
         canPostAnonymously: data.canPostAnonymously === true,
       });
       setPinned(data.pinned ?? null);
+      if (typeof data.version === "number") versionRef.current = data.version;
       const incoming = data.messages ?? [];
       const removed = new Set(data.removed ?? []);
-      setMessages((prev) => {
-        const base = data.reset ? [] : prev.filter((m) => !removed.has(m.id));
-        const seen = new Set(base.map((m) => m.id));
-        return [...base, ...incoming.filter((m) => !seen.has(m.id))].slice(-CHAT_WINDOW);
-      });
-      if (incoming.length > 0) {
-        lastIdRef.current = incoming[incoming.length - 1].id;
-        if (incoming.some((m) => !m.mine)) callbacks.current.onNewMessage?.();
-      } else if (data.reset) {
-        lastIdRef.current = null;
-      }
+      const prev = messagesRef.current;
+      const held = new Set(prev.map((m) => m.id));
+      const kept = data.reset ? [] : prev.filter((m) => !removed.has(m.id));
+      const keptIds = new Set(kept.map((m) => m.id));
+      const next = [...kept, ...incoming.filter((m) => !keptIds.has(m.id))].sort(byTime).slice(-CHAT_WINDOW);
+      messagesRef.current = next;
+      setMessages(next);
+      lastIdRef.current = next.length ? next[next.length - 1].id : null;
+      // A dot only for messages from others this page did not hold, never for the history a first
+      // load or a reload of the window brings (review of f35de631).
+      if (loadedRef.current && incoming.some((m) => !m.mine && !held.has(m.id))) callbacks.current.onNewMessage?.();
+      loadedRef.current = true;
       return CHAT_POLL_MS;
     } catch (err) {
       console.warn("webinar-chat:load-failed", err);

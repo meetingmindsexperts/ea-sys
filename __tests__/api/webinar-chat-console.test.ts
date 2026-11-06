@@ -214,3 +214,26 @@ describe("moderation actions", () => {
     expect((await POST(req("POST", { action: "post", body: "x", handoutId: "gone" }), params)).status).toBe(404);
   });
 });
+
+describe("review of f35de631", () => {
+  it("L4: a deleted message cannot be pinned", async () => {
+    mockAuth.mockResolvedValue(organizer);
+    mockDb.webinarChatMessage.findFirst.mockResolvedValue(null);
+    expect((await POST(req("POST", { action: "pin", messageId: "m1" }), params)).status).toBe(404);
+    expect(mockDb.webinarChatMessage.findFirst.mock.calls[0][0].where).toMatchObject({ deletedAt: null });
+  });
+
+  it("M2: delete and restore move the moderation version, so open pages reload", async () => {
+    mockAuth.mockResolvedValue(organizer);
+    await POST(req("POST", { action: "delete", messageId: "m1" }), params);
+    expect(chatOf().version).toBe(1);
+    await POST(req("POST", { action: "restore", messageId: "m1" }), params);
+    expect(chatOf().version).toBe(2);
+  });
+
+  it("L5: a host post is cleaned like an attendee's", async () => {
+    mockAuth.mockResolvedValue(organizer);
+    await POST(req("POST", { action: "post", body: "hi\u202Ethere\u0007" }), params);
+    expect(mockDb.webinarChatMessage.create.mock.calls[0][0].data.body).toBe("hithere");
+  });
+});

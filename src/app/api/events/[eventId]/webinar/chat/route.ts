@@ -12,7 +12,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
-import { CHAT_MESSAGE_MAX, readChatSettings, type WebinarChatSettings } from "@/lib/webinar/chat";
+import { CHAT_PER_MINUTE, chatBodySchema, readChatSettings, type WebinarChatSettings } from "@/lib/webinar/chat";
 import { invalidateChatSnapshotsForSession } from "@/lib/webinar/chat-server";
 import { readHandouts } from "@/lib/webinar/handouts";
 
@@ -39,7 +39,8 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.enum(["mute", "unmute"]), registrationId: z.string().min(1) }),
   z.object({
     action: z.literal("post"),
-    body: z.string().trim().min(1, "Type a message").max(CHAT_MESSAGE_MAX),
+    // The same cleaning as an attendee's message (review of f35de631).
+    body: chatBodySchema,
     handoutId: z.string().min(1).max(64).optional(),
   }),
 ]);
@@ -301,8 +302,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         apiLogger.info({ eventId: ctx.id, userId, action: a.action, ...extra }, "webinar-chat:moderated");
         return NextResponse.json({ ok: true, ...extra }, { status });
       };
-      const message = (id: string) =>
-        db.webinarChatMessage.findFirst({ where: { id, sessionId, eventId: ctx.id }, select: { id: true } });
+      // A deleted message cannot be pinned (review of f35de631: viewers saw no pin, the console did).
+      const liveMessage = (id: string) =>
+        db.webinarChatMessage.findFirst({ where: { id, sessionId, eventId: ctx.id, deletedAt: null }, select: { id: true } });
 
       switch (a.action) {
         case "delete":
@@ -312,14 +314,18 @@ export async function POST(req: Request, { params }: RouteParams) {
             data: a.action === "delete" ? { deletedAt: new Date(), deletedById: userId } : { deletedAt: null, deletedById: null },
           });
           if (res.count === 0) return notFound(ctx.id, userId, a.action);
-          // A deleted message is never left pinned.
-          if (a.action === "delete" && ctx.chat.pinnedMessageId === a.messageId) {
-            await writeChat(ctx.id, orgGuard.orgId, (c) => ({ ...c, pinnedMessageId: null }));
-          }
+          // Under the row lock: a deleted message is never left pinned (decided on the stored pin,
+          // not one read before the lock), and the version moves so open pages reload the window
+          // and a restored message comes back (review of f35de631).
+          await writeChat(ctx.id, orgGuard.orgId, (c) => ({
+            ...c,
+            version: (c.version ?? 0) + 1,
+            pinnedMessageId: a.action === "delete" && c.pinnedMessageId === a.messageId ? null : c.pinnedMessageId,
+          }));
           return done({ messageId: a.messageId });
         }
         case "pin": {
-          if (!(await message(a.messageId))) return notFound(ctx.id, userId, a.action);
+          if (!(await liveMessage(a.messageId))) return notFound(ctx.id, userId, a.action);
           await writeChat(ctx.id, orgGuard.orgId, (c) => ({ ...c, pinnedMessageId: a.messageId }));
           return done({ messageId: a.messageId });
         }
@@ -339,6 +345,14 @@ export async function POST(req: Request, { params }: RouteParams) {
           return done({ registrationId: reg.id });
         }
         case "post": {
+          const limit = checkRateLimit({ key: `webinar-chat-host:${userId}`, limit: CHAT_PER_MINUTE, windowMs: 60_000 });
+          if (!limit.allowed) {
+            apiLogger.warn({ eventId: ctx.id, userId }, "webinar-chat:host-post-rate-limited");
+            return NextResponse.json(
+              { error: "You are sending messages too quickly", retryAfterSeconds: limit.retryAfterSeconds },
+              { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+            );
+          }
           if (a.handoutId && !readHandouts(ctx.webinar).some((h) => h.id === a.handoutId)) {
             apiLogger.warn({ eventId: ctx.id, userId, handoutId: a.handoutId }, "webinar-chat:console-handout-not-found");
             return NextResponse.json({ error: "That handout is no longer attached" }, { status: 404 });

@@ -29,6 +29,8 @@ import {
 } from "@/lib/webinar/chat";
 
 const SNAPSHOT_TTL_MS = 2000;
+/** How far before a viewer's cursor the route looks again for messages that committed late. */
+const LATE_COMMIT_OVERLAP_MS = 5000;
 const VIEWER_TTL_MS = 60_000;
 const CACHE_MAX = 5000;
 
@@ -56,16 +58,23 @@ export interface ChatSnapshot {
   enabled: boolean;
   phase: ChatPhase;
   messages: CachedChatMessage[];
+  /** The pinned message, found even when it has aged out of the window; null when none or deleted. */
+  pinned: CachedChatMessage | null;
+  /** Moderation version (chat settings): a page holding another reloads the window. */
+  version: number;
   handoutNames: Map<string, string>;
   at: number;
 }
 
 const snapshots = new Map<string, ChatSnapshot>();
+/** One rebuild per key at a time: 500 polls missing together share a single set of queries. */
+const building = new Map<string, Promise<ChatSnapshot | null>>();
 const viewers = new Map<string, { asker: Asker; until: number }>();
 
 /** Test hook. */
 export function resetChatCaches(): void {
   snapshots.clear();
+  building.clear();
   viewers.clear();
 }
 
@@ -74,9 +83,21 @@ function snapshotKey(eventWhere: Prisma.EventWhereInput, slug: string, sessionId
   return `${org}:${slug}:${sessionId}`;
 }
 
-/** Drop this container's snapshot for a session, after a post or a moderation change. */
-export function invalidateChatSnapshot(eventWhere: Prisma.EventWhereInput, slug: string, sessionId: string): void {
-  snapshots.delete(snapshotKey(eventWhere, slug, sessionId));
+/**
+ * Put a just-posted message into this container's snapshot, so the poster and everyone on this
+ * container see it at once without a rebuild (review of f35de631: invalidating on every post
+ * rebuilt the snapshot twice per message).
+ */
+export function appendToChatSnapshot(
+  eventWhere: Prisma.EventWhereInput,
+  slug: string,
+  sessionId: string,
+  message: CachedChatMessage,
+): void {
+  const key = snapshotKey(eventWhere, slug, sessionId);
+  const current = snapshots.get(key);
+  if (!current) return;
+  snapshots.set(key, { ...current, messages: [...current.messages, message].slice(-CHAT_WINDOW) });
 }
 
 /** Drop this container's snapshots for a session, after a console change (it knows no slug). */
@@ -85,19 +106,34 @@ export function invalidateChatSnapshotsForSession(sessionId: string): void {
 }
 
 /**
- * The session's chat as it stands, from cache when fresh. Null when this is not a webinar's room
- * (not a WEBINAR event, or not its anchor session), so the route answers 404 as Q&A does.
+ * The session's chat as it stands, from cache when fresh (or rebuilt with `fresh`, which a post
+ * uses so a mute or a close bites at once, without discarding the entry everyone else reads).
+ * Null when this is not a webinar's room (not a WEBINAR event, or not its anchor session), so the
+ * route answers 404 as Q&A does.
  */
 export async function getChatSnapshot(
   eventWhere: Prisma.EventWhereInput,
   slug: string,
   sessionId: string,
-  now = Date.now(),
+  opts: { fresh?: boolean; now?: number } = {},
 ): Promise<ChatSnapshot | null> {
+  const now = opts.now ?? Date.now();
   const key = snapshotKey(eventWhere, slug, sessionId);
   const cached = snapshots.get(key);
-  if (cached && now - cached.at < SNAPSHOT_TTL_MS) return cached;
+  if (!opts.fresh && cached && now - cached.at < SNAPSHOT_TTL_MS) return cached;
+  const inFlight = building.get(key);
+  if (inFlight) return inFlight;
+  const build = buildSnapshot(eventWhere, sessionId, now).finally(() => building.delete(key));
+  building.set(key, build);
+  const snapshot = await build;
+  if (snapshot) {
+    if (snapshots.size >= CACHE_MAX) snapshots.clear();
+    snapshots.set(key, snapshot);
+  }
+  return snapshot;
+}
 
+async function buildSnapshot(eventWhere: Prisma.EventWhereInput, sessionId: string, now: number): Promise<ChatSnapshot | null> {
   // Discover the tenant through the one sanctioned pre-lane read, then read the event's content
   // inside its lane (Event RLS preparation, Nov 5, 2026: event-lane-ratchet.test.ts).
   const tenant = await resolveEventTenant(eventWhere);
@@ -137,6 +173,20 @@ export async function getChatSnapshot(
     ]);
     if (!session) return null;
     const chat = readChatSettings(webinar);
+    const messages: CachedChatMessage[] = rows.reverse().map(({ deletedAt, ...m }) => ({ ...m, deleted: deletedAt !== null }));
+    // The pin outlives the window (review of f35de631): look it up when it has aged out.
+    let pinned = chat.pinnedMessageId ? messages.find((m) => m.id === chat.pinnedMessageId) ?? null : null;
+    if (chat.pinnedMessageId && !pinned) {
+      const row = await db.webinarChatMessage.findFirst({
+        where: { id: chat.pinnedMessageId, sessionId, eventId: event.id },
+        select: {
+          id: true, body: true, authorName: true, authorKind: true, anonymous: true, kind: true,
+          handoutId: true, registrationId: true, userId: true, deletedAt: true, createdAt: true,
+        },
+      });
+      pinned = row ? (({ deletedAt, ...m }) => ({ ...m, deleted: deletedAt !== null }))(row) : null;
+    }
+    if (pinned?.deleted) pinned = null;
     const roomOpen = session.status === "LIVE" || event.status === "DRAFT";
     const ended = webinarRoomEnded({
       status: session.status,
@@ -150,12 +200,12 @@ export async function getChatSnapshot(
       chat,
       enabled: chatEnabled(chat) && webinar?.viewingMode === "hls",
       phase: chatPhase({ roomOpen, ended, openInLobby: chat.openInLobby === true }),
-      messages: rows.reverse().map(({ deletedAt, ...m }) => ({ ...m, deleted: deletedAt !== null })),
+      messages,
+      pinned,
+      version: chat.version ?? 0,
       handoutNames: new Map(readHandouts(webinar).map((h) => [h.id, h.name])),
       at: now,
     };
-    if (snapshots.size >= CACHE_MAX) snapshots.clear();
-    snapshots.set(key, snapshot);
     return snapshot;
   });
 }
@@ -205,17 +255,25 @@ export function toView(
 }
 
 /**
- * What a viewer gets back for `after` (the newest id they hold): only newer, undeleted messages,
- * plus the ids deleted in the window so the page drops them. An unknown `after` (first load, or
- * scrolled out of the window) is a reset: the whole window.
+ * What a viewer gets back for `after` (the newest id they hold) and `version` (the moderation
+ * version they hold): newer undeleted messages, plus the ids deleted in the window so the page
+ * drops them. A reset (the whole window) when `after` is unknown (first load, or scrolled out of
+ * the window) or the moderation version moved (a restore). Messages from the few seconds before
+ * the cursor are sent again: one that committed after a later one would otherwise sort behind the
+ * cursor and be skipped for good (review of f35de631); the page drops ids it already holds.
  */
 export function messagesAfter(
-  snapshot: Pick<ChatSnapshot, "messages">,
+  snapshot: Pick<ChatSnapshot, "messages" | "version">,
   after: string | null,
+  version: number | null = null,
 ): { fresh: CachedChatMessage[]; removed: string[]; reset: boolean } {
   const removed = snapshot.messages.filter((m) => m.deleted).map((m) => m.id);
-  const at = after ? snapshot.messages.findIndex((m) => m.id === after) : -1;
-  const reset = at === -1;
-  const fresh = snapshot.messages.slice(reset ? 0 : at + 1).filter((m) => !m.deleted);
-  return { fresh, removed, reset };
+  const stale = version !== null && version !== snapshot.version;
+  const at = after && !stale ? snapshot.messages.findIndex((m) => m.id === after) : -1;
+  if (at === -1) return { fresh: snapshot.messages.filter((m) => !m.deleted), removed, reset: true };
+  const since = snapshot.messages[at].createdAt.getTime() - LATE_COMMIT_OVERLAP_MS;
+  let from = at;
+  while (from > 0 && snapshot.messages[from - 1].createdAt.getTime() >= since) from -= 1;
+  const fresh = snapshot.messages.slice(from).filter((m, i) => !m.deleted && (from + i > at || m.id !== after));
+  return { fresh, removed, reset: false };
 }

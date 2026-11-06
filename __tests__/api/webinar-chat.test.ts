@@ -29,7 +29,8 @@ vi.mock("@/lib/public-event", () => ({ publicEventWhere: vi.fn(async () => ({}))
 vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4", checkRateLimit: mockRate }));
 
 import { GET, POST } from "@/app/api/public/events/[slug]/sessions/[sessionId]/chat/route";
-import { resetChatCaches } from "@/lib/webinar/chat-server";
+import { getChatSnapshot, messagesAfter, resetChatCaches } from "@/lib/webinar/chat-server";
+import { cleanChatText } from "@/lib/webinar/chat";
 
 const params = { params: Promise.resolve({ slug: "web", sessionId: "s1" }) };
 const attendee = { user: { id: "u1", role: "REGISTRANT", organizationId: null, firstName: "Sara", lastName: "Khan" } };
@@ -295,5 +296,62 @@ describe("posting", () => {
     mockAuth.mockResolvedValue(attendee);
     await post({ body: "hi" });
     expect(mockRate).toHaveBeenCalledWith(expect.objectContaining({ key: "webinar-chat-gap:u1:ev1", windowMs: 15_000 }));
+  });
+});
+
+describe("review of f35de631", () => {
+  it("M1: a post refused by the per-person limit touches no database and leaves the shared snapshot alone", async () => {
+    mockAuth.mockResolvedValue(attendee);
+    await get(); // warm the snapshot everyone reads
+    vi.clearAllMocks();
+    mockRate.mockReturnValueOnce({ allowed: false, retryAfterSeconds: 30 });
+    expect((await post({ body: "spam" })).status).toBe(429);
+    expect(mockDb.event.findFirst).not.toHaveBeenCalled();
+    mockRate.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
+    await get();
+    expect(mockDb.webinarChatMessage.findMany).not.toHaveBeenCalled(); // still served from the snapshot
+  });
+
+  it("M1: polls that miss together share one rebuild", async () => {
+    await Promise.all([getChatSnapshot({}, "web", "s1"), getChatSnapshot({}, "web", "s1"), getChatSnapshot({}, "web", "s1")]);
+    expect(mockDb.webinarChatMessage.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("M1: a post is appended to the snapshot, no rebuild for the next poll", async () => {
+    mockAuth.mockResolvedValue(attendee);
+    mockDb.webinarChatMessage.create.mockResolvedValue({ ...msg("m9"), deletedAt: undefined });
+    expect((await post({ body: "hi" })).status).toBe(201);
+    const reads = mockDb.webinarChatMessage.findMany.mock.calls.length;
+    const body = await (await get()).json();
+    expect(body.messages.map((m: { id: string }) => m.id)).toContain("m9");
+    expect(mockDb.webinarChatMessage.findMany.mock.calls.length).toBe(reads);
+  });
+
+  it("M2: a moderation version the page does not hold reloads the window, so a restored message comes back", () => {
+    const snap = { version: 2, messages: [msg("m1"), msg("m2")].map(({ deletedAt, ...m }) => ({ ...m, deleted: deletedAt !== null })) };
+    expect(messagesAfter(snap, "m2", 2).reset).toBe(false);
+    const r = messagesAfter(snap, "m2", 1);
+    expect(r.reset).toBe(true);
+    expect(r.fresh.map((m) => m.id)).toEqual(["m1", "m2"]);
+  });
+
+  it("L3: messages from the few seconds before the cursor are sent again (a late commit is not skipped)", () => {
+    const t = Date.parse("2026-11-06T09:00:00Z");
+    const at = (id: string, ms: number) => ({ ...msg(id, { createdAt: new Date(t + ms) }), deleted: false });
+    const snap = { version: 0, messages: [at("old", -60_000), at("late", -1_000), at("cursor", 0), at("new", 500)] };
+    expect(messagesAfter(snap, "cursor", 0).fresh.map((m) => m.id)).toEqual(["late", "new"]);
+  });
+
+  it("L7: a pin that aged out of the window is still found", async () => {
+    setEvent({ ...chatOn, pinnedMessageId: "old-pin" });
+    setMessages([msg("m1")]);
+    mockDb.webinarChatMessage.findFirst = vi.fn().mockResolvedValue(msg("old-pin", { authorKind: "staff", authorName: "Pro Ducer" }));
+    mockAuth.mockResolvedValue(attendee);
+    expect((await (await get()).json()).pinned).toMatchObject({ id: "old-pin" });
+  });
+
+  it("L6: bidi overrides, isolates and zero-width space are stripped; emoji joiners and RLM stay", () => {
+    expect(cleanChatText("pay\u202Eexe.txt\u2066x\u2069\u200By")).toBe("payexe.txtxy");
+    expect(cleanChatText("family 👨\u200D👩\u200D👧 \u200Fمرحبا")).toBe("family 👨\u200D👩\u200D👧 \u200Fمرحبا");
   });
 });

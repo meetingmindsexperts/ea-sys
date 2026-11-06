@@ -13,8 +13,8 @@ import {
   chatPostSchema,
 } from "@/lib/webinar/chat";
 import {
+  appendToChatSnapshot,
   getChatSnapshot,
-  invalidateChatSnapshot,
   messagesAfter,
   resolveChatViewer,
   toView,
@@ -84,11 +84,14 @@ export async function GET(req: Request, { params }: RouteParams) {
       if (phase === "closed" && !staff) {
         return NextResponse.json({ enabled: true, phase, canPost: false, messages: [], removed: [], reset: true, pinned: null }, { headers: NO_STORE });
       }
-      const after = new URL(req.url).searchParams.get("after");
-      const { fresh, removed, reset } = messagesAfter(snapshot, after);
-      const pinnedRow = chat.pinnedMessageId
-        ? snapshot.messages.find((m) => m.id === chat.pinnedMessageId && !m.deleted)
-        : undefined;
+      const search = new URL(req.url).searchParams;
+      const versionParam = search.get("v");
+      const { fresh, removed, reset } = messagesAfter(
+        snapshot,
+        search.get("after"),
+        versionParam === null ? null : Number(versionParam),
+      );
+      const pinnedRow = snapshot.pinned;
       const muted = asker.kind === "attendee" && (chat.mutedRegistrationIds ?? []).includes(asker.registrationId);
       const canPost = phase === "open" && (staff || (!chat.mutedAll && !muted));
       return NextResponse.json(
@@ -105,6 +108,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           messages: fresh.map((m) => toView(m, snapshot, asker, authSession.user.id)),
           removed,
           reset,
+          version: snapshot.version,
           pinned: pinnedRow ? toView(pinnedRow, snapshot, asker, authSession.user.id) : null,
         },
         { headers: NO_STORE },
@@ -135,10 +139,21 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid message" }, { status: 400 });
     }
 
-    // Fresh, not the poll's cache: a mute, a close or a cancellation must bite at once.
+    // Before any database work (review of f35de631: a refused post used to rebuild the snapshot
+    // everyone reads, so anyone signed in could keep every viewer's polls missing the cache).
+    const early = checkRateLimit({ key: `webinar-chat-post:${userId}`, limit: CHAT_PER_MINUTE, windowMs: 60_000 });
+    if (!early.allowed) {
+      apiLogger.warn({ userId, sessionId }, "webinar-chat:post-rate-limited");
+      return NextResponse.json(
+        { error: "You are sending messages too quickly", retryAfterSeconds: early.retryAfterSeconds, code: "CHAT_TOO_FAST" },
+        { status: 429, headers: { "Retry-After": String(early.retryAfterSeconds) } },
+      );
+    }
+
+    // Fresh, not the poll's cache: a mute, a close or a cancellation must bite at once. Rebuilt in
+    // place (one rebuild at a time per webinar), never discarded under the other viewers.
     const eventWhere = await publicEventWhere(req, slug, { statuses: [...STATUSES] });
-    invalidateChatSnapshot(eventWhere, slug, sessionId);
-    const snapshot = await getChatSnapshot(eventWhere, slug, sessionId);
+    const snapshot = await getChatSnapshot(eventWhere, slug, sessionId, { fresh: true });
     if (!snapshot) {
       apiLogger.warn({ slug, sessionId }, "webinar-chat:post-not-the-webinar-room");
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -178,18 +193,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
 
       const intervalS = postIntervalSeconds(staff, chat.slowMode);
-      for (const limit of [
-        { key: `webinar-chat-gap:${userId}:${event.id}`, limit: 1, windowMs: intervalS * 1000 },
-        { key: `webinar-chat-minute:${userId}:${event.id}`, limit: CHAT_PER_MINUTE, windowMs: 60_000 },
-      ]) {
-        const { allowed, retryAfterSeconds } = checkRateLimit(limit);
-        if (!allowed) {
-          apiLogger.warn({ userId, eventId: event.id, key: limit.key.split(":")[0] }, "webinar-chat:post-rate-limited");
-          return NextResponse.json(
-            { error: "You are sending messages too quickly", retryAfterSeconds, code: "CHAT_TOO_FAST" },
-            { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
-          );
-        }
+      const gap = checkRateLimit({ key: `webinar-chat-gap:${userId}:${event.id}`, limit: 1, windowMs: intervalS * 1000 });
+      if (!gap.allowed) {
+        apiLogger.warn({ userId, eventId: event.id }, "webinar-chat:post-too-soon");
+        return NextResponse.json(
+          { error: "You are sending messages too quickly", retryAfterSeconds: gap.retryAfterSeconds, code: "CHAT_TOO_FAST" },
+          { status: 429, headers: { "Retry-After": String(gap.retryAfterSeconds) } },
+        );
       }
 
       const created = await db.webinarChatMessage.create({
@@ -207,9 +217,12 @@ export async function POST(req: Request, { params }: RouteParams) {
           handoutId: parsed.data.handoutId ?? null,
           body: parsed.data.body,
         },
-        select: { id: true },
+        select: {
+          id: true, body: true, authorName: true, authorKind: true, anonymous: true, kind: true,
+          handoutId: true, registrationId: true, userId: true, createdAt: true,
+        },
       });
-      invalidateChatSnapshot(eventWhere, slug, sessionId);
+      appendToChatSnapshot(eventWhere, slug, sessionId, { ...created, deleted: false });
       apiLogger.info({ eventId: event.id, sessionId, messageId: created.id, staff }, "webinar-chat:posted");
       return NextResponse.json({ id: created.id }, { status: 201, headers: NO_STORE });
     });
