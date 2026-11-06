@@ -241,14 +241,15 @@ model CrmProduct {
 /// add-time so a later catalog edit never rewrites a deal's line.
 model CrmDealProduct {
   id             String  @id @default(cuid())
-  // Multi-tenant prep (July 23, 2026): junction rows carry the org directly so a
-  // future RLS policy is a cheap single-column predicate instead of a join through
-  // the parent deal. Nullable ONLY for blue-green safety on the shared prod DB
-  // (an old container mid-swap still inserts without it); always written by the
-  // app and backfilled by migration — tighten to NOT NULL on the platform silo.
-  organizationId String?
+  // Junction rows carry the org directly (July 23, 2026) so an RLS policy is a
+  // cheap single-column predicate. NOT NULL since Nov 6, 2026 (CRM product review
+  // P2-11): every writer, including the image then in production, sets it. And
+  // the deal relation is COMPOSITE (dealId, organizationId) → CrmDeal(id,
+  // organizationId), so the database itself refuses a line whose organisation
+  // is not its deal's: a cross-tenant link is unrepresentable, not just unwritten.
+  organizationId String
   dealId         String
-  deal           CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  deal           CrmDeal @relation(fields: [dealId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   crmProductId String?
   crmProduct   CrmProduct? @relation(fields: [crmProductId], references: [id], onDelete: SetNull)
@@ -829,6 +830,8 @@ model CrmDeal {
   updatedAt DateTime @updatedAt
 
   @@unique([organizationId, externalSource, externalId])
+  // Target of the junction tables' composite (tenant-pinned) foreign keys.
+  @@unique([id, organizationId])
   @@index([organizationId, status])
   @@index([organizationId, stageId])
   @@index([eventId])
@@ -1059,6 +1062,8 @@ model CrmContact {
 
   @@unique([organizationId, emailKey])
   @@unique([organizationId, externalSource, externalId])
+  // Target of CrmDealContact's composite (tenant-pinned) foreign key.
+  @@unique([id, organizationId])
   @@index([organizationId])
   @@index([companyId])
   @@index([contactId])
@@ -1075,15 +1080,16 @@ model CrmContact {
 model CrmDealContact {
   id String @id @default(cuid())
 
-  // Multi-tenant prep — see the CrmDealProduct.organizationId comment (same
-  // rationale: cheap RLS predicate; nullable for blue-green, always app-written).
-  organizationId String?
+  // See CrmDealProduct.organizationId: NOT NULL, and BOTH parents are composite
+  // relations, so a deal of one organisation can never be linked to a contact of
+  // another (Nov 6, 2026, CRM product review P2-11).
+  organizationId String
 
   dealId String
-  deal   CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  deal   CrmDeal @relation(fields: [dealId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   crmContactId String
-  crmContact   CrmContact @relation(fields: [crmContactId], references: [id], onDelete: Cascade)
+  crmContact   CrmContact @relation(fields: [crmContactId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   role CrmDealContactRole @default(PRIMARY)
 

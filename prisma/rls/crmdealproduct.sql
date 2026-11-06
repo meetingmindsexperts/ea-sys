@@ -8,7 +8,11 @@
 --     direct organizationId).
 --   * current_setting(..., true) → NULL when unset, so a missing tenant context
 --     fail-closes to zero rows. The rls-assert.ts tripwire self-extends via
---     pg_policy.\n-- NOTE: organizationId is NULLABLE here (blue-green junction prep) — the flat\n-- predicate excludes a NULL-org row (invisible), which is correct: the app\n-- always writes the org, and the platform silo tightens it to NOT NULL.
+--     pg_policy.
+-- organizationId is NOT NULL since Nov 6, 2026 (migration
+-- 20261106140000_crm_junction_tenant_pinned), and the parent foreign keys are
+-- composite on (id, organizationId), so a row's organisation always equals its
+-- deal's: this flat predicate and the parent's agree by construction.
 --
 -- POLICY-ONLY pass: DB backstop (defence #2). The /api/crm/* handlers are not yet
 -- runWithTenant-wrapped and by-id mutations not yet compound-where'd (C1/C2
