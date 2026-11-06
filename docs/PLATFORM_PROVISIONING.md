@@ -416,10 +416,37 @@ in [PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md):
   `Notification`, `DeviceToken`, `InvoiceCounter`, `EventBillingAccount`,
   `EventStats` and `ImportLog` carry tenant data with no `organizationId` at all;
   `InvoiceCounter` looks like the one that matters.
-- **Still globally shared, each a precondition before tenant #2:** SES, the CRM's
-  single `CRM_EMAIL_FROM_ADDRESS` reply-forward mailbox (a real cross-tenant leak
-  on a shared instance), MediaMTX as a singleton, and the globally-unique
+- **Still globally shared, each a precondition before tenant #2:** SES,
+  MediaMTX as a singleton, and the globally-unique
   `invoiceNumber` / `qrCode` / `dtcmBarcode` / `stripePaymentId` namespaces.
+  (The CRM's single `CRM_EMAIL_FROM_ADDRESS` reply-forward mailbox was on this
+  list; it is fixed: the CRM email identity is per organisation since Nov 6,
+  2026, see the CRM checklist below.)
+
+### CRM before onboarding a tenant (Nov 6, 2026)
+
+Every item runs against the PLATFORM's database and environment. Master's
+behaviour proves nothing here: master runs with RLS off by design.
+
+1. **RLS on.** `PLATFORM_ORG_ID` is set, so the app and the worker refuse to
+   start without `RLS_SET_LOCAL=1` (`assertPlatformClaimsRls`), and with it they
+   refuse to start unless every policied table is enforced for the connected
+   role (`assertRlsEnforced`). Run `npx tsx scripts/bootstrap-rls.ts --verify-only`.
+2. **Policies behave.** With two tenants holding CRM data, run
+   `npx tsx scripts/verify-tenant-isolation.ts`: every `Crm*` table must show
+   each lane seeing only its own rows and the no-lane count at 0.
+3. **The CRM is granted per organisation.** Settings → System → Organisation
+   modules. A new organisation starts with none (`Organization.enabledModules`).
+4. **Each tenant's CRM email is its own.** Same card, **CRM email**: its own
+   From (an SES-verified identity), reply mailbox, reply domain (with an SES
+   receipt rule into the inbound bucket) and capture address. A tenant left
+   blank sends under the default sender, gets no reply threading and has its
+   replies copied nowhere; it never inherits MM Group's mailbox. Do not set the
+   `CRM_*` email environment on the platform at all.
+5. **Prove it with mail.** Send a deal email from two tenants, reply to each,
+   and confirm each reply lands only in its own tenant's inbox and only its own
+   mailbox gets the copy (`/logs`: `crm-inbound:stored`; a token at the wrong
+   domain logs `crm-inbound:token-domain-mismatch`).
 
 ---
 

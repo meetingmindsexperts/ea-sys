@@ -58,6 +58,25 @@ export async function listPoliciedTables(client: RlsQueryClient): Promise<Polici
   return client.$queryRawUnsafe<PoliciedTable[]>(POLICIED_TABLES_SQL);
 }
 
+/**
+ * The OTHER silent hole (CRM product review P0-3, Nov 6, 2026): a platform
+ * deployment that simply forgot RLS_SET_LOCAL=1. assertRlsEnforced is a no-op
+ * then, the tenant extension is a passthrough, and every policy in the
+ * database is never consulted, with nothing in the logs. A deployment that
+ * identifies itself as the platform (PLATFORM_ORG_ID set: it serves other
+ * organisations) must therefore claim enforcement, so the check above runs.
+ * Master leaves PLATFORM_ORG_ID unset and is untouched. Synchronous, no DB.
+ */
+export function assertPlatformClaimsRls(env: NodeJS.ProcessEnv = process.env): void {
+  if (!env.PLATFORM_ORG_ID?.trim()) return;
+  if (env.RLS_SET_LOCAL === "1") return;
+  throw new Error(
+    "PLATFORM_ORG_ID is set (this deployment serves other organisations) but RLS_SET_LOCAL is not \"1\", " +
+      "so no row-level-security policy would ever be consulted. Set RLS_SET_LOCAL=1 (after " +
+      "scripts/bootstrap-rls.ts). Refusing to serve without tenant isolation.",
+  );
+}
+
 export async function assertRlsEnforced(client: RlsQueryClient): Promise<void> {
   if (process.env.RLS_SET_LOCAL !== "1") return;
 

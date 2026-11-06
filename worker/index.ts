@@ -249,6 +249,8 @@ async function boot() {
   // single tick can fire against a mis-isolated DB. Flag off (master): no-op,
   // no DB call. (boot() is async only for this await; the file is CJS under
   // tsx, so no top-level await.)
+  // The platform must claim enforcement at all, or the check below never runs.
+  (await import("@/lib/tenant/rls-assert")).assertPlatformClaimsRls();
   if (process.env.RLS_SET_LOCAL === "1") {
     const [{ assertRlsEnforced }, { db }] = await Promise.all([
       import("@/lib/tenant/rls-assert"),

@@ -47,6 +47,8 @@ export async function register() {
       }
     }
 
+    // The platform must claim enforcement at all, or the check below never runs.
+    (await import("./lib/tenant/rls-assert")).assertPlatformClaimsRls();
     if (process.env.RLS_SET_LOCAL === "1") {
       const [{ assertRlsEnforced }, { db }] = await Promise.all([
         import("./lib/tenant/rls-assert"),
