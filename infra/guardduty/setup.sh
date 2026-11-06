@@ -51,6 +51,14 @@
 #   for r in ap-south-1 ap-southeast-1; do aws guardduty list-detectors --region $r; done
 #   aws events list-targets-by-rule --rule ea-sys-guardduty-findings --region ap-south-1
 #
+# FIRST RUN (Nov 6, 2026): the sample created in the same minute as the new
+# detectors never reached EventBridge; a second one sent ~45 minutes later was
+# emailed within a minute. If the test email does not arrive, send another:
+#   aws guardduty create-sample-findings --region ap-south-1 \
+#     --detector-id <id> --finding-types "Backdoor:EC2/C&CActivity.B"
+# It prints nothing on success. Delivery is visible in the AWS/Events
+# Invocations metric for the rule and AWS/SNS NumberOfNotificationsDelivered.
+#
 # Sample findings carry "[SAMPLE]" in the title. Archive them in the GuardDuty
 # console (Findings, select, Actions, Archive) after the test email arrives.
 
