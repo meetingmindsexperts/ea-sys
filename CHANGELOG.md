@@ -15,7 +15,9 @@ From the CRM product review (P0 to P2). Plan of record: §0 of `src/crm/README.m
 - **Budgets reads won deals through a contract** (`src/lib/contracts/crm-revenue.ts`), independent of the CRM entitlement; the CRM reaches storage, PDFs, QuickBooks and events only through `src/crm/integrations/`
 - **Transactional audit** for deal value, owner, won/lost, archive, quotes and QuickBooks sends (`src/crm/lib/crm-audit.ts`)
 - **A contact's data on request:** export, and erasure that removes their correspondence everywhere; **retention** per organisation, off by default (`crm-retention` job)
-- **Hardening:** a reply is verified only with DMARC or the sender's own DKIM; attachments checked by their bytes (`src/lib/file-signature.ts`); a reassigned task's reminder goes to its new owner; deal products and deal contacts pinned to their organisation by composite foreign keys (migration `20261106140000`); the CRM tabs and inbox work on a phone
+- **Hardening:** a reply is verified only with DMARC or the sender's own DKIM, read by PARSING SES's Authentication-Results (a regex over the line could be fooled by a sender-chosen envelope address like `x+dmarc=pass@evil.com`); attachments checked by their bytes (`src/lib/file-signature.ts`; deal documents by bytes only, octet-stream falls back to the name); a reassigned task's reminder goes to its new owner; deal products and deal contacts pinned to their organisation by composite foreign keys (migration `20261106140000`); the CRM tabs and inbox work on a phone
+- **Erasure is exact:** History lines that named the person are scrubbed in place (their address, and their name on those lines, become "[erased]"), never deleted and never matched as a substring, so `joann@` survives erasing `ann@` and the other people on a line stay; notifications go only when they name the address or link to an erased thread
+- **Budgets is independent of the CRM switch:** it counts a suspended CRM's won deals, since the switch decides who may use the CRM, not what the books say
 
 ### Webinar attendee chat, steps 1 to 3 of 4 (November 6)
 

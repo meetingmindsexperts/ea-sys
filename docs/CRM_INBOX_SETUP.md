@@ -239,10 +239,20 @@ re-read `.env`; it must be `deploy.sh`.
   quarantined email is read from the bucket by hand);
   `unmatched/` holds mail with no resolvable/active thread token (revoked or
   expired tokens land here too). Both auto-expire at 90 days.
-- Anti-spoofing (review H1): an inbound whose From doesn't verify against the
-  thread's counterparty (domain mismatch / DMARC fail) is stored + badged
-  **Unverified sender**, and its auto-forward to the owner's mailbox is
-  suppressed. Watch for `crm-inbound:unverified-sender` in `/logs`.
+- Anti-spoofing (review H1; tightened Nov 6, 2026): a reply is **verified**
+  only when its single From address is on the thread counterparty's domain
+  AND SES's own Authentication-Results prove that domain sent it: a
+  `dmarc=pass` whose `header.from` is that domain, or, when the domain has no
+  DMARC policy (`dmarc=none` or no verdict), a `dkim=pass` signed by that
+  domain itself. The header is PARSED, not pattern-matched: comments, quoted
+  text and `<addresses>` are ignored, only results after the sender-supplied
+  SPF part count (the envelope sender and HELO are the sender's to choose),
+  and two DMARC results mean a forged header. Anything else is stored and
+  badged **Unverified sender**, the owner still gets the bell, and the
+  auto-forward to Outlook is suppressed. Watch for
+  `crm-inbound:unverified-sender` (with a `reason`) in `/logs`. Known safe-side
+  cost: a genuine reply from a domain with neither DMARC nor its own DKIM is
+  shown unverified.
 - Token lifecycle (review M1): tokens roll a 180-day expiry on every message and
   are revoked when a deal is archived — inbound to a dead thread goes `unmatched/`.
 - Emails sent BEFORE the env landed carry no tokenized Reply-To — replies to
@@ -288,9 +298,10 @@ capture copy and the reply-code copy) is filed once, by Message-ID.
   Mail a person let through (allow-list, safe senders, quarantine release) is
   filed, except malware and high-confidence phish. A copy with no report logs
   `crm-capture:no-microsoft-verdict`.
-- Mail *from* partnerships@ is filed only with SES's `dmarc=pass`. An inbound
-  message is marked verified only with it (a sponsor domain without DKIM may
-  therefore show "Unverified sender"; that is the safe side).
+- Mail *from* partnerships@ is filed only with SES's `dmarc=pass` for the From
+  domain (the same parser as replies, above). An inbound message is marked
+  verified only with it (a sponsor domain without DKIM may therefore show
+  "Unverified sender"; that is the safe side).
 - Joining a conversation through `In-Reply-To` / `References` needs the same
   sponsor domain, so a leaked Message-ID cannot drop a message into another
   sponsor's thread.
