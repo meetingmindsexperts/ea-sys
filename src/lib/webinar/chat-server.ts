@@ -79,6 +79,11 @@ export function invalidateChatSnapshot(eventWhere: Prisma.EventWhereInput, slug:
   snapshots.delete(snapshotKey(eventWhere, slug, sessionId));
 }
 
+/** Drop this container's snapshots for a session, after a console change (it knows no slug). */
+export function invalidateChatSnapshotsForSession(sessionId: string): void {
+  for (const key of snapshots.keys()) if (key.endsWith(`:${sessionId}`)) snapshots.delete(key);
+}
+
 /**
  * The session's chat as it stands, from cache when fresh. Null when this is not a webinar's room
  * (not a WEBINAR event, or not its anchor session), so the route answers 404 as Q&A does.

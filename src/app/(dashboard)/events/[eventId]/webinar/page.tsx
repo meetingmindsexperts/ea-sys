@@ -77,6 +77,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { StreamDelay } from "@/components/webinar/stream-delay";
+import { ChatModerationPanel } from "@/components/webinar/chat-moderation-panel";
 import type { PlayerTimingSample } from "@/components/zoom/live-player";
 import { useServerClock } from "@/hooks/use-server-clock";
 import {
@@ -401,6 +402,12 @@ export default function WebinarConsolePage() {
               Polls
             </TabsTrigger>
           )}
+          {showViewerQaTab && (
+            <TabsTrigger value="chat" className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              Chat
+            </TabsTrigger>
+          )}
           <TabsTrigger value="branding" className="flex items-center gap-2">
             <Palette className="h-4 w-4" />
             Branding
@@ -513,6 +520,12 @@ export default function WebinarConsolePage() {
         {showViewerQaTab && (
           <TabsContent value="polls" className="mt-4">
             <LivePollsPanel eventId={eventId} enabled={data?.webinar?.livePolls === true} />
+          </TabsContent>
+        )}
+
+        {showViewerQaTab && (
+          <TabsContent value="chat" className="mt-4">
+            <ChatModerationPanel eventId={eventId} />
           </TabsContent>
         )}
 

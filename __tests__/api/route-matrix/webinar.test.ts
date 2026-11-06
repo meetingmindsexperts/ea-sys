@@ -48,6 +48,7 @@ import { GET as questionsGET, PATCH as questionsPATCH } from "@/app/api/events/[
 import { POST as recordingPOST } from "@/app/api/events/[eventId]/webinar/recording/fetch/route";
 import { POST as roomPOST } from "@/app/api/events/[eventId]/webinar/room/route";
 import { GET as streamTimelineGET } from "@/app/api/events/[eventId]/webinar/stream-timeline/route";
+import { GET as chatGET, PATCH as chatPATCH, POST as chatPOST } from "@/app/api/events/[eventId]/webinar/chat/route";
 import { GET as sequenceGET, POST as sequencePOST } from "@/app/api/events/[eventId]/webinar/sequence/route";
 import { GET as zoomSettingsGET, PUT as zoomSettingsPUT } from "@/app/api/events/[eventId]/zoom/settings/route";
 import {
@@ -87,6 +88,10 @@ const CASES: HandlerCase[] = [
   { name: "POST webinar/room", handler: roomPOST, method: "POST", body: { open: true } },
   { name: "GET webinar/sequence", handler: sequenceGET, method: "GET" },
   { name: "GET webinar/stream-timeline", handler: streamTimelineGET, method: "GET" },
+  { name: "GET webinar/chat", handler: chatGET, method: "GET" },
+  { name: "GET webinar/chat (csv)", handler: chatGET, method: "GET", query: "export=csv" },
+  { name: "PATCH webinar/chat", handler: chatPATCH, method: "PATCH", body: { slowMode: true } },
+  { name: "POST webinar/chat", handler: chatPOST, method: "POST", body: { action: "unpin" } },
   { name: "POST webinar/sequence", handler: sequencePOST, method: "POST", body: {} },
   { name: "GET zoom/settings", handler: zoomSettingsGET, method: "GET" },
   { name: "PUT zoom/settings", handler: zoomSettingsPUT, method: "PUT", body: { enabled: true } },

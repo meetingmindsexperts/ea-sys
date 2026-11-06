@@ -3140,6 +3140,72 @@ export function useWebinarViewerQuestions(eventId: string, enabled: boolean) {
   });
 }
 
+/** One chat message in the console: the real author always (Nov 6, 2026). */
+export interface WebinarChatConsoleMessage {
+  id: string;
+  body: string;
+  authorName: string;
+  authorKind: "attendee" | "staff";
+  anonymous: boolean;
+  kind: "message" | "handout";
+  handoutName: string | null;
+  registrationId: string | null;
+  authorMuted: boolean;
+  deleted: boolean;
+  pinned: boolean;
+  createdAt: string;
+}
+
+export interface WebinarChatConsole {
+  chat: import("@/lib/webinar/chat").WebinarChatSettings;
+  moderator: { id: string; name: string; isMe: boolean } | null;
+  messages: WebinarChatConsoleMessage[];
+  muted: { registrationId: string; name: string }[];
+  handouts: { id: string; name: string }[];
+}
+
+/** The webinar's chat for moderation; refreshed every 3 s while the Chat tab is open. */
+export function useWebinarChatConsole(eventId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["webinar-chat-console", eventId],
+    queryFn: () => fetchApi<WebinarChatConsole>(`/api/events/${eventId}/webinar/chat`),
+    enabled: !!eventId && enabled,
+    refetchInterval: 3_000,
+  });
+}
+
+export function useUpdateWebinarChatSettings(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { enabled?: boolean; openInLobby?: boolean; mutedAll?: boolean; slowMode?: boolean; moderator?: "me" }) =>
+      fetchApi<{ chat: unknown }>(`/api/events/${eventId}/webinar/chat`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["webinar-chat-console", eventId] }),
+  });
+}
+
+export type WebinarChatAction =
+  | { action: "delete" | "restore" | "pin"; messageId: string }
+  | { action: "unpin" }
+  | { action: "mute" | "unmute"; registrationId: string }
+  | { action: "post"; body: string; handoutId?: string };
+
+export function useWebinarChatAction(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: WebinarChatAction) =>
+      fetchApi<{ ok: true }>(`/api/events/${eventId}/webinar/chat`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["webinar-chat-console", eventId] }),
+  });
+}
+
 /** A live poll in the console, with its tally (Oct 6, 2026). */
 export interface LivePollRow {
   id: string;

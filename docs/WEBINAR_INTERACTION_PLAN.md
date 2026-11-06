@@ -241,7 +241,7 @@ stay the same either way, so A is not thrown away.
 |---|---|---|
 | 1 | Model, migration, RLS policy; post and read routes with the gate, limits and cache; tests | **BUILT Nov 6** |
 | 2 | Attendee panel (beside Q&A on desktop, a tab on a phone), pinned message, handout cards | **BUILT Nov 6** |
-| 3 | Console Chat tab: switches, mute all, slow mode, delete, mute a person, export | about 1 day |
+| 3 | Console Chat tab: switches, mute all, slow mode, delete, mute a person, export | **BUILT Nov 6** |
 | 4 | Load test, browser verification on a phone and desktop, docs | about half a day |
 
 About 4 days in all, shippable in two deploys (1 + 2 behind the off-by-default switch, then 3 + 4).
@@ -253,8 +253,17 @@ snapshot, found through `resolveEventTenant`, and the per-person viewer cache);
 (`components/webinar/chat-panel.tsx`) and the Chat / Q&A tabs (`webinar-side-panel.tsx`). Owner,
 Nov 6: nothing may arrive unseen behind the other tab, so the Chat tab shows a dot for new messages
 from others, and the Q&A tab "Poll" for a poll waiting on this viewer and a dot for a newly shared
-question or an answered one of theirs. Until step 3 there is no console switch: chat stays off
-everywhere (it needs `settings.webinar.chat.enabled` and a named moderator).
+question or an answered one of theirs.
+
+**Built Nov 6 (step 3):** the Webinar Console's Chat tab (`components/webinar/chat-moderation-panel.tsx`)
+over `GET/PATCH/POST /api/events/[eventId]/webinar/chat`: the feed with real names (and "Shown as
+Attendee" for anonymous posts), "Make me the moderator" (whoever holds `webinar.manage` names
+themselves, so the moderator can always moderate; switching chat on with nobody named names you),
+the switches (on, open in the waiting room, mute everyone, slow mode), delete and restore (the row
+stays, with who and when), pin, mute and unmute a person, a host message, a handout shared as a
+card, and the CSV record (`webinar.attendance.export`, 30 an hour, `private, no-store`). Settings are
+written under the event row lock through `updateEventSettings`, only the `chat` key. Step 4, the
+500-viewer load test, is still to do before a large webinar runs chat.
 
 ## 7. Private chat
 
