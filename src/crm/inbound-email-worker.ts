@@ -259,11 +259,16 @@ function emailDomain(addr: string): string {
  * SENDER, and the token leaks through forwarded mail; without this, anyone with
  * a token can inject a spoofed "Abbott replied — new bank details" message.
  *
- * Signals (any failure ⇒ unverified):
- *   - explicit DMARC=fail in SES's Authentication-Results (spoofed envelope), and
+ * Signals (all must hold):
  *   - From domain must equal the counterparty's domain (the realistic attack is
  *     a spoofed display name from a foreign domain; a same-org colleague reply
- *     still passes).
+ *     still passes), and
+ *   - PROOF the From domain sent it, from SES's own Authentication-Results:
+ *     dmarc=pass, or, when SES gave no DMARC verdict (the domain publishes no
+ *     policy), a dkim=pass signed by the From domain itself. A matching domain
+ *     alone used to verify, so a forged From on a domain without DMARC passed
+ *     (CRM product review F-03). An explicit dmarc=fail is unverified whatever
+ *     else the header says.
  *
  * Fails toward UNVERIFIED: a false-unverified only adds a warning badge and
  * skips the auto-forward (recoverable — the message is still in the inbox); a
@@ -284,7 +289,25 @@ export function verifySender(
   if (!fromDomain || !cpDomain || fromDomain !== cpDomain) {
     return { verified: false, reason: "domain-mismatch" };
   }
-  return { verified: true, reason: "domain-match" };
+  if (/\bdmarc\s*=\s*pass\b/i.test(auth)) return { verified: true, reason: "dmarc-pass" };
+  if (!/\bdmarc\s*=/i.test(auth) && dkimPassFor(auth, fromDomain)) return { verified: true, reason: "dkim-aligned" };
+  return { verified: false, reason: "no-authentication" };
+}
+
+/**
+ * Did SES record a DKIM pass signed by this exact domain? Read from SES's own
+ * Authentication-Results ("dkim=pass header.i=@abbott.com" or "header.d=").
+ * The signing domain must be the From domain itself: a pass for the sender's
+ * mail provider proves nothing about who wrote From.
+ */
+export function dkimPassFor(auth: string, domain: string): boolean {
+  const want = domain.toLowerCase();
+  for (const m of auth.matchAll(/\bdkim\s*=\s*pass\b([^;]*)/gi)) {
+    const d = /header\.(?:d=|i=@?)([^\s;]+)/i.exec(m[1] ?? "");
+    const signer = (d?.[1] ?? "").toLowerCase().replace(/^.*@/, "");
+    if (signer === want) return true;
+  }
+  return false;
 }
 
 /** Best-effort removal of just-written attachment files when the row never lands. */

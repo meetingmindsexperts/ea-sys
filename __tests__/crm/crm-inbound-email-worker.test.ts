@@ -88,7 +88,8 @@ function rawEmail(over: { to?: string; spam?: string; from?: string; dmarc?: str
     "Message-ID: <msg-1@abbott.com>",
     `X-SES-Spam-Verdict: ${over.spam ?? "PASS"}`,
     "X-SES-Virus-Verdict: PASS",
-    ...(over.dmarc ? [`Authentication-Results: amazonses.com; spf=pass; dmarc=${over.dmarc} header.from=abbott.com`] : []),
+    // SES always writes its own verdict; a passing one unless a test says otherwise ("none" omits it).
+    ...(over.dmarc === "none" ? [] : [`Authentication-Results: amazonses.com; spf=pass; dmarc=${over.dmarc ?? "pass"} header.from=abbott.com`]),
     "Content-Type: text/plain; charset=utf-8",
     "",
     "Sounds good, send the contract.",
@@ -350,8 +351,8 @@ describe("runTick", () => {
   });
 
   // ── H1: sender verification / anti-BEC ─────────────────────────────────────
-  it("a verified sender (From domain matches counterparty) is stored verified + forwarded", async () => {
-    mockS3({ "inbound/v": rawEmail() });
+  it("a verified sender (From domain matches counterparty, SES dmarc=pass) is stored verified + forwarded", async () => {
+    mockS3({ "inbound/v": rawEmail({ dmarc: "pass" }) });
     await runTick();
     const row = vi.mocked(db.crmEmailMessage.create).mock.calls[0]![0]!.data as Record<string, unknown>;
     expect(row.unverifiedSender).toBe(false);
@@ -370,6 +371,14 @@ describe("runTick", () => {
       expect.objectContaining({ type: "EMAIL_RECEIVED", title: expect.stringContaining("Unverified") }),
     );
     // …and NO email forward to a real mailbox under our branding.
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("a right-domain reply with no authentication verdict is stored UNVERIFIED and not forwarded (F-03)", async () => {
+    mockS3({ "inbound/noauth": rawEmail({ dmarc: "none" }) });
+    await runTick();
+    const row = vi.mocked(db.crmEmailMessage.create).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(row.unverifiedSender).toBe(true);
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
@@ -510,8 +519,24 @@ describe("verifySender", () => {
       headerLines: auth.map((a) => ({ key: "authentication-results", line: `Authentication-Results: ${a}` })),
     }) as never;
 
-  it("same domain as the counterparty → verified", () => {
-    expect(verifySender(parsed("bob@abbott.com"), "jane@abbott.com").verified).toBe(true);
+  it("same domain AND SES's dmarc=pass → verified", () => {
+    expect(verifySender(parsed("bob@abbott.com", "amazonses.com; spf=pass; dmarc=pass header.from=abbott.com"), "jane@abbott.com")).toMatchObject({
+      verified: true,
+      reason: "dmarc-pass",
+    });
+  });
+  it("same domain but NO authentication proof → unverified (a forged From on a domain without DMARC, F-03)", () => {
+    expect(verifySender(parsed("bob@abbott.com"), "jane@abbott.com")).toMatchObject({ verified: false, reason: "no-authentication" });
+    expect(verifySender(parsed("bob@abbott.com", "amazonses.com; spf=pass"), "jane@abbott.com").verified).toBe(false);
+  });
+  it("no DMARC verdict but a DKIM pass signed by the From domain → verified", () => {
+    expect(verifySender(parsed("bob@abbott.com", "amazonses.com; dkim=pass header.i=@abbott.com; spf=pass"), "jane@abbott.com")).toMatchObject({
+      verified: true,
+      reason: "dkim-aligned",
+    });
+  });
+  it("a DKIM pass by ANOTHER domain (the sender's mail provider) proves nothing", () => {
+    expect(verifySender(parsed("bob@abbott.com", "amazonses.com; dkim=pass header.d=sendgrid.net"), "jane@abbott.com").verified).toBe(false);
   });
   it("foreign domain → unverified (domain-mismatch)", () => {
     expect(verifySender(parsed("x@evil.com"), "jane@abbott.com")).toMatchObject({
@@ -525,8 +550,9 @@ describe("verifySender", () => {
     ).toBe(false);
   });
 
-  it("an Authentication-Results not written by SES is ignored", () => {
-    expect(verifySender(parsed("jane@abbott.com", "evil; dmarc=fail"), "jane@abbott.com").verified).toBe(true);
+  it("an Authentication-Results not written by SES is ignored, in both directions", () => {
+    expect(verifySender(parsed("jane@abbott.com", "evil; dmarc=fail"), "jane@abbott.com").reason).toBe("no-authentication");
+    expect(verifySender(parsed("jane@abbott.com", "evil; dmarc=pass"), "jane@abbott.com").verified).toBe(false);
   });
 
   it("explicit dmarc=fail → unverified even on the right domain", () => {
