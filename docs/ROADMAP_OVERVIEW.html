@@ -250,7 +250,7 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
       <div class="stat use"><div class="n"><svg aria-hidden="true"><use href="#s-use"/></svg>6</div><div class="l">Live and in use</div></div>
       <div class="stat idle"><div class="n"><svg aria-hidden="true"><use href="#s-idle"/></svg>3</div><div class="l">Live, not used yet</div></div>
       <div class="stat build"><div class="n"><svg aria-hidden="true"><use href="#s-build"/></svg>2</div><div class="l">In build</div></div>
-      <div class="stat decide"><div class="n"><svg aria-hidden="true"><use href="#s-decide"/></svg>3</div><div class="l">Needs a decision</div></div>
+      <div class="stat decide"><div class="n"><svg aria-hidden="true"><use href="#s-decide"/></svg>4</div><div class="l">Needs a decision</div></div>
       <div class="stat plan"><div class="n"><svg aria-hidden="true"><use href="#s-plan"/></svg>1</div><div class="l">Planned</div></div>
     </div>
   </div>
@@ -284,6 +284,7 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
             <li><strong>First Blueprint approved</strong><span>One brief is waiting for approval</span></li>
             <li><strong>Start using Budgets</strong><span>Live, but no budget entered yet</span></li>
             <li><strong>DTCM codes on a live event</strong><span>Then retire the old barcodes app</span></li>
+            <li><strong>Mobile app for attendees</strong><span>Agree the features first; then about 2 to 4 weeks</span></li>
           </ul>
         </div>
         <div class="lane later">
@@ -313,7 +314,7 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
         <span class="pill plan"><svg class="i" aria-hidden="true"><use href="#s-plan"/></svg>Planned</span>
       </div>
       <div class="filters" role="group" aria-label="Show modules by status">
-        <button type="button" id="f-all" data-filter="all" aria-pressed="true">All 15</button>
+        <button type="button" id="f-all" data-filter="all" aria-pressed="true">All 16</button>
         <button type="button" id="f-use" data-filter="use" aria-pressed="false"><svg aria-hidden="true"><use href="#s-use"/></svg>In use</button>
         <button type="button" id="f-idle" data-filter="idle" aria-pressed="false"><svg aria-hidden="true"><use href="#s-idle"/></svg>Not used yet</button>
         <button type="button" id="f-build" data-filter="build" aria-pressed="false"><svg aria-hidden="true"><use href="#s-build"/></svg>In build</button>
@@ -393,6 +394,11 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
             <dl><div><dt>Done</dt><dd>Built 3 November and tested on DET's test system.</dd></div><div><dt>Next</dt><dd>Run one live Dubai event on it, then retire the old barcodes app.</dd></div></dl>
             <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> no codes bought through it yet.</span></p>
           </article>
+          <article class="card" data-status="decide">
+            <div class="card-top"><span class="pill decide"><svg class="i" aria-hidden="true"><use href="#s-decide"/></svg>Needs a decision</span><h4>Mobile app for attendees</h4></div>
+            <p class="what">An app on attendees' phones, as some event platforms offer: their agenda, badge QR code, sessions, speakers, floor plan, surveys and reminders.</p>
+            <dl><div><dt>Done</dt><dd>Most screens exist as mobile web pages, and the sign-in the app would use is already built.</dd></div><div><dt>Next</dt><dd>Agree which features people actually use, then decide between a home-screen web app and an App Store app.</dd></div></dl>
+          </article>
         </div>
       </div>
 
@@ -452,6 +458,10 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
         <details>
           <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">Show every new webinar in the catalogue by default?</span><span class="who events"><i>E</i>Events team</span><span class="short">Today it is a tick-box per event.</span></summary>
           <div class="detail"><p>Webinars do not appear today because nobody has ticked the box. Defaulting to on would list them automatically.</p></div>
+        </details>
+        <details>
+          <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">A mobile app for attendees: which features, and in the App Store or not?</span><span class="who events"><i>E</i>Events team</span><span class="short">Start with the three features attendees use most.</span></summary>
+          <div class="detail"><p>A home-screen web app takes about 2 to 4 weeks, reuses what is built, updates with every release and needs no App Store review. On iPhone, attendees add it to their home screen themselves. An App Store and Play Store app takes about 6 to 10 weeks, plus a yearly Apple fee and store reviews for every release. The first can later be wrapped into the second, so no work is lost. An attendee directory and exhibitor lead scanning are the parts not built at all, and they would add the most time.</p></div>
         </details>
         <details>
           <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">Which e-invoicing provider?</span><span class="who finance"><i>F</i>Finance</span><span class="short">Must connect to QuickBooks. Due by 31 March 2027.</span></summary>
