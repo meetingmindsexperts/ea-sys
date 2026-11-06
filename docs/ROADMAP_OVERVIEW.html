@@ -6,155 +6,216 @@
 <title>EA-SYS Roadmap</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: one calm column; summary first, then the now/next/later board, modules by area, decisions, key dates. */
+/* Layout: a deep cerulean briefing band, then colour-coded sections: board, modules by area, decisions, dates.
+   Status is always shape + word + colour, never colour alone. All text pairs meet WCAG AA. */
 :root {
-  --bg: #f6f9fb;
+  --bg: #f3f7fa;
   --surface: #ffffff;
-  --ink: #0c1f2e;
-  --muted: #566b7c;
-  --line: #dde6ee;
-  --accent: #00a3d6;
-  --accent-ink: #00739a;
-  --accent-soft: #e3f5fc;
-  --live: #1f8a4c;      --live-soft: #e5f5ea;
-  --build: #b26a00;     --build-soft: #fdf1dc;
-  --decide: #7a4fd0;    --decide-soft: #f0eafc;
-  --plan: #566b7c;      --plan-soft: #edf1f5;
-  --idle: #00739a;      --idle-soft: #e3f5fc;
+  --ink: #0b1d2b;
+  --muted: #4a5f70;
+  --line: #d6e1ea;
+  --brand: #00aade;
+  --brand-ink: #006a8e;
+  --hero: #062d45;
+  --hero-2: #0a4a6e;
+  --hero-ink: #ffffff;
+  --hero-muted: #b9dcec;
+
+  /* Status: text colour on its own tint, each >= 4.5:1 */
+  --use: #13643a;    --use-bg: #e1f4e8;    --use-line: #9fd6b3;
+  --idle: #005f80;   --idle-bg: #dcf2fa;   --idle-line: #8ccfe8;
+  --build: #8a4700;  --build-bg: #fdeed3;  --build-line: #f0c27a;
+  --decide: #9c1f47; --decide-bg: #fbe4eb; --decide-line: #eeaabf;
+  --plan: #3b4f62;   --plan-bg: #e7edf3;   --plan-line: #b7c6d4;
+
+  /* Area colours, used for headers and icons */
+  --a-plan: #0b6e8f;  --a-plan-bg: #e2f3f9;
+  --a-sell: #a0450e;  --a-sell-bg: #fcebdf;
+  --a-run: #23652b;   --a-run-bg: #e5f3e3;
+  --a-fin: #3a4ea0;   --a-fin-bg: #e8ebfa;
+
+  --font-display: "Bricolage Grotesque", "Geist", system-ui, sans-serif;
   --font-body: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0b1620; --surface: #122230; --ink: #e8f0f6; --muted: #93a7b8; --line: #23384a;
-    --accent: #2cc0ec; --accent-ink: #6fd6f5; --accent-soft: #0f3346;
-    --live: #5fd08f; --live-soft: #123222; --build: #f0b45a; --build-soft: #3a2a10;
-    --decide: #b79bf5; --decide-soft: #2a2145; --plan: #a3b4c3; --plan-soft: #1c2c3a;
-    --idle: #6fd6f5; --idle-soft: #0f3346;
+    --bg: #08141d; --surface: #0f2130; --ink: #eaf2f7; --muted: #a4b8c7; --line: #22394b;
+    --brand: #3cc6f0; --brand-ink: #7fd8f5; --hero: #04202f; --hero-2: #0a3a55; --hero-muted: #9fcbe0;
+    --use: #7fdca3; --use-bg: #12301f; --use-line: #2b6b44;
+    --idle: #7fd3f2; --idle-bg: #0c2f40; --idle-line: #1f6683;
+    --build: #f5bf6a; --build-bg: #36250c; --build-line: #7a5419;
+    --decide: #f59ab6; --decide-bg: #3a1424; --decide-line: #7d2f4b;
+    --plan: #b6c6d5; --plan-bg: #1b2c3b; --plan-line: #3a5064;
+    --a-plan: #6fd0ef; --a-plan-bg: #0c2f40; --a-sell: #f6ad7b; --a-sell-bg: #36200f;
+    --a-run: #8fd998; --a-run-bg: #132e17; --a-fin: #aab7f5; --a-fin-bg: #1b2148;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0b1620; --surface: #122230; --ink: #e8f0f6; --muted: #93a7b8; --line: #23384a;
-  --accent: #2cc0ec; --accent-ink: #6fd6f5; --accent-soft: #0f3346;
-  --live: #5fd08f; --live-soft: #123222; --build: #f0b45a; --build-soft: #3a2a10;
-  --decide: #b79bf5; --decide-soft: #2a2145; --plan: #a3b4c3; --plan-soft: #1c2c3a;
-  --idle: #6fd6f5; --idle-soft: #0f3346;
+  --bg: #08141d; --surface: #0f2130; --ink: #eaf2f7; --muted: #a4b8c7; --line: #22394b;
+  --brand: #3cc6f0; --brand-ink: #7fd8f5; --hero: #04202f; --hero-2: #0a3a55; --hero-muted: #9fcbe0;
+  --use: #7fdca3; --use-bg: #12301f; --use-line: #2b6b44;
+  --idle: #7fd3f2; --idle-bg: #0c2f40; --idle-line: #1f6683;
+  --build: #f5bf6a; --build-bg: #36250c; --build-line: #7a5419;
+  --decide: #f59ab6; --decide-bg: #3a1424; --decide-line: #7d2f4b;
+  --plan: #b6c6d5; --plan-bg: #1b2c3b; --plan-line: #3a5064;
+  --a-plan: #6fd0ef; --a-plan-bg: #0c2f40; --a-sell: #f6ad7b; --a-sell-bg: #36200f;
+  --a-run: #8fd998; --a-run-bg: #132e17; --a-fin: #aab7f5; --a-fin-bg: #1b2148;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body {
-  background: var(--bg); color: var(--ink);
-  font-family: var(--font-body); font-size: 15px; line-height: 1.55;
-  padding-left: max(16px, env(safe-area-inset-left, 0px));
-  padding-right: max(16px, env(safe-area-inset-right, 0px));
-  padding-block: 40px 64px;
-}
-.wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 56px; }
-h1, h2, h3 { margin: 0; text-wrap: balance; }
+body { background: var(--bg); color: var(--ink); margin: 0; font-family: var(--font-body); font-size: 16px; line-height: 1.6; }
+.gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.inner { max-width: 1080px; margin: 0 auto; }
+h1, h2, h3, h4 { margin: 0; text-wrap: balance; }
 p { margin: 0; }
-.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-ink); }
+svg.i { width: 1em; height: 1em; flex: none; vertical-align: -0.14em; }
+:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
 
-/* Header */
-header { display: grid; gap: 14px; }
-header h1 { font-size: clamp(30px, 5vw, 42px); font-weight: 700; letter-spacing: -0.02em; }
-header .lead { font-size: 17px; color: var(--muted); max-width: 62ch; }
-.summary { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
-.stat {
-  display: flex; align-items: baseline; gap: 8px;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
-  padding: 10px 14px;
+/* Hero */
+.hero {
+  background:
+    radial-gradient(1200px 420px at 85% -20%, rgba(0,170,222,0.35), transparent 60%),
+    linear-gradient(160deg, var(--hero) 0%, var(--hero-2) 100%);
+  color: var(--hero-ink); padding-block: 48px 40px;
 }
-.stat b { font-size: 22px; font-variant-numeric: tabular-nums; }
-.stat span { color: var(--muted); font-size: 14px; }
-.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; align-self: center; }
+.hero .inner { display: grid; gap: 18px; }
+.asof { display: inline-flex; align-items: center; gap: 8px; width: fit-content; font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; color: var(--hero-ink); background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.22); border-radius: 999px; padding: 5px 12px; }
+.hero h1 { font-family: var(--font-display); font-size: clamp(32px, 5.4vw, 52px); line-height: 1.08; letter-spacing: -0.02em; max-width: 20ch; }
+.hero h1 em { font-style: normal; color: #7fdcff; }
+.hero .lead { font-size: 18px; color: var(--hero-muted); max-width: 62ch; }
+.stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+.stat { background: var(--surface); color: var(--ink); border-radius: 14px; padding: 14px 16px; display: grid; gap: 4px; border-top: 5px solid var(--c); }
+.stat .n { font-family: var(--font-display); font-size: 34px; line-height: 1; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 10px; }
+.stat .n svg { width: 22px; height: 22px; color: var(--c); }
+.stat .l { font-size: 14px; color: var(--muted); font-weight: 500; }
+.stat.use { --c: var(--use); } .stat.idle { --c: var(--idle); } .stat.build { --c: var(--build); }
+.stat.decide { --c: var(--decide); } .stat.plan { --c: var(--plan); }
 
-/* Section heads */
-section { display: grid; gap: 20px; }
+main { padding-block: 48px 64px; }
+main .inner { display: grid; gap: 64px; }
+section { display: grid; gap: 22px; }
 .section-head { display: grid; gap: 6px; }
-.section-head h2 { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
-.section-head p { color: var(--muted); max-width: 64ch; }
+.kicker { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--brand-ink); font-weight: 500; }
+.section-head h2 { font-family: var(--font-display); font-size: clamp(24px, 3.4vw, 30px); letter-spacing: -0.01em; }
+.section-head p { color: var(--muted); max-width: 66ch; font-size: 17px; }
 
-/* Now / next / later */
+/* Status pill: icon + words + colour */
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; border-radius: 999px; padding: 4px 11px 4px 9px; white-space: nowrap; border: 1px solid; }
+.pill.use { color: var(--use); background: var(--use-bg); border-color: var(--use-line); }
+.pill.idle { color: var(--idle); background: var(--idle-bg); border-color: var(--idle-line); }
+.pill.build { color: var(--build); background: var(--build-bg); border-color: var(--build-line); }
+.pill.decide { color: var(--decide); background: var(--decide-bg); border-color: var(--decide-line); }
+.pill.plan { color: var(--plan); background: var(--plan-bg); border-color: var(--plan-line); }
+
+/* Legend */
+.legend { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; font-size: 14px; color: var(--muted); }
+
+/* Board */
 .board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.lane { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 12px; align-content: start; }
-.lane.now { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-.lane h3 { font-size: 16px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.lane h3 small { font-family: var(--font-mono); font-weight: 400; font-size: 12px; color: var(--muted); }
-.lane ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.lane li { display: grid; gap: 2px; padding-top: 10px; border-top: 1px solid var(--line); }
-.lane li:first-child { border-top: 0; padding-top: 0; }
-.lane li strong { font-weight: 600; }
-.lane li span { color: var(--muted); font-size: 14px; }
+.lane { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; display: grid; align-content: start; }
+.lane-head { padding: 14px 18px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.lane-head h3 { font-family: var(--font-display); font-size: 21px; }
+.lane-head small { font-family: var(--font-mono); font-size: 13px; }
+.lane.now .lane-head { background: var(--hero-2); color: #fff; }
+.lane.now .lane-head small { color: #d4f2fc; }
+.lane.next .lane-head { background: var(--build-bg); color: var(--build); border-bottom: 1px solid var(--build-line); }
+.lane.later .lane-head { background: var(--plan-bg); color: var(--plan); border-bottom: 1px solid var(--plan-line); }
+.lane ul { list-style: none; margin: 0; padding: 6px 18px 16px; display: grid; }
+.lane li { display: grid; gap: 2px; padding-block: 12px; border-top: 1px solid var(--line); }
+.lane li:first-child { border-top: 0; }
+.lane li strong { font-weight: 600; font-size: 16px; }
+.lane li span { color: var(--muted); font-size: 15px; }
 
 /* Filters */
 .filters { display: flex; flex-wrap: wrap; gap: 8px; }
-.filters button {
-  font: inherit; font-size: 14px; cursor: pointer;
-  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
-  border-radius: 999px; padding: 6px 14px; display: inline-flex; align-items: center; gap: 8px;
-}
+.filters button { font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 7px 14px; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; }
+.filters button svg { width: 16px; height: 16px; }
+.filters button[data-filter="use"] svg { color: var(--use); } .filters button[data-filter="idle"] svg { color: var(--idle); }
+.filters button[data-filter="build"] svg { color: var(--build); } .filters button[data-filter="decide"] svg { color: var(--decide); }
+.filters button[data-filter="plan"] svg { color: var(--plan); }
 .filters button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-.filters button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.filters button[aria-pressed="true"] svg { color: inherit; }
 
-/* Modules */
-.area { display: grid; gap: 12px; }
-.area h3 { font-size: 13px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
-.card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.card h4 { margin: 0; font-size: 16px; font-weight: 600; }
-.card .what { color: var(--muted); font-size: 14px; }
-.card dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; }
-.card dt { font-family: var(--font-mono); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding-top: 2px; }
+/* Areas and module cards */
+.area { display: grid; gap: 14px; }
+.area-head { display: flex; align-items: center; gap: 12px; }
+.area-icon { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--ab); color: var(--ac); }
+.area-icon svg { width: 22px; height: 22px; }
+.area-head h3 { font-family: var(--font-display); font-size: 21px; color: var(--ac); }
+.area-head span { font-size: 15px; color: var(--muted); }
+.area.plan { --ac: var(--a-plan); --ab: var(--a-plan-bg); }
+.area.sell { --ac: var(--a-sell); --ab: var(--a-sell-bg); }
+.area.run  { --ac: var(--a-run);  --ab: var(--a-run-bg); }
+.area.fin  { --ac: var(--a-fin);  --ab: var(--a-fin-bg); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.card-top { display: grid; gap: 8px; }
+.card h4 { font-size: 18px; font-weight: 600; line-height: 1.3; }
+.card .what { color: var(--muted); font-size: 15px; }
+.card dl { margin: 0; display: grid; gap: 8px; font-size: 15px; }
+.card dl div { display: grid; grid-template-columns: 52px 1fr; gap: 10px; }
+.card dt { font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ac); padding-top: 3px; }
 .card dd { margin: 0; }
-.pill { flex: none; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
-.pill.live { color: var(--live); background: var(--live-soft); }
-.pill.build { color: var(--build); background: var(--build-soft); }
-.pill.decide { color: var(--decide); background: var(--decide-soft); }
-.pill.plan { color: var(--plan); background: var(--plan-soft); }
-.pill.idle { color: var(--idle); background: var(--idle-soft); }
-.dot.idle { background: var(--idle); }
-.fact { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; border-top: 1px dashed var(--line); padding-top: 8px; }
-.dot.live { background: var(--live); } .dot.build { background: var(--build); }
-.dot.decide { background: var(--decide); } .dot.plan { background: var(--plan); }
+.fact { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-variant-numeric: tabular-nums; }
+.fact svg { width: 18px; height: 18px; color: var(--brand-ink); margin-top: 2px; }
+.fact b { font-weight: 600; }
 
 /* Decisions */
-.decisions { display: grid; gap: 10px; }
-details { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
-summary { cursor: pointer; list-style: none; padding: 16px 18px; display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: center; }
+.decisions { display: grid; gap: 12px; }
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+details.urgent { border: 2px solid var(--decide-line); }
+summary { cursor: pointer; list-style: none; padding: 16px 20px; display: grid; grid-template-columns: auto 1fr auto; gap: 4px 14px; align-items: center; }
 summary::-webkit-details-marker { display: none; }
-summary .q { font-weight: 600; }
-summary .who { font-size: 13px; color: var(--decide); background: var(--decide-soft); border-radius: 999px; padding: 3px 10px; font-weight: 600; white-space: nowrap; }
-summary .short { grid-column: 1 / -1; color: var(--muted); font-size: 14px; }
+summary .qmark { grid-row: span 2; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--decide-bg); color: var(--decide); }
+summary .qmark svg { width: 20px; height: 20px; }
+summary .q { font-weight: 600; font-size: 17px; }
+summary .short { grid-column: 2 / 3; color: var(--muted); font-size: 15px; }
+.who { grid-row: span 2; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; white-space: nowrap; }
+.who i { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 13px; color: #fff; background: var(--wc); }
+.who.medhat { --wc: #8a2347; } .who.finance { --wc: #1f6a3a; } .who.events { --wc: #8a4700; }
+.chev { transition: transform 0.15s ease; color: var(--muted); }
+details[open] .chev { transform: rotate(90deg); }
 details[open] summary { border-bottom: 1px solid var(--line); }
-.detail { padding: 14px 18px 18px; display: grid; gap: 8px; font-size: 14px; max-width: 72ch; }
-.urgent { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-ink); }
+.detail { padding: 14px 20px 18px 70px; display: grid; gap: 8px; font-size: 15px; max-width: 80ch; }
+.tag-urgent { display: inline-flex; align-items: center; gap: 6px; width: fit-content; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--decide); background: var(--decide-bg); border-radius: 6px; padding: 3px 8px; }
 
 /* Key dates */
-.dates { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; position: relative; }
-.dates::before { content: ""; position: absolute; left: 0; right: 0; top: 7px; height: 2px; background: var(--line); }
-.dates li { position: relative; display: grid; gap: 4px; padding-top: 26px; padding-right: 12px; }
-.dates li::before { content: ""; position: absolute; top: 0; left: 0; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); border: 2px solid var(--muted); }
-.dates li.past::before { background: var(--live); border-color: var(--live); }
-.dates li.key::before { background: var(--accent); border-color: var(--accent); }
-.dates time { font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.dates strong { font-weight: 600; font-size: 15px; }
-.dates span { font-size: 13px; color: var(--muted); }
+.dates { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: relative; }
+.dates::before { content: ""; position: absolute; left: 10px; right: 10px; top: 11px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--use) 0 34%, var(--line) 34% 100%); }
+.dates li { position: relative; display: grid; gap: 4px; padding: 36px 14px 0 0; }
+.dates .mark { position: absolute; top: 0; left: 0; width: 25px; height: 25px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); border: 3px solid var(--plan-line); color: var(--plan); }
+.dates .mark svg { width: 13px; height: 13px; }
+.dates li.done .mark { background: var(--use); border-color: var(--use); color: var(--surface); }
+.dates li.soon .mark { border-color: var(--brand); color: var(--brand-ink); }
+.dates li.legal .mark { background: var(--decide-bg); border-color: var(--decide); color: var(--decide); }
+.dates time { font-family: var(--font-mono); font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dates strong { font-weight: 600; font-size: 16px; }
+.dates span { font-size: 14px; color: var(--muted); }
+.dates li.legal span { color: var(--decide); font-weight: 600; }
 
-footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; }
+footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var(--muted); font-size: 14px; }
 
-@media (max-width: 820px) {
+@media (max-width: 900px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .board { grid-template-columns: 1fr; }
-  .dates { grid-template-columns: 1fr; gap: 18px; }
-  .dates::before { left: 7px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; }
-  .dates li { padding: 0 0 0 30px; }
+  .dates { grid-template-columns: 1fr; gap: 20px; }
+  .dates::before { left: 11px; right: auto; top: 6px; bottom: 6px; width: 3px; height: auto; background: var(--line); }
+  .dates li { padding: 0 0 0 40px; }
+  .detail { padding-left: 20px; }
+}
+@media (max-width: 520px) {
+  summary { grid-template-columns: 1fr; }
+  summary .qmark { display: none; }
+  summary .short { grid-column: 1; }
+  .who { grid-row: auto; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .card, details { transition: border-color 0.15s ease; }
-  .card:hover, details:hover { border-color: var(--accent); }
+  .card, details, .lane { transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+  .card:hover { border-color: var(--ac); box-shadow: 0 6px 20px -12px rgba(6,45,69,0.35); }
 }
 </style>
 </head>
@@ -165,232 +226,263 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
   "In production" figures from prod (npm run prod:psql, read-only) before sharing.
   The engineering backlog is docs/ROADMAP.md; this page is the summary of it.
 -->
-<div class="wrap">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="s-use" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="currentColor"/><path d="M6 10.4l2.6 2.6L14.2 7.4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="s-idle" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="7.2" y="6.5" width="2" height="7" rx="1" fill="currentColor"/><rect x="10.8" y="6.5" width="2" height="7" rx="1" fill="currentColor"/></symbol>
+  <symbol id="s-build" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M10 2a8 8 0 0 1 0 16z" fill="currentColor"/></symbol>
+  <symbol id="s-decide" viewBox="0 0 20 20"><path d="M10 1.5l8.5 8.5-8.5 8.5L1.5 10z" fill="currentColor"/><path d="M8.1 7.6a2 2 0 1 1 2.6 1.9c-.5.2-.7.5-.7 1v.6" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="10" cy="13.4" r="1" fill="#fff"/></symbol>
+  <symbol id="s-plan" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-dasharray="3 2.4"/></symbol>
+  <symbol id="s-chart" viewBox="0 0 20 20"><path d="M3 17h14M5.5 14V9M10 14V5M14.5 14v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="s-chev" viewBox="0 0 20 20"><path d="M7.5 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="s-flag" viewBox="0 0 20 20"><path d="M5 18V3m0 1h9l-2 3.5 2 3.5H5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="a-plan" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="a-sell" viewBox="0 0 24 24"><path d="M4 10v4l11 5V5L4 10z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M18 9a4 4 0 0 1 0 6M7 14.5V19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="a-run" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 3v3h6V3M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="a-fin" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 10.5h18M7 15h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
 
-  <header>
-    <p class="eyebrow">EA-SYS · Product roadmap · As of 6 November 2026</p>
-    <h1>What we are building, and what needs a decision</h1>
-    <p class="lead">EA-SYS runs our events end to end, from the first budget to the certificate. Here is where every part stands today, what ships next, and the few decisions that hold work back.</p>
-    <div class="summary" aria-label="Status summary">
-      <div class="stat"><i class="dot live"></i><b>6</b><span>live and in use</span></div>
-      <div class="stat"><i class="dot idle"></i><b>3</b><span>live, not used yet</span></div>
-      <div class="stat"><i class="dot build"></i><b>2</b><span>in build</span></div>
-      <div class="stat"><i class="dot decide"></i><b>3</b><span>waiting on a decision</span></div>
-      <div class="stat"><i class="dot plan"></i><b>1</b><span>planned</span></div>
+<header class="hero gutter">
+  <div class="inner">
+    <p class="asof">As of 6 November 2026</p>
+    <h1>EA-SYS roadmap: <em>where we are</em> and what needs a decision</h1>
+    <p class="lead">EA-SYS runs our events end to end, from the first budget to the certificate. This page shows where every part stands in production today, what ships next, and the few decisions that hold work back.</p>
+    <div class="stats" aria-label="Status summary">
+      <div class="stat use"><div class="n"><svg aria-hidden="true"><use href="#s-use"/></svg>6</div><div class="l">Live and in use</div></div>
+      <div class="stat idle"><div class="n"><svg aria-hidden="true"><use href="#s-idle"/></svg>3</div><div class="l">Live, not used yet</div></div>
+      <div class="stat build"><div class="n"><svg aria-hidden="true"><use href="#s-build"/></svg>2</div><div class="l">In build</div></div>
+      <div class="stat decide"><div class="n"><svg aria-hidden="true"><use href="#s-decide"/></svg>3</div><div class="l">Needs a decision</div></div>
+      <div class="stat plan"><div class="n"><svg aria-hidden="true"><use href="#s-plan"/></svg>1</div><div class="l">Planned</div></div>
     </div>
-  </header>
+  </div>
+</header>
 
-  <section aria-labelledby="h-board">
-    <div class="section-head">
-      <h2 id="h-board">Now, next, later</h2>
-      <p>Most of the middle column is already built. What holds it back is a decision, not development time.</p>
-    </div>
-    <div class="board">
-      <div class="lane now">
-        <h3>Now <small>November</small></h3>
-        <ul>
-          <li><strong>Webinar attendee chat</strong><span>Built Nov 6, tested with 500 viewers</span></li>
-          <li><strong>CRM data privacy</strong><span>Export or erase a person's data, retention rules</span></li>
-          <li><strong>Exhibitor floor plan</strong><span>Stand link per event, Conrad demo</span></li>
-          <li><strong>Event catalogue</strong><span>Live, 9 events listed; sign-up paused for approval</span></li>
-          <li><strong>E-invoicing kick-off</strong><span>Call with Averyx requested for Nov 9</span></li>
-        </ul>
+<main class="gutter">
+  <div class="inner">
+
+    <section aria-labelledby="h-board">
+      <div class="section-head">
+        <p class="kicker">The plan</p>
+        <h2 id="h-board">Now, next, later</h2>
+        <p>Most of the "Next" column is already built. What holds it back is a decision or first use, not development time.</p>
       </div>
-      <div class="lane">
-        <h3>Next <small>once decided</small></h3>
-        <ul>
-          <li><strong>Account sign-up</strong><span>Built and paused; waits on Medhat's approval</span></li>
-          <li><strong>"Interested" button</strong><span>After sign-up; about 2 days</span></li>
-          <li><strong>First Blueprint approved</strong><span>One brief is waiting for approval</span></li>
-          <li><strong>Start using Budgets</strong><span>Live, but no budget entered yet</span></li>
-          <li><strong>DTCM codes on a live event</strong><span>Then retire the old barcodes app</span></li>
-        </ul>
+      <div class="board">
+        <div class="lane now">
+          <div class="lane-head"><h3>Now</h3><small>November</small></div>
+          <ul>
+            <li><strong>Webinar attendee chat</strong><span>Released today, tested with 500 viewers</span></li>
+            <li><strong>CRM data privacy</strong><span>Export or erase a person's data, retention rules</span></li>
+            <li><strong>Exhibitor floor plan</strong><span>Stand link per event, Conrad demo</span></li>
+            <li><strong>Event catalogue</strong><span>Live with 9 events; sign-up paused for approval</span></li>
+            <li><strong>E-invoicing kick-off</strong><span>Call with Averyx requested for 9 November</span></li>
+          </ul>
+        </div>
+        <div class="lane next">
+          <div class="lane-head"><h3>Next</h3><small>once decided</small></div>
+          <ul>
+            <li><strong>Account sign-up</strong><span>Built and paused; waits on Medhat's approval</span></li>
+            <li><strong>"Interested" button</strong><span>After sign-up; about 2 days</span></li>
+            <li><strong>First Blueprint approved</strong><span>One brief is waiting for approval</span></li>
+            <li><strong>Start using Budgets</strong><span>Live, but no budget entered yet</span></li>
+            <li><strong>DTCM codes on a live event</strong><span>Then retire the old barcodes app</span></li>
+          </ul>
+        </div>
+        <div class="lane later">
+          <div class="lane-head"><h3>Later</h3><small>to July 2027</small></div>
+          <ul>
+            <li><strong>Connect QuickBooks, then send invoices</strong><span>Not connected in production yet</span></li>
+            <li><strong>Choose an e-invoicing provider</strong><span>Due 31 March 2027</span></li>
+            <li><strong>E-invoicing live</strong><span>1 July 2027</span></li>
+            <li><strong>Budget comparison</strong><span>Once finance shares past budget sheets</span></li>
+            <li><strong>Other organisations</strong><span>Their own instance; decisions open</span></li>
+          </ul>
+        </div>
       </div>
-      <div class="lane">
-        <h3>Later <small>to July 2027</small></h3>
-        <ul>
-          <li><strong>Connect QuickBooks, then send invoices</strong><span>Not connected in production yet</span></li>
-          <li><strong>Choose an e-invoicing provider</strong><span>Due 31 March 2027</span></li>
-          <li><strong>E-invoicing live</strong><span>1 July 2027</span></li>
-          <li><strong>Budget comparison</strong><span>Once finance shares past budget sheets</span></li>
-          <li><strong>Other organisations</strong><span>Their own instance; decisions open</span></li>
-        </ul>
+    </section>
+
+    <section aria-labelledby="h-modules">
+      <div class="section-head">
+        <p class="kicker">Every module</p>
+        <h2 id="h-modules">What each part does, and how it is doing</h2>
+        <p>Grouped by what it helps the team do. Each card ends with what production shows today.</p>
       </div>
-    </div>
-  </section>
-
-  <section aria-labelledby="h-modules">
-    <div class="section-head">
-      <h2 id="h-modules">Every module at a glance</h2>
-      <p>Grouped by what it helps the team do. Use the filters to see only what is live, in build, or waiting.</p>
-    </div>
-    <div class="filters" role="group" aria-label="Filter modules by status">
-      <button type="button" id="f-all" data-filter="all" aria-pressed="true">All 15</button>
-      <button type="button" id="f-live" data-filter="live" aria-pressed="false"><i class="dot live"></i>In use</button>
-      <button type="button" id="f-idle" data-filter="idle" aria-pressed="false"><i class="dot idle"></i>Live, not used yet</button>
-      <button type="button" id="f-build" data-filter="build" aria-pressed="false"><i class="dot build"></i>In build</button>
-      <button type="button" id="f-decide" data-filter="decide" aria-pressed="false"><i class="dot decide"></i>Needs a decision</button>
-      <button type="button" id="f-plan" data-filter="plan" aria-pressed="false"><i class="dot plan"></i>Planned</button>
-    </div>
-
-    <div class="area">
-      <h3>Plan the event</h3>
-      <div class="cards">
-        <article class="card" data-status="live">
-          <div class="card-top"><h4>Event Blueprint</h4><span class="pill live">Live, in trial</span></div>
-          <p class="what">The team fills in a brief for a new event. Once a second person approves it, the event is created for us.</p>
-          <dl><dt>Done</dt><dd>Switched on. An incomplete brief cannot be approved.</dd><dt>Next</dt><dd>Approve the first brief and let it create a real event.</dd></dl>
-          <p class="fact">In production: 2 briefs, 1 submitted for approval, none approved yet.</p>
-        </article>
-        <article class="card" data-status="build">
-          <div class="card-top"><h4>Venue and floor plans</h4><span class="pill build">In build</span></div>
-          <p class="what">Draw the venue in 2D over the hotel's own plan, walk it in 3D, and place numbered exhibitor stands.</p>
-          <dl><dt>Done</dt><dd>Two floors, room setups, stages and screens, a setup sheet per room, PDF export, stands given to sponsors.</dd><dt>Next</dt><dd>A floor plan link for exhibitors; the Conrad demo.</dd></dl>
-          <p class="fact">In production: set up on 1 event so far.</p>
-        </article>
-        <article class="card" data-status="idle">
-          <div class="card-top"><h4>Budgets and spend requests</h4><span class="pill idle">Live, not used yet</span></div>
-          <p class="what">Event budgets, purchase requests with approval chains, purchase orders, suppliers and receiving.</p>
-          <dl><dt>Done</dt><dd>Released Sep 14. A budget can start from finance's costing sheet, a past budget or a CSV. A PO is issued the moment it is approved.</dd><dt>Next</dt><dd>A first pilot event with finance. Comparing past budgets comes after.</dd></dl>
-          <p class="fact">In production: 0 budgets, 0 spend requests, 0 suppliers.</p>
-        </article>
+      <div class="legend" aria-label="Status key">
+        <span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use</span>
+        <span class="pill idle"><svg class="i" aria-hidden="true"><use href="#s-idle"/></svg>Live, not used yet</span>
+        <span class="pill build"><svg class="i" aria-hidden="true"><use href="#s-build"/></svg>In build</span>
+        <span class="pill decide"><svg class="i" aria-hidden="true"><use href="#s-decide"/></svg>Needs a decision</span>
+        <span class="pill plan"><svg class="i" aria-hidden="true"><use href="#s-plan"/></svg>Planned</span>
       </div>
-    </div>
-
-    <div class="area">
-      <h3>Promote and sell</h3>
-      <div class="cards">
-        <article class="card" data-status="live">
-          <div class="card-top"><h4>Event catalogue</h4><span class="pill live">Live since Nov 4</span></div>
-          <p class="what">A public list of our events, with pages per specialty and country. Google and AI assistants can read it.</p>
-          <dl><dt>Done</dt><dd>Each event has its own page instead of opening straight onto the form.</dd><dt>Next</dt><dd>Account sign-up is built and paused until it is approved.</dd></dl>
-          <p class="fact">In production: 9 events listed, 5 of them upcoming.</p>
-        </article>
-        <article class="card" data-status="live">
-          <div class="card-top"><h4>CRM for sponsorship</h4><span class="pill live">Live</span></div>
-          <p class="what">Deals, accounts and contacts for sponsor sales, with the partnerships@ mailbox as a shared inbox.</p>
-          <dl><dt>Done</dt><dd>Replies thread in the sponsor's mail client. Data privacy controls added this week.</dd><dt>Next</dt><dd>Sending quotes to QuickBooks, once QuickBooks is connected.</dd></dl>
-          <p class="fact">In production: 14 deals, 35 inbox emails, latest on Nov 5.</p>
-        </article>
-        <article class="card" data-status="decide">
-          <div class="card-top"><h4>Account sign-up</h4><span class="pill decide">Waiting on approval</span></div>
-          <p class="what">People create an account from the catalogue without registering for an event first.</p>
-          <dl><dt>Done</dt><dd>Built, with email confirmation, then paused for approval.</dd><dt>Next</dt><dd>Decide: inside EA-SYS, or a separate app on our API.</dd></dl>
-        </article>
-        <article class="card" data-status="decide">
-          <div class="card-top"><h4>Partner event listings</h4><span class="pill decide">Needs a decision</span></div>
-          <p class="what">List a partner's event in our catalogue with a link to their own registration, for example DHA or EHS.</p>
-          <dl><dt>Done</dt><dd>Planned and written up.</dd><dt>Next</dt><dd>A go-ahead to build.</dd></dl>
-        </article>
+      <div class="filters" role="group" aria-label="Show modules by status">
+        <button type="button" id="f-all" data-filter="all" aria-pressed="true">All 15</button>
+        <button type="button" id="f-use" data-filter="use" aria-pressed="false"><svg aria-hidden="true"><use href="#s-use"/></svg>In use</button>
+        <button type="button" id="f-idle" data-filter="idle" aria-pressed="false"><svg aria-hidden="true"><use href="#s-idle"/></svg>Not used yet</button>
+        <button type="button" id="f-build" data-filter="build" aria-pressed="false"><svg aria-hidden="true"><use href="#s-build"/></svg>In build</button>
+        <button type="button" id="f-decide" data-filter="decide" aria-pressed="false"><svg aria-hidden="true"><use href="#s-decide"/></svg>Needs a decision</button>
+        <button type="button" id="f-plan" data-filter="plan" aria-pressed="false"><svg aria-hidden="true"><use href="#s-plan"/></svg>Planned</button>
       </div>
-    </div>
 
-    <div class="area">
-      <h3>Run the event</h3>
-      <div class="cards">
-        <article class="card" data-status="idle">
-          <div class="card-top"><h4>Onsite desk</h4><span class="pill idle">Live, not used yet</span></div>
-          <p class="what">Register a walk-in, take payment, print the badge and check them in from one screen.</p>
-          <dl><dt>Done</dt><dd>Released Oct 29. About 30 to 40 seconds per walk-in. People complete their details by QR code or a desk tablet.</dd><dt>Next</dt><dd>Use it at the next in-person event.</dd></dl>
-          <p class="fact">In production: no walk-in registered through it yet.</p>
-        </article>
-        <article class="card" data-status="live">
-          <div class="card-top"><h4>Webinars</h4><span class="pill live">Live</span></div>
-          <p class="what">Zoom webinars, our own live stream for large audiences, Q&amp;A, polls, surveys and certificates.</p>
-          <dl><dt>Done</dt><dd>A dropped stream restarts on its own. Reminder with the join link 15 minutes before.</dd><dt>Next</dt><dd>Attendee chat beside the stream: released today, first use at the next webinar.</dd></dl>
-        </article>
-        <article class="card" data-status="build">
-          <div class="card-top"><h4>Dubai DTCM codes</h4><span class="pill build">Built, testing</span></div>
-          <p class="what">Buy DTCM codes from DET inside EA-SYS, one at the desk or all at once, instead of a separate app.</p>
-          <dl><dt>Done</dt><dd>Built Nov 3 and tested on DET's test system.</dd><dt>Next</dt><dd>Run one live Dubai event on it, then retire the old barcodes app.</dd></dl>
-          <p class="fact">In production: no codes bought through it yet.</p>
-        </article>
+      <div class="area plan">
+        <div class="area-head"><span class="area-icon"><svg aria-hidden="true"><use href="#a-plan"/></svg></span><div><h3>Plan the event</h3><span>Brief, venue and budget</span></div></div>
+        <div class="cards">
+          <article class="card" data-status="use">
+            <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use, in trial</span><h4>Event Blueprint</h4></div>
+            <p class="what">The team fills in a brief for a new event. Once a second person approves it, the event is created for us.</p>
+            <dl><div><dt>Done</dt><dd>Switched on. An incomplete brief cannot be approved.</dd></div><div><dt>Next</dt><dd>Approve the first brief and let it create a real event.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 2 briefs, 1 submitted for approval, none approved yet.</span></p>
+          </article>
+          <article class="card" data-status="build">
+            <div class="card-top"><span class="pill build"><svg class="i" aria-hidden="true"><use href="#s-build"/></svg>In build</span><h4>Venue and floor plans</h4></div>
+            <p class="what">Draw the venue in 2D over the hotel's own plan, walk it in 3D, and place numbered exhibitor stands.</p>
+            <dl><div><dt>Done</dt><dd>Two floors, room setups, stages and screens, a setup sheet per room, PDF export, stands given to sponsors.</dd></div><div><dt>Next</dt><dd>A floor plan link for exhibitors; the Conrad demo.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> set up on 1 event so far.</span></p>
+          </article>
+          <article class="card" data-status="idle">
+            <div class="card-top"><span class="pill idle"><svg class="i" aria-hidden="true"><use href="#s-idle"/></svg>Live, not used yet</span><h4>Budgets and spend requests</h4></div>
+            <p class="what">Event budgets, purchase requests with approval chains, purchase orders, suppliers and receiving.</p>
+            <dl><div><dt>Done</dt><dd>Released 14 September. A budget can start from finance's costing sheet, a past budget or a CSV. A PO is issued the moment it is approved.</dd></div><div><dt>Next</dt><dd>A first pilot event with finance. Comparing past budgets comes after.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 0 budgets, 0 spend requests, 0 suppliers.</span></p>
+          </article>
+        </div>
       </div>
-    </div>
 
-    <div class="area">
-      <h3>Finance and back office</h3>
-      <div class="cards">
-        <article class="card" data-status="idle">
-          <div class="card-top"><h4>QuickBooks connection</h4><span class="pill idle">Built, not connected</span></div>
-          <p class="what">Reads accounts from QuickBooks and sends CRM quotes to it as Estimates.</p>
-          <dl><dt>Next</dt><dd>Enter our QuickBooks app details in Settings and connect. Then send EA-SYS invoices and credit notes into QuickBooks, ready for e-invoicing.</dd></dl>
-          <p class="fact">In production: not connected; 0 quotes sent.</p>
-        </article>
-        <article class="card" data-status="plan">
-          <div class="card-top"><h4>UAE e-invoicing</h4><span class="pill plan">Planned</span></div>
-          <p class="what">Invoices sent through an accredited provider, from QuickBooks as the one source of invoices.</p>
-          <dl><dt>Dates</dt><dd>Provider chosen by 31 March 2027, live on 1 July 2027.</dd></dl>
-        </article>
-        <article class="card" data-status="live">
-          <div class="card-top"><h4>HR</h4><span class="pill live">Live</span></div>
-          <p class="what">Attendance and UAE leave balances, public holidays and company-wide days such as work from home.</p>
-          <dl><dt>Done</dt><dd>Maternity, parental and OD leave added Nov 3.</dd></dl>
-          <p class="fact">In production: 24 employees, 1,273 attendance entries.</p>
-        </article>
-        <article class="card" data-status="live">
-          <div class="card-top"><h4>Custom roles</h4><span class="pill live">Live since Oct 7</span></div>
-          <p class="what">Staff access set by role in Settings. A Marketing role, for example, sees registrations but not money.</p>
-          <p class="fact">In production: 8 custom roles, held by 5 people.</p>
-        </article>
-        <article class="card" data-status="decide">
-          <div class="card-top"><h4>EA-SYS for other organisations</h4><span class="pill decide">Needs a decision</span></div>
-          <p class="what">Run EA-SYS for other customers on their own separate instance.</p>
-          <dl><dt>Done</dt><dd>Groundwork in place.</dd><dt>Next</dt><dd>Launch decisions.</dd></dl>
-        </article>
+      <div class="area sell">
+        <div class="area-head"><span class="area-icon"><svg aria-hidden="true"><use href="#a-sell"/></svg></span><div><h3>Promote and sell</h3><span>Catalogue, sponsors and accounts</span></div></div>
+        <div class="cards">
+          <article class="card" data-status="use">
+            <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use since 4 Nov</span><h4>Event catalogue</h4></div>
+            <p class="what">A public list of our events, with pages per specialty and country. Google and AI assistants can read it.</p>
+            <dl><div><dt>Done</dt><dd>Each event has its own page instead of opening straight onto the form.</dd></div><div><dt>Next</dt><dd>Account sign-up is built and paused until it is approved.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 9 events listed, 5 of them upcoming.</span></p>
+          </article>
+          <article class="card" data-status="use">
+            <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use</span><h4>CRM for sponsorship</h4></div>
+            <p class="what">Deals, accounts and contacts for sponsor sales, with the partnerships@ mailbox as a shared inbox.</p>
+            <dl><div><dt>Done</dt><dd>Replies thread in the sponsor's mail client. Data privacy controls added this week.</dd></div><div><dt>Next</dt><dd>Sending quotes to QuickBooks, once QuickBooks is connected.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 14 deals, 35 inbox emails, latest on 5 November.</span></p>
+          </article>
+          <article class="card" data-status="decide">
+            <div class="card-top"><span class="pill decide"><svg class="i" aria-hidden="true"><use href="#s-decide"/></svg>Waiting on approval</span><h4>Account sign-up</h4></div>
+            <p class="what">People create an account from the catalogue without registering for an event first.</p>
+            <dl><div><dt>Done</dt><dd>Built, with email confirmation, then paused for approval.</dd></div><div><dt>Next</dt><dd>Decide: inside EA-SYS, or a separate app on our API.</dd></div></dl>
+          </article>
+          <article class="card" data-status="decide">
+            <div class="card-top"><span class="pill decide"><svg class="i" aria-hidden="true"><use href="#s-decide"/></svg>Needs a decision</span><h4>Partner event listings</h4></div>
+            <p class="what">List a partner's event in our catalogue with a link to their own registration, for example DHA or EHS.</p>
+            <dl><div><dt>Done</dt><dd>Planned and written up.</dd></div><div><dt>Next</dt><dd>A go-ahead to build.</dd></div></dl>
+          </article>
+        </div>
       </div>
-    </div>
-  </section>
 
-  <section aria-labelledby="h-decisions">
-    <div class="section-head">
-      <h2 id="h-decisions">Decisions we need</h2>
-      <p>Each one unblocks work that is ready or nearly ready. Tap one for the detail.</p>
-    </div>
-    <div class="decisions">
-      <details open>
-        <summary><span class="q">Account sign-up: inside EA-SYS, or a separate app?</span><span class="who">Medhat</span><span class="short">Built and paused for approval. About a day to finish if we keep it in EA-SYS.</span></summary>
-        <div class="detail"><p class="urgent">Most urgent</p><p>Keeping it in EA-SYS reuses the security we already have (confirmation emails, login limits). A separate app on our API gives more freedom in design, but it is a second system to build and look after.</p></div>
-      </details>
-      <details>
-        <summary><span class="q">Add an "Interested" button to events?</span><span class="who">Medhat</span><span class="short">Signed-in people save events and opt in to reminders. Needs account sign-up first.</span></summary>
-        <div class="detail"><p>About two days of work after sign-up. Reminders need their own opt-in. The count of interested people stays internal.</p></div>
-      </details>
-      <details>
-        <summary><span class="q">List partner events that register elsewhere?</span><span class="who">Medhat</span><span class="short">An event page with a button to the organiser's own registration.</span></summary>
-        <div class="detail"><p>Useful for partner events now, and the first step toward listing-only customers such as DHA or EHS.</p></div>
-      </details>
-      <details>
-        <summary><span class="q">Show every new webinar in the catalogue by default?</span><span class="who">Events team</span><span class="short">Today it is a tick-box per event.</span></summary>
-        <div class="detail"><p>Webinars do not appear today because nobody has ticked the box. Defaulting to on would list them automatically.</p></div>
-      </details>
-      <details>
-        <summary><span class="q">Which e-invoicing provider?</span><span class="who">Finance</span><span class="short">Must connect to QuickBooks. Due by 31 March 2027.</span></summary>
-        <div class="detail"><p>A first call with Averyx's tax team is requested for 9 November. They advise on tax; we handle the systems side.</p></div>
-      </details>
-      <details>
-        <summary><span class="q">Share past event budgets?</span><span class="who">Finance</span><span class="short">Needed before EA-SYS can compare events and draft budgets.</span></summary>
-        <div class="detail"><p>A simple sheet per past event (category and amount) is enough. The suggestions never set an amount on their own; a person approves every budget.</p></div>
-      </details>
-    </div>
-  </section>
+      <div class="area run">
+        <div class="area-head"><span class="area-icon"><svg aria-hidden="true"><use href="#a-run"/></svg></span><div><h3>Run the event</h3><span>On the day, in person and online</span></div></div>
+        <div class="cards">
+          <article class="card" data-status="idle">
+            <div class="card-top"><span class="pill idle"><svg class="i" aria-hidden="true"><use href="#s-idle"/></svg>Live, not used yet</span><h4>Onsite desk</h4></div>
+            <p class="what">Register a walk-in, take payment, print the badge and check them in from one screen.</p>
+            <dl><div><dt>Done</dt><dd>Released 29 October. About 30 to 40 seconds per walk-in. People complete their details by QR code or a desk tablet.</dd></div><div><dt>Next</dt><dd>Use it at the next in-person event.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> no walk-in registered through it yet.</span></p>
+          </article>
+          <article class="card" data-status="use">
+            <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use</span><h4>Webinars</h4></div>
+            <p class="what">Zoom webinars, our own live stream for large audiences, Q&amp;A, polls, surveys and certificates.</p>
+            <dl><div><dt>Done</dt><dd>A dropped stream restarts on its own. Reminder with the join link 15 minutes before.</dd></div><div><dt>Next</dt><dd>Attendee chat beside the stream: released today, first use at the next webinar.</dd></div></dl>
+          </article>
+          <article class="card" data-status="build">
+            <div class="card-top"><span class="pill build"><svg class="i" aria-hidden="true"><use href="#s-build"/></svg>Built, testing</span><h4>Dubai DTCM codes</h4></div>
+            <p class="what">Buy DTCM codes from DET inside EA-SYS, one at the desk or all at once, instead of a separate app.</p>
+            <dl><div><dt>Done</dt><dd>Built 3 November and tested on DET's test system.</dd></div><div><dt>Next</dt><dd>Run one live Dubai event on it, then retire the old barcodes app.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> no codes bought through it yet.</span></p>
+          </article>
+        </div>
+      </div>
 
-  <section aria-labelledby="h-dates">
-    <div class="section-head">
-      <h2 id="h-dates">Key dates</h2>
-      <p>Only the e-invoicing dates are fixed by law. The rest move once the decisions above are made.</p>
-    </div>
-    <ol class="dates">
-      <li class="past"><time datetime="2026-11-04">4 Nov 2026</time><strong>Catalogue live</strong><span>Done</span></li>
-      <li class="past"><time datetime="2026-11-06">6 Nov 2026</time><strong>Webinar chat built</strong><span>Done</span></li>
-      <li><time datetime="2026-11-09">9 Nov 2026</time><strong>E-invoicing kick-off</strong><span>Call with Averyx, requested</span></li>
-      <li class="key"><time datetime="2027-03-31">31 Mar 2027</time><strong>Provider chosen</strong><span>Legal deadline</span></li>
-      <li class="key"><time datetime="2027-07-01">1 Jul 2027</time><strong>E-invoicing live</strong><span>Legal deadline</span></li>
-    </ol>
-  </section>
+      <div class="area fin">
+        <div class="area-head"><span class="area-icon"><svg aria-hidden="true"><use href="#a-fin"/></svg></span><div><h3>Finance and back office</h3><span>Accounts, compliance, people and access</span></div></div>
+        <div class="cards">
+          <article class="card" data-status="idle">
+            <div class="card-top"><span class="pill idle"><svg class="i" aria-hidden="true"><use href="#s-idle"/></svg>Built, not connected</span><h4>QuickBooks connection</h4></div>
+            <p class="what">Reads accounts from QuickBooks and sends CRM quotes to it as Estimates.</p>
+            <dl><div><dt>Next</dt><dd>Enter our QuickBooks app details in Settings and connect. Then send EA-SYS invoices and credit notes into QuickBooks, ready for e-invoicing.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> not connected; 0 quotes sent.</span></p>
+          </article>
+          <article class="card" data-status="plan">
+            <div class="card-top"><span class="pill plan"><svg class="i" aria-hidden="true"><use href="#s-plan"/></svg>Planned</span><h4>UAE e-invoicing</h4></div>
+            <p class="what">Invoices sent through an accredited provider, from QuickBooks as the one source of invoices.</p>
+            <dl><div><dt>Dates</dt><dd>Provider chosen by 31 March 2027, live on 1 July 2027.</dd></div></dl>
+          </article>
+          <article class="card" data-status="use">
+            <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use</span><h4>HR</h4></div>
+            <p class="what">Attendance and UAE leave balances, public holidays and company-wide days such as work from home.</p>
+            <dl><div><dt>Done</dt><dd>Maternity, parental and OD leave added 3 November.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 24 employees, 1,273 attendance entries.</span></p>
+          </article>
+          <article class="card" data-status="use">
+            <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use since 7 Oct</span><h4>Custom roles</h4></div>
+            <p class="what">Staff access set by role in Settings. A Marketing role, for example, sees registrations but not money.</p>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 8 custom roles, held by 5 people.</span></p>
+          </article>
+          <article class="card" data-status="decide">
+            <div class="card-top"><span class="pill decide"><svg class="i" aria-hidden="true"><use href="#s-decide"/></svg>Needs a decision</span><h4>EA-SYS for other organisations</h4></div>
+            <p class="what">Run EA-SYS for other customers on their own separate instance.</p>
+            <dl><div><dt>Done</dt><dd>Groundwork in place.</dd></div><div><dt>Next</dt><dd>Launch decisions.</dd></div></dl>
+          </article>
+        </div>
+      </div>
+    </section>
 
-  <footer>Prepared by Krishna, 6 November 2026. Every "In production" figure was read from the live system on 6 November 2026.</footer>
-</div>
+    <section aria-labelledby="h-decisions">
+      <div class="section-head">
+        <p class="kicker">Over to you</p>
+        <h2 id="h-decisions">Decisions we need</h2>
+        <p>Each one unblocks work that is ready or nearly ready. Select one to read the detail.</p>
+      </div>
+      <div class="decisions">
+        <details class="urgent" open>
+          <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">Account sign-up: inside EA-SYS, or a separate app?</span><span class="who medhat"><i>M</i>Medhat</span><span class="short">Built and paused for approval. About a day to finish if we keep it in EA-SYS.</span></summary>
+          <div class="detail"><p class="tag-urgent"><svg class="i" aria-hidden="true"><use href="#s-flag"/></svg>Most urgent</p><p>Keeping it in EA-SYS reuses the security we already have (confirmation emails, login limits). A separate app on our API gives more freedom in design, but it is a second system to build and look after.</p></div>
+        </details>
+        <details>
+          <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">Add an "Interested" button to events?</span><span class="who medhat"><i>M</i>Medhat</span><span class="short">Signed-in people save events and opt in to reminders. Needs account sign-up first.</span></summary>
+          <div class="detail"><p>About two days of work after sign-up. Reminders need their own opt-in. The count of interested people stays internal.</p></div>
+        </details>
+        <details>
+          <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">List partner events that register elsewhere?</span><span class="who medhat"><i>M</i>Medhat</span><span class="short">An event page with a button to the organiser's own registration.</span></summary>
+          <div class="detail"><p>Useful for partner events now, and the first step toward listing-only customers such as DHA or EHS.</p></div>
+        </details>
+        <details>
+          <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">Show every new webinar in the catalogue by default?</span><span class="who events"><i>E</i>Events team</span><span class="short">Today it is a tick-box per event.</span></summary>
+          <div class="detail"><p>Webinars do not appear today because nobody has ticked the box. Defaulting to on would list them automatically.</p></div>
+        </details>
+        <details>
+          <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">Which e-invoicing provider?</span><span class="who finance"><i>F</i>Finance</span><span class="short">Must connect to QuickBooks. Due by 31 March 2027.</span></summary>
+          <div class="detail"><p>A first call with Averyx's tax team is requested for 9 November. They advise on tax; we handle the systems side.</p></div>
+        </details>
+        <details>
+          <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">Share past event budgets?</span><span class="who finance"><i>F</i>Finance</span><span class="short">Needed before EA-SYS can compare events and draft budgets.</span></summary>
+          <div class="detail"><p>A simple sheet per past event (category and amount) is enough. The suggestions never set an amount on their own; a person approves every budget.</p></div>
+        </details>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-dates">
+      <div class="section-head">
+        <p class="kicker">Calendar</p>
+        <h2 id="h-dates">Key dates</h2>
+        <p>Only the e-invoicing dates are fixed by law. The rest move once the decisions above are made.</p>
+      </div>
+      <ol class="dates">
+        <li class="done"><span class="mark"><svg aria-hidden="true"><use href="#s-use"/></svg></span><time datetime="2026-11-04">4 Nov 2026</time><strong>Catalogue live</strong><span>Done</span></li>
+        <li class="done"><span class="mark"><svg aria-hidden="true"><use href="#s-use"/></svg></span><time datetime="2026-11-06">6 Nov 2026</time><strong>Webinar chat released</strong><span>Done</span></li>
+        <li class="soon"><span class="mark"></span><time datetime="2026-11-09">9 Nov 2026</time><strong>E-invoicing kick-off</strong><span>Call with Averyx, requested</span></li>
+        <li class="legal"><span class="mark"><svg aria-hidden="true"><use href="#s-flag"/></svg></span><time datetime="2027-03-31">31 Mar 2027</time><strong>Provider chosen</strong><span>Legal deadline</span></li>
+        <li class="legal"><span class="mark"><svg aria-hidden="true"><use href="#s-flag"/></svg></span><time datetime="2027-07-01">1 Jul 2027</time><strong>E-invoicing live</strong><span>Legal deadline</span></li>
+      </ol>
+    </section>
+
+  </div>
+</main>
+
+<footer class="gutter"><div class="inner">Prepared by Krishna, 6 November 2026. Every "In production" figure was read from the live system on 6 November 2026.</div></footer>
 
 <script>
 (function () {
