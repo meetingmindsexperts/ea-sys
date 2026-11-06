@@ -38,6 +38,8 @@ export async function seedCore(db: PrismaClient): Promise<SeedCoreResult> {
       name: "E2E Test Org",
       slug: "e2e-test-org",
       primaryColor: "#00aade",
+      // An organisation created after the entitlement migration has no CRM until given one.
+      enabledModules: ["crm"],
     },
   });
 

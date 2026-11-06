@@ -10,7 +10,7 @@ const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: { organization: { findUnique } } }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
-import { forgetOrgModules, isOrgModule, orgHasModule } from "@/lib/module-entitlements";
+import { forgetOrgModules, isOrgModule, orgHasModule, orgModuleState } from "@/lib/module-entitlements";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -47,6 +47,13 @@ describe("orgHasModule", () => {
     expect(await orgHasModule("org-a", "crm")).toBe(false);
     findUnique.mockResolvedValueOnce({ enabledModules: ["crm"] });
     expect(await orgHasModule("org-a", "crm")).toBe(true);
+  });
+
+  it("tells 'off' apart from 'could not tell'", async () => {
+    findUnique.mockResolvedValueOnce({ enabledModules: [] });
+    expect(await orgModuleState("org-a", "crm")).toBe("off");
+    findUnique.mockRejectedValueOnce(new Error("failover"));
+    expect(await orgModuleState("org-b", "crm")).toBe("unknown");
   });
 
   it("knows only the modules it names", () => {

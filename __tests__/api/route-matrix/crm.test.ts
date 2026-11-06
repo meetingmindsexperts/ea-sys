@@ -16,7 +16,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 
 // The organisation has the CRM (module-entitlements.ts); the entitlement has its own tests.
-vi.mock("@/lib/module-entitlements", () => ({ orgHasModule: vi.fn(async () => true), forgetOrgModules: vi.fn() }));
+vi.mock("@/lib/module-entitlements", () => ({ orgHasModule: vi.fn(async () => true), orgModuleState: vi.fn(async () => "on"), forgetOrgModules: vi.fn() }));
 
 vi.mock("@/lib/db", async () => (await import("./harness")).dbModule);
 vi.mock("@/lib/logger", async () => (await import("./harness")).loggerModule);

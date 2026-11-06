@@ -41,7 +41,7 @@ import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
 import { crmEmailIdentity, organisationForCaptureAddress } from "@/lib/crm-email-identity";
 import { isInternalEmail } from "@/lib/internal-domains";
-import { orgHasModule } from "@/lib/module-entitlements";
+import { orgModuleState } from "@/lib/module-entitlements";
 import { mintReplyToken } from "@/crm/services/crm-email-thread-service";
 import { captureDirection, isAutomatedMail } from "@/crm/lib/inbox-capture";
 import {
@@ -82,6 +82,8 @@ export interface InboundTickResult {
   unmatched: number;
   /** Left for the next tick (the capture contact budget). */
   deferred: number;
+  /** Set aside under held/<org>/: the organisation's CRM is switched off. */
+  held: number;
   failures: number;
 }
 
@@ -592,9 +594,9 @@ async function processObject(
   }
 
   // The organisation no longer has the CRM (module-entitlements.ts): keep the
-  // email, untouched, under held/. Moving it back to inbound/ after the CRM is
-  // switched on again files it normally. Never filed, never forwarded.
-  if (!(await orgHasModule(thread.organizationId, "crm"))) return await holdForDisabledModule(bucket, key, basename, thread.organizationId);
+  // email, untouched, under held/<org>/. releaseHeld() moves it back to
+  // inbound/ once the CRM is on again. Never filed, never forwarded.
+  if (!(await crmIsOn(thread.organizationId))) return await holdForDisabledModule(bucket, key, basename, thread.organizationId);
 
   // Tenancy: from here on the org is known (thread resolved via its globally
   // unique reply token → exactly one thread → one org). Wrap the message-storage
@@ -705,7 +707,7 @@ async function processObject(
 
 // ── Partnerships mailbox capture (Oct 27, 2026) ─────────────────────────────────
 
-type ObjectOutcome = "stored" | "duplicate" | "quarantined" | "unmatched" | "deferred";
+type ObjectOutcome = "stored" | "duplicate" | "quarantined" | "unmatched" | "deferred" | "held";
 
 /**
  * New contacts one tick may create from captured mail. A flood (a mailing
@@ -779,7 +781,7 @@ async function processCapture(args: {
     apiLogger.warn({ msg: "crm-capture:no-microsoft-verdict", key });
   }
 
-  if (!(await orgHasModule(organizationId, "crm"))) return await holdForDisabledModule(bucket, key, basename, organizationId);
+  if (!(await crmIsOn(organizationId))) return await holdForDisabledModule(bucket, key, basename, organizationId);
   if (tick.contactsCreated >= MAX_CAPTURE_CONTACTS_PER_TICK) {
     apiLogger.warn({ msg: "crm-capture:deferred-contact-budget", key });
     return "deferred";
@@ -935,11 +937,44 @@ async function processCapture(args: {
   });
 }
 
+/**
+ * Does the organisation have the CRM? Throws when the answer is unknown (the
+ * read failed), so the email stays in inbound/ and retries next tick instead
+ * of being parked by a database blip (review of 1d2261da, MED 1).
+ */
+async function crmIsOn(organizationId: string): Promise<boolean> {
+  const state = await orgModuleState(organizationId, "crm");
+  if (state === "unknown") throw new Error(`CRM entitlement unknown for ${organizationId}; retrying next tick`);
+  return state === "on";
+}
+
 /** Set aside mail for an organisation whose CRM is switched off (suspended, not deleted). */
 async function holdForDisabledModule(bucket: string, key: string, basename: string, organizationId: string): Promise<ObjectOutcome> {
-  await moveObject(bucket, key, `held/${basename}`);
+  await moveObject(bucket, key, `held/${organizationId}/${basename}`);
   apiLogger.warn({ msg: "crm-inbound:held-module-not-enabled", key, organizationId });
-  return "unmatched";
+  return "held";
+}
+
+/**
+ * Put held mail back in inbound/ for every organisation whose CRM is on again,
+ * so switching the CRM back on really does restore everything. A bounded page
+ * per tick; an organisation still off (or unknown) is left alone.
+ */
+async function releaseHeld(bucket: string): Promise<number> {
+  const listed = await s3Client().send(new ListObjectsV2Command({ Bucket: bucket, Prefix: "held/", MaxKeys: MAX_OBJECTS_PER_TICK }));
+  let released = 0;
+  const states = new Map<string, string>();
+  for (const key of (listed.Contents ?? []).map((o) => o.Key ?? "")) {
+    const m = /^held\/([^/]+)\/(.+)$/.exec(key);
+    if (!m) continue;
+    const [, organizationId, basename] = m;
+    if (!states.has(organizationId)) states.set(organizationId, await orgModuleState(organizationId, "crm"));
+    if (states.get(organizationId) !== "on") continue;
+    await moveObject(bucket, key, `inbound/${basename}`);
+    released++;
+  }
+  if (released) apiLogger.info({ msg: "crm-inbound:held-released", released });
+  return released;
 }
 
 /** Move an email that keeps failing to failed/, kept for a person to look at. */
@@ -961,6 +996,7 @@ export async function runTick(): Promise<InboundTickResult> {
     quarantined: 0,
     unmatched: 0,
     deferred: 0,
+    held: 0,
     failures: 0,
   };
 
@@ -969,6 +1005,12 @@ export async function runTick(): Promise<InboundTickResult> {
     apiLogger.debug({ msg: "crm-inbound:dormant-no-bucket" });
     return result;
   }
+
+  // Mail held while an organisation's CRM was off goes back into the queue
+  // once it is on again; a failure here never stops the inbound drain.
+  await releaseHeld(bucket).catch((err) =>
+    apiLogger.error({ msg: "crm-inbound:held-release-failed", err: err instanceof Error ? err.message : String(err) }),
+  );
 
   const listed = await s3Client().send(
     new ListObjectsV2Command({ Bucket: bucket, Prefix: "inbound/", MaxKeys: MAX_OBJECTS_PER_TICK }),
@@ -985,6 +1027,7 @@ export async function runTick(): Promise<InboundTickResult> {
       else if (outcome === "duplicate") result.duplicates++;
       else if (outcome === "quarantined") result.quarantined++;
       else if (outcome === "deferred") result.deferred++;
+      else if (outcome === "held") result.held++;
       else result.unmatched++;
     } catch (err) {
       result.failures++;

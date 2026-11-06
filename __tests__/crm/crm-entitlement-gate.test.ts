@@ -5,9 +5,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getOrgContext, orgHasModule } = vi.hoisted(() => ({ getOrgContext: vi.fn(), orgHasModule: vi.fn() }));
+const { getOrgContext, orgModuleState } = vi.hoisted(() => ({ getOrgContext: vi.fn(), orgModuleState: vi.fn() }));
 vi.mock("@/lib/api-auth", () => ({ getOrgContext }));
-vi.mock("@/lib/module-entitlements", () => ({ orgHasModule }));
+vi.mock("@/lib/module-entitlements", () => ({ orgModuleState }));
 vi.mock("@/lib/db", () => ({ db: {} }));
 vi.mock("@/lib/logger", () => {
   const l = { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() };
@@ -24,22 +24,29 @@ beforeEach(() => vi.clearAllMocks());
 describe("requireCrmRead and the organisation's entitlement", () => {
   it("404s a SUPER_ADMIN whose organisation does not have the CRM", async () => {
     getOrgContext.mockResolvedValue(admin);
-    orgHasModule.mockResolvedValue(false);
+    orgModuleState.mockResolvedValue("off");
     const res = await requireCrmRead(req());
     expect(res.error?.status).toBe(404);
     expect(await res.error?.json()).toMatchObject({ code: "MODULE_NOT_ENABLED" });
-    expect(orgHasModule).toHaveBeenCalledWith("org-b", "crm");
+    expect(orgModuleState).toHaveBeenCalledWith("org-b", "crm");
   });
 
   it("the write gate inherits the refusal", async () => {
     getOrgContext.mockResolvedValue(admin);
-    orgHasModule.mockResolvedValue(false);
+    orgModuleState.mockResolvedValue("off");
     expect((await requireCrmWrite(req())).error?.status).toBe(404);
+  });
+
+  it("a failed read is a 503, never a false 'not enabled'", async () => {
+    getOrgContext.mockResolvedValue(admin);
+    orgModuleState.mockResolvedValue("unknown");
+    const res = await requireCrmRead(req());
+    expect(res.error?.status).toBe(503);
   });
 
   it("lets the person through when the organisation has it", async () => {
     getOrgContext.mockResolvedValue(admin);
-    orgHasModule.mockResolvedValue(true);
+    orgModuleState.mockResolvedValue("on");
     const res = await requireCrmRead(req());
     expect(res.error).toBeUndefined();
     expect(res.ctx?.organizationId).toBe("org-b");

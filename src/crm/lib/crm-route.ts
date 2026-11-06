@@ -16,7 +16,7 @@ import { zodErrorResponse } from "@/lib/api-errors";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
-import { orgHasModule } from "@/lib/module-entitlements";
+import { orgModuleState } from "@/lib/module-entitlements";
 import { redactFinancialFields } from "@/lib/finance-visibility";
 import { crmCan, denyCrmAccess, denyCrmWrite, denyCrmDelete, denyCrmPurge, denyCrmExport } from "@/crm/lib/crm-visibility";
 
@@ -54,7 +54,12 @@ export async function requireCrmRead(
   // Entitlement before permission: the ORGANISATION must have the CRM before
   // any person in it may read it (module-entitlements.ts). 404, not 403, as
   // for a module flag: a module the organisation lacks does not announce itself.
-  if (!(await orgHasModule(ctx.organizationId, "crm"))) {
+  const entitled = await orgModuleState(ctx.organizationId, "crm");
+  if (entitled === "unknown") {
+    // Could not tell (logged at error where it failed): a 503, never a "not enabled" that is not true.
+    return { error: NextResponse.json({ error: "Temporarily unavailable", code: "ENTITLEMENT_UNAVAILABLE" }, { status: 503 }) };
+  }
+  if (entitled === "off") {
     apiLogger.warn({ msg: "crm-route:module-not-enabled", organizationId: ctx.organizationId, method: req.method });
     return { error: NextResponse.json({ error: "Not found", code: "MODULE_NOT_ENABLED" }, { status: 404 }) };
   }

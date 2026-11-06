@@ -14,11 +14,17 @@
  * added it gave every organisation existing at the time `crm`, so master did
  * not change; an organisation created afterwards starts with NOTHING, which is
  * the fail-closed default the platform needs. Only the platform operator
- * changes it (PUT /api/admin/organizations/[orgId]/modules).
+ * changes it (PUT /api/organizations/[orgId]/modules).
  *
  * SWITCHING A MODULE OFF SUSPENDS, NEVER DELETES. The CRM's routes 404, its
- * workers skip the organisation, its inbound mail is left aside, and every row
- * stays exactly where it was, so switching it back on restores everything.
+ * workers skip the organisation, its inbound mail waits under held/<org>/ (the
+ * worker moves it back to inbound/ by itself once the CRM is on again), and
+ * every row stays exactly where it was.
+ *
+ * "OFF" AND "COULD NOT TELL" ARE DIFFERENT ANSWERS. `orgModuleState` says
+ * which; `orgHasModule` folds "unknown" into false for callers that only gate
+ * (fail closed). A caller whose "off" branch MOVES something (the inbound
+ * worker) must ask the state, or a one-second database blip parks good mail.
  *
  * CACHED for 30 seconds per process: requireCrmRead asks on every CRM request.
  * A change made through the operator route clears this process's entry at
@@ -37,8 +43,8 @@ export function isOrgModule(value: unknown): value is OrgModule {
 const TTL_MS = 30_000;
 const cache = new Map<string, { modules: readonly string[]; at: number }>();
 
-/** The organisation's enabled modules; empty for an unknown organisation. Fails closed on a read error. */
-export async function orgModules(organizationId: string): Promise<readonly string[]> {
+/** The organisation's enabled modules (empty for an unknown organisation), or null when the read failed. */
+async function readModules(organizationId: string): Promise<readonly string[] | null> {
   const hit = cache.get(organizationId);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.modules;
   try {
@@ -48,12 +54,22 @@ export async function orgModules(organizationId: string): Promise<readonly strin
     return modules;
   } catch (err) {
     apiLogger.error({ msg: "module-entitlements:read-failed", organizationId, err: err instanceof Error ? err.message : String(err) });
-    return [];
+    return null;
   }
 }
 
+export type ModuleState = "on" | "off" | "unknown";
+
+/** On, off, or unknown (the read failed: never cached, never treated as off by a caller that moves data). */
+export async function orgModuleState(organizationId: string, module: OrgModule): Promise<ModuleState> {
+  const modules = await readModules(organizationId);
+  if (!modules) return "unknown";
+  return modules.includes(module) ? "on" : "off";
+}
+
+/** Fail-closed gate: true only when the module is known to be on. */
 export async function orgHasModule(organizationId: string, module: OrgModule): Promise<boolean> {
-  return (await orgModules(organizationId)).includes(module);
+  return (await orgModuleState(organizationId, module)) === "on";
 }
 
 /** Drop the cached answer, after a change or in a test. No argument clears all. */

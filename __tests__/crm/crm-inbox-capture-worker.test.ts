@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // The organisation has the CRM (module-entitlements.ts); the entitlement has its own tests.
-vi.mock("@/lib/module-entitlements", () => ({ orgHasModule: vi.fn(async () => true), forgetOrgModules: vi.fn() }));
+vi.mock("@/lib/module-entitlements", () => ({ orgHasModule: vi.fn(async () => true), orgModuleState: vi.fn(async () => "on"), forgetOrgModules: vi.fn() }));
 
 vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
@@ -104,7 +104,10 @@ function rawEmail(
 
 function mockS3(objects: Record<string, string>) {
   s3Send.mockImplementation(async (command: { cmd: string; input: Record<string, unknown> }) => {
-    if (command.cmd === "List") return { Contents: Object.keys(objects).map((Key) => ({ Key })) };
+    if (command.cmd === "List") {
+      const prefix = (command.input.Prefix as string | undefined) ?? "";
+      return { Contents: Object.keys(objects).filter((k) => k.startsWith(prefix)).map((Key) => ({ Key })) };
+    }
     if (command.cmd === "Get") {
       return { Body: { transformToByteArray: async () => Buffer.from(objects[command.input.Key as string]!) } };
     }

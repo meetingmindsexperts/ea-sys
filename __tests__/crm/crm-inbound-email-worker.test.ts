@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // The organisation has the CRM (module-entitlements.ts); the entitlement has its own tests.
-vi.mock("@/lib/module-entitlements", () => ({ orgHasModule: vi.fn(async () => true), forgetOrgModules: vi.fn() }));
+vi.mock("@/lib/module-entitlements", () => ({ orgHasModule: vi.fn(async () => true), orgModuleState: vi.fn(async () => "on"), forgetOrgModules: vi.fn() }));
 
 vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
@@ -68,7 +68,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
-import { orgHasModule } from "@/lib/module-entitlements";
+import { orgModuleState } from "@/lib/module-entitlements";
 import {
   runTick,
   replyTokenCandidates,
@@ -110,7 +110,8 @@ const thread = {
 function mockS3(objects: Record<string, string>) {
   s3Send.mockImplementation(async (command: { cmd: string; input: Record<string, unknown> }) => {
     if (command.cmd === "List") {
-      return { Contents: Object.keys(objects).map((Key) => ({ Key })) };
+      const prefix = (command.input.Prefix as string | undefined) ?? "";
+      return { Contents: Object.keys(objects).filter((k) => k.startsWith(prefix)).map((Key) => ({ Key })) };
     }
     if (command.cmd === "Get") {
       const body = objects[command.input.Key as string];
@@ -252,13 +253,34 @@ describe("runTick", () => {
   });
 
   it("holds a reply for an organisation whose CRM is switched off: kept under held/, not filed or forwarded", async () => {
-    vi.mocked(orgHasModule).mockResolvedValueOnce(false);
+    vi.mocked(orgModuleState).mockResolvedValueOnce("off");
     mockS3({ "inbound/off": rawEmail() });
-    expect(await runTick()).toMatchObject({ unmatched: 1, stored: 0 });
+    expect(await runTick()).toMatchObject({ held: 1, stored: 0 });
     expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
     expect(sendEmail).not.toHaveBeenCalled();
     const copy = s3Send.mock.calls.map((c) => c[0] as { cmd: string; input: { Key?: string } }).find((c) => c.cmd === "Copy");
-    expect(copy?.input.Key).toBe("held/off");
+    expect(copy?.input.Key).toBe("held/org-1/off");
+  });
+
+  it("a failed entitlement read leaves the email in inbound/ to retry, never parks it", async () => {
+    vi.mocked(orgModuleState).mockResolvedValueOnce("unknown");
+    mockS3({ "inbound/blip": rawEmail() });
+    expect(await runTick()).toMatchObject({ failures: 1, held: 0, stored: 0 });
+    expect(s3Send.mock.calls.some((c) => (c[0] as { cmd: string }).cmd === "Copy")).toBe(false);
+  });
+
+  it("puts held mail back in inbound/ once the organisation's CRM is on again", async () => {
+    mockS3({ "held/org-1/back": rawEmail() });
+    await runTick();
+    const copies = s3Send.mock.calls.map((c) => c[0] as { cmd: string; input: { Key?: string } }).filter((c) => c.cmd === "Copy");
+    expect(copies.map((c) => c.input.Key)).toContain("inbound/back");
+  });
+
+  it("leaves held mail alone while the organisation's CRM is still off", async () => {
+    vi.mocked(orgModuleState).mockResolvedValueOnce("off");
+    mockS3({ "held/org-1/still": rawEmail() });
+    await runTick();
+    expect(s3Send.mock.calls.some((c) => (c[0] as { cmd: string }).cmd === "Copy")).toBe(false);
   });
 
   it("files a reply once when the partnerships capture already filed it (same Message-ID)", async () => {

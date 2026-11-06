@@ -91,13 +91,15 @@ async function main() {
     // glance, and because per-tenant theming is itself worth demonstrating.
     await db.organization.upsert({
       where: { id: t.orgId },
-      update: { name: t.name, slug: t.slug, logo: null, primaryColor: t.primaryColor },
+      update: { name: t.name, slug: t.slug, logo: null, primaryColor: t.primaryColor, enabledModules: ["crm"] },
       create: {
         id: t.orgId,
         name: t.name,
         slug: t.slug,
         logo: null,
         primaryColor: t.primaryColor,
+        // Sandbox tenants demonstrate the CRM, so they have it (module-entitlements.ts).
+        enabledModules: ["crm"],
         settings: {},
       },
     });

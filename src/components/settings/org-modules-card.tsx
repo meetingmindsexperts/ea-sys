@@ -39,13 +39,16 @@ export function OrgModulesCard() {
       }
       toast.success(`CRM ${enabled ? "switched on" : "switched off"} for ${orgName}`);
       await qc.invalidateQueries({ queryKey: queryKeys.organizations });
+    } catch {
+      toast.error("Could not reach the server");
     } finally {
       setSaving(null);
     }
   }
 
-  // Refused (not the platform operator): render nothing rather than an error.
-  if (isError) return null;
+  // Refused (not the platform operator) or not loaded yet: render nothing, so a
+  // tenant's own SUPER_ADMIN never sees the card start to appear.
+  if (isError || isLoading) return null;
 
   return (
     <Card className="mt-6">
@@ -62,7 +65,6 @@ export function OrgModulesCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        {isLoading && <p className="text-sm text-muted-foreground">Loading organisations…</p>}
         {orgs.map((org) => {
           const on = org.enabledModules?.includes("crm") ?? false;
           return (

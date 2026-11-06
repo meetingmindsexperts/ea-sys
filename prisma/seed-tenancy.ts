@@ -368,6 +368,8 @@ async function seedOrg(
       name: `Tenancy ${orgId}`,
       slug: orgId,
       settings: {},
+      // The CRM isolation checks need both tenants to HAVE the CRM (module-entitlements.ts).
+      enabledModules: ["crm"],
     },
   });
   await db.tenantDomain.create({
