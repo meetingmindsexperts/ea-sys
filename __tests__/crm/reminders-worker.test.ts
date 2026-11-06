@@ -89,6 +89,15 @@ describe("runTick", () => {
     );
   });
 
+  it("claims only while the task still has the owner it read: a reassigned task waits for its new owner (F-04)", async () => {
+    vi.mocked(db.crmTask.findMany).mockResolvedValue([task()] as never);
+    vi.mocked(db.crmTask.updateMany).mockResolvedValue({ count: 0 } as never); // reassigned meanwhile
+    const res = await runTick();
+    expect(db.crmTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ ownerId: "u-1" }) }));
+    expect(res).toMatchObject({ skipped: 1, sent: 0 });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
   it("SKIPS a row another tick already claimed — no second email", async () => {
     // The exact double-send scenario: two workers (or an overlapping tick) both
     // read the row as due. Only one claim can succeed.

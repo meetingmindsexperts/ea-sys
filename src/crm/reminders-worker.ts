@@ -86,14 +86,22 @@ export async function runTick(): Promise<CrmReminderTickResult> {
     // no email, no double-nag. archivedAt is re-checked at claim time: archiving a
     // task between the candidate read and this claim cancels its reminder too
     // (CRM review L2). The claim is org-bound (defence #1) on top of the PK.
+    // The OWNER read above is re-checked too (CRM product review F-04): a task
+    // reassigned between the read and this claim is left unclaimed, and the next
+    // tick reminds its NEW owner instead of emailing the previous one.
+    if (!task.owner) {
+      result.skipped++;
+      apiLogger.warn({ msg: "crm-reminder:owner-missing", taskId: task.id });
+      return;
+    }
     const claim = await db.crmTask.updateMany({
-      where: { id: task.id, organizationId: task.organizationId, remindedAt: null, status: "OPEN", archivedAt: null },
+      where: { id: task.id, organizationId: task.organizationId, ownerId: task.owner.id, remindedAt: null, status: "OPEN", archivedAt: null },
       data: { remindedAt: new Date() },
     });
 
     if (claim.count === 0) {
       result.skipped++;
-      apiLogger.debug({ msg: "crm-reminder:already-claimed", taskId: task.id });
+      apiLogger.debug({ msg: "crm-reminder:already-claimed-or-reassigned", taskId: task.id });
       return;
     }
 
