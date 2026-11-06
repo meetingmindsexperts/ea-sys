@@ -32,9 +32,10 @@ export async function PUT(req: Request) {
       // data must never be saved unaudited (review of 6c8d9a24). One key set in
       // place, never a read-modify-write of the whole settings blob.
       await tenantTransaction(async (tx) => {
-        const org = await tx.organization.findUnique({ where: { id: ctx.organizationId }, select: { settings: true } });
+        // Row locked, so the audit's "before" is what this write replaced.
+        const [org] = await tx.$queryRaw<Array<{ settings: unknown }>>`SELECT "settings" FROM "Organization" WHERE "id" = ${ctx.organizationId} FOR UPDATE`;
         const before = readCrmRetention(org?.settings);
-        await tx.$executeRaw`UPDATE "Organization" SET "settings" = jsonb_set(COALESCE("settings", '{}'::jsonb), '{crmRetention}', ${JSON.stringify(parsed.data)}::jsonb), "updatedAt" = NOW() WHERE "id" = ${ctx.organizationId}`;
+        await tx.$executeRaw`UPDATE "Organization" SET "settings" = jsonb_set(CASE WHEN jsonb_typeof("settings") = 'object' THEN "settings" ELSE '{}'::jsonb END, '{crmRetention}', ${JSON.stringify(parsed.data)}::jsonb), "updatedAt" = NOW() WHERE "id" = ${ctx.organizationId}`;
         await tx.auditLog.create({
           data: {
             organizationId: ctx.organizationId,

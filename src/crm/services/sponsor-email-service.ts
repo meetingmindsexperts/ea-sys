@@ -73,6 +73,8 @@ export interface SponsorAttachment {
   /** Base64-encoded file content. */
   content: string;
   contentType?: string;
+  /** A document already stored on the deal (resolved server-side): its bytes are checked, not its name. */
+  stored?: boolean;
 }
 
 type ServiceFail = { ok: false; code: string; message: string };
@@ -302,9 +304,14 @@ function validateSend(
  * (src/lib/file-signature.ts): neither a declared type nor a filename proves
  * what a file is.
  */
+/** Declared types that say nothing (a browser's fallback) or misspell a known one. */
+const UNINFORMATIVE_TYPES = new Set(["", "application/octet-stream", "binary/octet-stream"]);
+const TYPE_ALIASES: Record<string, string> = { "image/jpg": "image/jpeg", "image/pjpeg": "image/jpeg" };
+
 export function checkSponsorAttachment(a: SponsorAttachment): { ok: true; contentType: string } | ServiceFail {
-  const declared = (a.contentType ?? "").trim().toLowerCase();
-  const t = declared || typeFromExtension(a.name) || "";
+  const raw = (a.contentType ?? "").trim().toLowerCase();
+  const declared = TYPE_ALIASES[raw] ?? raw;
+  const t = (UNINFORMATIVE_TYPES.has(declared) ? typeFromExtension(a.name) : declared) || "";
   const refuse = (reason: string): ServiceFail => {
     apiLogger.warn({ msg: "crm-sponsor-email:attachment-rejected", reason, contentType: t || null, extension: fileExtension(a.name) || null });
     return {
@@ -314,9 +321,9 @@ export function checkSponsorAttachment(a: SponsorAttachment): { ok: true; conten
     };
   };
   if (!t || !ALLOWED_ATTACHMENT_TYPES.has(t)) return refuse("type-not-allowed");
-  if (!extensionMatches(a.name, t)) return refuse("extension-mismatch");
-  // The first 16 bytes are enough for every signature in the table.
-  const head = Buffer.from(a.content.slice(0, 24), "base64");
+  if (!a.stored && !extensionMatches(a.name, t)) return refuse("extension-mismatch");
+  // 1,368 base64 characters = the first 1,026 bytes: a PDF's header may sit anywhere in its first 1,024.
+  const head = Buffer.from(a.content.slice(0, 1368), "base64");
   if (!signatureMatches(head, t)) return refuse("content-mismatch");
   return { ok: true, contentType: t };
 }

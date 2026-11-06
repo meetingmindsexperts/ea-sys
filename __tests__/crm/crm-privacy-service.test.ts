@@ -14,11 +14,11 @@ const { db, remove } = vi.hoisted(() => {
     crmNote: { findMany: vi.fn(), count: vi.fn() },
     crmTask: { findMany: vi.fn(), count: vi.fn() },
     crmEmailThread: { findMany: vi.fn(), deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    crmActivity: { findMany: vi.fn(), count: vi.fn(), deleteMany: vi.fn().mockResolvedValue({ count: 2 }) },
+    crmActivity: { findMany: vi.fn(), count: vi.fn(), deleteMany: vi.fn().mockResolvedValue({ count: 2 }), update: vi.fn().mockResolvedValue({}) },
     crmQuote: { findMany: vi.fn(), count: vi.fn() },
     crmEmailMessage: { findMany: vi.fn(), deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    crmNotification: { deleteMany: vi.fn().mockResolvedValue({ count: 2 }) },
-    $executeRaw: vi.fn().mockResolvedValue(3),
+    crmNotification: { findMany: vi.fn(), deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    $queryRaw: vi.fn(),
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   };
   return { db, remove: vi.fn().mockResolvedValue(undefined) };
@@ -27,7 +27,7 @@ vi.mock("@/lib/db", () => ({ db, tenantTransaction: (fn: (tx: typeof db) => unkn
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/crm/integrations/storage", () => ({ crmStorage: { remove } }));
 
-import { eraseCrmContact, exportCrmContactData } from "@/crm/services/crm-privacy-service";
+import { eraseCrmContact, exportCrmContactData, mentionsAddress, scrubMentions } from "@/crm/services/crm-privacy-service";
 
 const ORG = "org-1";
 const contact = { id: "c-1", organizationId: ORG, firstName: "Jane", lastName: "Doe", email: "Jane@Abbott.com", emailKey: "jane@abbott.com", companyId: "co-1", archivedAt: null };
@@ -53,6 +53,16 @@ beforeEach(() => {
   db.crmActivity.count.mockResolvedValue(1);
   db.crmQuote.findMany.mockResolvedValue([{ number: "Q-2026-0001", dealId: "d-1", preparedFor: "Jane Doe", attention: null }]);
   db.crmQuote.count.mockResolvedValue(1);
+  // Prefilter hits: one line naming them, one naming a different person whose address CONTAINS theirs.
+  db.$queryRaw.mockResolvedValue([
+    { id: "a-1", changes: { from: "jane@abbott.com", subject: "Re" } },
+    { id: "a-2", changes: { from: "mary-jane@abbott.com" } },
+  ]);
+  db.crmNotification.findMany.mockResolvedValue([
+    { id: "n-1", message: "Jane Doe (jane@abbott.com) replied", link: "/crm/inbox?thread=t-x" },
+    { id: "n-2", message: "mary-jane@abbott.com replied", link: "/crm/inbox?thread=t-y" },
+    { id: "n-3", message: "Jane Doe wrote to partnerships", link: "/crm/inbox?thread=t-1" },
+  ]);
   db.crmEmailMessage.findMany.mockResolvedValue([{ id: "m-elsewhere", attachments: [{ filename: "x.pdf", size: 1, mimeType: "application/pdf", path: "/uploads/crm-email-attachments/t-9/x.pdf" }] }]);
 });
 
@@ -90,7 +100,7 @@ describe("eraseCrmContact", () => {
     expect(res).toMatchObject({
       ok: true,
       report: {
-        erased: { emailThreads: 1, emailMessages: 2, attachmentFiles: 2, notes: 1, dealLinks: 1, historyLines: 2, historyMentions: 3, notifications: 2 },
+        erased: { emailThreads: 1, emailMessages: 2, attachmentFiles: 2, notes: 1, dealLinks: 1, historyLines: 2, historyMentions: 1, notifications: 1 },
         remaining: { quotesNamingThem: 1 },
       },
     });
@@ -100,9 +110,11 @@ describe("eraseCrmContact", () => {
     );
     expect(db.crmEmailMessage.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["m-elsewhere"] }, organizationId: ORG } });
     expect(remove).toHaveBeenCalledWith("emailAttachment", "/uploads/crm-email-attachments/t-9/x.pdf");
-    // Deal and account History naming the address, matched literally (no LIKE wildcards from the address).
-    const rawSql = (db.$executeRaw.mock.calls[0] as unknown[]).map(String).join(" ");
-    expect(rawSql).toContain("%jane@abbott.com%");
+    // Only the line naming THEIR address is scrubbed; mary-jane's is untouched (review HIGH).
+    expect(db.crmActivity.update).toHaveBeenCalledTimes(1);
+    expect(db.crmActivity.update).toHaveBeenCalledWith({ where: { id: "a-1" }, data: { changes: { from: "[erased]", subject: "Re" } } });
+    // Notifications: their address, or an erased thread; not mary-jane's.
+    expect(db.crmNotification.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["n-1", "n-3"] }, organizationId: ORG } });
     expect(db.crmEmailThread.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["t-1"] }, organizationId: ORG } });
     expect(db.crmContact.deleteMany).toHaveBeenCalledWith({ where: { id: "c-1", organizationId: ORG } });
     expect(remove).toHaveBeenCalledWith("emailAttachment", "/uploads/crm-email-attachments/t-1/po.pdf");
@@ -117,12 +129,24 @@ describe("eraseCrmContact", () => {
   });
 });
 
-describe("likeLiteral via the erase SQL", () => {
-  it("escapes LIKE wildcards in an address so it matches only itself", async () => {
-    db.crmContact.findFirst.mockResolvedValue({ ...contact, email: "a_b%c@x.com", emailKey: "a_b%c@x.com" });
-    db.crmEmailMessage.findMany.mockResolvedValue([]);
-    await eraseCrmContact({ organizationId: ORG, crmContactId: "c-1", userId: "u-1", source: "rest", confirmEmail: "a_b%c@x.com" });
-    const values = db.$executeRaw.mock.calls[0]!.slice(1).map(String);
-    expect(values).toContain("%a\\_b\\%c@x.com%");
+describe("exact mentions only", () => {
+  it("an address is matched with boundaries, never as a substring", () => {
+    expect(mentionsAddress("jane@abbott.com", "jane@abbott.com")).toBe(true);
+    expect(mentionsAddress("Jane Doe <Jane@Abbott.com>", "jane@abbott.com")).toBe(true);
+    expect(mentionsAddress("mary-jane@abbott.com", "jane@abbott.com")).toBe(false);
+    expect(mentionsAddress("jane@abbott.com.au", "jane@abbott.com")).toBe(false);
+    expect(mentionsAddress("a_b%c@x.com", "a_b%c@x.com")).toBe(true);
+  });
+
+  it("scrubs their address and name on a line that names them, leaving the other people on it", () => {
+    const line = { contact: "Jane Doe", email: "jane@abbott.com", others: ["Sam Lee <sam@abbott.com>"] };
+    expect(scrubMentions(line, "jane@abbott.com", "Jane Doe")).toEqual({
+      changed: true,
+      value: { contact: "[erased]", email: "[erased]", others: ["Sam Lee <sam@abbott.com>"] },
+    });
+  });
+
+  it("never touches a namesake: a line without their address keeps the name", () => {
+    expect(scrubMentions({ contact: "Jane Doe", email: "jane.doe@other.com" }, "jane@abbott.com", "Jane Doe")).toMatchObject({ changed: false });
   });
 });

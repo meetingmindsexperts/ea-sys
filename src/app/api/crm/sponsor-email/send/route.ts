@@ -79,7 +79,7 @@ async function loadStoredAttachments(
   dealId: string,
   documentIds: string[],
 ): Promise<
-  | { ok: true; attachments: Array<{ name: string; content: string; contentType: string }> }
+  | { ok: true; attachments: Array<{ name: string; content: string; contentType: string; stored: true }> }
   | { ok: false; code: string; message: string }
 > {
   const docs = await db.crmDealDocument.findMany({
@@ -97,13 +97,15 @@ async function loadStoredAttachments(
     return { ok: false, code: "DOCUMENT_NOT_FOUND", message: "One of the selected documents no longer exists on this deal" };
   }
 
-  const attachments: Array<{ name: string; content: string; contentType: string }> = [];
+  const attachments: Array<{ name: string; content: string; contentType: string; stored: true }> = [];
   for (const doc of docs) {
     try {
       // Path validation lives in the storage port (crmStorage.read); a rejection lands in the catch
       // below and refuses the send, which is the same outcome as before.
       const buf = await crmStorage.read("dealDocument", doc.url);
-      attachments.push({ name: doc.filename, content: buf.toString("base64"), contentType: doc.mimeType });
+      // stored: a deal document keeps its uploader's name ("Prospectus v1.2"),
+      // so the send checks its bytes, not its extension (review of b8e3529a).
+      attachments.push({ name: doc.filename, content: buf.toString("base64"), contentType: doc.mimeType, stored: true });
     } catch (err) {
       // Honest failure: refuse the send rather than deliver without the file.
       apiLogger.error({

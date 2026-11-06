@@ -43,6 +43,13 @@ function matchesAt(buf: Uint8Array, bytes: number[], offset = 0): boolean {
 export function signatureMatches(buf: Uint8Array, mimeType: string): boolean {
   const sig = FILE_SIGNATURES[mimeType];
   if (!sig) return false;
+  // The PDF spec lets "%PDF-" sit anywhere in the first 1,024 bytes (some
+  // generators write a byte-order mark or junk first).
+  if (mimeType === "application/pdf") {
+    const window = buf.subarray(0, 1024 + 5);
+    for (let i = 0; i + 5 <= window.length; i++) if (matchesAt(window, sig.magic[0]!.bytes, i)) return true;
+    return false;
+  }
   if (!sig.magic.some((m) => matchesAt(buf, m.bytes, m.offset))) return false;
   // WebP shares RIFF with WAV and AVI: the format name sits at byte 8.
   if (mimeType === "image/webp") return matchesAt(buf, [0x57, 0x45, 0x42, 0x50], 8);

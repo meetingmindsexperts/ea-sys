@@ -530,11 +530,37 @@ describe("verifySender", () => {
     expect(verifySender(parsed("bob@abbott.com", "amazonses.com; spf=pass"), "jane@abbott.com").verified).toBe(false);
   });
   it("no DMARC verdict but a DKIM pass signed by the From domain → verified", () => {
-    expect(verifySender(parsed("bob@abbott.com", "amazonses.com; dkim=pass header.i=@abbott.com; spf=pass"), "jane@abbott.com")).toMatchObject({
+    expect(verifySender(parsed("bob@abbott.com", "amazonses.com; spf=pass; dkim=pass header.i=@abbott.com"), "jane@abbott.com")).toMatchObject({
       verified: true,
       reason: "dkim-aligned",
     });
   });
+  // Review of 31528606, HIGH: the sender controls parts of SES's own line.
+  it("a 'dmarc=pass' smuggled in the envelope sender or HELO is not a verdict", () => {
+    const ses = (s: string) => parsed("bob@abbott.com", s);
+    expect(verifySender(ses("amazonses.com; spf=pass (spfCheck: domain of evil.com) client-ip=1.2.3.4; envelope-from=x+dmarc=pass@evil.com; helo=mx.evil.com;"), "jane@abbott.com").verified).toBe(false);
+    expect(verifySender(ses("amazonses.com; spf=pass smtp.mailfrom=<x;dmarc=pass@evil.com>; dmarc=none header.from=abbott.com;"), "jane@abbott.com").verified).toBe(false);
+    // A smuggled result BEFORE the spf part is ignored; a second dmarc result is forgery.
+    expect(verifySender(ses("amazonses.com; dmarc=pass header.from=abbott.com; spf=pass helo=x; dmarc=none header.from=abbott.com;"), "jane@abbott.com").verified).toBe(false);
+    expect(verifySender(ses("amazonses.com; spf=pass; dmarc=pass header.from=abbott.com; dmarc=pass header.from=abbott.com"), "jane@abbott.com")).toMatchObject({ reason: "auth-header-forged" });
+  });
+
+  it("a DMARC pass counts only for the From domain itself", () => {
+    expect(verifySender(parsed("bob@abbott.com", "amazonses.com; spf=pass; dmarc=pass header.from=evil.com"), "jane@abbott.com").verified).toBe(false);
+  });
+
+  it("dmarc=none (a domain without a policy) falls back to the From domain's own DKIM", () => {
+    expect(verifySender(parsed("bob@abbott.com", "amazonses.com; spf=pass; dkim=pass header.i=@abbott.com; dmarc=none header.from=abbott.com;"), "jane@abbott.com")).toMatchObject({
+      verified: true,
+      reason: "dkim-aligned",
+    });
+  });
+
+  it("a mail with more than one From address is never verified", () => {
+    const two = { from: { value: [{ address: "bob@abbott.com" }, { address: "x@evil.com" }] }, headers: new Map(), headerLines: [{ key: "authentication-results", line: "Authentication-Results: amazonses.com; spf=pass; dmarc=pass header.from=abbott.com" }] } as never;
+    expect(verifySender(two, "jane@abbott.com")).toMatchObject({ verified: false, reason: "from-not-single" });
+  });
+
   it("a DKIM pass by ANOTHER domain (the sender's mail provider) proves nothing", () => {
     expect(verifySender(parsed("bob@abbott.com", "amazonses.com; dkim=pass header.d=sendgrid.net"), "jane@abbott.com").verified).toBe(false);
   });

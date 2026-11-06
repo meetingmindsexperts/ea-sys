@@ -309,6 +309,18 @@ describe("sendSponsorProspectus", () => {
     expect(await sendSponsorProspectus({ ...SEND, attachments: [{ name: "noextension", content: PDF }] })).toMatchObject({ code: "ATTACHMENT_TYPE_NOT_ALLOWED" });
   });
 
+  it("a stored deal document keeps its uploader's name: its bytes are checked, not its extension", async () => {
+    mockDeals([deal([contact()])]);
+    expect((await sendSponsorProspectus({ ...SEND, attachments: [{ name: "Prospectus v1.2", content: PDF, contentType: "application/pdf", stored: true }] })).ok).toBe(true);
+  });
+
+  it("a browser's octet-stream or image/jpg falls back to the filename", async () => {
+    mockDeals([deal([contact()])]);
+    expect((await sendSponsorProspectus({ ...SEND, attachments: [{ name: "deck.pdf", content: PDF, contentType: "application/octet-stream" }] })).ok).toBe(true);
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]).toString("base64");
+    expect((await sendSponsorProspectus({ ...SEND, attachments: [{ name: "logo.jpg", content: jpeg, contentType: "image/jpg" }] })).ok).toBe(true);
+  });
+
   it("refuses an HTML page renamed to .pdf, and a .exe declared as a PDF", async () => {
     mockDeals([deal([contact()])]);
     const html = Buffer.from("<html><script>alert(1)</script></html>").toString("base64");

@@ -72,9 +72,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ orgId: s
         const before = readCrmEmailSettings(org.settings, orgId);
         // One key changed in place: never a read-modify-write of the whole settings blob.
         if (next) {
-          await tx.$executeRaw`UPDATE "Organization" SET "settings" = jsonb_set(COALESCE("settings", '{}'::jsonb), '{crmEmail}', ${JSON.stringify(next)}::jsonb), "updatedAt" = NOW() WHERE "id" = ${orgId}`;
+          await tx.$executeRaw`UPDATE "Organization" SET "settings" = jsonb_set(CASE WHEN jsonb_typeof("settings") = 'object' THEN "settings" ELSE '{}'::jsonb END, '{crmEmail}', ${JSON.stringify(next)}::jsonb), "updatedAt" = NOW() WHERE "id" = ${orgId}`;
         } else {
-          await tx.$executeRaw`UPDATE "Organization" SET "settings" = COALESCE("settings", '{}'::jsonb) - 'crmEmail', "updatedAt" = NOW() WHERE "id" = ${orgId}`;
+          await tx.$executeRaw`UPDATE "Organization" SET "settings" = (CASE WHEN jsonb_typeof("settings") = 'object' THEN "settings" ELSE '{}'::jsonb END) - 'crmEmail', "updatedAt" = NOW() WHERE "id" = ${orgId}`;
         }
         await tx.auditLog.create({
           data: {

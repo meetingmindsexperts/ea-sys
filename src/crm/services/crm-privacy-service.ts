@@ -23,10 +23,11 @@
  *   - their address, if they write in again: capture would file the new email
  *     under a new contact (there is no suppression list yet).
  *
- * ALSO REMOVED (review of 09ec1b73): every History line on a deal or account
- * whose recorded changes carry their address (a reply's "from", a capture's
- * contact line), their own messages on OTHER people's threads (a reply-all)
- * with those messages' files, and CRM notifications that name them.
+ * ALSO REMOVED (review of 09ec1b73): their address and name SCRUBBED from
+ * History lines on deals and accounts (exact mentions only; the line and the
+ * other people on it stay), their own messages on OTHER people's threads (a
+ * reply-all) with those messages' files, and CRM notifications that name
+ * their address or point at an erased thread.
  *
  * Errors as values; runs inside the caller's tenant lane; never imports
  * next/server (services/README.md).
@@ -170,6 +171,51 @@ export interface CrmContactErasure {
   remaining: { quotesNamingThem: number };
 }
 
+/** Regex-escape a literal. */
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Does this text name exactly this address? Bounded on both sides by
+ * characters an address cannot continue with, so "joann@acme.com" and
+ * "ann@acme.com.au" are not "ann@acme.com".
+ */
+export function mentionsAddress(text: string, address: string): boolean {
+  const re = new RegExp(`(^|[^a-z0-9._%+-])${escapeRegex(address.toLowerCase())}($|[^a-z0-9.-])`);
+  return re.test(text.toLowerCase());
+}
+
+/**
+ * Replace, inside one History line's recorded changes, every string value that
+ * names the address (exactly, see mentionsAddress) with "[erased]"; and, only
+ * on a line that named the address, every value that IS their full name. Other
+ * values (other people on the same line) are left as they were.
+ */
+export function scrubMentions(value: Prisma.JsonValue, address: string, fullName: string): { value: Prisma.JsonValue; changed: boolean } {
+  let hit = false;
+  const byAddress = (v: Prisma.JsonValue): Prisma.JsonValue => {
+    if (typeof v === "string") {
+      if (!mentionsAddress(v, address)) return v;
+      hit = true;
+      return "[erased]";
+    }
+    if (Array.isArray(v)) return v.map(byAddress);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, byAddress(x as Prisma.JsonValue)]));
+    return v;
+  };
+  const name = fullName.trim().toLowerCase();
+  const byName = (v: Prisma.JsonValue): Prisma.JsonValue => {
+    if (typeof v === "string") return name && v.trim().toLowerCase() === name ? "[erased]" : v;
+    if (Array.isArray(v)) return v.map(byName);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, byName(x as Prisma.JsonValue)]));
+    return v;
+  };
+  const first = byAddress(value);
+  if (!hit) return { value, changed: false };
+  return { value: byName(first), changed: true };
+}
+
 /** LIKE pattern for a literal substring (%, _ and \\ escaped). */
 function likeLiteral(value: string): string {
   return `%${value.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
@@ -232,21 +278,41 @@ export async function eraseCrmContact(
         if (elsewhere.length) await tx.crmEmailMessage.deleteMany({ where: { id: { in: elsewhere.map((m) => m.id) }, organizationId: ctx.organizationId } });
         const history = await tx.crmActivity.deleteMany({ where: { organizationId: ctx.organizationId, entityType: "CONTACT", entityId: contact.id } });
         // History on deals and accounts that recorded their address (a reply's
-        // "from", a capture's contact line): matched on the stored JSON text.
-        const historyMentions = await tx.$executeRaw`
-          DELETE FROM "CrmActivity"
+        // "from", a capture's contact line). SCRUBBED, not deleted, and only
+        // exact mentions (review of 24ee1020, HIGH): a substring match took
+        // "joann@acme.com" with "ann@acme.com", and deleting a line removed the
+        // other people on it. The LIKE is only a cheap prefilter; the decision
+        // is made per value in scrubMentions.
+        const candidates = await tx.$queryRaw<Array<{ id: string; changes: Prisma.JsonValue }>>`
+          SELECT id, changes FROM "CrmActivity"
           WHERE "organizationId" = ${ctx.organizationId}
             AND "entityType" <> 'CONTACT'
             AND lower("changes"::text) LIKE ${likeLiteral(address)}`;
-        const notifications = await tx.crmNotification.deleteMany({
+        let historyMentions = 0;
+        for (const row of candidates) {
+          const scrubbed = scrubMentions(row.changes, address, fullName);
+          if (!scrubbed.changed) continue;
+          await tx.crmActivity.update({ where: { id: row.id }, data: { changes: scrubbed.value as Prisma.InputJsonValue } });
+          historyMentions++;
+        }
+        // Notifications that name the address exactly, or point at a thread
+        // being erased. Never by name alone: namesakes are other people.
+        const notificationCandidates = await tx.crmNotification.findMany({
           where: {
             organizationId: ctx.organizationId,
             OR: [
               { message: { contains: address, mode: "insensitive" } },
-              ...(fullName ? [{ message: { contains: fullName, mode: "insensitive" as const } }] : []),
+              ...threadIds.map((id) => ({ link: { contains: `thread=${id}` } })),
             ],
           },
+          select: { id: true, message: true, link: true },
         });
+        const notificationIds = notificationCandidates
+          .filter((n) => mentionsAddress(n.message, address) || threadIds.some((id) => (n.link ?? "").includes(`thread=${id}`)))
+          .map((n) => n.id);
+        const notifications = notificationIds.length
+          ? await tx.crmNotification.deleteMany({ where: { id: { in: notificationIds }, organizationId: ctx.organizationId } })
+          : { count: 0 };
         // Notes, tasks and deal links cascade from the contact.
         await tx.crmContact.deleteMany({ where: { id: contact.id, organizationId: ctx.organizationId } });
 

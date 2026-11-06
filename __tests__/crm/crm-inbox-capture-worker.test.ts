@@ -90,7 +90,7 @@ function rawEmail(
     over.received ?? sesReceived(CAPTURE),
     ...(over.spam ?? ["X-SES-Spam-Verdict: PASS"]),
     "X-SES-Virus-Verdict: PASS",
-    `Authentication-Results: amazonses.com; spf=pass; dmarc=${over.dmarc ?? "pass"} header.from=x`,
+    `Authentication-Results: amazonses.com; spf=pass; dmarc=${over.dmarc ?? "pass"} header.from=${((over.from ?? "jane@abbott.com").match(/@([^>\s]+)/)?.[1] ?? "").toLowerCase()}`,
     `From: ${over.from ?? "Jane Doe <jane@abbott.com>"}`,
     `To: ${over.to ?? MAILBOX}`,
     "Subject: Sponsorship enquiry",

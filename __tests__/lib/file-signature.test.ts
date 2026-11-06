@@ -18,6 +18,13 @@ describe("signatureMatches", () => {
     expect(signatureMatches(new TextEncoder().encode("RIFF\0\0\0\0WAVEfmt "), "image/webp")).toBe(false);
   });
 
+  it("finds a PDF header anywhere in the first 1,024 bytes, not beyond", () => {
+    const at = (n: number) => Uint8Array.from([...new Array(n).fill(0x20), ...new TextEncoder().encode("%PDF-1.7")]);
+    expect(signatureMatches(at(3), "application/pdf")).toBe(true);
+    expect(signatureMatches(at(1000), "application/pdf")).toBe(true);
+    expect(signatureMatches(at(1100), "application/pdf")).toBe(false);
+  });
+
   it("refuses a mismatch, a short buffer and an unknown type", () => {
     expect(signatureMatches(new TextEncoder().encode("<html>"), "application/pdf")).toBe(false);
     expect(signatureMatches(bytes(0x25), "application/pdf")).toBe(false);

@@ -156,9 +156,86 @@ export function sesAuthenticationResults(parsed: ParsedMail): string {
   return /^amazonses\.com\s*;/i.test(first) ? first : "";
 }
 
-/** SES judged the From domain's DMARC as passing. */
+export interface AuthResult {
+  method: string;
+  result: string;
+  props: Record<string, string>;
+}
+
+/** Methods whose segment carries values the SENDER chose (envelope, HELO, client). */
+const SENDER_SUPPLIED = new Set(["spf", "smtp.mailfrom", "envelope-from", "helo", "client-ip", "smtp.helo", "iprev"]);
+
+/**
+ * Parse SES's Authentication-Results into its results (RFC 8601), safely
+ * (review of 31528606, HIGH). A regex over the whole line read "dmarc=pass"
+ * out of a MAIL FROM the sender chose ("x+dmarc=pass@evil.com"). So:
+ *   - comments "(...)", quoted strings and "<...>" addresses are removed first:
+ *     a sender's text inside them can no longer look like a result;
+ *   - the line is split into its ";"-separated results, the first (SES's
+ *     authserv-id) dropped;
+ *   - only results AFTER the last sender-supplied one (spf, envelope-from,
+ *     helo, client-ip) count: SES writes spf first and dkim/dmarc after it, so
+ *     anything a HELO or envelope smuggled in sits before and is ignored.
+ */
+export function parseAuthResults(header: string): AuthResult[] {
+  let text = header;
+  for (let i = 0; i < 5 && /\([^()]*\)/.test(text); i++) text = text.replace(/\([^()]*\)/g, " ");
+  text = text.replace(/"[^"]*"/g, '""').replace(/<[^<>]*>/g, "<>");
+  const segments = text.split(";").slice(1).map((s) => s.trim()).filter(Boolean);
+  const parsed = segments.map((seg): AuthResult => {
+    const [head, ...rest] = seg.split(/\s+/);
+    const eq = head!.indexOf("=");
+    const method = (eq > 0 ? head!.slice(0, eq) : head!).toLowerCase();
+    const result = (eq > 0 ? head!.slice(eq + 1) : "").toLowerCase();
+    const props: Record<string, string> = {};
+    for (const p of rest) {
+      const i = p.indexOf("=");
+      if (i > 0) props[p.slice(0, i).toLowerCase()] = p.slice(i + 1).toLowerCase();
+    }
+    return { method, result, props };
+  });
+  let lastSender = -1;
+  parsed.forEach((r, i) => {
+    if (SENDER_SUPPLIED.has(r.method)) lastSender = i;
+  });
+  return parsed.slice(lastSender + 1);
+}
+
+/** SES's own verdicts, parsed (empty when SES did not write the header). */
+function sesResults(parsed: ParsedMail): AuthResult[] {
+  const header = sesAuthenticationResults(parsed);
+  return header ? parseAuthResults(header) : [];
+}
+
+type DmarcVerdict = "pass" | "fail" | "none" | "forged";
+
+/**
+ * SES's DMARC verdict for the From domain. "none" also covers no verdict at
+ * all; "forged" means the header held more than one DMARC result, which SES
+ * never writes, so something was smuggled in. A pass counts only when its
+ * header.from IS the From domain.
+ */
+export function dmarcVerdict(results: AuthResult[], fromDomain: string): DmarcVerdict {
+  const dmarc = results.filter((r) => r.method === "dmarc");
+  if (dmarc.length > 1) return "forged";
+  const only = dmarc[0];
+  if (!only || only.result === "none" || only.result === "bestguesspass" || only.result === "temperror") return "none";
+  if (only.result === "pass") return only.props["header.from"] === fromDomain ? "pass" : "fail";
+  return "fail";
+}
+
+/** The single From address, or null when there is none or more than one (a multi-From mail is never trusted). */
+function soleFromAddress(parsed: ParsedMail): string | null {
+  const all = parsed.from?.value ?? [];
+  if (all.length !== 1) return null;
+  return all[0]?.address?.toLowerCase() || null;
+}
+
+/** SES judged the From domain's DMARC as passing (capture path). */
 export function sesDmarcPass(parsed: ParsedMail): boolean {
-  return /\bdmarc\s*=\s*pass\b/i.test(sesAuthenticationResults(parsed));
+  const from = soleFromAddress(parsed);
+  if (!from) return false;
+  return dmarcVerdict(sesResults(parsed), emailDomain(from)) === "pass";
 }
 
 /**
@@ -278,19 +355,23 @@ export function verifySender(
   parsed: ParsedMail,
   counterpartyEmail: string,
 ): { verified: boolean; reason: string } {
-  const from = parsed.from?.value?.[0]?.address ?? "";
+  const from = soleFromAddress(parsed);
+  if (!from) return { verified: false, reason: "from-not-single" };
   const fromDomain = emailDomain(from);
   const cpDomain = emailDomain(counterpartyEmail);
 
-  // SES's own result only: a sender can add Authentication-Results lines too.
-  const auth = sesAuthenticationResults(parsed);
-  if (/dmarc\s*=\s*fail/i.test(auth)) return { verified: false, reason: "dmarc-fail" };
+  // SES's own result only, parsed (a sender can add Authentication-Results lines too).
+  const results = sesResults(parsed);
+  const dmarc = dmarcVerdict(results, fromDomain);
+  if (dmarc === "fail") return { verified: false, reason: "dmarc-fail" };
+  if (dmarc === "forged") return { verified: false, reason: "auth-header-forged" };
 
   if (!fromDomain || !cpDomain || fromDomain !== cpDomain) {
     return { verified: false, reason: "domain-mismatch" };
   }
-  if (/\bdmarc\s*=\s*pass\b/i.test(auth)) return { verified: true, reason: "dmarc-pass" };
-  if (!/\bdmarc\s*=/i.test(auth) && dkimPassFor(auth, fromDomain)) return { verified: true, reason: "dkim-aligned" };
+  if (dmarc === "pass") return { verified: true, reason: "dmarc-pass" };
+  // No DMARC policy ("none" or no verdict): a DKIM pass signed by the From domain itself.
+  if (dkimPassFor(results, fromDomain)) return { verified: true, reason: "dkim-aligned" };
   return { verified: false, reason: "no-authentication" };
 }
 
@@ -300,14 +381,13 @@ export function verifySender(
  * The signing domain must be the From domain itself: a pass for the sender's
  * mail provider proves nothing about who wrote From.
  */
-export function dkimPassFor(auth: string, domain: string): boolean {
+export function dkimPassFor(results: AuthResult[], domain: string): boolean {
   const want = domain.toLowerCase();
-  for (const m of auth.matchAll(/\bdkim\s*=\s*pass\b([^;]*)/gi)) {
-    const d = /header\.(?:d=|i=@?)([^\s;]+)/i.exec(m[1] ?? "");
-    const signer = (d?.[1] ?? "").toLowerCase().replace(/^.*@/, "");
-    if (signer === want) return true;
-  }
-  return false;
+  return results.some((r) => {
+    if (r.method !== "dkim" || r.result !== "pass") return false;
+    const signer = (r.props["header.d"] ?? r.props["header.i"] ?? "").replace(/^.*@/, "");
+    return signer === want;
+  });
 }
 
 /** Best-effort removal of just-written attachment files when the row never lands. */
