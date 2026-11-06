@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { storageErrorResponse } from "@/lib/api-errors";
-import { readStoredFile, deleteStoredFile } from "@/lib/storage";
-import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
+import { crmStorage } from "@/crm/integrations/storage";
 import { apiLogger } from "@/lib/logger";
 import { db } from "@/lib/db";
 import { requireCrmRead, requireCrmWrite, crmErrorResponse, crmCan } from "@/crm/lib/crm-route";
@@ -47,7 +46,7 @@ export async function GET(
 
     let file: Buffer;
     try {
-      file = await readStoredFile(doc.url, UPLOAD_PREFIX.crmDealDocs);
+      file = await crmStorage.read("dealDocument", doc.url);
     } catch (err) {
       const res = storageErrorResponse(err, {
         route: "crm/deal-documents",
@@ -104,7 +103,7 @@ export async function DELETE(
   });
   if (!result.ok) return crmErrorResponse(result);
 
-  await deleteStoredFile(result.removedUrl, UPLOAD_PREFIX.crmDealDocs);
+  await crmStorage.remove("dealDocument", result.removedUrl);
 
   return NextResponse.json({ removed: true });
   });

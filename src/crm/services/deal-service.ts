@@ -28,6 +28,7 @@
  */
 import { Prisma, type CrmDeal, type CrmDealStatus, type CrmDealContactRole, type CrmDealPipeline, type CrmStageOutcome } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
+import { crmEvents } from "@/crm/integrations/events";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
@@ -176,9 +177,9 @@ async function validateRelations(
   }
   if (rel.eventId) {
     checks.push(
-      db.event
-        .findFirst({ where: { id: rel.eventId, organizationId }, select: { id: true } })
-        .then((r) => (r ? null : ({ ok: false, code: "EVENT_NOT_FOUND", message: "Event not found" } as Fail))),
+      crmEvents
+        .belongsTo(organizationId, rel.eventId)
+        .then((found) => (found ? null : ({ ok: false, code: "EVENT_NOT_FOUND", message: "Event not found" } as Fail))),
     );
   }
   if (rel.ownerId) {

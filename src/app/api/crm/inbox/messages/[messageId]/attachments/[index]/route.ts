@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { storageErrorResponse } from "@/lib/api-errors";
-import { readStoredFile } from "@/lib/storage";
-import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
+import { crmStorage } from "@/crm/integrations/storage";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requireCrmRead, crmCan } from "@/crm/lib/crm-route";
@@ -57,7 +56,7 @@ export async function GET(
 
     let file: Buffer;
     try {
-      file = await readStoredFile(meta.path, UPLOAD_PREFIX.crmEmailAttachments);
+      file = await crmStorage.read("emailAttachment", meta.path);
     } catch (err) {
       const res = storageErrorResponse(err, {
         route: "crm/inbox-attachment",

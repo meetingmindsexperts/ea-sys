@@ -19,6 +19,7 @@
  */
 import { Prisma, type CrmDealStatus, type CrmDealPipeline } from "@prisma/client";
 import { db } from "@/lib/db";
+import { crmEvents } from "@/crm/integrations/events";
 import { apiLogger } from "@/lib/logger";
 import { parseCSV } from "@/lib/csv-parser";
 import { recordCrmActivityBulk, type CrmActivityEntry } from "@/crm/lib/crm-activity";
@@ -908,8 +909,8 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
 
   // Everything the rows resolve against, fetched once and org-bound.
   const [fallbackEvent, events, stages, resolveOwner, dealTypes] = await Promise.all([
-    db.event.findFirst({ where: { id: ctx.fallbackEventId, organizationId: ctx.organizationId }, select: { id: true, name: true } }),
-    db.event.findMany({ where: { organizationId: ctx.organizationId }, select: { id: true, name: true } }),
+    crmEvents.find(ctx.organizationId, ctx.fallbackEventId),
+    crmEvents.listAll(ctx.organizationId),
     db.crmPipelineStage.findMany({ where: { organizationId: ctx.organizationId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
     makeOwnerResolver(ctx.organizationId),
     db.crmDealType.findMany({ where: { organizationId: ctx.organizationId }, select: { id: true, name: true } }),

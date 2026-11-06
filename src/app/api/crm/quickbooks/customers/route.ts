@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { crmErrorResponse } from "@/crm/lib/crm-route";
-import { searchCustomers } from "@/lib/quickbooks/sales";
+import { crmAccounting } from "@/crm/integrations/accounting";
 import { qboLookupFail, requireQboLookup } from "@/crm/lib/quickbooks-route";
 
 export async function GET(req: Request) {
@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   if (error) return error;
   return await runWithTenant(ctx.organizationId, async () => {
     const search = new URL(req.url).searchParams.get("search") ?? "";
-    const res = await searchCustomers(ctx.organizationId, search);
+    const res = await crmAccounting.searchCustomers(ctx.organizationId, search);
     if (!res.ok) return crmErrorResponse(qboLookupFail(res, ctx.organizationId, "customers"));
     return NextResponse.json({ customers: res.data });
   });

@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { crmCan, crmErrorResponse } from "@/crm/lib/crm-route";
-import { listTaxCodes } from "@/lib/quickbooks/sales";
+import { crmAccounting } from "@/crm/integrations/accounting";
 import { qboLookupFail, requireQboLookup } from "@/crm/lib/quickbooks-route";
 
 export async function GET(req: Request) {
@@ -18,7 +18,7 @@ export async function GET(req: Request) {
       apiLogger.warn({ msg: "crm/quickbooks:tax-codes-list-forbidden", role: ctx.role, userId: ctx.userId, organizationId: ctx.organizationId });
       return NextResponse.json({ error: "Only an admin can choose the QuickBooks VAT codes", code: "FORBIDDEN" }, { status: 403 });
     }
-    const res = await listTaxCodes(ctx.organizationId);
+    const res = await crmAccounting.listTaxCodes(ctx.organizationId);
     if (!res.ok) return crmErrorResponse(qboLookupFail(res, ctx.organizationId, "tax-codes"));
     return NextResponse.json({ taxCodes: res.data.filter((c) => c.active) });
   });

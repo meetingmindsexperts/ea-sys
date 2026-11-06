@@ -19,8 +19,7 @@
  * The row is the source of truth; notification/forward failures log and never
  * un-record a received email.
  */
-import { uploadFile, deleteStoredFile } from "@/lib/storage";
-import { UPLOAD_SEGMENT, UPLOAD_PREFIX } from "@/lib/upload-prefixes";
+import { crmStorage } from "@/crm/integrations/storage";
 import {
   S3Client,
   ListObjectsV2Command,
@@ -291,7 +290,7 @@ export function verifySender(
 /** Best-effort removal of just-written attachment files when the row never lands. */
 async function cleanupAttachmentFiles(paths: string[]): Promise<void> {
   for (const rel of paths) {
-    await deleteStoredFile(rel, UPLOAD_PREFIX.crmEmailAttachments);
+    await crmStorage.remove("emailAttachment", rel);
   }
 }
 
@@ -345,12 +344,11 @@ async function storeEach(parsed: ParsedMail, threadId: string, out: StoredAttach
     }
     const safeName = (att.filename ?? "attachment").replace(/[^\w.\- ]+/g, "_").slice(0, 120);
     const mimeType = att.contentType ?? "application/octet-stream";
-    const storedPath = await uploadFile(
-      att.content,
-      `${globalThis.crypto.randomUUID()}-${safeName}`,
+    const storedPath = await crmStorage.save("emailAttachment", threadId, {
+      buffer: att.content,
+      filename: `${globalThis.crypto.randomUUID()}-${safeName}`,
       mimeType,
-      `${UPLOAD_SEGMENT.crmEmailAttachments}/${threadId}`,
-    );
+    });
     out.push({
       filename: safeName,
       size: att.size,

@@ -35,18 +35,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { updateOrganizationSettings } from "@/lib/event-settings";
-import { getCompanyInfo } from "@/lib/quickbooks/client";
-import {
-  buildEstimateBody,
-  createEstimate,
-  currentRealm,
-  findClassByName,
-  findEstimatesByDocNumber,
-  getCustomTxnNumbers,
-  getCustomer,
-  getItems,
-  listTaxCodes,
-} from "@/lib/quickbooks/sales";
+import { crmAccounting } from "@/crm/integrations/accounting";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import {
   QBO_SEND_STALE_MS,
@@ -124,7 +113,7 @@ export async function linkCompanyToCustomer(
 
     let data = { qboCustomerId: null as string | null, qboCustomerName: null as string | null, qboCustomerCurrency: null as string | null, qboRealmId: null as string | null };
     if (args.customerId) {
-      const [realm, customer] = await Promise.all([currentRealm(args.organizationId), getCustomer(args.organizationId, args.customerId)]);
+      const [realm, customer] = await Promise.all([crmAccounting.currentRealm(args.organizationId), crmAccounting.getCustomer(args.organizationId, args.customerId)]);
       if (!realm.ok) return qboFail(realm, args.organizationId, "link-company:realm");
       if (!customer.ok) return qboFail(customer, args.organizationId, "link-company:customer");
       if (!customer.data || !customer.data.active) {
@@ -170,7 +159,7 @@ export async function linkProductToItem(
 
     let data = { qboItemId: null as string | null, qboItemName: null as string | null, qboRealmId: null as string | null };
     if (args.itemId) {
-      const [realm, items] = await Promise.all([currentRealm(args.organizationId), getItems(args.organizationId, [args.itemId])]);
+      const [realm, items] = await Promise.all([crmAccounting.currentRealm(args.organizationId), crmAccounting.getItems(args.organizationId, [args.itemId])]);
       if (!realm.ok) return qboFail(realm, args.organizationId, "link-product:realm");
       if (!items.ok) return qboFail(items, args.organizationId, "link-product:item");
       const item = items.data[0];
@@ -194,7 +183,7 @@ export async function saveQuickBooksTaxCodes(
   args: Actor & { vatTaxCodeId: string; noVatTaxCodeId: string },
 ): Promise<{ ok: true; settings: CrmQuickBooksSettings } | CrmQuickBooksFail> {
   try {
-    const [realm, codes] = await Promise.all([currentRealm(args.organizationId), listTaxCodes(args.organizationId)]);
+    const [realm, codes] = await Promise.all([crmAccounting.currentRealm(args.organizationId), crmAccounting.listTaxCodes(args.organizationId)]);
     if (!realm.ok) return qboFail(realm, args.organizationId, "tax-codes:realm");
     if (!codes.ok) return qboFail(codes, args.organizationId, "tax-codes:list");
 
@@ -312,7 +301,7 @@ export async function getQuoteQuickBooksState(
         },
       };
     }
-    const realm = await currentRealm(args.organizationId);
+    const realm = await crmAccounting.currentRealm(args.organizationId);
     if (!realm.ok) return qboFail(realm, args.organizationId, "state:realm");
     const readiness = readinessFor(quote, realm.data.realmId);
     return {
@@ -372,12 +361,12 @@ async function liveChecks(
 ): Promise<{ ok: true; currency: string | null; classId: string | null } | CrmQuickBooksFail> {
   const eventCode = quote.deal.event?.code?.trim() || null;
   const [customer, items, company, klass, numbering, codes] = await Promise.all([
-    getCustomer(organizationId, plan.customerId),
-    getItems(organizationId, [...new Set(plan.itemIds)]),
-    getCompanyInfo(organizationId),
-    eventCode ? findClassByName(organizationId, eventCode) : Promise.resolve(null),
-    getCustomTxnNumbers(organizationId),
-    listTaxCodes(organizationId),
+    crmAccounting.getCustomer(organizationId, plan.customerId),
+    crmAccounting.getItems(organizationId, [...new Set(plan.itemIds)]),
+    crmAccounting.companyInfo(organizationId),
+    eventCode ? crmAccounting.findClassByName(organizationId, eventCode) : Promise.resolve(null),
+    crmAccounting.customTxnNumbers(organizationId),
+    crmAccounting.listTaxCodes(organizationId),
   ]);
   if (!customer.ok) return qboFail(customer, organizationId, "send:customer");
   if (!items.ok) return qboFail(items, organizationId, "send:items");
@@ -537,7 +526,7 @@ async function recordEstimate(
  * quote's own (it carries the marker) and anyone else's.
  */
 async function lookupByNumber(organizationId: string, quote: SendQuote) {
-  const existing = await findEstimatesByDocNumber(organizationId, quote.number);
+  const existing = await crmAccounting.findEstimatesByDocNumber(organizationId, quote.number);
   if (!existing.ok) return existing;
   const marker = estimateMarker(quote.id);
   const ours = existing.data.find((e) => e.privateNote?.includes(marker)) ?? null;
@@ -618,7 +607,7 @@ async function createForQuote(args: Actor & { dealId: string; quoteId: string },
   }
 
   const sentByName = await userName(args.userId);
-  const body = buildEstimateBody({
+  const estimate = {
     customerId: readiness.plan.customerId,
     docNumber: quote.number,
     txnDate: dateOnly(quote.quoteDate),
@@ -635,8 +624,8 @@ async function createForQuote(args: Actor & { dealId: string; quoteId: string },
       amount: Number(l.amount),
       taxCodeId: readiness.plan.taxCodeId,
     })),
-  });
-  const created = await createEstimate(args.organizationId, body, estimateRequestId(quote.id, quote.qboSendAttempt));
+  };
+  const created = await crmAccounting.createEstimate(args.organizationId, estimate, estimateRequestId(quote.id, quote.qboSendAttempt));
   if (created.ok) {
     // Record the company QuickBooks answered from, not the one read at the start.
     if (created.realmId !== realm.realmId) {
@@ -683,7 +672,7 @@ export async function sendQuoteToQuickBooks(
       return { ok: false, code: "QUOTE_ALREADY_SENT", message: "This quote is already in QuickBooks", meta: { estimateId: quote.qboEstimateId } };
     }
 
-    const realm = await currentRealm(args.organizationId);
+    const realm = await crmAccounting.currentRealm(args.organizationId);
     if (!realm.ok) return qboFail(realm, args.organizationId, "send:realm");
 
     // After a lost answer, settle first: readiness may have broken since, and a

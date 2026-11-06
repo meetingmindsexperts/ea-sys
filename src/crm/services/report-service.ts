@@ -14,6 +14,7 @@
  * sum), and a caller who may not see money gets REDACTED_MONEY throughout.
  */
 import { db } from "@/lib/db";
+import { crmEvents } from "@/crm/integrations/events";
 import { buildDealWhere, type DealFilterParams } from "@/crm/lib/deal-filters";
 import {
   summarizePipeline,
@@ -119,7 +120,7 @@ export async function buildCrmReport(args: {
     // Name lookups are org-bound and fetched only for the dimension in use.
     // Deal types include archived ones: an old deal may still point at one.
     groupBy === "event"
-      ? db.event.findMany({ where: { organizationId: args.organizationId }, select: { id: true, name: true } })
+      ? crmEvents.listAll(args.organizationId)
       : Promise.resolve([]),
     groupBy === "dealType"
       ? db.crmDealType.findMany({ where: { organizationId: args.organizationId }, select: { id: true, name: true } })

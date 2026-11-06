@@ -12,8 +12,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { loadQuickBooksApp } from "@/lib/quickbooks/app";
-import { loadConnection, toStatus } from "@/lib/quickbooks/connection";
+import { crmAccounting } from "@/crm/integrations/accounting";
 import { requireCrmRead, requireCrmWrite, crmCan, crmErrorResponse } from "@/crm/lib/crm-route";
 import { readCrmQuickBooksSettings } from "@/crm/lib/quickbooks-rules";
 import { saveQuickBooksTaxCodes } from "@/crm/services/crm-quickbooks-service";
@@ -23,12 +22,10 @@ export async function GET(req: Request) {
   if (error) return error;
   return await runWithTenant(ctx.organizationId, async () => {
     try {
-      const [app, connection, org] = await Promise.all([
-        loadQuickBooksApp(ctx.organizationId),
-        loadConnection(ctx.organizationId),
+      const [status, org] = await Promise.all([
+        crmAccounting.connectionStatus(ctx.organizationId),
         db.organization.findUnique({ where: { id: ctx.organizationId }, select: { settings: true } }),
       ]);
-      const status = toStatus(connection, app);
       const settings = readCrmQuickBooksSettings(org?.settings);
       return NextResponse.json({
         connected: status.connected,

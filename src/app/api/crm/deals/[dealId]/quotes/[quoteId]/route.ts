@@ -4,8 +4,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
-import { deleteStoredFile } from "@/lib/storage";
-import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
+import { crmStorage } from "@/crm/integrations/storage";
 import { requireCrmDelete, requireCrmWrite, crmErrorResponse, crmCan } from "@/crm/lib/crm-route";
 
 import { archiveDealQuote, updateDealQuote } from "@/crm/services/crm-quote-service";
@@ -99,7 +98,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
     if (!result.ok) return crmErrorResponse(result);
 
-    if (result.removedUrl) await deleteStoredFile(result.removedUrl, UPLOAD_PREFIX.crmDealDocs);
+    if (result.removedUrl) await crmStorage.remove("dealDocument", result.removedUrl);
 
     return NextResponse.json({ archived: true });
   });

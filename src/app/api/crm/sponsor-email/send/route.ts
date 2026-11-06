@@ -10,8 +10,7 @@
  */
 import { createHash } from "node:crypto";
 import { runWithTenant } from "@/lib/tenant-context";
-import { readStoredFile } from "@/lib/storage";
-import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
+import { crmStorage } from "@/crm/integrations/storage";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -101,9 +100,9 @@ async function loadStoredAttachments(
   const attachments: Array<{ name: string; content: string; contentType: string }> = [];
   for (const doc of docs) {
     try {
-      // Path validation lives in readStoredFile; a rejection lands in the catch
+      // Path validation lives in the storage port (crmStorage.read); a rejection lands in the catch
       // below and refuses the send, which is the same outcome as before.
-      const buf = await readStoredFile(doc.url, UPLOAD_PREFIX.crmDealDocs);
+      const buf = await crmStorage.read("dealDocument", doc.url);
       attachments.push({ name: doc.filename, content: buf.toString("base64"), contentType: doc.mimeType });
     } catch (err) {
       // Honest failure: refuse the send rather than deliver without the file.

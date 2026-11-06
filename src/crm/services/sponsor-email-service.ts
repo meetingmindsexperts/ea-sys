@@ -37,6 +37,7 @@ import {
 } from "@/crm/lib/sponsor-recipients";
 import type { SponsorRecipient } from "@/crm/lib/crm-types";
 import { crmEmailIdentity, type CrmEmailIdentity } from "@/lib/crm-email-identity";
+import { crmEvents, EVENT_EMAIL_FIELDS } from "@/crm/integrations/events";
 import {
   CRM_EMAIL_TOKEN_RE,
   SIGNATURE_TOKEN_RE,
@@ -135,27 +136,8 @@ const CONTACT_ON_DEAL_SELECT = {
   },
 } as const;
 
-/** The event columns the {{event…}} tokens read. */
-const EVENT_TOKEN_SELECT = {
-  startDate: true,
-  endDate: true,
-  timezone: true,
-  venue: true,
-  city: true,
-  country: true,
-} as const;
-
-/** Everything a deal's event contributes to an email: branding and tokens. */
-const EVENT_EMAIL_SELECT = {
-  name: true,
-  emailHeaderImage: true,
-  emailFooterImage: true,
-  emailFooterHtml: true,
-  emailFromAddress: true,
-  emailFromName: true,
-  emailCcAddresses: true,
-  ...EVENT_TOKEN_SELECT,
-} as const;
+/** Everything a deal's event contributes to an email (the fields live with the Events port). */
+const EVENT_EMAIL_SELECT = EVENT_EMAIL_FIELDS;
 
 // ── Resolve: event ──────────────────────────────────────────────────────────────
 
@@ -179,20 +161,7 @@ export async function resolveSponsorRecipients(args: {
     }
   | ServiceFail
 > {
-  const event = await db.event.findFirst({
-    where: { id: args.eventId, organizationId: args.organizationId },
-    select: {
-      id: true,
-      name: true,
-      emailHeaderImage: true,
-      emailFooterImage: true,
-      emailFooterHtml: true,
-      emailFromAddress: true,
-      emailFromName: true,
-      emailCcAddresses: true,
-      ...EVENT_TOKEN_SELECT,
-    },
-  });
+  const event = await crmEvents.emailContext(args.organizationId, args.eventId);
   if (!event) {
     // Per-site log (R2 rider L5) — the boundary logs too, but without the ids.
     apiLogger.warn({ msg: "crm-sponsor-email:event-not-found", organizationId: args.organizationId, eventId: args.eventId });

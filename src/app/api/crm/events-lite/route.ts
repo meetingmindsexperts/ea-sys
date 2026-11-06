@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
-import { db } from "@/lib/db";
+import { crmEvents } from "@/crm/integrations/events";
 import { apiLogger } from "@/lib/logger";
 import { requireCrmRead } from "@/crm/lib/crm-route";
 
@@ -23,15 +23,7 @@ export async function GET(req: Request) {
   return await runWithTenant(ctx.organizationId, async () => {
 
   try {
-    const events = await db.event.findMany({
-      where: {
-        organizationId: ctx.organizationId,
-        status: { notIn: ["DRAFT", "CANCELLED"] },
-      },
-      select: { id: true, name: true },
-      orderBy: { startDate: "desc" },
-      take: 1000,
-    });
+    const events = await crmEvents.listLinkable(ctx.organizationId);
     return NextResponse.json({ events });
   } catch (err) {
     apiLogger.error({

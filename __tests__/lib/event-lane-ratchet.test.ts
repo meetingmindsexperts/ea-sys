@@ -78,9 +78,10 @@ const UNLANED_EVENT_FILES_BASELINE: string[] = [
   "src/app/catalogue/page.tsx",
   "src/app/llms.txt/route.ts",
   "src/app/sitemap.ts",
-  "src/crm/services/crm-import-service.ts",
-  "src/crm/services/report-service.ts",
-  "src/crm/services/sponsor-email-service.ts",
+  // The CRM's Events port (Nov 6, 2026): a library whose every caller (the CRM
+  // routes, MCP tools and import/report/email services) already runs inside the
+  // organisation's lane. It replaced the three CRM services that read Event here.
+  "src/crm/integrations/events.ts",
   "src/lib/agent/event-facts-loader.ts",
   "src/lib/agent/execute-handler.ts",
   "src/lib/agent/system-prompt.ts",

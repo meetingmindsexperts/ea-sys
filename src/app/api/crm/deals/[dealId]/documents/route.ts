@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { randomUUID } from "crypto";
-import { uploadFile, deleteStoredFile } from "@/lib/storage";
-import { UPLOAD_SEGMENT, UPLOAD_PREFIX } from "@/lib/upload-prefixes";
+import { crmStorage } from "@/crm/integrations/storage";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
@@ -117,12 +116,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "File content is not a PDF" }, { status: 400 });
     }
 
-    const url = await uploadFile(
-      buffer,
-      `${randomUUID()}.pdf`,
-      "application/pdf",
-      `${UPLOAD_SEGMENT.crmDealDocs}/${dealId}`,
-    );
+    const url = await crmStorage.save("dealDocument", dealId, { buffer, filename: `${randomUUID()}.pdf`, mimeType: "application/pdf" });
 
     const result = await addDealDocument({
       organizationId: ctx.organizationId,
@@ -139,13 +133,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (!result.ok) {
       // The row never landed — don't leave the just-written file orphaned.
-      await deleteStoredFile(url, UPLOAD_PREFIX.crmDealDocs);
+      await crmStorage.remove("dealDocument", url);
       return crmErrorResponse(result);
     }
 
     // A replaced prospectus file is removed best-effort AFTER commit.
     if (result.replacedUrl) {
-      await deleteStoredFile(result.replacedUrl, UPLOAD_PREFIX.crmDealDocs);
+      await crmStorage.remove("dealDocument", result.replacedUrl);
     }
 
     return NextResponse.json({ document: result.document }, { status: 201 });

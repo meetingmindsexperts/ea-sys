@@ -25,12 +25,11 @@ import { randomUUID } from "crypto";
 import type { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { deleteStoredFile, uploadFile } from "@/lib/storage";
-import { UPLOAD_PREFIX, UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
 import { updateOrganizationSettings } from "@/lib/event-settings";
-import { loadLocalLogo, toAddressLines } from "@/lib/pdf/document-layout";
 import { diffFields, recordCrmActivity } from "@/crm/lib/crm-activity";
-import { renderQuotePdf, type QuotePdfInput } from "@/crm/lib/quote-pdf";
+import type { QuotePdfInput } from "@/crm/lib/quote-pdf";
+import { crmStorage } from "@/crm/integrations/storage";
+import { crmBranding, crmQuoteRenderer, type QuoteIssuer } from "@/crm/integrations/documents";
 import { QBO_SEND_STALE_MS } from "@/crm/lib/quickbooks-rules";
 import {
   DEFAULT_QUOTE_TERMS,
@@ -277,7 +276,7 @@ async function actorName(userId: string | null, fallback: string): Promise<strin
 }
 
 function companyName(deal: DealContext): string {
-  return deal.org.companyName || deal.org.name;
+  return crmBranding.issuerName(deal.org);
 }
 
 // ── Draft ─────────────────────────────────────────────────────────────────────
@@ -403,7 +402,7 @@ function tooLargeFail(organizationId: string, dealId: string): QuoteFail {
 
 function pdfInputFor(
   deal: DealContext,
-  logoBuffer: Buffer | null,
+  issuer: QuoteIssuer,
   quote: {
     number: string;
     input: QuoteInput;
@@ -413,18 +412,8 @@ function pdfInputFor(
   },
   now: Date,
 ): QuotePdfInput {
-  const org = deal.org;
   return {
-    company: {
-      name: companyName(deal),
-      addressLines: toAddressLines(
-        org.companyAddress,
-        [org.companyCity, org.companyState, org.companyZipCode].filter(Boolean).join(" "),
-        org.companyCountry,
-      ),
-      taxId: org.taxId,
-      logoBuffer,
-    },
+    company: issuer,
     number: quote.number,
     title: quote.input.title.trim(),
     currency: quote.input.currency,
@@ -515,12 +504,12 @@ export async function createDealQuote(
     });
     const number = formatQuoteNumber(year, sequence);
 
-    const logoBuffer = await loadLocalLogo(deal.org.logo);
-    const pdf = await renderQuotePdf(
-      pdfInputFor(deal, logoBuffer, { number, input: args.input, preparedByName, lines: prepared.lines, totals: prepared.totals }, now),
+    const issuer = await crmBranding.issuer(deal.org);
+    const pdf = await crmQuoteRenderer.renderQuote(
+      pdfInputFor(deal, issuer, { number, input: args.input, preparedByName, lines: prepared.lines, totals: prepared.totals }, now),
     );
 
-    pendingUrl = await uploadFile(pdf, `quote-${randomUUID()}.pdf`, "application/pdf", `${UPLOAD_SEGMENT.crmDealDocs}/${deal.id}`);
+    pendingUrl = await crmStorage.save("dealDocument", deal.id, { buffer: pdf, filename: `quote-${randomUUID()}.pdf`, mimeType: "application/pdf" });
     const url = pendingUrl;
 
     const quote = await tenantTransaction(async (tx) => {
@@ -584,7 +573,7 @@ export async function createDealQuote(
     });
     return { ok: true, quote: toQuoteRow(quote) };
   } catch (err) {
-    if (pendingUrl) await deleteStoredFile(pendingUrl, UPLOAD_PREFIX.crmDealDocs);
+    if (pendingUrl) await crmStorage.remove("dealDocument", pendingUrl);
     apiLogger.error({
       msg: "crm-quote:create-failed",
       dealId: args.dealId,
@@ -668,18 +657,18 @@ export async function updateDealQuote(
     if (prepared.tooLarge) return tooLargeFail(args.organizationId, deal.id);
 
     const now = new Date();
-    const logoBuffer = await loadLocalLogo(deal.org.logo);
+    const issuer = await crmBranding.issuer(deal.org);
     // The original preparer stays on the paper; the History row records who edited.
-    const pdf = await renderQuotePdf(
+    const pdf = await crmQuoteRenderer.renderQuote(
       pdfInputFor(
         deal,
-        logoBuffer,
+        issuer,
         { number: existing.number, input: args.input, preparedByName: existing.preparedByName, lines: prepared.lines, totals: prepared.totals },
         now,
       ),
     );
 
-    pendingUrl = await uploadFile(pdf, `quote-${randomUUID()}.pdf`, "application/pdf", `${UPLOAD_SEGMENT.crmDealDocs}/${deal.id}`);
+    pendingUrl = await crmStorage.save("dealDocument", deal.id, { buffer: pdf, filename: `quote-${randomUUID()}.pdf`, mimeType: "application/pdf" });
     const url = pendingUrl;
 
     const updated = await tenantTransaction(async (tx) => {
@@ -739,7 +728,7 @@ export async function updateDealQuote(
     pendingUrl = null;
 
     // The new file is live; the old one is now unreferenced.
-    if (existing.document) await deleteStoredFile(existing.document.url, UPLOAD_PREFIX.crmDealDocs);
+    if (existing.document) await crmStorage.remove("dealDocument", existing.document.url);
 
     if (args.saveTermsAsDefault) await saveDefaultTerms(args.organizationId, args.userId, args.input.terms);
 
@@ -765,7 +754,7 @@ export async function updateDealQuote(
     apiLogger.info({ msg: "crm-quote:updated", quoteId: args.quoteId, quoteNumber: existing.number, version: after.version, source: args.source });
     return { ok: true, quote: after };
   } catch (err) {
-    if (pendingUrl) await deleteStoredFile(pendingUrl, UPLOAD_PREFIX.crmDealDocs);
+    if (pendingUrl) await crmStorage.remove("dealDocument", pendingUrl);
     if (err instanceof StaleQuoteError) {
       const locked = await lockedAfterLostClaim(args.organizationId, args.quoteId, "edited");
       if (locked) return locked;
