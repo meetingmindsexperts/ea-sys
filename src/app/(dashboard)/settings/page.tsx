@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { OrgModulesCard } from "@/components/settings/org-modules-card";
+import { CrmRetentionCard } from "@/components/settings/crm-retention-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { isBaseRole } from "@/lib/team-roles";
@@ -202,7 +203,7 @@ function roleBadgeLabel(role: string): string {
 }
 
 export default function SettingsPage() {
-  const { hrEnabled, procurementEnabled, customRolesEnabled } = useRuntimeFlags();
+  const { hrEnabled, procurementEnabled, customRolesEnabled, crmEnabled } = useRuntimeFlags();
   const rolesTabEnabled = procurementEnabled || customRolesEnabled;
   const [grantUser, setGrantUser] = useState<User | null>(null);
   const [rolesUser, setRolesUser] = useState<User | null>(null);
@@ -1526,6 +1527,8 @@ export default function SettingsPage() {
             </Card>
             {/* The list route is operator-only, so a tenant's own SUPER_ADMIN sees nothing here. */}
             <OrgModulesCard />
+            {/* This organisation's CRM retention; hidden when it has no CRM. */}
+            {crmEnabled && <CrmRetentionCard />}
           </TabsContent>
         )}
       </Tabs>

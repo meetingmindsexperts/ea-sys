@@ -346,6 +346,7 @@ SWEPT_MODULES=(
   "src/crm/reminders-worker.ts"             # per-row task-reminder worker (July 29, 2026)
   "src/crm/inbound-email-worker.ts"         # per-row inbound-email worker (July 29, 2026)
   "src/crm/contact-score-worker.ts"         # per-org stored-score repair (Oct 29, 2026)
+  "src/crm/retention-worker.ts"             # per-org retention periods (Nov 6, 2026)
   # Ticketing follow-on sweep (July 30, 2026) — the promo-code MCP executors.
   # (create_ticket_type lives in the already-swept agent/tools/registrations.ts.)
   "src/lib/agent/tools/promo-codes.ts"      # promo-code agent / MCP executors (July 30, 2026)
@@ -451,6 +452,7 @@ OPERATOR_LANE_ALLOWLIST=(
   "src/crm/reminders-worker.ts"              # due-task scan
   "src/crm/inbound-email-worker.ts"          # reply-token → thread resolve (the tenant is the ANSWER)
   "src/crm/contact-score-worker.ts"          # which-orgs-have-contacts scan; each repair runs in that org's lane (Oct 29, 2026)
+  "src/crm/retention-worker.ts"              # which-orgs-set-a-period scan; each deletion runs in that org's lane (Nov 6, 2026)
   # Added Aug 11, 2026 after review. Both were MISSED in the first pass because
   # the surface list was built job by job, and both are SIBLING modules inside
   # a job whose main module was found. Enumerate transitively from

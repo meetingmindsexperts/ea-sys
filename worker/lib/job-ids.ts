@@ -43,6 +43,7 @@ export const JOB_IDS = {
   DTCM_ISSUE: 1026,
   WEBINAR_STREAM_WATCHDOG: 1027,
   WEBINAR_PRESENCE_ARCHIVE: 1028,
+  CRM_RETENTION: 1029,
 } as const;
 
 export type JobId = (typeof JOB_IDS)[keyof typeof JOB_IDS];
