@@ -51,15 +51,27 @@ const getEventForMeta = cache(async (host: string | null, slug: string) =>
  * Shares `getEventForMeta`'s React `cache()` entry, so calling this from the
  * public layout costs no extra query on a request that already built metadata.
  */
-export async function getPublicEventBrandColor(slug: string): Promise<string | null> {
+/**
+ * What the public `[slug]` layout needs from the one cached event lookup: the
+ * brand colour, and whether the slug resolves to an event at all.
+ *
+ * `exists` lets the layout skip the analytics beacon for a slug with no event
+ * (a deleted event's old links). Every such beacon was dropped by the ingest as
+ * `analytics:track-unresolved-site` anyway: EHSMHC2026, deleted Sep 24, 2026,
+ * drew 986 of those warnings in one week. A failed lookup reports `exists: true`
+ * so a database blip never switches measurement off for a live event.
+ */
+export async function getPublicEventShell(
+  slug: string,
+): Promise<{ exists: boolean; brandColor: string | null }> {
   try {
     const host = (await headers()).get("host");
     const event = await getEventForMeta(host, slug);
-    return event?.organization?.primaryColor ?? null;
+    return { exists: event !== null, brandColor: event?.organization?.primaryColor ?? null };
   } catch (err) {
     // Theming must never break a public page — an unbranded page is fine.
     apiLogger.warn({ err, msg: "public-event-theme:brand-color-lookup-failed", slug });
-    return null;
+    return { exists: true, brandColor: null };
   }
 }
 

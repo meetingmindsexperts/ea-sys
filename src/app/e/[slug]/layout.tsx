@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { buildEventMetadata, getPublicEventBrandColor } from "@/lib/public-event-metadata";
+import { buildEventMetadata, getPublicEventShell } from "@/lib/public-event-metadata";
 import { brandPaletteCss } from "@/lib/org-color";
 import { Suspense } from "react";
 import { PageAnalytics } from "@/analytics/react/page-analytics";
@@ -41,7 +41,8 @@ export default async function PublicEventLayout({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const css = brandPaletteCss(await getPublicEventBrandColor(slug));
+  const shell = await getPublicEventShell(slug);
+  const css = brandPaletteCss(shell.brandColor);
 
   return (
     <>
@@ -53,12 +54,17 @@ export default async function PublicEventLayout({
         allow-list means it sends nothing at all from a route we may not
         measure. It renders null and never causes a re-render.
 
+        Not mounted when the slug has no event (a deleted event's old links):
+        the ingest could only drop the hit and log it as unresolved.
+
         Suspense because it reads useSearchParams, which opts the subtree into
         client rendering without a boundary.
       */}
-      <Suspense fallback={null}>
-        <PageAnalytics site={slug} />
-      </Suspense>
+      {shell.exists ? (
+        <Suspense fallback={null}>
+          <PageAnalytics site={slug} />
+        </Suspense>
+      ) : null}
       {children}
     </>
   );
