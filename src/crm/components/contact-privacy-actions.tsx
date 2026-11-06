@@ -57,9 +57,11 @@ export function ContactPrivacyActions({
           <DialogHeader>
             <DialogTitle>Erase {name}?</DialogTitle>
             <DialogDescription>
-              For a data erasure request. This removes the contact, every email thread with them (messages and
-              attachment files), their notes, tasks and History, and their place on deals. Deals, accounts and quotes
-              stay. It cannot be undone. Export their data first if they asked for a copy.
+              For a data erasure request. This removes the contact, every email thread with them and their messages on
+              other threads (with attachment files), their notes, tasks, History and notifications, and their place on
+              deals. Deals, accounts and quotes stay, and so does any event contact record of theirs. Raw email copies
+              in the mail bucket expire after 90 days. It cannot be undone: export their data first if they asked for
+              a copy.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1">
@@ -76,10 +78,9 @@ export function ContactPrivacyActions({
               onClick={() =>
                 erase.mutate(typed, {
                   onSuccess: (r) => {
-                    const left = r.remaining.quotesOnTheirDeals + r.remaining.dealHistoryMentions;
                     toast.success(
-                      `Erased: ${r.erased.emailThreads} email thread(s), ${r.erased.notes} note(s), ${r.erased.tasks} task(s).` +
-                        (left ? ` Left for review: ${r.remaining.quotesOnTheirDeals} quote(s) and ${r.remaining.dealHistoryMentions} deal History line(s) that may name them.` : ""),
+                      `Erased: ${r.erased.emailThreads} email thread(s), ${r.erased.emailMessages} message(s), ${r.erased.notes} note(s), ${r.erased.tasks} task(s), ${r.erased.historyLines + r.erased.historyMentions} History line(s).` +
+                        (r.remaining.quotesNamingThem ? ` ${r.remaining.quotesNamingThem} sent quote(s) are addressed to them by name and were kept: review them.` : ""),
                       { duration: 10000 },
                     );
                     setOpen(false);

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { updateOrganizationSettings } from "@/lib/event-settings";
 import { requireCrmRead, requireCrmPurge } from "@/crm/lib/crm-route";
 import { crmRetentionSchema, readCrmRetention } from "@/crm/lib/retention-rules";
 
@@ -29,20 +28,23 @@ export async function PUT(req: Request) {
     const parsed = crmRetentionSchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return zodErrorResponse(parsed, { route: "PUT /crm/retention", organizationId: ctx.organizationId });
     try {
-      let before: unknown = null;
-      await updateOrganizationSettings(ctx.organizationId, (current) => {
-        before = readCrmRetention(current);
-        return { ...current, crmRetention: parsed.data };
-      });
-      await db.auditLog.create({
-        data: {
-          organizationId: ctx.organizationId,
-          userId: ctx.userId,
-          action: "CRM_RETENTION_SET",
-          entityType: "Organization",
-          entityId: ctx.organizationId,
-          changes: { source: "rest", before, after: parsed.data } as never,
-        },
+      // The period and its audit row in ONE transaction: a period that deletes
+      // data must never be saved unaudited (review of 6c8d9a24). One key set in
+      // place, never a read-modify-write of the whole settings blob.
+      await tenantTransaction(async (tx) => {
+        const org = await tx.organization.findUnique({ where: { id: ctx.organizationId }, select: { settings: true } });
+        const before = readCrmRetention(org?.settings);
+        await tx.$executeRaw`UPDATE "Organization" SET "settings" = jsonb_set(COALESCE("settings", '{}'::jsonb), '{crmRetention}', ${JSON.stringify(parsed.data)}::jsonb), "updatedAt" = NOW() WHERE "id" = ${ctx.organizationId}`;
+        await tx.auditLog.create({
+          data: {
+            organizationId: ctx.organizationId,
+            userId: ctx.userId,
+            action: "CRM_RETENTION_SET",
+            entityType: "Organization",
+            entityId: ctx.organizationId,
+            changes: { source: "rest", before, after: parsed.data },
+          },
+        });
       });
       apiLogger.info({ msg: "crm-retention:set", organizationId: ctx.organizationId, ...parsed.data });
       return NextResponse.json({ retention: parsed.data });

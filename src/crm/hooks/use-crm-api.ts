@@ -1454,8 +1454,8 @@ export function usePurgeCrmRecord() {
 
 /** What an erasure removed and what it left for review (crm-privacy-service.ts). */
 export interface CrmContactErasureReport {
-  erased: { emailThreads: number; emailMessages: number; attachmentFiles: number; notes: number; tasks: number; dealLinks: number; historyLines: number };
-  remaining: { quotesOnTheirDeals: number; dealHistoryMentions: number };
+  erased: { emailThreads: number; emailMessages: number; attachmentFiles: number; notes: number; tasks: number; dealLinks: number; historyLines: number; historyMentions: number; notifications: number };
+  remaining: { quotesNamingThem: number };
 }
 
 /** Erase one CRM contact on request (SUPER_ADMIN). The address must be typed to confirm. */
@@ -1465,7 +1465,9 @@ export function useEraseCrmContact(crmContactId: string) {
     mutationFn: (confirmEmail: string) =>
       apiPostJson<CrmContactErasureReport>(`/api/crm/contacts/${crmContactId}/erase`, { confirmEmail }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm"] });
+      // Not the page on screen: the contact is gone and the page navigates away,
+      // so refetching it would only 404. Lists refresh when next opened.
+      qc.invalidateQueries({ queryKey: ["crm"], refetchType: "inactive" });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not erase the contact"),
   });

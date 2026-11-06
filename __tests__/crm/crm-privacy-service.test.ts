@@ -16,6 +16,9 @@ const { db, remove } = vi.hoisted(() => {
     crmEmailThread: { findMany: vi.fn(), deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
     crmActivity: { findMany: vi.fn(), count: vi.fn(), deleteMany: vi.fn().mockResolvedValue({ count: 2 }) },
     crmQuote: { findMany: vi.fn(), count: vi.fn() },
+    crmEmailMessage: { findMany: vi.fn(), deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    crmNotification: { deleteMany: vi.fn().mockResolvedValue({ count: 2 }) },
+    $executeRaw: vi.fn().mockResolvedValue(3),
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   };
   return { db, remove: vi.fn().mockResolvedValue(undefined) };
@@ -50,6 +53,7 @@ beforeEach(() => {
   db.crmActivity.count.mockResolvedValue(1);
   db.crmQuote.findMany.mockResolvedValue([{ number: "Q-2026-0001", dealId: "d-1", preparedFor: "Jane Doe", attention: null }]);
   db.crmQuote.count.mockResolvedValue(1);
+  db.crmEmailMessage.findMany.mockResolvedValue([{ id: "m-elsewhere", attachments: [{ filename: "x.pdf", size: 1, mimeType: "application/pdf", path: "/uploads/crm-email-attachments/t-9/x.pdf" }] }]);
 });
 
 describe("exportCrmContactData", () => {
@@ -83,7 +87,22 @@ describe("eraseCrmContact", () => {
 
   it("removes the threads, the contact and its History, then the attachment files; audits counts only", async () => {
     const res = await eraseCrmContact({ ...args, confirmEmail: " jane@abbott.COM " });
-    expect(res).toMatchObject({ ok: true, report: { erased: { emailThreads: 1, emailMessages: 1, attachmentFiles: 1, notes: 1, dealLinks: 1, historyLines: 2 }, remaining: { quotesOnTheirDeals: 1, dealHistoryMentions: 1 } } });
+    expect(res).toMatchObject({
+      ok: true,
+      report: {
+        erased: { emailThreads: 1, emailMessages: 2, attachmentFiles: 2, notes: 1, dealLinks: 1, historyLines: 2, historyMentions: 3, notifications: 2 },
+        remaining: { quotesNamingThem: 1 },
+      },
+    });
+    // Their reply-all on someone else's thread goes too, with its file.
+    expect(db.crmEmailMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { organizationId: ORG, fromEmail: { equals: "jane@abbott.com", mode: "insensitive" }, threadId: { notIn: ["t-1"] } } }),
+    );
+    expect(db.crmEmailMessage.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["m-elsewhere"] }, organizationId: ORG } });
+    expect(remove).toHaveBeenCalledWith("emailAttachment", "/uploads/crm-email-attachments/t-9/x.pdf");
+    // Deal and account History naming the address, matched literally (no LIKE wildcards from the address).
+    const rawSql = (db.$executeRaw.mock.calls[0] as unknown[]).map(String).join(" ");
+    expect(rawSql).toContain("%jane@abbott.com%");
     expect(db.crmEmailThread.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["t-1"] }, organizationId: ORG } });
     expect(db.crmContact.deleteMany).toHaveBeenCalledWith({ where: { id: "c-1", organizationId: ORG } });
     expect(remove).toHaveBeenCalledWith("emailAttachment", "/uploads/crm-email-attachments/t-1/po.pdf");
@@ -95,5 +114,15 @@ describe("eraseCrmContact", () => {
   it("a file that will not delete is logged, and the erasure still reports success", async () => {
     remove.mockRejectedValueOnce(new Error("s3 down"));
     expect((await eraseCrmContact({ ...args, confirmEmail: "jane@abbott.com" })).ok).toBe(true);
+  });
+});
+
+describe("likeLiteral via the erase SQL", () => {
+  it("escapes LIKE wildcards in an address so it matches only itself", async () => {
+    db.crmContact.findFirst.mockResolvedValue({ ...contact, email: "a_b%c@x.com", emailKey: "a_b%c@x.com" });
+    db.crmEmailMessage.findMany.mockResolvedValue([]);
+    await eraseCrmContact({ organizationId: ORG, crmContactId: "c-1", userId: "u-1", source: "rest", confirmEmail: "a_b%c@x.com" });
+    const values = db.$executeRaw.mock.calls[0]!.slice(1).map(String);
+    expect(values).toContain("%a\\_b\\%c@x.com%");
   });
 });

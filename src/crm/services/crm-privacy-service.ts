@@ -18,9 +18,15 @@
  *     those quotes and the erasure reports how many name them.
  *   - one AuditLog row, CRM_CONTACT_ERASED, written in the erasure's own
  *     transaction: the contact id and the counts, never a name or address.
- *   - deal History lines that mention the person by name (CONTACT_ADDED and the
- *     like). Their wording is not structured enough to scrub safely; the count
- *     of such lines is reported so they can be reviewed.
+ *   - the raw email files in the inbound mail bucket (processed/, unmatched/):
+ *     the bucket's lifecycle rule expires them after 90 days.
+ *   - their address, if they write in again: capture would file the new email
+ *     under a new contact (there is no suppression list yet).
+ *
+ * ALSO REMOVED (review of 09ec1b73): every History line on a deal or account
+ * whose recorded changes carry their address (a reply's "from", a capture's
+ * contact line), their own messages on OTHER people's threads (a reply-all)
+ * with those messages' files, and CRM notifications that name them.
  *
  * Errors as values; runs inside the caller's tenant lane; never imports
  * next/server (services/README.md).
@@ -154,9 +160,19 @@ export interface CrmContactErasure {
     tasks: number;
     dealLinks: number;
     historyLines: number;
+    /** History lines on deals and accounts that recorded their address. */
+    historyMentions: number;
+    /** Notifications naming them by address or full name. */
+    notifications: number;
   };
   /** Left in place on purpose, for a person to review (see the header). */
-  remaining: { quotesOnTheirDeals: number; dealHistoryMentions: number };
+  /** Quotes on their deals addressed to them by name: sent documents, left for a person to decide on. */
+  remaining: { quotesNamingThem: number };
+}
+
+/** LIKE pattern for a literal substring (%, _ and \\ escaped). */
+function likeLiteral(value: string): string {
+  return `%${value.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 }
 
 /**
@@ -175,59 +191,95 @@ export async function eraseCrmContact(
       return { ok: false, code: "CONFIRMATION_MISMATCH", message: "Type the contact's email address exactly to confirm the erasure" };
     }
 
-    const outcome = await tenantTransaction(async (tx) => {
-      const threads = await tx.crmEmailThread.findMany({
-        where: threadWhere(ctx.organizationId, contact),
-        select: { id: true, messages: { select: { attachments: true } } },
-      });
-      const files = threads.flatMap((t) => t.messages.flatMap((m) => attachmentList(m.attachments).map((a) => a.path)));
-      const messageCount = threads.reduce((n, t) => n + t.messages.length, 0);
-      const threadIds = threads.map((t) => t.id);
+    const fullName = `${contact.firstName} ${contact.lastName}`.trim();
+    const address = contact.email.trim().toLowerCase();
+    const outcome = await tenantTransaction(
+      async (tx) => {
+        const threads = await tx.crmEmailThread.findMany({
+          where: threadWhere(ctx.organizationId, contact),
+          select: { id: true, messages: { select: { attachments: true } } },
+        });
+        const threadIds = threads.map((t) => t.id);
+        // Their own messages on OTHER people's threads (a reply-all, a CC'd reply).
+        const elsewhere = await tx.crmEmailMessage.findMany({
+          where: { organizationId: ctx.organizationId, fromEmail: { equals: address, mode: "insensitive" }, threadId: { notIn: threadIds } },
+          select: { id: true, attachments: true },
+        });
+        const files = [
+          ...threads.flatMap((t) => t.messages.flatMap((m) => attachmentList(m.attachments).map((a) => a.path))),
+          ...elsewhere.flatMap((m) => attachmentList(m.attachments).map((a) => a.path)),
+        ];
+        const messageCount = threads.reduce((n, t) => n + t.messages.length, 0) + elsewhere.length;
 
-      const [notes, tasks, dealLinks] = await Promise.all([
-        tx.crmNote.count({ where: { organizationId: ctx.organizationId, crmContactId: contact.id } }),
-        tx.crmTask.count({ where: { organizationId: ctx.organizationId, crmContactId: contact.id } }),
-        tx.crmDealContact.findMany({ where: { crmContactId: contact.id }, select: { dealId: true } }),
-      ]);
-      const dealIds = dealLinks.map((l) => l.dealId);
-      const [quotesOnTheirDeals, dealHistoryMentions] = dealIds.length
-        ? await Promise.all([
-            tx.crmQuote.count({ where: { organizationId: ctx.organizationId, dealId: { in: dealIds } } }),
-            tx.crmActivity.count({ where: { organizationId: ctx.organizationId, entityType: "DEAL", entityId: { in: dealIds }, action: { in: ["CONTACT_ADDED", "CONTACT_REMOVED"] } } }),
-          ])
-        : [0, 0];
+        const [notes, tasks, dealLinks] = await Promise.all([
+          tx.crmNote.count({ where: { organizationId: ctx.organizationId, crmContactId: contact.id } }),
+          tx.crmTask.count({ where: { organizationId: ctx.organizationId, crmContactId: contact.id } }),
+          tx.crmDealContact.findMany({ where: { crmContactId: contact.id }, select: { dealId: true } }),
+        ]);
+        const dealIds = dealLinks.map((l) => l.dealId);
+        const quotesNamingThem = dealIds.length && fullName
+          ? await tx.crmQuote.count({
+              where: {
+                organizationId: ctx.organizationId,
+                dealId: { in: dealIds },
+                OR: [{ preparedFor: { contains: fullName, mode: "insensitive" } }, { attention: { contains: fullName, mode: "insensitive" } }],
+              },
+            })
+          : 0;
 
-      // Messages go with their threads (onDelete: Cascade).
-      if (threadIds.length) await tx.crmEmailThread.deleteMany({ where: { id: { in: threadIds }, organizationId: ctx.organizationId } });
-      const history = await tx.crmActivity.deleteMany({ where: { organizationId: ctx.organizationId, entityType: "CONTACT", entityId: contact.id } });
-      // Notes, tasks and deal links cascade from the contact.
-      await tx.crmContact.deleteMany({ where: { id: contact.id, organizationId: ctx.organizationId } });
+        // Messages go with their threads (onDelete: Cascade).
+        if (threadIds.length) await tx.crmEmailThread.deleteMany({ where: { id: { in: threadIds }, organizationId: ctx.organizationId } });
+        if (elsewhere.length) await tx.crmEmailMessage.deleteMany({ where: { id: { in: elsewhere.map((m) => m.id) }, organizationId: ctx.organizationId } });
+        const history = await tx.crmActivity.deleteMany({ where: { organizationId: ctx.organizationId, entityType: "CONTACT", entityId: contact.id } });
+        // History on deals and accounts that recorded their address (a reply's
+        // "from", a capture's contact line): matched on the stored JSON text.
+        const historyMentions = await tx.$executeRaw`
+          DELETE FROM "CrmActivity"
+          WHERE "organizationId" = ${ctx.organizationId}
+            AND "entityType" <> 'CONTACT'
+            AND lower("changes"::text) LIKE ${likeLiteral(address)}`;
+        const notifications = await tx.crmNotification.deleteMany({
+          where: {
+            organizationId: ctx.organizationId,
+            OR: [
+              { message: { contains: address, mode: "insensitive" } },
+              ...(fullName ? [{ message: { contains: fullName, mode: "insensitive" as const } }] : []),
+            ],
+          },
+        });
+        // Notes, tasks and deal links cascade from the contact.
+        await tx.crmContact.deleteMany({ where: { id: contact.id, organizationId: ctx.organizationId } });
 
-      const report: CrmContactErasure = {
-        erased: {
-          emailThreads: threadIds.length,
-          emailMessages: messageCount,
-          attachmentFiles: files.length,
-          notes,
-          tasks,
-          dealLinks: dealLinks.length,
-          historyLines: history.count,
-        },
-        remaining: { quotesOnTheirDeals, dealHistoryMentions },
-      };
-      // The only trace: who erased which record id, and how much. No name, no address.
-      await tx.auditLog.create({
-        data: {
-          organizationId: ctx.organizationId,
-          userId: ctx.userId,
-          action: "CRM_CONTACT_ERASED",
-          entityType: "CrmContact",
-          entityId: contact.id,
-          changes: { source: ctx.source, ...report } as unknown as Prisma.InputJsonValue,
-        },
-      });
-      return { report, files };
-    });
+        const report: CrmContactErasure = {
+          erased: {
+            emailThreads: threadIds.length,
+            emailMessages: messageCount,
+            attachmentFiles: files.length,
+            notes,
+            tasks,
+            dealLinks: dealLinks.length,
+            historyLines: history.count,
+            historyMentions,
+            notifications: notifications.count,
+          },
+          remaining: { quotesNamingThem },
+        };
+        // The only trace: who erased which record id, and how much. No name, no address.
+        await tx.auditLog.create({
+          data: {
+            organizationId: ctx.organizationId,
+            userId: ctx.userId,
+            action: "CRM_CONTACT_ERASED",
+            entityType: "CrmContact",
+            entityId: contact.id,
+            changes: { source: ctx.source, ...report } as unknown as Prisma.InputJsonValue,
+          },
+        });
+        return { report, files };
+      },
+      // A long correspondence must finish rather than time out and roll back.
+      { timeout: 60_000 },
+    );
 
     // The rows are gone; the files are now unreferenced. A file that will not
     // delete is logged with its path so it can be removed by hand.

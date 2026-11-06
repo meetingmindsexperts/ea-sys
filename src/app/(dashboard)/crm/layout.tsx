@@ -8,13 +8,17 @@
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
-import { orgHasModule } from "@/lib/module-entitlements";
+import { orgModuleState } from "@/lib/module-entitlements";
 import { CrmShell } from "@/crm/components/crm-shell";
 
 export default async function CrmLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   const organizationId = session?.user?.organizationId;
-  if (!organizationId || !(await orgHasModule(organizationId, "crm"))) {
+  const state = organizationId ? await orgModuleState(organizationId, "crm") : "off";
+  // Could not tell (logged at error where it failed): an error page, never a
+  // "not found" that is not true. requireCrmRead answers 503 the same way.
+  if (state === "unknown") throw new Error("Could not check whether this organisation has the CRM");
+  if (state === "off") {
     apiLogger.warn({ msg: "crm-page:module-not-enabled", organizationId: organizationId ?? null });
     notFound();
   }
