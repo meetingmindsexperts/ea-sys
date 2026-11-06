@@ -18,7 +18,8 @@
  * the dialog shows before the operator confirms IS what the write run does.
  */
 import { Prisma, type CrmDealStatus, type CrmDealPipeline } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { dealChangeAudits, writeCrmAudit } from "@/crm/lib/crm-audit";
 import { crmEvents } from "@/crm/integrations/events";
 import { apiLogger } from "@/lib/logger";
 import { parseCSV } from "@/lib/csv-parser";
@@ -1162,19 +1163,25 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
           // last import, so `ownerByEmail` no longer resolves them) — a mapping
           // failure must not silently un-own a live deal (CRM review LOW). A
           // matchable CSV owner still wins; only a null (unresolved) is skipped.
-          await db.crmDeal.update({
-            where: { id: existing!.id },
-            data: {
-              ...common,
-              ...fromColumnsForUpdate,
-              ownerId: ownerId ?? existing!.ownerId,
-              // Only a file that carries the stage column may move a deal's
-              // close stamps — see fromColumnsForUpdate.
-              ...(cols.index.stage >= 0 ? closeStampsForUpdate : {}),
-              // …but the reason follows its OWN column, so a corrected reason
-              // lands even when the close date is unchanged (M1).
-              ...(cols.index.stage >= 0 ? lostReasonWrite : {}),
-            },
+          // Value, owner and outcome changes are audited with the write (crm-audit.ts).
+          await tenantTransaction(async (tx) => {
+            const updated = await tx.crmDeal.update({
+              where: { id: existing!.id },
+              data: {
+                ...common,
+                ...fromColumnsForUpdate,
+                ownerId: ownerId ?? existing!.ownerId,
+                // Only a file that carries the stage column may move a deal's
+                // close stamps — see fromColumnsForUpdate.
+                ...(cols.index.stage >= 0 ? closeStampsForUpdate : {}),
+                // …but the reason follows its OWN column, so a corrected reason
+                // lands even when the close date is unchanged (M1).
+                ...(cols.index.stage >= 0 ? lostReasonWrite : {}),
+              },
+            });
+            for (const entry of dealChangeAudits(existing!, updated, { organizationId: ctx.organizationId, actorId: ctx.userId, dealId: existing!.id, source: FRESHSALES_SOURCE })) {
+              await writeCrmAudit(tx, entry);
+            }
           });
           activity.push({
             organizationId: ctx.organizationId, entityType: "DEAL", entityId: existing!.id,

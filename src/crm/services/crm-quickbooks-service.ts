@@ -533,8 +533,10 @@ async function recordEstimate(
           realmId: realm.realmId,
           environment: realm.environment,
           adopted,
+          // Money keys are in FINANCIAL_KEYS so a money-blind reader of the
+          // audit trail never sees them (review of 3be7c80e).
           quoteTotal,
-          estimateTotal: estimate.totalAmt,
+          quickBooksTotal: estimate.totalAmt,
         },
       });
     }

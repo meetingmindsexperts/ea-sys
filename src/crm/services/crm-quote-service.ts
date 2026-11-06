@@ -27,7 +27,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { diffFields, recordCrmActivity } from "@/crm/lib/crm-activity";
-import { writeCrmAudit } from "@/crm/lib/crm-audit";
+import { auditMoney, writeCrmAudit } from "@/crm/lib/crm-audit";
 import type { QuotePdfInput } from "@/crm/lib/quote-pdf";
 import { crmStorage } from "@/crm/integrations/storage";
 import { crmBranding, crmQuoteRenderer, type QuoteIssuer } from "@/crm/integrations/documents";
@@ -705,8 +705,8 @@ export async function updateDealQuote(
           source: args.source,
           dealId: deal.id,
           quoteNumber: existing.number,
-          currency: args.input.currency,
-          quoteTotal: prepared.totals.total,
+          quoteTotal: { from: auditMoney(existing.total), to: auditMoney(prepared.totals.total) },
+          currency: { from: existing.currency, to: args.input.currency },
           lineCount: prepared.lines.length,
           fromVersion: args.expectedVersion,
         },

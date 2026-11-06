@@ -131,6 +131,8 @@ const FINANCIAL_KEYS = new Set<string>([
   // unrelated total in every payload. CRM callers strip it for anyone
   // canViewDealValues refuses, the same set that cannot open the quote itself.
   "quoteTotal",
+  // QuickBooks' own total on a CRM quote sent as an Estimate (crm-audit.ts).
+  "quickBooksTotal",
 ]);
 
 /**

@@ -17,18 +17,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
-vi.mock("@/lib/db", () => ({
-  db: {
+vi.mock("@/lib/db", () => {
+  const db = {
     crmCompany: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     crmContact: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
-    crmDeal: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+    // An update answers with the written row, as Prisma does (the import audits the difference).
+    crmDeal: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(async (a: { data: Record<string, unknown> }) => a.data) },
     crmPipelineStage: { findMany: vi.fn() },
     crmDealType: { findMany: vi.fn() },
     event: { findFirst: vi.fn(), findMany: vi.fn() },
     user: { findMany: vi.fn() },
     crmActivity: { create: vi.fn().mockResolvedValue({}), createMany: vi.fn().mockResolvedValue({ count: 0 }) },
-  },
-}));
+    auditLog: { create: vi.fn().mockResolvedValue({}) },
+  };
+  // The deal update and its audit rows share one transaction (crm-audit.ts).
+  return { db, tenantTransaction: (fn: (tx: typeof db) => unknown) => fn(db) };
+});
 
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";

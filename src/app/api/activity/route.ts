@@ -412,10 +412,14 @@ export async function GET(req: Request) {
     // review, Oct 7, 2026); the page hiding money was not a control.
     const hideFinance = !can(gate.principal, "finance.view");
     const hideBarcodes = !can(gate.principal, "barcode.view");
-    const visible = hideFinance || hideBarcodes
+    // CRM money follows the CRM's own key, which is narrower than finance.view
+    // (the transactional CRM audit rows carry deal values and quote totals).
+    const hideCrmMoney = !can(gate.principal, "crm.dealValues.view");
+    const visible = hideFinance || hideBarcodes || hideCrmMoney
       ? logs.map((row) => {
           let changes = row.changes;
-          if (hideFinance) changes = redactFinancialFields(changes);
+          const crmRow = row.entityType === "CrmDeal" || row.entityType === "CrmQuote";
+          if (hideFinance || (crmRow && hideCrmMoney)) changes = redactFinancialFields(changes);
           if (hideBarcodes) changes = redactBarcodeFields(changes);
           return { ...row, changes };
         })

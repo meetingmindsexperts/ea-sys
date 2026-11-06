@@ -56,10 +56,62 @@ export async function writeCrmAudit(tx: Prisma.TransactionClient, entry: CrmAudi
   });
 }
 
+/**
+ * A money amount as one canonical string ("15000", "15000.5"), whatever it
+ * arrived as: the form sends a number, Prisma returns a Decimal. Comparing the
+ * raw values made every edit look like a value change (review of 3be7c80e,
+ * HIGH), so both the comparison and the stored diff go through this.
+ */
+export function auditMoney(v: unknown): string | null {
+  if (v === null || v === undefined || v === "") return null;
+  try {
+    return new Prisma.Decimal(v as Prisma.Decimal.Value).toString();
+  } catch {
+    return String(v);
+  }
+}
+
 /** JSON-safe value for an audit diff (Decimal and Date become strings). */
 export function auditValue(v: unknown): unknown {
   if (v === null || v === undefined) return null;
   if (v instanceof Date) return v.toISOString();
   if (v instanceof Prisma.Decimal) return v.toString();
   return v;
+}
+
+const OUTCOME_ACTIONS: Record<string, CrmAuditAction> = { WON: "CRM_DEAL_WON", LOST: "CRM_DEAL_LOST" };
+
+/** The audit action for a deal's new status: won, lost, or back to open. */
+function outcomeAction(status: string): CrmAuditAction {
+  return OUTCOME_ACTIONS[status] ?? "CRM_DEAL_REOPENED";
+}
+
+type DealAuditState = { dealValue: unknown; currency: string; ownerId: string | null; status: string };
+
+/**
+ * The audit rows a change from `before` to `after` calls for, for writers that
+ * replace a deal wholesale (the Freshsales import): value or currency, owner,
+ * and an outcome change. Empty when none of those moved.
+ */
+export function dealChangeAudits(
+  before: DealAuditState,
+  after: DealAuditState,
+  meta: { organizationId: string; actorId: string | null; dealId: string; source: string },
+): CrmAuditEntry[] {
+  const base = { organizationId: meta.organizationId, actorId: meta.actorId, entityType: "CrmDeal" as const, entityId: meta.dealId };
+  const out: CrmAuditEntry[] = [];
+  if (auditMoney(before.dealValue) !== auditMoney(after.dealValue) || before.currency !== after.currency) {
+    out.push({
+      ...base,
+      action: "CRM_DEAL_VALUE_CHANGED",
+      changes: { source: meta.source, dealValue: { from: auditMoney(before.dealValue), to: auditMoney(after.dealValue) }, currency: { from: before.currency, to: after.currency } },
+    });
+  }
+  if (before.ownerId !== after.ownerId) {
+    out.push({ ...base, action: "CRM_DEAL_OWNER_CHANGED", changes: { source: meta.source, ownerId: { from: before.ownerId, to: after.ownerId } } });
+  }
+  if (before.status !== after.status) {
+    out.push({ ...base, action: outcomeAction(after.status), changes: { source: meta.source, status: { from: before.status, to: after.status } } });
+  }
+  return out;
 }

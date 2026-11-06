@@ -38,6 +38,7 @@ vi.mock("@/lib/db", () => {
 });
 
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { createDeal, updateDeal, moveDealStage, closeDeal, setDealArchived } from "@/crm/services/deal-service";
 
 const ORG = "org-1";
@@ -609,8 +610,9 @@ describe("updateDeal — product lines follow the deal's currency (owner, Oct 27
 
 // ── Transactional audit (CRM product review P1-10, Nov 6, 2026) ───────────────
 describe("high-impact deal changes write an AuditLog row inside their transaction", () => {
+  // A real Decimal, as Prisma returns it: the form sends a number (review of 3be7c80e, HIGH).
   const before = {
-    name: "Amgen - Gold", dealValue: 15000, currency: "AED", expectedClose: null, companyId: null, eventId: null,
+    name: "Amgen - Gold", dealValue: new Prisma.Decimal(15000), currency: "AED", expectedClose: null, companyId: null, eventId: null,
     ownerId: null, pipeline: "CONFERENCE", dealTypeId: null, tags: [], archivedAt: null,
   };
   const audited = () => vi.mocked(db.auditLog.create).mock.calls.map((c) => (c[0] as { data: { action: string } }).data.action);
@@ -624,12 +626,24 @@ describe("high-impact deal changes write an AuditLog row inside their transactio
     await updateDeal({ ...base, dealId: "d-1", dealValue: 20000 });
     expect(db.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ action: "CRM_DEAL_VALUE_CHANGED", organizationId: ORG, entityId: "d-1", changes: expect.objectContaining({ dealValue: { from: 15000, to: 20000 } }) }),
+        data: expect.objectContaining({ action: "CRM_DEAL_VALUE_CHANGED", organizationId: ORG, entityId: "d-1", changes: expect.objectContaining({ dealValue: { from: "15000", to: "20000" } }) }),
       }),
     );
     vi.mocked(db.auditLog.create).mockClear();
     await updateDeal({ ...base, dealId: "d-1", name: "Amgen - Platinum" });
     expect(db.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("an edit that re-sends the same value as a number is not a value change", async () => {
+    await updateDeal({ ...base, dealId: "d-1", name: "Amgen - Gold v2", dealValue: 15000 });
+    expect(db.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("clearing the value records the real 'to' (null), not the old value", async () => {
+    await updateDeal({ ...base, dealId: "d-1", dealValue: null });
+    expect(db.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ changes: expect.objectContaining({ dealValue: { from: "15000", to: null } }) }) }),
+    );
   });
 
   it("a new owner is audited", async () => {

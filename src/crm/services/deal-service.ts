@@ -31,7 +31,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { crmEvents } from "@/crm/integrations/events";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
-import { auditValue, writeCrmAudit } from "@/crm/lib/crm-audit";
+import { auditMoney, writeCrmAudit } from "@/crm/lib/crm-audit";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
 import { mayOwnCrmRecords } from "@/crm/services/crm-owner-eligibility";
 // The ONE CRM tag normalizer (trim, dedupe, first-casing-wins) — shared with
@@ -373,7 +373,8 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
     // Keyed by the deal alone: it is already org-bound, and an old row with a
     // null organizationId must still follow.
     const currencyChanged = data.currency !== undefined && data.currency !== before.currency;
-    const valueChanged = data.dealValue !== undefined && auditValue(data.dealValue) !== auditValue(before.dealValue);
+    const valueTo = "dealValue" in data ? auditMoney(data.dealValue) : auditMoney(before.dealValue);
+    const valueChanged = "dealValue" in data && valueTo !== auditMoney(before.dealValue);
     const ownerChanged = data.ownerId !== undefined && data.ownerId !== before.ownerId;
     const res = await tenantTransaction(async (tx) => {
       const claim = await tx.crmDeal.updateMany({
@@ -399,7 +400,7 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
           entityId: input.dealId,
           changes: {
             source: input.source,
-            dealValue: { from: auditValue(before.dealValue), to: auditValue(data.dealValue ?? before.dealValue) },
+            dealValue: { from: auditMoney(before.dealValue), to: valueTo },
             currency: { from: before.currency, to: data.currency ?? before.currency },
           },
         });
@@ -869,7 +870,7 @@ export async function setDealArchived(input: {
           action: input.archived ? "CRM_DEAL_ARCHIVED" : "CRM_DEAL_RESTORED",
           entityType: "CrmDeal",
           entityId: current.id,
-          changes: { source: input.source, name: current.name, dealValue: auditValue(current.dealValue), currency: current.currency, status: current.status },
+          changes: { source: input.source, name: current.name, dealValue: auditMoney(current.dealValue), currency: current.currency, status: current.status },
         });
       }
       return c;
