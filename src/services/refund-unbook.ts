@@ -58,6 +58,16 @@ export interface UnbookResult {
   registrationRefunded: number;
 }
 
+/**
+ * How long one of our refund attempts may count as "in flight" (Nov 6, 2026).
+ * While in flight, charge.refunded for its payment answers 500 so Stripe
+ * redelivers after it settles. Past this, an attempt that still has not
+ * settled (Stripe unreachable for its key, say) is reported as stuck by the
+ * sweep and stops holding up the payment's webhooks; Stripe keeps retrying a
+ * delivery for about three days, so six hours leaves room for it to land.
+ */
+export const REFUND_IN_FLIGHT_LIMIT_MS = 6 * 60 * 60 * 1000;
+
 /** The counters moved under us (a concurrent refund or webhook). Retry later. */
 export class UnbookRaced extends Error {}
 

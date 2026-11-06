@@ -404,6 +404,72 @@ describe("review 2: races between the refund, the sweep and the webhook", () => 
   });
 });
 
+describe("third review", () => {
+  it("LOW-1: a Dashboard refund LARGER than ours lands while ours is in flight; ours succeeds; books equal Stripe and ours is never credited twice", async () => {
+    const { eventId, registrationId, intents } = await seedPaid({ payments: [{ amount: 120, stripe: true }], credited: 120 });
+    let during = 0;
+    fake.beforeCreate = async (intent) => {
+      fake.beforeCreate = null;
+      addRefund(intent, 5000); // Dashboard 50 > our 30
+      during = await deliverChargeRefunded(intent); // delta 50 - 30 = 20 > 0, but ours is in flight
+    };
+    const r = await refundRegistration({ registrationId, eventId, amount: 30, source: "rest" });
+    expect(r.ok).toBe(true);
+    expect(during).toBe(500);
+    // Stripe redelivers after ours settled: delta = 80 - 30 = 50, the Dashboard refund exactly.
+    expect(await deliverChargeRefunded(intents[0])).toBe(200);
+    expect(await books(registrationId)).toMatchObject({ reg: 80, pay: [80] });
+    await expectStripeCountersMatch(registrationId);
+    // Only the seeded note: never a second one for our 30. (The Dashboard 50's own
+    // note is refused by the cap, 120 already credited of 120 paid, and notified.)
+    const notes = await db.invoice.findMany({ where: { registrationId, type: "CREDIT_NOTE" }, select: { total: true }, orderBy: { createdAt: "asc" } });
+    expect(notes.map((n) => Number(n.total))).toEqual([120]);
+  });
+
+  it("MED-1: a young refusal is retried, the attempt stays unsettled, and once the books agree the next tick rolls it back", async () => {
+    const { registrationId, paymentIds, intents } = await seedPaid({ payments: [{ amount: 100, stripe: true }], credited: 100 });
+    // Booked 40, but the counter momentarily holds 90 (a figure Stripe cannot explain).
+    await db.registration.update({ where: { id: registrationId }, data: { refundedAmount: 90 } });
+    await db.payment.update({ where: { id: paymentIds[0] }, data: { refundedAmount: 90 } });
+    const twentyMinutesAgo = new Date(Date.now() - 20 * 60 * 1000);
+    const attempt = await db.refundAttempt.create({
+      data: {
+        organizationId: seed.orgId, registrationId, paymentId: paymentIds[0], stripePaymentIntentId: intents[0],
+        amount: 40, refundedBefore: 0, refundedAfter: 40, kind: "stripe", status: "PENDING", source: "rest",
+        paymentBooked: true, createdAt: twentyMinutesAgo, updatedAt: twentyMinutesAgo,
+      },
+      select: { id: true },
+    });
+    expect(await resolveStaleRefundAttempts()).toMatchObject({ retried: 1, needsReview: 0 });
+    expect(await db.refundAttempt.findUniqueOrThrow({ where: { id: attempt.id }, select: { status: true } })).toEqual({ status: "PENDING" });
+    expect(await books(registrationId)).toMatchObject({ reg: 90, pay: [90] }); // untouched
+
+    // Whatever held the extra 50 settles (here: it was taken back).
+    await db.registration.update({ where: { id: registrationId }, data: { refundedAmount: 40 } });
+    await db.payment.update({ where: { id: paymentIds[0] }, data: { refundedAmount: 40 } });
+    await ageAttempts(registrationId);
+    expect(await resolveStaleRefundAttempts()).toMatchObject({ rolledBack: 1 });
+    expect(await books(registrationId)).toMatchObject({ reg: 0, pay: [0] });
+  });
+
+  it("MED-2: an attempt stuck past six hours stops holding up the payment's webhooks", async () => {
+    const { registrationId, paymentIds, intents } = await seedPaid({ payments: [{ amount: 100, stripe: true }], credited: 100 });
+    await db.registration.update({ where: { id: registrationId }, data: { refundedAmount: 40 } });
+    await db.payment.update({ where: { id: paymentIds[0] }, data: { refundedAmount: 40 } });
+    await db.refundAttempt.create({
+      data: {
+        organizationId: seed.orgId, registrationId, paymentId: paymentIds[0], stripePaymentIntentId: intents[0],
+        amount: 40, refundedBefore: 0, refundedAfter: 40, kind: "stripe", status: "UNKNOWN", source: "rest",
+        paymentBooked: true, createdAt: new Date(Date.now() - 7 * 60 * 60 * 1000),
+      },
+    });
+    // A Dashboard refund of 60 on the same charge (Stripe: 60; books: 40, ours unconfirmed).
+    addRefund(intents[0], 6000);
+    expect(await deliverChargeRefunded(intents[0])).toBe(200);
+    expect(await books(registrationId)).toMatchObject({ pay: [60] });
+  });
+});
+
 describe("review 2 MED-1 on Postgres: one attempt is taken back once", () => {
   it("the inline path and the sweep both try to roll back the same attempt: the second is refused and moves no money", async () => {
     const { eventId, registrationId, paymentIds } = await seedPaid({ payments: [{ amount: 100, stripe: false }], credited: 100 });

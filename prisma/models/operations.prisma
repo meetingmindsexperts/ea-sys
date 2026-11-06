@@ -447,6 +447,8 @@ model RefundAttempt {
   @@index([organizationId])
   @@index([status, createdAt])
   @@index([bookingId])
+  // charge.refunded asks "is a refund of ours in flight on this payment?" on every delivery.
+  @@index([paymentId, status])
 }
 
 enum RefundAttemptStatus {

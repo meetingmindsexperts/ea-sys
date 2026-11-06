@@ -4,7 +4,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { findStripeRefundForAttempt } from "@/lib/stripe-refund-lookup";
 import { recordAbsorbedRefunds } from "@/services/payment-service";
-import { unbookRefund, UnbookAttemptMoved, UnbookNeedsReview, UnbookRaced, type UnbookSlice } from "@/services/refund-unbook";
+import { unbookRefund, UnbookAttemptMoved, UnbookNeedsReview, UnbookRaced, REFUND_IN_FLIGHT_LIMIT_MS, type UnbookSlice } from "@/services/refund-unbook";
 
 // Moved to its own module (Nov 6, 2026) so the service and this sweep share it
 // without importing each other; re-exported for existing callers.
@@ -36,6 +36,17 @@ export { findStripeRefundForAttempt, type StripeRefundVerification } from "@/lib
 
 const STALE_AFTER_MS = 10 * 60 * 1000;
 
+/**
+ * A rollback the books refuse ("needs review") is retried for this long before
+ * it goes final (third review, Nov 6 2026): the refusal is often a moment's
+ * race, e.g. another refund of ours settling between the Stripe read and the
+ * in-flight count. Final means the payment's counter stays raised for a human.
+ */
+const REVIEW_AFTER_MS = 60 * 60 * 1000;
+
+/** Prefixes the note on an attempt already reported as stuck, so it is reported once. */
+const STUCK_MARK = "STUCK:";
+
 export interface RefundSweepResult {
   scanned: number;
   confirmed: number;
@@ -44,6 +55,8 @@ export interface RefundSweepResult {
   unverifiable: number;
   /** Touched by the refund service (or another sweep) since this tick read it: left alone. */
   moved: number;
+  /** Not settled this tick on purpose (a race, Stripe unreachable, waiting on siblings): noted and retried. */
+  retried: number;
 }
 
 /**
@@ -70,7 +83,9 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
       // refund still working through its slices is never mistaken for a dead one.
       updatedAt: { lt: new Date(Date.now() - STALE_AFTER_MS) },
     },
-    orderBy: { createdAt: "asc" },
+    // Oldest TOUCH first: every attempt left unsettled gets a note (which touches
+    // it), so a handful that cannot be settled never starve the rest of the queue.
+    orderBy: { updatedAt: "asc" },
     take: limit,
     include: {
       registration: {
@@ -83,7 +98,7 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
     },
   });
 
-  const result: RefundSweepResult = { scanned: stale.length, confirmed: 0, rolledBack: 0, needsReview: 0, unverifiable: 0, moved: 0 };
+  const result: RefundSweepResult = { scanned: stale.length, confirmed: 0, rolledBack: 0, needsReview: 0, unverifiable: 0, moved: 0, retried: 0 };
 
   for (const attempt of stale) {
     try {
@@ -96,6 +111,16 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
       // Every status write is guarded on the attempt being exactly as this tick
       // read it, so the sweep can never settle an attempt the refund service is
       // still working on, nor reopen one already settled.
+      // Leave the attempt unsettled, with a note saying why. The note touches
+      // it, which sends it to the back of the queue and keeps it out of the
+      // next 10 minutes' ticks.
+      const note = async (error: string) => {
+        await db.refundAttempt.updateMany({
+          where: { id: attempt.id, status: { in: ["PENDING", "UNKNOWN"] }, updatedAt: attempt.updatedAt },
+          data: { error },
+        });
+      };
+      const ageMs = Date.now() - attempt.createdAt.getTime();
       const settle = async (data: { status: "SUCCEEDED" | "FAILED"; error?: string; stripeRefundId?: string | null }) => {
         const written = await db.refundAttempt.updateMany({
           where: { id: attempt.id, status: { in: ["PENDING", "UNKNOWN"] }, updatedAt: attempt.updatedAt },
@@ -128,11 +153,20 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         // Settled or touched since this tick read it: not ours to judge.
         if (err instanceof UnbookAttemptMoved) return "moved" as const;
         if (err instanceof UnbookRaced || err instanceof UnbookNeedsReview) {
-          apiLogger.warn({ msg: "refund-sweep:rollback-refused", attemptId: attempt.id, reason: err.message });
+          apiLogger.warn({ msg: "refund-sweep:rollback-refused", attemptId: attempt.id, reason: err.message, ageMs });
+          // A race settles itself; so, usually, does "needs review" within the
+          // hour. Only an old refusal is final.
+          if (err instanceof UnbookRaced || ageMs < REVIEW_AFTER_MS) return { retry: err.message };
           return null;
         }
         throw err;
       });
+
+      if (typeof unbooked === "object" && unbooked !== null && "retry" in unbooked) {
+        await note(`Rollback refused, retrying: ${unbooked.retry}`.slice(0, 500));
+        result.retried++;
+        return;
+      }
 
       if (unbooked === "moved") {
         apiLogger.info({ msg: "refund-sweep:attempt-moved — left alone", attemptId: attempt.id });
@@ -203,7 +237,8 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
           : [];
         if (siblings.some((x) => x.status === "PENDING" || x.status === "UNKNOWN")) {
           apiLogger.info({ msg: "refund-sweep:manual-waiting-for-stripe-siblings", attemptId: attempt.id });
-          result.moved++;
+          await note("Waiting for this refund's Stripe parts to settle");
+          result.retried++;
           return;
         }
         if (siblings.some((x) => x.status === "FAILED")) {
@@ -228,8 +263,22 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
 
         const outcome = await findStripeRefundForAttempt(attempt.stripePaymentIntentId, attempt.id, attemptOrg);
         if (!outcome.verified) {
-          // Stripe unreachable — try again next tick.
+          // Stripe could not be asked (unreachable, or this org's key no longer
+          // reaches the charge's account). Retry next tick; past the in-flight
+          // limit, tell the organisers once, because the webhook stops waiting
+          // for it then and only a human can settle it.
           result.unverifiable++;
+          const stuck = ageMs > REFUND_IN_FLIGHT_LIMIT_MS;
+          const alreadyReported = attempt.error?.startsWith(STUCK_MARK) ?? false;
+          if (stuck && !alreadyReported) {
+            apiLogger.error({ msg: "refund-sweep:attempt-stuck — Stripe cannot be asked, review manually", attemptId: attempt.id, registrationId: attempt.registrationId, ageMs });
+            notifyAdminsSafe(attempt.registration.eventId, {
+              title: "⚠ Refund stuck: Stripe cannot confirm it",
+              message: `A refund attempt for ${attendeeName(attempt)} has not been confirmed with Stripe for over six hours. Check the refund in the Stripe Dashboard and the registration's Billing tab; the books may hold a refund that never happened.`,
+            });
+          }
+          const message = stuck ? `${STUCK_MARK} Stripe cannot confirm this refund; organisers notified` : "Stripe could not be asked; retrying";
+          await note(alreadyReported ? (attempt.error ?? message) : message);
           return;
         }
 

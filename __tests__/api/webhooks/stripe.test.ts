@@ -397,8 +397,19 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     const res = await POST(makeWebhookRequest());
     expect(res.status).toBe(500);
     expect(mockDb.refundAttempt.count).toHaveBeenCalledWith({
-      where: { paymentId: expect.any(String), status: { in: ["PENDING", "UNKNOWN"] }, paymentBooked: true },
+      where: { paymentId: expect.any(String), status: { in: ["PENDING", "UNKNOWN"] }, paymentBooked: true, createdAt: { gt: expect.any(Date) } },
     });
+    expect(mockDb.payment.updateMany).not.toHaveBeenCalled();
+    await flush();
+    expect(issueCreditNoteSpy).not.toHaveBeenCalled();
+  });
+
+  it("third review LOW-1: something new, but a refund of ours is in flight → still 500 (booking now would mix ours into the Dashboard's)", async () => {
+    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 9000 }));
+    mockDb.payment.findUnique.mockResolvedValue(paymentRow(30, 100));
+    mockDb.refundAttempt.count.mockResolvedValueOnce(1);
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(500);
     expect(mockDb.payment.updateMany).not.toHaveBeenCalled();
     await flush();
     expect(issueCreditNoteSpy).not.toHaveBeenCalled();

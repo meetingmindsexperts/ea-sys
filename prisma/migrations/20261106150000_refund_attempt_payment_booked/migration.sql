@@ -13,3 +13,6 @@ ALTER TABLE "RefundAttempt" ADD COLUMN IF NOT EXISTS "paymentBooked" BOOLEAN NOT
 -- from one whose process died. Nullable: older rows keep the old rule.
 ALTER TABLE "RefundAttempt" ADD COLUMN IF NOT EXISTS "bookingId" TEXT;
 CREATE INDEX IF NOT EXISTS "RefundAttempt_bookingId_idx" ON "RefundAttempt"("bookingId");
+
+-- charge.refunded checks for a refund of ours in flight on the payment on every delivery.
+CREATE INDEX IF NOT EXISTS "RefundAttempt_paymentId_status_idx" ON "RefundAttempt"("paymentId", "status");

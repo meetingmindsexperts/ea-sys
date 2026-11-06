@@ -7,6 +7,7 @@ import type Stripe from "stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { issuePaidRegistrationDocuments, issuePaidGroupDocuments } from "@/lib/invoice-service";
 import { issueCreditNoteForRegistration } from "@/services/payment-service";
+import { REFUND_IN_FLIGHT_LIMIT_MS } from "@/services/refund-unbook";
 import { runWithTenant } from "@/lib/tenant-context";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -710,23 +711,31 @@ export async function handleStripeEvent(
       // A route-initiated refund already bumped THIS payment's counter, so a
       // delta of 0 means "already accounted for" → skip (idempotent on
       // retries too). Only a Stripe-Dashboard (out-of-band) refund advances it.
+      // While one of OUR refunds is booked but not settled on this payment, the
+      // counter is ours, not Stripe's (security audit W0-1 reviews, Nov 6
+      // 2026). Read against it, a Dashboard refund landing meanwhile is either
+      // hidden (delta <= 0, then erased if ours is rolled back) or booked with
+      // ours mixed in (delta > 0, then ours booked again when its own webhook
+      // comes). So answer 500 whatever the delta, and let Stripe redeliver
+      // once ours has settled; the counter then shows the truth. Attempts older
+      // than REFUND_IN_FLIGHT_LIMIT_MS no longer count: the sweep reports them
+      // as stuck, and they must not hold this payment's webhooks forever.
+      const inFlight = await db.refundAttempt.count({
+        where: {
+          paymentId: payment.id,
+          status: { in: ["PENDING", "UNKNOWN"] },
+          paymentBooked: true,
+          createdAt: { gt: new Date(Date.now() - REFUND_IN_FLIGHT_LIMIT_MS) },
+        },
+      });
+      if (inFlight > 0) {
+        apiLogger.warn({ msg: "charge.refunded: a refund of ours is in flight on this payment — 500 so Stripe redelivers", registrationId, paymentIntentId, inFlight });
+        return NextResponse.json({ error: "Refund in flight" }, { status: 500 });
+      }
+
       if (delta <= 0) {
-        // "Nothing new" can also mean "hidden behind one of OUR refunds that is
-        // booked but not settled" (security audit W0-1 review, Nov 6 2026): a
-        // Dashboard refund landing while ours is in flight reads delta <= 0
-        // here, and if ours then fails and is rolled back, nothing would ever
-        // book it. So while any refund of ours is in flight on this payment,
-        // answer 500 and let Stripe redeliver once it has settled; the counter
-        // then shows the truth either way. The in-flight check is read BEFORE
-        // the counter is re-read: an attempt that settles in between has
-        // already moved the counter, which the re-read sees.
-        const inFlight = await db.refundAttempt.count({
-          where: { paymentId: payment.id, status: { in: ["PENDING", "UNKNOWN"] }, paymentBooked: true },
-        });
-        if (inFlight > 0) {
-          apiLogger.warn({ msg: "charge.refunded: a refund of ours is in flight on this payment — 500 so Stripe redelivers", registrationId, paymentIntentId, inFlight });
-          return NextResponse.json({ error: "Refund in flight" }, { status: 500 });
-        }
+        // Re-read before skipping: a rollback that committed after the read
+        // above has moved the counter, and then this delivery is not a no-op.
         const fresh = await db.payment.findUnique({ where: { id: payment.id }, select: { refundedAmount: true } });
         if (!fresh || round2(Number(fresh.refundedAmount)) !== alreadyForPayment) {
           apiLogger.warn({ msg: "charge.refunded: payment counter moved while checking — 500 so Stripe redelivers", registrationId, paymentIntentId });

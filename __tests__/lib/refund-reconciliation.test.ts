@@ -45,7 +45,10 @@ vi.mock("@/lib/stripe", () => ({
   fromStripeAmount: (a: number) => a / 100,
 }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: notifySpy }));
-vi.mock("@/services/refund-unbook", () => ({ unbookRefund: unbookSpy, UnbookRaced, UnbookNeedsReview, UnbookAttemptMoved }));
+vi.mock("@/services/refund-unbook", () => ({
+  unbookRefund: unbookSpy, UnbookRaced, UnbookNeedsReview, UnbookAttemptMoved,
+  REFUND_IN_FLIGHT_LIMIT_MS: 6 * 60 * 60 * 1000,
+}));
 vi.mock("@/services/payment-service", () => ({ recordAbsorbedRefunds: recordAbsorbedSpy }));
 
 import { resolveStaleRefundAttempts, findStripeRefundForAttempt } from "@/lib/refund-reconciliation";
@@ -71,7 +74,10 @@ function attempt(extra: Record<string, unknown> = {}) {
     paymentBooked: true,
     kind: "stripe",
     status: "PENDING",
+    // Old enough that "needs review" is final and that Stripe-unreachable is not yet "stuck".
+    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
     updatedAt: READ_AT,
+    error: null,
     registration: { eventId: "ev1", organizationId: "org1", attendee: { firstName: "A", lastName: "B" } },
     ...extra,
   };
@@ -137,9 +143,10 @@ describe("resolveStaleRefundAttempts", () => {
     mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt({ kind: "manual", stripePaymentIntentId: null, bookingId: "bk1" })]);
     mockDb.refundAttempt.findMany.mockResolvedValue([{ status: "SUCCEEDED" }, { status: "PENDING" }]);
     const r = await resolveStaleRefundAttempts();
-    expect(r).toMatchObject({ moved: 1, confirmed: 0, rolledBack: 0 });
+    expect(r).toMatchObject({ retried: 1, confirmed: 0, rolledBack: 0 });
     expect(mockDb.refundAttempt.findMany).toHaveBeenCalledWith({ where: { bookingId: "bk1", kind: "stripe" }, select: { status: true } });
-    expect(mockDb.refundAttempt.updateMany).not.toHaveBeenCalled();
+    // Only a note: it goes to the back of the queue instead of blocking it.
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith(guarded("att1", { error: expect.stringContaining("Waiting") }));
   });
 
   it("a manual PENDING attempt whose refund had a Stripe part fail is rolled back, not confirmed", async () => {
@@ -215,23 +222,34 @@ describe("resolveStaleRefundAttempts", () => {
     });
   });
 
-  it("goes terminal (manual review, no churn) when the rollback finds the counters moved", async () => {
+  it("third review MED-1: a raced rollback is retried next tick, never made final (the payment counter would stay raised)", async () => {
     mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt()]);
-    unbookSpy.mockRejectedValue(new UnbookRaced("moved"));
+    unbookSpy.mockRejectedValue(new UnbookRaced("payment p1 moved"));
     const r = await resolveStaleRefundAttempts();
-    expect(r).toMatchObject({ needsReview: 1, rolledBack: 0 });
-    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith(
-      guarded("att1", { status: "FAILED", error: expect.stringContaining("review manually") }),
-    );
-    expect(notifySpy).toHaveBeenCalledWith("ev1", expect.objectContaining({ title: expect.stringContaining("manual review") }));
+    expect(r).toMatchObject({ retried: 1, needsReview: 0, rolledBack: 0 });
+    // A note (status unchanged), which also sends it to the back of the queue.
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith(guarded("att1", { error: expect.stringContaining("Rollback refused, retrying") }));
+    expect(notifySpy).not.toHaveBeenCalled();
   });
 
-  it("goes terminal when the books hold more than Stripe explains (needs review)", async () => {
+  it("third review MED-1: a young 'needs review' refusal is retried for an hour first", async () => {
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt({ createdAt: new Date(Date.now() - 20 * 60 * 1000) })]);
+    unbookSpy.mockRejectedValue(new UnbookNeedsReview("counter above Stripe"));
+    const r = await resolveStaleRefundAttempts();
+    expect(r).toMatchObject({ retried: 1, needsReview: 0 });
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  it("goes terminal, with a notice, when the books still hold more than Stripe explains after an hour (needs review)", async () => {
     mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt()]);
     unbookSpy.mockRejectedValue(new UnbookNeedsReview("counter above Stripe"));
     const r = await resolveStaleRefundAttempts();
     expect(r).toMatchObject({ needsReview: 1, rolledBack: 0 });
     expect(mockApiLogger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "refund-sweep:rollback-state-moved-on" }));
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith(
+      guarded("att1", { status: "FAILED", error: expect.stringContaining("review manually") }),
+    );
+    expect(notifySpy).toHaveBeenCalledWith("ev1", expect.objectContaining({ title: expect.stringContaining("manual review") }));
   });
 
   it("a database error inside the rollback is not mistaken for a race: logged, attempt left for the next tick", async () => {
@@ -272,8 +290,32 @@ describe("resolveStaleRefundAttempts", () => {
     refundsList.mockRejectedValue(new Error("down"));
     const r = await resolveStaleRefundAttempts();
     expect(r).toMatchObject({ unverifiable: 1 });
-    expect(mockDb.refundAttempt.updateMany).not.toHaveBeenCalled();
+    // A note only (no status change), so it does not block the queue.
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith(guarded("att1", { error: "Stripe could not be asked; retrying" }));
     expect(unbookSpy).not.toHaveBeenCalled();
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  it("third review MED-2: past six hours unconfirmable, the organisers are told once", async () => {
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt({ createdAt: new Date(Date.now() - 7 * 60 * 60 * 1000) })]);
+    refundsList.mockRejectedValue(new Error("No such payment_intent"));
+    await resolveStaleRefundAttempts();
+    expect(notifySpy).toHaveBeenCalledWith("ev1", expect.objectContaining({ title: "⚠ Refund stuck: Stripe cannot confirm it" }));
+    expect(mockDb.refundAttempt.updateMany).toHaveBeenCalledWith(guarded("att1", { error: expect.stringMatching(/^STUCK:/) }));
+
+    // The next tick sees the mark and does not notify again.
+    notifySpy.mockClear();
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([
+      attempt({ createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000), error: "STUCK: Stripe cannot confirm this refund; organisers notified" }),
+    ]);
+    await resolveStaleRefundAttempts();
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  it("third review MED-2: the queue is read oldest touch first, so stuck rows cannot starve it", async () => {
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([]);
+    await resolveStaleRefundAttempts();
+    expect(mockDbOperator.refundAttempt.findMany.mock.calls[0][0].orderBy).toEqual({ updatedAt: "asc" });
   });
 
   it("one bad row cannot kill the tick (per-attempt try/catch)", async () => {
