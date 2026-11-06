@@ -84,6 +84,15 @@ CREATE POLICY webinarquestionvote_tenant_isolation ON "WebinarQuestionVote"
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
 
+-- WebinarChatMessage (Nov 6, 2026): attendee chat on the custom-stream page.
+-- Same flat template; the post route stamps organizationId from the event.
+ALTER TABLE "WebinarChatMessage" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS webinarchatmessage_tenant_isolation ON "WebinarChatMessage";
+CREATE POLICY webinarchatmessage_tenant_isolation ON "WebinarChatMessage"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
 -- LivePoll / LivePollVote (Oct 6, 2026): live polls on the custom-stream page.
 -- Same flat template; writers stamp organizationId from the event.
 ALTER TABLE "LivePoll" ENABLE ROW LEVEL SECURITY;

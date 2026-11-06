@@ -476,6 +476,7 @@ model EventSession {
   zoomAttendances  ZoomAttendance[]
   webinarPresences WebinarPresence[]
   webinarViewerQuestions WebinarViewerQuestion[]
+  webinarChatMessages    WebinarChatMessage[]
   livePolls              LivePoll[]
 
   @@index([eventId])
@@ -777,6 +778,42 @@ model WebinarViewerQuestion {
 /// docs/WEBINAR_INTERACTION_PLAN.md §3). One per person per question; voting
 /// again removes it. eventId is a plain column (the question already cascades
 /// from the event).
+/// Attendee chat on a webinar's Custom stream page (Nov 6, 2026; docs/WEBINAR_INTERACTION_PLAN.md
+/// §6). Kept with the event, never pruned; a deleted message keeps its row (deletedAt, deletedById)
+/// for the moderation record and the export.
+model WebinarChatMessage {
+  id             String    @id @default(cuid())
+  eventId        String
+  organizationId String?
+  sessionId      String
+  /// The attendee's registration; null for staff.
+  registrationId String?
+  /// The staff account; null for attendees. No FK: a deleted account keeps its messages.
+  userId         String?
+  /// The real name, always (from the registration or the account, never the request).
+  authorName     String
+  /// "attendee" | "staff"
+  authorKind     String
+  /// The attendee chose "Post anonymously": others see "Attendee", producers the real name.
+  anonymous      Boolean   @default(false)
+  /// "message" | "handout" (a staff share of one of the webinar's handouts)
+  kind           String    @default("message")
+  handoutId      String?
+  body           String    @db.Text
+  deletedAt      DateTime?
+  deletedById    String?
+  createdAt      DateTime  @default(now())
+
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  session      EventSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  registration Registration? @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, createdAt])
+  @@index([eventId])
+  @@index([organizationId])
+  @@index([registrationId])
+}
+
 model WebinarQuestionVote {
   id             String   @id @default(cuid())
   questionId     String

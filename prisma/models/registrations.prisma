@@ -333,6 +333,7 @@ model Registration {
   zoomAttendances          ZoomAttendance[]
   webinarPresences         WebinarPresence[]
   webinarViewerQuestions   WebinarViewerQuestion[]
+  webinarChatMessages      WebinarChatMessage[]
   webinarQuestionVotes     WebinarQuestionVote[]
   livePollVotes            LivePollVote[]
   issuedCertificates       IssuedCertificate[]

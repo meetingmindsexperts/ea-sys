@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import type { SponsorEntry } from "@/lib/webinar";
 import { WaitingRoom } from "@/components/webinar/waiting-room";
-import { AskQuestionBox } from "@/components/webinar/ask-question-box";
+import { WebinarSidePanel } from "@/components/webinar/webinar-side-panel";
 import { HandoutsCard, useWebinarHandouts } from "@/components/webinar/handouts-card";
 import { PanelistsCard, collectPanelists } from "@/components/webinar/panelists-card";
 import { EndOfWebinarSurvey } from "@/components/webinar/end-survey-dialog";
@@ -1105,7 +1105,7 @@ export default function PublicSessionPage() {
             </div>
             {showQa && (
               <aside className={`${layout.qaCol} lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto`}>
-                <AskQuestionBox slug={slug} sessionId={sessionId} />
+                <WebinarSidePanel slug={slug} sessionId={sessionId} />
               </aside>
             )}
             </div>

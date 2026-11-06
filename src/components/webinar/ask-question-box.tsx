@@ -39,7 +39,20 @@ const MY_STATUS_LABEL: Record<ViewerQuestionStatus, string> = {
  * attendees can upvote (Oct 6, 2026; most votes first). Refreshed every 15
  * seconds.
  */
-export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: string }) {
+export function AskQuestionBox({
+  slug,
+  sessionId,
+  onPollWaitingChange,
+  onNewActivity,
+}: {
+  slug: string;
+  sessionId: string;
+  /** Told whether an open poll is waiting for this viewer's answer (the chat tabs badge it). */
+  onPollWaitingChange?: (waiting: boolean) => void;
+  /** Called when something new appears after the first load: a question the moderators shared,
+   *  or one of this viewer's questions answered (the chat tabs show a dot). */
+  onNewActivity?: () => void;
+}) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +68,16 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
   // Bumped on every vote: a refresh that started before the latest vote is
   // dropped, so a slow poll cannot put an old count back on screen.
   const voteVersion = useRef(0);
+  // What this viewer has already been shown: null until the first load, which never counts as new.
+  const seenRef = useRef<Set<string> | null>(null);
+  const onNewActivityRef = useRef(onNewActivity);
+  onNewActivityRef.current = onNewActivity;
   const base = `/api/public/events/${slug}/sessions/${sessionId}/questions`;
+
+  const pollWaiting = Boolean(poll && poll.status === "OPEN" && canAnswerPoll && !poll.myChoices?.length);
+  useEffect(() => {
+    onPollWaitingChange?.(pollWaiting);
+  }, [pollWaiting, onPollWaitingChange]);
 
   const load = useCallback(async () => {
     const startedAt = voteVersion.current;
@@ -71,6 +93,13 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
         canAnswerPoll?: boolean;
       };
       if (startedAt !== voteVersion.current) return;
+      // A shared question, or one of mine answered, keyed so a vote count change is not "new".
+      const keys = [
+        ...(data.published ?? []).map((q) => `p:${q.id}`),
+        ...data.questions.filter((q) => q.status === "ANSWERED").map((q) => `a:${q.id}`),
+      ];
+      if (seenRef.current && keys.some((k) => !seenRef.current!.has(k))) onNewActivityRef.current?.();
+      seenRef.current = new Set(keys);
       setMine(data.questions);
       setPublished(data.published ?? []);
       setUpvote(Boolean(data.upvote));

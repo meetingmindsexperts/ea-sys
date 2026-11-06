@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinar attendee chat, steps 1 and 2 of 4 (November 6)
+
+- **Attendee chat beside the Custom stream**, as Chat and Q&A tabs (plan: `docs/WEBINAR_INTERACTION_PLAN.md` §6). Owner decisions: each attendee chooses per message to post with their full name or anonymously (producers always see the real name); attendee links are plain text, staff links and shared handouts clickable; chat opens with the room; it can be on only with a moderating producer named
+- **Same gate as the stream:** only staff and registrations that may watch (`viewer-entitlement.ts`) read or post; nothing before the room opens unless the producer opens chat in the waiting room; read-only after the webinar
+- **Cached polling, not a live connection:** the page asks every 3 s; the route answers from a per-container snapshot rebuilt at most every 2 s and a per-person viewer cache, so polls do not reach the database. One message per 3 s (15 s in slow mode) and 20 a minute per person, 500 characters
+- **Nothing hidden behind a tab:** the Chat tab shows a dot for new messages from others, the Q&A tab "Poll" for a poll waiting for an answer and a dot for a newly shared question or an answered one
+- `WebinarChatMessage` (migration `20261106120000`, additive), with an RLS policy. **Off everywhere until step 3** (the console's Chat tab: switch, moderator, mute all, slow mode, delete, mute a person, pin, share a handout, export)
+
 ### Webinar security review: stream publishing, who may watch, the waiting room (November 5)
 
 - **Stream publishing (W-03):** every viewer's HLS URL contains the stream key, and MediaMTX had no publish check, so anyone registered could push their own video over a live webinar. `mediamtx.yml` now asks `POST /api/webhooks/mediamtx-auth` before every publish (the HMAC password Zoom is given; built Oct 1, inert until now), RTSP, WebRTC and SRT are off (each also accepts publishes), and HLS is published on `127.0.0.1` only. Takes effect at the next MediaMTX recreate. Pinned by `mediamtx-security-config.test.ts`

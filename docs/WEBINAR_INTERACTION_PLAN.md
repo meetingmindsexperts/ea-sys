@@ -239,12 +239,22 @@ stay the same either way, so A is not thrown away.
 
 | Step | What | Effort |
 |---|---|---|
-| 1 | Model, migration, RLS policy; post and read routes with the gate, limits and cache; tests | about 1.5 days |
-| 2 | Attendee panel (beside Q&A on desktop, a tab on a phone), pinned message, handout cards | about 1 day |
+| 1 | Model, migration, RLS policy; post and read routes with the gate, limits and cache; tests | **BUILT Nov 6** |
+| 2 | Attendee panel (beside Q&A on desktop, a tab on a phone), pinned message, handout cards | **BUILT Nov 6** |
 | 3 | Console Chat tab: switches, mute all, slow mode, delete, mute a person, export | about 1 day |
 | 4 | Load test, browser verification on a phone and desktop, docs | about half a day |
 
 About 4 days in all, shippable in two deploys (1 + 2 behind the off-by-default switch, then 3 + 4).
+
+**Built Nov 6 (steps 1 and 2):** `WebinarChatMessage` (migration `20261106120000`, RLS policy in
+`prisma/rls/webinar.sql`); `src/lib/webinar/chat.ts` (rules, client-safe), `chat-server.ts` (the 2 s
+snapshot, found through `resolveEventTenant`, and the per-person viewer cache);
+`GET/POST /api/public/events/[slug]/sessions/[sessionId]/chat`; the panel
+(`components/webinar/chat-panel.tsx`) and the Chat / Q&A tabs (`webinar-side-panel.tsx`). Owner,
+Nov 6: nothing may arrive unseen behind the other tab, so the Chat tab shows a dot for new messages
+from others, and the Q&A tab "Poll" for a poll waiting on this viewer and a dot for a newly shared
+question or an answered one of theirs. Until step 3 there is no console switch: chat stays off
+everywhere (it needs `settings.webinar.chat.enabled` and a named moderator).
 
 ## 7. Private chat
 

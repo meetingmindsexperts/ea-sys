@@ -116,6 +116,9 @@ export interface WebinarSettings {
   /** Files for attendees, in display order (Oct 6, 2026); see
    *  src/lib/webinar/handouts.ts. Written only by the handouts routes. */
   handouts?: import("./webinar/handouts").WebinarHandout[];
+  /** Attendee chat on the Custom stream page (Nov 6, 2026); see src/lib/webinar/chat.ts. Written
+   *  only by the chat console routes. Off unless switched on with a moderator named. */
+  chat?: import("./webinar/chat").WebinarChatSettings;
   /** Short message shown in the waiting room (e.g. "We'll begin shortly"). */
   lobbyMessage?: string;
   /** The thank-you screen's exit button for this webinar (an https address);
