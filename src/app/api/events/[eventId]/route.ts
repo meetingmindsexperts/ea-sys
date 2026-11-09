@@ -1105,10 +1105,48 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // The cascade below removes the only record of which meetings exist on Zoom.
     const zoomMeetings = await runWithTenant(orgGuard.orgId, () =>
       db.zoomMeeting.findMany({
-        where: { eventId, organizationId: orgGuard.orgId },
-        select: { zoomMeetingId: true, meetingType: true },
+        where: { eventId },
+        select: { zoomMeetingId: true, meetingType: true, session: { select: { status: true, endTime: true } } },
       }),
     );
+
+    // Deleting mid-broadcast: Zoom documents no outcome for a running webinar.
+    const liveZoomIds = zoomMeetings.filter((m) => m.session.status === "LIVE").map((m) => m.zoomMeetingId);
+    if (liveZoomIds.length > 0) {
+      apiLogger.warn({ msg: "event:delete-blocked-live-session", eventId, liveZoomIds, userId: session.user.id });
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "DELETE_BLOCKED",
+            entityType: "Event",
+            entityId: eventId,
+            changes: { reason: "session-live", liveZoomIds, ip: getClientIp(req) },
+          },
+        })
+        .catch((err) => apiLogger.error({ err, msg: "Failed to create DELETE_BLOCKED audit log" }));
+      return NextResponse.json(
+        { error: "A session of this event is live on Zoom right now. End it first, then delete the event.", code: "EVENT_SESSION_LIVE" },
+        { status: 409 },
+      );
+    }
+
+    // Only meetings still to come leave Zoom. A finished one stays: Zoom is the
+    // only copy of its attendance and recordings, and its docs do not say what a
+    // delete destroys (review of e2f4f83b).
+    const now = Date.now();
+    const toRemove = zoomMeetings.filter((m) => m.session.status !== "COMPLETED" && m.session.endTime.getTime() > now);
+    const keptFinished = zoomMeetings.filter((m) => !toRemove.includes(m)).map((m) => m.zoomMeetingId);
+    // Logged before the cascade: past this point nothing else holds these ids.
+    if (zoomMeetings.length > 0) {
+      apiLogger.info({
+        msg: "event-delete:zoom-meetings",
+        eventId,
+        toRemove: toRemove.map((m) => m.zoomMeetingId),
+        keptFinished,
+      });
+    }
 
     await db.event.delete({
       where: { id: eventId },
@@ -1118,20 +1156,30 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // Webinar handout files live outside the database; remove them too.
     await removeHandoutFiles(eventId, readHandouts(readWebinarSettings(existingEvent.settings)));
 
-    // Zoom last, so a failed local delete can never cost a live webinar. The
-    // helper never throws: a failure logs the id and leaves an orphan on Zoom.
-    await runWithTenant(orgGuard.orgId, () =>
+    // Zoom last, so a failed local delete can never cost a live webinar.
+    const zoomResults = await runWithTenant(orgGuard.orgId, () =>
       Promise.all(
-        zoomMeetings.map((meeting) =>
-          deleteRemoteZoomMeeting({
+        toRemove.map(async (meeting) => ({
+          id: meeting.zoomMeetingId,
+          removed: await deleteRemoteZoomMeeting({
             organizationId: orgGuard.orgId,
             meetingType: meeting.meetingType,
             zoomMeetingId: meeting.zoomMeetingId,
             reason: "event-delete",
           }),
-        ),
+        })),
       ),
     );
+    const zoomRemoved = zoomResults.filter((r) => r.removed).map((r) => r.id);
+    const zoomNotRemoved = zoomResults.filter((r) => !r.removed).map((r) => r.id);
+    if (zoomNotRemoved.length > 0) {
+      apiLogger.error({
+        msg: "zoom:orphaned-remote-meeting-needs-manual-cleanup",
+        eventId,
+        organizationId: orgGuard.orgId,
+        zoomNotRemoved,
+      });
+    }
 
     // Log the action (non-blocking for better response time)
     db.auditLog.create({
@@ -1142,13 +1190,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         entityId: eventId,
         changes: {
           name: existingEvent.name,
-          zoomMeetingIds: zoomMeetings.map((meeting) => meeting.zoomMeetingId),
+          zoom: { removed: zoomRemoved, notRemoved: zoomNotRemoved, keptFinished },
           ip: getClientIp(req),
         },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json(zoomNotRemoved.length > 0 ? { success: true, zoomNotRemoved } : { success: true });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting event" });
     return NextResponse.json(

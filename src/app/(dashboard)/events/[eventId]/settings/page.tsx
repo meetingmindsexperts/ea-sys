@@ -969,7 +969,11 @@ export default function EventSettingsPage() {
       });
 
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
         toast.success("Event deleted");
+        if (data.zoomNotRemoved?.length) {
+          toast.warning(`Zoom could not remove webinar ${data.zoomNotRemoved.join(", ")}. Delete it in Zoom.`);
+        }
         router.push("/events");
       } else {
         const data = await res.json().catch(() => ({}));
@@ -2741,7 +2745,8 @@ export default function EventSettingsPage() {
                     <AlertDialogDescription>
                       This will permanently delete the event &quot;{event.name}&quot; and all
                       associated data including registrations, speakers, sessions, and
-                      accommodations. This action cannot be undone.
+                      accommodations. Webinars still to come are removed from Zoom too; finished
+                      ones stay there. This action cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
