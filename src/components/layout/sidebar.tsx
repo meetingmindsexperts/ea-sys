@@ -39,7 +39,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-import { computeSidebarNav, sidebarSkipsEventFetch } from "./sidebar-nav";
+import { activeNavHref, computeSidebarNav, sidebarSkipsEventFetch } from "./sidebar-nav";
 
 /**
  * The navigation column. Two placements of the one component, so a phone and a
@@ -91,7 +91,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
 
   // What the sidebar shows: one pure function (sidebar-nav.ts), snapshotted
   // for every role and context.
-  const { baseNavigation, visibleEventSections, hidden } = computeSidebarNav({
+  const { baseNavigation, visibleEventSections } = computeSidebarNav({
     user: session?.user as Parameters<typeof computeSidebarNav>[0]["user"],
     hrEnabled,
     procurementEnabled,
@@ -101,8 +101,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
     currentEvent,
     submitterCtx,
   });
-  // REGISTRANT sees no sidebar — only the portal page
-  if (hidden) return null;
+  const activeHref = activeNavHref(pathname, baseNavigation);
 
   const flatEventItems = visibleEventSections.flatMap((s) =>
     s.items.map((item) => ({ ...item, href: `/events/${eventId}${item.href}` }))
@@ -324,7 +323,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
             // An external item is a static file, not an app route: it must
             // not be prefetched or client-navigated, and it never matches
             // the active-highlight (pathname never equals it).
-            const isActive = !item.external && pathname.startsWith(item.href);
+            const isActive = item.href === activeHref;
             const navLink = (
               <Link
                 key={item.name}

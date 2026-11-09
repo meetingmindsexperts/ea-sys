@@ -442,7 +442,7 @@ export function Header() {
             <DropdownMenuItem asChild>
               <Link href="/my-registration" className="flex items-center">
                 <Ticket className="mr-2 h-4 w-4" />
-                My registrations
+                My events
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />

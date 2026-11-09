@@ -201,3 +201,35 @@ export function cmeTotals(
   }
   return { thisYear: thisYear / 10, allTime: allTime / 10, year };
 }
+
+type Grouped = { event: { id: string; startDate: Date; timezone: string } };
+
+export interface CertificateYearGroup<C extends Grouped> {
+  year: string;
+  events: { event: C["event"]; certificates: C[] }[];
+}
+
+/**
+ * Certificates by the year of their EVENT (in the event's own time zone, as
+ * cmeTotals counts them), then by event: newest year first, newest event
+ * first within it, each event's certificates in the order given.
+ */
+export function groupCertificatesByYear<C extends Grouped>(
+  certs: readonly C[],
+): CertificateYearGroup<C>[] {
+  const years = new Map<string, Map<string, { event: C["event"]; certificates: C[] }>>();
+  for (const cert of certs) {
+    const year = localDateInTz(cert.event.startDate, cert.event.timezone).slice(0, 4);
+    const events = years.get(year) ?? new Map();
+    years.set(year, events);
+    const group = events.get(cert.event.id) ?? { event: cert.event, certificates: [] };
+    events.set(cert.event.id, group);
+    group.certificates.push(cert);
+  }
+  return [...years.entries()]
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([year, events]) => ({
+      year,
+      events: [...events.values()].sort((a, b) => b.event.startDate.getTime() - a.event.startDate.getTime()),
+    }));
+}

@@ -1,16 +1,12 @@
-import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import Link from "next/link";
-import { AlertCircle, Award, Calendar, MapPin, Ticket } from "lucide-react";
-import { auth } from "@/lib/auth";
+import { AlertCircle, Calendar, MapPin, Ticket } from "lucide-react";
 import { db } from "@/lib/db";
-import { apiLogger } from "@/lib/logger";
-import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
-import { runWithTenantLane } from "@/lib/tenant-lane";
 import { DEFAULT_EVENT_TIMEZONE, formatEventDateRange } from "@/lib/event-time";
 import { certificateMeta, certificateTitle, cmeTotals, findReleasedCertificates } from "@/lib/registrant-certificates";
-import { loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
+import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
+import { loadRegistrantPortal } from "@/lib/registrant-portal";
 import { CertificateList } from "@/components/registrant/certificate-list";
+import { CmeTotalsCard } from "@/components/registrant/cme-totals-card";
 import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -50,54 +46,30 @@ interface EventSummary {
   timezone: string;
 }
 
-async function loadPortal(userId: string, sessionTokenVersion: number | undefined) {
-  // A registrant is org-null, so the lane comes from the host, as sign-in does.
-  const { orgId } = await resolveTenantOrg(normalizeHost((await headers()).get("host")));
-  return runWithTenantLane(orgId, { route: "page:/my-registration", userId }, async () => {
-    const scope = await loadRegistrantScope(userId, { sessionTokenVersion });
-    // A session for an account that no longer exists: back to sign-in.
-    if (!scope) return null;
-    const [registrations, certificates] = await Promise.all([
-      db.registration.findMany({
-        // Linked registrations, plus those carrying the address once the
-        // account has proven it owns it (registrant-access.ts).
-        where: { status: { not: "CANCELLED" }, ...ownRegistrationWhere(scope) },
-        select: {
-          id: true,
-          status: true,
-          ticketType: { select: { name: true } },
-          event: {
-            select: { id: true, name: true, slug: true, startDate: true, endDate: true, timezone: true, venue: true, city: true, country: true },
-          },
+async function loadEvents(scope: RegistrantScope) {
+  const [registrations, certificates] = await Promise.all([
+    db.registration.findMany({
+      // Linked registrations, plus those carrying the address once the
+      // account has proven it owns it (registrant-access.ts).
+      where: { status: { not: "CANCELLED" }, ...ownRegistrationWhere(scope) },
+      select: {
+        id: true,
+        status: true,
+        ticketType: { select: { name: true } },
+        event: {
+          select: { id: true, name: true, slug: true, startDate: true, endDate: true, timezone: true, venue: true, city: true, country: true },
         },
-        orderBy: { createdAt: "desc" },
-      }),
-      findReleasedCertificates(scope),
-    ]);
-    return { registrations, certificates, scope };
-  });
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    findReleasedCertificates(scope),
+  ]);
+  return { registrations, certificates };
 }
 
 export default async function MyRegistrationPage() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    redirect("/login?callbackUrl=/my-registration");
-  }
-  const userId = session.user.id;
-
-  let portal: Awaited<ReturnType<typeof loadPortal>>;
-  try {
-    portal = await loadPortal(userId, session.user.tokenVersion);
-  } catch (err) {
-    apiLogger.error({ err, msg: "my-registration:load-failed", userId });
-    throw err;
-  }
-  if (!portal) {
-    apiLogger.warn({ msg: "my-registration:user-not-found", userId });
-    redirect("/login?callbackUrl=/my-registration");
-  }
-  const { registrations, certificates, scope } = portal;
-
+  const { scope, data } = await loadRegistrantPortal("/my-registration", loadEvents);
+  const { registrations, certificates } = data;
 
   // One card per event: its registrations and its certificates. A speaker's
   // appreciation certificate can belong to an event they never registered for.
@@ -111,7 +83,7 @@ export default async function MyRegistrationPage() {
     // Mobile first (owner, Nov 4, 2026): most people open this from the
     // confirmation email on a phone. Everything stacks and buttons span the
     // card by default; from `sm` up the actions sit beside their text.
-    <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6 sm:space-y-6 sm:px-6 sm:py-8">
+    <div className="mx-auto w-full max-w-3xl space-y-4 sm:space-y-6 sm:py-2">
       <PageHeader
         title="My events"
         description={`Signed in as ${scope.email}`}
@@ -122,23 +94,7 @@ export default async function MyRegistrationPage() {
           address has history. */}
       {!scope.confirmed && <ConfirmEmailNotice email={scope.email} />}
 
-      {cme.allTime > 0 && (
-        <Card className="gap-0 py-0">
-          <CardContent className="flex items-center gap-4 p-4 sm:p-5">
-            <Award className="h-8 w-8 shrink-0 text-primary" />
-            <div className="grid flex-1 grid-cols-2 gap-4">
-              <div>
-                <p className="text-2xl font-semibold tabular-nums">{cme.thisYear}</p>
-                <p className="text-xs text-muted-foreground">CME hours in {cme.year}</p>
-              </div>
-              <div>
-                <p className="text-2xl font-semibold tabular-nums">{cme.allTime}</p>
-                <p className="text-xs text-muted-foreground">CME hours in total</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {cme.allTime > 0 && <CmeTotalsCard {...cme} />}
 
       {ordered.length === 0 && (
         <Card>

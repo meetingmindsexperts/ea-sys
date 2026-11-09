@@ -8,7 +8,7 @@
  * __tests__/components/sidebar-nav.test.ts -u`, then read the diff.
  */
 import { describe, it, expect } from "vitest";
-import { computeSidebarNav, type SidebarNavInput } from "@/components/layout/sidebar-nav";
+import { activeNavHref, computeSidebarNav, type SidebarNavInput } from "@/components/layout/sidebar-nav";
 
 const ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "BASE", "REVIEWER", "SUBMITTER", "REGISTRANT"];
 
@@ -48,7 +48,7 @@ function render(): string {
           });
           const base = nav.baseNavigation.map((i) => i.name).join(", ");
           const event = nav.visibleEventSections.map((s) => `${s.label || "-"}: ${s.items.map((i) => i.name).join(", ")}`).join(" | ");
-          lines.push(`${flags.label} · ${role} · ${person.label} · ${ctx.label}${nav.hidden ? " => HIDDEN" : ` => [${base}] {${event}}`}`);
+          lines.push(`${flags.label} · ${role} · ${person.label} · ${ctx.label} => [${base}] {${event}}`);
         }
   return lines.join("\n") + "\n";
 }
@@ -101,5 +101,20 @@ describe("the CRM entry follows the organisation's entitlement", () => {
   it("shows it when the organisation has the CRM, hides it when not", () => {
     expect(sees(true)).toBe(true);
     expect(sees(false)).toBe(false);
+  });
+});
+
+describe("activeNavHref", () => {
+  const items = [{ href: "/events" }, { href: "/my-registration" }, { href: "/my-registration/certificates" }, { href: "/user-guide.html", external: true }];
+
+  it("lights the longest item a path sits under, so a portal subpage does not light My events too", () => {
+    expect(activeNavHref("/my-registration/certificates", items)).toBe("/my-registration/certificates");
+    expect(activeNavHref("/my-registration", items)).toBe("/my-registration");
+    expect(activeNavHref("/events/e1/abstracts", items)).toBe("/events");
+  });
+
+  it("never matches a mere prefix of a segment, or an external item", () => {
+    expect(activeNavHref("/my-registrationx", items)).toBeNull();
+    expect(activeNavHref("/user-guide.html", items)).toBeNull();
   });
 });

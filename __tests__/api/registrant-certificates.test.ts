@@ -25,7 +25,7 @@ vi.mock("@/lib/security", () => ({ checkRateLimit: mockRateLimit }));
 
 import { GET } from "@/app/api/registrant/certificates/[certificateId]/download/route";
 import { Prisma } from "@prisma/client";
-import { certificateMeta, certificateTitle, cmeHoursOf, cmeTotals, findReleasedCertificates, isReleased, type EmailedRunItem } from "@/lib/registrant-certificates";
+import { certificateMeta, certificateTitle, cmeHoursOf, cmeTotals, findReleasedCertificates, groupCertificatesByYear, isReleased, type EmailedRunItem } from "@/lib/registrant-certificates";
 
 function get(certificateId = "cert1") {
   return GET(new Request("http://x"), { params: Promise.resolve({ certificateId }) });
@@ -307,5 +307,34 @@ describe("cmeTotals", () => {
   it("takes the event's year in its own time zone", () => {
     // 00:00 on 1 January 2026 in Dubai is 20:00 on 31 December 2025 UTC.
     expect(cmeTotals([cert(3, "2025-12-31T20:00:00Z")], NOW, "Asia/Dubai")).toMatchObject({ thisYear: 3, allTime: 3 });
+  });
+});
+
+describe("groupCertificatesByYear (My certificates)", () => {
+  const cert = (id: string, eventId: string, start: string, timezone = "Asia/Dubai") => ({
+    id,
+    event: { id: eventId, startDate: new Date(start), timezone },
+  });
+
+  it("groups by the event's year, newest year and newest event first, keeping each event's order", () => {
+    const groups = groupCertificatesByYear([
+      cert("a1", "osh", "2026-06-17T05:00:00Z"),
+      cert("b1", "old", "2025-03-01T05:00:00Z"),
+      cert("a2", "osh", "2026-06-17T05:00:00Z"),
+      cert("c1", "mmf", "2026-10-31T05:00:00Z"),
+    ]);
+    expect(groups.map((g) => [g.year, g.events.map((e) => [e.event.id, e.certificates.map((c) => c.id)])])).toEqual([
+      ["2026", [["mmf", ["c1"]], ["osh", ["a1", "a2"]]]],
+      ["2025", [["old", ["b1"]]]],
+    ]);
+  });
+
+  it("reads the year in the event's own time zone", () => {
+    // 20:00 UTC on 31 Dec 2025 is already 1 Jan 2026 in Dubai.
+    expect(groupCertificatesByYear([cert("x", "nye", "2025-12-31T20:00:00Z")])[0].year).toBe("2026");
+  });
+
+  it("is empty for no certificates", () => {
+    expect(groupCertificatesByYear([])).toEqual([]);
   });
 });

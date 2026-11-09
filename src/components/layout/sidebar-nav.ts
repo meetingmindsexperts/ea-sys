@@ -8,6 +8,7 @@
 import type React from "react";
 import {
   Activity,
+  Award,
   BarChart3,
   BookUser,
   Bot,
@@ -248,8 +249,29 @@ export interface SidebarNavInput {
 export interface SidebarNav {
   baseNavigation: typeof navigation;
   visibleEventSections: { label: string; items: EventNavItem[] }[];
-  /** No sidebar at all (REGISTRANT). */
-  hidden: boolean;
+}
+
+/**
+ * The pages of a person's own portal (docs/MY_PORTAL_PLAN.md). They live under
+ * /my-registration, which every role may open, so listing them needs no
+ * confinement change.
+ */
+const MY_EVENTS: NavItem = { name: "My events", href: "/my-registration", icon: Ticket, areas: [] };
+const MY_CERTIFICATES: NavItem = { name: "My certificates", href: "/my-registration/certificates", icon: Award, areas: [] };
+
+/**
+ * Which item a path highlights: the longest href it sits under, so
+ * /my-registration/certificates lights My certificates and not My events too.
+ * An external item never matches (it is a static file, not a route).
+ */
+export function activeNavHref(pathname: string, items: readonly Pick<NavItem, "href" | "external">[]): string | null {
+  let best: string | null = null;
+  for (const item of items) {
+    if (item.external) continue;
+    const under = pathname === item.href || pathname.startsWith(`${item.href}/`);
+    if (under && (best === null || item.href.length > best.length)) best = item.href;
+  }
+  return best;
 }
 
 /**
@@ -276,20 +298,22 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
   const isRegistrant = role === "REGISTRANT";
   const isReviewer = role === "REVIEWER";
   const isSubmitter = role === "SUBMITTER";
-  // REGISTRANT sees no sidebar — only the portal page
-  if (isRegistrant) return { baseNavigation: [], visibleEventSections: [], hidden: true };
+  // REGISTRANT: their own portal pages only (owner, Nov 9, 2026; until then
+  // no sidebar at all, which left certificates findable only inside each
+  // event's card).
+  if (isRegistrant) return { baseNavigation: [MY_EVENTS, MY_CERTIFICATES], visibleEventSections: [] };
   if (isReviewer || isSubmitter) {
     // Their own registrations and certificates (Nov 4, 2026). Once a submitter
     // or reviewer went into Events there was no way back to /my-registration:
     // their sidebar held only Events. Staff reach it from the account menu.
-    const myRegistrations: NavItem = { name: "My registrations", href: "/my-registration", icon: Ticket, areas: [] };
+    const portal = [MY_EVENTS, MY_CERTIFICATES];
     const restrictedNavigation: NavItem[] = isReviewer
       ? [
           { name: "My Reviews", href: "/my-reviews", icon: ClipboardCheck, areas: [] },
           ...navigation.filter((item) => item.name === "Events"),
-          myRegistrations,
+          ...portal,
         ]
-      : [...navigation.filter((item) => item.name === "Events"), myRegistrations];
+      : [...navigation.filter((item) => item.name === "Events"), ...portal];
     // Submitter surface separation (July 30, 2026): a SUBMITTER sees only the
     // surface their signup flow covers (abstracts vs session proposals), plus
     // any surface where they actually have content — one truth table shared
@@ -303,7 +327,7 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
         if (!submitterCtx) return false;
         return item.name === "Abstracts" ? submitterSeesAbstracts(submitterCtx) : submitterSeesProposals(submitterCtx);
       });
-    return { baseNavigation: restrictedNavigation, visibleEventSections: [{ label: "Abstracts", items: restrictedEventItems }], hidden: false };
+    return { baseNavigation: restrictedNavigation, visibleEventSections: [{ label: "Abstracts", items: restrictedEventItems }] };
   }
 
   // ── Staff: the AREAS a role works in, then the KEYS it holds (custom roles
@@ -367,5 +391,5 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
     visibleEventSections = [];
   }
 
-  return { baseNavigation, visibleEventSections, hidden: false };
+  return { baseNavigation, visibleEventSections };
 }
