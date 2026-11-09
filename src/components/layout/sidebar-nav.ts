@@ -250,6 +250,8 @@ export interface SidebarNavInput {
    * the role, so any account can hold it; a REVIEWER always has the link.
    */
   hasReviewWork?: boolean;
+  /** Has an abstract of their own: a REVIEWER can, on another event. */
+  hasAbstracts?: boolean;
 }
 
 export interface SidebarNav {
@@ -322,7 +324,7 @@ function navForRole(input: SidebarNavInput): SidebarNav {
     // Their own registrations and certificates (Nov 4, 2026). Once a submitter
     // or reviewer went into Events there was no way back to their portal:
     // their sidebar held only Events. Staff reach it from the account menu.
-    const portal = isSubmitter ? [MY_EVENTS, MY_CERTIFICATES, MY_ABSTRACTS, MY_DETAILS] : [MY_EVENTS, MY_CERTIFICATES, MY_DETAILS];
+    const portal = isSubmitter || input.hasAbstracts ? [MY_EVENTS, MY_CERTIFICATES, MY_ABSTRACTS, MY_DETAILS] : [MY_EVENTS, MY_CERTIFICATES, MY_DETAILS];
     const restrictedNavigation: NavItem[] = isReviewer
       ? [
           MY_REVIEWS,

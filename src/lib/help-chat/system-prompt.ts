@@ -122,9 +122,9 @@ const ROLE_GUIDANCE: Record<string, string> = {
   BASE:
     "The \"Base role\": no default permissions at all. Everything this person can do comes from the custom roles listed below; with none, they can sign in but reach nothing. Answer only within those permissions (for example exporting registrations or contacts) and, for anything else, say their access does not include it and that an admin can change their custom role.",
   REVIEWER:
-    "Can ONLY review abstracts. Steer help toward /my-reviews and abstract-related guidance.",
+    "Reviews abstracts. Steer help toward /my-reviews and abstract-related guidance.",
   SUBMITTER:
-    "Can ONLY view + edit their OWN abstract submissions. Steer help toward submission/edit/status questions.",
+    "Views + edits their OWN abstract submissions. If they were also asked to review abstracts, that is under /my-reviews. Steer help toward submission/edit/status questions.",
   REGISTRANT:
     "Self-service portal only at /my-account (My events, My certificates, My Details; the old /my-registration address redirects there) — view registration, edit attendee details, pay outstanding balance, download invoice. Cannot access dashboard, events, or admin features.",
 };

@@ -59,16 +59,21 @@ beforeEach(() => {
 describe("GET /api/my-reviews?summary=1", () => {
   it("is true for a pool abstract or an assignment, whatever the role, never counting their own", async () => {
     mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1" });
-    await expect((await feed(req("?summary=1"))).json()).resolves.toEqual({ hasReviewWork: true });
+    await expect((await feed(req("?summary=1"))).json()).resolves.toMatchObject({ hasReviewWork: true });
     expect(mockDb.abstract.findFirst.mock.calls[0][0].where).toHaveProperty("NOT");
     mockDb.abstract.findFirst.mockResolvedValue(null);
     mockDb.abstractReviewer.findFirst.mockResolvedValue({ id: "r1" });
-    await expect((await feed(req("?summary=1"))).json()).resolves.toEqual({ hasReviewWork: true });
+    await expect((await feed(req("?summary=1"))).json()).resolves.toMatchObject({ hasReviewWork: true });
+  });
+
+  it("says whether they have an abstract of their own, by account only", async () => {
+    mockDb.abstract.findFirst.mockImplementation(async ({ where }: { where: { speaker?: { userId?: string } } }) => (where.speaker?.userId === "u1" ? { id: "mine" } : null));
+    await expect((await feed(req("?summary=1"))).json()).resolves.toEqual({ hasReviewWork: false, hasAbstracts: true });
   });
 
   it("is false with neither, and refuses nobody signed in", async () => {
     mockDb.abstract.findFirst.mockResolvedValue(null);
-    await expect((await feed(req("?summary=1"))).json()).resolves.toEqual({ hasReviewWork: false });
+    await expect((await feed(req("?summary=1"))).json()).resolves.toEqual({ hasReviewWork: false, hasAbstracts: false });
     mockAuth.mockResolvedValue(null);
     expect((await feed(req("?summary=1"))).status).toBe(401);
   });

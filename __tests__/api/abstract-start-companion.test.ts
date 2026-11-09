@@ -12,7 +12,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, ensureCompanionSpy, upsertSpy, rateLimitSpy, compareSpy } = vi.hoisted(() => ({
+const { mockDb, ensureCompanionSpy, upsertSpy, rateLimitSpy, compareSpy, txUserUpdate } = vi.hoisted(() => ({
+  txUserUpdate: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
     user: { findUnique: vi.fn(), findFirst: vi.fn() },
@@ -45,7 +46,7 @@ vi.mock("bcryptjs", () => ({ default: { compare: (...a: unknown[]) => compareSpy
 vi.mock("@/lib/db", () => ({
   db: mockDb,
   tenantTransaction: (cb: (t: unknown) => unknown) =>
-    cb({ user: { update: vi.fn() } }),
+    cb({ user: { update: txUserUpdate } }),
 }));
 vi.mock("@/lib/tenant-context", () => ({
   runWithTenant: (_org: string, cb: () => unknown) => cb(),
@@ -140,6 +141,35 @@ describe("abstract-start — speaker status + source stamping", () => {
       expect.anything(),
       expect.objectContaining({ overwriteExisting: false }),
     );
+  });
+});
+
+describe("abstract-start: who becomes a SUBMITTER by authoring", () => {
+  const body = { email: "anna@example.com", password: "pw12345678", source: "abstract" };
+  const asRole = (role: string) =>
+    mockDb.user.findFirst.mockResolvedValue({ id: "u1", role, passwordHash: "hash", firstName: "J", lastName: "D", termsAcceptedAt: new Date("2026-01-01") });
+
+  it.each(["REGISTRANT", "REVIEWER"])("a %s does: reviewing carries on from My Reviews", async (role) => {
+    asRole(role);
+    txUserUpdate.mockClear();
+    const res = await POST(makeReq(body), params);
+    expect(res.status).toBeLessThan(400);
+    expect(txUserUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ role: "SUBMITTER" }) }));
+  });
+
+  it.each(["SUBMITTER", "ORGANIZER", "ADMIN"])("a %s keeps their role", async (role) => {
+    asRole(role);
+    txUserUpdate.mockClear();
+    await POST(makeReq(body), params);
+    expect(txUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("nobody changes without the right password", async () => {
+    asRole("REVIEWER");
+    compareSpy.mockResolvedValue(false);
+    txUserUpdate.mockClear();
+    expect((await POST(makeReq(body), params)).status).toBe(401);
+    expect(txUserUpdate).not.toHaveBeenCalled();
   });
 });
 

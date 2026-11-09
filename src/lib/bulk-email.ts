@@ -1362,7 +1362,6 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
             ? recipientIds.filter((id) => reviewerUserIds.includes(id))
             : reviewerUserIds,
         },
-        role: "REVIEWER",
       },
       select: { id: true, email: true, firstName: true, lastName: true },
     });

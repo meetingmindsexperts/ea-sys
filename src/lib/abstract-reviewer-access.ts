@@ -17,6 +17,16 @@
  */
 import type { Prisma } from "@prisma/client";
 
+/**
+ * The accounts that become a SUBMITTER when they author an abstract, after
+ * proving the password. A REVIEWER can: reviewing no longer depends on the role
+ * and carries on from My Reviews, while the event pages an author needs are a
+ * SUBMITTER's, which see only their own abstracts. Staff stay what they are.
+ */
+export function becomesSubmitterToAuthor(role: string | null | undefined): boolean {
+  return role === "REGISTRANT" || role === "REVIEWER";
+}
+
 /** Identity the rule needs. A session user fits. */
 export interface ReviewerIdentity {
   id: string;

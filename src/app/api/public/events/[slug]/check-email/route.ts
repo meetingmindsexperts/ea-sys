@@ -1,3 +1,4 @@
+import { becomesSubmitterToAuthor } from "@/lib/abstract-reviewer-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -99,11 +100,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     ]);
 
     // Can the abstract-submission flow take this email through the self-serve
-    // submitter form? True for no account or a plain REGISTRANT (the submitter
-    // route upgrades REGISTRANT→SUBMITTER); false for an existing SUBMITTER /
+    // submitter form? True for no account, a REGISTRANT or a REVIEWER (the submitter
+    // route upgrades them to SUBMITTER); false for an existing SUBMITTER /
     // staff account, who must sign in instead. Coarse boolean by design —
     // collapses every privileged role into "false" so nothing is enumerable.
-    const canSelfUpgrade = !account || account.role === "REGISTRANT";
+    const canSelfUpgrade = !account || becomesSubmitterToAuthor(account.role);
     // Whether a platform account exists for this email — drives the abstract
     // flow's "sign in vs sign up" branch. This reveals only account existence
     // (the standard tradeoff of any email-first sign-in form), never the role.

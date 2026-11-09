@@ -447,7 +447,7 @@ Thresholds are best-effort; in-memory store means limits reset on EC2/Docker res
 ### Restricted Role Enforcement (3-layer, applies to REVIEWER, SUBMITTER, and REGISTRANT)
 1. **API Layer:** `denyReviewer(session)` guard on all POST/PUT/DELETE handlers (except abstract operations and `/api/registrant/registrations` self-edit) returns 403 for REVIEWER, SUBMITTER, and REGISTRANT
 2. **Middleware Layer:** `src/proxy.ts` (Next.js middleware; renamed from `middleware.ts` in Next 16.1) redirects REVIEWER/SUBMITTER from non-abstract event routes; REGISTRANT is redirected to `/my-registration` from all dashboard routes
-3. **UI Layer:** Write-action buttons hidden; a REGISTRANT's sidebar lists only its own portal pages (My events, My certificates; since Nov 9, 2026, before which it had none); header shows "Reviewer Portal", "Submitter Portal", or "Registration Portal"
+3. **UI Layer:** Write-action buttons hidden; a REGISTRANT's sidebar lists only its own portal pages (My events, My certificates; since Nov 9, 2026, before which it had none); header shows "My portal" for all three (Nov 9, 2026: one person can review on one event and submit to another)
 
 ### Event Scoping
 - `buildEventAccessWhere(session.user)` from `src/lib/event-access.ts` scopes event queries by role

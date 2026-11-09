@@ -3,7 +3,7 @@
  * never your own abstract (Nov 9, 2026).
  */
 import { describe, it, expect } from "vitest";
-import { excludeOwnAbstracts, isOnReviewerPool, isOwnAbstract } from "@/lib/abstract-reviewer-access";
+import { becomesSubmitterToAuthor, excludeOwnAbstracts, isOnReviewerPool, isOwnAbstract } from "@/lib/abstract-reviewer-access";
 
 describe("isOnReviewerPool", () => {
   it("reads the event's list and fails closed on anything else", () => {
@@ -43,4 +43,9 @@ describe("excludeOwnAbstracts", () => {
   it("without an address, only the account", () => {
     expect(excludeOwnAbstracts({ id: "u1", email: null })).toEqual({ NOT: { speaker: { OR: [{ userId: "u1" }] } } });
   });
+});
+
+describe("becomesSubmitterToAuthor", () => {
+  it.each(["REGISTRANT", "REVIEWER"])("%s does", (role) => expect(becomesSubmitterToAuthor(role)).toBe(true));
+  it.each(["SUBMITTER", "ADMIN", "ORGANIZER", "MEMBER", null, undefined])("%s does not", (role) => expect(becomesSubmitterToAuthor(role)).toBe(false));
 });

@@ -17,6 +17,7 @@ import {
   holdsLiveRegistration,
   presenterEvidenceShape,
 } from "@/lib/presenter-signup";
+import { becomesSubmitterToAuthor } from "@/lib/abstract-reviewer-access";
 import { presenterDetailsSchema, refinePresenterSpecialty } from "@/lib/schemas";
 
 /**
@@ -24,7 +25,7 @@ import { presenterDetailsSchema, refinePresenterSpecialty } from "@/lib/schemas"
  * submission flow. Given a valid email + password for an existing account it:
  *   1. verifies the password (proves ownership — same guard as the submitter
  *      route's upgrade path),
- *   2. upgrades a REGISTRANT → SUBMITTER so middleware lets them into the
+ *   2. upgrades a REGISTRANT or REVIEWER → SUBMITTER so middleware lets them into the
  *      dashboard abstracts area,
  *   3. ensures a Speaker exists for this event, PREFILLED from the person's
  *      existing registration (attendee) so they never re-type their details —
@@ -201,7 +202,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // the rest of the handler keeps working with a plain `user`.
     const user = check.user;
 
-    const wasRegistrant = user.role === "REGISTRANT";
+    const becomesSubmitter = becomesSubmitterToAuthor(user.role);
 
     // Prefill source: this person's existing (non-cancelled) registration on
     // this event, if any, by the My events rule (registrant-access.ts): one
@@ -324,7 +325,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     let speakerId: string | null = null;
     await tenantTransaction(async (tx) => {
-      if (wasRegistrant) {
+      if (becomesSubmitter) {
         await tx.user.update({
           where: { id: user.id },
           data: {
@@ -411,8 +412,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       requestIp: getClientIp(req),
     });
 
-    apiLogger.info({ msg: "public/abstract-start:ready", eventId: event.id, email: emailLower, wasRegistrant });
-    return NextResponse.json({ ok: true, eventId: event.id, wasRegistrant });
+    apiLogger.info({ msg: "public/abstract-start:ready", eventId: event.id, email: emailLower, becameSubmitter: becomesSubmitter });
+    return NextResponse.json({ ok: true, eventId: event.id, becameSubmitter: becomesSubmitter });
     });
   } catch (error) {
     if (error instanceof SpeakerLinkedElsewhereError) {

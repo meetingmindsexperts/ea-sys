@@ -322,13 +322,12 @@ export function useSubmitterContext(eventId: string) {
   });
 }
 
-/** Whether this person has review work (a reviewer pool or an assignment): the sidebar's My Reviews link. */
-export function useHasReviewWork(enabled: boolean) {
+/** What this person holds whatever their role: the sidebar's My Reviews and My abstracts links. */
+export function useMyPortalSummary(enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.myReviewSummary,
-    queryFn: () => fetchApi<{ hasReviewWork: boolean }>("/api/my-reviews?summary=1"),
+    queryFn: () => fetchApi<{ hasReviewWork: boolean; hasAbstracts: boolean }>("/api/my-reviews?summary=1"),
     enabled,
-    select: (d) => d.hasReviewWork,
   });
 }
 

@@ -17,7 +17,7 @@ import { REVIEWABLE_ABSTRACT_STATUSES, excludeOwnAbstracts, type ReviewerIdentit
  * Open to any signed-in account: the two entry points are the whole rule, and
  * the role is not part of it (src/lib/abstract-reviewer-access.ts). A person's
  * own abstracts never appear. `?summary=1` answers only whether they have any
- * of this, which is what decides the sidebar's My Reviews link.
+ * of this and any abstract of their own, which decides the sidebar's links.
  *
  * For each abstract, reports the user's own submission status so the portal
  * can render PENDING / SUBMITTED / NEEDS_UPDATE badges without a second call.
@@ -67,7 +67,11 @@ export async function GET(req: Request) {
     const userId = session.user.id;
     const identity = { id: userId, email: session.user.email };
     if (new URL(req.url).searchParams.get("summary") === "1") {
-      return NextResponse.json({ hasReviewWork: await hasReviewWork(identity) });
+      const [reviewWork, ownAbstract] = await Promise.all([
+        hasReviewWork(identity),
+        db.abstract.findFirst({ where: { speaker: { userId } }, select: { id: true } }),
+      ]);
+      return NextResponse.json({ hasReviewWork: reviewWork, hasAbstracts: !!ownAbstract });
     }
     const notOwn = excludeOwnAbstracts(identity);
 

@@ -205,9 +205,9 @@ const EXTRA_ROLE_LABELS: Record<string, string> = { MEMBER: "Member" };
 
 /** Header title when the user has no organisation name to show. */
 function portalTitle(role: string): string {
-  if (role === "REVIEWER") return "Reviewer Portal";
-  if (role === "SUBMITTER") return "Submitter Portal";
-  if (role === "REGISTRANT") return "Registration Portal";
+  // One person can review on one event and submit to another, so the portal is
+  // not named after the account's role. What it holds comes from the sidebar.
+  if (role === "REVIEWER" || role === "SUBMITTER" || role === "REGISTRANT") return "My portal";
   if (role === "CRM_USER") return "CRM";
   if (role === "HR_USER") return "HR";
   return "Dashboard";

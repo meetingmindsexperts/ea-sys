@@ -129,6 +129,26 @@ describe("the My Reviews entry follows the review work, not the role", () => {
   });
 });
 
+describe("My abstracts follows the abstracts for a REVIEWER", () => {
+  const sees = (hasAbstracts?: boolean) =>
+    computeSidebarNav({
+      user: { id: "u1", organizationId: null, role: "REVIEWER" },
+      hrEnabled: false,
+      procurementEnabled: false,
+      crmEnabled: false,
+      isEventPage: false,
+      currentEvent: undefined,
+      submitterCtx: undefined,
+      hasAbstracts,
+    }).baseNavigation.some((i) => i.name === "My abstracts");
+
+  it("shows it only when they have one", () => {
+    expect(sees(true)).toBe(true);
+    expect(sees(false)).toBe(false);
+    expect(sees()).toBe(false);
+  });
+});
+
 describe("activeNavHref", () => {
   const items = [{ href: "/events" }, { href: "/my-account" }, { href: "/my-account/certificates" }, { href: "/user-guide.html", external: true }];
 

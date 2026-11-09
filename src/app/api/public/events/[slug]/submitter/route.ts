@@ -1,3 +1,4 @@
+import { becomesSubmitterToAuthor } from "@/lib/abstract-reviewer-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -168,15 +169,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       { select: { id: true, role: true, termsAcceptedAt: true, passwordHash: true, emailConfirmedAt: true } },
     );
 
-    // Allow REGISTRANT to upgrade to SUBMITTER; reject other existing roles
-    if (existingUser && existingUser.role !== "REGISTRANT") {
+    // A REGISTRANT or REVIEWER may upgrade to SUBMITTER; reject other existing roles
+    if (existingUser && !becomesSubmitterToAuthor(existingUser.role)) {
       return NextResponse.json(
         { error: "An account with this email already exists. Please log in instead." },
         { status: 409 }
       );
     }
 
-    // Ownership check for the REGISTRANT→SUBMITTER upgrade: this POST mutates an
+    // Ownership check for the upgrade to SUBMITTER: this POST mutates an
     // EXISTING account (flips role, updates profile, mints a Speaker), so it must
     // prove the caller owns it — verify the account's current password. Without
     // this, anyone who knows a delegate's email could flip their account and
@@ -258,7 +259,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const clientIpForTerms = getClientIp(req);
 
       if (existingUser) {
-        // Upgrade REGISTRANT → SUBMITTER + record terms if first time
+        // Upgrade to SUBMITTER + record terms if first time
         user = await tx.user.update({
           where: { id: existingUser.id },
           data: {

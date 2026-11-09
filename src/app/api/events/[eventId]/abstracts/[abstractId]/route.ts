@@ -1,3 +1,4 @@
+import { isOwnAbstract } from "@/lib/abstract-reviewer-access";
 import { NextResponse } from "next/server";
 import { can } from "@/lib/permissions/can";
 import { z } from "zod";
@@ -187,7 +188,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         id: abstractId,
         eventId,
       },
-      include: { speaker: { select: { userId: true, ...PROFILE_COMPLETENESS_SELECT } } },
+      include: { speaker: { select: { userId: true, email: true, ...PROFILE_COMPLETENESS_SELECT } } },
     });
 
     if (!existingAbstract) {
@@ -271,6 +272,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
           return NextResponse.json(profileIncompletePayload(missing), { status: 403 });
         }
       }
+    }
+
+    // A reviewer does not decide their own abstract. Staff are not stopped here:
+    // a small team may have one organiser, and what they do is on the audit trail.
+    if (isReviewer && data.status && isOwnAbstract(existingAbstract.speaker, session.user)) {
+      apiLogger.warn({ msg: "abstracts:own-abstract-status-refused", eventId, abstractId, userId: session.user.id, status: data.status });
+      return NextResponse.json({ error: "This is your own abstract, so you cannot decide it.", code: "OWN_ABSTRACT" }, { status: 403 });
     }
 
     // Only ADMIN/SUPER_ADMIN/ORGANIZER/REVIEWER can set review statuses

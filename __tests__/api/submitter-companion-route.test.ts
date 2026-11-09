@@ -498,3 +498,23 @@ describe("submitter route: an existing unconfirmed account and an invited record
     expect(sendVerifySpy).toHaveBeenCalledWith(expect.objectContaining({ purpose: "speaker" }));
   });
 });
+
+describe("submitter route: an existing account authoring an abstract", () => {
+  const account = (role: string) => ({ id: "u-old", role, termsAcceptedAt: new Date(), passwordHash: "x", emailConfirmedAt: new Date() });
+
+  it("a REVIEWER becomes a SUBMITTER once the password proves it is theirs", async () => {
+    mockDb.user.findFirst.mockResolvedValue(account("REVIEWER"));
+    mockDb.speaker.findFirst.mockResolvedValue(null);
+    mockDb._tx.user.update.mockResolvedValue({ id: "u-old" });
+    const res = await POST(makeReq(validBody), { params });
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb._tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ role: "SUBMITTER" }) }));
+  });
+
+  it.each(["ADMIN", "ORGANIZER", "SUBMITTER"])("a %s is told to sign in, and nothing changes", async (role) => {
+    mockDb.user.findFirst.mockResolvedValue(account(role));
+    const res = await POST(makeReq(validBody), { params });
+    expect(res.status).toBe(409);
+    expect(mockDb._tx.user.update).not.toHaveBeenCalled();
+  });
+});

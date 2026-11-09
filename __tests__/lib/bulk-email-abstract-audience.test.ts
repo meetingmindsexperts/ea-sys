@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, sendEmail, resolveTravelGrantBlock, presenterMint, presenterPdf } = vi.hoisted(() => ({
   mockDb: {
+    user: { findMany: vi.fn() },
     event: { findFirst: vi.fn() },
     abstract: { findMany: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
@@ -90,6 +91,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockDb.event.findFirst.mockResolvedValue(EVENT);
   resolveTravelGrantBlock.mockResolvedValue({ html: "", text: "" });
+});
+
+describe("the reviewers audience is the event's pool, whatever each account's role", () => {
+  it("does not filter the pool by role, or a speaker who reviews would miss the email", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { reviewerUserIds: ["u1", "u2"] } });
+    mockDb.user.findMany.mockResolvedValue([]);
+    await executeBulkEmail({ ...BASE, recipientType: "reviewers", emailType: "custom", customSubject: "S", customMessage: "M" } as Parameters<typeof executeBulkEmail>[0]).catch(() => null);
+    expect(mockDb.user.findMany.mock.calls[0][0].where).toEqual({ id: { in: ["u1", "u2"] } });
+  });
 });
 
 describe("abstract-confirmation", () => {
