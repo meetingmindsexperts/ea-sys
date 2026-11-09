@@ -12,9 +12,13 @@ interface RouteParams {
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const clientIp = getClientIp(req);
+    // 600 a minute, not 120 (Nov 9, 2026): the agenda is what a venue audience
+    // opens at every session change, all from the venue's one Wi-Fi address.
+    // The browser caches it for 60s, so each attendee costs about one request
+    // a minute; nginx's 100 r/s per IP stays the flood backstop.
     const ipRateLimit = checkRateLimit({
       key: `public-agenda:ip:${clientIp}`,
-      limit: 120,
+      limit: 600,
       windowMs: 60 * 1000,
     });
 

@@ -87,6 +87,9 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/security", () => ({
   getClientIp: () => "127.0.0.1",
   checkRateLimit: () => mockRateLimit(),
+  // The route's link-keyed limit; its own behaviour is pinned in security tests.
+  checkLinkRateLimit: () => mockRateLimit(),
+  VENUE_CROWD_IP_LIMITS: { read: { limit: 1200, windowMs: 900_000 }, write: { limit: 600, windowMs: 900_000 } },
   hashVerificationToken: (t: string) => mockHashToken(t),
 }));
 

@@ -116,6 +116,47 @@ export function hashVerificationToken(token: string): string {
   return crypto.createHash("sha256").update(`${token}:${pepper}`).digest("hex");
 }
 
+/** A whole venue audience on one Wi-Fi address, for 15 minutes. */
+export const VENUE_CROWD_IP_LIMITS = {
+  read: { limit: 1200, windowMs: 15 * 60 * 1000 },
+  write: { limit: 600, windowMs: 15 * 60 * 1000 },
+} as const;
+
+/**
+ * Rate limit for a public route whose request carries its own credential: a
+ * personal, single-use link token (the completion form, the survey).
+ *
+ * The client IP is the wrong key for those (Nov 9, 2026). A venue's Wi-Fi puts
+ * a whole audience behind one address and the desk tablet IS one address, so
+ * "5 completions per 15 minutes per IP" refused the sixth attendee at the desk
+ * and "10 survey answers per IP" the eleventh person after a session. The link
+ * is the person, so the strict number now applies per link, and the IP keeps a
+ * ceiling sized for a crowd (VENUE_CROWD_IP_LIMITS) as the backstop against one
+ * source spraying guesses. Tokens are 32 random bytes, so guessing was never
+ * the risk the IP limit could stop; load from one source is.
+ *
+ * `tokenHash` is the hashVerificationToken() value the route already computes.
+ */
+export function checkLinkRateLimit({
+  bucket,
+  ip,
+  tokenHash,
+  perLink,
+  perIp,
+}: {
+  bucket: string;
+  ip: string;
+  tokenHash: string;
+  perLink: { limit: number; windowMs: number };
+  perIp: { limit: number; windowMs: number };
+}): RateLimitResult & { refusedBy?: "ip" | "link" } {
+  const byIp = checkRateLimit({ key: `${bucket}:ip:${ip}`, ...perIp });
+  if (!byIp.allowed) return { ...byIp, refusedBy: "ip" };
+  const byLink = checkRateLimit({ key: `${bucket}:link:${tokenHash}`, ...perLink });
+  if (!byLink.allowed) return { ...byLink, refusedBy: "link" };
+  return byLink;
+}
+
 export type SameOriginCheck = { ok: true } | { ok: false; reason: string };
 
 /**

@@ -7,7 +7,7 @@ import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { rateLimited } from "@/lib/api-errors";
-import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
+import { checkLinkRateLimit, getClientIp, hashVerificationToken, VENUE_CROWD_IP_LIMITS } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -270,16 +270,23 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Token is required" }, { status: 400 });
     }
 
-    const ipLimit = checkRateLimit({
-      key: `complete-reg-get:ip:${getClientIp(req)}`,
-      limit: 20,
-      windowMs: 15 * 60 * 1000,
+    const hashedToken = hashVerificationToken(rawToken);
+    // Per link, not per IP: the desk tablet and venue Wi-Fi are one address.
+    const getLimit = checkLinkRateLimit({
+      bucket: "complete-reg-get",
+      ip: getClientIp(req),
+      tokenHash: hashedToken,
+      perLink: { limit: 20, windowMs: 15 * 60 * 1000 },
+      perIp: VENUE_CROWD_IP_LIMITS.read,
     });
-    if (!ipLimit.allowed) {
-      return rateLimited(ipLimit, { route: "public/complete-registration", message: "Too many requests" });
+    if (!getLimit.allowed) {
+      return rateLimited(getLimit, {
+        route: "public/complete-registration",
+        message: "Too many requests",
+        refusedBy: getLimit.refusedBy,
+      });
     }
 
-    const hashedToken = hashVerificationToken(rawToken);
     const tokenRecord = await db.verificationToken.findUnique({
       where: { token: hashedToken },
     });
@@ -577,16 +584,27 @@ export async function POST(req: Request, { params }: RouteParams) {
   try {
     const { slug } = await params;
 
-    const ipLimit = checkRateLimit({
-      key: `complete-reg-post:ip:${getClientIp(req)}`,
-      limit: 5,
-      windowMs: 15 * 60 * 1000,
+    const body = await req.json();
+
+    // Per link, not per IP: the desk tablet and venue Wi-Fi are one address.
+    // Read before validation so a flood of bad bodies is still bounded; every
+    // body without a token shares one link bucket, which only garbage reaches.
+    const tokenForLimit = typeof body?.token === "string" ? body.token : "";
+    const postLimit = checkLinkRateLimit({
+      bucket: "complete-reg-post",
+      ip: getClientIp(req),
+      tokenHash: hashVerificationToken(tokenForLimit),
+      perLink: { limit: 5, windowMs: 15 * 60 * 1000 },
+      perIp: VENUE_CROWD_IP_LIMITS.write,
     });
-    if (!ipLimit.allowed) {
-      return rateLimited(ipLimit, { route: "public/complete-registration", message: "Too many requests. Please try again later." });
+    if (!postLimit.allowed) {
+      return rateLimited(postLimit, {
+        route: "public/complete-registration",
+        message: "Too many requests. Please try again later.",
+        refusedBy: postLimit.refusedBy,
+      });
     }
 
-    const body = await req.json();
     const validated = completionSchema.safeParse(body);
     if (!validated.success) {
       apiLogger.warn({ msg: "Completion form validation failed", errors: validated.error.flatten() });

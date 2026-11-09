@@ -50,9 +50,11 @@ import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event"
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import {
+  checkLinkRateLimit,
   checkRateLimit,
   getClientIp,
   hashVerificationToken,
+  VENUE_CROWD_IP_LIMITS,
 } from "@/lib/security";
 import {
   getSurvey,
@@ -274,24 +276,25 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Token is required" }, { status: 400 });
     }
 
-    // 30 GETs / 15 min / IP — generous for legitimate retries (slow
-    // network, page reload) but rejects scrape attempts. Lower than
-    // complete-registration because the survey GET reveals more
-    // (PII prefill + whole question set).
-    const ipLimit = checkRateLimit({
-      key: `survey-get:ip:${getClientIp(req)}`,
-      limit: 30,
-      windowMs: 15 * 60 * 1000,
+    // 30 GETs / 15 min per LINK (retries, reloads), plus a crowd-sized IP
+    // ceiling: an audience answering after a session shares the venue's Wi-Fi
+    // address, so a per-IP 30 refused real people (Nov 9, 2026).
+    const hashedToken = hashVerificationToken(rawToken);
+    const getLimit = checkLinkRateLimit({
+      bucket: "survey-get",
+      ip: getClientIp(req),
+      tokenHash: hashedToken,
+      perLink: { limit: 30, windowMs: 15 * 60 * 1000 },
+      perIp: VENUE_CROWD_IP_LIMITS.read,
     });
-    if (!ipLimit.allowed) {
-      apiLogger.warn({ msg: "survey:get-rate-limited", ip: getClientIp(req) });
+    if (!getLimit.allowed) {
+      apiLogger.warn({ msg: "survey:get-rate-limited", ip: getClientIp(req), refusedBy: getLimit.refusedBy });
       return NextResponse.json(
         { error: "Too many requests" },
-        { status: 429, headers: { "Retry-After": String(ipLimit.retryAfterSeconds) } },
+        { status: 429, headers: { "Retry-After": String(getLimit.retryAfterSeconds) } },
       );
     }
 
-    const hashedToken = hashVerificationToken(rawToken);
     const tokenRecord = await db.verificationToken.findUnique({
       where: { token: hashedToken },
     });
@@ -509,18 +512,23 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: SHARE_LINK_RETIRED_MESSAGE }, { status: 410 });
     }
 
-    // 10 POSTs / 15 min / IP — stricter than GET because each is a
-    // DB-write attempt. Legitimate users submit once; bots get cut off.
-    const ipLimit = checkRateLimit({
-      key: `survey-post:ip:${getClientIp(req)}`,
-      limit: 10,
-      windowMs: 15 * 60 * 1000,
+    // 10 POSTs / 15 min per LINK (each is a DB-write attempt; a person submits
+    // once), plus a crowd-sized IP ceiling, because a room answering the CME
+    // survey shares one venue address (Nov 9, 2026). Read before validation so
+    // a flood of bad bodies is still bounded: tokenless bodies share a bucket.
+    const tokenForLimit = typeof body?.token === "string" ? body.token : "";
+    const postLimit = checkLinkRateLimit({
+      bucket: "survey-post",
+      ip: getClientIp(req),
+      tokenHash: hashVerificationToken(tokenForLimit),
+      perLink: { limit: 10, windowMs: 15 * 60 * 1000 },
+      perIp: VENUE_CROWD_IP_LIMITS.write,
     });
-    if (!ipLimit.allowed) {
-      apiLogger.warn({ msg: "survey:post-rate-limited", ip: getClientIp(req) });
+    if (!postLimit.allowed) {
+      apiLogger.warn({ msg: "survey:post-rate-limited", ip: getClientIp(req), refusedBy: postLimit.refusedBy });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
-        { status: 429, headers: { "Retry-After": String(ipLimit.retryAfterSeconds) } },
+        { status: 429, headers: { "Retry-After": String(postLimit.retryAfterSeconds) } },
       );
     }
 

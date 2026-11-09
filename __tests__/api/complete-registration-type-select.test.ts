@@ -61,6 +61,8 @@ vi.mock("@/lib/logger", () => ({
 }));
 vi.mock("@/lib/security", () => ({
   checkRateLimit: vi.fn(() => ({ allowed: true })),
+  checkLinkRateLimit: vi.fn(() => ({ allowed: true })),
+  VENUE_CROWD_IP_LIMITS: { read: { limit: 1200, windowMs: 900_000 }, write: { limit: 600, windowMs: 900_000 } },
   getClientIp: vi.fn(() => "1.2.3.4"),
   hashVerificationToken: vi.fn((t: string) => `hashed:${t}`),
 }));
