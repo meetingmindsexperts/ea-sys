@@ -190,9 +190,9 @@ describe("bulk-type — soldCount oversell guard", () => {
   it("re-stamps originalPrice to the NEW type's base for unpaid rows; settled rows keep theirs", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "T", name: "Physician", quantity: 100, price: 400 });
     mockDb.registration.findMany.mockResolvedValue([
-      { id: "r1", ticketTypeId: "old", attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNPAID" },
-      { id: "r2", ticketTypeId: "old", attendeeId: "a2", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNASSIGNED" },
-      { id: "r3", ticketTypeId: "old", attendeeId: "a3", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "PAID" },
+      { id: "r1", ticketTypeId: "old", attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNPAID" , refundedAmount: 0, _count: { payments: 0, invoices: 0 } },
+      { id: "r2", ticketTypeId: "old", attendeeId: "a2", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNASSIGNED" , refundedAmount: 0, _count: { payments: 0, invoices: 0 } },
+      { id: "r3", ticketTypeId: "old", attendeeId: "a3", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "PAID" , refundedAmount: 0, _count: { payments: 0, invoices: 0 } },
     ]);
     mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
     mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
@@ -223,7 +223,8 @@ describe("bulk-type — soldCount oversell guard", () => {
   });
   const unpaidRow = (id: string, over: Record<string, unknown> = {}) => ({
     id, ticketTypeId: null, attendeeId: `a-${id}`, status: "CONFIRMED", attendanceMode: "IN_PERSON",
-    pricingTierId: null, createdSource: "CSV_IMPORT", paymentStatus: "UNASSIGNED", ...over,
+    pricingTierId: null, createdSource: "CSV_IMPORT", paymentStatus: "UNASSIGNED",
+    refundedAmount: 0, _count: { payments: 0, invoices: 0 }, ...over,
   });
 
   it("an unpaid row moving onto a rate-priced type takes the open public rate, never the 0 base", async () => {
@@ -241,10 +242,11 @@ describe("bulk-type — soldCount oversell guard", () => {
       where: { id: { in: ["r1"] }, eventId: "ev1" },
       data: { ticketTypeId: "T", pricingTierId: "t-std", originalPrice: 250 },
     });
-    // The virtual attendee pays the type's virtual price on the same rate.
+    // The virtual attendee pays the type's virtual price and takes no rate,
+    // as the public form leaves it.
     expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ["r2"] }, eventId: "ev1" },
-      data: { ticketTypeId: "T", pricingTierId: "t-std", originalPrice: 50 },
+      data: { ticketTypeId: "T", pricingTierId: null, originalPrice: 50 },
     });
     // Seats as the planner decides: an import counts on the type, not the rate
     // (only public-register sources consume a rate seat), and only the
@@ -264,13 +266,76 @@ describe("bulk-type — soldCount oversell guard", () => {
     expect(mockDb._tx.registration.updateMany).not.toHaveBeenCalled();
   });
 
+  it("keeps the price of a PENDING row (checkout open) and of one with a promo code, a payment, an invoice or a group", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", name: "Physician", quantity: 100, price: 0, pricingTiers: [rate()] });
+    mockDb.registration.findMany.mockResolvedValue([
+      unpaidRow("ok"),
+      unpaidRow("pend", { paymentStatus: "PENDING" }),
+      unpaidRow("promo", { promoCodeId: "pc1" }),
+      unpaidRow("paid-part", { _count: { payments: 1, invoices: 0 } }),
+      unpaidRow("inv", { _count: { payments: 0, invoices: 1 } }),
+      unpaidRow("grp", { groupId: "g1" }),
+    ]);
+    mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await bulkType(req({ registrationIds: ["ok", "pend", "promo", "paid-part", "inv", "grp"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["ok"] }, eventId: "ev1" },
+      data: { ticketTypeId: "T", pricingTierId: "t-std", originalPrice: 250 },
+    });
+    expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["pend", "promo", "paid-part", "inv", "grp"] }, eventId: "ev1" },
+      data: { ticketTypeId: "T", pricingTierId: null },
+    });
+  });
+
+  it("a virtual-only batch onto a type with a virtual price is not refused when no rate is open", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({
+      id: "T", name: "Physician", quantity: 100, price: 0, virtualPrice: 40, pricingTiers: [rate({ isActive: false })],
+    });
+    mockDb.registration.findMany.mockResolvedValue([unpaidRow("v1", { attendanceMode: "VIRTUAL" })]);
+    mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await bulkType(req({ registrationIds: ["v1"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["v1"] }, eventId: "ev1" },
+      data: { ticketTypeId: "T", pricingTierId: null, originalPrice: 40 },
+    });
+  });
+
+  it("only settled rows onto a type with no rate on sale move without a refusal", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", name: "Physician", quantity: 100, price: 0, pricingTiers: [rate({ isActive: false })] });
+    mockDb.registration.findMany.mockResolvedValue([unpaidRow("p1", { paymentStatus: "PAID", ticketTypeId: "old" })]);
+    mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await bulkType(req({ registrationIds: ["p1"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBeLessThan(400);
+  });
+
+  it("a public-register row moving rate to rate releases its old rate and claims the open one", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", name: "Physician", quantity: 100, price: 0, pricingTiers: [rate()] });
+    mockDb.registration.findMany.mockResolvedValue([
+      unpaidRow("pub", { ticketTypeId: "A", pricingTierId: "t-old", createdSource: "PUBLIC_REGISTER" }),
+    ]);
+    mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await bulkType(req({ registrationIds: ["pub"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBeLessThan(400);
+    expect(rawClaims(mockDb._tx.$executeRaw, "PricingTier")).toEqual([{ id: "t-std", count: 1 }]);
+  });
+
   // Owner, Oct 26, 2026: moving onto the Exhibitor type sets the badge type,
   // on both the unpaid and the settled update.
   it("moving onto the type named Exhibitor writes badgeType Exhibitor on every moved row", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "X", name: "Exhibitor", quantity: 100, price: 0 });
     mockDb.registration.findMany.mockResolvedValue([
-      { id: "r1", ticketTypeId: "old", attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNPAID" },
-      { id: "r3", ticketTypeId: "old", attendeeId: "a3", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "PAID" },
+      { id: "r1", ticketTypeId: "old", attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNPAID" , refundedAmount: 0, _count: { payments: 0, invoices: 0 } },
+      { id: "r3", ticketTypeId: "old", attendeeId: "a3", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "PAID" , refundedAmount: 0, _count: { payments: 0, invoices: 0 } },
     ]);
     mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
     mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
@@ -285,7 +350,7 @@ describe("bulk-type — soldCount oversell guard", () => {
   it("all-settled batch never writes originalPrice", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "T", name: "Physician", quantity: 100, price: 400 });
     mockDb.registration.findMany.mockResolvedValue([
-      { id: "r4", ticketTypeId: "old", attendeeId: "a4", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "COMPLIMENTARY" },
+      { id: "r4", ticketTypeId: "old", attendeeId: "a4", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "COMPLIMENTARY" , refundedAmount: 0, _count: { payments: 0, invoices: 0 } },
     ]);
     mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
     mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });

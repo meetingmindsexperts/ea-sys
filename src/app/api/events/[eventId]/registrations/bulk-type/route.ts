@@ -16,7 +16,11 @@ import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
 import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import { linkRatePrice } from "@/lib/registration-form-pricing";
 
-const UNPAID_STATUSES = ["UNASSIGNED", "UNPAID", "PENDING"];
+// Only these are re-priced, and only when nothing else is attached to the
+// price (repriceable below). PENDING is not: it means a Stripe checkout is
+// open at the old amount, and the webhook would record that amount as paid
+// against a row now stamped differently (RESTAMPABLE_STATUSES agrees).
+const REPRICE_STATUSES = ["UNASSIGNED", "UNPAID"];
 
 const bulkTypeSchema = z.object({
   registrationIds: z.array(z.string()).min(1).max(500),
@@ -109,7 +113,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // transaction, locked (review, Oct 29 2026): read before it, a cancel or a
     // single edit landing in between was overwritten, and a cancelled row was
     // released a second time, then moved onto the new type holding a seat.
-    const registrations = await tenantTransaction(async (tx) => {
+    const { moved: registrations, repricedIds } = await tenantTransaction(async (tx) => {
       // Lock order, shared with every single-row path: the registration rows
       // first (by id, so two bulk moves cannot cross), then the seat counters
       // (type before tier, registration-seat-db.ts).
@@ -134,14 +138,38 @@ export async function PATCH(req: Request, { params }: RouteParams) {
           attendanceMode: true,
           status: true,
           paymentStatus: true,
+          promoCodeId: true,
+          groupId: true,
+          refundedAmount: true,
+          _count: { select: { payments: true, invoices: { where: { status: { not: "CANCELLED" } } } } },
         },
       });
-      if (moving.length === 0) return moving;
+      if (moving.length === 0) return { moved: moving, repricedIds: [] as string[] };
 
-      const unpaid = moving.filter((r) => UNPAID_STATUSES.includes(r.paymentStatus));
-      const settled = moving.filter((r) => !UNPAID_STATUSES.includes(r.paymentStatus));
-      if (unpaid.length > 0 && noRateOnSale) throw new Error("NO_RATE_ON_SALE");
-      const unpaidIdSet = new Set(unpaid.map((r) => r.id));
+      // Re-priced: owing, and nothing else built on the old price. The same
+      // guards as the completion link (linkMayReprice) and the single edit
+      // (TIER_CHANGE_HAS_DISCOUNT): a promo code's discount was worked out
+      // against the old price, an issued invoice or a recorded payment holds
+      // it, and a group member is priced by the group's rate. Everything else
+      // moves type and keeps its price, as settled rows always did.
+      const repriceable = (r: (typeof moving)[number]) =>
+        REPRICE_STATUSES.includes(r.paymentStatus) &&
+        !r.promoCodeId &&
+        !r.groupId &&
+        Number(r.refundedAmount) === 0 &&
+        r._count.payments === 0 &&
+        r._count.invoices === 0;
+      const unpaid = moving.filter(repriceable);
+      const kept = moving.filter((r) => !repriceable(r));
+      const isVirtual = (r: { attendanceMode: string }) => r.attendanceMode === "VIRTUAL";
+      // A virtual row on a type with a virtual price needs no rate, so only
+      // the rows that do need one can be refused for want of one.
+      const needsRate = unpaid.some((r) => !isVirtual(r) || targetType.virtualPrice == null);
+      if (needsRate && noRateOnSale) throw new Error("NO_RATE_ON_SALE");
+      // The rate each re-priced row lands on. Virtual rows take none, as the
+      // public form leaves them (they pay the virtual price, and a rate
+      // report would otherwise count remote money under Standard).
+      const targetTierFor = new Map(unpaid.map((r) => [r.id, isVirtual(r) ? null : (openRate?.id ?? null)]));
 
       // Each row's seat move, from the ONE planner every single-row path uses
       // (planSeatTransition): the counter it releases, the one it claims, and
@@ -151,8 +179,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       const ops = new Map<string, { counter: SeatCounter; delta: number }>();
       let eventDelta = 0;
       for (const r of moving) {
-        // An unpaid row takes the open rate, so its seat is claimed on it too.
-        const targetTierId = unpaidIdSet.has(r.id) ? (openRate?.id ?? null) : null;
+        // A re-priced row takes the open rate, so its seat is claimed on it too.
+        const targetTierId = targetTierFor.get(r.id) ?? null;
         const plan = planSeatTransition(r, { ...r, ticketTypeId, pricingTierId: targetTierId });
         for (const [counter, step] of [[plan.release, -1], [plan.claim, 1]] as const) {
           if (!counter) continue;
@@ -178,32 +206,36 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       if (eventDelta < 0) await releaseEventSeats(tx, eventId, -eventDelta);
       if (eventDelta > 0 && !(await claimEventSeats(tx, eventId, eventDelta))) throw new Error("EVENT_FULL");
 
-      // Update all registrations. Unpaid rows (UNASSIGNED/UNPAID/PENDING) are
-      // RE-STAMPED at the open rate (review H8: readRegistrationBasePrice
-      // prefers the stamped originalPrice, so without it a $100-Student reg
-      // bulk-moved to $400-Physician kept charging $100); a virtual attendee
-      // pays the type's virtual price. Settled rows (PAID/COMPLIMENTARY/
-      // INCLUSIVE/...) move type but keep their price and drop the old rate:
-      // they already paid it. Grouped by price, because virtual and in-person
-      // rows on the same type can owe different amounts. The rows are locked,
-      // so writing by id is writing exactly what was read.
-      const byPrice = new Map<number, string[]>();
+      // Update all registrations. Re-priced rows are RE-STAMPED at the open
+      // rate (review H8: readRegistrationBasePrice prefers the stamped
+      // originalPrice, so without it a $100-Student reg bulk-moved to
+      // $400-Physician kept charging $100); a virtual attendee pays the type's
+      // virtual price. Kept rows (paid, comp, sponsor, PENDING, discounted,
+      // invoiced, grouped) move type but keep their price and drop the old
+      // rate. Grouped by price and rate, because virtual and in-person rows on
+      // the same type differ. The rows are locked, so writing by id is writing
+      // exactly what was read.
+      const byPrice = new Map<string, { price: number; tierId: string | null; ids: string[] }>();
       for (const r of unpaid) {
         const price = linkRatePrice(Number(openRate?.price ?? targetType.price), {
-          isVirtual: r.attendanceMode === "VIRTUAL",
+          isVirtual: isVirtual(r),
           virtualPrice: targetType.virtualPrice,
         });
-        byPrice.set(price, [...(byPrice.get(price) ?? []), r.id]);
+        const tierId = targetTierFor.get(r.id) ?? null;
+        const key = `${price}|${tierId}`;
+        const group = byPrice.get(key) ?? { price, tierId, ids: [] };
+        group.ids.push(r.id);
+        byPrice.set(key, group);
       }
-      for (const [price, ids] of byPrice) {
+      for (const { price, tierId, ids } of byPrice.values()) {
         await tx.registration.updateMany({
           where: { id: { in: ids }, eventId },
-          data: { ticketTypeId, ...exhibitorBadgeData(targetType.name), pricingTierId: openRate?.id ?? null, originalPrice: price },
+          data: { ticketTypeId, ...exhibitorBadgeData(targetType.name), pricingTierId: tierId, originalPrice: price },
         });
       }
-      if (settled.length > 0) {
+      if (kept.length > 0) {
         await tx.registration.updateMany({
-          where: { id: { in: settled.map((r) => r.id) }, eventId },
+          where: { id: { in: kept.map((r) => r.id) }, eventId },
           data: { ticketTypeId, ...exhibitorBadgeData(targetType.name), pricingTierId: null },
         });
       }
@@ -213,7 +245,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         where: { id: { in: moving.map((r) => r.attendeeId) } },
         data: { registrationType: targetType.name },
       });
-      return moving;
+      return { moved: moving, repricedIds: unpaid.map((r) => r.id) };
     });
 
     if (registrations.length === 0) {
@@ -237,9 +269,10 @@ export async function PATCH(req: Request, { params }: RouteParams) {
             toTicketTypeId: ticketTypeId,
             toName: targetType.name,
             count: registrations.length,
-            // Unpaid rows re-stamped at the open rate (H8; virtual at the
-            // virtual price); settled rows kept their paid price.
-            repricedCount: registrations.filter((r) => UNPAID_STATUSES.includes(r.paymentStatus)).length,
+            // Rows re-stamped at the open rate (H8; virtual at the virtual
+            // price); every other row kept its price (repriceable).
+            repricedCount: repricedIds.length,
+            keptPriceCount: registrations.length - repricedIds.length,
             repricedRate: openRate?.name ?? null,
             repricedTo: Number(openRate?.price ?? targetType.price),
             virtualPrice: targetType.virtualPrice == null ? null : Number(targetType.virtualPrice),
