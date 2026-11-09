@@ -247,11 +247,12 @@ function EventCard({ card }: { card: EventCardData }) {
               </p>
             )}
             <JourneySteps steps={j.steps} />
-            <SurveyList surveys={j.surveys} />
+            <SurveyList surveys={j.surveys} registrationId={j.id} />
           </div>
         ))}
         {journeys.length > 0 && (
-          <Button asChild className="h-11 w-full sm:h-9 sm:w-auto">
+          // Outline: the filled button on a card is the step that needs doing (Take survey).
+          <Button asChild variant="outline" className="h-11 w-full sm:h-9 sm:w-auto">
             <Link href={`/e/${event.slug}/my-registration`}>Open registration</Link>
           </Button>
         )}

@@ -22,7 +22,7 @@ const { mockDb } = vi.hoisted(() => ({
     // updateMany: the tag write touches the attendee's registrations (registration-touch.ts).
     registration: { update: vi.fn(), updateMany: vi.fn(async () => ({ count: 1 })) },
     attendee: { update: vi.fn() },
-    verificationToken: { delete: vi.fn() },
+    verificationToken: { delete: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
     event: { update: vi.fn() },
     auditLog: { create: vi.fn() },
     $queryRaw: vi.fn(),
@@ -41,6 +41,7 @@ import {
   applyLegacyEventSurveyWrite,
   createSurvey,
   deleteSurvey,
+  mintPersonalSurveyLink,
   responseWhereForSurvey,
   saveCertificateSurvey,
   submitSurveyResponse,
@@ -323,5 +324,46 @@ describe("Phase 4: once per day (Oct 7, 2026)", () => {
   it("an unchanged mode on a survey with answers saves fine (no lock)", async () => {
     mockDb.survey.findFirst.mockResolvedValueOnce({ id: "svy1", gatesCertificates: false, responseMode: "ONCE_PER_DAY" });
     expect(await updateSurvey(SCOPE, "svy1", { responseMode: "ONCE_PER_DAY", name: "Daily" })).toEqual({ ok: true, surveyId: "svy1" });
+  });
+});
+
+describe("mintPersonalSurveyLink (the one survey-token minter)", () => {
+  const mint = (survey: Parameters<typeof mintPersonalSurveyLink>[0]["survey"]) =>
+    mintPersonalSurveyLink({ survey, registrationId: "reg1", eventSlug: "ev", appUrl: "", expiryDays: 30 });
+  const revoked = () => mockDb.verificationToken.deleteMany.mock.calls.map((c) => c[0].where.identifier.in);
+  const minted = () => mockDb.verificationToken.create.mock.calls[0][0].data;
+
+  it("a certificate survey keeps the legacy two-part link and revokes both forms", async () => {
+    const url = await mint({ id: "cert1", gatesCertificates: true, responseMode: "ONCE" });
+    expect(minted().identifier).toBe("survey:reg1");
+    expect(revoked()).toEqual([["survey:reg1", "survey:cert1:reg1"]]);
+    expect(url).toMatch(/^\/e\/ev\/survey\?token=[0-9a-f]{64}$/);
+  });
+
+  it("stores only the hash, never the token in the link", async () => {
+    const url = await mint(null);
+    const raw = url.split("token=")[1];
+    expect(minted().token).not.toBe(raw);
+    expect(minted().token).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("an extra answer-once survey replaces only its own link, leaving the CME link alive", async () => {
+    await mint({ id: "s2", gatesCertificates: false, responseMode: "ONCE" });
+    expect(minted().identifier).toBe("survey:s2:reg1");
+    expect(revoked()).toEqual([["survey:s2:reg1"]]);
+  });
+
+  it("a daily survey adds a link and revokes none", async () => {
+    await mint({ id: "d1", gatesCertificates: false, responseMode: "ONCE_PER_DAY" });
+    expect(minted().identifier).toBe("survey:d1:reg1");
+    expect(mockDb.verificationToken.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("expires after the given days", async () => {
+    const before = Date.now();
+    await mint(null);
+    const ms = minted().expires.getTime() - before;
+    expect(ms).toBeGreaterThan(29.9 * 86400000);
+    expect(ms).toBeLessThan(30.1 * 86400000);
   });
 });

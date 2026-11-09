@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle2, ChevronRight, Clock, MinusCircle } from "lucide-react";
 import type { JourneyStep, StepState, SurveyLine } from "@/lib/registrant-journey";
 import { cn } from "@/lib/utils";
+import { TakeSurveyButton } from "@/components/registrant/take-survey-button";
 
 /**
  * One event's journey as a row of steps (registrant-journey.ts). Each state
@@ -39,7 +40,7 @@ export function JourneySteps({ steps }: { steps: JourneyStep[] }) {
  * The surveys behind the Survey step, by name, when there is something to
  * say: one still to answer, or more than one survey.
  */
-export function SurveyList({ surveys }: { surveys: SurveyLine[] }) {
+export function SurveyList({ surveys, registrationId }: { surveys: SurveyLine[]; registrationId: string }) {
   if (surveys.length === 0) return null;
   if (surveys.length === 1 && surveys[0].answered) return null;
   return (
@@ -56,7 +57,7 @@ export function SurveyList({ surveys }: { surveys: SurveyLine[] }) {
               {s.daily ? "Answered today" : "Answered"}
             </span>
           ) : (
-            <span className="text-xs text-muted-foreground sm:text-right">Use the survey link in your email.</span>
+            <TakeSurveyButton registrationId={registrationId} surveyId={s.id} />
           )}
         </li>
       ))}

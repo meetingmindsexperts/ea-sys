@@ -1,10 +1,8 @@
 import { AbstractStatus, PaymentStatus, Prisma, RegistrationStatus, SessionRole, SpeakerStatus } from "@prisma/client";
-import crypto from "crypto";
 import { z } from "zod";
 import { MAX_MANUAL_CC } from "@/lib/email-address-list";
 import { db } from "./db";
 import { apiLogger } from "./logger";
-import { hashVerificationToken } from "./security";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, type EmailBranding, eventLocationVars, loadActiveEventTemplateRow, buildRegistrationPaymentBlock, registrationPaymentLink } from "./email";
 import { readRegistrationBasePrice } from "./registration-financials";
 import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
@@ -28,14 +26,13 @@ import { buildPaymentReminderVars } from "./payment-reminder";
 import { googleCalendarUrl, outlookCalendarUrl, buildIcsContent } from "./calendar-links";
 import {
   DEFAULT_SURVEY_EXPIRY_DAYS,
-  DAY_MS,
   surveyExpiryDaysSchema,
   type SurveyExpiryDays,
 } from "./survey/expiry";
 import { ensurePersonalSurveyLink, surveyLinkWasRepaired } from "./survey/invitation-link";
 import { buildThankYouSurveyBlock, registrationsThatAnswered, resolveThankYouSurvey, withThankYouSurveyBlock } from "./webinar-thank-you-survey";
 import { webinarRecordingBlock, webinarRecordingShown } from "./webinar";
-import { resolveInvitationSurvey, responseWhereForSurvey, surveyTokenIdentifier } from "@/services/survey-service";
+import { mintPersonalSurveyLink, resolveInvitationSurvey, responseWhereForSurvey } from "@/services/survey-service";
 import { surveyRespondedSchema } from "./survey/responded-filter";
 import { isDailyMode, type SurveyResponseModeValue } from "./survey/response-mode";
 import {
@@ -2178,42 +2175,17 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // doesn't leave orphan VerificationToken rows for recipients we
       // never managed to email. Each per-recipient try/catch keeps
       // the failure isolated.
-      // The CME survey's link is EXACTLY what it always was (`survey:{regId}`,
-      // review of step 3): byte-identical to every link already in inboxes,
-      // and still readable by the previous release on a rollback. A re-send
-      // revokes both forms. Only an extra survey's link names its survey, so
-      // minting it leaves the person's CME link (and other links) alive.
-      const isCmeLink = !surveyTarget || surveyTarget.gatesCertificates;
-      const surveyIdentifier = isCmeLink
-        ? surveyTokenIdentifier(null, recipient.id)
-        : surveyTokenIdentifier(surveyTarget?.id ?? null, recipient.id);
-      // A daily survey's earlier links keep working (review of Phase 4): people
-      // are told to reuse their link, so a reminder adds a link and never
-      // revokes the one in yesterday's email. Answer-once surveys still
-      // replace it, exactly as before.
-      if (isCmeLink || !isDailyMode(surveyTarget?.responseMode)) {
-        await db.verificationToken.deleteMany({
-          where: {
-            identifier: {
-              in: isCmeLink && surveyTarget?.id
-                ? [surveyIdentifier, surveyTokenIdentifier(surveyTarget.id, recipient.id)]
-                : [surveyIdentifier],
-            },
-          },
-        });
-      }
-      const rawToken = crypto.randomBytes(32).toString("hex");
-      const hashedToken = hashVerificationToken(rawToken);
+      // mintPersonalSurveyLink keeps the CME link byte-identical to every link
+      // already in inboxes and leaves a daily survey's earlier links alive.
       const surveyExpiryDays: SurveyExpiryDays =
         filters?.surveyExpiryDays ?? DEFAULT_SURVEY_EXPIRY_DAYS;
-      await db.verificationToken.create({
-        data: {
-          identifier: surveyIdentifier,
-          token: hashedToken,
-          expires: new Date(Date.now() + surveyExpiryDays * DAY_MS),
-        },
+      vars.surveyLink = await mintPersonalSurveyLink({
+        survey: surveyTarget ?? null,
+        registrationId: recipient.id,
+        eventSlug: event.slug,
+        appUrl,
+        expiryDays: surveyExpiryDays,
       });
-      vars.surveyLink = `${appUrl}/e/${event.slug}/survey?token=${rawToken}`;
       vars.surveyName = surveyTarget?.name ?? "";
     }
 
@@ -2263,20 +2235,16 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       let link = "";
       if (thankYouSurvey && !answeredThankYouSurvey.has(recipient.id)) {
         // The extra survey's own three-part link: minting it leaves the
-        // person's CME link (`survey:{regId}`) alive. A re-send replaces
-        // only this survey's link, as the Survey Invitation does.
-        const identifier = surveyTokenIdentifier(thankYouSurvey.id, recipient.id);
-        // A daily survey keeps the person's earlier links working.
-        if (!isDailyMode(thankYouSurvey.responseMode)) await db.verificationToken.deleteMany({ where: { identifier } });
-        const rawToken = crypto.randomBytes(32).toString("hex");
-        await db.verificationToken.create({
-          data: {
-            identifier,
-            token: hashVerificationToken(rawToken),
-            expires: new Date(Date.now() + DEFAULT_SURVEY_EXPIRY_DAYS * DAY_MS),
-          },
+        // person's CME link (`survey:{regId}`) alive, and a daily survey keeps
+        // the person's earlier links working.
+        link = await mintPersonalSurveyLink({
+          // resolveThankYouSurvey never returns the CME survey.
+          survey: { ...thankYouSurvey, gatesCertificates: false },
+          registrationId: recipient.id,
+          eventSlug: event.slug,
+          appUrl,
+          expiryDays: DEFAULT_SURVEY_EXPIRY_DAYS,
         });
-        link = `${appUrl}/e/${event.slug}/survey?token=${rawToken}`;
       }
       const block = buildThankYouSurveyBlock(link);
       vars.surveyLink = link;

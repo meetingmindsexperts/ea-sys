@@ -27,7 +27,10 @@
  * Errors as values, no HTTP (src/services/README.md).
  */
 
+import crypto from "crypto";
 import { isDailyMode, responseDedupKey, type SurveyResponseModeValue } from "@/lib/survey/response-mode";
+import { DAY_MS } from "@/lib/survey/expiry";
+import { hashVerificationToken } from "@/lib/security";
 import { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -60,6 +63,46 @@ export const EXTRA_SURVEYS_ANSWERABLE = true;
  */
 export function surveyTokenIdentifier(surveyId: string | null, registrationId: string): string {
   return surveyId ? `survey:${surveyId}:${registrationId}` : `survey:${registrationId}`;
+}
+
+/**
+ * Mints a person's personal survey link: THE one place a survey token is made
+ * (the Survey Invitation, the webinar thank-you email and the "Take survey"
+ * button on My events). The database keeps only the token's hash, so a link
+ * can never be shown again, only minted afresh.
+ *
+ * The CME survey's link is EXACTLY what it always was (`survey:{regId}`,
+ * review of step 3): byte-identical to every link already in inboxes, and
+ * still readable by the previous release on a rollback; minting one revokes
+ * both forms. An extra survey's link names its survey, so minting it leaves
+ * the person's CME link (and other links) alive. A daily survey's earlier
+ * links keep working (review of Phase 4): people are told to reuse their
+ * link, so a new one is added and none revoked. `survey` null is an event
+ * with no Survey row, whose link opens its CME survey.
+ */
+export async function mintPersonalSurveyLink(args: {
+  survey: { id: string | null; gatesCertificates: boolean; responseMode?: string | null } | null;
+  registrationId: string;
+  eventSlug: string;
+  appUrl: string;
+  expiryDays: number;
+}): Promise<string> {
+  const { survey, registrationId } = args;
+  const isCmeLink = !survey || survey.gatesCertificates;
+  const identifier = surveyTokenIdentifier(isCmeLink ? null : (survey?.id ?? null), registrationId);
+  if (isCmeLink || !isDailyMode(survey?.responseMode)) {
+    const revoke = isCmeLink && survey?.id ? [identifier, surveyTokenIdentifier(survey.id, registrationId)] : [identifier];
+    await db.verificationToken.deleteMany({ where: { identifier: { in: revoke } } });
+  }
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  await db.verificationToken.create({
+    data: {
+      identifier,
+      token: hashVerificationToken(rawToken),
+      expires: new Date(Date.now() + args.expiryDays * DAY_MS),
+    },
+  });
+  return `${args.appUrl}/e/${args.eventSlug}/survey?token=${rawToken}`;
 }
 
 /**

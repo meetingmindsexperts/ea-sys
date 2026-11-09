@@ -146,7 +146,7 @@ describe("webinar thank-you: the end-of-webinar survey link", () => {
     expect(textContent ?? "").toMatch(/Tell us what you thought: http\S+\/e\/web-1\/survey\?token=[0-9a-f]{64}/);
     expect(mockDb.verificationToken.create.mock.calls[0][0].data.identifier).toBe("survey:svy-fb:reg-1");
     // Only this survey's link is replaced; `survey:reg-1` (the CME link) is never deleted.
-    expect(mockDb.verificationToken.deleteMany).toHaveBeenCalledWith({ where: { identifier: "survey:svy-fb:reg-1" } });
+    expect(mockDb.verificationToken.deleteMany).toHaveBeenCalledWith({ where: { identifier: { in: ["survey:svy-fb:reg-1"] } } });
     for (const call of mockDb.verificationToken.deleteMany.mock.calls) {
       expect(JSON.stringify(call[0])).not.toContain('"survey:reg-1"');
     }
