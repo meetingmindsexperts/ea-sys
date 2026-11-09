@@ -27,7 +27,7 @@ the server-side waiting room, export headers, presence archive); see CHANGELOG, 
    call per segment; works with iPhone's native HLS, where a URL token would not reach the segment
    requests). Worth it once any webinar's content is restricted (e.g. HCP-only). Also closes
    cross-tenant playback by key on a shared instance (W-05).
-4. **Viewer capacity: no CDN exists.** No CloudFront distribution, `HLS_CDN_BASE` unset, so the box
+4. **DONE Nov 9, 2026: CloudFront is on** (`E4S57RCP6XUPP`, see [HLS_CDN_PLAN.md](HLS_CDN_PLAN.md)). Original entry: **Viewer capacity: no CDN exists.** No CloudFront distribution, `HLS_CDN_BASE` unset, so the box
    serves every viewer. A t3.large sustains roughly 0.5 Gbps: about 300 to 500 viewers at 1 to 1.5
    Mbps, not the 5,000 the LIVE_STREAMING.md §13 design assumes. Decide CloudFront (then item 3
    becomes CloudFront signed cookies) or a viewer cap before a large custom-stream webinar.

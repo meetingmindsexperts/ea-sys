@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Live stream served through CloudFront (November 9)
+
+- **Webinar viewers now watch through CloudFront** (`d3vq9gpx1lng4k.cloudfront.net`, distribution `E4S57RCP6XUPP`), not straight from the box, which alone held about 200 to 340 viewers. Playlists cached 1 s, segments 60 s, 404s 1 s; everything outside `/stream/` answers 404. No code change: `HLS_CDN_BASE` switched it on and unsetting it switches it off. Free up to 1 TB a month, then about $0.11/GB, with a $50 CloudFront budget alarm. Corrects the old `LIVE_STREAMING.md` §13 design, whose settings would have cached nothing (nginx's `no-cache` with a minimum TTL of 0). Setup script and config: `infra/cloudfront/`; plan, costs and test results: `docs/HLS_CDN_PLAN.md`
+
 ### Security and reliability work (November 9)
 
 Tracked row by row in `docs/SECURITY_AUDIT_ACTION_PLAN.md`.

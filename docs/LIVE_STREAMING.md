@@ -373,65 +373,29 @@ publish there is refused until the lookup moves to the operator lane.
 
 ---
 
-## 13. Scaling to 5,000 viewers — CloudFront CDN + origin failover
+## 13. Viewer capacity: CloudFront in front of the box (ON since Nov 9, 2026)
 
-> **Superseded in part (Nov 6, 2026): read [HLS_CDN_PLAN.md](HLS_CDN_PLAN.md) first.** It corrects
-> three things below: the cache settings (with nginx's `no-cache` and a minimum TTL of 0 nothing
-> would be cached), the DR origin group (dropped from v1: Zoom pushes to one box) and the custom
-> domain (not needed until signed cookies).
+The box alone holds about 200 to 340 viewers (a t3.large's 0.51 Gbps baseline at 1.5 to 2.5
+Mbps). Since Nov 9, 2026 every viewer is served by **CloudFront**: distribution `E4S57RCP6XUPP`,
+`https://d3vq9gpx1lng4k.cloudfront.net`, origin `events.meetingmindsgroup.com`. The box serves
+about one playlist request per edge per second and each segment once per edge, however many watch.
+Plan, costs and the Nov 9 test results: [HLS_CDN_PLAN.md](HLS_CDN_PLAN.md). Configuration and
+the setup script: [infra/cloudfront/](../infra/cloudfront/).
 
-A single MediaMTX/EC2 box **cannot** serve HLS to 5k concurrent viewers (each
-pulls a fresh playlist + segments every few seconds). At that scale we front
-MediaMTX with **CloudFront**: the box is the *origin*, CloudFront caches the
-playlist/segments and fans them out from the edge, so the box serves ~1 request
-per object per few seconds instead of 5k.
-
-**App side (already wired in code):**
-- `HLS_CDN_BASE` env → when set, the browser fetches HLS from this base
-  (the CloudFront domain); unset ⇒ direct from `NEXT_PUBLIC_APP_URL/stream/`.
-  Set in `stream-status` + `zoom-join` route responses.
-- `stream-status` keeps probing the **MediaMTX origin** internally via
-  `MEDIAMTX_HLS_URL` (CloudFront is never on the liveness-probe path).
-- `LivePlayer` fails over **CDN → origin** once on a fatal media error, then
-  shows a retry message.
-
-**AWS provisioning — MANUAL human steps (do NOT run from app code):**
-
-1. **CloudFront distribution**
-   - Origin: the prod box, `events.meetingmindsgroup.com`, origin path empty
-     (the public `/stream/...` path maps 1:1 to the origin's nginx `/stream/`).
-   - Behavior `/stream/*`: viewer protocol HTTPS-only; allowed methods GET/HEAD;
-     forward the full path; **no** cookie/querystring in the cache key.
-   - **Cache policy** (HLS-tuned): `.m3u8` playlist TTL **1–2s** (it rotates
-     constantly), `.ts`/segment TTL **30–60s** (immutable once written). Use two
-     behaviors keyed on path suffix, or a custom policy with min/default TTL ~1s
-     and `Cache-Control` from origin (nginx sends `no-cache` on the playlist).
-   - Compression off (media is already compressed); response headers policy that
-     passes `Access-Control-Allow-Origin: *` (the origin nginx already sets it).
-
-2. **Origin failover group** (resilience)
-   - Create an **origin group**: primary = Mumbai box, secondary = the
-     **Singapore DR** box (`i-075c400567ed002e6`) running MediaMTX with the same
-     `/stream/` nginx proxy.
-   - Failover criteria: 502/503/504 + connection errors → CloudFront re-requests
-     from the secondary. Point the `/stream/*` behavior at the origin group.
-   - The producer must publish the RTMP feed to BOTH boxes (or the DR ingest is
-     a warm spare started on incident) for the secondary to have content. v1:
-     warm-spare DR (start MediaMTX + RTMP restream when the primary degrades).
-
-3. **Wire it up**
-   - Set `HLS_CDN_BASE="https://<distribution>.cloudfront.net"` in the prod
-     `.env`, then `bash scripts/deploy.sh` (re-reads env). Leave it unset for
-     small/single-box events to bypass the CDN entirely.
-
-4. **Verify before a real 5k event** (on staging / a test stream)
-   - Confirm the CloudFront HLS URL plays in the LivePlayer.
-   - Kill the primary MediaMTX and confirm CloudFront fails over to the DR
-     origin (and the player keeps playing / recovers).
-
-> All of §13's AWS steps are operator-run (per the project's "instruct, don't
-> execute" rule for infra). The app is CDN-ready today; nothing here is required
-> for the embed (Zoom) viewing mode or for small streamed events.
+- **Switch:** `HLS_CDN_BASE` in the box's `.env` (then `bash scripts/deploy.sh`, never during a
+  live stream). Unset, viewers go straight to the box. zoom-join, stream-status and the console
+  preview read it.
+- **Cache:** `/stream/*.m3u8` 1 s, `/stream/*` 60 s, 404s 1 s. The minimum TTLs are above 0
+  because nginx sends `no-cache`, which CloudFront would otherwise honour and cache nothing.
+  Everything outside `/stream/` answers 404 (a CloudFront Function), so the distribution never
+  mirrors the site.
+- **Never on the liveness path:** stream-status and the stream watchdog probe MediaMTX directly
+  (`MEDIAMTX_HLS_URL`).
+- **Fallback:** the player switches to the box once on a fatal error (native and hls.js paths).
+- **Cost:** free up to 1 TB a month, then about $0.11/GB; budget `cloudfront-live-stream`
+  ($50 a month) emails the owner.
+- **Not done:** a failover origin (the DR box gets no RTMP, since Zoom pushes to one address) and
+  signed cookies (ROADMAP, Webinar streaming item 3).
 
 ---
 

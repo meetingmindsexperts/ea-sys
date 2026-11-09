@@ -1,6 +1,6 @@
 # CloudFront in front of the live stream: plan
 
-Status: STEPS 1 TO 4 DONE (Nov 9, 2026; distribution `E4S57RCP6XUPP`, `d3vq9gpx1lng4k.cloudfront.net`). Step 5 (switch on) waits for the next small custom-stream webinar, step 0 for a Zoom practice stream. Planned Nov 6, 2026. Supersedes the AWS half of
+Status: ON IN PRODUCTION since Nov 9, 2026 (distribution `E4S57RCP6XUPP`, `d3vq9gpx1lng4k.cloudfront.net`, `HLS_CDN_BASE` set on the box and confirmed in `ea-sys-blue`). Step 0 (Zoom's real bitrate) waits for a Zoom practice stream. Planned Nov 6, 2026. Supersedes the AWS half of
 [LIVE_STREAMING.md §13](LIVE_STREAMING.md), which this plan corrects in three places (§4).
 Backlog entry: [ROADMAP](ROADMAP.md), "Webinar streaming: what the Nov 5 security review left
 for later", item 4.

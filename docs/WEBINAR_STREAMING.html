@@ -106,7 +106,7 @@ and the end-of-webinar survey all talk to our web app by polling small JSON rout
   <tr><td><b>Zoom</b></td><td>Zoom's cloud</td><td>The studio: speakers, slides, screen share. When the room opens, we ask Zoom (API) to start pushing the live stream to our box.</td></tr>
   <tr><td><b>MediaMTX</b></td><td>Container <code>ea-sys-mediamtx</code> on the EC2 box</td><td>Receives the RTMP push on <code>rtmp://{host}:1935/live/{streamKey}</code> and repackages it as HLS: a playlist plus 4-second MPEG-TS pieces, keeping the newest 7.</td></tr>
   <tr><td><b>nginx</b></td><td>The box</td><td><code>/stream/</code> passes HLS requests to MediaMTX (<code>:8888</code>), marked no-cache.</td></tr>
-  <tr><td><b>CDN</b> (optional)</td><td>CloudFront, when <code>HLS_CDN_BASE</code> is set</td><td>Serves the video pieces from edge locations so 5,000 viewers do not all hit the box. The player falls back to the box if the CDN misbehaves.</td></tr>
+  <tr><td><b>CDN</b></td><td>CloudFront <code>d3vq9gpx1lng4k.cloudfront.net</code>, on since Nov 9, 2026 (<code>HLS_CDN_BASE</code>)</td><td>Serves the playlist and video pieces from edge locations (Dubai for the Gulf), so viewers do not all hit the box: alone it holds about 200 to 340. The player falls back to the box once if CloudFront fails. Details: <code>docs/HLS_CDN_PLAN.md</code>.</td></tr>
   <tr><td><b>Web app</b></td><td>Containers <code>ea-sys-blue</code> / <code>ea-sys-green</code></td><td>The attendee page and its small routes: <code>lobby-status</code>, <code>stream-status</code>, <code>zoom-join</code>, <code>questions</code>, <code>presence</code>, <code>end-survey</code>. Also the producer's console and the room switch.</td></tr>
   <tr><td><b>Worker</b></td><td>Container <code>ea-sys-worker</code></td><td>Timed jobs: restarts a dropped stream (every minute), closes the room when Zoom reports the end (every 3 min), sends the email sequence (every minute) and holds the thank-you while the room is open.</td></tr>
   <tr><td><b>Database</b></td><td>Postgres</td><td>The webinar's state. The key fact is the anchor session's status: <code>LIVE</code> means the room is open. Settings (viewing mode, survey, exit link) live in <code>Event.settings.webinar</code>.</td></tr>
@@ -241,7 +241,7 @@ restarts must not lose the audience.</p>
 <h2 id="scale">6. Why it holds up at 5,000 viewers</h2>
 <table>
   <tr><th>Traffic</th><th>Per viewer</th><th>What keeps the server calm</th></tr>
-  <tr><td>Video pieces</td><td>One 4 s piece every 4 s</td><td>Static files; CDN in front when set</td></tr>
+  <tr><td>Video pieces</td><td>One 4 s piece every 4 s</td><td>CloudFront: the box sends each piece once per edge, and the playlist at most once a second per edge</td></tr>
   <tr><td>stream-status</td><td>On start and every 10 s only while waiting</td><td>3 s probe cache, rate limit 360/hour per IP</td></tr>
   <tr><td>lobby-status</td><td>Every 15 to 20 s</td><td>3 s answer cache, random spread</td></tr>
   <tr><td>Q&amp;A + poll</td><td>Every 15 s</td><td>One request carries both; 5 s tally cache</td></tr>
