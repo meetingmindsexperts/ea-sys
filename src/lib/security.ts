@@ -18,6 +18,13 @@ const RATE_LIMIT_STORE_KEY = "__ea_sys_rate_limit_store";
 const RATE_LIMIT_CLEANUP_KEY = "__ea_sys_rate_limit_last_cleanup";
 const CLEANUP_INTERVAL_MS = 60_000; // Run cleanup at most once per minute
 const MAX_STORE_SIZE = 10_000; // Force cleanup if store exceeds this size
+// A forced cleanup walks the whole Map. Unthrottled, a store held above
+// MAX_STORE_SIZE by live entries (per-link keys sprayed with random tokens,
+// Nov 9, 2026 review) made EVERY rate-limited request on every route do that
+// walk. Once a second at most, and past the hard cap the oldest entries go:
+// losing an old counter loosens one limit briefly, which beats slowing all.
+const FORCED_CLEANUP_MIN_INTERVAL_MS = 1_000;
+const HARD_STORE_CAP = 50_000;
 
 function getRateLimitStore(): Map<string, RateLimitEntry> {
   const globalRef = globalThis as typeof globalThis & {
@@ -34,12 +41,20 @@ function getRateLimitStore(): Map<string, RateLimitEntry> {
   const lastCleanup = globalRef[RATE_LIMIT_CLEANUP_KEY] ?? 0;
 
   // Periodic cleanup: remove expired entries
-  if (now - lastCleanup > CLEANUP_INTERVAL_MS || store.size > MAX_STORE_SIZE) {
+  const sinceCleanup = now - lastCleanup;
+  const due = sinceCleanup > CLEANUP_INTERVAL_MS;
+  const forced = store.size > MAX_STORE_SIZE && sinceCleanup > FORCED_CLEANUP_MIN_INTERVAL_MS;
+  if (due || forced) {
     globalRef[RATE_LIMIT_CLEANUP_KEY] = now;
     for (const [key, entry] of store) {
       if (entry.resetAt <= now) {
         store.delete(key);
       }
+    }
+    // Map iterates in insertion order, so this drops the oldest first.
+    for (const key of store.keys()) {
+      if (store.size <= HARD_STORE_CAP) break;
+      store.delete(key);
     }
   }
 

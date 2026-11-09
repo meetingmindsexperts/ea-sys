@@ -70,3 +70,31 @@ describe("checkLinkRateLimit", () => {
     expect(VENUE_CROWD_IP_LIMITS.read.limit).toBeGreaterThanOrEqual(VENUE_CROWD_IP_LIMITS.write.limit);
   });
 });
+
+describe("the store under a spray of unique keys (Nov 9, 2026 review)", () => {
+  const store = () => (globalThis as unknown as Record<string, Map<string, unknown>>).__ea_sys_rate_limit_store;
+
+  it("past the hard cap the oldest entries go, at most once a second, and new ones are still counted", async () => {
+    const { checkRateLimit } = await import("@/lib/security");
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-09T10:00:00Z"));
+      store().clear();
+      for (let i = 0; i < 60_000; i++) checkRateLimit({ key: `spray:${i}`, limit: 5, windowMs: 900_000 });
+      // Live entries above the cap: the cleanup at most once a second keeps it
+      // from walking the Map on every request, so the store may stay large
+      // within the same second.
+      expect(store().size).toBe(60_000); // no per-request walk-and-evict within the second
+
+      vi.setSystemTime(new Date("2026-11-09T10:00:02Z"));
+      checkRateLimit({ key: "spray:new", limit: 5, windowMs: 900_000 });
+      expect(store().size).toBeLessThanOrEqual(50_001);
+      expect(store().has("spray:0")).toBe(false); // oldest evicted
+      expect(store().has("spray:59999")).toBe(true); // newest kept
+      expect(store().has("spray:new")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      store().clear();
+    }
+  });
+});

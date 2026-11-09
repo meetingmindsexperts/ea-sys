@@ -284,6 +284,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         route: "public/complete-registration",
         message: "Too many requests",
         refusedBy: getLimit.refusedBy,
+        slug,
+        ip: getClientIp(req),
+        link: hashedToken.slice(0, 8),
       });
     }
 
@@ -584,16 +587,19 @@ export async function POST(req: Request, { params }: RouteParams) {
   try {
     const { slug } = await params;
 
-    const body = await req.json();
+    // Malformed JSON reads as null and meets the limit below like any tokenless
+    // body; thrown, it skipped the limit and logged an error per request.
+    const body = await req.json().catch(() => null);
 
     // Per link, not per IP: the desk tablet and venue Wi-Fi are one address.
     // Read before validation so a flood of bad bodies is still bounded; every
     // body without a token shares one link bucket, which only garbage reaches.
     const tokenForLimit = typeof body?.token === "string" ? body.token : "";
+    const tokenHashForLimit = hashVerificationToken(tokenForLimit);
     const postLimit = checkLinkRateLimit({
       bucket: "complete-reg-post",
       ip: getClientIp(req),
-      tokenHash: hashVerificationToken(tokenForLimit),
+      tokenHash: tokenHashForLimit,
       perLink: { limit: 5, windowMs: 15 * 60 * 1000 },
       perIp: VENUE_CROWD_IP_LIMITS.write,
     });
@@ -602,6 +608,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         route: "public/complete-registration",
         message: "Too many requests. Please try again later.",
         refusedBy: postLimit.refusedBy,
+        slug,
+        ip: getClientIp(req),
+        link: tokenHashForLimit.slice(0, 8),
       });
     }
 

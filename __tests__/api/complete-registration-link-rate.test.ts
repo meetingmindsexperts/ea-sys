@@ -405,3 +405,38 @@ describe("a link without a rate: the registration's type and payment status deci
     expect(typeOrPriceWrites(tx.registration.updateMany)).toEqual([]);
   });
 });
+
+describe("the limit is keyed on the link, not the address (Nov 9, 2026)", () => {
+  it("GET and POST key on the token they carry, with the crowd-sized IP ceiling", async () => {
+    const { checkLinkRateLimit } = await import("@/lib/security");
+    await get();
+    await post();
+    const calls = vi.mocked(checkLinkRateLimit).mock.calls.map(([a]) => a);
+    expect(calls).toEqual([
+      expect.objectContaining({ bucket: "complete-reg-get", tokenHash: "hashed:tok", ip: "1.2.3.4", perLink: { limit: 20, windowMs: 900_000 } }),
+      expect.objectContaining({ bucket: "complete-reg-post", tokenHash: "hashed:tok", ip: "1.2.3.4", perLink: { limit: 5, windowMs: 900_000 } }),
+    ]);
+  });
+
+  it("a POST whose token is not a string, or whose body is not JSON, shares the tokenless bucket", async () => {
+    const { checkLinkRateLimit } = await import("@/lib/security");
+    await post({ token: 12345 });
+    await POST(new Request(`http://localhost/api/public/events/${SLUG}/complete-registration`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "not json",
+    }), params());
+    const hashes = vi.mocked(checkLinkRateLimit).mock.calls.map(([a]) => a.tokenHash);
+    expect(hashes).toEqual(["hashed:", "hashed:"]);
+  });
+
+  it("a refused link answers 429 and touches nothing", async () => {
+    const { checkLinkRateLimit } = await import("@/lib/security");
+    const { rateLimited } = await import("@/lib/api-errors");
+    vi.mocked(checkLinkRateLimit).mockReturnValueOnce({ allowed: false, remaining: 0, retryAfterSeconds: 60, refusedBy: "link" });
+    vi.mocked(rateLimited).mockReturnValueOnce(new Response(null, { status: 429 }) as never);
+    const res = await post();
+    expect(res.status).toBe(429);
+    expect(vi.mocked(rateLimited).mock.calls[0][1]).toMatchObject({ refusedBy: "link", slug: SLUG, ip: "1.2.3.4" });
+    expect(mockDb.verificationToken.findUnique).not.toHaveBeenCalled();
+    expect(tx.registration.updateMany).not.toHaveBeenCalled();
+  });
+});

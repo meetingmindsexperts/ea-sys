@@ -11,7 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockRateLimit, mockSendEmail, mockHashToken } = vi.hoisted(() => ({
+const { mockDb, mockRateLimit, mockSendEmail, mockHashToken, mockLinkRateLimit } = vi.hoisted(() => ({
   mockDb: {
     verificationToken: {
       findUnique: vi.fn(),
@@ -58,6 +58,8 @@ const { mockDb, mockRateLimit, mockSendEmail, mockHashToken } = vi.hoisted(() =>
   })),
   mockSendEmail: vi.fn().mockResolvedValue({ success: true, messageId: "stub" }),
   mockHashToken: vi.fn((t: string) => `hashed:${t}`),
+  // Records the link-keyed limit's arguments ("keyed on the link" below).
+  mockLinkRateLimit: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -88,7 +90,11 @@ vi.mock("@/lib/security", () => ({
   getClientIp: () => "127.0.0.1",
   checkRateLimit: () => mockRateLimit(),
   // The route's link-keyed limit; its own behaviour is pinned in security tests.
-  checkLinkRateLimit: () => mockRateLimit(),
+  // Answers like mockRateLimit, so the existing 429 tests still drive it.
+  checkLinkRateLimit: (args: unknown) => {
+    mockLinkRateLimit(args);
+    return mockRateLimit();
+  },
   VENUE_CROWD_IP_LIMITS: { read: { limit: 1200, windowMs: 900_000 }, write: { limit: 600, windowMs: 900_000 } },
   hashVerificationToken: (t: string) => mockHashToken(t),
 }));
@@ -688,3 +694,17 @@ describe("links that name their survey (step 3, Oct 6, 2026)", () => {
   });
 });
 
+
+describe("the survey limit is keyed on the link, not the address (Nov 9, 2026)", () => {
+  it("GET and POST key on the token they carry; a tokenless POST body shares one bucket", async () => {
+    mockLinkRateLimit.mockClear();
+    await GET(makeGetReq("tok-a"), PARAMS);
+    await POST(makePostReq({ token: "tok-b", answers: {} }), PARAMS);
+    await POST(makePostReq({ answers: {} }), PARAMS);
+    expect(mockLinkRateLimit.mock.calls.map(([a]) => a)).toEqual([
+      expect.objectContaining({ bucket: "survey-get", tokenHash: "hashed:tok-a", ip: "127.0.0.1", perLink: { limit: 30, windowMs: 900_000 } }),
+      expect.objectContaining({ bucket: "survey-post", tokenHash: "hashed:tok-b", perLink: { limit: 10, windowMs: 900_000 } }),
+      expect.objectContaining({ bucket: "survey-post", tokenHash: "hashed:" }),
+    ]);
+  });
+});

@@ -288,7 +288,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       perIp: VENUE_CROWD_IP_LIMITS.read,
     });
     if (!getLimit.allowed) {
-      apiLogger.warn({ msg: "survey:get-rate-limited", ip: getClientIp(req), refusedBy: getLimit.refusedBy });
+      apiLogger.warn({ msg: "survey:get-rate-limited", slug, ip: getClientIp(req), refusedBy: getLimit.refusedBy, link: hashedToken.slice(0, 8) });
       return NextResponse.json(
         { error: "Too many requests" },
         { status: 429, headers: { "Retry-After": String(getLimit.retryAfterSeconds) } },
@@ -525,7 +525,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       perIp: VENUE_CROWD_IP_LIMITS.write,
     });
     if (!postLimit.allowed) {
-      apiLogger.warn({ msg: "survey:post-rate-limited", ip: getClientIp(req), refusedBy: postLimit.refusedBy });
+      apiLogger.warn({ msg: "survey:post-rate-limited", slug, ip: getClientIp(req), refusedBy: postLimit.refusedBy });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(postLimit.retryAfterSeconds) } },
