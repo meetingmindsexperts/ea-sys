@@ -1,8 +1,21 @@
 import Link from "next/link";
-import { AlertCircle, Calendar, CalendarX, MapPin, Ticket } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Award,
+  Calendar,
+  CalendarCheck,
+  CalendarClock,
+  CalendarX,
+  ClipboardList,
+  CreditCard,
+  GraduationCap,
+  MapPin,
+  Ticket,
+} from "lucide-react";
 import { db } from "@/lib/db";
-import { DEFAULT_EVENT_TIMEZONE, formatEventDateRange } from "@/lib/event-time";
-import { certificateMeta, certificateTitle, cmeTotals, findReleasedCertificates, type PortalCertificate } from "@/lib/registrant-certificates";
+import { DEFAULT_EVENT_TIMEZONE, formatEventDateRange, localDateInTz } from "@/lib/event-time";
+import { cmeTotals, findReleasedCertificates, type PortalCertificate } from "@/lib/registrant-certificates";
 import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
 import { loadRegistrantPortal } from "@/lib/registrant-portal";
 import {
@@ -14,12 +27,11 @@ import {
   type SurveyLine,
 } from "@/lib/registrant-journey";
 import { EventBanner } from "@/components/public/event-banner";
-import { CertificateList } from "@/components/registrant/certificate-list";
-import { CmeTotalsCard } from "@/components/registrant/cme-totals-card";
 import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
-import { JourneySteps, SurveyList } from "@/components/registrant/journey-steps";
+import { JourneySteps } from "@/components/registrant/journey-steps";
+import { TakeSurveyButton } from "@/components/registrant/take-survey-button";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader, SectionHeading } from "@/components/ui/typography";
 import { cn } from "@/lib/utils";
 
@@ -57,7 +69,7 @@ const EVENT_FIELDS = {
 } as const;
 
 async function loadEvents(scope: RegistrantScope) {
-  const [registrations, certificates] = await Promise.all([
+  const [registrations, certificates, user] = await Promise.all([
     db.registration.findMany({
       // Linked registrations, plus those carrying the address once the
       // account has proven it owns it (registrant-access.ts).
@@ -66,12 +78,13 @@ async function loadEvents(scope: RegistrantScope) {
       orderBy: { createdAt: "desc" },
     }),
     findReleasedCertificates(scope),
+    db.user.findUnique({ where: { id: scope.userId }, select: { firstName: true } }),
   ]);
   const facts = await loadSurveyFacts(
     registrations.map((r) => ({ id: r.id, eventId: r.event.id })),
     new Date(),
   );
-  return { registrations, certificates, ...facts };
+  return { registrations, certificates, firstName: user?.firstName?.trim() || null, ...facts };
 }
 
 type Loaded = Awaited<ReturnType<typeof loadEvents>>;
@@ -140,20 +153,34 @@ function buildCards(data: Loaded, now: Date): EventCardData[] {
   });
 }
 
-/** What needs the person, across every event: surveys to answer and payments due. */
-function toDo(cards: EventCardData[]): { surveys: number; payments: number } {
-  let surveys = 0;
-  let payments = 0;
-  for (const card of cards)
-    for (const j of card.journeys) {
-      surveys += j.surveys.filter((s) => !s.answered && s.open).length;
-      if (j.steps.some((s) => s.key === "payment" && s.state === "action")) payments += 1;
+/** One thing waiting for the person: a survey to answer or a payment due. */
+type WaitingItem =
+  | { kind: "survey"; key: string; eventName: string; registrationId: string; surveyId: string | null; surveyName: string; certificate: boolean }
+  | { kind: "payment"; key: string; eventName: string; slug: string };
+
+function waitingItems(cards: EventCardData[]): WaitingItem[] {
+  const items: WaitingItem[] = [];
+  for (const { event, journeys } of cards)
+    for (const j of journeys) {
+      if (j.steps.some((s) => s.key === "payment" && s.state === "action")) {
+        items.push({ kind: "payment", key: `pay-${j.id}`, eventName: event.name, slug: event.slug });
+      }
+      for (const s of j.surveys) {
+        if (s.answered || !s.open) continue;
+        items.push({ kind: "survey", key: `survey-${j.id}-${s.id ?? "cert"}`, eventName: event.name, registrationId: j.id, surveyId: s.id, surveyName: s.name, certificate: s.certificate });
+      }
     }
-  return { surveys, payments };
+  return items;
 }
 
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
+/** "In 3 days", "Tomorrow", "Today", "Happening now", counted in the event's own calendar. */
+function countdown(event: EventSummary, now: Date): string {
+  if (now.getTime() >= event.startDate.getTime()) return "Happening now";
+  const day = (d: Date) => Date.parse(`${localDateInTz(d, event.timezone)}T00:00:00Z`);
+  const days = Math.round((day(event.startDate) - day(now)) / 86_400_000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  return `In ${days} days`;
 }
 
 export default async function MyRegistrationPage() {
@@ -164,35 +191,31 @@ export default async function MyRegistrationPage() {
   const upcoming = cards.filter((c) => c.event.endDate.getTime() >= now.getTime()).sort((a, b) => a.event.startDate.getTime() - b.event.startDate.getTime());
   const past = cards.filter((c) => c.event.endDate.getTime() < now.getTime()).sort((a, b) => b.event.startDate.getTime() - a.event.startDate.getTime());
   const cme = cmeTotals(data.certificates, now, DEFAULT_EVENT_TIMEZONE);
-  const todo = toDo(cards);
-  const todoParts = [
-    todo.surveys > 0 && plural(todo.surveys, "survey to answer", "surveys to answer"),
-    todo.payments > 0 && plural(todo.payments, "payment due", "payments due"),
-  ].filter(Boolean);
+  const waiting = waitingItems(cards);
+  const [next, ...laterUpcoming] = upcoming;
 
   return (
     // Mobile first (owner, Nov 4, 2026): most people open this from the
     // confirmation email on a phone. Everything stacks and buttons span the
     // card by default; from `sm` up the actions sit beside their text.
-    <div className="mx-auto w-full max-w-3xl space-y-4 sm:space-y-6 sm:py-2">
-      <PageHeader title="My events" description={`Signed in as ${scope.email}`} />
+    <div className="mx-auto w-full max-w-3xl space-y-6 sm:space-y-8 sm:py-2">
+      <PageHeader title={data.firstName ? `Welcome back, ${data.firstName}` : "My events"} description={`Signed in as ${scope.email}`} />
 
       {/* Registrations made earlier under this address appear once it is
           confirmed. Never a count: that would tell an unproven account the
           address has history. */}
       {!scope.confirmed && <ConfirmEmailNotice email={scope.email} />}
 
-      {todoParts.length > 0 && (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900" role="status">
-          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
-          <p className="text-sm">
-            <span className="font-semibold">Waiting for you: </span>
-            {todoParts.join(" and ")}. Look for the amber steps below.
-          </p>
+      {cards.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <SummaryTile icon={CalendarClock} label="Upcoming" value={upcoming.length} />
+          <SummaryTile icon={CalendarCheck} label="Past events" value={past.length} />
+          <SummaryTile icon={Award} label="Certificates" value={data.certificates.length} href={data.certificates.length > 0 ? "/my-registration/certificates" : undefined} />
+          <SummaryTile icon={GraduationCap} label={`CME hours in ${cme.year}`} value={cme.thisYear} note={cme.allTime > 0 ? `${cme.allTime} in total` : undefined} />
         </div>
       )}
 
-      {cme.allTime > 0 && <CmeTotalsCard {...cme} />}
+      {waiting.length > 0 && <WaitingForYou items={waiting} />}
 
       {cards.length === 0 && (
         <Card>
@@ -206,18 +229,19 @@ export default async function MyRegistrationPage() {
         </Card>
       )}
 
-      {upcoming.length > 0 && (
-        <section className="space-y-3">
-          <SectionHeading title="Upcoming" />
-          {upcoming.map((card) => (
+      {next && (
+        <section className="space-y-3" aria-labelledby="next-up">
+          <SectionHeading title={<span id="next-up">Next up</span>} />
+          <EventCard card={next} featured={countdown(next.event, now)} />
+          {laterUpcoming.map((card) => (
             <EventCard key={card.event.id} card={card} />
           ))}
         </section>
       )}
 
       {past.length > 0 && (
-        <section className="space-y-3">
-          <SectionHeading title="Past" />
+        <section className="space-y-3" aria-labelledby="past-events">
+          <SectionHeading title={<span id="past-events">Past events</span>} />
           {past.map((card) => (
             <EventCard key={card.event.id} card={card} />
           ))}
@@ -227,58 +251,152 @@ export default async function MyRegistrationPage() {
   );
 }
 
-function EventCard({ card }: { card: EventCardData }) {
+function SummaryTile({ icon: Icon, label, value, note, href }: { icon: typeof Award; label: string; value: number; note?: string; href?: string }) {
+  const body = (
+    <>
+      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <Icon className="h-4 w-4" aria-hidden />
+      </span>
+      <span className="mt-3 block text-2xl font-semibold tabular-nums tracking-tight">{value}</span>
+      <span className="block text-xs text-muted-foreground">{label}</span>
+      {note && <span className="block text-xs text-muted-foreground">{note}</span>}
+    </>
+  );
+  const tile = "block rounded-xl border bg-card p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06)]";
+  if (!href) return <div className={tile}>{body}</div>;
+  return (
+    <Link href={href} className={cn(tile, "transition-colors hover:border-primary/40 hover:bg-primary/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}>
+      {body}
+    </Link>
+  );
+}
+
+/** Everything that needs the person, with its action, so nobody has to hunt through the cards. */
+function WaitingForYou({ items }: { items: WaitingItem[] }) {
+  return (
+    <section aria-labelledby="waiting-for-you" className="overflow-hidden rounded-xl border border-amber-300 bg-amber-50/60">
+      <div className="flex items-center gap-2 border-b border-amber-200 px-4 py-3">
+        <AlertCircle className="h-5 w-5 text-amber-700" aria-hidden />
+        <h2 id="waiting-for-you" className="font-semibold text-amber-950">
+          Waiting for you <span className="font-normal text-amber-900">({items.length})</span>
+        </h2>
+      </div>
+      <ul className="divide-y divide-amber-200/70">
+        {items.map((item) => (
+          <li key={item.key} className="flex flex-col gap-3 bg-white/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              {item.kind === "survey" ? (
+                <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
+              ) : (
+                <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
+              )}
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{item.kind === "survey" ? `Answer the ${item.surveyName}` : "Complete your payment"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {item.eventName}
+                  {item.kind === "survey" && item.certificate && " · the certificate survey"}
+                </p>
+              </div>
+            </div>
+            {item.kind === "survey" ? (
+              <TakeSurveyButton registrationId={item.registrationId} surveyId={item.surveyId} />
+            ) : (
+              <Button asChild size="sm" className="h-10 w-full sm:h-8 sm:w-auto">
+                <Link href={`/e/${item.slug}/my-registration`}>Pay now</Link>
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** The event's month and day, in its own time zone, for scanning a list by date. */
+function DateBlock({ event }: { event: EventSummary }) {
+  const part = (opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: event.timezone }).format(event.startDate);
+  return (
+    <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl border bg-background text-center" aria-hidden>
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-label">{part({ month: "short" })}</span>
+      <span className="text-xl font-semibold leading-none tabular-nums">{part({ day: "numeric" })}</span>
+    </div>
+  );
+}
+
+function EventCard({ card, featured }: { card: EventCardData; featured?: string }) {
   const { event, where, journeys, certificates } = card;
   const hasBanner = Boolean(event.bannerImage || event.bannerImageMobile);
   return (
-    <Card className={cn("gap-4", hasBanner && "overflow-hidden pt-0")}>
+    <Card id={`event-${event.id}`} className={cn("gap-0 overflow-hidden py-0", featured && "border-primary/40 ring-1 ring-primary/20")}>
       {/* The event's own branding, so it is recognised before it is read: the
           mobile banner on a phone, the web banner wider up, whichever exists
-          when only one does (EventBanner, as on the event's own pages). */}
+          when only one does (EventBanner, as on the event's own pages). Capped
+          in height and never cropped: a banner carries its own text. */}
       {hasBanner && (
-        <div className="border-b bg-white">
-          <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block h-auto w-full" />
+        <div className="flex justify-center border-b bg-white">
+          <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block h-auto max-h-44 w-auto max-w-full sm:max-h-36" />
         </div>
       )}
-      <CardHeader className="space-y-2">
-        <CardTitle className="leading-snug">{event.name}</CardTitle>
-        <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:gap-x-4">
-          <span className="flex items-start gap-1.5">
-            <Calendar className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
-            {formatEventDateRange(event.startDate, event.endDate, event.timezone)}
-          </span>
-          {where && (
-            <span className="flex items-start gap-1.5">
-              <MapPin className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
-              {where}
+
+      <div className="flex items-start gap-4 p-4 sm:p-5">
+        <DateBlock event={event} />
+        <div className="min-w-0 flex-1 space-y-1.5">
+          {featured && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-label">
+              <CalendarClock className="h-3.5 w-3.5" aria-hidden />
+              {featured}
             </span>
           )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {journeys.map((j) => (
-          <div key={j.id} className="space-y-3">
-            {j.ticketName && (
-              <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Ticket className="h-3.5 w-3.5" aria-hidden />
-                {j.ticketName}
-              </p>
+          <h3 className="text-base font-semibold leading-snug">{event.name}</h3>
+          <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:gap-x-4">
+            <span className="flex items-start gap-1.5">
+              <Calendar className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+              {formatEventDateRange(event.startDate, event.endDate, event.timezone)}
+            </span>
+            {where && (
+              <span className="flex items-start gap-1.5">
+                <MapPin className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+                {where}
+              </span>
             )}
-            <JourneySteps steps={j.steps} />
-            <SurveyList surveys={j.surveys} registrationId={j.id} />
+            {journeys.map((j) =>
+              j.ticketName ? (
+                <span key={j.id} className="flex items-start gap-1.5">
+                  <Ticket className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+                  {j.ticketName}
+                </span>
+              ) : null,
+            )}
           </div>
-        ))}
+        </div>
+      </div>
+
+      {journeys.length > 0 && (
+        <div className="space-y-4 px-4 pb-5 sm:px-5">
+          {journeys.map((j) => (
+            <JourneySteps key={j.id} steps={j.steps} />
+          ))}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 border-t bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
         {journeys.length > 0 && (
-          // Outline: the filled button on a card is the step that needs doing (Take survey).
-          <Button asChild variant="outline" className="h-11 w-full sm:h-9 sm:w-auto">
-            <Link href={`/e/${event.slug}/my-registration`}>Open registration</Link>
+          <Button asChild variant={featured ? "default" : "outline"} className="h-11 w-full sm:h-9 sm:w-auto">
+            <Link href={`/e/${event.slug}/my-registration`}>
+              {featured ? "View registration and badge" : "Open registration"}
+              <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden />
+            </Link>
           </Button>
         )}
-
         {certificates.length > 0 && (
-          <CertificateList certificates={certificates.map((c) => ({ id: c.id, title: certificateTitle(c), meta: certificateMeta(c) }))} />
+          <Button asChild variant="ghost" className="h-11 w-full text-label hover:text-label sm:ml-auto sm:h-9 sm:w-auto">
+            <Link href={`/my-registration/certificates#event-${event.id}`}>
+              <Award className="mr-1.5 h-4 w-4" aria-hidden />
+              {certificates.length === 1 ? "1 certificate" : `${certificates.length} certificates`}
+            </Link>
+          </Button>
         )}
-      </CardContent>
+      </div>
     </Card>
   );
 }

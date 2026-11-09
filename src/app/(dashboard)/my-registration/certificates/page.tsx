@@ -61,7 +61,8 @@ export default async function MyCertificatesPage() {
         <section key={year} className="space-y-3">
           <SectionHeading title={year} />
           {events.map(({ event, certificates: certs }) => (
-            <Card key={event.id} className="gap-3">
+            // The anchor My events' "N certificates" link lands on.
+            <Card key={event.id} id={`event-${event.id}`} className="scroll-mt-20 gap-3">
               <CardHeader>
                 <CardTitle className="leading-snug">{event.name}</CardTitle>
               </CardHeader>

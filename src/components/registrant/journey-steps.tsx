@@ -1,66 +1,49 @@
-import { AlertCircle, CheckCircle2, ChevronRight, Clock, MinusCircle } from "lucide-react";
-import type { JourneyStep, StepState, SurveyLine } from "@/lib/registrant-journey";
+import { AlertCircle, Check, Clock, Minus } from "lucide-react";
+import type { JourneyStep, StepState } from "@/lib/registrant-journey";
 import { cn } from "@/lib/utils";
-import { TakeSurveyButton } from "@/components/registrant/take-survey-button";
 
 /**
- * One event's journey as a row of steps (registrant-journey.ts). Each state
- * has its own icon AND word, never colour alone, and the colours hold AA
- * contrast on white.
+ * One event's journey as a connected stepper (registrant-journey.ts):
+ * vertical on a phone, a row from `sm` up. Each state has its own icon AND
+ * label, never colour alone; the dots are graphics on white at 3:1 or more and
+ * the labels hold AA text contrast.
  */
-const STATE_STYLE: Record<StepState, { icon: typeof CheckCircle2; className: string; srLabel: string }> = {
-  done: { icon: CheckCircle2, className: "border-emerald-200 bg-emerald-50 text-emerald-800", srLabel: "Done" },
-  action: { icon: AlertCircle, className: "border-amber-300 bg-amber-50 text-amber-900", srLabel: "Needs you" },
-  waiting: { icon: Clock, className: "border-slate-200 bg-slate-50 text-slate-700", srLabel: "Not yet" },
-  missed: { icon: MinusCircle, className: "border-slate-200 bg-white text-slate-500", srLabel: "Did not happen" },
+const STATE_STYLE: Record<StepState, { icon: typeof Check; dot: string; label: string; srLabel: string }> = {
+  done: { icon: Check, dot: "bg-emerald-600 text-white", label: "text-foreground", srLabel: "Done" },
+  action: { icon: AlertCircle, dot: "bg-amber-600 text-white ring-4 ring-amber-100", label: "font-semibold text-amber-900", srLabel: "Needs you" },
+  waiting: { icon: Clock, dot: "border-2 border-slate-300 bg-white text-slate-500", label: "text-slate-600", srLabel: "Not yet" },
+  missed: { icon: Minus, dot: "bg-slate-100 text-slate-500", label: "text-slate-500", srLabel: "Did not happen" },
 };
 
 export function JourneySteps({ steps }: { steps: JourneyStep[] }) {
   return (
-    <ol className="flex flex-wrap items-center gap-x-1 gap-y-2" aria-label="Your journey for this event">
+    <ol className="flex flex-col sm:flex-row sm:items-start" aria-label="Your journey for this event">
       {steps.map((step, i) => {
         const style = STATE_STYLE[step.state];
         const Icon = style.icon;
+        const last = i === steps.length - 1;
         return (
-          <li key={step.key} className="flex items-center gap-1">
-            <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium", style.className)}>
-              <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <li key={step.key} className={cn("relative flex items-center gap-3 sm:flex-1 sm:flex-col sm:gap-2 sm:text-center", !last && "pb-3 sm:pb-0")}>
+            {/* The line to the next step: down the dots on a phone, across them wider up. Green once this step is done. */}
+            {!last && (
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute left-3 top-7 h-[calc(100%-1.75rem)] w-0.5 -translate-x-1/2 rounded-full sm:left-[calc(50%+1.125rem)] sm:top-3 sm:h-0.5 sm:w-[calc(100%-2.25rem)] sm:translate-x-0 sm:-translate-y-1/2",
+                  step.state === "done" ? "bg-emerald-500" : "bg-slate-200",
+                )}
+              />
+            )}
+            <span className={cn("relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full", style.dot)}>
+              <Icon className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
+            </span>
+            <span className={cn("text-sm leading-tight sm:max-w-[9rem] sm:text-xs", style.label)}>
               <span className="sr-only">{style.srLabel}: </span>
               {step.label}
             </span>
-            {i < steps.length - 1 && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />}
           </li>
         );
       })}
     </ol>
-  );
-}
-
-/**
- * The surveys behind the Survey step, by name, when there is something to
- * say: one still to answer, or more than one survey.
- */
-export function SurveyList({ surveys, registrationId }: { surveys: SurveyLine[]; registrationId: string }) {
-  if (surveys.length === 0) return null;
-  if (surveys.length === 1 && surveys[0].answered) return null;
-  return (
-    <ul className="divide-y rounded-md border text-sm">
-      {surveys.map((s) => (
-        <li key={s.id ?? "certificate"} className="flex flex-col gap-1 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-          <div className="min-w-0">
-            <p className="font-medium">{s.name}</p>
-            {s.certificate && !s.answered && <p className="text-xs text-muted-foreground">The certificate survey</p>}
-          </div>
-          {s.answered ? (
-            <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-emerald-800">
-              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-              {s.daily ? "Answered today" : "Answered"}
-            </span>
-          ) : (
-            <TakeSurveyButton registrationId={registrationId} surveyId={s.id} />
-          )}
-        </li>
-      ))}
-    </ul>
   );
 }
