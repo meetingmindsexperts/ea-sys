@@ -45,17 +45,15 @@ RUN npm run build
 FROM node:24-slim AS runner
 WORKDIR /app
 
-# Install openssl and Docker CLI for logs functionality
+# openssl for Prisma, curl for the healthcheck. No Docker CLI and no docker
+# group (W0-3, Nov 9, 2026): the /logs viewer used to read `docker logs`
+# through the host socket, which made this container root-equivalent on the
+# box. Container output now reaches the viewer through CloudWatch.
 # BuildKit cache: apt packages persist between builds
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update -y && \
     apt-get install -y openssl curl ca-certificates && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
-    chmod a+r /etc/apt/keyrings/docker.asc && \
-    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list && \
-    apt-get update -y && \
-    apt-get install -y docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
@@ -75,11 +73,6 @@ ENV BUILT_AT=$BUILT_AT
 
 RUN groupadd --system --gid 1001 nodejs
 RUN useradd --system --uid 1001 nextjs
-# Allow nextjs user to read the Docker socket (mounted :ro) for docker logs.
-# Host docker group is typically GID 999 on Ubuntu/Debian.
-# DOCKER_GID build arg allows override if the host GID differs.
-ARG DOCKER_GID=988
-RUN groupadd --gid $DOCKER_GID docker || true && usermod -aG docker nextjs
 
 # Standalone output + static assets — copied by ALLOWLIST, not wholesale.
 # Next ≥16.2's Turbopack file tracer can decide a dynamic fs path (e.g. the

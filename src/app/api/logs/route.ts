@@ -4,18 +4,22 @@ import { denyNonOperator } from "@/lib/platform-operator";
 import { db } from "@/lib/db";
 import { readFile, stat } from "fs/promises";
 import { join } from "path";
-import { execFile } from "child_process";
-import { promisify } from "util";
 import { apiLogger } from "@/lib/logger";
-
-const execFileAsync = promisify(execFile);
+import {
+  CLOUDWATCH_LOG_GROUPS,
+  isCloudWatchLogSource,
+  readCloudWatchLogs,
+} from "@/lib/infra/cloudwatch-logs";
 
 const isVercel = !!process.env.VERCEL;
 
 // Strict allowlists to prevent command injection
 const ALLOWED_SINCE = new Set(["10m", "30m", "1h", "6h", "24h", "all"]);
 const ALLOWED_LEVELS = new Set(["all", "error", "warn", "info", "debug"]);
-const ALLOWED_SOURCES = new Set(["file", "docker", "database"]);
+// "docker" is gone (W0-3, Nov 9, 2026): it read `docker logs` through the host
+// Docker socket, which made the web containers root-equivalent on the box. Raw
+// container output now arrives through CloudWatch (`cloudwatch-docker`).
+const ALLOWED_SOURCES = new Set(["file", "database", ...Object.keys(CLOUDWATCH_LOG_GROUPS)]);
 const MAX_TAIL = 2000;
 
 type LogEntry = {
@@ -58,42 +62,6 @@ function parsePinoLine(line: string): LogEntry | null {
       message: line,
     };
   }
-}
-
-function parseDockerLine(line: string): LogEntry | null {
-  if (!line.trim()) return null;
-
-  // Docker log format: 2026-02-19T10:30:45.123456789Z log message
-  const timestampMatch = line.match(
-    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s(.*)$/
-  );
-
-  if (timestampMatch) {
-    const timestamp = timestampMatch[1];
-    const message = timestampMatch[2];
-
-    let logLevel = "info";
-    try {
-      const jsonLog = JSON.parse(message);
-      if (jsonLog.level) {
-        if (jsonLog.level >= 50) logLevel = "error";
-        else if (jsonLog.level >= 40) logLevel = "warn";
-        else if (jsonLog.level >= 30) logLevel = "info";
-        else logLevel = "debug";
-      }
-    } catch {
-      const lowerMessage = message.toLowerCase();
-      if (lowerMessage.includes("error") || lowerMessage.includes("fatal")) {
-        logLevel = "error";
-      } else if (lowerMessage.includes("warn")) {
-        logLevel = "warn";
-      }
-    }
-
-    return { timestamp, level: logLevel, message };
-  }
-
-  return { timestamp: new Date().toISOString(), level: "info", message: line };
 }
 
 // ── Time range to Date offset ───────────────────────────────────────
@@ -202,71 +170,6 @@ async function readLogFile(
   return { logs, source: `file (${logFileName})` };
 }
 
-// ── Detect running container name for docker logs ─────────────────
-async function getContainerName(): Promise<string> {
-  // Try reading the hostname inside a Docker container (container ID)
-  try {
-    const hostname = (await readFile("/etc/hostname", "utf-8")).trim();
-    if (hostname) {
-      // Get the container name from the container ID
-      const { stdout } = await execFileAsync(
-        "docker",
-        ["inspect", "--format", "{{.Name}}", hostname],
-        { timeout: 5000 }
-      );
-      const name = stdout.trim().replace(/^\//, "");
-      if (name) return name;
-    }
-  } catch {
-    // Not inside Docker or can't inspect
-  }
-
-  // Fallback: find a running container matching our project
-  try {
-    const { stdout } = await execFileAsync(
-      "docker",
-      ["ps", "--format", "{{.Names}}", "--filter", "name=ea-sys"],
-      { timeout: 5000 }
-    );
-    const containers = stdout.trim().split("\n").filter(Boolean);
-    if (containers.length > 0) return containers[0];
-  } catch {
-    // Docker not available
-  }
-
-  // Last resort
-  return "ea-sys-blue";
-}
-
-async function readDockerLogs(
-  since: string,
-  tailNum: number
-): Promise<{ logs: LogEntry[]; source: string }> {
-  const containerName = await getContainerName();
-  const args: string[] = ["logs"];
-
-  if (since !== "all") {
-    args.push("--since", since);
-  }
-
-  args.push(`--tail=${tailNum}`);
-  args.push("--timestamps");
-  args.push(containerName);
-
-  const { stdout, stderr } = await execFileAsync("docker", args, {
-    maxBuffer: 10 * 1024 * 1024,
-  });
-
-  // Docker outputs app stdout to stdout and app stderr to stderr
-  const rawOutput = (stdout || "") + (stderr || "");
-  const logs = rawOutput
-    .split("\n")
-    .map(parseDockerLine)
-    .filter((entry): entry is LogEntry => entry !== null);
-
-  return { logs, source: `docker (${containerName})` };
-}
-
 // ── DELETE: Clear logs for a specific timeframe ──────────────────────
 export async function DELETE(req: Request) {
   try {
@@ -275,7 +178,7 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     // Cross-tenant by nature: SystemLog carries every tenant's log lines.
-    const denied = denyNonOperator(session, { route: "logs:GET" });
+    const denied = denyNonOperator(session, { route: "logs:DELETE" });
     if (denied) return denied;
 
     const { searchParams } = new URL(req.url);
@@ -316,7 +219,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyNonOperator(session, { route: "logs:DELETE" });
+    const denied = denyNonOperator(session, { route: "logs:GET" });
     if (denied) return denied;
 
     const { searchParams } = new URL(req.url);
@@ -345,7 +248,7 @@ export async function GET(req: Request) {
     if (!ALLOWED_SOURCES.has(sourceParam)) {
       apiLogger.warn({ msg: "logs:invalid-source", source: sourceParam, userId: session.user.id });
       return NextResponse.json(
-        { error: "Invalid 'source' parameter. Allowed: file, docker, database" },
+        { error: `Invalid 'source' parameter. Allowed: ${[...ALLOWED_SOURCES].join(", ")}` },
         { status: 400 }
       );
     }
@@ -360,8 +263,8 @@ export async function GET(req: Request) {
 
     let logs: LogEntry[];
     let source: string;
-    // Total MATCHING rows in the window (database source only — file/docker are
-    // inherently tail-based and cannot know). null = unknowable.
+    // Total MATCHING rows in the window (database source only: file and
+    // CloudWatch return a newest-N slice and cannot know). null = unknowable.
     let total: number | null = null;
 
     if (sourceParam === "database") {
@@ -369,19 +272,30 @@ export async function GET(req: Request) {
       logs = result.logs;
       source = result.source;
       total = result.total;
-    } else if (sourceParam === "docker") {
-      // Docker source — uses read-only socket
+    } else if (isCloudWatchLogSource(sourceParam)) {
+      // Level and search run inside the Insights query, over the whole window.
       try {
-        const result = await readDockerLogs(since, tailNum);
+        const result = await readCloudWatchLogs(sourceParam, {
+          level,
+          search,
+          tail: tailNum,
+          sinceDate: sinceToDate(since),
+        });
         logs = result.logs;
         source = result.source;
-      } catch (dockerError) {
-        apiLogger.warn({ err: dockerError, msg: "Docker logs unavailable" });
-        return NextResponse.json({
-          error: "Docker not available. Try source=database or source=file.",
-          logs: [],
-          count: 0,
-        });
+      } catch (cwError) {
+        apiLogger.warn({ err: cwError, source: sourceParam, msg: "logs:cloudwatch-unavailable" });
+        const denied = (cwError as { name?: string }).name === "AccessDeniedException";
+        return NextResponse.json(
+          {
+            error: denied
+              ? "CloudWatch: the box role cannot query logs yet (add the EaSysLogsRead policy, infra/cloudwatch/README.md). Use Database or File meanwhile."
+              : `CloudWatch query failed (${(cwError as Error).message}). Use Database or File meanwhile.`,
+            logs: [],
+            count: 0,
+          },
+          { status: 502 },
+        );
       }
     } else {
       // File source — reads from logs/ directory (filters applied inside)
@@ -390,16 +304,11 @@ export async function GET(req: Request) {
       source = result.source;
     }
 
-    // Docker source: apply level filter (Docker --since handles time, but not level)
-    if (sourceParam === "docker" && level !== "all") {
-      logs = logs.filter((log) => log.level === level);
-    }
-
-    // File + docker sources are read as a tail of text, so their search still
-    // has to happen here. The database source already searched in SQL — do not
-    // re-filter it, or a match found across the full window would be discarded
-    // again by an in-memory pass over the truncated slice.
-    if (search && sourceParam !== "database") {
+    // The file source is read as a tail of text, so its search still has to
+    // happen here. The database and CloudWatch sources already searched across
+    // the full window: do not re-filter them, or a match found there would be
+    // discarded again by an in-memory pass over the truncated slice.
+    if (search && sourceParam === "file") {
       const searchLower = search.toLowerCase();
       logs = logs.filter(
         (log) =>

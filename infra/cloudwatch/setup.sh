@@ -7,7 +7,11 @@
 # CloudWatch Logs in ap-south-1.
 #
 # IDEMPOTENT — safe to re-run. Detects an existing install + config
-# and re-applies cleanly. Use to update the agent config after a
+# and re-applies cleanly.
+#
+# Ships: logs/app.log, logs/error.log, logs/mediamtx.log, every container's
+# stdout/stderr (/var/lib/docker/containers, → ea-sys/docker) and nginx's
+# error log (→ ea-sys/nginx-error). Use to update the agent config after a
 # version-bump in this repo:
 #
 #   cd /home/ubuntu/ea-sys
@@ -75,6 +79,12 @@ log "Installing agent config..."
 sudo install -m 0644 -o root -g root "${AGENT_CONFIG_SRC}" "${AGENT_CONFIG_DST}"
 
 # ─── Permissions on log files ───────────────────────────────────────
+# Since W0-3 (Nov 9, 2026) the agent runs as root ("run_as_user" in the
+# config), because Docker's container logs and nginx's error log are
+# root-only. The ACLs below are then redundant but harmless; they are kept
+# so that switching the agent back to cwagent does not silently stop the
+# ea-sys/app shipping.
+#
 # The cwagent user (created by the package install) needs:
 #   1. Read access to each *.log file
 #   2. Execute (traversal) permission on every parent directory in
@@ -128,7 +138,7 @@ fi
 
 log "Verifying log groups are visible in CloudWatch..."
 sleep 5  # Give the agent a moment to create the streams
-for GROUP in "ea-sys/app" "ea-sys/error" "ea-sys/mediamtx"; do
+for GROUP in "ea-sys/app" "ea-sys/error" "ea-sys/mediamtx" "ea-sys/docker" "ea-sys/nginx-error"; do
   if aws logs describe-log-groups \
        --log-group-name-prefix "${GROUP}" \
        --region "${REGION}" \
@@ -142,7 +152,8 @@ done
 
 log "Done. Logs will start flowing to CloudWatch within a few minutes."
 log ""
-log "View live: aws logs tail ea-sys/app --follow --region ${REGION}"
+log "View live: aws logs tail ea-sys/docker --follow --region ${REGION}"
+log "          aws logs tail ea-sys/app --follow --region ${REGION}"
 log "          aws logs tail ea-sys/error --follow --region ${REGION}"
 log ""
 log "Next step: see infra/cloudwatch/README.md §3 for the metric"

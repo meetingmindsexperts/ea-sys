@@ -1,0 +1,21 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StartInsightsQueriesOnEaSysGroups",
+      "Effect": "Allow",
+      "Action": "logs:StartQuery",
+      "Resource": [
+        "arn:aws:logs:ap-south-1:803726282629:log-group:ea-sys/docker:*",
+        "arn:aws:logs:ap-south-1:803726282629:log-group:ea-sys/app:*",
+        "arn:aws:logs:ap-south-1:803726282629:log-group:ea-sys/nginx-error:*"
+      ]
+    },
+    {
+      "Sid": "ReadAndStopOwnQueries",
+      "Effect": "Allow",
+      "Action": ["logs:GetQueryResults", "logs:StopQuery"],
+      "Resource": "*"
+    }
+  ]
+}

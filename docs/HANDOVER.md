@@ -1115,7 +1115,7 @@ Both connect to the same **Supabase PostgreSQL** database. This means migrations
 **Docker volumes:**
 - `./public/uploads` — Shared photo storage between blue/green
 - `./logs` — Shared log files
-- `/var/run/docker.sock` — Read-only, for the log viewer to read Docker logs
+- (No Docker socket since W0-3, Nov 9, 2026: container output reaches the log viewer through CloudWatch, `ea-sys/docker`)
 
 ### Docker Configuration
 

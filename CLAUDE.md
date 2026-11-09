@@ -643,7 +643,7 @@ Pino-based structured JSON logging with three output modes:
 
 ### Log Viewer (`/logs`)
 - SUPER_ADMIN-only web UI at `/logs` with retro terminal theme
-- Supports three sources: **Database** (default on Vercel), **File**, **Docker**
+- Sources: **Database** (default), **File**, and **CloudWatch** (containers, app log, nginx errors) through Logs Insights. The old **Docker** source is gone (W0-3, Nov 9, 2026): it needed the host Docker socket in the web containers, which made them root-equivalent on the box. When the app itself is down, use `npm run prod:diagnose` from a laptop (infra/cloudwatch/README.md §"App not loading")
 - Filters: level (error/warn/info), time range (10m to all), search text
 - Auto-refresh (configurable interval), export filtered or all logs to text file
 - **Download All** — fetches all logs from current source and exports

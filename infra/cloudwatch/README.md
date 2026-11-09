@@ -2,6 +2,15 @@
 
 **Purpose:** ship structured Pino logs from the Mumbai EC2 box to AWS CloudWatch Logs (ap-south-1) as the third notification path alongside Sentry capture and the SES admin-alert email pipeline.
 
+**Since W0-3 (Nov 9, 2026)** it is also the only place raw container output lives off the box. The web containers no longer mount the Docker socket (a compromised app could drive every container through it and become root on the host), so the `/logs` viewer's old "Docker" source is gone. The agent now runs as root and also ships:
+
+| Group | Source on the box | What it holds |
+|---|---|---|
+| `ea-sys/docker` | `/var/lib/docker/containers/*/*-json.log` | Every container's stdout/stderr **except** pino info/debug lines (already in `ea-sys/app`): warnings, errors, crash traces, OOM and boot failures. Each line carries `attrs.ea_sys_service` = `blue` / `green` / `worker` (compose label). |
+| `ea-sys/nginx-error` | `/var/log/nginx/error.log` | 502s, upstream refusals, TLS and config errors |
+
+When the app is down, run **`npm run prod:diagnose`** from a laptop (§"App not loading" below). When it is up, the `/logs` viewer reads these groups as "CloudWatch: containers / app log / nginx errors".
+
 **Why a third path:** Sentry + admin-alert email are already in place and reliable. CloudWatch adds:
 
 - **Cross-region log durability** — Mumbai box could fail; CloudWatch logs survive.
@@ -84,6 +93,26 @@ aws iam list-attached-role-policies --role-name ea-sys-mumbai-ec2-role
 ```
 Should include `CloudWatchAgentServerPolicy`.
 
+### Step 2.1b — Let the app read its logs back (W0-3)
+
+The `/logs` viewer's CloudWatch sources run Logs Insights queries as the instance role, which `CloudWatchAgentServerPolicy` does not cover. Add the inline policy in [logs-read-policy.json](logs-read-policy.json) (`logs:StartQuery` on the three groups, `logs:GetQueryResults` / `logs:StopQuery`, which take no resource):
+
+```bash
+aws iam put-role-policy \
+  --role-name ea-sys-mumbai-ec2-role \
+  --policy-name EaSysLogsRead \
+  --policy-document file://infra/cloudwatch/logs-read-policy.json
+
+# Verify (both should say "allowed"):
+aws iam simulate-principal-policy \
+  --policy-source-arn arn:aws:iam::803726282629:role/ea-sys-mumbai-ec2-role \
+  --action-names logs:StartQuery logs:GetQueryResults \
+  --resource-arns 'arn:aws:logs:ap-south-1:803726282629:log-group:ea-sys/docker:*' \
+  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+```
+
+Without it the viewer shows "CloudWatch logs unavailable" and logs `logs:cloudwatch-unavailable`; nothing else is affected.
+
 ### Step 2.2 — Install + configure the agent on the Mumbai box
 
 SSH into the Mumbai box, then:
@@ -97,7 +126,7 @@ The script:
 1. Verifies the IAM role works (`aws sts get-caller-identity`)
 2. Installs the AWS CloudWatch agent .deb if not already present
 3. Deploys `infra/cloudwatch/amazon-cloudwatch-agent.json` to `/opt/aws/amazon-cloudwatch-agent/etc/`
-4. Ensures the `cwagent` system user can read the log files
+4. Ensures the `cwagent` system user can read the log files (redundant since the agent runs as root, W0-3; kept so switching back is safe)
 5. Starts the systemd service via `amazon-cloudwatch-agent-ctl`
 6. Verifies the log groups appear in CloudWatch
 
@@ -307,6 +336,30 @@ Re-enable: `sudo systemctl enable --now amazon-cloudwatch-agent`.
 
 ---
 
+## App not loading: diagnose in minutes
+
+The `/logs` page cannot help when the app is down, so start from a laptop:
+
+```bash
+npm run prod:diagnose            # last 15 minutes
+MINUTES=60 npm run prod:diagnose
+```
+
+Read-only ([scripts/prod-diagnose.sh](../../scripts/prod-diagnose.sh)): it never changes AWS or opens a session on the box. Reading its six sections:
+
+| What you see | Likely cause | Next |
+|---|---|---|
+| 1. `000` on both URLs, 2. box `running` / `ok` | nginx down, or the box is out of memory or CPU credits | 3. alarms; 5. nginx errors; SSM in and `systemctl status nginx` |
+| 1. `000`, 2. status `impaired` or not `running` | The instance itself | AWS console → EC2 → instance status checks; reboot is the owner's call |
+| 1. `502` / `504` | nginx is up, no app slot answers | 4. container output: a crash trace or `JavaScript heap out of memory` from `[blue]`/`[green]`; 5. `connect() failed (111: Connection refused)` names the dead upstream |
+| 1. `/api/health` 503 with `database` not connected | Postgres or pgbouncer | 4. `[blue]` lines for `P1001` / `ECONNREFUSED`; the database runbook |
+| 1. `/api/health` 200, `/worker/health` failing | Worker only: the site works, background jobs stop | 4. `[worker]` lines; [worker/README.md](../../worker/README.md) |
+| Everything 200 but users report errors | A page or route, not the box | 6. app errors; Sentry |
+
+The script ends with the SSM and `docker` commands to run on the box yourself if the logs are not enough.
+
+---
+
 ## 5. Relation to other observability layers
 
 | Layer | What it captures | Latency | Persistence |
@@ -314,14 +367,14 @@ Re-enable: `sudo systemctl enable --now amazon-cloudwatch-agent`.
 | **Pino → stdout** | Every log line | Instant | Lost on container restart |
 | **`./logs/app.log` file** | Same | Instant | Host disk, rotated by Pino |
 | **SystemLog Postgres table** | Same, batched | ~2-5s | DB, included in DR backups |
-| **`/logs` dashboard** | Reads SystemLog | Instant | N/A (UI) |
+| **`/logs` dashboard** | Reads SystemLog, the log file, or CloudWatch (containers, app log, nginx errors) | Instant to ~5s | N/A (UI) |
 | **Sentry** | Errors only | ~30s | Sentry cloud (US-east) |
 | **SES admin-alert email** | Errors only, dedup'd 1/hr per message | ~10s | Inbox |
-| **CloudWatch Logs** | Everything | ~30s | AWS, cross-region durable |
+| **CloudWatch Logs** | Everything, plus raw container output (`ea-sys/docker`) and nginx errors | ~30s | AWS, cross-region durable |
 | **CloudWatch alarm → SNS** | Error rate spikes | ~1-2min | Email |
 
 CloudWatch Logs is the only path that combines **everything captured** + **AWS-native durability** + **alarms on aggregate rates**. The other paths are individually useful but have specific gaps that CloudWatch fills.
 
 ---
 
-*Last updated: June 8, 2026. Setup script: `infra/cloudwatch/setup.sh`. Agent config: `infra/cloudwatch/amazon-cloudwatch-agent.json`.*
+*Last updated: November 9, 2026 (W0-3: Docker socket removed, container and nginx groups, `prod:diagnose`). Setup script: `infra/cloudwatch/setup.sh`. Agent config: `infra/cloudwatch/amazon-cloudwatch-agent.json`.*

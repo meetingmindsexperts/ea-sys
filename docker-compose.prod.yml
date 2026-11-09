@@ -12,6 +12,8 @@ services:
         # path pulls an image CI already built WITH these baked in.
         GIT_SHA: ${IMAGE_TAG:-unknown}
     container_name: ea-sys-blue
+    labels:
+      ea_sys_service: blue
     restart: unless-stopped
     env_file:
       - .env
@@ -51,26 +53,16 @@ services:
       - ./public/uploads:/app/public/uploads
       # Shared log directory for file-based log reading
       - ./logs:/app/logs
-      # Docker socket — powers the "docker" source of the /logs viewer, which is
-      # the only place you can see RAW container stdout (crash traces from before
-      # the logger initialises, OOM kills, Next.js boot errors). file + database
-      # sources cannot show those.
-      #
-      # ⚠ ACCEPTED RISK, deliberately. The `:ro` flag does NOT sandbox this: it
-      # makes the socket FILE read-only, while the Docker API served over it stays
-      # fully READ-WRITE. Anything that can reach this socket can create a
-      # privileged container and become root on the host. (An earlier comment here
-      # claimed :ro "prevents container creation" — it does not. Do not re-reason
-      # from that.) Keep the SSRF surface tight — see downloadExternalPhoto, which
-      # currently has no host allowlist. If this ever needs closing, the fix is a
-      # docker-socket-proxy sidecar (read-only API), not the :ro flag.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "5"
         tag: "{{.Name}}/{{.ID}}"
+        # Copies the ea_sys_service label into every json-file line ("attrs"),
+        # which is how the CloudWatch agent's ea-sys/docker group tells blue,
+        # green and the worker apart (W0-3). MediaMTX ships its own log file.
+        labels: "ea_sys_service"
 
   ea-sys-green:
     image: ${EA_SYS_WEB_IMAGE:-803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:latest}
@@ -80,6 +72,8 @@ services:
       args:
         GIT_SHA: ${IMAGE_TAG:-unknown}
     container_name: ea-sys-green
+    labels:
+      ea_sys_service: green
     restart: unless-stopped
     env_file:
       - .env
@@ -117,14 +111,16 @@ services:
     volumes:
       - ./public/uploads:/app/public/uploads
       - ./logs:/app/logs
-      # See the note on ea-sys-blue: :ro does NOT restrict the Docker API.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "5"
         tag: "{{.Name}}/{{.ID}}"
+        # Copies the ea_sys_service label into every json-file line ("attrs"),
+        # which is how the CloudWatch agent's ea-sys/docker group tells blue,
+        # green and the worker apart (W0-3). MediaMTX ships its own log file.
+        labels: "ea_sys_service"
 
   # ── Background worker tier ───────────────────────────────────────────────────
   # Runs the 5 cron-driven jobs (cert renderer, scheduled emails, webinar
@@ -153,6 +149,8 @@ services:
       args:
         GIT_SHA: ${IMAGE_TAG:-unknown}
     container_name: ea-sys-worker
+    labels:
+      ea_sys_service: worker
     restart: unless-stopped
     env_file:
       - .env
@@ -226,6 +224,10 @@ services:
         max-size: "10m"
         max-file: "5"
         tag: "{{.Name}}/{{.ID}}"
+        # Copies the ea_sys_service label into every json-file line ("attrs"),
+        # which is how the CloudWatch agent's ea-sys/docker group tells blue,
+        # green and the worker apart (W0-3). MediaMTX ships its own log file.
+        labels: "ea_sys_service"
 
   # ── RTMP → HLS live streaming server ─────────────────────────────────────────
   mediamtx:

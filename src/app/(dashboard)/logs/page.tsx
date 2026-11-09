@@ -44,7 +44,6 @@ interface LogResponse {
   truncated?: boolean;
   tail?: number;
   source?: string;
-  containerName?: string;
   since: string;
   level: string;
   error?: string;
@@ -64,8 +63,8 @@ export default function LogsPage() {
   const [levelFilter, setLevelFilter] = useState("error");
   const [timeRange, setTimeRange] = useState("10m");
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const [logSource, setLogSource] = useState("docker");
-  const [sourceLabel, setSourceLabel] = useState("docker");
+  const [logSource, setLogSource] = useState("database");
+  const [sourceLabel, setSourceLabel] = useState("database");
   const [showArchives, setShowArchives] = useState(false);
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
@@ -86,13 +85,14 @@ export default function LogsPage() {
       if (data.error) {
         toast.error(data.error);
         setLogs([]);
+        setSourceLabel(`${logSource} (unavailable)`);
         return;
       }
 
       setLogs(data.logs);
       setTotal(data.total ?? null);
       setTruncated(Boolean(data.truncated));
-      setSourceLabel(data.source || data.containerName || logSource);
+      setSourceLabel(data.source || logSource);
     } catch (error) {
       toast.error("Failed to fetch logs");
       console.error(error);
@@ -330,12 +330,14 @@ export default function LogsPage() {
               <span className="text-xs text-cyan-400 font-mono">{sourceLabel}</span>
             </div>
             <Select value={logSource} onValueChange={(val) => { setLogSource(val); toast.success(`Switched to ${val} source`); }}>
-              <SelectTrigger className="w-[140px] h-8 bg-cyan-500/10 border-cyan-500/30 text-xs text-cyan-400 font-mono">
+              <SelectTrigger className="w-[220px] h-8 bg-cyan-500/10 border-cyan-500/30 text-xs text-cyan-400 font-mono">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-[#131a27] border-cyan-500/30">
                 <SelectItem value="database" className="text-cyan-100 font-mono text-xs">Database</SelectItem>
-                <SelectItem value="docker" className="text-cyan-100 font-mono text-xs">Docker</SelectItem>
+                <SelectItem value="cloudwatch-docker" className="text-cyan-100 font-mono text-xs">CloudWatch: containers</SelectItem>
+                <SelectItem value="cloudwatch-app" className="text-cyan-100 font-mono text-xs">CloudWatch: app log</SelectItem>
+                <SelectItem value="cloudwatch-nginx" className="text-cyan-100 font-mono text-xs">CloudWatch: nginx errors</SelectItem>
                 <SelectItem value="file" className="text-cyan-100 font-mono text-xs">File</SelectItem>
               </SelectContent>
             </Select>
