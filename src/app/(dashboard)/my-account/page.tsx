@@ -26,7 +26,7 @@ import {
   type JourneyStep,
   type SurveyLine,
 } from "@/lib/registrant-journey";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventCardBanner } from "@/components/registrant/event-card-banner";
 import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
 import { JourneySteps } from "@/components/registrant/journey-steps";
 import { TakeSurveyButton } from "@/components/registrant/take-survey-button";
@@ -337,18 +337,9 @@ function DateBlock({ event }: { event: EventSummary }) {
 
 function EventCard({ card, featured }: { card: EventCardData; featured?: string }) {
   const { event, where, journeys, certificates } = card;
-  const hasBanner = Boolean(event.bannerImage || event.bannerImageMobile);
   return (
     <Card id={`event-${event.id}`} className={cn("h-full gap-0 overflow-hidden py-0", featured && "border-primary/40 ring-1 ring-primary/20")}>
-      {/* The event's own branding, so it is recognised before it is read: the
-          mobile banner on a phone, the web banner wider up, whichever exists
-          when only one does (EventBanner, as on the event's own pages). Capped
-          in height and never cropped: a banner carries its own text. */}
-      {hasBanner && (
-        <div className="flex justify-center border-b bg-white">
-          <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block h-auto max-h-44 w-auto max-w-full sm:max-h-36" />
-        </div>
-      )}
+      <EventCardBanner event={event} />
 
       <div className="flex items-start gap-4 p-4 sm:p-5">
         <DateBlock event={event} />

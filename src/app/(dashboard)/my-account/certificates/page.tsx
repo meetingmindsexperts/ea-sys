@@ -13,6 +13,8 @@ import { CertificateList } from "@/components/registrant/certificate-list";
 import { CmeTotalsCard } from "@/components/registrant/cme-totals-card";
 import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EventCardBanner, hasEventBanner } from "@/components/registrant/event-card-banner";
+import { cn } from "@/lib/utils";
 import { PageHeader, SectionHeading } from "@/components/ui/typography";
 
 /**
@@ -62,7 +64,8 @@ export default async function MyCertificatesPage() {
           <SectionHeading title={year} />
           {events.map(({ event, certificates: certs }) => (
             // The anchor My events' "N certificates" link lands on.
-            <Card key={event.id} id={`event-${event.id}`} className="scroll-mt-20 gap-3">
+            <Card key={event.id} id={`event-${event.id}`} className={cn("scroll-mt-20 gap-3", hasEventBanner(event) && "overflow-hidden pt-0")}>
+              <EventCardBanner event={event} />
               <CardHeader>
                 <CardTitle className="leading-snug">{event.name}</CardTitle>
               </CardHeader>

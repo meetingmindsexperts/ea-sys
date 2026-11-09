@@ -7,9 +7,10 @@ import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { formatSessionProposalSerial } from "@/lib/session-proposal-serial";
 import type { RegistrantScope } from "@/lib/registrant-access";
 import { loadRegistrantPortal } from "@/lib/registrant-portal";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { abstractStatusColor } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 import { Badge } from "@/components/ui/badge";
+import { EventCardBanner, hasEventBanner } from "@/components/registrant/event-card-banner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/typography";
 
@@ -41,7 +42,7 @@ const PROPOSAL_STATUS_LABEL: Record<SessionProposalStatus, string> = {
   WITHDRAWN: "Withdrawn",
 };
 
-const EVENT_FIELDS = { id: true, name: true, startDate: true, endDate: true, timezone: true } as const;
+const EVENT_FIELDS = { id: true, name: true, startDate: true, endDate: true, timezone: true, bannerImage: true, bannerImageMobile: true } as const;
 
 async function loadSubmissions(scope: RegistrantScope) {
   const mine = { speaker: { userId: scope.userId } };
@@ -128,7 +129,8 @@ export default async function MyAbstractsPage() {
       )}
 
       {groups.map(({ event, rows }) => (
-        <Card key={event.id} className="gap-3">
+        <Card key={event.id} className={cn("gap-3", hasEventBanner(event) && "overflow-hidden pt-0")}>
+          <EventCardBanner event={event} />
           <CardHeader className="space-y-1">
             <CardTitle className="leading-snug">{event.name}</CardTitle>
             <p className="text-xs text-muted-foreground">{formatEventDateRange(event.startDate, event.endDate, event.timezone)}</p>

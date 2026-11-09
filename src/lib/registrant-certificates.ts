@@ -31,7 +31,7 @@ const PORTAL_FIELDS = {
   cmeHoursSnapshot: true,
   pdfUrl: true,
   certificateTemplate: { select: { name: true, role: true, cmeHours: true } },
-  event: { select: { id: true, name: true, slug: true, startDate: true, endDate: true, timezone: true, cmeHours: true } },
+  event: { select: { id: true, name: true, slug: true, startDate: true, endDate: true, timezone: true, cmeHours: true, bannerImage: true, bannerImageMobile: true } },
 } satisfies Prisma.IssuedCertificateSelect;
 
 const RELEASE_FIELDS = {
