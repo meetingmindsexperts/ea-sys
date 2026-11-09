@@ -1,6 +1,6 @@
 # CloudFront in front of the live stream: plan
 
-Status: PLANNED, NOT BUILT (Nov 6, 2026). Supersedes the AWS half of
+Status: STEPS 1 TO 4 DONE (Nov 9, 2026; distribution `E4S57RCP6XUPP`, `d3vq9gpx1lng4k.cloudfront.net`). Step 5 (switch on) waits for the next small custom-stream webinar, step 0 for a Zoom practice stream. Planned Nov 6, 2026. Supersedes the AWS half of
 [LIVE_STREAMING.md §13](LIVE_STREAMING.md), which this plan corrects in three places (§4).
 Backlog entry: [ROADMAP](ROADMAP.md), "Webinar streaming: what the Nov 5 security review left
 for later", item 4.
@@ -166,3 +166,27 @@ No code changes are expected. If step 4 turns anything up, it gets fixed and tes
 - **D2. Pay as you go or flat-rate Pro.** Recommended: pay as you go. Revisit Pro ($15 a month)
   if two monthly bills in a row pass about $15, after confirming Pro allows an EC2 video origin.
 - **D3. The budget alarm amount.** $50 a month suggested.
+
+## 9. Test results, Nov 9, 2026
+
+Test stream: ffmpeg, 720p H.264 at 2.5 Mbps, pushed to the `prod-test` draft's key (not a webinar,
+so no room, watchdog or email could react). Publish key printed on the box:
+`docker exec ea-sys-worker node -e '<HMAC of "stream-publish:"+key, first 40 hex>' <key>`.
+
+- **Not the site:** `/`, `/login`, `/api/health` through CloudFront answer 404 from the function.
+- **Edge:** served from Dubai (`x-amz-cf-pop: DXB53`).
+- **Playlist:** `main_stream.m3u8` went Miss, Hit, then Miss again once its 1 s ran out. The
+  multivariant `index.m3u8` caches the same way.
+- **Segments:** Miss, then Hit (`age: 1`). Chrome's native player (the iPhone path) played the
+  stream at 1280x720 with every request to CloudFront and no errors; its 206 range requests are
+  served from cache.
+- **Stream end:** the playlist went 404 through CloudFront within about 1 s and stayed there.
+- **Restart:** segment names changed prefix (`c5a624a1c25b_main_seg*` to `f3f18ae0dca9_main_seg*`),
+  so a restarted stream can never be handed an old cached segment.
+- **Headers:** MediaMTX sends its own `Cache-Control` (`max-age=30` on the multivariant playlist,
+  `max-age=3600` on segments, `no-cache` on the media playlist) beside nginx's `no-cache`; the
+  cache policies override both, as intended. MediaMTX answers HEAD with 404, so checks use GET.
+- **Player fallback** (read in `live-player.tsx`): both the native and hls.js paths fall back to
+  the box once on a fatal error. Not covered: a CloudFront edge that stalls without erroring; the
+  stall watchdog then reconnects to CloudFront again. Rare; unsetting `HLS_CDN_BASE` is the fix.
+

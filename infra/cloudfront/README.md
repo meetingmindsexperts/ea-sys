@@ -23,13 +23,20 @@ It prints the `*.cloudfront.net` domain. Viewers keep using the box until step 5
 
 ## Check (plan step 4)
 
+Use GET, never `curl -I`: MediaMTX answers HEAD with 404 even while the stream is live.
+
 ```bash
-D=https://<id>.cloudfront.net
-curl -sI $D/                                   # 404 from the function
-curl -sI $D/stream/live/nothing/index.m3u8     # 404 from MediaMTX, through CloudFront
+D=https://d3vq9gpx1lng4k.cloudfront.net        # E4S57RCP6XUPP, created Nov 9, 2026
+h() { curl -s -o /dev/null -D - "$1" | grep -i -E '^HTTP|x-cache'; }
+h $D/                                          # 404, "FunctionGeneratedResponse"
+h $D/stream/live/nothing/index.m3u8            # 404 from nginx, through CloudFront
 # with a test stream live on <key>:
-curl -sI $D/stream/live/<key>/index.m3u8       # run twice: second says "x-cache: Hit from cloudfront"
+h $D/stream/live/<key>/main_stream.m3u8        # twice within 1 s: Miss, then Hit
 ```
+
+A test publish needs the key's publish password, which only the box can derive:
+`docker exec ea-sys-worker node -e '...'` as in docs/HLS_CDN_PLAN.md §9. Use the `prod-test`
+draft's key, never a real webinar's.
 
 ## Switch on and off (plan step 5)
 
