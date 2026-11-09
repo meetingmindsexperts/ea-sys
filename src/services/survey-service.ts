@@ -242,7 +242,7 @@ export interface EventSurveyColumns {
 }
 
 /** A real question list (the schema requires at least one question). */
-function isLiveConfig(raw: unknown): boolean {
+export function isLiveConfig(raw: unknown): boolean {
   return Array.isArray(raw) && raw.length > 0;
 }
 
