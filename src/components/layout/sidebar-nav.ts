@@ -258,6 +258,8 @@ export interface SidebarNav {
  */
 const MY_EVENTS: NavItem = { name: "My events", href: "/my-registration", icon: Ticket, areas: [] };
 const MY_CERTIFICATES: NavItem = { name: "My certificates", href: "/my-registration/certificates", icon: Award, areas: [] };
+/** Listed for submitters, the role that submits; the page works for anyone. */
+const MY_ABSTRACTS: NavItem = { name: "My abstracts", href: "/my-registration/abstracts", icon: FileText, areas: [] };
 
 /**
  * Which item a path highlights: the longest href it sits under, so
@@ -306,7 +308,7 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
     // Their own registrations and certificates (Nov 4, 2026). Once a submitter
     // or reviewer went into Events there was no way back to /my-registration:
     // their sidebar held only Events. Staff reach it from the account menu.
-    const portal = [MY_EVENTS, MY_CERTIFICATES];
+    const portal = isSubmitter ? [MY_EVENTS, MY_CERTIFICATES, MY_ABSTRACTS] : [MY_EVENTS, MY_CERTIFICATES];
     const restrictedNavigation: NavItem[] = isReviewer
       ? [
           { name: "My Reviews", href: "/my-reviews", icon: ClipboardCheck, areas: [] },

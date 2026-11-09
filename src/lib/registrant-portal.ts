@@ -20,7 +20,7 @@ import { loadRegistrantScope, type RegistrantScope } from "@/lib/registrant-acce
 export async function loadRegistrantPortal<T>(
   path: string,
   load: (scope: RegistrantScope) => Promise<T>,
-): Promise<{ scope: RegistrantScope; data: T }> {
+): Promise<{ scope: RegistrantScope; data: T; role: string | null }> {
   const signIn = `/login?callbackUrl=${encodeURIComponent(path)}`;
   const session = await auth();
   const userId = session?.user?.id;
@@ -43,5 +43,5 @@ export async function loadRegistrantPortal<T>(
     apiLogger.warn({ msg: "registrant-portal:user-not-found", path, userId });
     redirect(signIn);
   }
-  return result;
+  return { ...result, role: session.user.role ?? null };
 }
