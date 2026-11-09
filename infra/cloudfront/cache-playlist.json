@@ -1,0 +1,14 @@
+{
+  "Name": "ea-sys-hls-playlist",
+  "Comment": "HLS playlists (/stream/*.m3u8): 1 s. Min TTL above 0, so nginx's no-cache does not switch caching off.",
+  "MinTTL": 1,
+  "DefaultTTL": 1,
+  "MaxTTL": 2,
+  "ParametersInCacheKeyAndForwardedToOrigin": {
+    "EnableAcceptEncodingGzip": false,
+    "EnableAcceptEncodingBrotli": false,
+    "HeadersConfig": { "HeaderBehavior": "none" },
+    "CookiesConfig": { "CookieBehavior": "none" },
+    "QueryStringsConfig": { "QueryStringBehavior": "none" }
+  }
+}

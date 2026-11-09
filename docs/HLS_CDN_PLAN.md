@@ -79,7 +79,9 @@ first GB.
 
 ## 5. Steps
 
-AWS steps are run by the owner (house rule: instruct, never execute). I hand over every command.
+AWS steps are run by the owner (house rule: instruct, never execute). Steps 1 to 3 are one
+script, `ALERT_EMAIL=... bash infra/cloudfront/setup.sh`, with the configuration versioned beside it
+in [infra/cloudfront/](../infra/cloudfront/).
 
 **Step 0. Measure the bitrate.** On the next practice custom stream, read the segment sizes in the
 browser's network panel (segment bytes x 8 / 4 s). This sets the real viewer limit for the box
@@ -101,8 +103,9 @@ and the real cost per viewer-hour. Ten minutes.
 | `/stream/*` | 60 s | 60 s | 300 s | A segment never changes once written |
 | Default (`*`) | n/a | n/a | n/a | A CloudFront Function answers 404, so the distribution is never a mirror of the whole site |
 
-All three: GET and HEAD only; no cookies, headers or query strings in the cache key; a response
-headers policy passing `Access-Control-Allow-Origin: *` (nginx already sends it).
+All three: GET and HEAD only; no cookies, headers or query strings in the cache key.
+`Access-Control-Allow-Origin: *` comes from nginx and passes through, so no response headers
+policy is needed.
 Custom error response: **404 cached for 1 s** (the default is 10 s, which would hide a stream that
 has just started for up to 10 s).
 

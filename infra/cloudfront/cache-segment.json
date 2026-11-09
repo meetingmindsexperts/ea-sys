@@ -1,0 +1,14 @@
+{
+  "Name": "ea-sys-hls-segment",
+  "Comment": "HLS segments (/stream/*): 60 s. A segment never changes once written; names carry a per-muxer random prefix.",
+  "MinTTL": 60,
+  "DefaultTTL": 60,
+  "MaxTTL": 300,
+  "ParametersInCacheKeyAndForwardedToOrigin": {
+    "EnableAcceptEncodingGzip": false,
+    "EnableAcceptEncodingBrotli": false,
+    "HeadersConfig": { "HeaderBehavior": "none" },
+    "CookiesConfig": { "CookieBehavior": "none" },
+    "QueryStringsConfig": { "QueryStringBehavior": "none" }
+  }
+}

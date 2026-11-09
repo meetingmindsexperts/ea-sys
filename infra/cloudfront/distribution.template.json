@@ -1,0 +1,76 @@
+{
+  "CallerReference": "__CALLER_REF__",
+  "Comment": "ea-sys live stream (HLS)",
+  "Enabled": true,
+  "PriceClass": "PriceClass_All",
+  "HttpVersion": "http2and3",
+  "IsIPV6Enabled": true,
+  "Origins": {
+    "Quantity": 1,
+    "Items": [
+      {
+        "Id": "ea-sys-box",
+        "DomainName": "events.meetingmindsgroup.com",
+        "OriginPath": "",
+        "CustomHeaders": { "Quantity": 0 },
+        "CustomOriginConfig": {
+          "HTTPPort": 80,
+          "HTTPSPort": 443,
+          "OriginProtocolPolicy": "https-only",
+          "OriginSslProtocols": { "Quantity": 1, "Items": ["TLSv1.2"] },
+          "OriginReadTimeout": 30,
+          "OriginKeepaliveTimeout": 5
+        }
+      }
+    ]
+  },
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "ea-sys-box",
+    "ViewerProtocolPolicy": "https-only",
+    "AllowedMethods": {
+      "Quantity": 2,
+      "Items": ["GET", "HEAD"],
+      "CachedMethods": { "Quantity": 2, "Items": ["GET", "HEAD"] }
+    },
+    "Compress": false,
+    "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+    "FunctionAssociations": {
+      "Quantity": 1,
+      "Items": [{ "FunctionARN": "__FUNCTION_ARN__", "EventType": "viewer-request" }]
+    }
+  },
+  "CacheBehaviors": {
+    "Quantity": 2,
+    "Items": [
+      {
+        "PathPattern": "/stream/*.m3u8",
+        "TargetOriginId": "ea-sys-box",
+        "ViewerProtocolPolicy": "https-only",
+        "AllowedMethods": {
+          "Quantity": 2,
+          "Items": ["GET", "HEAD"],
+          "CachedMethods": { "Quantity": 2, "Items": ["GET", "HEAD"] }
+        },
+        "Compress": false,
+        "CachePolicyId": "__PLAYLIST_POLICY__"
+      },
+      {
+        "PathPattern": "/stream/*",
+        "TargetOriginId": "ea-sys-box",
+        "ViewerProtocolPolicy": "https-only",
+        "AllowedMethods": {
+          "Quantity": 2,
+          "Items": ["GET", "HEAD"],
+          "CachedMethods": { "Quantity": 2, "Items": ["GET", "HEAD"] }
+        },
+        "Compress": false,
+        "CachePolicyId": "__SEGMENT_POLICY__"
+      }
+    ]
+  },
+  "CustomErrorResponses": {
+    "Quantity": 1,
+    "Items": [{ "ErrorCode": 404, "ErrorCachingMinTTL": 1 }]
+  },
+  "ViewerCertificate": { "CloudFrontDefaultCertificate": true }
+}
