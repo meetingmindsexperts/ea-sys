@@ -264,8 +264,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           where: { id: existingUser.id },
           data: {
             role: "SUBMITTER",
-            firstName: data.firstName,
-            lastName: data.lastName,
+            // A reviewer's name is on the reviews they wrote: this form does not change it.
+            ...(existingUser.role === "REGISTRANT" && { firstName: data.firstName, lastName: data.lastName }),
             ...(!existingUser.termsAcceptedAt && {
               termsAcceptedAt: new Date(),
               termsAcceptedIp: clientIpForTerms,

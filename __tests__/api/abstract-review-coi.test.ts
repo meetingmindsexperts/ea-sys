@@ -225,6 +225,19 @@ describe("abstract review: the right follows the pool and the assignment, not th
     expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
   });
 
+  it("a session revoked by the confirmation is refused, and reads no names", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", role: "SUBMITTER", organizationId: null, tokenVersion: 1 } });
+    mockDb.user.findUnique.mockResolvedValue({ id: "u1", email: "u1@example.com", role: "SUBMITTER", emailConfirmedAt: new Date(), tokenVersion: 2 });
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: "x", email: "a@example.com" } });
+    const res = await POST(makeReq({ overallScore: 80 }), { params });
+    expect((await res.json()).code).toBe("EMAIL_NOT_CONFIRMED");
+    mockDb.abstractReviewSubmission.findMany.mockResolvedValue([
+      { id: "s1", overallScore: 70, reviewNotes: "Fine", recommendedFormat: null, criteriaScores: null, confidence: null, submittedAt: new Date(0), updatedAt: new Date(0), reviewerUserId: "other", reviewer: { firstName: "Named", lastName: "Reviewer", email: "named@example.com" } },
+    ]);
+    const read = await GET(makeReq({}), { params });
+    expect(JSON.stringify(await read.json())).not.toContain("Named");
+  });
+
   it("a colleague on the pool without abstracts.decide may submit too", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u1", role: "ONSITE", organizationId: "org1" } });
     mockDb.user.findUnique.mockResolvedValue({ id: "u1", email: "u1@example.com", role: "ONSITE", emailConfirmedAt: null });

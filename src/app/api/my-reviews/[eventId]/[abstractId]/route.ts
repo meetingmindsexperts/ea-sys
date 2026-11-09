@@ -30,8 +30,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const user = { id: session.user.id, email: session.user.email };
 
-    const account = await db.user.findUnique({ where: { id: user.id }, select: { role: true, emailConfirmedAt: true } });
-    if (mustConfirmEmailToReview(account)) {
+    const account = await db.user.findUnique({ where: { id: user.id }, select: { role: true, emailConfirmedAt: true, tokenVersion: true } });
+    if (mustConfirmEmailToReview(account, session.user.tokenVersion ?? 0)) {
       apiLogger.warn({ msg: "my-reviews:email-not-confirmed", eventId, abstractId, userId: user.id });
       return NextResponse.json({ error: "Confirm your email address to review abstracts.", code: "EMAIL_NOT_CONFIRMED" }, { status: 403 });
     }

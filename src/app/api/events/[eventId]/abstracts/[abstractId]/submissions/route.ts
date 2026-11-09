@@ -13,7 +13,7 @@ import {
   type SubmitAbstractReviewErrorCode,
 } from "@/services/abstract-service";
 import { requirePermission } from "@/lib/permissions/require-permission";
-import { isOwnAbstract } from "@/lib/abstract-reviewer-access";
+import { isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
 
 /**
  * Per-reviewer abstract review submissions.
@@ -94,7 +94,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
     //     the bare isOrgMember check, which broke blind review sideways.
     //   - everyone else → 403
     const reviewerUserIds = (event.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
-    const isEventReviewer = reviewerUserIds.includes(session.user.id);
+    // On the pool counts only on the terms reviewing itself does.
+    const isEventReviewer = reviewerUserIds.includes(session.user.id) && !mustConfirmEmailToReview(
+      await db.user.findUnique({ where: { id: session.user.id }, select: { role: true, emailConfirmedAt: true, tokenVersion: true } }),
+      session.user.tokenVersion ?? 0,
+    );
     const isOrgMember = event.organizationId === session.user.organizationId;
     // Who-said-what is for the people who decide (abstracts.decide).
     // Asked on THIS event: a grant scoped to webinars must not unmask reviewer
@@ -165,6 +169,7 @@ const HTTP_STATUS_FOR_SUBMIT_CODE: Record<SubmitAbstractReviewErrorCode, number>
   NOT_REVIEWABLE: 409,
   OWN_ABSTRACT: 403,
   EMAIL_NOT_CONFIRMED: 403,
+  INCOMPLETE_CRITERIA: 400,
   CONFLICT_OF_INTEREST: 403,
   EMPTY_REVIEW: 400,
   INVALID_OVERALL_SCORE: 400,
@@ -241,6 +246,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         userId: session.user.id,
         role: session.user.role,
         organizationId: session.user.organizationId,
+        tokenVersion: session.user.tokenVersion ?? 0,
       },
       overallScore: data.overallScore,
       criteriaScores: data.criteriaScores,

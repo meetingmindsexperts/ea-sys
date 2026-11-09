@@ -47,6 +47,7 @@ interface Reviewer {
   jobTitle: string | null;
   speakerStatus: string | null;
   accountActive: boolean;
+  needsEmailConfirmation?: boolean;
 }
 
 interface AvailableSpeaker {
@@ -385,7 +386,7 @@ function Reviewers({ eventId }: { eventId: string }) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {reviewers.filter((r) => r.accountActive).length}
+              {reviewers.filter((r) => r.accountActive && !r.needsEmailConfirmation).length}
             </div>
           </CardContent>
         </Card>
@@ -434,11 +435,17 @@ function Reviewers({ eventId }: { eventId: string }) {
                           <h3 className="text-lg font-semibold">
                             {reviewer.firstName} {reviewer.lastName}
                           </h3>
-                          {reviewer.accountActive ? (
+                          {reviewer.needsEmailConfirmation && (
+                            <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
+                              Must confirm email
+                            </Badge>
+                          )}
+                          {!reviewer.needsEmailConfirmation && reviewer.accountActive && (
                             <Badge variant="outline" className="bg-green-100 text-green-800">
                               Active
                             </Badge>
-                          ) : (
+                          )}
+                          {!reviewer.needsEmailConfirmation && !reviewer.accountActive && (
                             <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
                               Pending Invitation
                             </Badge>

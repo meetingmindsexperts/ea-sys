@@ -13,12 +13,15 @@
  * only ever takes rights away, so an address match is safe here (compare
  * src/lib/registrant-access.ts, where an address would grant access).
  *
- * The pool and the assignment count only once the account has proven its
- * address (`User.emailConfirmedAt`, set by the confirmation link or by accepting
- * an invitation). Anyone can create an account on any address through a public
- * form, so without this, an account squatting a professor's address would read
- * every abstract on the event the day an organiser added that professor. Staff
- * are org-bound and invited, so the rule asks only of the outside accounts.
+ * For a SUBMITTER or REGISTRANT, the pool and the assignment count only once the
+ * address is proven (`User.emailConfirmedAt`, set by the confirmation link or by
+ * accepting an invitation), and on a session that proof has not revoked. Anyone
+ * can create those two kinds of account on any address through a public form, so
+ * without this, an account squatting a professor's address would read every
+ * abstract on the event the day an organiser added that professor. A REVIEWER is
+ * not asked: no public door creates one, only an emailed invitation or an admin,
+ * and accounts from before the column existed were never stamped. Staff are
+ * org-bound and invited.
  *
  * Client-safe: no database import.
  */
@@ -34,11 +37,22 @@ export function becomesSubmitterToAuthor(role: string | null | undefined): boole
   return role === "REGISTRANT" || role === "REVIEWER";
 }
 
-/** Whether this account must still confirm its address before it may review. */
-export function mustConfirmEmailToReview(user: { role?: string | null; emailConfirmedAt?: Date | null } | null | undefined): boolean {
+/**
+ * Whether this account must still confirm its address before it may review.
+ * `sessionTokenVersion` is the caller's session counter when there is a session:
+ * accepting an invitation or resetting a password confirms the address and bumps
+ * the counter together, and the session it revoked lives up to five more minutes,
+ * which may be whoever made the account on someone else's address (the same rule
+ * as loadRegistrantScope in registrant-access.ts).
+ */
+export function mustConfirmEmailToReview(
+  user: { role?: string | null; emailConfirmedAt?: Date | null; tokenVersion?: number | null } | null | undefined,
+  sessionTokenVersion?: number | null,
+): boolean {
   if (!user) return true;
-  const outside = user.role === "REVIEWER" || user.role === "SUBMITTER" || user.role === "REGISTRANT";
-  return outside && !user.emailConfirmedAt;
+  if (user.role !== "SUBMITTER" && user.role !== "REGISTRANT") return false;
+  if (!user.emailConfirmedAt) return true;
+  return sessionTokenVersion !== undefined && (sessionTokenVersion ?? 0) !== (user.tokenVersion ?? 0);
 }
 
 /** Identity the rule needs. A session user fits. */

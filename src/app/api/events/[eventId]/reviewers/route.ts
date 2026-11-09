@@ -1,3 +1,4 @@
+import { mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -72,7 +73,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const reviewerUsers = reviewerUserIds.length > 0
       ? await db.user.findMany({
           where: { id: { in: reviewerUserIds } },
-          select: { id: true, email: true, firstName: true, lastName: true, emailVerified: true },
+          select: { id: true, email: true, firstName: true, lastName: true, emailVerified: true, role: true, emailConfirmedAt: true },
         })
       : [];
 
@@ -93,6 +94,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           jobTitle: s.jobTitle,
           speakerStatus: s.status as string | null,
           accountActive: !!user?.emailVerified,
+          needsEmailConfirmation: !!user && mustConfirmEmailToReview(user),
         };
       });
 
@@ -112,6 +114,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             jobTitle: null,
             speakerStatus: null,
             accountActive: !!user.emailVerified,
+            needsEmailConfirmation: mustConfirmEmailToReview(user),
           });
         }
       }

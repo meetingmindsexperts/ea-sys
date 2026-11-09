@@ -74,8 +74,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ hasReviewWork: reviewWork, hasAbstracts: !!ownAbstract });
     }
     // Nothing to read until the address is proven (abstract-reviewer-access.ts).
-    const account = await db.user.findUnique({ where: { id: userId }, select: { role: true, emailConfirmedAt: true } });
-    if (mustConfirmEmailToReview(account)) {
+    const account = await db.user.findUnique({ where: { id: userId }, select: { role: true, emailConfirmedAt: true, tokenVersion: true } });
+    if (mustConfirmEmailToReview(account, session.user.tokenVersion ?? 0)) {
       apiLogger.info({ msg: "my-reviews:awaiting-email-confirmation", userId });
       return NextResponse.json({ rows: [], total: 0, needsEmailConfirmation: true });
     }

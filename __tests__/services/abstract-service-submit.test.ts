@@ -250,3 +250,27 @@ describe("submitAbstractReview: nobody reviews their own abstract", () => {
     expect(r).toMatchObject({ ok: false, code: "OWN_ABSTRACT" });
   });
 });
+
+describe("submitAbstractReview: a partial set of criteria", () => {
+  const input = { eventId: "ev1", abstractId: "ab1", reviewerUserId: "pool-rev", actor: { userId: "pool-rev" }, source: "rest" as const };
+  beforeEach(() => {
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: "x", email: "a@example.com" } });
+    mockDb.user.findUnique.mockResolvedValue({ id: "pool-rev", email: "pool@example.com", role: "REVIEWER", emailConfirmedAt: null });
+  });
+
+  it("is refused without an overall score: it would average out what was left out", async () => {
+    const r = await submitAbstractReview({ ...input, criteriaScores: [{ criterionId: "c2", score: 10 }] });
+    expect(r).toMatchObject({ ok: false, code: "INCOMPLETE_CRITERIA" });
+    expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+  });
+
+  it("is allowed when the caller gives the overall score", async () => {
+    const r = await submitAbstractReview({ ...input, overallScore: 70, criteriaScores: [{ criterionId: "c2", score: 10 }] });
+    expect(r.ok).toBe(true);
+  });
+
+  it("all of them computes the weighted score", async () => {
+    await submitAbstractReview({ ...input, criteriaScores: [{ criterionId: "c1", score: 8 }, { criterionId: "c2", score: 0 }] });
+    expect(mockDb.abstractReviewSubmission.upsert.mock.calls[0][0].create.overallScore).toBe(48);
+  });
+});

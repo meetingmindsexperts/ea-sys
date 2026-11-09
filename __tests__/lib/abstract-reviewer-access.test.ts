@@ -57,11 +57,20 @@ describe("excludeOwnAbstracts", () => {
 });
 
 describe("mustConfirmEmailToReview", () => {
-  it.each(["REVIEWER", "SUBMITTER", "REGISTRANT"])("asks a %s until the address is proven", (role) => {
+  it.each(["SUBMITTER", "REGISTRANT"])("asks a %s until the address is proven", (role) => {
     expect(mustConfirmEmailToReview({ role, emailConfirmedAt: null })).toBe(true);
     expect(mustConfirmEmailToReview({ role, emailConfirmedAt: new Date() })).toBe(false);
   });
-  it("does not ask staff, and fails closed on a missing account", () => {
+
+  it("a session the confirmation revoked does not inherit it", () => {
+    const account = { role: "SUBMITTER", emailConfirmedAt: new Date(), tokenVersion: 3 };
+    expect(mustConfirmEmailToReview(account, 2)).toBe(true);
+    expect(mustConfirmEmailToReview(account, 3)).toBe(false);
+    expect(mustConfirmEmailToReview({ role: "SUBMITTER", emailConfirmedAt: new Date(), tokenVersion: null }, 0)).toBe(false);
+  });
+
+  it("does not ask a REVIEWER or staff, and fails closed on a missing account", () => {
+    expect(mustConfirmEmailToReview({ role: "REVIEWER", emailConfirmedAt: null })).toBe(false);
     expect(mustConfirmEmailToReview({ role: "ORGANIZER", emailConfirmedAt: null })).toBe(false);
     expect(mustConfirmEmailToReview(null)).toBe(true);
   });

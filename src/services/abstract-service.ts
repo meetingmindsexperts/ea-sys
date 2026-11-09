@@ -354,6 +354,8 @@ export interface SubmitAbstractReviewInput {
    * different for the admin on-behalf path (audited as such).
    */
   actor: {
+    /** The session counter when there is a session (mustConfirmEmailToReview). */
+    tokenVersion?: number;
     userId: string;
     /** Session role when the caller has one (REST). MCP callers omit it —
      *  the admin bypass is then simply unavailable, as before. */
@@ -378,6 +380,7 @@ export type SubmitAbstractReviewErrorCode =
   | "NOT_REVIEWABLE"
   | "OWN_ABSTRACT"
   | "EMAIL_NOT_CONFIRMED"
+  | "INCOMPLETE_CRITERIA"
   | "CONFLICT_OF_INTEREST"
   | "EMPTY_REVIEW"
   | "INVALID_OVERALL_SCORE"
@@ -464,7 +467,7 @@ export async function submitAbstractReview(
       }),
       db.user.findUnique({
         where: { id: reviewerUserId },
-        select: { id: true, firstName: true, lastName: true, email: true, role: true, emailConfirmedAt: true },
+        select: { id: true, firstName: true, lastName: true, email: true, role: true, emailConfirmedAt: true, tokenVersion: true },
       }),
     ]);
 
@@ -509,7 +512,7 @@ export async function submitAbstractReview(
 
     // ── An outside account proves its address before it reviews. Recording on
     // someone's behalf is the organiser vouching for them, so it is not asked.
-    if (!onBehalf && !selfSubmitAdminBypass && mustConfirmEmailToReview(reviewer)) {
+    if (!onBehalf && !selfSubmitAdminBypass && mustConfirmEmailToReview(reviewer, actor.tokenVersion)) {
       apiLogger.warn({ msg: "abstract-submission:email-not-confirmed", eventId, abstractId, reviewerUserId, source });
       return { ok: false, code: "EMAIL_NOT_CONFIRMED", message: "Confirm your email address to review abstracts." };
     }
@@ -599,6 +602,13 @@ export async function submitAbstractReview(
         cleaned[criterionId] = score;
       }
       criteriaScoresJson = cleaned;
+      // The score is computed over the criteria sent, so some of them would
+      // average out the ones left out: 10 on a weight-10 criterion alone is not
+      // a perfect review. A caller that sets overallScore itself may send a part.
+      if (overallInput === undefined && event.reviewCriteria.some((c) => !Object.prototype.hasOwnProperty.call(cleaned, c.id))) {
+        apiLogger.warn({ msg: "abstract-submission:incomplete-criteria", eventId, abstractId, reviewerUserId, source });
+        return { ok: false, code: "INCOMPLETE_CRITERIA", message: "Score every criterion, or give an overall score." };
+      }
       if (overallInput === undefined) {
         computedOverall = computeWeightedOverallScore(
           Object.entries(cleaned).map(([id, score]) => ({ criterionId: id, score, weight: weightMap.get(id) ?? 0 })),
