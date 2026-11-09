@@ -5,7 +5,7 @@
  * not the certificate survey must never mark completion or add the tag, since
  * that is what the certificate worker sweeps to mint CME certificates.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Prisma } from "@prisma/client";
 
 const { mockDb } = vi.hoisted(() => ({
@@ -328,6 +328,13 @@ describe("Phase 4: once per day (Oct 7, 2026)", () => {
 });
 
 describe("mintPersonalSurveyLink (the one survey-token minter)", () => {
+  // The token hash needs it; locally Prisma loads .env, CI has none.
+  beforeEach(() => {
+    vi.stubEnv("NEXTAUTH_SECRET", "test-secret");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
   const mint = (survey: Parameters<typeof mintPersonalSurveyLink>[0]["survey"]) =>
     mintPersonalSurveyLink({ survey, registrationId: "reg1", eventSlug: "ev", appUrl: "", expiry: { days: 30 } });
   const revoked = () => mockDb.verificationToken.deleteMany.mock.calls.map((c) => c[0].where.identifier.in);

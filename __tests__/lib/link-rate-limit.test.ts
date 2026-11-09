@@ -80,6 +80,10 @@ describe("the store under a spray of unique keys (Nov 9, 2026 review)", () => {
     try {
       vi.setSystemTime(new Date("2026-11-09T10:00:00Z"));
       store().clear();
+      // Earlier tests stamped the last cleanup with the REAL clock; once that is
+      // past the faked 10:00 (any run after 10:00 UTC on Nov 9) no cleanup
+      // would ever be due and this failed by wall-clock time.
+      (globalThis as unknown as Record<string, number>).__ea_sys_rate_limit_last_cleanup = 0;
       for (let i = 0; i < 60_000; i++) checkRateLimit({ key: `spray:${i}`, limit: 5, windowMs: 900_000 });
       // Live entries above the cap: the cleanup at most once a second keeps it
       // from walking the Map on every request, so the store may stay large
