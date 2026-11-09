@@ -184,7 +184,7 @@ function countdown(event: EventSummary, now: Date): string {
 }
 
 export default async function MyRegistrationPage() {
-  const { scope, data } = await loadRegistrantPortal("/my-registration", loadEvents);
+  const { scope, data } = await loadRegistrantPortal("/my-account", loadEvents);
   const now = new Date();
   const cards = buildCards(data, now);
   // Upcoming soonest first; past newest first.
@@ -212,7 +212,7 @@ export default async function MyRegistrationPage() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <SummaryTile icon={CalendarClock} label="Upcoming" value={upcoming.length} />
           <SummaryTile icon={CalendarCheck} label="Past events" value={past.length} />
-          <SummaryTile icon={Award} label="Certificates" value={data.certificates.length} href={data.certificates.length > 0 ? "/my-registration/certificates" : undefined} />
+          <SummaryTile icon={Award} label="Certificates" value={data.certificates.length} href={data.certificates.length > 0 ? "/my-account/certificates" : undefined} />
           <SummaryTile icon={GraduationCap} label={`CME hours in ${cme.year}`} value={cme.thisYear} note={cme.allTime > 0 ? `${cme.allTime} in total` : undefined} />
         </div>
       )}
@@ -403,7 +403,7 @@ function EventCard({ card, featured }: { card: EventCardData; featured?: string 
         )}
         {certificates.length > 0 && (
           <Button asChild variant="ghost" className="h-11 w-full text-label hover:text-label sm:ml-auto sm:h-9 sm:w-auto">
-            <Link href={`/my-registration/certificates#event-${event.id}`}>
+            <Link href={`/my-account/certificates#event-${event.id}`}>
               <Award className="mr-1.5 h-4 w-4" aria-hidden />
               {certificates.length === 1 ? "1 certificate" : `${certificates.length} certificates`}
             </Link>

@@ -10,7 +10,8 @@
 import { systemRoleFor, type Area, type AreaGrant } from "@/lib/permissions/system-roles";
 
 /** The paths everyone signed in keeps: their own profile and registrations. */
-const PERSONAL = ["/profile", "/my-registration"];
+// /my-registration was the portal's address before Nov 9, 2026; next.config redirects it.
+const PERSONAL = ["/profile", "/my-account", "/my-registration"];
 
 /** A dashboard path's area. Event paths are judged in `staffRedirect`. */
 const AREA_PREFIXES: [string, Area][] = [
@@ -127,7 +128,7 @@ export function confinementRedirect(role: string | null | undefined, pathname: s
   if (pathname.startsWith("/api/")) return null;
 
   // REGISTRANT: everything goes to the registration portal.
-  if (role === "REGISTRANT") return pathname.startsWith("/my-registration") ? null : "/my-registration";
+  if (role === "REGISTRANT") return pathname.startsWith("/my-account") || pathname.startsWith("/my-registration") ? null : "/my-account";
 
   // Staff: the AREAS their role works in (custom roles Phase 3, Oct 5, 2026).
   // A path outside them goes to the role's home area. Reviewers and

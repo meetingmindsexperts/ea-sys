@@ -93,7 +93,7 @@ describe("structured data", () => {
 
 describe("robots rules", () => {
   it("keep personal, sign-in, secret-link and staff pages out", () => {
-    for (const p of ["/api/", "/dashboard", "/events", "/my-registration", "/login", "/e/*/shared/", "/e/*/survey", "/e/*/my-registration"]) {
+    for (const p of ["/api/", "/dashboard", "/events", "/my-account", "/my-registration", "/login", "/e/*/shared/", "/e/*/survey", "/e/*/my-registration"]) {
       expect(ROBOTS_DISALLOW).toContain(p);
     }
   });

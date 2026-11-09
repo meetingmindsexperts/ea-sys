@@ -94,7 +94,7 @@ function CatalogueNav({ organization, signedIn }: { organization: SiteOrganizati
         {organization?.catalogue.showHowItWorks !== false && <Link href="/catalogue#how" className="hidden hover:text-white md:inline">How it works</Link>}
         {signedIn ? (
           <Link
-            href="/my-registration"
+            href="/my-account"
             className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 font-medium text-[#0a1c2e] transition-colors hover:bg-[#dff5fc]"
           >
             <LayoutList className="h-4 w-4" />
@@ -546,8 +546,8 @@ export function CatalogueFooter({ organization, specialties }: { organization: S
         <div>
           <h2 className={heading}>Attendees</h2>
           <ul className="grid gap-1.5">
-            <li><Link href="/my-registration" className="hover:text-white">My events</Link></li>
-            <li><Link href="/my-registration" className="hover:text-white">Certificates</Link></li>
+            <li><Link href="/my-account" className="hover:text-white">My events</Link></li>
+            <li><Link href="/my-account/certificates" className="hover:text-white">Certificates</Link></li>
             <li><Link href="/login?callbackUrl=%2Fmy-registration" className="hover:text-white">Sign in</Link></li>
           </ul>
         </div>

@@ -101,6 +101,10 @@ const nextConfig: NextConfig = {
     return [
       { source: "/crm/companies", destination: "/crm/accounts", permanent: false },
       { source: "/crm/companies/:companyId", destination: "/crm/accounts/:companyId", permanent: false },
+      // The attendee portal moved to /my-account (Nov 9, 2026). /my-registration
+      // is in every confirmation email ever sent, so it keeps working.
+      { source: "/my-registration", destination: "/my-account", permanent: false },
+      { source: "/my-registration/:path*", destination: "/my-account/:path*", permanent: false },
     ];
   },
 

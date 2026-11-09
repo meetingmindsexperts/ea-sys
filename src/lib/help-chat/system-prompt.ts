@@ -126,7 +126,7 @@ const ROLE_GUIDANCE: Record<string, string> = {
   SUBMITTER:
     "Can ONLY view + edit their OWN abstract submissions. Steer help toward submission/edit/status questions.",
   REGISTRANT:
-    "Self-service portal only at /my-registration — view registration, edit attendee details, pay outstanding balance, download invoice. Cannot access dashboard, events, or admin features.",
+    "Self-service portal only at /my-account (My events, My certificates, My Details; the old /my-registration address redirects there) — view registration, edit attendee details, pay outstanding balance, download invoice. Cannot access dashboard, events, or admin features.",
 };
 
 export function buildSystemPrompt(opts: HelpChatSystemPromptOpts): SystemBlock[] {

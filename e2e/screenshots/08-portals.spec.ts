@@ -13,9 +13,9 @@ const CHAPTER = "08-portals";
 
 test.describe.configure({ mode: "serial" });
 
-test("registrant portal (/my-registration)", async ({ page }) => {
-  await loginAs(page, "REGISTRANT", { expectUrl: /my-registration|\/e\// });
-  await page.goto("/my-registration");
+test("registrant portal (/my-account)", async ({ page }) => {
+  await loginAs(page, "REGISTRANT", { expectUrl: /my-account|\/e\// });
+  await page.goto("/my-account");
   await page.waitForLoadState("networkidle");
   await snap(page, {
     chapter: CHAPTER,

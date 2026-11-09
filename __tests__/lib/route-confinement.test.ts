@@ -41,6 +41,7 @@ const PATHS = [
   "/procurement",
   "/activity",
   "/media",
+  "/my-account",
   "/my-registration",
   "/api/events",
 ];

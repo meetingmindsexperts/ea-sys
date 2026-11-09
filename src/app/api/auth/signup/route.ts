@@ -9,6 +9,8 @@ import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup"
 import { sendEmailVerification } from "@/lib/email-verification";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { SIGNUP_PASSWORD_MAX, SIGNUP_PASSWORD_MIN, signInNeedsConfirmation } from "@/lib/account-signup";
+import { personalDetailsFields } from "@/lib/schemas";
+import { newAccountProfileData, normalizeDetails } from "@/lib/registrant-details";
 
 /**
  * Create an account without registering for an event (Nov 5, 2026; phase 2 of
@@ -22,19 +24,33 @@ import { SIGNUP_PASSWORD_MAX, SIGNUP_PASSWORD_MIN, signInNeedsConfirmation } fro
  * an address with an unconfirmed sign-up is sent its link again, and an
  * address with an account is sent a "you already have an account" note. The
  * password is hashed on every path so the timing does not tell them apart.
+ *
+ * It asks the public registration form's personal questions (Nov 9, 2026), kept
+ * on the account (AccountProfile) so a later registration starts filled in,
+ * and the marketing tick box. An address that already has an account changes
+ * nothing about that account: its details stay as they are.
  */
 
 const schema = z
   .object({
+    // The public registration form's personal questions, its own rules
+    // (owner, Nov 9, 2026: sign-up asks what registering asks).
+    ...personalDetailsFields,
     firstName: z.string().trim().min(1).max(100),
     lastName: z.string().trim().min(1).max(100),
     email: z.string().trim().email().max(255),
     password: z.string().min(SIGNUP_PASSWORD_MIN).max(SIGNUP_PASSWORD_MAX),
     acceptTerms: z.literal(true),
+    // Only ever true when the person ticked an unticked box.
+    marketingConsent: z.boolean().optional(),
     // A field people never see; a bot that fills every input fills it.
     website: z.string().max(200).optional(),
   })
-  .strict();
+  .strict()
+  .refine((d) => d.specialty !== "Others" || (d.customSpecialty?.trim().length ?? 0) > 0, {
+    message: "Please enter your specialty",
+    path: ["customSpecialty"],
+  });
 
 const ACCEPTED = { ok: true, message: "If this address can be used for a new account, we have sent a link to it." };
 
@@ -66,7 +82,9 @@ export async function POST(req: Request) {
       apiLogger.warn({ msg: "auth/signup:validation-failed", fields: Object.keys(flat.fieldErrors), formErrors: flat.formErrors, ip });
       return NextResponse.json({ error: "Please check the form and try again." }, { status: 400 });
     }
-    const { firstName, lastName, password, website } = parsed.data;
+    const { password, website } = parsed.data;
+    const details = normalizeDetails(parsed.data);
+    const { firstName, lastName } = details;
     const email = parsed.data.email.toLowerCase();
 
     if (website) {
@@ -107,6 +125,10 @@ export async function POST(req: Request) {
           organizationId: null,
           termsAcceptedAt: new Date(),
           termsAcceptedIp: ip,
+          specialty: details.specialty,
+          // The account's own details, made in the same write so an account
+          // never exists without them (registrant-details.ts).
+          accountProfile: { create: newAccountProfileData(details, parsed.data.marketingConsent === true, ip) },
         },
         select: { id: true },
       });

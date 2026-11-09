@@ -7,7 +7,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { loadRegistrantScope, type RegistrantScope } from "@/lib/registrant-access";
 
 /**
- * The one way a page of a person's own portal (/my-registration and the pages
+ * The one way a page of a person's own portal (/my-account and the pages
  * under it, docs/MY_PORTAL_PLAN.md) gets its data: signed in or off to sign
  * in, the tenant lane from the host (a registrant is org-null, so sign-in
  * resolves it the same way), the person's scope from the database, then the

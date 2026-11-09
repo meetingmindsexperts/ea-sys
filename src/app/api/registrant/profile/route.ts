@@ -5,6 +5,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
+import { readAccountDetails } from "@/lib/registrant-details";
 
 /**
  * The personal details a signed-in person gave on their latest registration,
@@ -34,8 +35,8 @@ const PROFILE_SELECT = {
 
 /**
  * GET /api/registrant/profile
- * `{ profile: null }` when the person has no registration yet (a submitter, a
- * new account).
+ * `{ profile: null }` when the person has neither account details nor a
+ * registration yet.
  */
 export async function GET(req: Request) {
   try {
@@ -55,13 +56,23 @@ export async function GET(req: Request) {
         apiLogger.warn({ msg: "registrant-profile:user-not-found", userId });
         return NextResponse.json({ profile: null });
       }
-      const latest = await db.registration.findFirst({
-        // The same rule as My events (registrant-access.ts): a registration
-        // matched only by address pre-fills nothing until it is confirmed.
-        where: ownRegistrationWhere(scope),
-        orderBy: { createdAt: "desc" },
-        select: { attendee: { select: PROFILE_SELECT } },
-      });
+      const [latest, account] = await Promise.all([
+        db.registration.findFirst({
+          // The same rule as My events (registrant-access.ts): a registration
+          // matched only by address pre-fills nothing until it is confirmed.
+          where: ownRegistrationWhere(scope),
+          orderBy: { createdAt: "desc" },
+          select: { attendee: { select: PROFILE_SELECT } },
+        }),
+        readAccountDetails(scope),
+      ]);
+      // The account's own details win when it has them (given at sign-up or on
+      // My Details, Nov 9, 2026): they are the person's latest word. The
+      // latest registration still supplies what an account does not hold
+      // (dietary requirements).
+      if (account.source === "account") {
+        return NextResponse.json({ profile: { ...(latest?.attendee ?? {}), ...account.details } });
+      }
       return NextResponse.json({ profile: latest?.attendee ?? null });
     });
   } catch (error) {

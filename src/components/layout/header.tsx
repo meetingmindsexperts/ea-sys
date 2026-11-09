@@ -24,6 +24,7 @@ import {
   Handshake,
   CalendarClock,
   KeyRound,
+  UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -440,9 +441,17 @@ export function Header() {
                 certificates sent to them. Staff register for events too, and
                 the page says so plainly when there are none. */}
             <DropdownMenuItem asChild>
-              <Link href="/my-registration" className="flex items-center">
+              <Link href="/my-account" className="flex items-center">
                 <Ticket className="mr-2 h-4 w-4" />
                 My events
+              </Link>
+            </DropdownMenuItem>
+            {/* Everyone's own details (Nov 9, 2026): the registration form's
+                questions on the account, and marketing consent. */}
+            <DropdownMenuItem asChild>
+              <Link href="/my-account/details" className="flex items-center">
+                <UserRound className="mr-2 h-4 w-4" />
+                My details
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />

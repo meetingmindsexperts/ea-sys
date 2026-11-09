@@ -6,7 +6,7 @@ import { localDateInTz } from "@/lib/event-time";
 
 /**
  * Which issued certificates a signed-in person may see and download on their
- * own portal (/my-registration). One function for the list and the download,
+ * own portal (/my-account). One function for the list and the download,
  * so the two cannot drift: a certificate the list hides is a certificate the
  * download refuses.
  *

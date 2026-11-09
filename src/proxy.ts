@@ -189,6 +189,7 @@ export const config = {
     "/procurement/:path*",
     "/activity/:path*",
     "/media/:path*",
+    "/my-account/:path*",
     "/my-registration/:path*",
     "/api/:path*",
   ],

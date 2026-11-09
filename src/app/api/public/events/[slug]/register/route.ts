@@ -14,7 +14,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { personalDetailsFields } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -45,21 +45,10 @@ const registrationSchema = z.object({
     (v) => (v === "" ? undefined : v),
     z.string().min(1).max(100).optional()
   ),
-  title: titleEnum,
-  role: attendeeRoleEnum,
-  firstName: z.string().min(1, "First name is required").max(100),
-  lastName: z.string().min(1, "Last name is required").max(100),
+  // The personal fields, shared with account sign-up and My Details.
+  ...personalDetailsFields,
   email: z.string().email("Valid email is required").max(255),
   additionalEmail: z.string().email().max(255).optional().or(z.literal("")),
-  organization: z.string().min(1, "Organization is required").max(255),
-  jobTitle: z.string().min(1, "Position is required").max(255),
-  phone: z.string().min(1, "Mobile number is required").max(50),
-  city: z.string().min(1, "City is required").max(255),
-  state: z.string().max(255).optional(),
-  zipCode: z.string().max(20).optional(),
-  country: z.string().min(1, "Country is required").max(255),
-  specialty: z.string().min(1, "Specialty is required").max(255),
-  customSpecialty: z.string().max(255).optional(),
   dietaryReqs: z.string().max(2000).optional(),
   // Member-specific fields
   associationName: z.string().max(255).optional(),

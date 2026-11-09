@@ -4,18 +4,18 @@ import { loginAs } from "./fixtures/login";
 
 // Each test uses its own context so cookies don't leak between roles.
 test.describe("RBAC middleware redirects", () => {
-  test("REGISTRANT is routed to /my-registration from any dashboard page", async ({ browser }) => {
+  test("REGISTRANT is routed to /my-account from any dashboard page", async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    await loginAs(page, "REGISTRANT", { expectUrl: /\/my-registration/ });
+    await loginAs(page, "REGISTRANT", { expectUrl: /\/my-account/ });
 
     // Manually try to reach dashboard/events — middleware should bounce
     await page.goto("/dashboard");
-    await expect(page).toHaveURL(/\/my-registration/);
+    await expect(page).toHaveURL(/\/my-account/);
 
     await page.goto("/events");
-    await expect(page).toHaveURL(/\/my-registration/);
+    await expect(page).toHaveURL(/\/my-account/);
 
     await context.close();
   });

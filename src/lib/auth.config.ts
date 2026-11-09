@@ -124,7 +124,7 @@ export default {
       const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
 
       // Protected routes
-      const protectedRoutes = ["/dashboard", "/events", "/settings", "/my-registration"];
+      const protectedRoutes = ["/dashboard", "/events", "/settings", "/my-account", "/my-registration"];
       const isProtectedRoute = protectedRoutes.some((route) => pathname.startsWith(route));
 
       // Redirect to login if not authenticated
@@ -132,7 +132,7 @@ export default {
         return false;
       }
 
-      const defaultHome = auth?.user?.role === "REGISTRANT" ? "/my-registration" : "/dashboard";
+      const defaultHome = auth?.user?.role === "REGISTRANT" ? "/my-account" : "/dashboard";
 
       // Redirect to home if authenticated and on public route
       if (isLoggedIn && isPublicRoute) {

@@ -105,16 +105,16 @@ describe("the CRM entry follows the organisation's entitlement", () => {
 });
 
 describe("activeNavHref", () => {
-  const items = [{ href: "/events" }, { href: "/my-registration" }, { href: "/my-registration/certificates" }, { href: "/user-guide.html", external: true }];
+  const items = [{ href: "/events" }, { href: "/my-account" }, { href: "/my-account/certificates" }, { href: "/user-guide.html", external: true }];
 
   it("lights the longest item a path sits under, so a portal subpage does not light My events too", () => {
-    expect(activeNavHref("/my-registration/certificates", items)).toBe("/my-registration/certificates");
-    expect(activeNavHref("/my-registration", items)).toBe("/my-registration");
+    expect(activeNavHref("/my-account/certificates", items)).toBe("/my-account/certificates");
+    expect(activeNavHref("/my-account", items)).toBe("/my-account");
     expect(activeNavHref("/events/e1/abstracts", items)).toBe("/events");
   });
 
   it("never matches a mere prefix of a segment, or an external item", () => {
-    expect(activeNavHref("/my-registrationx", items)).toBeNull();
+    expect(activeNavHref("/my-accountx", items)).toBeNull();
     expect(activeNavHref("/user-guide.html", items)).toBeNull();
   });
 });

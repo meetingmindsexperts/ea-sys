@@ -216,13 +216,13 @@ export function buildFaq(f: OverviewFacts): { question: string; answer: string }
   if (f.state === "open") {
     faq.push({
       question: `How do I register for ${event.name}?`,
-      answer: `Choose Register on this page, pick your registration type and complete the form. A confirmation email follows, and your registration is in My events at ${f.origin}/my-registration.`,
+      answer: `Choose Register on this page, pick your registration type and complete the form. A confirmation email follows, and your registration is in My events at ${f.origin}/my-account.`,
     });
   }
   if (event.cmeHours) {
     faq.push({
       question: "How do I get my CME certificate?",
-      answer: `Once issued, your certificate is emailed to you and can be downloaded any time from My events at ${f.origin}/my-registration.`,
+      answer: `Once issued, your certificate is emailed to you and can be downloaded any time from My events at ${f.origin}/my-account.`,
     });
   }
   return faq;

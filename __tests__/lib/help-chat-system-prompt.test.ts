@@ -170,9 +170,9 @@ describe("buildRoleTail — role-aware differentiation", () => {
     expect(buildRoleTail({ role: "HR_USER" })).toContain("HR");
   });
 
-  it("REGISTRANT guidance mentions /my-registration (their only surface)", () => {
+  it("REGISTRANT guidance mentions /my-account (their only surface)", () => {
     const tail = buildRoleTail({ role: "REGISTRANT" });
-    expect(tail).toContain("/my-registration");
+    expect(tail).toContain("/my-account");
   });
 });
 

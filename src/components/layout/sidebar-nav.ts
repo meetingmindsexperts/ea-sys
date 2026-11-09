@@ -39,6 +39,7 @@ import {
   Settings,
   Ticket,
   UserCheck,
+  UserRound,
   Users,
   Video,
   Wallet,
@@ -253,17 +254,18 @@ export interface SidebarNav {
 
 /**
  * The pages of a person's own portal (docs/MY_PORTAL_PLAN.md). They live under
- * /my-registration, which every role may open, so listing them needs no
+ * /my-account, which every role may open, so listing them needs no
  * confinement change.
  */
-const MY_EVENTS: NavItem = { name: "My events", href: "/my-registration", icon: Ticket, areas: [] };
-const MY_CERTIFICATES: NavItem = { name: "My certificates", href: "/my-registration/certificates", icon: Award, areas: [] };
+const MY_EVENTS: NavItem = { name: "My events", href: "/my-account", icon: Ticket, areas: [] };
+const MY_CERTIFICATES: NavItem = { name: "My certificates", href: "/my-account/certificates", icon: Award, areas: [] };
+const MY_DETAILS: NavItem = { name: "My details", href: "/my-account/details", icon: UserRound, areas: [] };
 /** Listed for submitters, the role that submits; the page works for anyone. */
-const MY_ABSTRACTS: NavItem = { name: "My abstracts", href: "/my-registration/abstracts", icon: FileText, areas: [] };
+const MY_ABSTRACTS: NavItem = { name: "My abstracts", href: "/my-account/abstracts", icon: FileText, areas: [] };
 
 /**
  * Which item a path highlights: the longest href it sits under, so
- * /my-registration/certificates lights My certificates and not My events too.
+ * /my-account/certificates lights My certificates and not My events too.
  * An external item never matches (it is a static file, not a route).
  */
 export function activeNavHref(pathname: string, items: readonly Pick<NavItem, "href" | "external">[]): string | null {
@@ -303,12 +305,12 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
   // REGISTRANT: their own portal pages only (owner, Nov 9, 2026; until then
   // no sidebar at all, which left certificates findable only inside each
   // event's card).
-  if (isRegistrant) return { baseNavigation: [MY_EVENTS, MY_CERTIFICATES], visibleEventSections: [] };
+  if (isRegistrant) return { baseNavigation: [MY_EVENTS, MY_CERTIFICATES, MY_DETAILS], visibleEventSections: [] };
   if (isReviewer || isSubmitter) {
     // Their own registrations and certificates (Nov 4, 2026). Once a submitter
-    // or reviewer went into Events there was no way back to /my-registration:
+    // or reviewer went into Events there was no way back to their portal:
     // their sidebar held only Events. Staff reach it from the account menu.
-    const portal = isSubmitter ? [MY_EVENTS, MY_CERTIFICATES, MY_ABSTRACTS] : [MY_EVENTS, MY_CERTIFICATES];
+    const portal = isSubmitter ? [MY_EVENTS, MY_CERTIFICATES, MY_ABSTRACTS, MY_DETAILS] : [MY_EVENTS, MY_CERTIFICATES, MY_DETAILS];
     const restrictedNavigation: NavItem[] = isReviewer
       ? [
           { name: "My Reviews", href: "/my-reviews", icon: ClipboardCheck, areas: [] },

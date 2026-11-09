@@ -71,7 +71,7 @@ interface Row {
 }
 
 export default async function MyAbstractsPage() {
-  const { data, role } = await loadRegistrantPortal("/my-registration/abstracts", loadSubmissions);
+  const { data, role } = await loadRegistrantPortal("/my-account/abstracts", loadSubmissions);
   // The event's own Abstracts / Session Proposals pages are a submitter's;
   // another role would only be bounced from them, so it gets the list alone.
   const linked = role === "SUBMITTER";

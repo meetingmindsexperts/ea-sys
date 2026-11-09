@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockAuth } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
-  mockDb: { registration: { findFirst: vi.fn() }, user: { findUnique: vi.fn() } },
+  mockDb: { registration: { findFirst: vi.fn() }, user: { findUnique: vi.fn() }, accountProfile: { findUnique: vi.fn() } },
 }));
 
 vi.mock("next/server", () => ({
@@ -28,7 +28,9 @@ async function get() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", email: "Anna@Example.com", role: "REGISTRANT" } });
-  mockDb.user.findUnique.mockResolvedValue({ email: "Anna@Example.com", emailConfirmedAt: new Date() });
+  mockDb.user.findUnique.mockResolvedValue({ email: "Anna@Example.com", emailConfirmedAt: new Date(), firstName: "Anna", lastName: "Lee" });
+  // No account details by default: the latest registration pre-fills, as before.
+  mockDb.accountProfile.findUnique.mockResolvedValue(null);
 });
 
 describe("GET /api/registrant/profile", () => {
@@ -69,5 +71,12 @@ describe("GET /api/registrant/profile", () => {
       expect(fields).not.toContain(never);
     }
     expect(fields).toEqual(expect.arrayContaining(["firstName", "lastName", "organization", "phone", "country", "specialty"]));
+  });
+
+  it("the account's own details win over the latest registration (sign-up, My Details)", async () => {
+    mockDb.accountProfile.findUnique.mockResolvedValue({ organization: "New Clinic", country: "UAE", title: null, role: null, jobTitle: null, phone: null, city: null, state: null, zipCode: null, specialty: null, customSpecialty: null, marketingConsentAt: null, marketingConsentWithdrawnAt: null });
+    mockDb.registration.findFirst.mockResolvedValue({ attendee: { firstName: "Old", organization: "Old Clinic", country: "Oman", dietaryReqs: "Vegetarian" } });
+    const { body } = await get();
+    expect(body.profile).toMatchObject({ firstName: "Anna", organization: "New Clinic", country: "UAE", dietaryReqs: "Vegetarian" });
   });
 });

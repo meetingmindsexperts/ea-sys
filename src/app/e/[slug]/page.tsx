@@ -514,7 +514,7 @@ function TopBar({
           )}
           {signedIn ? (
             <Button asChild variant="outline" size="sm" className="border-primary/40 bg-primary/5 font-medium text-primary hover:bg-primary/10 hover:text-primary">
-              <Link href="/my-registration">
+              <Link href="/my-account">
                 <LayoutList className="mr-1.5 h-4 w-4" />
                 My events
               </Link>
@@ -544,7 +544,7 @@ function CallToAction({ state, registerHref, className = "" }: { state: Registra
   if (state === "ended") {
     return (
       <Button asChild variant="outline" className={className}>
-        <Link href="/my-registration">My events</Link>
+        <Link href="/my-account">My events</Link>
       </Button>
     );
   }

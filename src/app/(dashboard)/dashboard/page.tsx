@@ -30,7 +30,7 @@ export default async function DashboardPage() {
   if (!session?.user) redirect("/login");
 
   if (session.user.role === "REGISTRANT") {
-    redirect("/my-registration");
+    redirect("/my-account");
   }
 
   if (session.user.role === "REVIEWER" || session.user.role === "SUBMITTER") {

@@ -27,6 +27,7 @@
   /procurement -> pass
   /activity -> pass
   /media -> pass
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # ADMIN
@@ -58,6 +59,7 @@
   /procurement -> pass
   /activity -> pass
   /media -> pass
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # ORGANIZER
@@ -89,6 +91,7 @@
   /procurement -> pass
   /activity -> pass
   /media -> pass
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # MEMBER
@@ -120,6 +123,7 @@
   /procurement -> pass
   /activity -> pass
   /media -> pass
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # ONSITE
@@ -151,6 +155,7 @@
   /procurement -> /events
   /activity -> /events
   /media -> /events
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # WEBINARS
@@ -182,6 +187,7 @@
   /procurement -> pass
   /activity -> /events
   /media -> /events
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # CRM_USER
@@ -213,6 +219,7 @@
   /procurement -> /crm
   /activity -> /crm
   /media -> /crm
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # HR_USER
@@ -244,6 +251,7 @@
   /procurement -> /hr
   /activity -> /hr
   /media -> /hr
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # BASE
@@ -275,6 +283,7 @@
   /procurement -> /events
   /activity -> /events
   /media -> /events
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # REVIEWER
@@ -306,6 +315,7 @@
   /procurement -> pass
   /activity -> pass
   /media -> pass
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # SUBMITTER
@@ -337,37 +347,39 @@
   /procurement -> pass
   /activity -> pass
   /media -> pass
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # REGISTRANT
-  /dashboard -> /my-registration
-  /events -> /my-registration
-  /events/new -> /my-registration
-  /events/e1 -> /my-registration
-  /events/e1/registrations -> /my-registration
-  /events/e1/registrations/r1 -> /my-registration
-  /events/e1/check-in -> /my-registration
-  /events/e1/check-in/kiosk -> /my-registration
-  /events/e1/speakers -> /my-registration
-  /events/e1/abstracts -> /my-registration
-  /events/e1/abstracts/new -> /my-registration
-  /events/e1/session-proposals -> /my-registration
-  /events/e1/my-details -> /my-registration
-  /events/e1/settings -> /my-registration
-  /events/e1/webinar -> /my-registration
-  /settings -> /my-registration
-  /contacts -> /my-registration
-  /contacts/c1 -> /my-registration
-  /profile -> /my-registration
-  /logs -> /my-registration
-  /agent -> /my-registration
-  /invoices -> /my-registration
-  /analytics -> /my-registration
-  /crm -> /my-registration
-  /hr -> /my-registration
-  /procurement -> /my-registration
-  /activity -> /my-registration
-  /media -> /my-registration
+  /dashboard -> /my-account
+  /events -> /my-account
+  /events/new -> /my-account
+  /events/e1 -> /my-account
+  /events/e1/registrations -> /my-account
+  /events/e1/registrations/r1 -> /my-account
+  /events/e1/check-in -> /my-account
+  /events/e1/check-in/kiosk -> /my-account
+  /events/e1/speakers -> /my-account
+  /events/e1/abstracts -> /my-account
+  /events/e1/abstracts/new -> /my-account
+  /events/e1/session-proposals -> /my-account
+  /events/e1/my-details -> /my-account
+  /events/e1/settings -> /my-account
+  /events/e1/webinar -> /my-account
+  /settings -> /my-account
+  /contacts -> /my-account
+  /contacts/c1 -> /my-account
+  /profile -> /my-account
+  /logs -> /my-account
+  /agent -> /my-account
+  /invoices -> /my-account
+  /analytics -> /my-account
+  /crm -> /my-account
+  /hr -> /my-account
+  /procurement -> /my-account
+  /activity -> /my-account
+  /media -> /my-account
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # CUSTOM
@@ -399,6 +411,7 @@
   /procurement -> /events
   /activity -> /events
   /media -> /events
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # UNKNOWN
@@ -430,6 +443,7 @@
   /procurement -> /events
   /activity -> /events
   /media -> /events
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass
 # (no role)
@@ -461,5 +475,6 @@
   /procurement -> pass
   /activity -> pass
   /media -> pass
+  /my-account -> pass
   /my-registration -> pass
   /api/events -> pass

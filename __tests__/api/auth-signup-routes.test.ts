@@ -41,9 +41,17 @@ import { POST as signup } from "@/app/api/auth/signup/route";
 import { POST as resend } from "@/app/api/auth/resend-confirmation/route";
 
 const body = (over: Record<string, unknown> = {}) => ({
+  title: "DR",
   firstName: "Sara",
   lastName: "Haddad",
   email: "Sara.Haddad@Example.com",
+  role: "PHYSICIAN",
+  specialty: "Cardiology",
+  organization: "City Hospital",
+  jobTitle: "Consultant",
+  phone: "+971500000000",
+  city: "Dubai",
+  country: "United Arab Emirates",
   password: "correct horse",
   acceptTerms: true,
   ...over,
@@ -161,5 +169,45 @@ describe("POST /api/auth/resend-confirmation", () => {
     const ordinary = await (await post(resend, { email: "has-registrations@example.com" })).json();
     expect(ordinary).toEqual(unknown);
     expect(mockSendVerification).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/auth/signup: the registration form's questions and marketing consent (Nov 9, 2026)", () => {
+  const created = () => mockDb.user.create.mock.calls[0][0].data;
+
+  it("refuses a sign-up missing a question the registration form requires", async () => {
+    for (const field of ["organization", "jobTitle", "phone", "city", "country", "specialty", "role"]) {
+      mockDb.user.create.mockClear();
+      const res = await post(signup, body({ [field]: undefined }));
+      expect(res.status, field).toBe(400);
+      expect(mockDb.user.create).not.toHaveBeenCalled();
+    }
+  });
+
+  it("'Others' needs the specialty written in", async () => {
+    expect((await post(signup, body({ specialty: "Others" }))).status).toBe(400);
+    expect((await post(signup, body({ specialty: "Others", customSpecialty: "Sleep medicine" }))).status).toBe(200);
+  });
+
+  it("creates the account's profile in the same write as the account", async () => {
+    await post(signup, body());
+    expect(created().accountProfile.create).toMatchObject({ title: "DR", role: "PHYSICIAN", organization: "City Hospital", country: "United Arab Emirates", state: null });
+  });
+
+  it("no marketing consent unless the box was ticked", async () => {
+    await post(signup, body());
+    expect(created().accountProfile.create).not.toHaveProperty("marketingConsentAt");
+  });
+
+  it("a ticked box records when, from where and which wording", async () => {
+    await post(signup, body({ marketingConsent: true }));
+    expect(created().accountProfile.create).toMatchObject({ marketingConsentAt: expect.any(Date), marketingConsentIp: "1.1.1.1", marketingConsentWording: "2026-11-09" });
+  });
+
+  it("an address with an account changes nothing about it, details included", async () => {
+    mockFindUser.mockResolvedValue({ id: "u1", firstName: "Sara", lastName: "Haddad", role: "REGISTRANT", emailConfirmedAt: new Date() });
+    const res = await post(signup, body({ organization: "Someone Else" }));
+    expect(res.status).toBe(200);
+    expect(mockDb.user.create).not.toHaveBeenCalled();
   });
 });

@@ -146,3 +146,27 @@ export function refinePresenterSpecialty<T extends z.ZodTypeAny>(schema: T) {
     { message: "Please specify your specialty", path: ["customSpecialty"] },
   );
 }
+
+/**
+ * The personal fields the public registration form asks, with its own rules
+ * and messages: ONE definition for the register route, account sign-up and My
+ * Details (Nov 9, 2026), so an account made at /signup always holds what a
+ * registration would need, and the three can never ask different things.
+ * Email is not here: each caller treats it differently (sign-up takes it, My
+ * Details never changes it).
+ */
+export const personalDetailsFields = {
+  title: titleEnum,
+  role: attendeeRoleEnum,
+  firstName: z.string().min(1, "First name is required").max(100),
+  lastName: z.string().min(1, "Last name is required").max(100),
+  organization: z.string().min(1, "Organization is required").max(255),
+  jobTitle: z.string().min(1, "Position is required").max(255),
+  phone: z.string().min(1, "Mobile number is required").max(50),
+  city: z.string().min(1, "City is required").max(255),
+  state: z.string().max(255).optional(),
+  zipCode: z.string().max(20).optional(),
+  country: z.string().min(1, "Country is required").max(255),
+  specialty: z.string().min(1, "Specialty is required").max(255),
+  customSpecialty: z.string().max(255).optional(),
+};

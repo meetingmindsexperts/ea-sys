@@ -234,6 +234,7 @@ model User {
   organization              Organization?              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   speakers                  Speaker[]
   registrations             Registration[]
+  accountProfile            AccountProfile?
   auditLogs                 AuditLog[]
   accounts                  Account[]
   sessions                  AuthSession[]
@@ -381,6 +382,42 @@ enum UserRole {
   // use: a marketing colleague who exports registrations and contacts. Grantable
   // only while custom roles are on (CUSTOM_ROLES_ENABLED); never notified.
   BASE
+}
+
+/// A person's own details on their ACCOUNT (Nov 9, 2026, docs/ACCOUNT_SIGNUP_PLAN.md):
+/// the public registration form's personal fields, given at /signup or on My
+/// Details, so an account that has not registered yet still has them and a
+/// later registration starts filled in. A registration keeps its own copy on
+/// its Attendee row (what the badge and invoice were made from); My Details
+/// copies an edit onto upcoming registrations only (registrant-details.ts).
+///
+/// No organizationId and no RLS policy, like User itself.
+///
+/// Marketing consent lives here: given only by an unticked box the person
+/// ticks, with when, from where and the exact wording; withdrawing stamps
+/// marketingConsentWithdrawnAt and clears nothing, so the history stays.
+model AccountProfile {
+  userId                      String        @id
+  title                       Title?
+  role                        AttendeeRole?
+  organization                String?
+  jobTitle                    String?
+  phone                       String?
+  city                        String?
+  state                       String?
+  zipCode                     String?
+  country                     String?
+  specialty                   String?
+  customSpecialty             String?
+  marketingConsentAt          DateTime?
+  marketingConsentIp          String?
+  /// The version key of the wording shown (MARKETING_CONSENT_WORDING_VERSION).
+  marketingConsentWording     String?
+  marketingConsentWithdrawnAt DateTime?
+  createdAt                   DateTime      @default(now())
+  updatedAt                   DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 enum Title {

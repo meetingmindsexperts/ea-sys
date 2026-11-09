@@ -25,7 +25,7 @@ import { PageHeader, SectionHeading } from "@/components/ui/typography";
  * this page can never list a certificate the download would refuse.
  */
 export default async function MyCertificatesPage() {
-  const { scope, data: certificates } = await loadRegistrantPortal("/my-registration/certificates", findReleasedCertificates);
+  const { scope, data: certificates } = await loadRegistrantPortal("/my-account/certificates", findReleasedCertificates);
   const cme = cmeTotals(certificates, new Date(), DEFAULT_EVENT_TIMEZONE);
   const years = groupCertificatesByYear(certificates);
 
@@ -49,7 +49,7 @@ export default async function MyCertificatesPage() {
               The organiser sends certificates after an event, often once you have answered its survey. They will show here.
             </p>
             <p className="text-sm">
-              <Link href="/my-registration" className="font-medium text-primary hover:underline">
+              <Link href="/my-account" className="font-medium text-primary hover:underline">
                 See your events
               </Link>
             </p>

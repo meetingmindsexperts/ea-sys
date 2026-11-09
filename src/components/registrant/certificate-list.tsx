@@ -10,7 +10,7 @@ export interface CertificateListItem {
 
 /**
  * A person's certificates with a download each. Shared by the all-events list
- * (/my-registration) and an event's own My Registration page, so the two show
+ * (/my-account) and an event's own My Registration page, so the two show
  * a certificate the same way.
  *
  * Mobile first: on a phone the download is a full-width button under the
