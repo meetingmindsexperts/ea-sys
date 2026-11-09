@@ -26,7 +26,9 @@ export default async function globalSetup() {
   const admin = new PrismaClient({ datasourceUrl: adminUrl });
   try {
     console.log(`[playwright:setup] recreating ${E2E_DB_NAME}`);
-    // FORCE ends the connections a previous run's server left open.
+    // FORCE ends the connections already open to it: the test server this run
+    // started a moment earlier (Playwright starts the webServer BEFORE global
+    // setup), which reconnects on its next query.
     await admin.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${E2E_DB_NAME}" WITH (FORCE)`);
     await admin.$executeRawUnsafe(`CREATE DATABASE "${E2E_DB_NAME}"`);
   } finally {

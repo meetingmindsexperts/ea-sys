@@ -27,6 +27,11 @@ export function assertDisposableTestDb(url: string | undefined, appDbUrl?: strin
   if (db !== E2E_DB_NAME) problems.push(`database is "${db}", not "${E2E_DB_NAME}"`);
   if (parsed.port === PROD_COPY_PORT) problems.push(`port ${PROD_COPY_PORT} is the local production copy`);
   if (appDbUrl && appDbUrl === url) problems.push("it is the same URL as DATABASE_URL");
+  // libpq lets ?host= (a socket directory or another server) override the
+  // authority part, so the hostname checked above would not be the one used.
+  for (const key of ["host", "hostaddr", "port"]) {
+    if (parsed.searchParams.has(key)) problems.push(`the URL carries a "${key}" parameter that overrides its host`);
+  }
   if (problems.length > 0) {
     throw new Error(`Refusing to rebuild DATABASE_URL_TEST: ${problems.join("; ")}.`);
   }

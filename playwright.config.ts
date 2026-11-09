@@ -1,6 +1,7 @@
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import dotenv from "dotenv";
+import { assertDisposableTestDb } from "./e2e/test-db-guard";
 
 // Load .env.local (and .env) so DATABASE_URL_TEST is picked up here AND
 // forwarded to the webServer + globalSetup subprocesses via process.env.
@@ -15,6 +16,20 @@ dotenv.config({ path: path.resolve(__dirname, ".env") });
 const PORT = process.env.E2E_PORT ?? "3199";
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${PORT}`;
 const testDbUrl = process.env.DATABASE_URL_TEST;
+
+// Before anything starts: Playwright launches the webServer BEFORE global setup,
+// so the guard global setup runs would come too late for the server.
+assertDisposableTestDb(testDbUrl, process.env.DATABASE_URL);
+
+// An external server is opt-in. PLAYWRIGHT_BASE_URL alone used to be enough,
+// and pointing it at :3113 runs the specs (which create and delete rows)
+// against the everyday dev server and the local production copy behind it.
+if (process.env.PLAYWRIGHT_BASE_URL && process.env.E2E_EXTERNAL_SERVER !== "1") {
+  throw new Error(
+    "PLAYWRIGHT_BASE_URL is set: that server's own database gets the specs' writes, not ea_sys_test. " +
+      "Set E2E_EXTERNAL_SERVER=1 as well if that server really runs on ea_sys_test.",
+  );
+}
 
 export default defineConfig({
   testDir: "./e2e",

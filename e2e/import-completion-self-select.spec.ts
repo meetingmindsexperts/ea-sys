@@ -22,6 +22,8 @@ import { EVENT_ID, EVENT_SLUG, PAID_TICKET_TYPE_ID } from "./fixtures/seed-const
 import { loginAs, pickSelect } from "./fixtures/login";
 
 const dbUrl = process.env.DATABASE_URL_TEST;
+// Without it Prisma falls back to DATABASE_URL, the local production copy.
+if (!dbUrl) throw new Error("DATABASE_URL_TEST is required: this spec writes to the test database directly");
 const db = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 
 test.afterAll(async () => {
