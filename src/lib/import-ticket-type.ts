@@ -124,7 +124,9 @@ export async function eventChargesForRegistration(eventId: string): Promise<bool
     where: {
       eventId,
       isFaculty: false,
-      OR: [{ price: { gt: 0 } }, { pricingTiers: { some: { price: { gt: 0 } } } }],
+      // A priced virtual rate counts: a hybrid event charging only remote
+      // attendees still charges (Nov 9, 2026 review).
+      OR: [{ price: { gt: 0 } }, { virtualPrice: { gt: 0 } }, { pricingTiers: { some: { price: { gt: 0 } } } }],
     },
   });
   return priced > 0;

@@ -19,7 +19,7 @@ import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
 import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { parseRegistrationFormIdentifier, type RegistrationFormRate } from "@/lib/registration-form-link";
-import { linkMayReprice, priceAtLinkRate, rateFromRegistration, RESTAMPABLE_STATUSES, stampedPaymentStatus, type LinkRepriceState } from "@/lib/registration-form-pricing";
+import { linkMayReprice, linkRatePrice, priceAtLinkRate, rateFromRegistration, RESTAMPABLE_STATUSES, stampedPaymentStatus, type LinkRepriceState } from "@/lib/registration-form-pricing";
 import { applyRegistrationTransition, claimEventSeats, claimSeat } from "@/lib/registration-seat-db";
 import { holdsEventSeat, holdsSeat, seatCounter, type SeatState } from "@/lib/registration-seat";
 import { registerTierSlug } from "@/lib/main-register-tiers";
@@ -134,7 +134,7 @@ const SELECTABLE_TICKET_TYPE_SELECT = {
  * is on sale now. Mirrors the public event route's filter — active only, and
  * never the internal Faculty type (it backs speaker companions).
  */
-async function loadSelectableTicketTypes(eventId: string, sponsorLinkSlugs: string[]): Promise<SelectableTicketType[]> {
+async function loadSelectableTicketTypes(eventId: string, sponsorLinkSlugs: string[], isVirtual: boolean): Promise<SelectableTicketType[]> {
   const types = await db.ticketType.findMany({
     where: { eventId, isActive: true, isFaculty: false },
     select: SELECTABLE_TICKET_TYPE_SELECT,
@@ -150,7 +150,8 @@ async function loadSelectableTicketTypes(eventId: string, sponsorLinkSlugs: stri
       id: tt.id,
       name: tt.name,
       description: tt.description,
-      price: Number(tier?.price ?? tt.price),
+      // A virtual attendee on a hybrid event sees the type's virtual price.
+      price: linkRatePrice(Number(tier?.price ?? tt.price), { isVirtual, virtualPrice: tt.virtualPrice }),
       currency: tier?.currency ?? tt.currency,
       tierName: tier?.name ?? null,
       available: tt.soldCount < tt.quantity && !noRateOnSale,
@@ -464,7 +465,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const selectableTicketTypes = registration.ticketTypeId
       ? []
-      : await loadSelectableTicketTypes(registration.event.id, readCodeRequiredTiers(eventSettings));
+      : await loadSelectableTicketTypes(registration.event.id, readCodeRequiredTiers(eventSettings), registration.attendanceMode === "VIRTUAL");
 
     return NextResponse.json({
       alreadyCompleted: false,
@@ -760,6 +761,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       | { id: string; name: string; price: unknown; currency: string; quantity: number; requiresApproval: boolean }
       | null = null;
     let resolvedTier: { id: string; name: string; price: unknown; currency: string } | null = null;
+    /** The picked type's flat virtual price (null: the rate's price applies). */
+    let resolvedVirtualPrice: unknown = null;
     /** The just-self-selected type, kept in scope for the evidence check below. */
     let evidenceCandidate: ({
       id: string;
@@ -861,6 +864,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
       resolvedType = { id: chosen.id, name: chosen.name, price: chosen.price, currency: chosen.currency, quantity: chosen.quantity, requiresApproval: chosen.requiresApproval };
+      resolvedVirtualPrice = chosen.virtualPrice;
       resolvedTier = tier ? { id: tier.id, name: tier.name, price: tier.price, currency: tier.currency } : null;
     }
     // Identity evidence, enforced SERVER-side. Until now the completion form
@@ -929,8 +933,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           billingCountry: country,
         });
 
-    const resolvedPrice = resolvedType ? Number(resolvedTier?.price ?? resolvedType.price) : null;
-    const typelessSettledStatus = settleTypelessPaymentStatus(registration.paymentStatus, resolvedPrice ?? 0);
+    // Virtual on a hybrid event: the type's virtual price, as the list showed it.
+    const resolvedPrice = resolvedType
+      ? linkRatePrice(Number(resolvedTier?.price ?? resolvedType.price), {
+          isVirtual: registration.attendanceMode === "VIRTUAL",
+          virtualPrice: resolvedVirtualPrice,
+        })
+      : null;
+    // Only the typeless self-select path has a picked type to settle on.
+    const typelessSettledStatus =
+      resolvedPrice === null ? null : settleTypelessPaymentStatus(registration.paymentStatus, resolvedPrice);
     // Self-selecting a type that requires approval puts the row into the
     // organizer's approval queue — public-register semantics, because at
     // completion the PERSON picks the type (the organizer vetted the person at
@@ -1114,6 +1126,11 @@ export async function POST(req: Request, { params }: RouteParams) {
               // still PAID?" is answerable from the audit trail.
               ...(registration.paymentStatus !== "COMPLIMENTARY" && registration.paymentStatus !== "UNASSIGNED" && {
                 paymentStatusPreserved: registration.paymentStatus,
+              }),
+              // The default it settled from and to, when the pick moved it.
+              ...(typelessSettledStatus && {
+                paymentStatusFrom: registration.paymentStatus,
+                paymentStatusTo: typelessSettledStatus,
               }),
               // The self-selected type needs organizer approval → the row
               // entered the approval queue on completion.

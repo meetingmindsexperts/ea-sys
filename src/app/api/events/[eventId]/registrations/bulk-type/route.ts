@@ -12,6 +12,11 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { planSeatTransition, type SeatCounter } from "@/lib/registration-seat";
 import { claimEventSeats, claimSeats, releaseEventSeats, releaseSeats } from "@/lib/registration-seat-db";
 import { lockRegistrationRows } from "@/lib/registration-row-lock";
+import { pickOpenPublicRate } from "@/lib/current-pricing-tier";
+import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
+import { linkRatePrice } from "@/lib/registration-form-pricing";
+
+const UNPAID_STATUSES = ["UNASSIGNED", "UNPAID", "PENDING"];
 
 const bulkTypeSchema = z.object({
   registrationIds: z.array(z.string()).min(1).max(500),
@@ -43,7 +48,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true },
+      select: { id: true, settings: true },
     });
 
     if (!event) {
@@ -64,7 +69,12 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // Verify the target ticket type exists and belongs to this event
     const targetType = await db.ticketType.findFirst({
       where: { id: ticketTypeId, eventId },
-      select: { id: true, name: true, quantity: true, price: true, isFaculty: true },
+      select: {
+        id: true, name: true, quantity: true, price: true, virtualPrice: true, isFaculty: true,
+        pricingTiers: {
+          select: { id: true, name: true, price: true, currency: true, quantity: true, soldCount: true, isActive: true, salesStart: true, salesEnd: true, sortOrder: true },
+        },
+      },
     });
 
     if (!targetType) {
@@ -80,6 +90,20 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
+
+    // The rate an unpaid row moves onto: the type's open public rate, the same
+    // one the completion form gives (pickOpenPublicRate), never a sponsor-link
+    // or presenter rate (Nov 9, 2026 review). It used to be the type's BASE
+    // price with the rate dropped, and the standard setup keeps the base at 0
+    // with the money on the rates: an imported row bulk-typed onto Physician
+    // (base 0, Standard 250) owed 0.00, was admitted as free and was still
+    // sent a "pay 0.00" reminder. A type with rates but none on sale refuses
+    // the unpaid rows instead of pricing them at the base.
+    const { tier: openRate, noRateOnSale } = pickOpenPublicRate(
+      targetType.pricingTiers,
+      readCodeRequiredTiers(event.settings),
+      new Date(),
+    );
 
     // Everything below is decided from the rows as they stand INSIDE the
     // transaction, locked (review, Oct 29 2026): read before it, a cancel or a
@@ -114,6 +138,11 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       });
       if (moving.length === 0) return moving;
 
+      const unpaid = moving.filter((r) => UNPAID_STATUSES.includes(r.paymentStatus));
+      const settled = moving.filter((r) => !UNPAID_STATUSES.includes(r.paymentStatus));
+      if (unpaid.length > 0 && noRateOnSale) throw new Error("NO_RATE_ON_SALE");
+      const unpaidIdSet = new Set(unpaid.map((r) => r.id));
+
       // Each row's seat move, from the ONE planner every single-row path uses
       // (planSeatTransition): the counter it releases, the one it claims, and
       // whether it gains or loses its event seat. A row with no type holds no
@@ -122,7 +151,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       const ops = new Map<string, { counter: SeatCounter; delta: number }>();
       let eventDelta = 0;
       for (const r of moving) {
-        const plan = planSeatTransition(r, { ...r, ticketTypeId, pricingTierId: null });
+        // An unpaid row takes the open rate, so its seat is claimed on it too.
+        const targetTierId = unpaidIdSet.has(r.id) ? (openRate?.id ?? null) : null;
+        const plan = planSeatTransition(r, { ...r, ticketTypeId, pricingTierId: targetTierId });
         for (const [counter, step] of [[plan.release, -1], [plan.claim, 1]] as const) {
           if (!counter) continue;
           const key = `${counter.kind}:${counter.id}`;
@@ -147,31 +178,32 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       if (eventDelta < 0) await releaseEventSeats(tx, eventId, -eventDelta);
       if (eventDelta > 0 && !(await claimEventSeats(tx, eventId, eventDelta))) throw new Error("EVENT_FULL");
 
-      // Update all registrations — new type + drop the now-invalid tier —
-      // and RE-STAMP originalPrice for money-outstanding rows (review H8).
-      // `readRegistrationBasePrice` prefers the stamped originalPrice, so
-      // without the restamp a $100-Student reg bulk-moved to $400-Physician
-      // kept charging $100 on every finance surface (quote PDF, pay-later
-      // checkout, refund math). Mirrors resolveRepricing's bare-type-change
-      // policy exactly: unpaid (UNASSIGNED/UNPAID/PENDING) → reprice to the
-      // NEW type's base; settled rows (PAID/COMPLIMENTARY/INCLUSIVE/…) move
-      // type but keep their price — they already paid it. The rows are locked,
+      // Update all registrations. Unpaid rows (UNASSIGNED/UNPAID/PENDING) are
+      // RE-STAMPED at the open rate (review H8: readRegistrationBasePrice
+      // prefers the stamped originalPrice, so without it a $100-Student reg
+      // bulk-moved to $400-Physician kept charging $100); a virtual attendee
+      // pays the type's virtual price. Settled rows (PAID/COMPLIMENTARY/
+      // INCLUSIVE/...) move type but keep their price and drop the old rate:
+      // they already paid it. Grouped by price, because virtual and in-person
+      // rows on the same type can owe different amounts. The rows are locked,
       // so writing by id is writing exactly what was read.
-      const unpaidIds = moving
-        .filter((r) => ["UNASSIGNED", "UNPAID", "PENDING"].includes(r.paymentStatus))
-        .map((r) => r.id);
-      const settledIds = moving
-        .filter((r) => !["UNASSIGNED", "UNPAID", "PENDING"].includes(r.paymentStatus))
-        .map((r) => r.id);
-      if (unpaidIds.length > 0) {
+      const byPrice = new Map<number, string[]>();
+      for (const r of unpaid) {
+        const price = linkRatePrice(Number(openRate?.price ?? targetType.price), {
+          isVirtual: r.attendanceMode === "VIRTUAL",
+          virtualPrice: targetType.virtualPrice,
+        });
+        byPrice.set(price, [...(byPrice.get(price) ?? []), r.id]);
+      }
+      for (const [price, ids] of byPrice) {
         await tx.registration.updateMany({
-          where: { id: { in: unpaidIds }, eventId },
-          data: { ticketTypeId, ...exhibitorBadgeData(targetType.name), pricingTierId: null, originalPrice: Number(targetType.price) },
+          where: { id: { in: ids }, eventId },
+          data: { ticketTypeId, ...exhibitorBadgeData(targetType.name), pricingTierId: openRate?.id ?? null, originalPrice: price },
         });
       }
-      if (settledIds.length > 0) {
+      if (settled.length > 0) {
         await tx.registration.updateMany({
-          where: { id: { in: settledIds }, eventId },
+          where: { id: { in: settled.map((r) => r.id) }, eventId },
           data: { ticketTypeId, ...exhibitorBadgeData(targetType.name), pricingTierId: null },
         });
       }
@@ -205,12 +237,12 @@ export async function PATCH(req: Request, { params }: RouteParams) {
             toTicketTypeId: ticketTypeId,
             toName: targetType.name,
             count: registrations.length,
-            // Unpaid rows re-stamped to the new type's base price (H8);
-            // settled rows kept their paid price.
-            repricedCount: registrations.filter((r) =>
-              ["UNASSIGNED", "UNPAID", "PENDING"].includes(r.paymentStatus),
-            ).length,
-            repricedTo: Number(targetType.price),
+            // Unpaid rows re-stamped at the open rate (H8; virtual at the
+            // virtual price); settled rows kept their paid price.
+            repricedCount: registrations.filter((r) => UNPAID_STATUSES.includes(r.paymentStatus)).length,
+            repricedRate: openRate?.name ?? null,
+            repricedTo: Number(openRate?.price ?? targetType.price),
+            virtualPrice: targetType.virtualPrice == null ? null : Number(targetType.virtualPrice),
           },
           ip: getClientIp(req),
         },
@@ -228,6 +260,16 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     return NextResponse.json({ updated: registrations.length });
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "NO_RATE_ON_SALE") {
+      apiLogger.warn({ msg: "bulk-type:no-rate-on-sale", eventId });
+      return NextResponse.json(
+        {
+          error: "That registration type has rates but none is on sale now, so the unpaid registrations cannot be priced. Open a rate, or move only paid registrations.",
+          code: "NO_RATE_ON_SALE",
+        },
+        { status: 409 }
+      );
+    }
     if (error instanceof Error && error.message === "EVENT_FULL") {
       apiLogger.warn({ msg: "bulk-type:event-full", eventId });
       return NextResponse.json(

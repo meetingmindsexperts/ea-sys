@@ -88,7 +88,7 @@ beforeEach(() => {
 
 describe("bulk-type — soldCount oversell guard", () => {
   beforeEach(() => {
-    mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", name: "Physician", quantity: 100 });
+    mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "T", name: "Physician", quantity: 100 });
     mockDb.registration.findMany.mockResolvedValue([
       { id: "r1", ticketTypeId: "old", attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD" },
       { id: "r2", ticketTypeId: "old", attendeeId: "a2", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD" },
@@ -100,7 +100,7 @@ describe("bulk-type — soldCount oversell guard", () => {
 
   // Oct 22, 2026 (review M): never ONTO the speakers' type, like create and the single edit.
   it("refuses the speakers' Faculty type as a target, before any registration is read or moved", async () => {
-    mockDb.ticketType.findFirst.mockResolvedValue({ id: "F", name: "Faculty", quantity: 999999, isFaculty: true });
+    mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "F", name: "Faculty", quantity: 999999, isFaculty: true });
     const res = await bulkType(req({ registrationIds: ["r1", "r2"], ticketTypeId: "F" }), { params });
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: "TICKET_TYPE_IS_FACULTY" });
@@ -188,7 +188,7 @@ describe("bulk-type — soldCount oversell guard", () => {
   //    charging $100 everywhere. Settled rows keep their paid price (exact
   //    parity with resolveRepricing's bare-type-change policy).
   it("re-stamps originalPrice to the NEW type's base for unpaid rows; settled rows keep theirs", async () => {
-    mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", name: "Physician", quantity: 100, price: 400 });
+    mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "T", name: "Physician", quantity: 100, price: 400 });
     mockDb.registration.findMany.mockResolvedValue([
       { id: "r1", ticketTypeId: "old", attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNPAID" },
       { id: "r2", ticketTypeId: "old", attendeeId: "a2", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNASSIGNED" },
@@ -213,10 +213,61 @@ describe("bulk-type — soldCount oversell guard", () => {
     });
   });
 
+  // Nov 9, 2026 review: the standard setup keeps the type's base at 0 and the
+  // money on its rates, so an unpaid row takes the open public rate (as the
+  // completion form does), virtual at the virtual price, and its seat is
+  // claimed on that rate. Base-pricing it left it owing 0.00.
+  const rate = (over: Record<string, unknown> = {}) => ({
+    id: "t-std", name: "Standard", price: 250, currency: "USD", quantity: 999, soldCount: 0,
+    isActive: true, salesStart: null, salesEnd: null, sortOrder: 1, ...over,
+  });
+  const unpaidRow = (id: string, over: Record<string, unknown> = {}) => ({
+    id, ticketTypeId: null, attendeeId: `a-${id}`, status: "CONFIRMED", attendanceMode: "IN_PERSON",
+    pricingTierId: null, createdSource: "CSV_IMPORT", paymentStatus: "UNASSIGNED", ...over,
+  });
+
+  it("an unpaid row moving onto a rate-priced type takes the open public rate, never the 0 base", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({
+      id: "T", name: "Physician", quantity: 100, price: 0, virtualPrice: 50,
+      pricingTiers: [rate(), rate({ id: "t-eb", name: "Early Bird", price: 200, isActive: false, sortOrder: 0 })],
+    });
+    mockDb.registration.findMany.mockResolvedValue([unpaidRow("r1"), unpaidRow("r2", { attendanceMode: "VIRTUAL" })]);
+    mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await bulkType(req({ registrationIds: ["r1", "r2"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["r1"] }, eventId: "ev1" },
+      data: { ticketTypeId: "T", pricingTierId: "t-std", originalPrice: 250 },
+    });
+    // The virtual attendee pays the type's virtual price on the same rate.
+    expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["r2"] }, eventId: "ev1" },
+      data: { ticketTypeId: "T", pricingTierId: "t-std", originalPrice: 50 },
+    });
+    // Seats as the planner decides: an import counts on the type, not the rate
+    // (only public-register sources consume a rate seat), and only the
+    // in-person row holds one; the virtual attendee is uncapped.
+    expect(rawClaims(mockDb._tx.$executeRaw, "TicketType")).toEqual([{ id: "T", count: 1 }]);
+  });
+
+  it("refuses unpaid rows when the type has rates but none is on sale (409 NO_RATE_ON_SALE), and moves nothing", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({
+      id: "T", name: "Physician", quantity: 100, price: 0, pricingTiers: [rate({ isActive: false })],
+    });
+    mockDb.registration.findMany.mockResolvedValue([unpaidRow("r1")]);
+
+    const res = await bulkType(req({ registrationIds: ["r1"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("NO_RATE_ON_SALE");
+    expect(mockDb._tx.registration.updateMany).not.toHaveBeenCalled();
+  });
+
   // Owner, Oct 26, 2026: moving onto the Exhibitor type sets the badge type,
   // on both the unpaid and the settled update.
   it("moving onto the type named Exhibitor writes badgeType Exhibitor on every moved row", async () => {
-    mockDb.ticketType.findFirst.mockResolvedValue({ id: "X", name: "Exhibitor", quantity: 100, price: 0 });
+    mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "X", name: "Exhibitor", quantity: 100, price: 0 });
     mockDb.registration.findMany.mockResolvedValue([
       { id: "r1", ticketTypeId: "old", attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNPAID" },
       { id: "r3", ticketTypeId: "old", attendeeId: "a3", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "PAID" },
@@ -232,7 +283,7 @@ describe("bulk-type — soldCount oversell guard", () => {
   });
 
   it("all-settled batch never writes originalPrice", async () => {
-    mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", name: "Physician", quantity: 100, price: 400 });
+    mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "T", name: "Physician", quantity: 100, price: 400 });
     mockDb.registration.findMany.mockResolvedValue([
       { id: "r4", ticketTypeId: "old", attendeeId: "a4", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "COMPLIMENTARY" },
     ]);
@@ -257,7 +308,7 @@ describe("import-contacts — soldCount oversell guard", () => {
   });
 
   it("returns 409 CAPACITY_EXCEEDED when the batch won't fit", async () => {
-    mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", soldCount: 99, quantity: 100 });
+    mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "T", soldCount: 99, quantity: 100 });
     mockDb._tx.$executeRaw.mockImplementation(seatRawExecutor({ TicketType: false })); // 1 seat left, importing 2
     const res = await importContacts(req({ contactIds: ["c1", "c2"], ticketTypeId: "T" }), { params });
     expect(res.status).toBe(409);
@@ -265,7 +316,7 @@ describe("import-contacts — soldCount oversell guard", () => {
   });
 
   it("claims with the capacity predicate when it fits", async () => {
-    mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", soldCount: 0, quantity: 100 });
+    mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "T", soldCount: 0, quantity: 100 });
     mockDb._tx.$executeRaw.mockImplementation(seatRawExecutor());
     const res = await importContacts(req({ contactIds: ["c1", "c2"], ticketTypeId: "T" }), { params });
     expect(res.status).toBeLessThan(400);

@@ -68,7 +68,7 @@ export function ImportContactsDialog({
 
   interface Contact { id: string; firstName: string; lastName: string; email: string; organization?: string; tags?: string[]; }
   interface TicketTier { id: string; name: string; price: number; currency: string; isActive: boolean; }
-  interface Ticket { id: string; name: string; isFaculty?: boolean; price?: string | number | null; pricingTiers?: TicketTier[]; }
+  interface Ticket { id: string; name: string; isFaculty?: boolean; price?: string | number | null; virtualPrice?: string | number | null; pricingTiers?: TicketTier[]; }
   const contacts: Contact[] = (data?.contacts ?? []) as Contact[];
   const tickets: Ticket[] = (ticketsData ?? []) as Ticket[];
   const total: number = data?.total ?? 0;
@@ -87,7 +87,10 @@ export function ImportContactsDialog({
   // Tiers count: the standard setup leaves the type's base price at 0 and
   // puts the real money on the tiers.
   const eventCharges = selectableTickets.some(
-    (t) => Number(t.price ?? 0) > 0 || (t.pricingTiers ?? []).some((tier) => Number(tier.price ?? 0) > 0)
+    (t) =>
+      Number(t.price ?? 0) > 0 ||
+      Number(t.virtualPrice ?? 0) > 0 ||
+      (t.pricingTiers ?? []).some((tier) => Number(tier.price ?? 0) > 0)
   );
 
   // Active tiers on the chosen registration type. When present the operator

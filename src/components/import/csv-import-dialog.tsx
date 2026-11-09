@@ -171,6 +171,7 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
     name: string;
     isFaculty?: boolean;
     price?: string | number | null;
+    virtualPrice?: string | number | null;
     pricingTiers?: { price?: string | number | null }[];
   };
   const fallbackOptions = (ticketTypes as TicketTypeOption[]).filter((tt) => !tt.isFaculty);
@@ -178,7 +179,10 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
   // Tiers count, because the standard setup leaves the type's base price at 0
   // and puts the real money on the tiers.
   const eventCharges = fallbackOptions.some(
-    (tt) => Number(tt.price ?? 0) > 0 || (tt.pricingTiers ?? []).some((t) => Number(t.price ?? 0) > 0)
+    (tt) =>
+      Number(tt.price ?? 0) > 0 ||
+      Number(tt.virtualPrice ?? 0) > 0 ||
+      (tt.pricingTiers ?? []).some((t) => Number(t.price ?? 0) > 0)
   );
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {

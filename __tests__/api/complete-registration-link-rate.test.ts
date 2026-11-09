@@ -398,6 +398,19 @@ describe("a link without a rate: the registration's type and payment status deci
     expect(rowWrite().data).not.toHaveProperty("paymentStatus");
   });
 
+  it("a virtual attendee with no type pays the type's virtual price, on the list and on completion", async () => {
+    token("reg:reg-1");
+    const VIRT = type({ virtualPrice: "40" });
+    mockDb.registration.findFirst.mockResolvedValue({ ...typelessComp(), paymentStatus: "UNASSIGNED", attendanceMode: "VIRTUAL" });
+    mockDb.ticketType.findMany.mockResolvedValue([VIRT]);
+    mockDb.ticketType.findFirst.mockResolvedValue(VIRT);
+    const json = await (await get()).json();
+    expect(json.selectableTicketTypes[0]).toMatchObject({ id: "tt-phys", price: 40 });
+    const res = await post({ ticketTypeId: "tt-phys" });
+    expect(res.status).toBe(200);
+    expect(rowWrite().data).toMatchObject({ ticketTypeId: "tt-phys", originalPrice: 40 });
+  });
+
   it("POST: a typeless UNASSIGNED row picking a free type becomes COMPLIMENTARY", async () => {
     token("reg:reg-1");
     const FREE = type({ id: "tt-free", name: "Delegate", price: "0", pricingTiers: [] });
@@ -407,6 +420,7 @@ describe("a link without a rate: the registration's type and payment status deci
     const res = await post({ ticketTypeId: "tt-free" });
     expect(res.status).toBe(200);
     expect(rowWrite().data).toMatchObject({ ticketTypeId: "tt-free", originalPrice: 0, paymentStatus: "COMPLIMENTARY" });
+    expect(tx.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ paymentStatusFrom: "UNASSIGNED", paymentStatusTo: "COMPLIMENTARY" });
   });
 
   it("a typeless row that owes (UNASSIGNED) keeps the open public rate", async () => {
