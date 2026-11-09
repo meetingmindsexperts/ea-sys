@@ -233,6 +233,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
           <div className="border-b px-3 py-2 bg-muted/30 shrink-0">
             <Link
               href="/events"
+              onClick={onNavigate}
               className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
             >
               <ChevronLeft className="h-3 w-3" />

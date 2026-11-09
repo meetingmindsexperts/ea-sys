@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { isDailyMode, responseDedupKey } from "@/lib/survey/response-mode";
-import { DEFAULT_CERTIFICATE_SURVEY_NAME, isLiveConfig } from "@/services/survey-service";
+import { DEFAULT_CERTIFICATE_SURVEY_NAME, isLiveConfig, surveyLinkIdentifiers } from "@/services/survey-service";
 
 /**
  * A person's journey through one event on My events (docs/MY_PORTAL_PLAN.md,
@@ -138,19 +138,26 @@ export interface ResponseFact {
 }
 
 /**
- * The surveys one registration should see, each answered or not. A survey
- * shows once the event has started (nobody is asked about a meeting before
- * it), or once answered; a closed survey only when answered. Only a place at
- * the event is asked.
+ * The surveys one registration should see, each answered or not.
+ *
+ * An answered survey always shows. An unanswered one shows only when the
+ * organiser has sent this person a link to it that is still alive (`liveLinks`,
+ * the identifiers of their unexpired survey tokens): the portal re-issues
+ * links, it never widens who is asked (adversarial review, Nov 9, 2026). The
+ * CME survey's answer mints a certificate, so a no-show must not be offered
+ * it, and an extra survey sent to one group stays with that group. It also
+ * needs the survey open and the event started. Only a place at the event is
+ * asked.
  */
 export function surveyLinesFor(input: {
   registration: { id: string; status: string; surveyCompletedAt: Date | null };
   event: { startDate: Date; timezone: string; surveyConfig: unknown };
   surveys: readonly EventSurveyRow[];
   responses: readonly ResponseFact[];
+  liveLinks: ReadonlySet<string>;
   now: Date;
 }): SurveyLine[] {
-  const { registration: reg, event, surveys, responses, now } = input;
+  const { registration: reg, event, surveys, responses, liveLinks, now } = input;
   if (!ATTENDING.has(reg.status)) return [];
   // The certificate survey's questions and open/closed come from the Event
   // columns this release (overlayCertificateFromEvent); an event with no
@@ -169,27 +176,40 @@ export function surveyLinesFor(input: {
     if (s.gatesCertificates) answered = reg.surveyCompletedAt !== null;
     else if (daily) answered = responses.some((r) => r.surveyId === s.id && r.dedupKey === responseDedupKey(s.responseMode, reg.id, now, event.timezone));
     else answered = responses.some((r) => r.surveyId === s.id && r.registrationId === reg.id);
-    if (!answered && !(open && started)) continue;
+    const invited = surveyLinkIdentifiers({ id: s.id || null, gatesCertificates: s.gatesCertificates }, reg.id).some((id) => liveLinks.has(id));
+    if (!answered && !(open && started && invited)) continue;
     lines.push({ id: s.id || null, name: s.name, answered, daily, open, certificate: s.gatesCertificates });
   }
   return lines;
 }
 
-/** Every survey of these events and every answer these registrations gave, in two queries. */
-export async function loadSurveyFacts(eventIds: string[], registrationIds: string[]) {
-  if (eventIds.length === 0) return { surveys: [] as EventSurveyRow[], responses: [] as ResponseFact[] };
-  const [surveys, responses] = await Promise.all([
-    db.survey.findMany({
-      where: { eventId: { in: eventIds } },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { id: true, eventId: true, name: true, config: true, isActive: true, gatesCertificates: true, responseMode: true },
-    }),
-    registrationIds.length === 0
-      ? Promise.resolve([] as ResponseFact[])
-      : db.surveyResponse.findMany({
-          where: { registrationId: { in: registrationIds } },
-          select: { surveyId: true, registrationId: true, dedupKey: true },
-        }),
+/**
+ * Every survey of these events, every answer these registrations gave, and
+ * which of their survey links are still alive. The links are looked up by
+ * their exact identifiers (one per survey a registration's event has, plus
+ * the legacy CME form), so the lookup rides the identifier index.
+ */
+export async function loadSurveyFacts(registrations: { id: string; eventId: string }[], now: Date) {
+  if (registrations.length === 0) return { surveys: [] as EventSurveyRow[], responses: [] as ResponseFact[], liveLinks: [] as string[] };
+  const eventIds = [...new Set(registrations.map((r) => r.eventId))];
+  const surveys = (await db.survey.findMany({
+    where: { eventId: { in: eventIds } },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: { id: true, eventId: true, name: true, config: true, isActive: true, gatesCertificates: true, responseMode: true },
+  })) as EventSurveyRow[];
+  const identifiers = registrations.flatMap((r) => [
+    ...surveyLinkIdentifiers(null, r.id),
+    ...surveys.filter((s) => s.eventId === r.eventId).flatMap((s) => surveyLinkIdentifiers(s, r.id)),
   ]);
-  return { surveys: surveys as EventSurveyRow[], responses };
+  const [responses, links] = await Promise.all([
+    db.surveyResponse.findMany({
+      where: { registrationId: { in: registrations.map((r) => r.id) } },
+      select: { surveyId: true, registrationId: true, dedupKey: true },
+    }),
+    db.verificationToken.findMany({
+      where: { identifier: { in: [...new Set(identifiers)] }, expires: { gt: now } },
+      select: { identifier: true },
+    }),
+  ]);
+  return { surveys, responses, liveLinks: links.map((l) => l.identifier) };
 }

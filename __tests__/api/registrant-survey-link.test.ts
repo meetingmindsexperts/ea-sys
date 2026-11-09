@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockAuth, mockRateLimit, svc, logger } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
-  mockDb: { user: { findUnique: vi.fn() }, registration: { findFirst: vi.fn() } },
+  mockDb: { user: { findUnique: vi.fn() }, registration: { findFirst: vi.fn() }, verificationToken: { findFirst: vi.fn() } },
   mockRateLimit: vi.fn(),
   svc: { resolveTokenSurvey: vi.fn(), hasAnswered: vi.fn(), mintPersonalSurveyLink: vi.fn() },
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -21,12 +21,16 @@ vi.mock("@/lib/logger", () => ({ apiLogger: logger }));
 vi.mock("@/lib/tenant/resolver", () => ({ resolveRequestOrgId: vi.fn(async () => "org1") }));
 vi.mock("@/lib/tenant-lane", () => ({ runWithTenantLane: (_o: unknown, _c: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/lib/security", () => ({ checkRateLimit: mockRateLimit }));
-vi.mock("@/services/survey-service", () => svc);
+vi.mock("@/services/survey-service", async () => {
+  const real = await vi.importActual<typeof import("@/services/survey-service")>("@/services/survey-service");
+  return { ...svc, isLiveConfig: real.isLiveConfig, surveyLinkIdentifiers: real.surveyLinkIdentifiers };
+});
 
 import { POST } from "@/app/api/registrant/registrations/[registrationId]/survey-link/route";
 
 const STARTED = new Date(Date.now() - 86400000);
-const LIVE_SURVEY = { kind: "ok", survey: { surveyId: "cert1", gatesCertificates: true, responseMode: "ONCE", config: [], introHtml: null, thankYouHtml: null } };
+const LIVE_SURVEY = { kind: "ok", survey: { surveyId: "cert1", gatesCertificates: true, responseMode: "ONCE", config: [{ id: "q" }], introHtml: null, thankYouHtml: null } };
+const LINK_ENDS = new Date(Date.now() + 5 * 86400000);
 
 function post(body: unknown = { surveyId: "cert1" }, registrationId = "reg1") {
   return POST(new Request("http://x", { method: "POST", body: JSON.stringify(body) }), { params: Promise.resolve({ registrationId }) });
@@ -52,6 +56,8 @@ beforeEach(() => {
   svc.resolveTokenSurvey.mockResolvedValue(LIVE_SURVEY);
   svc.hasAnswered.mockResolvedValue(false);
   svc.mintPersonalSurveyLink.mockResolvedValue("/e/osh/survey?token=abc123");
+  // The organiser's link to this person, still alive.
+  mockDb.verificationToken.findFirst.mockResolvedValue({ expires: LINK_ENDS });
 });
 
 describe("who", () => {
@@ -128,6 +134,35 @@ describe("when", () => {
     expect(svc.mintPersonalSurveyLink).not.toHaveBeenCalled();
   });
 
+  it("409 NOT_INVITED without a live link from the organiser: a no-show cannot reach the CME survey", async () => {
+    mockDb.verificationToken.findFirst.mockResolvedValue(null);
+    const res = await post();
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("NOT_INVITED");
+    expect(svc.mintPersonalSurveyLink).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "registrant/survey-link:not-invited", certificate: true }));
+  });
+
+  it("looks for the link under both CME forms, unexpired only", async () => {
+    await post();
+    const where = mockDb.verificationToken.findFirst.mock.calls[0][0].where;
+    expect(where.identifier).toEqual({ in: ["survey:reg1", "survey:cert1:reg1"] });
+    expect(where.expires.gt).toBeInstanceOf(Date);
+  });
+
+  it("an extra survey's link is looked for under its own form only", async () => {
+    svc.resolveTokenSurvey.mockResolvedValue({ kind: "ok", survey: { ...LIVE_SURVEY.survey, surveyId: "s2", gatesCertificates: false } });
+    await post({ surveyId: "s2" });
+    expect(mockDb.verificationToken.findFirst.mock.calls[0][0].where.identifier).toEqual({ in: ["survey:s2:reg1"] });
+  });
+
+  it("409 for an extra survey with no questions", async () => {
+    svc.resolveTokenSurvey.mockResolvedValue({ kind: "ok", survey: { ...LIVE_SURVEY.survey, surveyId: "s2", gatesCertificates: false, config: [] } });
+    const res = await post({ surveyId: "s2" });
+    expect((await res.json()).code).toBe("SURVEY_UNAVAILABLE");
+    expect(svc.mintPersonalSurveyLink).not.toHaveBeenCalled();
+  });
+
   it("400 on a malformed body", async () => {
     expect((await post({ surveyId: 42 })).status).toBe(400);
     expect((await post("nope")).status).toBe(400);
@@ -145,7 +180,8 @@ describe("issuing", () => {
       registrationId: "reg1",
       eventSlug: "osh",
       appUrl: "",
-      expiryDays: 7,
+      // Ends when the organiser's link would have, never later.
+      expiry: { at: LINK_ENDS },
     });
   });
 

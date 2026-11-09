@@ -99,16 +99,27 @@ date, each linking to the event's existing Abstracts / Session Proposals page.
 
 1. Signed in; the registration found through `ownRegistrationWhere(scope)`,
    status CONFIRMED or CHECKED_IN, event started.
-2. The survey is this event's and open; not already answered (`hasAnswered`).
-3. Mint through ONE helper extracted from `bulk-email.ts` (the two inline
-   copies there move onto it), with the same revoke rules: a certificate
-   survey link replaces the emailed one, a daily survey's earlier links keep
-   working.
-4. Rate limited per user; every refusal logged; returns the URL, the browser
-   goes there.
+2. The survey is this event's, open and has questions; not already answered
+   (`hasAnswered`).
+3. **Re-issue, never widen** (adversarial review, Nov 9, 2026): the person
+   must already hold a live link from the organiser to that survey (an
+   unexpired token under `surveyLinkIdentifiers`). The new link ends exactly
+   when theirs would have. Without this, any confirmed registrant (a no-show,
+   an unpaid one, a webinar non-attendee) could answer the CME survey and be
+   auto-issued a certificate, which the end-of-webinar popup and the
+   thank-you email are forbidden to allow, and an extra survey emailed to one
+   group would open to the whole event. My events applies the same test, so
+   an unanswered survey is listed only for someone holding a live link.
+4. Minted through ONE helper, `mintPersonalSurveyLink` (the two inline
+   copies in `bulk-email.ts` moved onto it), with the same revoke rules: a
+   certificate survey link replaces the emailed one, a daily survey's earlier
+   links keep working.
+5. Rate limited per user; every refusal logged; returns a site-relative URL,
+   the browser goes there.
 
-A fresh link is minted per click rather than storing the raw token, which the
-database never holds (only its hash).
+**Open owner decision:** self-serve CME access (offering the survey to
+anyone who attended, without an emailed link) would need an attendance rule
+(checked in at a venue, joined for a webinar, nothing owed). Not built.
 
 ## Out of scope
 

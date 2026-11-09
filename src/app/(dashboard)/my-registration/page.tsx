@@ -64,8 +64,8 @@ async function loadEvents(scope: RegistrantScope) {
     findReleasedCertificates(scope),
   ]);
   const facts = await loadSurveyFacts(
-    [...new Set(registrations.map((r) => r.event.id))],
-    registrations.map((r) => r.id),
+    registrations.map((r) => ({ id: r.id, eventId: r.event.id })),
+    new Date(),
   );
   return { registrations, certificates, ...facts };
 }
@@ -98,6 +98,7 @@ interface EventCardData {
 /** One card per event: its registrations' journeys and its certificates. */
 function buildCards(data: Loaded, now: Date): EventCardData[] {
   const { registrations, certificates, surveys, responses } = data;
+  const liveLinks = new Set(data.liveLinks);
   const events = new Map<string, EventSummary>();
   for (const r of registrations) events.set(r.event.id, r.event);
   // A speaker's appreciation certificate can belong to an event they never registered for.
@@ -113,6 +114,7 @@ function buildCards(data: Loaded, now: Date): EventCardData[] {
         event: r.event,
         surveys: surveys.filter((s) => s.eventId === event.id),
         responses: responses.filter((x) => x.registrationId === r.id),
+        liveLinks,
         now,
       });
       return {

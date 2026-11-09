@@ -2184,7 +2184,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         registrationId: recipient.id,
         eventSlug: event.slug,
         appUrl,
-        expiryDays: surveyExpiryDays,
+        expiry: { days: surveyExpiryDays },
       });
       vars.surveyName = surveyTarget?.name ?? "";
     }
@@ -2243,7 +2243,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           registrationId: recipient.id,
           eventSlug: event.slug,
           appUrl,
-          expiryDays: DEFAULT_SURVEY_EXPIRY_DAYS,
+          expiry: { days: DEFAULT_SURVEY_EXPIRY_DAYS },
         });
       }
       const block = buildThankYouSurveyBlock(link);

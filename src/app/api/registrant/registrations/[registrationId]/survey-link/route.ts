@@ -7,8 +7,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 import { checkRateLimit } from "@/lib/security";
-import { DEFAULT_SURVEY_EXPIRY_DAYS } from "@/lib/survey/expiry";
-import { hasAnswered, mintPersonalSurveyLink, resolveTokenSurvey } from "@/services/survey-service";
+import { hasAnswered, isLiveConfig, mintPersonalSurveyLink, resolveTokenSurvey, surveyLinkIdentifiers } from "@/services/survey-service";
 
 /**
  * POST /api/registrant/registrations/[registrationId]/survey-link
@@ -18,6 +17,15 @@ import { hasAnswered, mintPersonalSurveyLink, resolveTokenSurvey } from "@/servi
  * hash), so the signed-in owner of the registration is issued a fresh personal
  * link and the browser goes there. The survey page then works exactly as from
  * the email: same token, same validation, same submit.
+ *
+ * RE-ISSUE, NEVER WIDEN (adversarial review, Nov 9, 2026). Only a person the
+ * organiser already sent a link to, while that link is still alive, gets one,
+ * and it ends when theirs would have. The organiser decides who is asked: the
+ * CME survey's answer is what mints a CME certificate, and a no-show, an
+ * unpaid registrant or a webinar non-attendee must never be able to reach it
+ * on their own (the same rule as the end-of-webinar popup and the thank-you
+ * email, which never carry it). An extra survey sent to one group stays with
+ * that group.
  *
  * WHO. Only the registration's owner, by the portal's own rule
  * (`ownRegistrationWhere`, registrant-access.ts), read from the database and
@@ -48,9 +56,12 @@ const ROUTE = "registrant/registrations/[registrationId]/survey-link";
 const ATTENDING = new Set(["CONFIRMED", "CHECKED_IN"]);
 
 export async function POST(req: Request, { params }: RouteParams) {
+  let registrationId: string | undefined;
+  let userId: string | undefined;
   try {
-    const [session, { registrationId }] = await Promise.all([auth(), params]);
-    const userId = session?.user?.id;
+    const [session, routeParams] = await Promise.all([auth(), params]);
+    registrationId = routeParams.registrationId;
+    userId = session?.user?.id;
     if (!userId) {
       apiLogger.warn({ msg: "registrant/survey-link:unauthenticated", registrationId });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -76,15 +87,17 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // A registrant is org-null, so the lane comes from the host, as sign-in does.
     const orgId = await resolveRequestOrgId(req);
-    return await runWithTenantLane(orgId, { route: ROUTE, userId }, async () => {
-      const scope = await loadRegistrantScope(userId, { sessionTokenVersion: session.user.tokenVersion });
+    const ownerId = userId;
+    const regId = registrationId;
+    return await runWithTenantLane(orgId, { route: ROUTE, userId: ownerId }, async () => {
+      const scope = await loadRegistrantScope(ownerId, { sessionTokenVersion: session?.user?.tokenVersion });
       if (!scope) {
-        apiLogger.warn({ msg: "registrant/survey-link:user-not-found", userId });
+        apiLogger.warn({ msg: "registrant/survey-link:user-not-found", userId: ownerId });
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
 
       const registration = await db.registration.findFirst({
-        where: { id: registrationId, ...ownRegistrationWhere(scope) },
+        where: { id: regId, ...ownRegistrationWhere(scope) },
         select: {
           id: true,
           status: true,
@@ -93,10 +106,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       });
       if (!registration) {
-        apiLogger.warn({ msg: "registrant/survey-link:registration-not-found", registrationId, userId });
+        apiLogger.warn({ msg: "registrant/survey-link:registration-not-found", registrationId: regId, userId: ownerId });
         return NextResponse.json({ error: "Registration not found" }, { status: 404 });
       }
-      const ctx = { registrationId, userId, eventId: registration.event.id, surveyId };
+      const ctx = { registrationId: regId, userId: ownerId, eventId: registration.event.id, surveyId };
       if (!ATTENDING.has(registration.status)) {
         apiLogger.warn({ msg: "registrant/survey-link:not-attending", ...ctx, status: registration.status });
         return NextResponse.json({ error: "This registration is not confirmed.", code: "NOT_ATTENDING" }, { status: 409 });
@@ -109,18 +122,30 @@ export async function POST(req: Request, { params }: RouteParams) {
       // The same resolution the survey page applies to the token, so the link
       // minted here opens exactly the survey the button named.
       const resolved = await resolveTokenSurvey(registration.event, surveyId);
-      if (resolved.kind !== "ok") {
-        apiLogger.warn({ msg: "registrant/survey-link:survey-unavailable", ...ctx, reason: resolved.kind });
+      // An extra survey with no questions would open on "No survey is configured".
+      if (resolved.kind !== "ok" || !isLiveConfig(resolved.survey.config)) {
+        apiLogger.warn({ msg: "registrant/survey-link:survey-unavailable", ...ctx, reason: resolved.kind === "ok" ? "no-questions" : resolved.kind });
         return NextResponse.json({ error: "This survey is closed.", code: "SURVEY_UNAVAILABLE" }, { status: 409 });
       }
       const survey = { id: resolved.survey.surveyId, gatesCertificates: resolved.survey.gatesCertificates, responseMode: resolved.survey.responseMode };
+
+      // Re-issue only: the organiser's own link to this person, still alive.
+      const live = await db.verificationToken.findFirst({
+        where: { identifier: { in: surveyLinkIdentifiers(survey, registration.id) }, expires: { gt: new Date() } },
+        orderBy: { expires: "desc" },
+        select: { expires: true },
+      });
+      if (!live) {
+        apiLogger.warn({ msg: "registrant/survey-link:not-invited", ...ctx, certificate: survey.gatesCertificates });
+        return NextResponse.json({ error: "Use the survey link the organiser emailed you.", code: "NOT_INVITED" }, { status: 409 });
+      }
       const answered = await hasAnswered({
         survey,
         registration: { id: registration.id, surveyCompletedAt: registration.surveyCompletedAt },
         timezone: registration.event.timezone,
       });
       if (answered) {
-        apiLogger.info({ msg: "registrant/survey-link:already-answered", ...ctx });
+        apiLogger.warn({ msg: "registrant/survey-link:already-answered", ...ctx });
         return NextResponse.json({ error: "You have already answered this survey.", code: "ALREADY_ANSWERED" }, { status: 409 });
       }
 
@@ -129,13 +154,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         registrationId: registration.id,
         eventSlug: registration.event.slug,
         appUrl: "",
-        expiryDays: DEFAULT_SURVEY_EXPIRY_DAYS,
+        // It ends when the organiser's link would have.
+        expiry: { at: live.expires },
       });
       apiLogger.info({ msg: "registrant/survey-link:issued", ...ctx, resolvedSurveyId: survey.id, certificate: survey.gatesCertificates });
       return NextResponse.json({ url });
     });
   } catch (err) {
-    apiLogger.error({ err, msg: "registrant/survey-link:failed" });
+    apiLogger.error({ err, msg: "registrant/survey-link:failed", registrationId, userId });
     return NextResponse.json({ error: "Could not open the survey. Please try again." }, { status: 500 });
   }
 }

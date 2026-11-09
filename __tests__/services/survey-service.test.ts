@@ -329,7 +329,7 @@ describe("Phase 4: once per day (Oct 7, 2026)", () => {
 
 describe("mintPersonalSurveyLink (the one survey-token minter)", () => {
   const mint = (survey: Parameters<typeof mintPersonalSurveyLink>[0]["survey"]) =>
-    mintPersonalSurveyLink({ survey, registrationId: "reg1", eventSlug: "ev", appUrl: "", expiryDays: 30 });
+    mintPersonalSurveyLink({ survey, registrationId: "reg1", eventSlug: "ev", appUrl: "", expiry: { days: 30 } });
   const revoked = () => mockDb.verificationToken.deleteMany.mock.calls.map((c) => c[0].where.identifier.in);
   const minted = () => mockDb.verificationToken.create.mock.calls[0][0].data;
 
@@ -357,6 +357,12 @@ describe("mintPersonalSurveyLink (the one survey-token minter)", () => {
     await mint({ id: "d1", gatesCertificates: false, responseMode: "ONCE_PER_DAY" });
     expect(minted().identifier).toBe("survey:d1:reg1");
     expect(mockDb.verificationToken.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("a re-issued link ends exactly when the one it replaces would have", async () => {
+    const at = new Date("2026-11-20T00:00:00Z");
+    await mintPersonalSurveyLink({ survey: null, registrationId: "reg1", eventSlug: "ev", appUrl: "", expiry: { at } });
+    expect(minted().expires).toBe(at);
   });
 
   it("expires after the given days", async () => {

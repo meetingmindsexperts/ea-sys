@@ -85,24 +85,44 @@ export async function mintPersonalSurveyLink(args: {
   registrationId: string;
   eventSlug: string;
   appUrl: string;
-  expiryDays: number;
+  /** How long the link lives, or (re-issuing one) the exact time it ends. */
+  expiry: { days: number } | { at: Date };
 }): Promise<string> {
   const { survey, registrationId } = args;
+  const forms = surveyLinkIdentifiers(survey, registrationId);
+  // The first form is the one a new link is filed under.
+  const identifier = forms[0];
   const isCmeLink = !survey || survey.gatesCertificates;
-  const identifier = surveyTokenIdentifier(isCmeLink ? null : (survey?.id ?? null), registrationId);
   if (isCmeLink || !isDailyMode(survey?.responseMode)) {
-    const revoke = isCmeLink && survey?.id ? [identifier, surveyTokenIdentifier(survey.id, registrationId)] : [identifier];
-    await db.verificationToken.deleteMany({ where: { identifier: { in: revoke } } });
+    await db.verificationToken.deleteMany({ where: { identifier: { in: forms } } });
   }
   const rawToken = crypto.randomBytes(32).toString("hex");
   await db.verificationToken.create({
     data: {
       identifier,
       token: hashVerificationToken(rawToken),
-      expires: new Date(Date.now() + args.expiryDays * DAY_MS),
+      expires: "at" in args.expiry ? args.expiry.at : new Date(Date.now() + args.expiry.days * DAY_MS),
     },
   });
   return `${args.appUrl}/e/${args.eventSlug}/survey?token=${rawToken}`;
+}
+
+/**
+ * Every identifier a person's link to this survey can be held under, the one
+ * a new link is filed under first. The CME survey: the legacy two-part form,
+ * then the three-part form naming it (a link carrying either opens it). An
+ * extra survey: its own three-part form. `survey` null: the CME survey of an
+ * event with no Survey row.
+ */
+export function surveyLinkIdentifiers(
+  survey: { id: string | null; gatesCertificates: boolean } | null,
+  registrationId: string,
+): string[] {
+  if (!survey || survey.gatesCertificates || !survey.id) {
+    const legacy = surveyTokenIdentifier(null, registrationId);
+    return survey?.id ? [legacy, surveyTokenIdentifier(survey.id, registrationId)] : [legacy];
+  }
+  return [surveyTokenIdentifier(survey.id, registrationId)];
 }
 
 /**

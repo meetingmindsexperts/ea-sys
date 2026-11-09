@@ -113,8 +113,10 @@ describe("surveyLinesFor", () => {
     responseMode: "ONCE",
     ...over,
   });
+  // The organiser's links to r1, all alive, unless a test says otherwise.
+  const ALL_LINKS = new Set(["survey:r1", "survey:s1:r1", "survey:cert:r1"]);
   const lines = (input: Partial<Parameters<typeof surveyLinesFor>[0]>) =>
-    surveyLinesFor({ registration: { id: "r1", status: "CONFIRMED", surveyCompletedAt: null }, event: event("2026-10-31T05:00:00Z"), surveys: [], responses: [], now: NOW, ...input });
+    surveyLinesFor({ registration: { id: "r1", status: "CONFIRMED", surveyCompletedAt: null }, event: event("2026-10-31T05:00:00Z"), surveys: [], responses: [], liveLinks: ALL_LINKS, now: NOW, ...input });
 
   it("the certificate survey is answered by surveyCompletedAt, its historical signal", () => {
     const cert = row({ id: "cert", name: "Post-event survey", gatesCertificates: true });
@@ -146,6 +148,23 @@ describe("surveyLinesFor", () => {
     const noCert = event("2026-10-31T05:00:00Z", null);
     expect(lines({ event: noCert, surveys: [daily], responses: [{ surveyId: "s1", registrationId: "r1", dedupKey: "r1:2026-11-09" }] })).toMatchObject([{ answered: true, daily: true }]);
     expect(lines({ event: noCert, surveys: [daily], responses: [{ surveyId: "s1", registrationId: "r1", dedupKey: "r1:2026-11-08" }] })).toMatchObject([{ answered: false }]);
+  });
+
+  it("re-issues, never widens: an unanswered survey shows only to someone holding a live link to it", () => {
+    const cert = row({ id: "cert", gatesCertificates: true });
+    // A no-show the organiser never sent the CME survey to: no button.
+    expect(lines({ surveys: [cert], liveLinks: new Set() })).toEqual([]);
+    // An extra survey sent to one group: not for the rest of the event.
+    expect(lines({ event: event("2026-10-31T05:00:00Z", null), surveys: [row({})], liveLinks: new Set(["survey:r1"]) })).toEqual([]);
+    // Answered still shows, link or not.
+    expect(lines({ surveys: [cert], liveLinks: new Set(), registration: { id: "r1", status: "CONFIRMED", surveyCompletedAt: NOW } })).toMatchObject([{ answered: true }]);
+  });
+
+  it("the CME survey counts a link under either form", () => {
+    const cert = row({ id: "cert", gatesCertificates: true });
+    expect(lines({ surveys: [cert], liveLinks: new Set(["survey:r1"]) })).toHaveLength(1);
+    expect(lines({ surveys: [cert], liveLinks: new Set(["survey:cert:r1"]) })).toHaveLength(1);
+    expect(lines({ surveys: [cert], liveLinks: new Set(["survey:cert:other"]) })).toEqual([]);
   });
 
   it("asks only a place at the event", () => {
