@@ -1,5 +1,11 @@
 # Committee members — how EA-SYS models them
 
+> **Owner ruling, Nov 9, 2026: Faculty is the umbrella: invited speakers AND committee
+> members.** This record's use of "faculty" to mean "a speaker", and its statement that
+> committee members are "different from faculty", predate the ruling. Committee stays a
+> tag and a badge. A speaker record stays optional. Not yet built: a committee-only person
+> on the Faculty type; until then they count as a delegate (§2's table).
+
 > **Who this is for:** organizers and engineers who need to add **committee members**
 > (organizing committee, scientific committee, or a single generic "committee") to an
 > event, and pull them back out via the API. This is a **design decision record** — it
