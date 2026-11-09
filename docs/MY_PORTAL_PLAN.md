@@ -1,5 +1,9 @@
 # My portal: one place for a person's whole journey (Nov 9, 2026)
 
+**Status: BUILT Nov 9, 2026, all five phases** (`71981b3e` phone layout,
+`2504de88` sidebar + My certificates, `abf9d639` journey, `6a65c77e` Take
+survey, `134a2e86` My abstracts). Not yet deployed at the time of writing.
+
 Owner request (Nov 9, 2026): "under this one portal, I should see my entire
 journey, if I completed surveys; in the sidebar, show collated certificates as
 My certificates and My abstracts". Priority for the day.

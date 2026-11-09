@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### My portal: a person's whole journey in one place (November 9)
+
+Plan: `docs/MY_PORTAL_PLAN.md`.
+- **The dashboard works on a phone:** below `md` the sidebar is a slide-out menu from a header button, for every role; before, the fixed 224px column squeezed every page on a 390px phone
+- **A sidebar for every attendee account:** a registrant had none. REGISTRANT gets My events and My certificates, SUBMITTER adds My abstracts, REVIEWER keeps My Reviews. The pages live under `/my-registration`, so confinement is unchanged
+- **My certificates** (`/my-registration/certificates`): every released certificate, grouped by the event's year, CME totals on top
+- **My events journey:** each event as steps (registered, payment, checked in, survey, certificate), each with an icon and a word; upcoming and past split; a banner counts surveys to answer and payments due. Read-only, on the shared rules (`src/lib/registrant-journey.ts`)
+- **Take survey:** `POST /api/registrant/registrations/[id]/survey-link` issues the signed-in owner a fresh personal link (the emailed one is stored only as a hash); owner, open, unanswered and started-event checks; 20 per person per hour. Survey token minting is now one helper, `mintPersonalSurveyLink`, shared with the Survey Invitation and the webinar thank-you email
+- **My abstracts** (`/my-registration/abstracts`): abstracts and session proposals across events, matched by the account link only
+
 ### Live stream served through CloudFront (November 9)
 
 - **Webinar viewers now watch through CloudFront** (`d3vq9gpx1lng4k.cloudfront.net`, distribution `E4S57RCP6XUPP`), not straight from the box, which alone held about 200 to 340 viewers. Playlists cached 1 s, segments 60 s, 404s 1 s; everything outside `/stream/` answers 404. No code change: `HLS_CDN_BASE` switched it on and unsetting it switches it off. Free up to 1 TB a month, then about $0.11/GB, with a $50 CloudFront budget alarm. Corrects the old `LIVE_STREAMING.md` §13 design, whose settings would have cached nothing (nginx's `no-cache` with a minimum TTL of 0). Setup script and config: `infra/cloudfront/`; plan, costs and test results: `docs/HLS_CDN_PLAN.md`

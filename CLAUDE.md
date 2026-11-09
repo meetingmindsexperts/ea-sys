@@ -442,7 +442,7 @@ Thresholds are best-effort; in-memory store means limits reset on EC2/Docker res
 ### Restricted Role Enforcement (3-layer, applies to REVIEWER, SUBMITTER, and REGISTRANT)
 1. **API Layer:** `denyReviewer(session)` guard on all POST/PUT/DELETE handlers (except abstract operations and `/api/registrant/registrations` self-edit) returns 403 for REVIEWER, SUBMITTER, and REGISTRANT
 2. **Middleware Layer:** `src/proxy.ts` (Next.js middleware; renamed from `middleware.ts` in Next 16.1) redirects REVIEWER/SUBMITTER from non-abstract event routes; REGISTRANT is redirected to `/my-registration` from all dashboard routes
-3. **UI Layer:** Write-action buttons hidden; sidebar hidden for REGISTRANT; header shows "Reviewer Portal", "Submitter Portal", or "Registration Portal"
+3. **UI Layer:** Write-action buttons hidden; a REGISTRANT's sidebar lists only its own portal pages (My events, My certificates; since Nov 9, 2026, before which it had none); header shows "Reviewer Portal", "Submitter Portal", or "Registration Portal"
 
 ### Event Scoping
 - `buildEventAccessWhere(session.user)` from `src/lib/event-access.ts` scopes event queries by role
@@ -608,7 +608,7 @@ full history is in [CHANGELOG.md](CHANGELOG.md)**, newest first; read it when a 
 actually touches that history, not by default.
 
 - **Public catalogue and event pages** (Nov 4): `/catalogue` (opt-in per event: Settings, Registration, "Show in the event catalogue"), topic pages per specialty and country, `/e/{slug}` as a server-rendered event page instead of a redirect into the form, plus robots.txt, sitemap.xml, llms.txt and JSON-LD for search engines and AI assistants. Guide: `docs/PUBLIC_CATALOGUE_SEO.md`
-- **My events** (Nov 4): `/my-registration` lists every event a person is registered for with their released certificates, CME hours and a CME total; each event's own page stays the place to view, edit and pay
+- **My portal** (Nov 4, journey Nov 9): `/my-registration` lists every event as a journey (registered, payment, check-in, survey with a Take survey button, certificate), plus My certificates and My abstracts under it, in a sidebar every attendee account now has; each event's own page stays the place to view, edit and pay. Plan: `docs/MY_PORTAL_PLAN.md`
 - **Shared views** (Sep 29): read-only secret links at `/e/<slug>/shared/<token>`: one per event for abstracts and for session proposals, up to 10 named registration views for staff. The organiser picks statuses, filters and fields; contact details are off by default and confirmed; amounts and reviews can never be shown. Plans: `docs/SUBMISSION_SHARE_PLAN.md`, `docs/REGISTRATION_SHARE_PLAN.md`
 - **Approval chains** (Sep 28): a named spend-request chain (2 to 4 people, final approver last, with a stand-in) and a budget approver with a backup, set by the super admin, who never approves; approving then signing off is allowed and flagged, not blocked
 - **QuickBooks connector** (Sep 22) — connects and READS only, never posts; the Intuit app is per organisation and entered in the UI, so the `QUICKBOOKS_*` env vars are retired and read nowhere
