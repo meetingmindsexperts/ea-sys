@@ -198,8 +198,8 @@ export default async function MyRegistrationPage() {
     // Mobile first (owner, Nov 4, 2026): most people open this from the
     // confirmation email on a phone. Everything stacks and buttons span the
     // card by default; from `sm` up the actions sit beside their text.
-    // The whole right pane (owner, Nov 9, 2026), events two to a row from xl:
-    // below that a card is too narrow for the five-step journey.
+    // The whole right pane (owner, Nov 9, 2026), events two to a row from xl,
+    // Next up included: below that a card is too narrow for the five-step journey.
     <div className="w-full space-y-6 sm:space-y-8 sm:py-2">
       <PageHeader title={data.firstName ? `Welcome back, ${data.firstName}` : "My events"} description={`Signed in as ${scope.email}`} />
 
@@ -238,10 +238,9 @@ export default async function MyRegistrationPage() {
       {next && (
         <section className="space-y-3" aria-labelledby="next-up">
           <SectionHeading title={<span id="next-up">Next up</span>} />
+          {/* One column of the two-up grid like every other event (owner, Nov 9, 2026). */}
           <div className="grid gap-4 xl:grid-cols-2">
-            <div className="xl:col-span-2">
-              <EventCard card={next} featured={countdown(next.event, now)} />
-            </div>
+            <EventCard card={next} featured={countdown(next.event, now)} />
             {laterUpcoming.map((card) => (
               <EventCard key={card.event.id} card={card} />
             ))}
