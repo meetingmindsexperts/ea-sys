@@ -5,6 +5,7 @@
 
 import { zoomApiRequest } from "./client";
 import { apiLogger } from "@/lib/logger";
+import { knownTimezone, localWallTimeInTz } from "@/lib/event-time";
 import type {
   CreateZoomMeetingParams,
   CreateZoomWebinarParams,
@@ -12,6 +13,17 @@ import type {
   ZoomWebinarResponse,
   ZoomPanelist,
 } from "./types";
+
+/**
+ * start_time as the wall clock in `timezone`, so Zoom shows the meeting in the
+ * event's zone. Callers pass a UTC ISO string; a `...Z` value makes Zoom show
+ * GMT whatever `timezone` says (Nov 9, 2026: 11:30 Dubai shown as 7:30). With
+ * no timezone, or one Intl does not know, the UTC string goes as before.
+ */
+function zoomStartTime(startTime: string, timezone?: string): string {
+  if (!timezone || knownTimezone(timezone) !== timezone) return startTime;
+  return localWallTimeInTz(new Date(startTime), timezone);
+}
 
 // ── Meetings ───────────────────────────────────────────────────────
 
@@ -23,7 +35,7 @@ export async function createZoomMeeting(
   return zoomApiRequest<ZoomMeetingResponse>(organizationId, "POST", "/users/me/meetings", {
     topic: params.topic,
     type: 2, // scheduled
-    start_time: params.startTime,
+    start_time: zoomStartTime(params.startTime, params.timezone),
     duration: params.duration,
     timezone: params.timezone || "UTC",
     password: params.passcode,
@@ -56,7 +68,7 @@ export async function updateZoomMeeting(
 ): Promise<void> {
   await zoomApiRequest<void>(organizationId, "PATCH", `/meetings/${meetingId}`, {
     ...(params.topic && { topic: params.topic }),
-    ...(params.startTime && { start_time: params.startTime }),
+    ...(params.startTime && { start_time: zoomStartTime(params.startTime, params.timezone) }),
     ...(params.duration && { duration: params.duration }),
     ...(params.timezone && { timezone: params.timezone }),
     ...(params.passcode !== undefined && { password: params.passcode }),
@@ -101,7 +113,7 @@ export async function createZoomWebinar(
   return zoomApiRequest<ZoomWebinarResponse>(organizationId, "POST", "/users/me/webinars", {
     topic: params.topic,
     type: 5, // scheduled webinar
-    start_time: params.startTime,
+    start_time: zoomStartTime(params.startTime, params.timezone),
     duration: params.duration,
     timezone: params.timezone || "UTC",
     password: params.passcode,
@@ -127,7 +139,7 @@ export async function createWebinarSeries(
   return zoomApiRequest<ZoomWebinarResponse>(organizationId, "POST", "/users/me/webinars", {
     topic: params.topic,
     type: 9, // recurring webinar with fixed time
-    start_time: params.startTime,
+    start_time: zoomStartTime(params.startTime, params.timezone),
     duration: params.duration,
     timezone: params.timezone || "UTC",
     password: params.passcode,
@@ -175,7 +187,7 @@ export async function updateZoomWebinar(
 ): Promise<void> {
   await zoomApiRequest<void>(organizationId, "PATCH", `/webinars/${webinarId}`, {
     ...(params.topic && { topic: params.topic }),
-    ...(params.startTime && { start_time: params.startTime }),
+    ...(params.startTime && { start_time: zoomStartTime(params.startTime, params.timezone) }),
     ...(params.duration && { duration: params.duration }),
     ...(params.timezone && { timezone: params.timezone }),
     ...(params.passcode !== undefined && { password: params.passcode }),

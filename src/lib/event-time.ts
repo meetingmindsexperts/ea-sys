@@ -52,6 +52,17 @@ export function localDateInTz(date: Date, timeZone: string): string {
   }).format(date);
 }
 
+/**
+ * The wall-clock time of `date` in `timeZone` as `YYYY-MM-DDTHH:mm:ss`, with no
+ * offset. Zoom reads this form as local time in the `timezone` it is sent with;
+ * a `...Z` start_time is read as GMT and the meeting is then shown in GMT.
+ */
+export function localWallTimeInTz(date: Date, timeZone: string): string {
+  const p = tzParts(date, timeZone);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}`;
+}
+
 /** Numeric wall-clock parts of `date` in `timeZone`. */
 function tzParts(date: Date, timeZone: string) {
   const parts: Record<string, string> = {};
