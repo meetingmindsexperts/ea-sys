@@ -198,7 +198,9 @@ export default async function MyRegistrationPage() {
     // Mobile first (owner, Nov 4, 2026): most people open this from the
     // confirmation email on a phone. Everything stacks and buttons span the
     // card by default; from `sm` up the actions sit beside their text.
-    <div className="mx-auto w-full max-w-3xl space-y-6 sm:space-y-8 sm:py-2">
+    // The whole right pane (owner, Nov 9, 2026), events two to a row from xl:
+    // below that a card is too narrow for the five-step journey.
+    <div className="w-full space-y-6 sm:space-y-8 sm:py-2">
       <PageHeader title={data.firstName ? `Welcome back, ${data.firstName}` : "My events"} description={`Signed in as ${scope.email}`} />
 
       {/* Registrations made earlier under this address appear once it is
@@ -232,19 +234,25 @@ export default async function MyRegistrationPage() {
       {next && (
         <section className="space-y-3" aria-labelledby="next-up">
           <SectionHeading title={<span id="next-up">Next up</span>} />
-          <EventCard card={next} featured={countdown(next.event, now)} />
-          {laterUpcoming.map((card) => (
-            <EventCard key={card.event.id} card={card} />
-          ))}
+          <div className="grid gap-4 xl:grid-cols-2">
+            <div className="xl:col-span-2">
+              <EventCard card={next} featured={countdown(next.event, now)} />
+            </div>
+            {laterUpcoming.map((card) => (
+              <EventCard key={card.event.id} card={card} />
+            ))}
+          </div>
         </section>
       )}
 
       {past.length > 0 && (
         <section className="space-y-3" aria-labelledby="past-events">
           <SectionHeading title={<span id="past-events">Past events</span>} />
-          {past.map((card) => (
-            <EventCard key={card.event.id} card={card} />
-          ))}
+          <div className="grid gap-4 xl:grid-cols-2">
+            {past.map((card) => (
+              <EventCard key={card.event.id} card={card} />
+            ))}
+          </div>
         </section>
       )}
     </div>
@@ -327,7 +335,7 @@ function EventCard({ card, featured }: { card: EventCardData; featured?: string 
   const { event, where, journeys, certificates } = card;
   const hasBanner = Boolean(event.bannerImage || event.bannerImageMobile);
   return (
-    <Card id={`event-${event.id}`} className={cn("gap-0 overflow-hidden py-0", featured && "border-primary/40 ring-1 ring-primary/20")}>
+    <Card id={`event-${event.id}`} className={cn("h-full gap-0 overflow-hidden py-0", featured && "border-primary/40 ring-1 ring-primary/20")}>
       {/* The event's own branding, so it is recognised before it is read: the
           mobile banner on a phone, the web banner wider up, whichever exists
           when only one does (EventBanner, as on the event's own pages). Capped
@@ -379,7 +387,8 @@ function EventCard({ card, featured }: { card: EventCardData; featured?: string 
         </div>
       )}
 
-      <div className="flex flex-col gap-2 border-t bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
+      {/* mt-auto: two cards in a row end level however long their journeys are. */}
+      <div className="mt-auto flex flex-col gap-2 border-t bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
         {journeys.length > 0 && (
           <Button asChild variant={featured ? "default" : "outline"} className="h-11 w-full sm:h-9 sm:w-auto">
             <Link href={`/e/${event.slug}/my-registration`}>
