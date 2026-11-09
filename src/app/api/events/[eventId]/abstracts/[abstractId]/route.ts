@@ -281,6 +281,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This is your own abstract, so you cannot decide it.", code: "OWN_ABSTRACT" }, { status: 403 });
     }
 
+    // Nor one on which they have a declared conflict.
+    if (isReviewer && data.status) {
+      const assignment = await db.abstractReviewer.findUnique({
+        where: { abstractId_userId: { abstractId, userId: session.user.id } },
+        select: { conflictFlag: true },
+      });
+      if (assignment?.conflictFlag) {
+        apiLogger.warn({ msg: "abstracts:conflict-status-refused", eventId, abstractId, userId: session.user.id, status: data.status });
+        return NextResponse.json({ error: "A conflict of interest is recorded for you on this abstract.", code: "CONFLICT_OF_INTEREST" }, { status: 403 });
+      }
+    }
+
     // Only ADMIN/SUPER_ADMIN/ORGANIZER/REVIEWER can set review statuses
     if (!canReview && data.status && reviewStatuses.includes(data.status)) {
       return NextResponse.json(

@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { useSession } from "next-auth/react";
 import { queryKeys } from "@/hooks/use-api";
+import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -114,7 +116,8 @@ function ReviewRows({ heading, rows }: { heading: string; rows: Row[] }) {
 }
 
 export default function MyReviewsPage() {
-  const { data, isLoading, error } = useQuery<{ rows: Row[]; total: number }>({
+  const { data: session } = useSession();
+  const { data, isLoading, error } = useQuery<{ rows: Row[]; total: number; needsEmailConfirmation?: boolean }>({
     queryKey: queryKeys.myReviews,
     queryFn: async () => {
       const res = await fetch("/api/my-reviews");
@@ -162,7 +165,9 @@ export default function MyReviewsPage() {
         </Card>
       )}
 
-      {!isLoading && !error && rows.length === 0 && (
+      {data?.needsEmailConfirmation && <ConfirmEmailNotice email={session?.user?.email ?? undefined} forReviews />}
+
+      {!isLoading && !error && rows.length === 0 && !data?.needsEmailConfirmation && (
         <Card>
           <CardContent className="pt-10 pb-10 text-center text-sm text-muted-foreground">
             No abstracts are assigned to you yet. When an organizer adds you as a reviewer, abstracts will

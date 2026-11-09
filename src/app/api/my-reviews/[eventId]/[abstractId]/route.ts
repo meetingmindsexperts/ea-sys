@@ -5,7 +5,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { resolveEventTenant } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
-import { REVIEWABLE_ABSTRACT_STATUSES, isOnReviewerPool, isOwnAbstract } from "@/lib/abstract-reviewer-access";
+import { REVIEWABLE_ABSTRACT_STATUSES, isOnReviewerPool, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
 
 /**
  * One abstract, for the person reviewing it: what the review page reads.
@@ -29,6 +29,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const user = { id: session.user.id, email: session.user.email };
+
+    const account = await db.user.findUnique({ where: { id: user.id }, select: { role: true, emailConfirmedAt: true } });
+    if (mustConfirmEmailToReview(account)) {
+      apiLogger.warn({ msg: "my-reviews:email-not-confirmed", eventId, abstractId, userId: user.id });
+      return NextResponse.json({ error: "Confirm your email address to review abstracts.", code: "EMAIL_NOT_CONFIRMED" }, { status: 403 });
+    }
 
     // The caller may hold no organisation, so the event names the lane.
     const tenant = await resolveEventTenant({ id: eventId, status: { not: "CANCELLED" } });

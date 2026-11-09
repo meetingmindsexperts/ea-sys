@@ -12,7 +12,8 @@ import {
   submitAbstractReview,
   type SubmitAbstractReviewErrorCode,
 } from "@/services/abstract-service";
-import { isLinkedRole, requirePermission } from "@/lib/permissions/require-permission";
+import { requirePermission } from "@/lib/permissions/require-permission";
+import { isOwnAbstract } from "@/lib/abstract-reviewer-access";
 
 /**
  * Per-reviewer abstract review submissions.
@@ -77,7 +78,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return await runWithTenant(event.organizationId, async () => {
     const abstract = await db.abstract.findFirst({
       where: { id: abstractId, eventId },
-      select: { id: true, speaker: { select: { userId: true } } },
+      select: { id: true, speaker: { select: { userId: true, email: true } } },
     });
     if (!abstract) return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
 
@@ -100,7 +101,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // identities on a conference abstract (Phase 6 review, Oct 7, 2026).
     const facts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
     const isOrgStaff = isOrgMember && facts !== null && can(gate.principal, "abstracts.decide", { event: facts });
-    const isAbstractSpeaker = abstract.speaker?.userId === session.user.id;
+    const isAbstractSpeaker = isOwnAbstract(abstract.speaker, session.user);
     if (!isOrgMember && !isEventReviewer && !isAbstractSpeaker) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -112,7 +113,14 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // without learning who-said-what.
     // The author always gets it, even one who reviews on this event too: their
     // pool membership must not show them who scored their own abstract.
-    if (!isOrgStaff && (!isEventReviewer || isAbstractSpeaker)) {
+    // So does a reviewer with a declared conflict: the review stops at the name.
+    const conflicted = isEventReviewer && !isOrgStaff
+      ? (await db.abstractReviewer.findUnique({
+          where: { abstractId_userId: { abstractId, userId: session.user.id } },
+          select: { conflictFlag: true },
+        }))?.conflictFlag === true
+      : false;
+    if (!isOrgStaff && (!isEventReviewer || isAbstractSpeaker || conflicted)) {
       return NextResponse.json({
         submissions: aggregate.submissions.map((s) => ({
           id: s.id,
@@ -156,6 +164,7 @@ const HTTP_STATUS_FOR_SUBMIT_CODE: Record<SubmitAbstractReviewErrorCode, number>
   NOT_A_REVIEWER: 403,
   NOT_REVIEWABLE: 409,
   OWN_ABSTRACT: 403,
+  EMAIL_NOT_CONFIRMED: 403,
   CONFLICT_OF_INTEREST: 403,
   EMPTY_REVIEW: 400,
   INVALID_OVERALL_SCORE: 400,
@@ -180,18 +189,20 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Staff score with `abstracts.decide`. Everyone outside the organisation
-    // goes through the service's own rule (in the event's pool OR assigned to
-    // this abstract, and not its author), whatever their account's role: a
-    // reviewer is usually a speaker already, so a SUBMITTER. That rule is wider
-    // than the events `linked` resolves to, so their lookup stays by id.
+    // Staff holding `abstracts.decide` score on the events it reaches. Everyone
+    // else goes through the service's own rule (in the event's pool OR assigned
+    // to this abstract, and not its author), whatever their account's role: a
+    // reviewer is usually a speaker already, so a SUBMITTER, and a colleague can
+    // be asked too. That rule is wider than the events a grant or `linked`
+    // resolves to, so their lookup stays by id.
     const gate = requirePermission(session, "abstracts.decide", {
       route: "events/[eventId]/abstracts/[abstractId]/submissions:POST",
       eventId,
+      onMissing: "hide",
       linkedRoles: "linked",
     });
     if (!gate.ok) return gate.response;
-    const eventWhere = isLinkedRole(session.user.role) ? { id: eventId } : gate.eventWhere;
+    const eventWhere = can(gate.principal, "abstracts.decide") ? gate.eventWhere : { id: eventId };
 
     if (!body) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });

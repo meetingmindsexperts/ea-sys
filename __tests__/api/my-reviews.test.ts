@@ -12,6 +12,7 @@ const { mockDb, mockAuth } = vi.hoisted(() => ({
     abstractReviewer: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     abstractReviewSubmission: { findUnique: vi.fn(), findMany: vi.fn() },
     reviewCriterion: { findMany: vi.fn() },
+    user: { findUnique: vi.fn() },
   },
   mockAuth: vi.fn(),
 }));
@@ -24,6 +25,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: string, fn: () => unknown) => fn() }));
 
+import { excludeOwnAbstracts } from "@/lib/abstract-reviewer-access";
 import { GET as feed } from "@/app/api/my-reviews/route";
 import { GET as detail } from "@/app/api/my-reviews/[eventId]/[abstractId]/route";
 
@@ -54,13 +56,14 @@ beforeEach(() => {
   mockDb.abstractReviewSubmission.findUnique.mockResolvedValue(null);
   mockDb.abstractReviewSubmission.findMany.mockResolvedValue([]);
   mockDb.reviewCriterion.findMany.mockResolvedValue([]);
+  mockDb.user.findUnique.mockResolvedValue({ role: "SUBMITTER", emailConfirmedAt: new Date() });
 });
 
 describe("GET /api/my-reviews?summary=1", () => {
   it("is true for a pool abstract or an assignment, whatever the role, never counting their own", async () => {
     mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1" });
     await expect((await feed(req("?summary=1"))).json()).resolves.toMatchObject({ hasReviewWork: true });
-    expect(mockDb.abstract.findFirst.mock.calls[0][0].where).toHaveProperty("NOT");
+    expect(mockDb.abstract.findFirst.mock.calls[0][0].where).toHaveProperty("speaker");
     mockDb.abstract.findFirst.mockResolvedValue(null);
     mockDb.abstractReviewer.findFirst.mockResolvedValue({ id: "r1" });
     await expect((await feed(req("?summary=1"))).json()).resolves.toMatchObject({ hasReviewWork: true });
@@ -87,7 +90,7 @@ describe("GET /api/my-reviews", () => {
 
   it("leaves the person's own abstracts out of both sources", async () => {
     await feed(req());
-    const not = { NOT: { speaker: { OR: [{ userId: "u1" }, { email: { equals: "me@example.com", mode: "insensitive" } }] } } };
+    const not = excludeOwnAbstracts({ id: "u1", email: "me@example.com" });
     expect(mockDb.abstract.findMany.mock.calls[0][0].where).toMatchObject(not);
     expect(mockDb.abstractReviewer.findMany.mock.calls[0][0].where.abstract).toMatchObject(not);
   });
@@ -100,6 +103,28 @@ describe("GET /api/my-reviews", () => {
       ["mine", "assigned"],
       ["pool1", "event-pool"],
     ]);
+  });
+});
+
+describe("an account that has not proven its address", () => {
+  beforeEach(() => mockDb.user.findUnique.mockResolvedValue({ role: "SUBMITTER", emailConfirmedAt: null }));
+
+  it("gets no rows from the feed and is told to confirm", async () => {
+    const body = await (await feed(req())).json();
+    expect(body).toEqual({ rows: [], total: 0, needsEmailConfirmation: true });
+    expect(mockDb.abstract.findMany).not.toHaveBeenCalled();
+  });
+
+  it("cannot read an abstract", async () => {
+    const res = await detail(req(), params);
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("EMAIL_NOT_CONFIRMED");
+    expect(mockDb.abstract.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("staff are not asked: they are invited and org-bound", async () => {
+    mockDb.user.findUnique.mockResolvedValue({ role: "ORGANIZER", emailConfirmedAt: null });
+    expect((await detail(req(), params)).status).toBe(200);
   });
 });
 

@@ -212,11 +212,17 @@ export async function POST(req: Request, { params }: RouteParams) {
         invitationSent = result.invitationSent;
         accountExisted = result.existed;
 
-        // Link speaker to user
-        await db.speaker.update({
-          where: { id: speaker.id },
-          data: { userId },
-        });
+        // Link speaker to user. An existing account must have proven the address
+        // first (the rule in speaker-companion.ts): a speaker record and its
+        // abstracts must not go to whoever signed up on that address.
+        if (!result.existed || result.confirmed) {
+          await db.speaker.update({
+            where: { id: speaker.id },
+            data: { userId },
+          });
+        } else {
+          apiLogger.warn({ msg: "events/reviewers:speaker-not-linked-unconfirmed", eventId, speakerId: speaker.id, userId });
+        }
       }
     } else {
       // ---- Add by email directly ----
@@ -361,7 +367,7 @@ async function findOrCreateReviewerUser(
   eventSlug: string,
   eventId: string,
   emailFrom?: { email: string; name?: string }
-): Promise<{ userId: string; invitationSent: boolean; existed: boolean } | { error: string }> {
+): Promise<{ userId: string; invitationSent: boolean; existed: boolean; confirmed?: boolean } | { error: string }> {
   const normalizedEmail = email.toLowerCase();
 
   // Reviewers are created org-independent, so the org-less half of this scope
@@ -370,7 +376,7 @@ async function findOrCreateReviewerUser(
   const existingUser = await findUserByEmail(
     userEmailScope(session.user.organizationId, "reviewer invite: caller carries no org"),
     normalizedEmail,
-    { select: { id: true, role: true } },
+    { select: { id: true, role: true, emailConfirmedAt: true } },
   );
 
   if (existingUser) {
@@ -380,7 +386,7 @@ async function findOrCreateReviewerUser(
     if (!isLinkedRole(existingUser.role)) {
       return { error: `User already exists with role ${existingUser.role}. Change their role in Settings > Users first.` };
     }
-    return { userId: existingUser.id, invitationSent: false, existed: true };
+    return { userId: existingUser.id, invitationSent: false, existed: true, confirmed: !!existingUser.emailConfirmedAt };
   }
 
   // Create new REVIEWER User with invitation (no organizationId — reviewers are org-independent)

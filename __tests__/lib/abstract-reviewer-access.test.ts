@@ -3,7 +3,8 @@
  * never your own abstract (Nov 9, 2026).
  */
 import { describe, it, expect } from "vitest";
-import { becomesSubmitterToAuthor, excludeOwnAbstracts, isOnReviewerPool, isOwnAbstract } from "@/lib/abstract-reviewer-access";
+import { becomesSubmitterToAuthor, excludeOwnAbstracts, isOnReviewerPool, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
+import { computeWeightedOverallScore } from "@/lib/abstract-score";
 
 describe("isOnReviewerPool", () => {
   it("reads the event's list and fails closed on anything else", () => {
@@ -34,14 +35,44 @@ describe("isOwnAbstract", () => {
 });
 
 describe("excludeOwnAbstracts", () => {
-  it("leaves out the account's and the address's abstracts", () => {
+  // A NOT around the OR is NULL for a speaker with no linked account, and hid
+  // those abstracts from everyone (review of c0cc0928). Checked on a real
+  // database when written; this pins the shape that made it safe.
+  it("keeps a speaker with no linked account, and leaves out the account's and the address's", () => {
     expect(excludeOwnAbstracts({ id: "u1", email: "me@example.com" })).toEqual({
-      NOT: { speaker: { OR: [{ userId: "u1" }, { email: { equals: "me@example.com", mode: "insensitive" } }] } },
+      speaker: {
+        AND: [
+          { OR: [{ userId: null }, { userId: { not: "u1" } }] },
+          { NOT: { email: { equals: "me@example.com", mode: "insensitive" } } },
+        ],
+      },
     });
   });
 
   it("without an address, only the account", () => {
-    expect(excludeOwnAbstracts({ id: "u1", email: null })).toEqual({ NOT: { speaker: { OR: [{ userId: "u1" }] } } });
+    expect(excludeOwnAbstracts({ id: "u1", email: null })).toEqual({
+      speaker: { AND: [{ OR: [{ userId: null }, { userId: { not: "u1" } }] }] },
+    });
+  });
+});
+
+describe("mustConfirmEmailToReview", () => {
+  it.each(["REVIEWER", "SUBMITTER", "REGISTRANT"])("asks a %s until the address is proven", (role) => {
+    expect(mustConfirmEmailToReview({ role, emailConfirmedAt: null })).toBe(true);
+    expect(mustConfirmEmailToReview({ role, emailConfirmedAt: new Date() })).toBe(false);
+  });
+  it("does not ask staff, and fails closed on a missing account", () => {
+    expect(mustConfirmEmailToReview({ role: "ORGANIZER", emailConfirmedAt: null })).toBe(false);
+    expect(mustConfirmEmailToReview(null)).toBe(true);
+  });
+});
+
+describe("computeWeightedOverallScore", () => {
+  it("divides by the weights present", () => {
+    expect(computeWeightedOverallScore([{ score: 8, weight: 60 }, { score: 0, weight: 40 }])).toBe(48);
+    expect(computeWeightedOverallScore([{ score: 10, weight: 10 }, { score: 10, weight: 10 }])).toBe(100);
+    expect(computeWeightedOverallScore([{ score: 10, weight: 50 }, { score: 0, weight: 50 }, { score: 0, weight: 50 }])).toBe(33);
+    expect(computeWeightedOverallScore([])).toBeNull();
   });
 });
 

@@ -51,6 +51,9 @@ function Message({ title, children }: { title: string; children: React.ReactNode
 }
 
 function loadFailure(error: unknown) {
+  if (error instanceof ApiError && error.code === "EMAIL_NOT_CONFIRMED") {
+    return <Message title="Confirm your email first">Open My Reviews to send yourself a confirmation link. You can review once your address is confirmed.</Message>;
+  }
   if (error instanceof ApiError && error.status === 403) {
     return <Message title="You can't review this abstract">This is your own abstract. Reviews of it come from other reviewers.</Message>;
   }
@@ -78,7 +81,9 @@ function ReviewForm({ review, eventId, abstractId }: { review: OpenReview; event
 
   const usesCriteria = criteria.length > 0;
   const scoreValid = overallScore !== null && Number.isInteger(overallScore) && overallScore >= 0 && overallScore <= 100;
-  const complete = usesCriteria ? criteriaScores.length === criteria.length : scoreValid;
+  // Against the current criteria: an organiser can change them while this is open.
+  const scored = criteria.map((c) => criteriaScores.find((s) => s.criterionId === c.id)).filter((s) => s !== undefined);
+  const complete = usesCriteria ? scored.length === criteria.length : scoreValid;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,7 +91,7 @@ function ReviewForm({ review, eventId, abstractId }: { review: OpenReview; event
     submit.mutate(
       {
         ...(usesCriteria
-          ? { criteriaScores: criteriaScores.map(({ criterionId, score }) => ({ criterionId, score })) }
+          ? { criteriaScores: scored.map(({ criterionId, score }) => ({ criterionId, score })) }
           : { overallScore: overallScore as number }),
         reviewNotes,
         recommendedFormat: format,
@@ -285,7 +290,7 @@ export default function MyReviewPage() {
         <Card className="lg:sticky lg:top-4">
           <CardContent className="pt-6">
             {review.canSubmit ? (
-              <ReviewForm review={review} eventId={eventId} abstractId={abstractId} />
+              <ReviewForm key={review.submission?.updatedAt ?? "new"} review={review} eventId={eventId} abstractId={abstractId} />
             ) : (
               <ClosedNotice review={review} />
             )}

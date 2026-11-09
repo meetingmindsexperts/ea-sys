@@ -35,7 +35,7 @@ import {
 } from "@/lib/abstract-review";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
-import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOnReviewerPool, isOwnAbstract } from "@/lib/abstract-reviewer-access";
+import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOnReviewerPool, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -377,6 +377,7 @@ export type SubmitAbstractReviewErrorCode =
   | "NOT_A_REVIEWER"
   | "NOT_REVIEWABLE"
   | "OWN_ABSTRACT"
+  | "EMAIL_NOT_CONFIRMED"
   | "CONFLICT_OF_INTEREST"
   | "EMPTY_REVIEW"
   | "INVALID_OVERALL_SCORE"
@@ -463,7 +464,7 @@ export async function submitAbstractReview(
       }),
       db.user.findUnique({
         where: { id: reviewerUserId },
-        select: { id: true, firstName: true, lastName: true, email: true },
+        select: { id: true, firstName: true, lastName: true, email: true, role: true, emailConfirmedAt: true },
       }),
     ]);
 
@@ -504,6 +505,13 @@ export async function submitAbstractReview(
           ? `User ${reviewerUserId} is not a reviewer for this event. Assign them to the abstract or add to event.settings.reviewerUserIds first.`
           : "You are not a reviewer for this event",
       };
+    }
+
+    // ── An outside account proves its address before it reviews. Recording on
+    // someone's behalf is the organiser vouching for them, so it is not asked.
+    if (!onBehalf && !selfSubmitAdminBypass && mustConfirmEmailToReview(reviewer)) {
+      apiLogger.warn({ msg: "abstract-submission:email-not-confirmed", eventId, abstractId, reviewerUserId, source });
+      return { ok: false, code: "EMAIL_NOT_CONFIRMED", message: "Confirm your email address to review abstracts." };
     }
 
     // ── Nobody scores their own abstract ─────────────────────────────────────

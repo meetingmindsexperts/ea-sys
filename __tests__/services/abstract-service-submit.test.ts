@@ -57,6 +57,7 @@ beforeEach(() => {
   mockDb.event.findFirst.mockResolvedValue(EVENT);
   mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "UNDER_REVIEW" });
   mockDb.abstractReviewer.findUnique.mockResolvedValue(null);
+  mockDb.user.findUnique.mockResolvedValue({ id: "pool-rev", firstName: "P", lastName: "R", email: "pool@example.com", role: "REVIEWER", emailConfirmedAt: new Date() });
   mockDb.abstractReviewSubmission.upsert.mockResolvedValue(UPSERTED);
   mockDb.user.findUnique.mockResolvedValue({ id: "rev1", firstName: "A", lastName: "B", email: "a@b.c" });
   mockDb.auditLog.create.mockResolvedValue({});
@@ -227,7 +228,7 @@ describe("submitAbstractReview: nobody reviews their own abstract", () => {
     vi.clearAllMocks();
     mockDb.event.findFirst.mockResolvedValue(EVENT);
     mockDb.abstractReviewer.findUnique.mockResolvedValue(null);
-    mockDb.user.findUnique.mockResolvedValue({ id: "pool-rev", firstName: "P", lastName: "R", email: "pool@example.com" });
+    mockDb.user.findUnique.mockResolvedValue({ id: "pool-rev", firstName: "P", lastName: "R", email: "pool@example.com", role: "REVIEWER", emailConfirmedAt: new Date() });
   });
 
   it("refuses a pool reviewer on their own, by account", async () => {

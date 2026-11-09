@@ -401,8 +401,12 @@ export function useSubmitMyReview(eventId: string, abstractId: string) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       }),
-    // The key is a prefix of the summary and of this abstract's own entry.
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.myReviews }),
+    // Removed, not only invalidated: reopening must never fill the form from the
+    // answer before this one. The list key is a prefix of the summary too.
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: queryKeys.myReview(eventId, abstractId) });
+      return queryClient.invalidateQueries({ queryKey: queryKeys.myReviews });
+    },
   });
 }
 

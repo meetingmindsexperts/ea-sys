@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { REVIEWABLE_ABSTRACT_STATUSES, excludeOwnAbstracts, type ReviewerIdentity } from "@/lib/abstract-reviewer-access";
+import { REVIEWABLE_ABSTRACT_STATUSES, excludeOwnAbstracts, mustConfirmEmailToReview, type ReviewerIdentity } from "@/lib/abstract-reviewer-access";
 
 /**
  * Reviewer portal feed.
@@ -72,6 +72,12 @@ export async function GET(req: Request) {
         db.abstract.findFirst({ where: { speaker: { userId } }, select: { id: true } }),
       ]);
       return NextResponse.json({ hasReviewWork: reviewWork, hasAbstracts: !!ownAbstract });
+    }
+    // Nothing to read until the address is proven (abstract-reviewer-access.ts).
+    const account = await db.user.findUnique({ where: { id: userId }, select: { role: true, emailConfirmedAt: true } });
+    if (mustConfirmEmailToReview(account)) {
+      apiLogger.info({ msg: "my-reviews:awaiting-email-confirmation", userId });
+      return NextResponse.json({ rows: [], total: 0, needsEmailConfirmation: true });
     }
     const notOwn = excludeOwnAbstracts(identity);
 

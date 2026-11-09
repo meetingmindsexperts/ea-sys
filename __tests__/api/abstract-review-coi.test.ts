@@ -38,6 +38,7 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "REVIEWER", organizationId: null } });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { reviewerUserIds: ["u1"] }, reviewCriteria: [] });
   mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "UNDER_REVIEW" });
+  mockDb.user.findUnique.mockResolvedValue({ id: "u1", email: "u1@example.com", role: "REVIEWER", emailConfirmedAt: new Date() });
   const d = new Date(0);
   mockDb.abstractReviewSubmission.upsert.mockResolvedValue({
     id: "sub1", overallScore: 80, reviewNotes: null, recommendedFormat: null, confidence: null,
@@ -213,6 +214,44 @@ describe("abstract review: the right follows the pool and the assignment, not th
     expect(res.status).toBe(403);
     expect((await res.json()).code).toBe("NOT_A_REVIEWER");
     expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+  });
+
+  it("an account that has not proven its address is refused, and nothing is stored", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", role: "SUBMITTER", organizationId: null } });
+    mockDb.user.findUnique.mockResolvedValue({ id: "u1", email: "u1@example.com", role: "SUBMITTER", emailConfirmedAt: null });
+    const res = await POST(makeReq({ overallScore: 80 }), { params });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("EMAIL_NOT_CONFIRMED");
+    expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+  });
+
+  it("a colleague on the pool without abstracts.decide may submit too", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", role: "ONSITE", organizationId: "org1" } });
+    mockDb.user.findUnique.mockResolvedValue({ id: "u1", email: "u1@example.com", role: "ONSITE", emailConfirmedAt: null });
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: "x", email: "a@example.com" } });
+    const res = await POST(makeReq({ overallScore: 80 }), { params });
+    expect(res.status).toBeLessThan(400);
+  });
+
+  it("a conflicted pool reviewer reads the anonymised view", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", speaker: { userId: "x", email: "a@example.com" } });
+    mockDb.abstractReviewer.findUnique.mockResolvedValue({ id: "ar1", conflictFlag: true });
+    mockDb.abstractReviewSubmission.findMany.mockResolvedValue([
+      { id: "s1", overallScore: 70, reviewNotes: "Fine", recommendedFormat: null, criteriaScores: null, confidence: null, submittedAt: new Date(0), updatedAt: new Date(0), reviewerUserId: "other", reviewer: { firstName: "Named", lastName: "Reviewer", email: "named@example.com" } },
+    ]);
+    const text = JSON.stringify(await (await GET(makeReq({}), { params })).json());
+    expect(text).toContain("Fine");
+    expect(text).not.toContain("Named");
+  });
+
+  it("the author matched only by address reads the anonymised view", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", email: "me@example.com", role: "REVIEWER", organizationId: null } });
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", speaker: { userId: null, email: "ME@example.com" } });
+    mockDb.abstractReviewSubmission.findMany.mockResolvedValue([
+      { id: "s1", overallScore: 70, reviewNotes: "Fine", recommendedFormat: null, criteriaScores: null, confidence: null, submittedAt: new Date(0), updatedAt: new Date(0), reviewerUserId: "other", reviewer: { firstName: "Named", lastName: "Reviewer", email: "named@example.com" } },
+    ]);
+    const text = JSON.stringify(await (await GET(makeReq({}), { params })).json());
+    expect(text).not.toContain("Named");
   });
 
   it("the author is refused even on the pool", async () => {

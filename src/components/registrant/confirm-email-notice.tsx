@@ -16,7 +16,18 @@ import { Button } from "@/components/ui/button";
  * events, a server page). Without it, it asks the API and renders nothing for
  * a confirmed account (the event's own registration page).
  */
-export function ConfirmEmailNotice({ email }: { email?: string }) {
+function noticeText(address: string | undefined, sent: boolean, forReviews: boolean): string {
+  if (forReviews) {
+    return sent
+      ? `Check ${address} and click the link. The abstracts you were asked to review will then show here.`
+      : `You were asked to review abstracts. Confirm ${address} to open them.`;
+  }
+  return sent
+    ? `Check ${address} and click the link. Registrations made earlier under it will then show here.`
+    : `Confirm ${address} to see registrations made earlier under it, including any certificates.`;
+}
+
+export function ConfirmEmailNotice({ email, forReviews = false }: { email?: string; forReviews?: boolean }) {
   const status = useQuery({
     queryKey: ["registrant", "confirm-email"],
     queryFn: async () => {
@@ -56,11 +67,9 @@ export function ConfirmEmailNotice({ email }: { email?: string }) {
     <div className="flex flex-col gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-left sm:flex-row sm:items-center">
       <MailCheck className="hidden h-6 w-6 shrink-0 text-sky-700 sm:block" />
       <div className="flex-1 text-sm text-sky-950">
-        <p className="font-medium">Registered before with this email?</p>
+        <p className="font-medium">{forReviews ? "Confirm your email to start reviewing" : "Registered before with this email?"}</p>
         <p className="text-sky-900/80">
-          {sent
-            ? `Check ${address} and click the link. Registrations made earlier under it will then show here.`
-            : `Confirm ${address} to see registrations made earlier under it, including any certificates.`}
+          {noticeText(address, sent, forReviews)}
         </p>
       </div>
       {!sent && (
