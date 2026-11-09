@@ -39,7 +39,7 @@ export default async function DashboardLayout({
           <Sidebar />
           <div className="flex flex-1 flex-col overflow-hidden">
             <Header />
-            <main className="flex-1 overflow-auto bg-muted/30 p-6">{children}</main>
+            <main className="flex-1 overflow-auto bg-muted/30 p-4 md:p-6">{children}</main>
           </div>
         </div>
         {/* The floating AI Agent button: fixed bottom right, role-gated and

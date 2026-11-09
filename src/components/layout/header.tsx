@@ -50,6 +50,7 @@ import { signOutCallbackUrl } from "@/lib/sign-out-target";
 import { isTeamRole, receivesEventNotifications } from "@/lib/team-roles";
 import { useEvents, useEvent } from "@/hooks/use-api";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { MobileSidebar } from "@/components/layout/sidebar";
 
 // ── Role metadata ─────────────────────────────────────────────────────────────
 
@@ -256,18 +257,19 @@ export function Header() {
   const RoleIcon = roleMeta.icon;
 
   return (
-    <header className="flex h-16 items-center justify-between border-b bg-background px-6 relative">
+    <header className="relative flex h-16 items-center justify-between gap-2 border-b bg-background px-4 md:px-6">
       <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-primary-horizontal opacity-50" />
 
-      {/* ── Left: Event selector / breadcrumb ─────────────────────────────── */}
-      <div className="flex items-center gap-4">
+      {/* ── Left: phone menu, then event selector / breadcrumb ────────────── */}
+      <div className="flex min-w-0 items-center gap-2 md:gap-4">
+        <MobileSidebar />
         {isEventPage && currentEvent ? (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="flex items-center gap-2 h-auto py-1">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-semibold">{currentEvent.name}</span>
+                <Button variant="ghost" className="flex h-auto min-w-0 items-center gap-2 py-1">
+                  <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate font-semibold">{currentEvent.name}</span>
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
@@ -309,8 +311,9 @@ export function Header() {
               </DropdownMenuContent>
             </DropdownMenu>
 
+            {/* The trail needs a desktop's width; on a phone the event name is enough. */}
             {currentSubPage && (
-              <div className="flex items-center gap-2 text-muted-foreground">
+              <div className="hidden items-center gap-2 text-muted-foreground md:flex">
                 <ChevronRight className="h-4 w-4" />
                 <Link
                   href={`/events/${eventId}`}
@@ -327,14 +330,14 @@ export function Header() {
             )}
           </div>
         ) : (
-          <h1 className="text-lg font-semibold">
+          <h1 className="truncate text-base font-semibold md:text-lg">
             {session?.user?.organizationName || portalTitle(role)}
           </h1>
         )}
       </div>
 
       {/* ── Right: Notifications + Profile ────────────────────────────────── */}
-      <div className="flex items-center gap-4">
+      <div className="flex shrink-0 items-center gap-2 md:gap-4">
         {receivesEventNotifications(role) && (
           <NotificationBell />
         )}

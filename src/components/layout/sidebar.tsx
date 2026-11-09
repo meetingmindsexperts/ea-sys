@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -14,6 +15,7 @@ import {
   ChevronRight,
   ChevronsUpDown,
   HelpCircle,
+  Menu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +23,7 @@ import { useRuntimeFlags } from "@/components/runtime-flags";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
 import { useHelpChatLauncher } from "@/components/help-chat/help-chat-provider";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
   Tooltip,
   TooltipContent,
@@ -38,9 +41,18 @@ import {
 
 import { computeSidebarNav, sidebarSkipsEventFetch } from "./sidebar-nav";
 
-export function Sidebar() {
+/**
+ * The navigation column. Two placements of the one component, so a phone and a
+ * desktop can never list different pages: the fixed column from `md` up, and
+ * (`mobile`) the body of the slide-out menu below it, where it is never
+ * collapsed and `onNavigate` closes the menu once a link is followed.
+ */
+export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void } = {}) {
   const pathname = usePathname();
-  const { isCollapsed, toggleSidebar } = useSidebar();
+  const { isCollapsed: collapsedSetting, toggleSidebar } = useSidebar();
+  // The collapse setting belongs to the desktop column: a phone menu that
+  // opened as a strip of bare icons would be the worst of both.
+  const isCollapsed = !mobile && collapsedSetting;
   const helpChat = useHelpChatLauncher();
   const { data: session } = useSession();
   const { data: branding } = useOrgBranding();
@@ -100,14 +112,16 @@ export function Sidebar() {
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          "flex h-full flex-col border-r bg-background transition-all duration-300",
-          isCollapsed ? "w-16" : "w-56"
+          "h-full flex-col bg-background",
+          mobile ? "flex w-full" : "hidden border-r transition-all duration-300 md:flex",
+          !mobile && (isCollapsed ? "w-16" : "w-56")
         )}
       >
         {/* ── Logo ─────────────────────────────────────────────────────────── */}
         <div className="flex h-16 items-center border-b px-4 bg-white shrink-0">
           <Link
             href="/dashboard"
+            onClick={onNavigate}
             className={cn("flex items-center gap-3 min-w-0", isCollapsed && "justify-center w-full")}
           >
             {orgLogo ? (
@@ -229,7 +243,13 @@ export function Sidebar() {
         )}
 
         {/* ── Navigation ───────────────────────────────────────────────────── */}
-        <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
+        <nav
+          className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5"
+          // Following any link closes the phone menu.
+          onClickCapture={(e) => {
+            if ((e.target as HTMLElement).closest("a")) onNavigate?.();
+          }}
+        >
           {/* Event-scoped sections */}
           {isEventPage && isCollapsed && (
             // Collapsed: flat list with tooltips
@@ -366,7 +386,10 @@ export function Sidebar() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={helpChat.open}
+              onClick={() => {
+                onNavigate?.();
+                helpChat.open();
+              }}
               className="w-full justify-start text-muted-foreground hover:text-foreground"
             >
               <HelpCircle className="h-4 w-4 mr-2" />
@@ -374,6 +397,7 @@ export function Sidebar() {
             </Button>
           )}
 
+          {!mobile && (
           <Button
             variant="ghost"
             size="sm"
@@ -389,8 +413,31 @@ export function Sidebar() {
               </>
             )}
           </Button>
+          )}
         </div>
       </aside>
     </TooltipProvider>
+  );
+}
+
+/**
+ * The phone menu (below `md`): a button in the header opening the sidebar from
+ * the left. Before this the fixed 224px column stayed on a 390px phone and
+ * squeezed every page into what was left (Nov 9, 2026).
+ */
+export function MobileSidebar() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button variant="ghost" size="icon" className="-ml-2 shrink-0 md:hidden" aria-label="Open menu">
+          <Menu className="h-5 w-5" />
+        </Button>
+      </SheetTrigger>
+      <SheetContent side="left" aria-describedby={undefined} className="w-72 max-w-[85vw] gap-0 p-0 sm:max-w-[85vw]">
+        <SheetTitle className="sr-only">Menu</SheetTitle>
+        <Sidebar mobile onNavigate={() => setOpen(false)} />
+      </SheetContent>
+    </Sheet>
   );
 }
