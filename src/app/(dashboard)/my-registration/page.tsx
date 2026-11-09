@@ -225,8 +225,12 @@ export default async function MyRegistrationPage() {
             <CalendarX className="mx-auto h-10 w-10 text-muted-foreground/40" aria-hidden />
             <p className="font-medium">No registrations yet</p>
             <p className="text-sm text-muted-foreground">
-              Use the event link from the organiser to register. It will show here once you have.
+              When you register for an event it shows here, with its certificate and CME hours.
             </p>
+            {/* An account can now exist before any registration (/signup, Nov 5 2026). */}
+            <Button asChild className="mt-3">
+              <Link href="/catalogue">Browse events</Link>
+            </Button>
           </CardContent>
         </Card>
       )}

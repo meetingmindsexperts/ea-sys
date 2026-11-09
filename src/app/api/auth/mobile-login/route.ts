@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { signInNeedsConfirmation } from "@/lib/account-signup";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
@@ -60,6 +61,7 @@ export async function POST(req: Request) {
           lastName: true,
           role: true,
           deactivatedAt: true,
+          emailConfirmedAt: true,
           tokenVersion: true,
           organizationId: true,
           organization: {
@@ -175,6 +177,16 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
+      );
+    }
+
+    // An account made at /signup signs in only once its address is confirmed,
+    // on every door (account-signup.ts). After the password, as above.
+    if (await signInNeedsConfirmation(user)) {
+      apiLogger.warn({ msg: "auth/mobile-login:email-unconfirmed", email, ip, userId: user.id });
+      return NextResponse.json(
+        { error: "Confirm your email first: open the link we sent you, then sign in.", code: "EMAIL_UNCONFIRMED" },
+        { status: 403 }
       );
     }
 

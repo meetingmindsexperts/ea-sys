@@ -2,13 +2,15 @@ import crypto from "crypto";
 import { db } from "./db";
 import { apiLogger } from "./logger";
 import { checkRateLimit, hashVerificationToken } from "./security";
-import { sendEmail, emailTemplates } from "./email";
+import { sendEmail, emailTemplates, type EmailConfirmationPurpose } from "./email";
 
 /**
- * Email confirmation links. Two uses share one token flow (`/verify-email`):
- * a Meeting Minds address joining the team (below), and, since Nov 5, 2026,
- * any account proving it owns its address so registrations made earlier under
- * it appear on My events (src/lib/registrant-access.ts).
+ * Email confirmation links. Several uses share one token flow (`/verify-email`):
+ * a Meeting Minds address joining the team (below); since Nov 5, 2026, any
+ * account proving it owns its address so registrations made earlier under it
+ * appear on My events (src/lib/registrant-access.ts) or a speaker profile can
+ * be claimed; and an account made at /signup, which signs in only once
+ * confirmed (src/lib/account-signup.ts).
  *
  * Email verification for VERIFIED internal domains (meetingmindsdubai.com).
  *
@@ -19,6 +21,14 @@ import { sendEmail, emailTemplates } from "./email";
  * Token identifier is `verify-email:{email}` (hashed token stored).
  */
 export const EMAIL_VERIFY_PREFIX = "verify-email:";
+
+/** The email log's label for each kind of confirmation. */
+const CONFIRMATION_TEMPLATE_SLUG: Record<EmailConfirmationPurpose, string> = {
+  team: "email-verification",
+  registrations: "email-confirmation",
+  speaker: "email-confirmation",
+  account: "account-confirmation",
+};
 const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /**
@@ -30,7 +40,7 @@ const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export async function sendEmailVerification(params: {
   email: string;
   name: string;
-  purpose?: "team" | "registrations" | "speaker";
+  purpose?: EmailConfirmationPurpose;
 }): Promise<"sent" | "rate-limited" | "failed"> {
   const { name, purpose = "team" } = params;
   // Lower-cased as verify-email reads it, or a mixed-case address gets a link
@@ -75,7 +85,7 @@ export async function sendEmailVerification(params: {
       textContent: tpl.textContent,
       emailType: "email_verification",
       stream: "transactional",
-      logContext: { entityType: "USER", templateSlug: purpose === "team" ? "email-verification" : "email-confirmation" },
+      logContext: { entityType: "USER", templateSlug: CONFIRMATION_TEMPLATE_SLUG[purpose] },
     });
 
     if (!result.success) {

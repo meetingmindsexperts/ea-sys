@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
+import { verifyPublicCredentials } from "@/lib/public-credential-door";
+import { readUserAgent } from "@/lib/login-audit";
 import { needsEmailVerification } from "@/lib/internal-domains";
 import { EMAIL_VERIFY_PREFIX } from "@/lib/email-verification";
 import { linkConfirmedRegistrations, linkConfirmedSpeakers } from "@/lib/registrant-access";
@@ -14,6 +16,8 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 const schema = z.object({
   token: z.string().min(1).max(200),
   email: z.string().email().max(255),
+  /** The account's password, when the person is not signed in to it. */
+  password: z.string().min(1).max(128).optional(),
 });
 
 /**
@@ -23,15 +27,16 @@ const schema = z.object({
  * for a verified-internal domain (meetingmindsdubai.com), attach the
  * organisation. Idempotent for an already-confirmed account.
  *
- * SIGNED IN AS THAT ACCOUNT, OR NOTHING (security review of 7cf4eb3b). The
- * link proves who owns the MAILBOX, not who owns the ACCOUNT: someone could
+ * THE ACCOUNT'S HOLDER, OR NOTHING (security review of 7cf4eb3b). The link
+ * proves who owns the MAILBOX, not who owns the ACCOUNT: someone could
  * register with your address and their own password, the system would mail
  * you this link, and your click (or your mail scanner's) would confirm THEIR
- * account and hand it your registrations. So the click counts only from a
- * session of the account it names. The real owner of an account they did not
- * make takes it over with Forgot password instead, which signs the other
- * person out. The token is not spent on a refusal, so signing in and opening
- * the link again works.
+ * account and hand it your registrations. So the click counts only with proof
+ * of the account too: a current session of it, or its password typed on the
+ * confirm page (Nov 5, 2026, for accounts made at /signup, which cannot sign
+ * in before confirming). The real owner of an account they did not make takes
+ * it over with Forgot password instead, which signs the other person out. The
+ * token is not spent on a refusal, so trying again works.
  */
 export async function POST(req: Request) {
   try {
@@ -78,19 +83,10 @@ export async function POST(req: Request) {
     // platform one address may be two accounts, and VerificationToken is
     // keyed on the address alone, so the link's own domain is the only
     // thing that says which account this is for.
-    const session = await auth();
-    if (!session?.user?.id) {
-      apiLogger.warn({ msg: "verify-email:sign-in-required", email });
-      return NextResponse.json(
-        { error: "Sign in to the account for this email, then open the link again.", code: "SIGN_IN_REQUIRED" },
-        { status: 401 }
-      );
-    }
-
     const user = await findUserByEmail(
       await scopeFromRequestHost(req, "email verification: host did not resolve to a tenant"),
       email,
-      { select: { id: true, emailVerified: true, organizationId: true, tokenVersion: true } },
+      { select: { id: true, emailVerified: true, organizationId: true, tokenVersion: true, passwordHash: true } },
     );
     if (!user) {
       await db.verificationToken
@@ -99,23 +95,9 @@ export async function POST(req: Request) {
       apiLogger.warn({ msg: "verify-email:user-not-found", email });
       return NextResponse.json({ error: "Account not found." }, { status: 404 });
     }
-    // A session a password reset or invitation revoked still works for up to
-    // five minutes before its re-check; it must not be the one that confirms
-    // (security review of dd21f2c9).
-    if (user.id === session.user.id && (session.user.tokenVersion ?? 0) !== (user.tokenVersion ?? 0)) {
-      apiLogger.warn({ msg: "verify-email:stale-session", email, userId: user.id });
-      return NextResponse.json(
-        { error: "Your session has ended. Sign in again, then open the link.", code: "SIGN_IN_REQUIRED" },
-        { status: 401 }
-      );
-    }
-    if (user.id !== session.user.id) {
-      apiLogger.warn({ msg: "verify-email:wrong-account", email, sessionUserId: session.user.id });
-      return NextResponse.json(
-        { error: "You are signed in to a different account. Sign in to the account for this email, then open the link again.", code: "WRONG_ACCOUNT" },
-        { status: 403 }
-      );
-    }
+
+    const refusal = await accountProof(req, email, user, parsed.data.password);
+    if (refusal) return refusal;
 
     // Resolve the org to attach — only for a verified-internal email that isn't
     // already org-bound. Prefer the most-recent registration's event org; fall
@@ -203,4 +185,66 @@ export async function POST(req: Request) {
     apiLogger.error({ err: error, msg: "verify-email:error" });
     return NextResponse.json({ error: "Verification failed. Please try again." }, { status: 500 });
   }
+}
+
+/**
+ * Whether the request proves it is the account's holder; a response refusing
+ * it, or null. A password, when given, is checked through the shared
+ * credential door (throttled, failures in Sign-in Activity); its success is
+ * not recorded there because the page signs in straight afterwards and
+ * `authorize()` records that. Otherwise the session must be this account's and
+ * current: one a password reset or invitation revoked still works for up to
+ * five minutes before its re-check (security review of dd21f2c9).
+ */
+async function accountProof(
+  req: Request,
+  email: string,
+  user: { id: string; organizationId: string | null; tokenVersion: number | null; passwordHash: string | null },
+  password: string | undefined,
+): Promise<NextResponse | null> {
+  if (password) {
+    const check = await verifyPublicCredentials({
+      email,
+      password,
+      user,
+      ipAddress: getClientIp(req),
+      userAgent: readUserAgent(req),
+      surface: "DASHBOARD",
+      recordSuccess: false,
+      logLabel: "verify-email",
+    });
+    if (check.ok) return null;
+    if (check.reason === "throttled") {
+      return NextResponse.json(
+        { error: "Too many attempts. Please wait a few minutes and try again.", retryAfterSeconds: check.retryAfterSeconds },
+        { status: 429, headers: { "Retry-After": String(check.retryAfterSeconds) } },
+      );
+    }
+    apiLogger.warn({ msg: "verify-email:bad-password", email, userId: user.id });
+    return NextResponse.json({ error: "That password is not right for this account.", code: "BAD_PASSWORD" }, { status: 401 });
+  }
+
+  const session = await auth();
+  if (!session?.user?.id) {
+    apiLogger.warn({ msg: "verify-email:sign-in-required", email });
+    return NextResponse.json(
+      { error: "Enter your password to confirm this account.", code: "SIGN_IN_REQUIRED" },
+      { status: 401 },
+    );
+  }
+  if (user.id === session.user.id && (session.user.tokenVersion ?? 0) !== (user.tokenVersion ?? 0)) {
+    apiLogger.warn({ msg: "verify-email:stale-session", email, userId: user.id });
+    return NextResponse.json(
+      { error: "Your session has ended. Enter your password to confirm this account.", code: "SIGN_IN_REQUIRED" },
+      { status: 401 },
+    );
+  }
+  if (user.id !== session.user.id) {
+    apiLogger.warn({ msg: "verify-email:wrong-account", email, sessionUserId: session.user.id });
+    return NextResponse.json(
+      { error: "You are signed in to a different account. Enter the password of the account for this email to confirm it.", code: "WRONG_ACCOUNT" },
+      { status: 403 },
+    );
+  }
+  return null;
 }

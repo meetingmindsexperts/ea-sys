@@ -120,7 +120,7 @@ export default {
       const pathname = nextUrl.pathname;
 
       // Public routes
-      const publicRoutes = ["/login", "/register", "/forgot-password", "/reset-password"];
+      const publicRoutes = ["/login", "/register", "/signup", "/forgot-password", "/reset-password"];
       const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
 
       // Protected routes

@@ -101,12 +101,21 @@ function CatalogueNav({ organization, signedIn }: { organization: SiteOrganizati
             My events
           </Link>
         ) : (
-          <Link
-            href="/login?callbackUrl=%2Fmy-registration"
-            className="rounded-full border border-white/35 px-4 py-2 text-white transition-colors hover:border-white hover:bg-white/10"
-          >
-            Sign in
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/login?callbackUrl=%2Fmy-registration"
+              className="rounded-full border border-white/35 px-4 py-2 text-white transition-colors hover:border-white hover:bg-white/10"
+            >
+              Sign in
+            </Link>
+            {/* Below sm only Sign in fits; the sign-in page links here too. */}
+            <Link
+              href="/signup"
+              className="hidden rounded-full bg-white px-4 py-2 font-medium text-[#0a1c2e] transition-colors hover:bg-[#dff5fc] sm:inline-block"
+            >
+              Create an account
+            </Link>
+          </div>
         )}
       </div>
     </nav>

@@ -26,6 +26,7 @@ export const CATALOGUE_TEXT_LIMITS = {
   footerAbout: 300,
   contactEmail: 254,
   contactPhone: 40,
+  linkUrl: 500,
 } as const;
 
 /**
@@ -47,6 +48,10 @@ export interface CatalogueSettings {
   /** The footer's contact; null uses the company email and phone (Billing). */
   contactEmail: string | null;
   contactPhone: string | null;
+  /** The organisation's terms of use and privacy policy, linked from the
+   * account sign-up form (Nov 5, 2026); https only. Terms are otherwise per event. */
+  termsUrl: string | null;
+  privacyUrl: string | null;
   showStats: boolean;
   showBannerFan: boolean;
   showNextUp: boolean;
@@ -66,6 +71,19 @@ export const CATALOGUE_SECTIONS = ["showStats", "showBannerFan", "showNextUp", "
 export function isCatalogueHeroImageUrl(value: string): boolean {
   if (value.length > 500 || value.includes("..")) return false;
   return /^\/uploads\/media\/[\w\-./]+$/.test(value) || /^https:\/\/[^\s"'<>()\\]+$/.test(value);
+}
+
+/**
+ * Whether a value may be a link the public pages render (the terms and
+ * privacy links): an https address and nothing else, so a hand-edited value
+ * cannot become a `javascript:` link. Checked on the way in and on the way out.
+ */
+export function isHttpsLinkUrl(value: string): boolean {
+  return value.length <= CATALOGUE_TEXT_LIMITS.linkUrl && /^https:\/\/[^\s"'<>\\]+$/.test(value);
+}
+
+function link(value: unknown): string | null {
+  return typeof value === "string" && isHttpsLinkUrl(value.trim()) ? value.trim() : null;
 }
 
 function text(value: unknown, max: number): string | null {
@@ -92,6 +110,8 @@ export function readCatalogueSettings(orgSettings: unknown): CatalogueSettings {
     footerAbout: text(s.footerAbout, L.footerAbout),
     contactEmail: email && /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(email) ? email : null,
     contactPhone: text(s.contactPhone, L.contactPhone),
+    termsUrl: link(s.termsUrl),
+    privacyUrl: link(s.privacyUrl),
     ...(Object.fromEntries(CATALOGUE_SECTIONS.map((k) => [k, s[k] !== false])) as Record<(typeof CATALOGUE_SECTIONS)[number], boolean>),
   };
 }

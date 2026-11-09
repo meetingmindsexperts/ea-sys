@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockFindUser, mockLink, mockLinkSpeakers, tx, mockAuth } = vi.hoisted(() => {
+const { mockDb, mockFindUser, mockLink, mockLinkSpeakers, tx, mockAuth, mockCredentials } = vi.hoisted(() => {
   const tx = { user: { update: vi.fn() }, verificationToken: { delete: vi.fn() } };
   return {
     tx,
@@ -20,6 +20,7 @@ const { mockDb, mockFindUser, mockLink, mockLinkSpeakers, tx, mockAuth } = vi.ho
     mockLink: vi.fn(),
     mockLinkSpeakers: vi.fn(),
     mockAuth: vi.fn(),
+    mockCredentials: vi.fn(),
   };
 });
 vi.mock("next/server", () => ({
@@ -33,11 +34,13 @@ vi.mock("@/lib/tenant/user-lookup", () => ({ findUserByEmail: mockFindUser, scop
 vi.mock("@/lib/internal-domains", () => ({ needsEmailVerification: () => false }));
 vi.mock("@/lib/registrant-access", () => ({ linkConfirmedRegistrations: mockLink, linkConfirmedSpeakers: mockLinkSpeakers }));
 vi.mock("@/lib/tenant/resolver", () => ({ resolveRequestOrgId: vi.fn(async () => null) }));
+vi.mock("@/lib/public-credential-door", () => ({ verifyPublicCredentials: mockCredentials }));
 vi.mock("@/lib/tenant-lane", () => ({ runWithTenantLane: (_o: unknown, _c: unknown, fn: () => unknown) => fn() }));
 
 import { POST } from "@/app/api/auth/verify-email/route";
 
-const post = () => POST(new Request("http://x", { method: "POST", body: JSON.stringify({ token: "tok", email: "Anna@Example.com" }) }));
+const post = (password?: string) =>
+  POST(new Request("http://x", { method: "POST", body: JSON.stringify({ token: "tok", email: "Anna@Example.com", ...(password && { password }) }) }));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -106,5 +109,48 @@ describe("verify-email confirms the address", () => {
     expect((await post()).status).toBe(400);
     expect(tx.user.update).not.toHaveBeenCalled();
     expect(mockLink).not.toHaveBeenCalled();
+  });
+});
+
+describe("signed out, the account's password confirms it (Nov 5, 2026: /signup accounts cannot sign in first)", () => {
+  beforeEach(() => mockAuth.mockResolvedValue(null));
+
+  it("the right password confirms, checked through the shared credential door without a second success row", async () => {
+    mockCredentials.mockImplementation(async ({ user }: { user: unknown }) => ({ ok: true, user }));
+    const res = await post("correct horse");
+    expect(res.status).toBe(200);
+    expect(mockCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "anna@example.com", password: "correct horse", recordSuccess: false, logLabel: "verify-email" }),
+    );
+    expect(tx.user.update).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      data: { emailVerified: expect.any(Date), emailConfirmedAt: expect.any(Date) },
+    });
+    // The session is never consulted when a password is given.
+    expect(mockAuth).not.toHaveBeenCalled();
+  });
+
+  it("a wrong password confirms nothing and keeps the token for another try", async () => {
+    mockCredentials.mockResolvedValue({ ok: false, reason: "bad-credentials" });
+    const res = await post("wrong");
+    expect(res.status).toBe(401);
+    expect((await res.json()).code).toBe("BAD_PASSWORD");
+    expect(tx.user.update).not.toHaveBeenCalled();
+    expect(tx.verificationToken.delete).not.toHaveBeenCalled();
+    expect(mockLink).not.toHaveBeenCalled();
+  });
+
+  it("a throttled address is refused with Retry-After, before any confirmation", async () => {
+    mockCredentials.mockResolvedValue({ ok: false, reason: "throttled", retryAfterSeconds: 120 });
+    const res = await post("guess");
+    expect(res.status).toBe(429);
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
+  it("the mailbox alone (a link scanner, or the address's owner without the password) confirms nothing", async () => {
+    const res = await post();
+    expect(res.status).toBe(401);
+    expect(mockCredentials).not.toHaveBeenCalled();
+    expect(tx.user.update).not.toHaveBeenCalled();
   });
 });

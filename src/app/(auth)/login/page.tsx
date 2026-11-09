@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
+import { signInErrorMessage } from "@/lib/sign-in-messages";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -50,6 +51,7 @@ function LoginForm() {
   // Without it, being bounced here from a working page reads as a fault.
   const sessionExpired = searchParams.get("reason") === "expired";
   const [isLoading, setIsLoading] = useState(false);
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
 
   const form = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -61,6 +63,7 @@ function LoginForm() {
 
   async function onSubmit(data: LoginForm) {
     setIsLoading(true);
+    setUnconfirmedEmail(null);
 
     try {
       const result = await signIn("credentials", {
@@ -74,11 +77,13 @@ function LoginForm() {
         // The server distinguishes "throttled" from "wrong password" so a
         // locked-out person isn't told their correct password is wrong. Falls
         // back to the generic message if the code isn't present.
-        toast.error(
-          result.code === "RateLimited"
-            ? "Too many failed sign-in attempts. Please wait a few minutes and try again."
-            : "Invalid email or password"
-        );
+        // An account made at /signup that is not confirmed yet gets a lasting
+        // notice with a resend button rather than a toast.
+        if (result.code === "EmailUnconfirmed") {
+          setUnconfirmedEmail(data.email.trim().toLowerCase());
+        } else {
+          toast.error(signInErrorMessage(result.code));
+        }
         setIsLoading(false);
         return;
       }
@@ -110,6 +115,7 @@ function LoginForm() {
                 we&apos;ll take you straight back to where you were.
               </div>
             )}
+            {unconfirmedEmail && <UnconfirmedNotice email={unconfirmedEmail} />}
             <FormField
               control={form.control}
               name="email"
@@ -162,17 +168,53 @@ function LoginForm() {
                 </Link>
               </div>
             </div>
-{/* Public registration disabled - single organization mode */}
-            {/* <p className="text-sm text-muted-foreground text-center">
-              Don&apos;t have an account?{" "}
-              <Link href="/register" className="text-primary hover:underline">
-                Sign up
+            {/* Accounts for attendees (Nov 5, 2026). Staff are still invited. */}
+            <p className="text-sm text-muted-foreground text-center">
+              New here?{" "}
+              <Link href="/signup" className="text-primary hover:underline">
+                Create an account
               </Link>
-            </p> */}
+            </p>
           </CardFooter>
         </form>
       </Form>
     </Card>
+  );
+}
+
+/** "Confirm your email first", with the link sent again on request. */
+function UnconfirmedNotice({ email }: { email: string }) {
+  const [sending, setSending] = useState(false);
+  async function resend() {
+    setSending(true);
+    try {
+      const res = await fetch("/api/auth/resend-confirmation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(body.error || "Couldn't send the link. Please try again.");
+        return;
+      }
+      toast.success("The link is on its way. Check your inbox.");
+    } catch (err) {
+      console.error("[login] resend confirmation failed", err);
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  }
+  return (
+    <div role="alert" className="space-y-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+      <p className="font-medium">Confirm your email first</p>
+      <p>We sent a link to {email} when you created the account. Open it to confirm, then sign in.</p>
+      <Button type="button" variant="outline" size="sm" onClick={resend} disabled={sending}>
+        {sending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+        Send the link again
+      </Button>
+    </div>
   );
 }
 

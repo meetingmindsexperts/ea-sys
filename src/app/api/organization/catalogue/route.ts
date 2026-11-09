@@ -13,6 +13,7 @@ import {
   CATALOGUE_SETTING,
   CATALOGUE_TEXT_LIMITS as L,
   isCatalogueHeroImageUrl,
+  isHttpsLinkUrl,
   readCatalogueSettings,
 } from "@/lib/catalogue";
 
@@ -28,6 +29,8 @@ import {
  */
 
 const text = (max: number) => z.string().trim().max(max).nullable().optional();
+/** Blank clears it; anything else must be an https address. */
+const linkUrl = z.string().trim().refine((v) => v === "" || isHttpsLinkUrl(v), "Must be an https address").nullable().optional();
 
 const catalogueSchema = z
   .object({
@@ -45,6 +48,8 @@ const catalogueSchema = z
       .nullable()
       .optional(),
     contactPhone: text(L.contactPhone),
+    termsUrl: linkUrl,
+    privacyUrl: linkUrl,
     showStats: z.boolean().optional(),
     showBannerFan: z.boolean().optional(),
     showNextUp: z.boolean().optional(),

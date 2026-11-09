@@ -16,6 +16,7 @@ import { touchLastSeen, LAST_SEEN_STAMP_INTERVAL_MS } from "@/lib/active-users";
 import { decideSessionValidity } from "@/lib/session-validity";
 import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import { isTeamRole } from "@/lib/team-roles";
+import { signInNeedsConfirmation } from "@/lib/account-signup";
 import authConfig, { mapTokenToSessionUser, SESSION_CONFIG } from "./auth.config";
 import { procurementGrantsFromRow } from "@/lib/procurement-visibility";
 import {
@@ -78,6 +79,16 @@ const loginSchema = z.object({
  */
 class RateLimitedSignin extends CredentialsSignin {
   code = "RateLimited";
+}
+
+/**
+ * Correct password, but the account was made at /signup and its address is
+ * not confirmed yet (account-signup.ts). The sign-in page then offers to send
+ * the link again. Only reachable with the right password, so it tells nobody
+ * else that the account exists.
+ */
+class EmailUnconfirmedSignin extends CredentialsSignin {
+  code = "EmailUnconfirmed";
 }
 
 /**
@@ -169,6 +180,7 @@ export const {
               procurementApproveUnlimited: true,
               procurementSettle: true,
               deactivatedAt: true,
+              emailConfirmedAt: true,
               organizationId: true,
               organization: {
                 select: { name: true },
@@ -290,6 +302,15 @@ export const {
             userAgent,
           });
           return null;
+        }
+
+        // An account made at /signup signs in only once its address is
+        // confirmed (owner, Nov 5 2026). After the password, like deactivation,
+        // so only its holder learns why. No LoginEvent: the outcome enum has no
+        // value for it, and adding one is a migration an older image cannot read.
+        if (await signInNeedsConfirmation(user)) {
+          authLogger.warn({ msg: "auth:login-email-unconfirmed", email, ipAddress, userId: user.id });
+          throw new EmailUnconfirmedSignin();
         }
 
         // Two typos followed by a success should leave no trace, so the email

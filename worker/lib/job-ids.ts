@@ -44,6 +44,7 @@ export const JOB_IDS = {
   WEBINAR_STREAM_WATCHDOG: 1027,
   WEBINAR_PRESENCE_ARCHIVE: 1028,
   CRM_RETENTION: 1029,
+  UNCONFIRMED_ACCOUNT_PRUNE: 1030,
 } as const;
 
 export type JobId = (typeof JOB_IDS)[keyof typeof JOB_IDS];

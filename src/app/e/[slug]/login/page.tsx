@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { EventBannerBand } from "@/components/public/event-banner";
 import Link from "next/link";
 import { signIn, getSession } from "next-auth/react";
+import { signInErrorMessage } from "@/lib/sign-in-messages";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -126,11 +127,7 @@ function EventLoginForm() {
       if (result?.error) {
         // See the dashboard login: distinguishes throttled from wrong-password
         // so a locked-out person gets an actionable message.
-        toast.error(
-          result.code === "RateLimited"
-            ? "Too many failed sign-in attempts. Please wait a few minutes and try again."
-            : "Invalid email or password"
-        );
+        toast.error(signInErrorMessage(result.code));
         setIsSubmitting(false);
         return;
       }

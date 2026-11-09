@@ -126,6 +126,7 @@ describe("readCatalogueSettings (Settings, Catalogue tab)", () => {
   it("fills every default when nothing is set: the page's own words, every section shown", () => {
     expect(readCatalogueSettings(null)).toEqual({
       heroImage: null, eyebrow: null, headline: null, intro: null, footerAbout: null, contactEmail: null, contactPhone: null,
+      termsUrl: null, privacyUrl: null,
       showStats: true, showBannerFan: true, showNextUp: true, showHowItWorks: true, showTopics: true,
     });
     expect(read("not an object").showStats).toBe(true);
@@ -137,6 +138,16 @@ describe("readCatalogueSettings (Settings, Catalogue tab)", () => {
     expect(out.intro).toBeNull();
     expect(out.eyebrow).toHaveLength(60);
     expect(read({ headline: 7 }).headline).toBeNull();
+  });
+
+  it("keeps a terms or privacy link only when it is an https address (it is rendered as a link on /signup)", () => {
+    expect(read({ termsUrl: " https://example.com/terms ", privacyUrl: "https://example.com/privacy?v=2" })).toMatchObject({
+      termsUrl: "https://example.com/terms",
+      privacyUrl: "https://example.com/privacy?v=2",
+    });
+    for (const bad of ["javascript:alert(1)", "http://example.com/terms", "data:text/html,x", "/terms", "https://a.b/\"x", `https://example.com/${"x".repeat(500)}`, 7]) {
+      expect(read({ termsUrl: bad }).termsUrl, String(bad)).toBeNull();
+    }
   });
 
   it("hides a section only on an explicit false", () => {

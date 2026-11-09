@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { CatalogueHeroPhotoField } from "@/components/settings/catalogue-hero-photo-field";
 import { useCan } from "@/hooks/use-can";
 import { useCatalogueSettings, useSaveCatalogueSettings, useSetCatalogueListing, type CatalogueSettingsResponse } from "@/hooks/use-api";
-import { CATALOGUE_TEXT_LIMITS as L, type CatalogueSettings } from "@/lib/catalogue";
+import { CATALOGUE_TEXT_LIMITS as L, isHttpsLinkUrl, type CatalogueSettings } from "@/lib/catalogue";
 
 /**
  * Settings, Catalogue (Nov 5, 2026; owner: "a new tab called catalogue with
@@ -26,7 +26,7 @@ import { CATALOGUE_TEXT_LIMITS as L, type CatalogueSettings } from "@/lib/catalo
 /** The route returns at most this many events, newest first. */
 const EVENT_LIST_CAP = 200;
 
-type TextKey = "eyebrow" | "headline" | "intro" | "footerAbout" | "contactEmail" | "contactPhone";
+type TextKey = "eyebrow" | "headline" | "intro" | "footerAbout" | "contactEmail" | "contactPhone" | "termsUrl" | "privacyUrl";
 type SectionKey = "showStats" | "showBannerFan" | "showNextUp" | "showHowItWorks" | "showTopics";
 type Form = Record<TextKey, string> & Record<SectionKey, boolean> & { heroImage: string | null };
 
@@ -47,6 +47,8 @@ function toForm(s: CatalogueSettings): Form {
     footerAbout: s.footerAbout ?? "",
     contactEmail: s.contactEmail ?? "",
     contactPhone: s.contactPhone ?? "",
+    termsUrl: s.termsUrl ?? "",
+    privacyUrl: s.privacyUrl ?? "",
     showStats: s.showStats,
     showBannerFan: s.showBannerFan,
     showNextUp: s.showNextUp,
@@ -83,6 +85,12 @@ function CatalogueForm({ data, readOnly }: { data: CatalogueSettingsResponse; re
   const [form, setForm] = useState<Form>(() => toForm(data.settings));
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
   const onSave = async () => {
+    // Said here rather than as the API's bare "Invalid input".
+    const badLink = [form.termsUrl, form.privacyUrl].find((v) => v.trim() && !isHttpsLinkUrl(v.trim()));
+    if (badLink) {
+      toast.error("The terms and privacy links must be https addresses, like https://example.com/terms");
+      return;
+    }
     try {
       await save.mutateAsync(form);
       toast.success("Catalogue settings saved");
@@ -185,6 +193,37 @@ function CatalogueForm({ data, readOnly }: { data: CatalogueSettingsResponse; re
                 placeholder={defaults.companyPhone ?? "+971 4 000 0000"}
                 disabled={readOnly}
                 onChange={(v) => set({ contactPhone: v })}
+              />
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold">Accounts</h3>
+              <p className="text-xs text-muted-foreground">
+                Linked from the Create an account form at /signup. Each event keeps its own registration terms.
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <TextField
+                id="catalogue-terms-url"
+                label="Terms of use link"
+                hint="An https address. Empty shows the agreement without a link."
+                value={form.termsUrl}
+                max={L.linkUrl}
+                placeholder="https://example.com/terms"
+                disabled={readOnly}
+                onChange={(v) => set({ termsUrl: v })}
+              />
+              <TextField
+                id="catalogue-privacy-url"
+                label="Privacy policy link"
+                hint="An https address."
+                value={form.privacyUrl}
+                max={L.linkUrl}
+                placeholder="https://example.com/privacy"
+                disabled={readOnly}
+                onChange={(v) => set({ privacyUrl: v })}
               />
             </div>
           </section>

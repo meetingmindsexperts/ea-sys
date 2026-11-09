@@ -1621,32 +1621,44 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
      * "team": a Meeting Minds address joining the team (the original use).
      * "registrations": any account proving its address so registrations made
      * earlier under it appear on My events (Nov 5, 2026).
+     * "speaker": claiming a speaker profile the organisers made.
+     * "account": an account made at /signup, which signs in only once confirmed.
      */
-    purpose?: "team" | "registrations" | "speaker";
+    purpose?: EmailConfirmationPurpose;
   }) => {
+    const purpose = params.purpose ?? "team";
+    // The link asks for the account's password (or a signed-in session), so
+    // only the person who made the account can confirm it.
+    const how = "Open the link and enter your password to confirm.";
     const why = {
-      registrations:
-        "Please confirm your email address so we can show every registration made under it on My events. Your new registration works either way. Sign in to your account first, then open the link.",
-      speaker:
-        "The organisers already have a speaker profile for this address. Confirm it is yours to take the profile over and submit. Sign in to your account first, then open the link.",
-      team: "Please confirm your email address to link your account to the Meeting Minds team. Your registration works either way — verifying just connects you as an internal member. Sign in to your account first, then open the link.",
-    }[params.purpose ?? "team"];
+      account: `Someone, hopefully you, created an account with this email address. Confirm it to finish and to sign in for the first time. ${how}`,
+      registrations: `Please confirm your email address so we can show every registration made under it on My events. Your new registration works either way. ${how}`,
+      speaker: `The organisers already have a speaker profile for this address. Confirm it is yours to take the profile over and submit. ${how}`,
+      team: `Please confirm your email address to link your account to the Meeting Minds team. Your registration works either way: verifying just connects you as an internal member. ${how}`,
+    }[purpose];
+    const heading = purpose === "account" ? "Confirm your account" : "Verify your email";
+    const button = purpose === "account" ? "Confirm my account" : "Verify my email";
+    const ignore =
+      purpose === "account"
+        ? "Didn't create an account? Ignore this email and nothing happens. An account that is never confirmed is removed after 30 days."
+        : "If you didn't create this account, you can safely ignore this email.";
     const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
-    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Verify your email</h1>
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">${heading}</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Confirm this address belongs to you</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Hi <strong>${escapeHtml(params.recipientName)}</strong>,</p>
     <p>${escapeHtml(why)}</p>
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${escapeHtml(params.verifyLink)}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Verify my email</a>
+      <a href="${escapeHtml(params.verifyLink)}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">${button}</a>
     </div>
     ${params.expiresIn ? `<p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Note:</strong> This link will expire in ${escapeHtml(params.expiresIn)}.</p>` : ""}
-    <p style="color: #6b7280; font-size: 14px;">If you didn't create this account, you can safely ignore this email.</p>
+    <p style="color: #6b7280; font-size: 14px;">${ignore}</p>
   </div>`;
+    const subject = purpose === "account" ? "Confirm your Meeting Minds account" : "Verify your email — Meeting Minds";
     return {
-      subject: "Verify your email — Meeting Minds",
+      subject,
       htmlContent: inlineCss(wrapWithBranding(bodyHtml, {})),
-      textContent: `Verify your email — Meeting Minds
+      textContent: `${subject}
 
 Hi ${params.recipientName},
 
@@ -1655,10 +1667,46 @@ ${params.verifyLink}
 
 ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
 
-If you didn't create this account, you can safely ignore this email.`,
+${ignore}`,
+    };
+  },
+
+  /**
+   * Sent instead of a confirmation when someone signs up with an address that
+   * already has an account, so the sign-up screen never says which addresses
+   * are registered (Nov 5, 2026).
+   */
+  accountExists: (params: { recipientName: string; signInLink: string; resetLink: string }) => {
+    const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">You already have an account</h1>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 16px 0 20px 0;">
+    <p>Hi <strong>${escapeHtml(params.recipientName)}</strong>,</p>
+    <p>Someone tried to create an account with this email address, which already has one. If it was you, sign in, or reset your password if you have forgotten it.</p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${escapeHtml(params.signInLink)}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Sign in</a>
+    </div>
+    <p style="font-size: 14px;"><a href="${escapeHtml(params.resetLink)}">Reset my password</a></p>
+    <p style="color: #6b7280; font-size: 14px;">If it wasn't you, ignore this email. Nothing has changed on your account.</p>
+  </div>`;
+    return {
+      subject: "You already have a Meeting Minds account",
+      htmlContent: inlineCss(wrapWithBranding(bodyHtml, {})),
+      textContent: `You already have an account
+
+Hi ${params.recipientName},
+
+Someone tried to create an account with this email address, which already has one. If it was you, sign in, or reset your password if you have forgotten it.
+
+Sign in: ${params.signInLink}
+Reset my password: ${params.resetLink}
+
+If it wasn't you, ignore this email. Nothing has changed on your account.`,
     };
   },
 };
+
+/** Why a confirmation link is being sent; words the email (systemTemplates.emailVerification). */
+export type EmailConfirmationPurpose = "team" | "registrations" | "speaker" | "account";
 
 // ── Legacy compatibility: emailTemplates ───────────────────────────────────────
 // Keep the old API working during transition. All callers will be migrated to
@@ -1673,6 +1721,8 @@ export const emailTemplates = {
     systemTemplates.registrationCompletion(params),
   emailVerification: (params: Parameters<typeof systemTemplates.emailVerification>[0]) =>
     systemTemplates.emailVerification(params),
+  accountExists: (params: Parameters<typeof systemTemplates.accountExists>[0]) =>
+    systemTemplates.accountExists(params),
 };
 
 // ── Sample preview variables for email template preview ──────────────────────
