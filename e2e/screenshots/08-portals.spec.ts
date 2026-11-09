@@ -6,6 +6,7 @@
  */
 import { test } from "@playwright/test";
 import { loginAs } from "../fixtures/login";
+import { EVENT_ID } from "../fixtures/seed-constants";
 import { snap, maskVolatile } from "./_helpers";
 
 const CHAPTER = "08-portals";
@@ -41,7 +42,7 @@ test("submitter portal (abstracts list)", async ({ page }) => {
   // loginAs helper waits for any non-/login URL, so we explicitly
   // navigate to the seeded event's abstracts page to guarantee the
   // shot is what the manual expects.
-  await page.goto(`/events/e2e-event-id/abstracts`);
+  await page.goto(`/events/${EVENT_ID}/abstracts`);
   await page.waitForLoadState("networkidle");
   await snap(page, {
     chapter: CHAPTER,

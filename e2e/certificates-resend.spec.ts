@@ -83,31 +83,35 @@ test.describe("certificates resend — listing route", () => {
   });
 });
 
-test.describe("certificates resend — POST resend", () => {
-  test("ADMIN: resend on a non-existent cert returns 404", async ({ page }) => {
+// The per-certificate POST .../issued/[id]/resend was deleted on Jul 13, 2026
+// (05f0695e, "dead resend pipeline"); "Resend all" (resend-bundle) is the
+// re-send path now, so its contract is what this block pins.
+test.describe("certificates resend — POST resend-bundle", () => {
+  test("ADMIN: a person with no certificates is a 409 NO_SENDABLE_CERTS", async ({ page }) => {
     await loginAs(page, "ADMIN");
 
-    const res = await page.request.post(
-      `/api/events/${EVENT_ID}/certificates/issued/no-such-cert/resend`,
-    );
-    expect(res.status()).toBe(404);
+    const res = await page.request.post(`/api/events/${EVENT_ID}/certificates/issued/resend-bundle`, {
+      data: { registrationId: "nosuchregistration0000001" },
+    });
+    expect(res.status()).toBe(409);
+    expect((await res.json()).code).toBe("NO_SENDABLE_CERTS");
   });
 
-  test("REVIEWER: POST refused (denyReviewer guard)", async ({ page }) => {
+  test("REVIEWER: refused (no certificates.reissue)", async ({ page }) => {
     await loginAs(page, "REVIEWER");
 
-    const res = await page.request.post(
-      `/api/events/${EVENT_ID}/certificates/issued/anything/resend`,
-    );
+    const res = await page.request.post(`/api/events/${EVENT_ID}/certificates/issued/resend-bundle`, {
+      data: { registrationId: "nosuchregistration0000001" },
+    });
     expect(res.status()).toBe(403);
   });
 
-  test("ADMIN: cross-tenant cert returns 404", async ({ page }) => {
+  test("ADMIN: another organisation's event is a 404", async ({ page }) => {
     await loginAs(page, "ADMIN");
 
-    const res = await page.request.post(
-      `/api/events/some-foreign-event/certificates/issued/anything/resend`,
-    );
+    const res = await page.request.post(`/api/events/someforeignevent00000001/certificates/issued/resend-bundle`, {
+      data: { registrationId: "nosuchregistration0000001" },
+    });
     expect(res.status()).toBe(404);
   });
 });

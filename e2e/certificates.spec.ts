@@ -112,8 +112,10 @@ test.describe("certificate templates", () => {
     await page.goto(`/events/${EVENT_ID}/certificates`);
     // Templates tab is the default. The new template card should be
     // visible inside the Appreciation column.
-    await expect(page.getByText("Certificate of Appreciation")).toBeVisible();
-    await expect(page.getByText("E2E UI Template")).toBeVisible();
+    // exact: the column's helper text also says "certificate of appreciation";
+    // visible: the page also renders a second, hidden Templates panel.
+    await expect(page.getByText("Certificate of Appreciation", { exact: true }).filter({ visible: true })).toBeVisible();
+    await expect(page.getByText("E2E UI Template").filter({ visible: true })).toBeVisible();
 
     // Edit opens the canvas editor card — verify the "Choose file"
     // upload widget renders (empty state, no background uploaded yet).
@@ -199,51 +201,9 @@ test.describe("PDF upload", () => {
   });
 });
 
-test.describe("cover-email defaults", () => {
-  test("can save + read back per-template email defaults", async ({ page }) => {
-    await loginAs(page, "ADMIN");
-
-    const createRes = await page.request.post(
-      `/api/events/${EVENT_ID}/certificates/templates`,
-      { data: { name: "E2E Email Template", category: ATTENDANCE } },
-    );
-    const { template } = (await createRes.json()) as { template: { id: string } };
-
-    const subject = "E2E test subject — {{eventName}}";
-    const body = "<p>Hello {{recipientName}},</p><p>Here is your cert.</p>";
-
-    const patchRes = await page.request.patch(
-      `/api/events/${EVENT_ID}/certificates/templates/${template.id}`,
-      { data: { emailSubject: subject, emailBody: body } },
-    );
-    expect(patchRes.ok()).toBeTruthy();
-
-    const listRes = await page.request.get(
-      `/api/events/${EVENT_ID}/certificates/templates`,
-    );
-    const listed = (await listRes.json()) as {
-      templates: Array<{
-        id: string;
-        emailSubject: string | null;
-        emailBody: string | null;
-      }>;
-    };
-    const found = listed.templates.find((t) => t.id === template.id)!;
-    expect(found.emailSubject).toBe(subject);
-    expect(found.emailBody).toBe(body);
-
-    // Clear back to system default — null on both fields.
-    const clearRes = await page.request.patch(
-      `/api/events/${EVENT_ID}/certificates/templates/${template.id}`,
-      { data: { emailSubject: null, emailBody: null } },
-    );
-    expect(clearRes.ok()).toBeTruthy();
-
-    await page.request.delete(
-      `/api/events/${EVENT_ID}/certificates/templates/${template.id}`,
-    );
-  });
-});
+// The per-template cover email (emailSubject / emailBody on the template) was
+// removed on purpose (cd849374): the event's Certificate Delivery email
+// template is the one wording, so there is no per-template default to test.
 
 test.describe("Issue + eligibility contracts", () => {
   test("issue route rejects body missing tag/emailSubject/emailBody with 400", async ({ page }) => {
@@ -349,9 +309,10 @@ test.describe("Issue + eligibility contracts", () => {
       },
     );
     expect(res.status()).toBe(422);
-    const json = (await res.json()) as { code: string; availableTags: unknown };
+    const json = (await res.json()) as { code: string; perTemplate: unknown };
     expect(json.code).toBe("NO_ELIGIBLE_RECIPIENTS");
-    expect(Array.isArray(json.availableTags)).toBeTruthy();
+    // Per template since the Jul 10, 2026 bundle runs (f700ba2f), not a flat tag list.
+    expect(Array.isArray(json.perTemplate)).toBeTruthy();
 
     await page.request.delete(
       `/api/events/${EVENT_ID}/certificates/templates/${template.id}`,

@@ -7,7 +7,12 @@ import dotenv from "dotenv";
 dotenv.config({ path: path.resolve(__dirname, ".env.local") });
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
-const PORT = process.env.PORT ?? "3000";
+// 3199, never 3000 or 3113 (W1-2, Nov 9, 2026). 3000 matched nothing: `npm run
+// dev` binds 3113, so a bare run waited out its timeout. And 3113 is the
+// everyday dev server, which reads the local production copy: reusing it ran
+// the specs, which create and delete rows, against that copy while the seed
+// had gone to ea_sys_test.
+const PORT = process.env.E2E_PORT ?? "3199";
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${PORT}`;
 const testDbUrl = process.env.DATABASE_URL_TEST;
 
@@ -37,14 +42,20 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
     : {
-        command: "npm run dev",
+        // The production standalone (the launcher rebuilds it when src/ is
+        // newer), not `next dev`: Next 16 allows one dev server per checkout
+        // and the everyday one holds it. Never reused, so a run always starts
+        // with fresh in-memory rate limits and can never land on another
+        // server: a busy port fails the run instead.
+        command: "node e2e/agent-golden/_server.mjs",
         url: baseURL,
-        reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
-        // Point the dev server at the test DB so the app Playwright drives
-        // reads the same rows the seed script just wrote.
-        env: testDbUrl
-          ? { DATABASE_URL: testDbUrl, DIRECT_URL: testDbUrl }
-          : undefined,
+        reuseExistingServer: false,
+        timeout: 600_000,
+        env: {
+          PORT,
+          NEXTAUTH_URL: baseURL,
+          NEXT_PUBLIC_APP_URL: baseURL,
+          ...(testDbUrl ? { DATABASE_URL_TEST: testDbUrl } : {}),
+        },
       },
 });

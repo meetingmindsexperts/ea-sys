@@ -4,7 +4,10 @@
  */
 
 export const ORG_ID = "e2e-org";
-export const EVENT_ID = "e2e-event-id";
+// Shaped like a real Prisma cuid (letters and digits, 20 to 40): routes that
+// validate an event id before touching storage refuse anything else, so the
+// old "e2e-event-id" failed the certificate upload specs (Nov 9, 2026).
+export const EVENT_ID = "e2eeventid0000000000000001";
 export const EVENT_SLUG = "e2e-event";
 export const FREE_TICKET_TYPE_ID = "e2e-ticket-free";
 export const PAID_TICKET_TYPE_ID = "e2e-ticket-paid";

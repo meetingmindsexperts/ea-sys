@@ -15,7 +15,8 @@
  *      then overrides the port, the auth URLs and the database (the test DB
  *      the seed just wrote) before importing server.js
  *
- * Playwright runs this as the webServer command and waits for the URL.
+ * Playwright runs this as the webServer command and waits for the URL. The
+ * main e2e suite (playwright.config.ts, :3199) uses it too.
  */
 import { execSync } from "node:child_process";
 import fs from "node:fs";
@@ -66,7 +67,16 @@ function needsBuild() {
 const reason = needsBuild();
 if (reason) {
   console.log(`[agent-golden:server] building the standalone (${reason})`);
-  execSync("npm run build", { cwd: root, stdio: "inherit", env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } });
+  // The build needs the 6 GB heap the Dockerfile gives it; Node's default
+  // runs out of memory part-way (found Nov 9, 2026, when e2e first used this).
+  const nodeOptions = /max-old-space-size/.test(process.env.NODE_OPTIONS ?? "")
+    ? process.env.NODE_OPTIONS
+    : `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=6144`.trim();
+  execSync("npm run build", {
+    cwd: root,
+    stdio: "inherit",
+    env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1", NODE_OPTIONS: nodeOptions },
+  });
 }
 
 for (const [from, to] of [
