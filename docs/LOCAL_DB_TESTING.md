@@ -36,11 +36,16 @@ compute helpers against them and asserts:
 
 Exit code is non-zero on any mismatch, so it's CI-able if we ever want it.
 
+> **`npm run test:e2e` rebuilds `ea_sys_test` from scratch** (drop, migrate,
+> seed; since Nov 9, 2026). Anything `db:local:setup` seeded there is gone after
+> an e2e run: run `db:local:setup` again before this path.
+
 ## Full path — drive the flow in a real browser (like e2e)
 
 The browser drive needs the dev port free (a running `npm run dev` holds
-`.next/dev/lock`, so a second server can't start — same constraint as
-`npm run test:e2e`). **Stop your prod dev server first**, then:
+`.next/dev/lock`, so a second dev server can't start; `npm run test:e2e` no
+longer has this problem, it runs the production standalone on :3199).
+**Stop your prod dev server first**, then:
 
 ```bash
 npm run db:local:setup            # push schema + seed e2e base + cancel scenarios

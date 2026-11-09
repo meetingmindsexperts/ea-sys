@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security and reliability work (November 9)
+
+Tracked row by row in `docs/SECURITY_AUDIT_ACTION_PLAN.md`.
+- **No Docker socket in the web containers (W0-3):** both mounts, the Docker CLI and the docker group are gone, so a compromised app can no longer become root on the box. The `/logs` viewer's Docker source is replaced by **CloudWatch: containers / app log / nginx errors** (Logs Insights, capped at 24 h, MB scanned shown). The host agent runs as root and ships `ea-sys/docker` (one stream per container, MediaMTX excluded, pino info left to `ea-sys/app`) and `ea-sys/nginx-error`. New IAM inline policy `EaSysLogsRead`
+- **`npm run prod:diagnose`:** a read-only laptop script for "the app is not loading": public URLs, instance status, alarms, the last minutes of container, nginx and app errors. Runbook: `infra/cloudwatch/README.md` "App not loading"
+- **Venue crowds:** the completion form and the survey are limited per personal link, not per IP, so the desk tablet and a room on one Wi-Fi are no longer refused after 5 or 10; the agenda allows 600/min per IP; the rate-limit store's cleanup is throttled and capped
+- **Import pricing:** a registration imported with no type is COMPLIMENTARY on a free event and UNASSIGNED on a paid one (was COMPLIMENTARY everywhere, so a paid pick on the completion form cost nothing); completion prices the pick (virtual at the virtual price) and audits the status change; payment reminders skip anyone with no type; bulk "Set type" prices unpaid rows at the open public rate instead of the base price, keeps the price of PENDING, discounted, paid, invoiced and grouped rows, and refuses when no rate is on sale
+- **e2e suite revived (W1-2, steps 1 to 3):** it could not start; it now rebuilds `ea_sys_test` from the migrations behind a guard and runs the production standalone on :3199 beside the dev server. 34 passing
+- **Deferred with evidence:** the nginx per-path limit (W1-6): no form abuse in 30 days of logs, and zero fail2ban bans ever on the nginx jail
+
 ### CRM as a product: per-organisation licence, email and data rights (November 6)
 
 From the CRM product review (P0 to P2). Plan of record: §0 of `src/crm/README.md`.

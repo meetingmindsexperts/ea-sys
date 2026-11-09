@@ -56,7 +56,7 @@ npm run type-check     # tsc --noEmit
 npm run lint           # eslint
 npm run build          # prisma generate && next build (Turbopack) — catches bundler issues
 npm run test           # vitest run (~1200 tests)
-npm run test:e2e       # playwright — STOP the dev server first (port 3113, see §5)
+npm run test:e2e       # playwright on :3199, beside the dev server (see §5)
 ```
 
 **Why `npm ci` not `npm install`**: `ci` does a clean install strictly from the
@@ -127,9 +127,10 @@ its own ticket — don't pile a second major on top.
   `@tailwindcss/oxide-linux-x64-gnu` and `lightningcss-linux-x64-gnu` as MISSING
   on a Mac — they're linux-only optional deps installed on the EC2 build host.
   Not a problem; don't try to "fix" them locally.
-- **Playwright port drift.** `playwright.config.ts` defaults to port 3000 but
-  `npm run dev` binds 3113. Stop the dev server before `npm run test:e2e` or it
-  hits `EADDRINUSE`. See `memory/playwright_port_drift.md`.
+- **e2e runs beside your dev server (since Nov 9, 2026).** `npm run test:e2e`
+  builds and starts the production standalone on :3199 (never reusing a
+  server), and rebuilds `ea_sys_test` from the migrations every run. Leave
+  `npm run dev` on :3113 running; nothing to stop.
 - **`@types/node` should track the Node engine.** Engine is Node 24; `@types/node`
   is on 20. Bump to `@types/node@24` (not 25 — match the runtime major).
 
