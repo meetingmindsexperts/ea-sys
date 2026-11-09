@@ -389,6 +389,26 @@ describe("a link without a rate: the registration's type and payment status deci
     expect(tx.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ linkRate: "complimentary", rateFrom: "registration", price: 0 });
   });
 
+  it("POST: a typeless UNASSIGNED row (a paid-event import) picking a priced type stays UNASSIGNED, written untouched", async () => {
+    token("reg:reg-1");
+    mockDb.registration.findFirst.mockResolvedValue({ ...typelessComp(), paymentStatus: "UNASSIGNED" });
+    const res = await post({ ticketTypeId: "tt-phys" });
+    expect(res.status).toBe(200);
+    expect(rowWrite().data).toMatchObject({ ticketTypeId: "tt-phys", originalPrice: 250 });
+    expect(rowWrite().data).not.toHaveProperty("paymentStatus");
+  });
+
+  it("POST: a typeless UNASSIGNED row picking a free type becomes COMPLIMENTARY", async () => {
+    token("reg:reg-1");
+    const FREE = type({ id: "tt-free", name: "Delegate", price: "0", pricingTiers: [] });
+    mockDb.registration.findFirst.mockResolvedValue({ ...typelessComp(), paymentStatus: "UNASSIGNED" });
+    mockDb.ticketType.findFirst.mockResolvedValue(FREE);
+    mockDb.ticketType.findMany.mockResolvedValue([FREE, PHYS]);
+    const res = await post({ ticketTypeId: "tt-free" });
+    expect(res.status).toBe(200);
+    expect(rowWrite().data).toMatchObject({ ticketTypeId: "tt-free", originalPrice: 0, paymentStatus: "COMPLIMENTARY" });
+  });
+
   it("a typeless row that owes (UNASSIGNED) keeps the open public rate", async () => {
     token("reg:reg-1");
     mockDb.registration.findFirst.mockResolvedValue({ ...typelessComp(), paymentStatus: "UNASSIGNED" });

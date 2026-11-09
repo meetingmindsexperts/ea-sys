@@ -289,11 +289,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Nothing owed, never chased (Oct 22, 2026): same rule as the bulk audience.
-    if (type === "payment-reminder" && excludedAsNoBalance(type, registration.paymentStatus)) {
-      apiLogger.warn({ msg: "registration-email:no-balance-payment-reminder-refused", registrationId, eventId, paymentStatus: registration.paymentStatus });
+    if (type === "payment-reminder" && excludedAsNoBalance(type, registration.paymentStatus, !!registration.ticketType)) {
+      apiLogger.warn({ msg: "registration-email:no-balance-payment-reminder-refused", registrationId, eventId, paymentStatus: registration.paymentStatus, hasType: !!registration.ticketType });
       return NextResponse.json(
         {
-          error: "This registration is complimentary or sponsor-paid, so there is nothing to pay. Change its payment status first if they do owe.",
+          error: registration.ticketType
+            ? "This registration is complimentary or sponsor-paid, so there is nothing to pay. Change its payment status first if they do owe."
+            : "This registration has no type yet, so there is no price to pay. Send them the registration form, or set their type first.",
           code: "NO_BALANCE_DUE",
         },
         { status: 400 },

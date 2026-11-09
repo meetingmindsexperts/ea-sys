@@ -1518,10 +1518,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         // Group members are never dunned individually (review H2) — the payer
         // owes via the consolidated invoice. Shared predicate with the counts.
         ...(excludesGroupMembers(emailType) ? { groupId: null } : {}),
-        // Nothing owed, never chased (Oct 22, 2026). AND, so a paymentStatus
-        // filter below cannot re-admit them. Shared predicate with the counts.
+        // Nothing owed, never chased (Oct 22, 2026), and no type means nothing
+        // priced yet (Nov 9, 2026). AND, so a paymentStatus filter below cannot
+        // re-admit them. Same rule as excludedAsNoBalance, which the counts use.
         ...(emailType === "payment-reminder"
-          ? { AND: [{ paymentStatus: { notIn: [...NO_BALANCE_PAYMENT_STATUSES] as PaymentStatus[] } }] }
+          ? { AND: [{ paymentStatus: { notIn: [...NO_BALANCE_PAYMENT_STATUSES] as PaymentStatus[] } }, { ticketTypeId: { not: null } }] }
           : {}),
         ...paymentStatusWhere(),
         ...ticketTypeWhere(),

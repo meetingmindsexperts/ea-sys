@@ -12,7 +12,11 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { generateBarcode } from "@/lib/utils";
 import { claimSeats, incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
-import { resolveImportFallbackTicketType } from "@/lib/import-ticket-type";
+import {
+  eventChargesForRegistration,
+  resolveImportFallbackTicketType,
+  untypedImportPaymentStatus,
+} from "@/lib/import-ticket-type";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -108,7 +112,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     // helper — enforces event membership and refuses faculty types (the
     // hidden speaker-companion type must never receive imported delegates).
     // Absent ⇒ null ⇒ rows import uncategorised, never a guessed type.
-    const typeResult = await resolveImportFallbackTicketType(eventId, ticketTypeId);
+    const [typeResult, chargingEvent] = await Promise.all([
+      resolveImportFallbackTicketType(eventId, ticketTypeId),
+      eventChargesForRegistration(eventId),
+    ]);
     if (!typeResult.ok) {
       apiLogger.warn({ msg: "import-contacts:ticket-type-rejected", eventId, ticketTypeId, code: typeResult.code });
       return NextResponse.json({ error: typeResult.message, code: typeResult.code }, { status: 400 });
@@ -209,11 +216,11 @@ export async function POST(req: Request, { params }: RouteParams) {
               // tier-aware (closes the deferred "unstamped import path").
               // Uncategorised rows have no price → stays null.
               originalPrice,
-              // No ticket type ⇒ nothing is owed (there is no price to owe):
-              // explicit COMPLIMENTARY, exactly like the CSV importer's
-              // typeless rows. Typed rows keep the pre-existing defaults
+              // No ticket type ⇒ "assign later": COMPLIMENTARY on a free
+              // event, UNASSIGNED on a paid one, like the CSV importer's
+              // (Nov 9, 2026). Typed rows keep the pre-existing defaults
               // (owner declined the defaults-parity change, July 28, 2026).
-              ...(ticketType ? {} : { paymentStatus: "COMPLIMENTARY" as const }),
+              ...(ticketType ? {} : { paymentStatus: untypedImportPaymentStatus(chargingEvent) }),
               // "Import from Contacts" is admin-driven — operator
               // picks a checked subset and imports as registrations.
               // Not a CSV upload, so ADMIN_DASHBOARD is the right

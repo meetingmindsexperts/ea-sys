@@ -1,7 +1,9 @@
 /**
  * Payment reminders never reach complimentary or sponsor-paid registrations
- * (owner, Oct 22, 2026): the shared predicate, and the bulk send's audience,
- * where a paymentStatus filter must not re-admit them.
+ * (owner, Oct 22, 2026), nor one with no type yet (Nov 9, 2026: an import left
+ * blank is UNASSIGNED with no price to remind them of): the shared predicate,
+ * and the bulk send's audience, where a paymentStatus filter must not
+ * re-admit them.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -25,13 +27,17 @@ import { executeBulkEmail } from "@/lib/bulk-email";
 
 describe("excludedAsNoBalance", () => {
   it.each(["COMPLIMENTARY", "INCLUSIVE"])("leaves %s out of a payment reminder", (s) => {
-    expect(excludedAsNoBalance("payment-reminder", s)).toBe(true);
+    expect(excludedAsNoBalance("payment-reminder", s, true)).toBe(true);
   });
-  it.each(["UNPAID", "PENDING", "UNASSIGNED", "PAID"])("keeps %s (other filters decide)", (s) => {
-    expect(excludedAsNoBalance("payment-reminder", s)).toBe(false);
+  it.each(["UNPAID", "PENDING", "UNASSIGNED", "PAID"])("keeps %s with a type (other filters decide)", (s) => {
+    expect(excludedAsNoBalance("payment-reminder", s, true)).toBe(false);
+  });
+  it.each(["UNASSIGNED", "UNPAID"])("leaves a %s registration with no type out: nothing is priced yet", (s) => {
+    expect(excludedAsNoBalance("payment-reminder", s, false)).toBe(true);
   });
   it("only applies to payment reminders", () => {
-    expect(excludedAsNoBalance("event-reminder", "COMPLIMENTARY")).toBe(false);
+    expect(excludedAsNoBalance("event-reminder", "COMPLIMENTARY", true)).toBe(false);
+    expect(excludedAsNoBalance("event-reminder", "UNASSIGNED", false)).toBe(false);
   });
 });
 
@@ -42,7 +48,7 @@ describe("bulk payment reminder audience", () => {
     mockDb.registration.findMany.mockResolvedValue([]);
   });
 
-  it("excludes complimentary and sponsor-paid, even when the filter names them", async () => {
+  it("excludes complimentary, sponsor-paid and typeless, even when the filter names them", async () => {
     await executeBulkEmail({
       eventId: "evt-1",
       recipientType: "registrations",
@@ -54,7 +60,7 @@ describe("bulk payment reminder audience", () => {
       filters: { paymentStatus: "COMPLIMENTARY,UNPAID" },
     }).catch(() => undefined);
     const where = mockDb.registration.findMany.mock.calls[0][0].where;
-    expect(where.AND).toEqual([{ paymentStatus: { notIn: ["COMPLIMENTARY", "INCLUSIVE"] } }]);
+    expect(where.AND).toEqual([{ paymentStatus: { notIn: ["COMPLIMENTARY", "INCLUSIVE"] } }, { ticketTypeId: { not: null } }]);
     expect(where.paymentStatus).toEqual({ in: ["COMPLIMENTARY", "UNPAID"] });
   });
 });

@@ -276,7 +276,19 @@ describe("CSV import — registration type resolution", () => {
     expect(await res.json()).toMatchObject({ created: 2, uncategorised: 1 });
   });
 
-  it("keeps an uncategorised row COMPLIMENTARY + CONFIRMED (nothing is owed)", async () => {
+  it("on a paid event an uncategorised row is UNASSIGNED: it pays for the type it picks (Nov 9, 2026)", async () => {
+    mockDb.ticketType.count.mockResolvedValue(1);
+    await POST(csvRequest(`${HEADER}\nJohn,Doe,john@example.com,`), params);
+    expect(createdRegistration().paymentStatus).toBe("UNASSIGNED");
+  });
+
+  it("a paymentStatus column still wins over the paid-event default (a sponsor's INCLUSIVE list)", async () => {
+    mockDb.ticketType.count.mockResolvedValue(1);
+    await POST(csvRequest(`firstName,lastName,email,registrationType,paymentStatus\nJohn,Doe,john@example.com,,COMPLIMENTARY`), params);
+    expect(createdRegistration().paymentStatus).toBe("COMPLIMENTARY");
+  });
+
+  it("keeps an uncategorised row COMPLIMENTARY + CONFIRMED on a free event (nothing will be owed)", async () => {
     await POST(csvRequest(`${HEADER}\nJohn,Doe,john@example.com,`), params);
 
     const data = createdRegistration();

@@ -31,6 +31,7 @@
  * via `EXCLUDE_FACULTY_WHERE`), so a delegate that lands there is invisible in
  * every delegate-facing statistic.
  */
+import type { PaymentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 
 /** The ticket-type shape both importers need to price + seat a row. */
@@ -127,4 +128,19 @@ export async function eventChargesForRegistration(eventId: string): Promise<bool
     },
   });
   return priced > 0;
+}
+
+/**
+ * The payment status of a row imported with NO type ("Leave blank, they choose
+ * it themselves"; owner, Nov 9, 2026). A free event: COMPLIMENTARY, nothing
+ * will ever be owed. A paid event (eventChargesForRegistration): UNASSIGNED, so
+ * the completion form prices the type they pick and the organiser can follow
+ * up. It used to be COMPLIMENTARY on every event, and the Oct 29 rule reads a
+ * typeless COMPLIMENTARY as a real comp, so on a paid event a person left blank
+ * picked a paid type and paid nothing. A CSV paymentStatus column (UNASSIGNED,
+ * INCLUSIVE with a sponsor, ...) still wins. EventsAir refuses typeless rows on
+ * a paid event outright, so it only ever reaches the free case.
+ */
+export function untypedImportPaymentStatus(chargingEvent: boolean): PaymentStatus {
+  return chargingEvent ? "UNASSIGNED" : "COMPLIMENTARY";
 }

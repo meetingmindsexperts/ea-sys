@@ -43,7 +43,8 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
   return {
     mockDb: {
       event: { findFirst: vi.fn() },
-      ticketType: { findFirst: vi.fn() },
+      // count: eventChargesForRegistration (0 = a free event).
+      ticketType: { findFirst: vi.fn(), count: vi.fn().mockResolvedValue(0) },
       registration: { findMany: registrationFindMany },
       attendee: { findMany: attendeeFindMany },
       contact: { findMany: vi.fn() },

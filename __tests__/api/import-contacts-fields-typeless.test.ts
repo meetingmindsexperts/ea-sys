@@ -6,7 +6,8 @@
  *     tags, member/student IDs, …) lands on the created Attendee — the route
  *     used to copy only 7 fields and silently drop the rest.
  *  2. Registration type is OPTIONAL (CSV-importer parity, "never guess"):
- *     absent ⇒ ticketTypeId null, paymentStatus COMPLIMENTARY, no ticket-type
+ *     absent ⇒ ticketTypeId null, paymentStatus COMPLIMENTARY on a free event
+ *     (UNASSIGNED on a paid one, Nov 9, 2026), no ticket-type
  *     seat claim, originalPrice unstamped; faculty types are refused; a tier
  *     without a type is a 400.
  *  3. The typed path keeps its pre-existing shape (seat claim + originalPrice
@@ -37,7 +38,8 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
   return {
     mockDb: {
       event: { findFirst: vi.fn() },
-      ticketType: { findFirst: vi.fn() },
+      // count: eventChargesForRegistration. 0 = a free event, the default.
+      ticketType: { findFirst: vi.fn(), count: vi.fn().mockResolvedValue(0) },
       pricingTier: { findFirst: vi.fn() },
       attendee: { findMany: attendeeFindMany },
       contact: { findMany: vi.fn() },
@@ -156,13 +158,22 @@ describe("import-contacts — full contact field carry", () => {
 });
 
 describe("import-contacts — typeless (uncategorised) import", () => {
+  it("on a paid event a row with no type is UNASSIGNED: it pays for the type it picks (Nov 9, 2026)", async () => {
+    mockDb.ticketType.count.mockResolvedValueOnce(1);
+    const res = await importContacts(req({ contactIds: ["c1"] }), { params });
+    expect(res.status).toBe(200);
+    const regData = mockDb._tx.registration.create.mock.calls[0][0].data as Record<string, unknown>;
+    expect(regData.ticketTypeId).toBeNull();
+    expect(regData.paymentStatus).toBe("UNASSIGNED");
+  });
+
   it("imports without a registration type: null ticketTypeId, COMPLIMENTARY, no seat claim", async () => {
     const res = await importContacts(req({ contactIds: ["c1"] }), { params });
     expect(res.status).toBe(200);
 
     const regData = mockDb._tx.registration.create.mock.calls[0][0].data as Record<string, unknown>;
     expect(regData.ticketTypeId).toBeNull();
-    expect(regData.paymentStatus).toBe("COMPLIMENTARY"); // nothing to owe without a price
+    expect(regData.paymentStatus).toBe("COMPLIMENTARY"); // a free event: nothing will be owed
     expect(regData.originalPrice).toBeNull(); // no price to stamp
     expect(regData.qrCode).toEqual(expect.stringMatching(/^\d{13,}$/));
     // No counter to move: no ticket-type seat, and no event seat either. A row

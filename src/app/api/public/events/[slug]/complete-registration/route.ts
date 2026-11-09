@@ -260,6 +260,22 @@ async function loadRatedTicketTypes(
 
 // ── GET: Validate token and return prefilled registration data ──────────────
 
+/**
+ * A typeless row's status once it picks a type: priced → UNASSIGNED (payable,
+ * chaseable), free → COMPLIMENTARY. Only the two "nothing decided yet" defaults
+ * move (UNASSIGNED, the paid-event import default since Nov 9, 2026, and an
+ * older or free-event COMPLIMENTARY); a status someone EXPLICITLY set (PAID
+ * for an offline transfer, INCLUSIVE for sponsor-paid) survives, or completion
+ * would re-open dunning on a settled registration. Null when nothing changes.
+ * A typeless COMPLIMENTARY completes at the complimentary rate
+ * (rateFromRegistration), so its price is 0 and it stays comp.
+ */
+function settleTypelessPaymentStatus(current: string, price: number): "UNASSIGNED" | "COMPLIMENTARY" | null {
+  if (current !== "COMPLIMENTARY" && current !== "UNASSIGNED") return null;
+  const settled = price > 0 ? "UNASSIGNED" : "COMPLIMENTARY";
+  return settled === current ? null : settled;
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const { slug } = await params;
@@ -914,6 +930,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
 
     const resolvedPrice = resolvedType ? Number(resolvedTier?.price ?? resolvedType.price) : null;
+    const typelessSettledStatus = settleTypelessPaymentStatus(registration.paymentStatus, resolvedPrice ?? 0);
     // Self-selecting a type that requires approval puts the row into the
     // organizer's approval queue — public-register semantics, because at
     // completion the PERSON picks the type (the organizer vetted the person at
@@ -990,18 +1007,9 @@ export async function POST(req: Request, { params }: RouteParams) {
             // Stamp the price so every money surface reads the rate agreed at
             // completion, not whatever the tier happens to be later.
             originalPrice: resolvedPrice ?? 0,
-            // While typeless the row defaulted to COMPLIMENTARY (nothing to
-            // owe) — a priced type makes money due, so that default flips to
-            // payable + chaseable. But a status someone EXPLICITLY set (CSV
-            // paymentStatus column, admin detail sheet — PAID for an offline
-            // bank transfer, INCLUSIVE for sponsor-paid) must survive, or
-            // completion would re-open dunning on a settled registration.
-            // Limitation: an explicitly-set COMPLIMENTARY is indistinguishable
-            // from the typeless default and flips too — an organizer comping
-            // someone would normally set the type alongside.
-            ...(registration.paymentStatus === "COMPLIMENTARY" && {
-              paymentStatus: (resolvedPrice ?? 0) > 0 ? "UNASSIGNED" : "COMPLIMENTARY",
-            }),
+            // Priced → UNASSIGNED, free → COMPLIMENTARY; explicit statuses
+            // survive (settleTypelessPaymentStatus).
+            ...(typelessSettledStatus && { paymentStatus: typelessSettledStatus }),
             // requiresApproval type self-selected here → approval queue (see
             // flipToPending above for the rule + why only CONFIRMED flips).
             ...(flipToPending && { status: "PENDING" as const }),
@@ -1104,7 +1112,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               // Explicit (non-default) statuses survive the type-set — record
               // which one did, so "why is this paid registration UNASSIGNED /
               // still PAID?" is answerable from the audit trail.
-              ...(registration.paymentStatus !== "COMPLIMENTARY" && {
+              ...(registration.paymentStatus !== "COMPLIMENTARY" && registration.paymentStatus !== "UNASSIGNED" && {
                 paymentStatusPreserved: registration.paymentStatus,
               }),
               // The self-selected type needs organizer approval → the row

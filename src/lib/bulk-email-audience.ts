@@ -84,9 +84,15 @@ export const NO_BALANCE_PAYMENT_STATUSES: readonly string[] = ["COMPLIMENTARY", 
  * sent a payment reminder: it would ask them to pay an amount checkout then
  * refuses, and since its tier can now be changed, that amount could even be a
  * new rate. UNCONDITIONAL for payment-reminder, like the group rule above.
+ *
+ * Nor is a registration with no type yet (Nov 9, 2026): an import left blank
+ * is UNASSIGNED, "they choose it themselves", so there is no price to remind
+ * them of; the registration form is what they are sent. `hasType` is required
+ * so no caller can quietly leave it out and count differently from the send.
  */
-export function excludedAsNoBalance(emailType: string | undefined, paymentStatus: string): boolean {
-  return emailType === "payment-reminder" && NO_BALANCE_PAYMENT_STATUSES.includes(paymentStatus);
+export function excludedAsNoBalance(emailType: string | undefined, paymentStatus: string, hasType: boolean): boolean {
+  if (emailType !== "payment-reminder") return false;
+  return NO_BALANCE_PAYMENT_STATUSES.includes(paymentStatus) || !hasType;
 }
 
 // ───────────────────────── Abstract email types ─────────────────────────

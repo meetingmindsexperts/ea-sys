@@ -16,8 +16,10 @@ import { getNextSerialId } from "@/lib/registration-serial";
 import { claimSeat, incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import {
+  eventChargesForRegistration,
   IMPORT_TICKET_TYPE_SELECT,
   resolveImportFallbackTicketType,
+  untypedImportPaymentStatus,
   type ImportTicketType,
 } from "@/lib/import-ticket-type";
 import { parseAttendeeRole, parseTitle } from "@/lib/schemas";
@@ -262,7 +264,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       ticketTypes.filter((tt) => !tt.isFaculty).map((tt) => [tt.name.toLowerCase(), tt]),
     );
 
-    const fallback = await resolveImportFallbackTicketType(eventId, defaultTicketTypeId);
+    const [fallback, chargingEvent] = await Promise.all([
+      resolveImportFallbackTicketType(eventId, defaultTicketTypeId),
+      eventChargesForRegistration(eventId),
+    ]);
     if (!fallback.ok) {
       apiLogger.warn({
         msg: "events/import-registrations:invalid-default-ticket-type",
@@ -555,11 +560,12 @@ export async function POST(req: Request, { params }: RouteParams) {
           // still beats CONFIRMED-by-default but a CSV explicit
           // registrationStatus wins over it (admin's call to override is
           // intentional).
-          // No ticket type ⇒ nothing is owed (there is no price to owe), so the
-          // row reads COMPLIMENTARY exactly as a zero-priced type would.
+          // No ticket type ⇒ "they choose it themselves": COMPLIMENTARY on a
+          // free event, UNASSIGNED on a paid one (untypedImportPaymentStatus).
           const defaultStatus: RegistrationStatus = ticketType?.requiresApproval ? "PENDING" : "CONFIRMED";
-          const defaultPaymentStatus: PaymentStatus =
-            !ticketType || Number(ticketType.price) === 0 ? "COMPLIMENTARY" : "UNASSIGNED";
+          let defaultPaymentStatus: PaymentStatus = "UNASSIGNED";
+          if (!ticketType) defaultPaymentStatus = untypedImportPaymentStatus(chargingEvent);
+          else if (Number(ticketType.price) === 0) defaultPaymentStatus = "COMPLIMENTARY";
           const registration = await tx.registration.create({
             data: {
               organizationId: orgGuard.orgId,
