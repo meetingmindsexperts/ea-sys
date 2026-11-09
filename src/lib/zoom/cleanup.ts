@@ -32,6 +32,7 @@ export async function deleteRemoteZoomMeeting(args: {
     | "create-conflict-rollback"
     | "session-delete"
     | "session-bulk-delete"
+    | "event-delete"
     | "provision-reattach-conflict-rollback";
 }): Promise<boolean> {
   const { organizationId, meetingType, zoomMeetingId, reason } = args;

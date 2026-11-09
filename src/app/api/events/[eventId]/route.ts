@@ -8,6 +8,7 @@ import { HELD_SEAT_WHERE } from "@/lib/registration-seat-db";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { deleteRemoteZoomMeeting } from "@/lib/zoom/cleanup";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { redactFinancialFields } from "@/lib/finance-visibility";
 import { isTeamRole } from "@/lib/auth-guards";
@@ -1101,6 +1102,14 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
+    // The cascade below removes the only record of which meetings exist on Zoom.
+    const zoomMeetings = await runWithTenant(orgGuard.orgId, () =>
+      db.zoomMeeting.findMany({
+        where: { eventId, organizationId: orgGuard.orgId },
+        select: { zoomMeetingId: true, meetingType: true },
+      }),
+    );
+
     await db.event.delete({
       where: { id: eventId },
     });
@@ -1109,6 +1118,21 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // Webinar handout files live outside the database; remove them too.
     await removeHandoutFiles(eventId, readHandouts(readWebinarSettings(existingEvent.settings)));
 
+    // Zoom last, so a failed local delete can never cost a live webinar. The
+    // helper never throws: a failure logs the id and leaves an orphan on Zoom.
+    await runWithTenant(orgGuard.orgId, () =>
+      Promise.all(
+        zoomMeetings.map((meeting) =>
+          deleteRemoteZoomMeeting({
+            organizationId: orgGuard.orgId,
+            meetingType: meeting.meetingType,
+            zoomMeetingId: meeting.zoomMeetingId,
+            reason: "event-delete",
+          }),
+        ),
+      ),
+    );
+
     // Log the action (non-blocking for better response time)
     db.auditLog.create({
       data: {
@@ -1116,7 +1140,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "Event",
         entityId: eventId,
-        changes: { name: existingEvent.name, ip: getClientIp(req) },
+        changes: {
+          name: existingEvent.name,
+          zoomMeetingIds: zoomMeetings.map((meeting) => meeting.zoomMeetingId),
+          ip: getClientIp(req),
+        },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 

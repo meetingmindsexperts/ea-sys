@@ -12,6 +12,7 @@ const { mockDb, mockAuth } = vi.hoisted(() => ({
     invoice: { count: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     payment: { count: vi.fn() },
     dtcmOrder: { count: vi.fn() },
+    zoomMeeting: { findMany: vi.fn().mockResolvedValue([]) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
   mockAuth: vi.fn(),
@@ -40,6 +41,7 @@ beforeEach(() => {
   mockDb.payment.count.mockResolvedValue(0);
   mockDb.dtcmOrder.count.mockResolvedValue(0);
   mockDb.invoice.findMany.mockResolvedValue([]);
+  mockDb.zoomMeeting.findMany.mockResolvedValue([]);
 });
 
 describe("event DELETE — financial-records guard", () => {

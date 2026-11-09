@@ -33,6 +33,7 @@ const {
     invoice: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
     payment: { count: vi.fn().mockResolvedValue(0) },
     dtcmOrder: { count: vi.fn().mockResolvedValue(0) },
+    zoomMeeting: { findMany: vi.fn().mockResolvedValue([]) },
     // M9 date-narrowing guard on PUT — default to "no sessions" so tests
     // that change dates proceed unless they set this up explicitly.
     eventSession: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn() },
