@@ -414,6 +414,11 @@ model AccountProfile {
   /// The version key of the wording shown (MARKETING_CONSENT_WORDING_VERSION).
   marketingConsentWording     String?
   marketingConsentWithdrawnAt DateTime?
+  /// Set only when the account was made at /signup: THE marker that it must
+  /// confirm its address before signing in, and that the 30-day prune may
+  /// consider it (portal review, Nov 9, 2026). Never inferred from what the
+  /// account owns: a non-attending group coordinator owns no registration.
+  signedUpAt                  DateTime?
   createdAt                   DateTime      @default(now())
   updatedAt                   DateTime      @updatedAt
 

@@ -184,6 +184,11 @@ describe("POST /api/auth/signup: the registration form's questions and marketing
     }
   });
 
+  it("a whitespace-only answer is refused (it passes min(1), then trims to nothing)", async () => {
+    expect((await post(signup, body({ organization: "   " }))).status).toBe(400);
+    expect(mockDb.user.create).not.toHaveBeenCalled();
+  });
+
   it("'Others' needs the specialty written in", async () => {
     expect((await post(signup, body({ specialty: "Others" }))).status).toBe(400);
     expect((await post(signup, body({ specialty: "Others", customSpecialty: "Sleep medicine" }))).status).toBe(200);
@@ -192,6 +197,8 @@ describe("POST /api/auth/signup: the registration form's questions and marketing
   it("creates the account's profile in the same write as the account", async () => {
     await post(signup, body());
     expect(created().accountProfile.create).toMatchObject({ title: "DR", role: "PHYSICIAN", organization: "City Hospital", country: "United Arab Emirates", state: null });
+    // The marker sign-in and the prune read (never "owns nothing").
+    expect(created().accountProfile.create.signedUpAt).toBeInstanceOf(Date);
   });
 
   it("no marketing consent unless the box was ticked", async () => {

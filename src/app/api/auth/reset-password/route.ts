@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
+import { clearUnconfirmedSignupProfile } from "@/lib/registrant-details";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { maskEmail } from "@/lib/mask-email";
@@ -130,6 +131,10 @@ export async function POST(req: Request) {
       });
       // And every claude.ai connection, which never reads tokenVersion (G6).
       await revokeUserOAuthTokens(user.id, tx);
+      // An unconfirmed /signup account's details and consent were typed by
+      // whoever signed up; the owner taking it over starts clean.
+      const cleared = await clearUnconfirmedSignupProfile(tx, user.id);
+      if (cleared > 0) apiLogger.info({ msg: "auth/reset-password:signup-profile-cleared", userId: user.id });
 
       await tx.verificationToken.delete({
         where: {

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Account sign-up and My account (November 9)
+
+Plan: `docs/ACCOUNT_SIGNUP_PLAN.md`.
+- **Create an account at `/signup`**: the public registration form's questions, an unticked marketing box, email confirmation before signing in; the same answer whether or not the address has an account. Unconfirmed sign-ups are removed after 30 days (worker job `unconfirmed-account-prune`, on the RLS-exempt lane)
+- **The portal moved to `/my-account`** (events, certificates, abstracts, details); `/my-registration` and its sub-pages redirect, so links in sent emails keep working
+- **My details** (`/my-account/details`): view and edit your details and marketing consent; a save also updates your upcoming registrations (only changed fields; linked registrations; not started, not checked in; never a speaker's companion, a printed badge or a bought DTCM code). New table `AccountProfile` (migration `20261109120000`, additive)
+- **Marketing consent** is stored with time, IP and wording version; consent given at sign-up counts only once the address is confirmed. Sending it to Mailchimp waits for a `marketing_consent` column in contacts_centralv1
+
 ### My portal: a person's whole journey in one place (November 9)
 
 Plan: `docs/MY_PORTAL_PLAN.md`.

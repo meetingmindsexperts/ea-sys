@@ -55,14 +55,12 @@ export async function readAccountDetails(scope: RegistrantScope): Promise<{
   marketing: { consented: boolean; since: Date | null };
 }> {
   const [user, profile] = await Promise.all([
-    db.user.findUnique({ where: { id: scope.userId }, select: { firstName: true, lastName: true } }),
+    db.user.findUnique({ where: { id: scope.userId }, select: { firstName: true, lastName: true, emailConfirmedAt: true } }),
     db.accountProfile.findUnique({ where: { userId: scope.userId } }),
   ]);
   const name = { firstName: user?.firstName ?? "", lastName: user?.lastName ?? "" };
-  const marketing = {
-    consented: !!profile?.marketingConsentAt && !profile.marketingConsentWithdrawnAt,
-    since: profile?.marketingConsentWithdrawnAt ? null : (profile?.marketingConsentAt ?? null),
-  };
+  const consented = profile ? marketingConsentInForce(profile, user?.emailConfirmedAt ?? null) : false;
+  const marketing = { consented, since: consented ? (profile?.marketingConsentAt ?? null) : null };
   // A profile with no details is only a consent record (a person who ticked
   // the box but never filled in details): fall through to the registration.
   if (profile && PROFILE_FIELDS.some((f) => profile[f] !== null)) {
@@ -75,6 +73,44 @@ export async function readAccountDetails(scope: RegistrantScope): Promise<{
   });
   if (latest) return { details: { ...name, ...pickProfile(latest.attendee) }, source: "registration", marketing };
   return { details: { ...name, ...pickProfile({}) }, source: "none", marketing };
+}
+
+/**
+ * Whether marketing consent is in force: given, not withdrawn, and, when it
+ * was given at /signup, only once the address is confirmed (double opt-in,
+ * portal review Nov 9, 2026). Anyone can sign up on someone else's address
+ * and tick the box; the consent counts only when the mailbox's owner has
+ * confirmed. Consent given on My Details is given by the signed-in holder.
+ * THE rule; the Mailchimp mirror reads it too when it is built.
+ */
+export function marketingConsentInForce(
+  profile: { marketingConsentAt: Date | null; marketingConsentWithdrawnAt: Date | null; signedUpAt: Date | null },
+  emailConfirmedAt: Date | null,
+): boolean {
+  if (!profile.marketingConsentAt || profile.marketingConsentWithdrawnAt) return false;
+  return !profile.signedUpAt || !!emailConfirmedAt;
+}
+
+/**
+ * A password reset taking over an account made at /signup and never
+ * confirmed clears what its maker typed: the profile details and any
+ * marketing consent (portal review, Nov 9, 2026). Whoever signed up on this
+ * address may not have been its owner; the owner, now holding the password,
+ * fills in their own. signedUpAt stays, so the account still confirms first.
+ * Runs inside the reset's transaction.
+ */
+export async function clearUnconfirmedSignupProfile(tx: Prisma.TransactionClient, userId: string): Promise<number> {
+  const cleared = await tx.accountProfile.updateMany({
+    where: { userId, signedUpAt: { not: null }, user: { emailConfirmedAt: null } },
+    data: {
+      ...(Object.fromEntries(PROFILE_FIELDS.map((f) => [f, null])) as Record<ProfileField, null>),
+      marketingConsentAt: null,
+      marketingConsentIp: null,
+      marketingConsentWording: null,
+      marketingConsentWithdrawnAt: null,
+    },
+  });
+  return cleared.count;
 }
 
 function pickProfile(row: Partial<Record<ProfileField, string | null>>): Record<ProfileField, string | null> {
@@ -151,6 +187,12 @@ export function normalizeDetails(input: DetailsInput): AccountDetails {
   };
 }
 
+/** Fields the registration form requires that are empty once trimmed ("   " passes min(1)). */
+export function missingRequiredDetails(d: AccountDetails): string[] {
+  const required = ["firstName", "lastName", "role", "organization", "jobTitle", "phone", "city", "country", "specialty"] as const;
+  return required.filter((k) => !d[k]);
+}
+
 /** The fields whose value differs, comparing normalised values. */
 export function changedFields(before: AccountDetails, after: AccountDetails): (keyof AccountDetails)[] {
   const keys: (keyof AccountDetails)[] = ["firstName", "lastName", ...PROFILE_FIELDS];
@@ -207,22 +249,46 @@ export async function saveAccountProfile(userId: string, details: AccountDetails
 }
 
 /**
+ * The registrations a My Details save reaches (and the page counts): the
+ * person's LINKED registrations for events that have not started, still a
+ * place or a request (not checked in, not cancelled), and none whose identity
+ * is already printed or bought:
+ *  - not a speaker's companion registration (createdSource SPEAKER_COMPANION):
+ *    it is the Faculty badge, DTCM and check-in identity, follows the Speaker
+ *    record, which a speaker's own name lock protects, and is only ever
+ *    written speaker to companion (person-details-sync.ts; portal review);
+ *  - no badge printed and no DTCM code bought: those carry the old name.
+ */
+export function upcomingOwnRegistrationsWhere(userId: string, now: Date): Prisma.RegistrationWhereInput {
+  return {
+    userId,
+    status: { in: ["PENDING", "CONFIRMED", "WAITLISTED"] },
+    event: { startDate: { gt: now } },
+    OR: [{ createdSource: null }, { createdSource: { not: "SPEAKER_COMPANION" } }],
+    badgePrintedAt: null,
+    dtcmBarcode: null,
+  };
+}
+
+/**
  * Copy the fields this edit CHANGED onto the person's upcoming registrations
  * (owner, Nov 9, 2026: My Details also updates upcoming registrations).
  *
  *  - Only registrations LINKED to the account (userId), never one matched by
  *    address alone, the same ownership the per-event self-edit requires.
- *  - Only upcoming: the event has not started, and the registration is not
- *    checked in or cancelled. A past registration keeps what its badge,
- *    certificate and invoice were made from.
+ *  - Only upcoming, by upcomingOwnRegistrationsWhere: the event has not
+ *    started, not checked in or cancelled, not a speaker's companion, no
+ *    badge printed, no DTCM code bought. A past registration keeps what its
+ *    badge, certificate and invoice were made from.
  *  - Only the changed fields (delta, as person-details-sync.ts): a save that
  *    leaves organisation alone never overwrites a registration that was
  *    deliberately made under another organisation.
  *  - Never a shared Attendee row (legacy rows back registrations at several
  *    events, writing one would rewrite another event's registration): skipped
  *    and logged.
- *  - Never a speaker record: a registrant's own edit does not reach a speaker
- *    profile (person-details-sync.ts, review H1/H2).
+ *  - Never a speaker record, nor a speaker's companion registration: a
+ *    registrant's own edit does not reach a speaker profile
+ *    (person-details-sync.ts, review H1/H2).
  *
  * Best-effort per registration: one failing logs and the rest continue.
  */
@@ -234,7 +300,7 @@ export async function copyToUpcomingRegistrations(
 ): Promise<{ updated: number; skipped: number; failed: number }> {
   if (changed.length === 0) return { updated: 0, skipped: 0, failed: 0 };
   const registrations = await db.registration.findMany({
-    where: { userId, status: { in: ["PENDING", "CONFIRMED", "WAITLISTED"] }, event: { startDate: { gt: now } } },
+    where: upcomingOwnRegistrationsWhere(userId, now),
     select: { id: true, attendeeId: true, eventId: true, attendee: { select: { _count: { select: { registrations: true } } } } },
   });
   const data: Prisma.AttendeeUpdateInput = Object.fromEntries(changed.map((k) => [k, details[k]]));

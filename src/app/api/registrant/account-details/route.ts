@@ -11,9 +11,11 @@ import { personalDetailsFields } from "@/lib/schemas";
 import {
   changedFields,
   copyToUpcomingRegistrations,
+  missingRequiredDetails,
   normalizeDetails,
   readAccountDetails,
   saveAccountProfile,
+  upcomingOwnRegistrationsWhere,
 } from "@/lib/registrant-details";
 
 /**
@@ -47,9 +49,7 @@ const putSchema = z
 
 /** How many upcoming registrations a save would update, for the page to say so. */
 async function upcomingCount(userId: string): Promise<number> {
-  return db.registration.count({
-    where: { userId, status: { in: ["PENDING", "CONFIRMED", "WAITLISTED"] }, event: { startDate: { gt: new Date() } } },
-  });
+  return db.registration.count({ where: upcomingOwnRegistrationsWhere(userId, new Date()) });
 }
 
 export async function GET(req: Request) {
@@ -112,8 +112,13 @@ export async function PUT(req: Request) {
       }
       // What the page showed: the delta is taken against it, so only what the
       // person actually changed reaches their registrations.
-      const before = await readAccountDetails(scope);
       const after = normalizeDetails(parsed.data);
+      const missing = missingRequiredDetails(after);
+      if (missing.length > 0) {
+        apiLogger.warn({ msg: "account-details:blank-required", userId: owner, fields: missing });
+        return NextResponse.json({ error: "Please check the highlighted fields.", fieldErrors: Object.fromEntries(missing.map((f) => [f, ["This field is required"]])) }, { status: 400 });
+      }
+      const before = await readAccountDetails(scope);
       const changed = changedFields(before.details, after);
 
       await saveAccountProfile(owner, after, parsed.data.marketingConsent, getClientIp(req));

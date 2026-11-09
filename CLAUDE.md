@@ -409,6 +409,10 @@ Clients (including AI agents) should parse `retryAfterSeconds` and back off. Do 
 | Public register preflight `check-email` (per IP) | 200 | 1 hr |
 | Public `zoom-join` (per IP) | 60 | 1 hr |
 | Mobile refresh (per IP) | 30 | 1 hr |
+| Account sign-up `/api/auth/signup` (per IP burst / per IP / per address) | 5 / 20 / 3 | 60 s / 1 hr / 1 hr |
+| Resend account confirmation (per IP) | 10 | 1 hr |
+| My Details save `/api/registrant/account-details` (per user) | 30 | 1 hr |
+| Take survey link `/api/registrant/registrations/[id]/survey-link` (per user) | 20 | 1 hr |
 | Login FAILURES per email (every login door; successes not counted) | 10 | 15 min |
 | Login FAILURES per IP (every login door; successes not counted) | 100 | 15 min |
 
@@ -622,7 +626,7 @@ every session before anyone typed a word. Durable rules belong in
 ## Current Mode
 
 **Single Organization Mode** (multi-org support planned for later):
-- User account registration is disabled (`/register` redirects to `/login`)
+- Staff accounts are made only by invitation. An attendee may create an account at `/signup` (Nov 9, 2026; `/register` redirects there): the public registration form's questions, an unticked marketing box, and email confirmation before it can sign in (`AccountProfile.signedUpAt` is the marker; `docs/ACCOUNT_SIGNUP_PLAN.md`)
 - Team members (Admin/Organizer) must be invited by an admin via Settings → Users
 - Reviewers are org-independent (`User.organizationId = null`) — invited per-event via the Reviewers page
 - Submitters are org-independent (`User.organizationId = null`) — self-register per event via `/e/[slug]/register`

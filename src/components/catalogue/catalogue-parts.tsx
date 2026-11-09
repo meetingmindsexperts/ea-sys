@@ -103,7 +103,7 @@ function CatalogueNav({ organization, signedIn }: { organization: SiteOrganizati
         ) : (
           <div className="flex items-center gap-2">
             <Link
-              href="/login?callbackUrl=%2Fmy-registration"
+              href="/login?callbackUrl=%2Fmy-account"
               className="rounded-full border border-white/35 px-4 py-2 text-white transition-colors hover:border-white hover:bg-white/10"
             >
               Sign in
@@ -548,7 +548,7 @@ export function CatalogueFooter({ organization, specialties }: { organization: S
           <ul className="grid gap-1.5">
             <li><Link href="/my-account" className="hover:text-white">My events</Link></li>
             <li><Link href="/my-account/certificates" className="hover:text-white">Certificates</Link></li>
-            <li><Link href="/login?callbackUrl=%2Fmy-registration" className="hover:text-white">Sign in</Link></li>
+            <li><Link href="/login?callbackUrl=%2Fmy-account" className="hover:text-white">Sign in</Link></li>
           </ul>
         </div>
         {contact.length > 0 && (

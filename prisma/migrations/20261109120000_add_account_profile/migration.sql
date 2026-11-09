@@ -20,11 +20,16 @@ CREATE TABLE IF NOT EXISTS "AccountProfile" (
     "marketingConsentIp" TEXT,
     "marketingConsentWording" TEXT,
     "marketingConsentWithdrawnAt" TIMESTAMP(3),
+    "signedUpAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "AccountProfile_pkey" PRIMARY KEY ("userId")
 );
+
+-- Added in review before the first deploy; the guard keeps a database that ran
+-- the first draft of this file in step.
+ALTER TABLE "AccountProfile" ADD COLUMN IF NOT EXISTS "signedUpAt" TIMESTAMP(3);
 
 DO $$
 BEGIN

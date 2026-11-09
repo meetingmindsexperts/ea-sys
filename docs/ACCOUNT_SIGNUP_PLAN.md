@@ -1,6 +1,16 @@
 # Catalogue branding and account sign-up with ID proof: the plan
 
-PLANNED, NOT BUILT (Nov 9, 2026). Owner request: "to catalogue page, we need
+**Sections 2 and 3 BUILT Nov 9, 2026** (`7ec521bb` sign-up restored, `db1be3ab`
+/my-account, My Details and the profile, then the review fixes): /signup asks the
+registration form's questions and the marketing box; an account made there
+carries `AccountProfile.signedUpAt` and confirms before signing in; consent
+ticked at sign-up counts only once the address is confirmed (double opt-in); a
+password reset taking over an unconfirmed sign-up clears its details and
+consent; My Details copies changed fields onto upcoming, linked registrations,
+never a speaker's companion, a printed badge or a bought DTCM code. Section 1
+(catalogue branding) and section 4 (ID proof, waiting on D4/D5) are NOT built.
+The Mailchimp mirror waits for the `marketing_consent` column in
+contacts_centralv1. Original status: PLANNED (Nov 9, 2026). Owner request: "to catalogue page, we need
 to give its own logo and branding, as well as we will proceed with Account
 Sign up which should ask the same mandatory questions as public reg form plus,
 upload a valid id proof as required (we need one way or other to verify this

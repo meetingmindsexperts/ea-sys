@@ -50,8 +50,12 @@ export async function POST(req: Request) {
       return NextResponse.json(ACCEPTED);
     }
 
-    const sent = await sendEmailVerification({ email, name: `${user.firstName} ${user.lastName}`.trim(), purpose: "account" });
-    apiLogger.info({ msg: "auth/resend-confirmation:sent", userId: user.id, confirmation: sent });
+    // Not awaited (portal review, Nov 9, 2026): waiting for SES only on this
+    // path made the response slower exactly when the address has a pending
+    // sign-up. The outcome is still logged.
+    void sendEmailVerification({ email, name: `${user.firstName} ${user.lastName}`.trim(), purpose: "account" })
+      .then((sent) => apiLogger.info({ msg: "auth/resend-confirmation:sent", userId: user.id, confirmation: sent }))
+      .catch((err) => apiLogger.error({ err, msg: "auth/resend-confirmation:send-failed", userId: user.id }));
     return NextResponse.json(ACCEPTED);
   } catch (err) {
     apiLogger.error({ err, msg: "auth/resend-confirmation:error" });

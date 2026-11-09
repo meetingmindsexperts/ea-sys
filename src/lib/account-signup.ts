@@ -16,16 +16,17 @@ export const UNCONFIRMED_ACCOUNT_RETENTION_DAYS = 30;
 
 /**
  * Whether a correct password should still be refused until the address is
- * confirmed: a registrant account that has never proven its address and has
- * nothing of its own yet (no registration, no speaker record). That is an
- * account made at /signup, or one whose registrations were all removed.
- * Everything else signs in as before: an account made on a registration form
- * owns that registration, and staff, reviewers and submitters are untouched.
+ * confirmed: a registrant account MADE AT /signup (AccountProfile.signedUpAt)
+ * that has never proven its address. Owner ruling: signing up for an account
+ * needs email confirmation; registering for an event does not.
  *
- * Reads registrations without a tenant lane (sign-in has none yet). On master
- * that is the plain read; on the platform instance, where Registration is
- * policied, an unlaned read finds nothing and the account is asked to confirm,
- * which fails toward the extra step, never toward access.
+ * A positive marker, never "owns nothing" (portal review, Nov 9, 2026): a
+ * group coordinator who is not attending owns no registration and no speaker
+ * record, never received a confirmation link, and was locked out and then
+ * pruned by the earlier inference. And AccountProfile has no RLS policy, so
+ * the answer is the same on the platform, where an unlaned Registration read
+ * finds nothing. Accounts made by registration forms, invitations and staff
+ * have no signedUpAt and sign in as before.
  */
 export async function signInNeedsConfirmation(user: {
   id: string;
@@ -33,9 +34,6 @@ export async function signInNeedsConfirmation(user: {
   emailConfirmedAt: Date | null;
 }): Promise<boolean> {
   if (user.role !== "REGISTRANT" || user.emailConfirmedAt) return false;
-  const [registration, speaker] = await Promise.all([
-    db.registration.findFirst({ where: { userId: user.id }, select: { id: true } }),
-    db.speaker.findFirst({ where: { userId: user.id }, select: { id: true } }),
-  ]);
-  return !registration && !speaker;
+  const profile = await db.accountProfile.findUnique({ where: { userId: user.id }, select: { signedUpAt: true } });
+  return !!profile?.signedUpAt;
 }

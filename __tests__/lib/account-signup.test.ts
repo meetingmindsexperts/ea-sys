@@ -10,12 +10,12 @@ import { Prisma } from "@prisma/client";
 
 const { mockDb } = vi.hoisted(() => ({
   mockDb: {
-    registration: { findFirst: vi.fn() },
-    speaker: { findFirst: vi.fn() },
+    accountProfile: { findUnique: vi.fn() },
     user: { findMany: vi.fn(), delete: vi.fn() },
   },
 }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// The prune runs on the RLS-exempt lane (portal review): the same mock serves both names.
+vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { signInNeedsConfirmation } from "@/lib/account-signup";
@@ -27,26 +27,27 @@ const codeOnly = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDb.registration.findFirst.mockResolvedValue(null);
-  mockDb.speaker.findFirst.mockResolvedValue(null);
+  // An account made at /signup carries the marker.
+  mockDb.accountProfile.findUnique.mockResolvedValue({ signedUpAt: new Date("2026-11-09T10:00:00Z") });
 });
 
 describe("signInNeedsConfirmation", () => {
   const signup = { id: "u1", role: "REGISTRANT" as const, emailConfirmedAt: null };
 
-  it("refuses an unconfirmed registrant with nothing of its own: an account made at /signup", async () => {
+  it("refuses an unconfirmed account made at /signup (AccountProfile.signedUpAt)", async () => {
     expect(await signInNeedsConfirmation(signup)).toBe(true);
   });
 
-  it("lets in an account made on a registration form: registering needs no confirmation (owner)", async () => {
-    mockDb.registration.findFirst.mockResolvedValue({ id: "r1" });
+  it("lets in an account made anywhere else, whatever it owns: a registration form, an invitation, a group coordinator who is not attending", async () => {
+    // No signedUpAt. The earlier "owns nothing" inference locked out a
+    // non-attending coordinator, who owns no registration (portal review).
+    mockDb.accountProfile.findUnique.mockResolvedValue(null);
+    expect(await signInNeedsConfirmation(signup)).toBe(false);
+    mockDb.accountProfile.findUnique.mockResolvedValue({ signedUpAt: null });
     expect(await signInNeedsConfirmation(signup)).toBe(false);
   });
 
-  it("lets in a registrant with a speaker record, and any confirmed account", async () => {
-    mockDb.speaker.findFirst.mockResolvedValue({ id: "s1" });
-    expect(await signInNeedsConfirmation(signup)).toBe(false);
-    mockDb.speaker.findFirst.mockResolvedValue(null);
+  it("lets in a confirmed /signup account", async () => {
     expect(await signInNeedsConfirmation({ ...signup, emailConfirmedAt: new Date() })).toBe(false);
   });
 
@@ -54,7 +55,7 @@ describe("signInNeedsConfirmation", () => {
     for (const role of ["ADMIN", "ORGANIZER", "MEMBER", "REVIEWER", "SUBMITTER"] as const) {
       expect(await signInNeedsConfirmation({ ...signup, role })).toBe(false);
     }
-    expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
+    expect(mockDb.accountProfile.findUnique).not.toHaveBeenCalled();
   });
 });
 
@@ -76,17 +77,19 @@ describe("every password door asks, after the password", () => {
 describe("unconfirmed-account-prune", () => {
   const now = new Date("2027-01-10T04:35:00Z");
 
-  it("considers only never-confirmed, org-less registrants made since sign-up shipped, 30+ days old, holding nothing", async () => {
+  it("considers only /signup accounts, never confirmed, org-less, 30+ days old, holding nothing (a coordinated group counts)", async () => {
     mockDb.user.findMany.mockResolvedValue([]);
     await runUnconfirmedAccountPruneTick(now);
     const where = mockDb.user.findMany.mock.calls[0][0].where;
     expect(where).toEqual({
+      accountProfile: { signedUpAt: { not: null } },
       role: "REGISTRANT",
       organizationId: null,
       emailConfirmedAt: null,
       createdAt: { gte: SIGNUP_LAUNCHED_AT, lt: new Date("2026-12-11T04:35:00Z") },
       registrations: { none: {} },
       speakers: { none: {} },
+      coordinatedGroups: { none: {} },
       loginEvents: { none: { outcome: "SUCCESS" } },
     });
     // Accounts from before sign-up existed are never candidates.
@@ -105,5 +108,14 @@ describe("unconfirmed-account-prune", () => {
     mockDb.user.findMany.mockResolvedValue([{ id: "a" }]);
     mockDb.user.delete.mockRejectedValue(new Error("connection lost"));
     await expect(runUnconfirmedAccountPruneTick(now)).rejects.toThrow("connection lost");
+  });
+});
+
+describe("the prune sees every tenant", () => {
+  it("runs on dbOperator: on the platform an ordinary read of Registration finds nothing, so 'owns nothing' would be true of everyone", () => {
+    const src = codeOnly(readSource("src/lib/unconfirmed-account-prune-worker.ts"));
+    expect(src).toContain("dbOperator.user.findMany(");
+    expect(src).toContain("dbOperator.user.delete(");
+    expect(src).not.toMatch(/\bdb\.user\./);
   });
 });

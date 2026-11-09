@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { UNCONFIRMED_ACCOUNT_RETENTION_DAYS } from "@/lib/account-signup";
 
@@ -11,10 +11,16 @@ import { UNCONFIRMED_ACCOUNT_RETENTION_DAYS } from "@/lib/account-signup";
  * a name, an address and a password hash, so keeping it only keeps personal
  * data nobody can use.
  *
- * NARROW ON PURPOSE. A candidate is a registrant, without an organisation,
- * never confirmed, created at least 30 days ago AND on or after the day
- * sign-up shipped, with no registration, no speaker record and no successful
- * sign-in. Accounts that existed before sign-up are never considered: they
+ * NARROW ON PURPOSE. A candidate is an account MADE AT /signup
+ * (AccountProfile.signedUpAt, the positive marker: portal review, Nov 9, 2026),
+ * a registrant without an organisation, never confirmed, created at least 30
+ * days ago, owning nothing (no registration, no speaker record, no group it
+ * coordinates) and never signed in.
+ *
+ * On dbOperator, the RLS-exempt maintenance lane: this is a cross-tenant
+ * sweep with no lane, and on the platform an ordinary read of the policied
+ * Registration and Speaker tables finds nothing, so "owns nothing" would be
+ * true of everyone and accounts holding registrations would be deleted. Accounts that existed before sign-up are never considered: they
  * were made by registration forms and invitations, and deleting people is not
  * something to start doing to them as a side effect.
  *
@@ -31,14 +37,16 @@ const MAX_PER_TICK = 200;
 
 export async function runUnconfirmedAccountPruneTick(now: Date = new Date()): Promise<{ deleted: number; skipped: number }> {
   const cutoff = new Date(now.getTime() - UNCONFIRMED_ACCOUNT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  const candidates = await db.user.findMany({
+  const candidates = await dbOperator.user.findMany({
     where: {
+      accountProfile: { signedUpAt: { not: null } },
       role: "REGISTRANT",
       organizationId: null,
       emailConfirmedAt: null,
       createdAt: { gte: SIGNUP_LAUNCHED_AT, lt: cutoff },
       registrations: { none: {} },
       speakers: { none: {} },
+      coordinatedGroups: { none: {} },
       loginEvents: { none: { outcome: "SUCCESS" } },
     },
     select: { id: true },
@@ -50,7 +58,7 @@ export async function runUnconfirmedAccountPruneTick(now: Date = new Date()): Pr
   let skipped = 0;
   for (const { id } of candidates) {
     try {
-      await db.user.delete({ where: { id } });
+      await dbOperator.user.delete({ where: { id } });
       deleted += 1;
     } catch (err) {
       // Something still points at the account: keep it, say so, move on.

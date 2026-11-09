@@ -100,8 +100,11 @@ export async function POST(req: Request) {
     if (refusal) return refusal;
 
     // Resolve the org to attach — only for a verified-internal email that isn't
-    // already org-bound. Prefer the most-recent registration's event org; fall
-    // back to the single organization (single-org mode).
+    // already org-bound. Prefer the most-recent registration's event org, then
+    // the host's organisation, then the ONLY organisation on a single-org
+    // deployment. Never an arbitrary first one (portal review, Nov 9, 2026): a
+    // /signup account has no registration, and on the platform "the first
+    // organisation" is some other tenant.
     let orgIdToAttach = user.organizationId ?? null;
     if (needsEmailVerification(email) && !orgIdToAttach) {
       const reg = await db.registration.findFirst({
@@ -109,10 +112,7 @@ export async function POST(req: Request) {
         orderBy: { createdAt: "desc" },
         select: { event: { select: { organizationId: true } } },
       });
-      orgIdToAttach =
-        reg?.event.organizationId ??
-        (await db.organization.findFirst({ select: { id: true } }))?.id ??
-        null;
+      orgIdToAttach = reg?.event.organizationId ?? (await resolveRequestOrgId(req)) ?? (await soleOrganizationId());
     }
 
     await db.$transaction(async (tx) => {
@@ -247,4 +247,10 @@ async function accountProof(
     );
   }
   return null;
+}
+
+/** The organisation's id when the deployment has exactly one, else null. */
+async function soleOrganizationId(): Promise<string | null> {
+  const orgs = await db.organization.findMany({ select: { id: true }, take: 2 });
+  return orgs.length === 1 ? orgs[0].id : null;
 }

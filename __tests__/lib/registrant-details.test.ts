@@ -25,6 +25,8 @@ vi.mock("@/lib/contact-sync", () => ({ syncToContact: mockSync }));
 
 import {
   changedFields,
+  marketingConsentInForce,
+  missingRequiredDetails,
   copyToUpcomingRegistrations,
   normalizeDetails,
   readAccountDetails,
@@ -63,6 +65,11 @@ describe("copyToUpcomingRegistrations", () => {
       userId: "u1",
       status: { in: ["PENDING", "CONFIRMED", "WAITLISTED"] },
       event: { startDate: { gt: NOW } },
+      // Never a speaker's companion (the Faculty badge follows the Speaker
+      // record), nor one whose badge is printed or DTCM code bought.
+      OR: [{ createdSource: null }, { createdSource: { not: "SPEAKER_COMPANION" } }],
+      badgePrintedAt: null,
+      dtcmBarcode: null,
     });
   });
 
@@ -146,5 +153,24 @@ describe("readAccountDetails", () => {
     mockDb.registration.findFirst.mockResolvedValue(null);
     mockDb.accountProfile.findUnique.mockResolvedValue({ marketingConsentAt: new Date(), marketingConsentWithdrawnAt: new Date(), organization: null });
     expect((await readAccountDetails(scope)).marketing.consented).toBe(false);
+  });
+});
+
+describe("marketingConsentInForce (double opt-in for sign-up consent)", () => {
+  const given = new Date("2026-11-09");
+  it("consent ticked at /signup counts only once the address is confirmed", () => {
+    expect(marketingConsentInForce({ marketingConsentAt: given, marketingConsentWithdrawnAt: null, signedUpAt: given }, null)).toBe(false);
+    expect(marketingConsentInForce({ marketingConsentAt: given, marketingConsentWithdrawnAt: null, signedUpAt: given }, new Date())).toBe(true);
+  });
+  it("consent given on My Details by the signed-in holder counts; a withdrawal always wins", () => {
+    expect(marketingConsentInForce({ marketingConsentAt: given, marketingConsentWithdrawnAt: null, signedUpAt: null }, null)).toBe(true);
+    expect(marketingConsentInForce({ marketingConsentAt: given, marketingConsentWithdrawnAt: new Date(), signedUpAt: null }, new Date())).toBe(false);
+  });
+});
+
+describe("missingRequiredDetails", () => {
+  it("a whitespace-only answer is missing once trimmed (it passes min(1))", () => {
+    expect(missingRequiredDetails(normalizeDetails({ ...BASE, firstName: "   ", organization: " " }))).toEqual(["firstName", "organization"]);
+    expect(missingRequiredDetails(normalizeDetails(BASE))).toEqual([]);
   });
 });

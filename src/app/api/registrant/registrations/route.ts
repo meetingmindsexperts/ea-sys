@@ -155,6 +155,7 @@ export async function PUT(req: Request) {
     });
 
     if (!registration) {
+      apiLogger.warn({ msg: "registrant-self-edit:registration-not-found", userId: session.user.id, registrationId });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 

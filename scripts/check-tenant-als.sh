@@ -439,6 +439,7 @@ SWEPT_MODULES=(
 # is swept, its prune job joins this list.
 OPERATOR_LANE_ALLOWLIST=(
   "src/lib/email-log-prune-worker.ts"        # privileged end to end (null-org pool's only reaper)
+  "src/lib/unconfirmed-account-prune-worker.ts" # cross-tenant sweep; "owns no registration" must see every tenant (Nov 9, 2026)
   "src/lib/scheduled-emails-worker.ts"       # due-row scan + stuck sweep
   "src/lib/invoice-reconciliation-worker.ts" # PAID-without-invoice candidate sweep
   "src/lib/webinar-recordings-worker.ts"     # ZoomMeeting candidate scan

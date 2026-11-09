@@ -10,7 +10,7 @@ import { sendEmailVerification } from "@/lib/email-verification";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { SIGNUP_PASSWORD_MAX, SIGNUP_PASSWORD_MIN, signInNeedsConfirmation } from "@/lib/account-signup";
 import { personalDetailsFields } from "@/lib/schemas";
-import { newAccountProfileData, normalizeDetails } from "@/lib/registrant-details";
+import { missingRequiredDetails, newAccountProfileData, normalizeDetails } from "@/lib/registrant-details";
 
 /**
  * Create an account without registering for an event (Nov 5, 2026; phase 2 of
@@ -85,6 +85,11 @@ export async function POST(req: Request) {
     const { password, website } = parsed.data;
     const details = normalizeDetails(parsed.data);
     const { firstName, lastName } = details;
+    const blank = missingRequiredDetails(details);
+    if (blank.length > 0) {
+      apiLogger.warn({ msg: "auth/signup:blank-required", fields: blank, ip });
+      return NextResponse.json({ error: "Please check the form and try again." }, { status: 400 });
+    }
     const email = parsed.data.email.toLowerCase();
 
     if (website) {
@@ -128,7 +133,7 @@ export async function POST(req: Request) {
           specialty: details.specialty,
           // The account's own details, made in the same write so an account
           // never exists without them (registrant-details.ts).
-          accountProfile: { create: newAccountProfileData(details, parsed.data.marketingConsent === true, ip) },
+          accountProfile: { create: { ...newAccountProfileData(details, parsed.data.marketingConsent === true, ip), signedUpAt: new Date() } },
         },
         select: { id: true },
       });

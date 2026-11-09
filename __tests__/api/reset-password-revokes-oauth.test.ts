@@ -12,6 +12,7 @@ const { mockDb, mockTx } = vi.hoisted(() => {
     verificationToken: { delete: vi.fn() },
     auditLog: { create: vi.fn() },
     mcpOAuthAccessToken: { updateMany: vi.fn() },
+    accountProfile: { updateMany: vi.fn(async () => ({ count: 0 })) },
   };
   return {
     mockTx,
@@ -52,6 +53,7 @@ beforeEach(() => {
   mockTx.verificationToken.delete.mockResolvedValue({});
   mockTx.auditLog.create.mockResolvedValue({});
   mockTx.mcpOAuthAccessToken.updateMany.mockResolvedValue({ count: 1 });
+  mockTx.accountProfile.updateMany.mockResolvedValue({ count: 0 });
 });
 
 describe("reset-password and claude.ai connections", () => {
@@ -68,5 +70,15 @@ describe("reset-password and claude.ai connections", () => {
     mockDb.verificationToken.findFirst.mockResolvedValue(null);
     expect((await POST(req())).status).toBe(400);
     expect(mockTx.mcpOAuthAccessToken.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("reset-password and an unconfirmed /signup account", () => {
+  it("clears what the account's maker typed (details, consent), inside the reset transaction", async () => {
+    expect((await POST(req())).status).toBe(200);
+    expect(mockTx.accountProfile.updateMany).toHaveBeenCalledWith({
+      where: { userId: expect.any(String), signedUpAt: { not: null }, user: { emailConfirmedAt: null } },
+      data: expect.objectContaining({ organization: null, phone: null, marketingConsentAt: null, marketingConsentIp: null }),
+    });
   });
 });
