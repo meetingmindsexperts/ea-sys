@@ -13,6 +13,7 @@ import {
   type JourneyStep,
   type SurveyLine,
 } from "@/lib/registrant-journey";
+import { EventBanner } from "@/components/public/event-banner";
 import { CertificateList } from "@/components/registrant/certificate-list";
 import { CmeTotalsCard } from "@/components/registrant/cme-totals-card";
 import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
@@ -20,6 +21,7 @@ import { JourneySteps, SurveyList } from "@/components/registrant/journey-steps"
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader, SectionHeading } from "@/components/ui/typography";
+import { cn } from "@/lib/utils";
 
 /**
  * Every event a person is registered for, each as a journey: registered,
@@ -50,6 +52,8 @@ const EVENT_FIELDS = {
   country: true,
   eventType: true,
   surveyConfig: true,
+  bannerImage: true,
+  bannerImageMobile: true,
 } as const;
 
 async function loadEvents(scope: RegistrantScope) {
@@ -79,6 +83,9 @@ interface EventSummary {
   startDate: Date;
   endDate: Date;
   timezone: string;
+  /** Absent for an event known only from a certificate. */
+  bannerImage?: string | null;
+  bannerImageMobile?: string | null;
 }
 
 interface RegistrationJourney {
@@ -222,8 +229,17 @@ export default async function MyRegistrationPage() {
 
 function EventCard({ card }: { card: EventCardData }) {
   const { event, where, journeys, certificates } = card;
+  const hasBanner = Boolean(event.bannerImage || event.bannerImageMobile);
   return (
-    <Card className="gap-4">
+    <Card className={cn("gap-4", hasBanner && "overflow-hidden pt-0")}>
+      {/* The event's own branding, so it is recognised before it is read: the
+          mobile banner on a phone, the web banner wider up, whichever exists
+          when only one does (EventBanner, as on the event's own pages). */}
+      {hasBanner && (
+        <div className="border-b bg-white">
+          <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block h-auto w-full" />
+        </div>
+      )}
       <CardHeader className="space-y-2">
         <CardTitle className="leading-snug">{event.name}</CardTitle>
         <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:gap-x-4">
