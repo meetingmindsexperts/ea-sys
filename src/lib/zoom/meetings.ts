@@ -15,14 +15,22 @@ import type {
 } from "./types";
 
 /**
- * start_time as the wall clock in `timezone`, so Zoom shows the meeting in the
- * event's zone. Callers pass a UTC ISO string; a `...Z` value makes Zoom show
- * GMT whatever `timezone` says (Nov 9, 2026: 11:30 Dubai shown as 7:30). With
- * no timezone, or one Intl does not know, the UTC string goes as before.
+ * start_time as the wall clock in `timezone`, the form Zoom documents for a time
+ * in a named zone. Callers pass toISOString(), and Zoom read that `...00.000Z`
+ * form as local time in `timezone`: prod holds webinars exactly 4 hours early
+ * (09:00 UTC stored by Zoom as 05:00 UTC, on Asia/Dubai). The milliseconds are
+ * the suspected trigger, so the UTC fallback goes in whole seconds, the documented
+ * GMT form. The fallback covers no timezone, or one Intl does not know.
  */
 function zoomStartTime(startTime: string, timezone?: string): string {
-  if (!timezone || knownTimezone(timezone) !== timezone) return startTime;
-  return localWallTimeInTz(new Date(startTime), timezone);
+  const date = new Date(startTime);
+  const utc = date.toISOString().replace(/\.\d{3}Z$/, "Z");
+  if (!timezone) return utc;
+  if (knownTimezone(timezone) !== timezone) {
+    apiLogger.warn({ timezone }, "zoom:start-time-unknown-timezone");
+    return utc;
+  }
+  return localWallTimeInTz(date, timezone);
 }
 
 // ── Meetings ───────────────────────────────────────────────────────

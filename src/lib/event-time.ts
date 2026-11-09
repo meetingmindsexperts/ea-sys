@@ -54,8 +54,8 @@ export function localDateInTz(date: Date, timeZone: string): string {
 
 /**
  * The wall-clock time of `date` in `timeZone` as `YYYY-MM-DDTHH:mm:ss`, with no
- * offset. Zoom reads this form as local time in the `timezone` it is sent with;
- * a `...Z` start_time is read as GMT and the meeting is then shown in GMT.
+ * offset: Zoom's documented form for a start_time in the `timezone` sent with it.
+ * In a daylight-saving overlap two instants format the same; accepted.
  */
 export function localWallTimeInTz(date: Date, timeZone: string): string {
   const p = tzParts(date, timeZone);
