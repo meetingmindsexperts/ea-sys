@@ -95,6 +95,9 @@ export const queryKeys = {
   registrationViews: (eventId: string) => ["events", eventId, "registration-shares"] as const,
   submitterContext: (eventId: string) => ["events", eventId, "submitter-context"] as const,
   reviewCriteria: (eventId: string) => ["events", eventId, "review-criteria"] as const,
+  myReviews: ["my-reviews"] as const,
+  myReviewSummary: ["my-reviews", "summary"] as const,
+  myReview: (eventId: string, abstractId: string) => ["my-reviews", eventId, abstractId] as const,
   eventMedia: (eventId: string) => ["events", eventId, "media"] as const,
   hotels: (eventId: string) => ["events", eventId, "hotels"] as const,
   accommodations: (eventId: string) => ["events", eventId, "accommodations"] as const,
@@ -316,6 +319,91 @@ export function useSubmitterContext(eventId: string) {
       ),
     enabled: !!eventId,
     staleTime: 60 * 1000,
+  });
+}
+
+/** Whether this person has review work (a reviewer pool or an assignment): the sidebar's My Reviews link. */
+export function useHasReviewWork(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.myReviewSummary,
+    queryFn: () => fetchApi<{ hasReviewWork: boolean }>("/api/my-reviews?summary=1"),
+    enabled,
+    select: (d) => d.hasReviewWork,
+  });
+}
+
+export interface MyReviewCriterion {
+  id: string;
+  name: string;
+  weight: number;
+}
+
+export type RecommendedFormat = "ORAL" | "POSTER" | "NEITHER";
+
+interface MyReviewBase {
+  event: { id: string; name: string; startDate: string; endDate: string };
+}
+
+export type MyReview =
+  | (MyReviewBase & {
+      conflict: true;
+      abstract: { id: string; serialId: number | null; title: string };
+    })
+  | (MyReviewBase & {
+      conflict: false;
+      abstract: {
+        id: string;
+        serialId: number | null;
+        title: string;
+        content: string;
+        status: string;
+        specialty: string | null;
+        presentationType: string | null;
+        submittedAt: string;
+        track: { name: string } | null;
+        theme: { name: string } | null;
+        subTheme: { name: string } | null;
+        author: { firstName: string; lastName: string; jobTitle: string | null; organization: string | null; country: string | null };
+        coAuthors: { firstName: string; lastName: string; jobTitle?: string; organization?: string; country?: string }[];
+      };
+      assignmentRole: string | null;
+      canSubmit: boolean;
+      criteria: MyReviewCriterion[];
+      submission: {
+        overallScore: number | null;
+        criteriaScores: Record<string, number> | null;
+        reviewNotes: string | null;
+        recommendedFormat: RecommendedFormat | null;
+        updatedAt: string;
+        stale: boolean;
+      } | null;
+    });
+
+/** One abstract for the person reviewing it. */
+export function useMyReview(eventId: string, abstractId: string) {
+  return useQuery({
+    queryKey: queryKeys.myReview(eventId, abstractId),
+    queryFn: () => fetchApi<MyReview>(`/api/my-reviews/${eventId}/${abstractId}`),
+    retry: false,
+  });
+}
+
+export function useSubmitMyReview(eventId: string, abstractId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      overallScore?: number;
+      criteriaScores?: { criterionId: string; score: number }[];
+      reviewNotes: string;
+      recommendedFormat?: RecommendedFormat;
+    }) =>
+      fetchApi(`/api/events/${eventId}/abstracts/${abstractId}/submissions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    // The key is a prefix of the summary and of this abstract's own entry.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.myReviews }),
   });
 }
 

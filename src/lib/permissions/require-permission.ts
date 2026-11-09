@@ -79,6 +79,8 @@ export function principalFromCaller(
  */
 const LINKED_EVENT_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT"] as const;
 export type LinkedRole = (typeof LINKED_EVENT_ROLES)[number];
+export const isLinkedRole = (role: string | null | undefined): boolean =>
+  (LINKED_EVENT_ROLES as readonly (string | null | undefined)[]).includes(role);
 
 export type PermissionGate =
   | {

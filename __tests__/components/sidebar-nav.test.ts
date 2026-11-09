@@ -104,6 +104,31 @@ describe("the CRM entry follows the organisation's entitlement", () => {
   });
 });
 
+describe("the My Reviews entry follows the review work, not the role", () => {
+  const entries = (role: string, hasReviewWork?: boolean) =>
+    computeSidebarNav({
+      user: { id: "u1", organizationId: role === "SUBMITTER" || role === "REGISTRANT" ? null : "org-1", role },
+      hrEnabled: false,
+      procurementEnabled: false,
+      crmEnabled: false,
+      isEventPage: false,
+      currentEvent: undefined,
+      submitterCtx: undefined,
+      hasReviewWork,
+    }).baseNavigation.filter((i) => i.name === "My Reviews").length;
+
+  it.each(["SUBMITTER", "REGISTRANT", "ORGANIZER"])("a %s has it only with review work", (role) => {
+    expect(entries(role, true)).toBe(1);
+    expect(entries(role, false)).toBe(0);
+    expect(entries(role)).toBe(0);
+  });
+
+  it("a REVIEWER always has it, once", () => {
+    expect(entries("REVIEWER")).toBe(1);
+    expect(entries("REVIEWER", true)).toBe(1);
+  });
+});
+
 describe("activeNavHref", () => {
   const items = [{ href: "/events" }, { href: "/my-account" }, { href: "/my-account/certificates" }, { href: "/user-guide.html", external: true }];
 

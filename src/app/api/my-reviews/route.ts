@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { REVIEWABLE_ABSTRACT_STATUSES, excludeOwnAbstracts, type ReviewerIdentity } from "@/lib/abstract-reviewer-access";
 
 /**
  * Reviewer portal feed.
@@ -12,6 +13,11 @@ import { apiLogger } from "@/lib/logger";
  *      the user's id (global event-level reviewer).
  *   2) Abstracts with an explicit `AbstractReviewer` row for this user
  *      (per-abstract assignment — workload distribution / COI flag).
+ *
+ * Open to any signed-in account: the two entry points are the whole rule, and
+ * the role is not part of it (src/lib/abstract-reviewer-access.ts). A person's
+ * own abstracts never appear. `?summary=1` answers only whether they have any
+ * of this, which is what decides the sidebar's My Reviews link.
  *
  * For each abstract, reports the user's own submission status so the portal
  * can render PENDING / SUBMITTED / NEEDS_UPDATE badges without a second call.
@@ -32,7 +38,26 @@ function submissionStatusOf(sub: { updatedAt: Date } | null | undefined, abstrac
   return sub.updatedAt.getTime() < abstractSubmittedAt.getTime() ? "NEEDS_UPDATE" : "SUBMITTED";
 }
 
-export async function GET() {
+/** Whether the feed would list anything for this person, for the sidebar. Stops at the first of each. */
+async function hasReviewWork(user: ReviewerIdentity): Promise<boolean> {
+  const reviewable = { ...excludeOwnAbstracts(user), status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] } };
+  const [fromPool, assignment] = await Promise.all([
+    db.abstract.findFirst({
+      where: {
+        ...reviewable,
+        event: { status: { not: "CANCELLED" }, settings: { path: ["reviewerUserIds"], array_contains: user.id } },
+      },
+      select: { id: true },
+    }),
+    db.abstractReviewer.findFirst({
+      where: { userId: user.id, abstract: { ...reviewable, event: { status: { not: "CANCELLED" } } } },
+      select: { id: true },
+    }),
+  ]);
+  return !!fromPool || !!assignment;
+}
+
+export async function GET(req: Request) {
   try {
     const session = await auth();
     if (!session?.user) {
@@ -40,6 +65,11 @@ export async function GET() {
     }
 
     const userId = session.user.id;
+    const identity = { id: userId, email: session.user.email };
+    if (new URL(req.url).searchParams.get("summary") === "1") {
+      return NextResponse.json({ hasReviewWork: await hasReviewWork(identity) });
+    }
+    const notOwn = excludeOwnAbstracts(identity);
 
     // Pull both sources in parallel:
     //   1. Abstracts in events where the user is in settings.reviewerUserIds
@@ -53,10 +83,10 @@ export async function GET() {
     // WITHDRAWN abstract is dead — neither should surface to reviewers as
     // PENDING work (both list routes already filter drafts via
     // abstractListStatusFilter; the portal feed forgot to).
-    const REVIEWABLE_ABSTRACT_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"] as const;
     const [abstractsFromPool, explicitAssignments] = await Promise.all([
       db.abstract.findMany({
         where: {
+          ...notOwn,
           status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] },
           event: {
             status: { not: "CANCELLED" },
@@ -74,7 +104,10 @@ export async function GET() {
         },
       }),
       db.abstractReviewer.findMany({
-        where: { userId, abstract: { status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] } } },
+        where: {
+          userId,
+          abstract: { ...notOwn, status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] }, event: { status: { not: "CANCELLED" } } },
+        },
         select: {
           abstractId: true,
           role: true,
@@ -160,10 +193,12 @@ export async function GET() {
       };
     });
 
-    // Sort by event start date desc, then pending first within each event.
+    // Sort by event start date desc, then within each event what was assigned
+    // to this person before the rest of the pool, pending first in each.
     rows.sort((a, b) => {
       const eventCmp = b.event.startDate.getTime() - a.event.startDate.getTime();
       if (eventCmp !== 0) return eventCmp;
+      if (a.source !== b.source) return a.source === "assigned" ? -1 : 1;
       const order: Record<string, number> = { PENDING: 0, NEEDS_UPDATE: 1, SUBMITTED: 2 };
       return (order[a.submissionStatus] ?? 3) - (order[b.submissionStatus] ?? 3);
     });

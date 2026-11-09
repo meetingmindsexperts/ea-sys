@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { computeWeightedOverallScore } from "@/lib/abstract-score";
 
 export interface CriteriaScoreItem {
   criterionId: string;
@@ -54,28 +55,21 @@ export function CriteriaScoreEditor({
     );
   }
 
-  function getScore(criterionId: string): number {
-    return value?.find((s) => s.criterionId === criterionId)?.score ?? 0;
+  function getScore(criterionId: string): number | "" {
+    return value?.find((s) => s.criterionId === criterionId)?.score ?? "";
   }
 
+  // Each criterion is a whole number 0-10, as the server requires. Blank means
+  // not scored yet, which is different from a score of 0.
   function handleChange(criterion: ReviewCriterion, rawScore: string) {
-    const score = rawScore === "" ? 0 : Math.min(100, Math.max(0, Number(rawScore)));
-    const existing = value ?? [];
-    const updated = existing.some((s) => s.criterionId === criterion.id)
-      ? existing.map((s) =>
-          s.criterionId === criterion.id ? { ...s, score } : s
-        )
-      : [
-          ...existing,
-          { criterionId: criterion.id, name: criterion.name, weight: criterion.weight, score },
-        ];
-    onChange(updated);
+    const others = (value ?? []).filter((s) => s.criterionId !== criterion.id);
+    if (rawScore === "") return onChange(others);
+    const score = Math.min(10, Math.max(0, Math.round(Number(rawScore))));
+    if (!Number.isFinite(score)) return onChange(others);
+    onChange([...others, { criterionId: criterion.id, name: criterion.name, weight: criterion.weight, score }]);
   }
 
-  const computedScore =
-    value && value.length > 0
-      ? Math.round(value.reduce((sum, c) => sum + (c.score * c.weight) / 100, 0))
-      : null;
+  const computedScore = value && value.length > 0 ? computeWeightedOverallScore(value) : null;
 
   return (
     <div className="space-y-3">
@@ -91,10 +85,10 @@ export function CriteriaScoreEditor({
             <Input
               type="number"
               min={0}
-              max={100}
-              value={getScore(c.id) || ""}
+              max={10}
+              value={getScore(c.id)}
               onChange={(e) => handleChange(c, e.target.value)}
-              placeholder="0–100"
+              placeholder="0–10"
               className="h-8 text-sm"
             />
           </div>

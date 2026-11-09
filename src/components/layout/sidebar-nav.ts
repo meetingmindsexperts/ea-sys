@@ -245,6 +245,11 @@ export interface SidebarNavInput {
   currentEvent: { eventType?: string | null } | null | undefined;
   /** The SUBMITTER's surface context, `undefined` while loading. */
   submitterCtx: Parameters<typeof submitterSeesAbstracts>[0] | null | undefined;
+  /**
+   * On a reviewer pool or assigned an abstract. Review work follows that, not
+   * the role, so any account can hold it; a REVIEWER always has the link.
+   */
+  hasReviewWork?: boolean;
 }
 
 export interface SidebarNav {
@@ -257,6 +262,7 @@ export interface SidebarNav {
  * /my-account, which every role may open, so listing them needs no
  * confinement change.
  */
+const MY_REVIEWS: NavItem = { name: "My Reviews", href: "/my-reviews", icon: ClipboardCheck, areas: [] };
 const MY_EVENTS: NavItem = { name: "My events", href: "/my-account", icon: Ticket, areas: [] };
 const MY_CERTIFICATES: NavItem = { name: "My certificates", href: "/my-account/certificates", icon: Award, areas: [] };
 const MY_DETAILS: NavItem = { name: "My details", href: "/my-account/details", icon: UserRound, areas: [] };
@@ -294,6 +300,12 @@ export function sidebarSkipsEventFetch(role: string | null | undefined, extraAre
 }
 
 export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
+  const nav = navForRole(input);
+  if (!input.hasReviewWork || nav.baseNavigation.includes(MY_REVIEWS)) return nav;
+  return { ...nav, baseNavigation: [MY_REVIEWS, ...nav.baseNavigation] };
+}
+
+function navForRole(input: SidebarNavInput): SidebarNav {
   const { user, hrEnabled, procurementEnabled, crmEnabled, currentEvent, submitterCtx } = input;
   const blueprintEnabled = input.blueprintEnabled === true;
   const role = user?.role;
@@ -313,7 +325,7 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
     const portal = isSubmitter ? [MY_EVENTS, MY_CERTIFICATES, MY_ABSTRACTS, MY_DETAILS] : [MY_EVENTS, MY_CERTIFICATES, MY_DETAILS];
     const restrictedNavigation: NavItem[] = isReviewer
       ? [
-          { name: "My Reviews", href: "/my-reviews", icon: ClipboardCheck, areas: [] },
+          MY_REVIEWS,
           ...navigation.filter((item) => item.name === "Events"),
           ...portal,
         ]

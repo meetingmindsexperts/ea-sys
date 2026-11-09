@@ -128,7 +128,9 @@ export function confinementRedirect(role: string | null | undefined, pathname: s
   if (pathname.startsWith("/api/")) return null;
 
   // REGISTRANT: everything goes to the registration portal.
-  if (role === "REGISTRANT") return pathname.startsWith("/my-account") || pathname.startsWith("/my-registration") ? null : "/my-account";
+  // /my-reviews too: a registrant on a reviewer pool reviews from there, and the
+  // page and its API show nothing to anyone else.
+  if (role === "REGISTRANT") return pathname.startsWith("/my-account") || pathname.startsWith("/my-registration") || pathname.startsWith("/my-reviews") ? null : "/my-account";
 
   // Staff: the AREAS their role works in (custom roles Phase 3, Oct 5, 2026).
   // A path outside them goes to the role's home area. Reviewers and

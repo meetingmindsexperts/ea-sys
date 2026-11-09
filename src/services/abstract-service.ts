@@ -35,6 +35,7 @@ import {
 } from "@/lib/abstract-review";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
+import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOnReviewerPool, isOwnAbstract } from "@/lib/abstract-reviewer-access";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -341,11 +342,7 @@ export type ReviewRecommendedFormat = "ORAL" | "POSTER" | "NEITHER";
 const RECOMMENDED_FORMAT_VALUES = new Set<string>(["ORAL", "POSTER", "NEITHER"]);
 
 /** Abstract statuses open for review — shared with the assign paths (H6). */
-export const REVIEWABLE_ABSTRACT_STATUSES = new Set<string>([
-  "SUBMITTED",
-  "UNDER_REVIEW",
-  "REVISION_REQUESTED",
-]);
+export const REVIEWABLE_ABSTRACT_STATUSES = new Set<string>(REVIEWABLE_STATUS_LIST);
 
 export interface SubmitAbstractReviewInput {
   eventId: string;
@@ -379,6 +376,7 @@ export type SubmitAbstractReviewErrorCode =
   | "USER_NOT_FOUND"
   | "NOT_A_REVIEWER"
   | "NOT_REVIEWABLE"
+  | "OWN_ABSTRACT"
   | "CONFLICT_OF_INTEREST"
   | "EMPTY_REVIEW"
   | "INVALID_OVERALL_SCORE"
@@ -427,6 +425,9 @@ function submissionLogMessage(wasCreate: boolean, onBehalf: boolean): string {
  *    event's org — the H3 bind) may score without either;
  *  - the on-behalf path (actor ≠ reviewer) never gets the admin bypass — the
  *    TARGET must be pool/assigned, exactly as before.
+ * The account's role does not enter into it (src/lib/abstract-reviewer-access.ts).
+ *
+ * Nobody scores their own abstract, on any path, admin bypass included.
  *
  * Gates: reviewable status (H6), COI (a flagged reviewer's score must never
  * count — enforced for self AND on-behalf), non-empty payload (H5 route-half).
@@ -454,18 +455,16 @@ export async function submitAbstractReview(
       }),
       db.abstract.findFirst({
         where: { id: abstractId, eventId },
-        select: { id: true, status: true },
+        select: { id: true, status: true, speaker: { select: { userId: true, email: true } } },
       }),
       db.abstractReviewer.findUnique({
         where: { abstractId_userId: { abstractId, userId: reviewerUserId } },
         select: { id: true, conflictFlag: true },
       }),
-      onBehalf
-        ? db.user.findUnique({
-            where: { id: reviewerUserId },
-            select: { id: true, firstName: true, lastName: true, email: true },
-          })
-        : Promise.resolve(null),
+      db.user.findUnique({
+        where: { id: reviewerUserId },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      }),
     ]);
 
     if (!event) {
@@ -482,9 +481,7 @@ export async function submitAbstractReview(
     }
 
     // ── Authorization: pool OR assignment OR (self-submit by a bound admin) ──
-    const reviewerUserIds =
-      (event.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
-    const isPoolReviewer = reviewerUserIds.includes(reviewerUserId);
+    const isPoolReviewer = isOnReviewerPool(event.settings, reviewerUserId);
     // H3 org-bind lives HERE: role alone is not enough — the actor's org must
     // be the event's org, or an admin of org B could inject a score into org
     // A's peer review.
@@ -506,6 +503,18 @@ export async function submitAbstractReview(
         message: onBehalf
           ? `User ${reviewerUserId} is not a reviewer for this event. Assign them to the abstract or add to event.settings.reviewerUserIds first.`
           : "You are not a reviewer for this event",
+      };
+    }
+
+    // ── Nobody scores their own abstract ─────────────────────────────────────
+    if (isOwnAbstract(abstract.speaker, { id: reviewerUserId, email: reviewer?.email })) {
+      apiLogger.warn({ msg: "abstract-submission:own-abstract", eventId, abstractId, reviewerUserId, actorUserId: actor.userId, source });
+      return {
+        ok: false,
+        code: "OWN_ABSTRACT",
+        message: onBehalf
+          ? `User ${reviewerUserId} is the author of this abstract and cannot review it.`
+          : "This is your own abstract, so you cannot review it.",
       };
     }
 

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/hooks/use-api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,9 +41,81 @@ const submissionLabels: Record<Row["submissionStatus"], string> = {
   SUBMITTED: "Submitted",
 };
 
+function ReviewRows({ heading, rows }: { heading: string; rows: Row[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-medium text-muted-foreground">
+        {heading} ({rows.length})
+      </h3>
+      {rows.map((row) => (
+        <Card key={row.abstractId} className="hover:shadow-md transition-shadow">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge
+                    variant="outline"
+                    className={submissionColors[row.submissionStatus]}
+                  >
+                    {submissionLabels[row.submissionStatus]}
+                  </Badge>
+                  {row.role && (
+                    <Badge variant="secondary" className="text-xs">
+                      {row.role}
+                    </Badge>
+                  )}
+                  {row.conflictFlag && (
+                    <Badge variant="destructive" className="text-xs">
+                      Conflict of interest
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className="text-xs">
+                    {row.status.replace(/_/g, " ")}
+                  </Badge>
+                </div>
+
+                <h3 className="text-base font-medium truncate">
+                  {row.serialId != null && (
+                    <span className="font-mono text-sm text-muted-foreground mr-2">
+                      {formatAbstractSerial(row.serialId)}
+                    </span>
+                  )}
+                  {row.title}
+                </h3>
+
+                <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
+                  <span>Abstract submitted {formatDate(row.submittedAt)}</span>
+                  {row.submission?.overallScore != null && (
+                    <span>Your score: {row.submission.overallScore}/100</span>
+                  )}
+                  {row.submission?.stale && (
+                    <span className="text-orange-600">
+                      Abstract updated after your review — please re-check.
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <Button variant="outline" size="sm" asChild>
+                <Link
+                  href={`/my-reviews/${row.event.id}/${row.abstractId}`}
+                >
+                  {row.submissionStatus === "SUBMITTED" || row.conflictFlag ? "View" : "Review"}
+                  <ArrowRight className="ml-1 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 export default function MyReviewsPage() {
   const { data, isLoading, error } = useQuery<{ rows: Row[]; total: number }>({
-    queryKey: ["my-reviews"],
+    queryKey: queryKeys.myReviews,
     queryFn: async () => {
       const res = await fetch("/api/my-reviews");
       if (!res.ok) throw new Error("Failed to load reviews");
@@ -69,7 +142,9 @@ export default function MyReviewsPage() {
         </div>
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">My Reviews</h1>
-          <p className="text-sm text-muted-foreground">Abstracts assigned to you across all events.</p>
+          <p className="text-sm text-muted-foreground">
+            Abstracts assigned to you, and the rest of the abstracts on the events you review for.
+          </p>
         </div>
       </div>
 
@@ -105,69 +180,8 @@ export default function MyReviewsPage() {
             </span>
           </div>
 
-          <div className="space-y-2">
-            {rows.map((row) => (
-              <Card key={row.abstractId} className="hover:shadow-md transition-shadow">
-                <CardContent className="pt-5 pb-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0 space-y-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge
-                          variant="outline"
-                          className={submissionColors[row.submissionStatus]}
-                        >
-                          {submissionLabels[row.submissionStatus]}
-                        </Badge>
-                        {row.role && (
-                          <Badge variant="secondary" className="text-xs">
-                            {row.role}
-                          </Badge>
-                        )}
-                        {row.conflictFlag && (
-                          <Badge variant="destructive" className="text-xs">
-                            Conflict of interest
-                          </Badge>
-                        )}
-                        <Badge variant="outline" className="text-xs">
-                          {row.status.replace(/_/g, " ")}
-                        </Badge>
-                      </div>
-
-                      <h3 className="text-base font-medium truncate">
-                        {row.serialId != null && (
-                          <span className="font-mono text-sm text-muted-foreground mr-2">
-                            {formatAbstractSerial(row.serialId)}
-                          </span>
-                        )}
-                        {row.title}
-                      </h3>
-
-                      <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
-                        <span>Abstract submitted {formatDate(row.submittedAt)}</span>
-                        {row.submission?.overallScore != null && (
-                          <span>Your score: {row.submission.overallScore}/100</span>
-                        )}
-                        {row.submission?.stale && (
-                          <span className="text-orange-600">
-                            Abstract updated after your review — please re-check.
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <Button variant="outline" size="sm" asChild>
-                      <Link
-                        href={`/events/${row.event.id}/abstracts/${row.abstractId}/edit`}
-                      >
-                        {row.submissionStatus === "SUBMITTED" ? "View" : "Review"}
-                        <ArrowRight className="ml-1 h-4 w-4" />
-                      </Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <ReviewRows heading="Assigned to you" rows={rows.filter((r) => r.source === "assigned")} />
+          <ReviewRows heading="Also on this event" rows={rows.filter((r) => r.source === "event-pool")} />
         </section>
       ))}
     </div>

@@ -219,3 +219,33 @@ describe("drift unification — REST semantics win", () => {
     expect(create.overallScore).toBe(80);
   });
 });
+
+describe("submitAbstractReview: nobody reviews their own abstract", () => {
+  const input = { eventId: "ev1", abstractId: "ab1", overallScore: 80, source: "rest" as const };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.event.findFirst.mockResolvedValue(EVENT);
+    mockDb.abstractReviewer.findUnique.mockResolvedValue(null);
+    mockDb.user.findUnique.mockResolvedValue({ id: "pool-rev", firstName: "P", lastName: "R", email: "pool@example.com" });
+  });
+
+  it("refuses a pool reviewer on their own, by account", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: "pool-rev", email: "x@example.com" } });
+    const r = await submitAbstractReview({ ...input, reviewerUserId: "pool-rev", actor: { userId: "pool-rev" } });
+    expect(r).toMatchObject({ ok: false, code: "OWN_ABSTRACT" });
+    expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unlinked speaker row at the reviewer's address", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: null, email: "POOL@example.com" } });
+    const r = await submitAbstractReview({ ...input, reviewerUserId: "pool-rev", actor: { userId: "pool-rev" } });
+    expect(r).toMatchObject({ ok: false, code: "OWN_ABSTRACT" });
+  });
+
+  it("refuses recording it on the author's behalf too", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: "pool-rev", email: "pool@example.com" } });
+    const r = await submitAbstractReview({ ...input, reviewerUserId: "pool-rev", actor: { userId: "admin1", role: "ADMIN", organizationId: "orgA" } });
+    expect(r).toMatchObject({ ok: false, code: "OWN_ABSTRACT" });
+  });
+});

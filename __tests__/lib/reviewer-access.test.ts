@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { hashVerificationToken } from "@/lib/security";
+import { isLinkedRole } from "@/lib/permissions/require-permission";
 
 // ── Add reviewer schema (mirrors src/app/api/events/[eventId]/reviewers/route.ts) ──
 
@@ -197,28 +198,12 @@ describe("Reviewer: duplicate assignment check", () => {
 // ── Existing user role conflict ────────────────────────────────────────────
 
 describe("Reviewer: existing user role handling", () => {
-  it("allows reuse of existing REVIEWER user", () => {
-    const existingUser = { id: "user-1", role: "REVIEWER" };
-    const canReuse = existingUser.role === "REVIEWER";
-    expect(canReuse).toBe(true);
+  it.each(["REVIEWER", "SUBMITTER", "REGISTRANT"])("reuses an existing %s account: review rights follow the pool", (role) => {
+    expect(isLinkedRole(role)).toBe(true);
   });
 
-  it("rejects user with ADMIN role", () => {
-    const existingUser = { id: "user-1", role: "ADMIN" };
-    const canReuse = existingUser.role === "REVIEWER";
-    expect(canReuse).toBe(false);
-  });
-
-  it("rejects user with SUBMITTER role", () => {
-    const existingUser = { id: "user-1", role: "SUBMITTER" };
-    const canReuse = existingUser.role === "REVIEWER";
-    expect(canReuse).toBe(false);
-  });
-
-  it("rejects user with ORGANIZER role", () => {
-    const existingUser = { id: "user-1", role: "ORGANIZER" };
-    const canReuse = existingUser.role === "REVIEWER";
-    expect(canReuse).toBe(false);
+  it.each(["ADMIN", "ORGANIZER", "MEMBER", null])("refuses a %s account", (role) => {
+    expect(isLinkedRole(role)).toBe(false);
   });
 });
 

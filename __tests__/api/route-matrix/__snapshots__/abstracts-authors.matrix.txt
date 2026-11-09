@@ -149,8 +149,8 @@ POST abstracts/[abstractId]/submissions
   BASE        403         403         403         403
   BASE_MKT    403         403         403         403
   REVIEWER    500 r w     500 r w     500 r w     500 r w
-  SUBMITTER   403         403         403         403
-  REGISTRANT  403         403         403         403
+  SUBMITTER   403 r       403 r       403 r       403 r
+  REGISTRANT  403 r       403 r       403 r       403 r
   API_KEY     401         401         401         401
   NONE        401         401         401         401
 

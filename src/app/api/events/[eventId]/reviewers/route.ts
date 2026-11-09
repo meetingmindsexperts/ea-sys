@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { findUserByEmail, userEmailScope, isUniqueViolation } from "@/lib/tenant/user-lookup";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { requirePermission } from "@/lib/permissions/require-permission";
+import { isLinkedRole, requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings } from "@/lib/event-settings";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { getClientIp, hashVerificationToken } from "@/lib/security";
@@ -352,7 +352,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
 }
 
-// Shared helper: find existing REVIEWER user or create one with invitation
+// Shared helper: find an existing outside account or create a REVIEWER with an invitation
 async function findOrCreateReviewerUser(
   email: string,
   firstName: string,
@@ -374,8 +374,10 @@ async function findOrCreateReviewerUser(
   );
 
   if (existingUser) {
-    // Reviewers are org-independent, so no cross-org check needed
-    if (existingUser.role !== "REVIEWER") {
+    // Reviewers are org-independent, so no cross-org check needed. Review rights
+    // follow the pool, not the role (abstract-reviewer-access.ts), so a speaker's
+    // SUBMITTER account joins as it is; only staff accounts are refused here.
+    if (!isLinkedRole(existingUser.role)) {
       return { error: `User already exists with role ${existingUser.role}. Change their role in Settings > Users first.` };
     }
     return { userId: existingUser.id, invitationSent: false, existed: true };

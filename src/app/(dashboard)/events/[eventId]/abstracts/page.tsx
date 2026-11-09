@@ -838,7 +838,7 @@ export default function AbstractsPage() {
             if (!open) setSelectedAbstract(null);
           }}
         >
-          <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
+          <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl" aria-describedby={undefined}>
             <DialogHeader>
               <DialogTitle>Review Abstract</DialogTitle>
             </DialogHeader>
@@ -879,13 +879,13 @@ export default function AbstractsPage() {
                   <div className="space-y-2">
                     <Label htmlFor="reviewStatus">Decision</Label>
                     <Select
-                      value={reviewData.status}
+                      value={reviewData.status === "SUBMITTED" ? "" : reviewData.status}
                       onValueChange={(value) =>
                         setReviewData({ ...reviewData, status: value })
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder="Choose a decision" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="UNDER_REVIEW">Under Review</SelectItem>
@@ -913,11 +913,9 @@ export default function AbstractsPage() {
                     </label>
                   )}
                   <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
-                    Per-reviewer scoring is handled via the new review submission flow
-                    (POST /api/events/{eventId}/abstracts/[id]/submissions). MCP tools:
-                    <code className="mx-1">submit_abstract_review</code>,
-                    <code className="mx-1">get_abstract_scores</code>. The status transition
-                    here validates against <code>event.settings.requiredReviewCount</code>.
+                    This sets the abstract&apos;s status. Each reviewer enters their own score under
+                    My Reviews, and accepting or rejecting needs the number of scored reviews this
+                    event requires.
                   </div>
                   <div className="flex justify-end gap-2">
                     <Button
@@ -928,7 +926,7 @@ export default function AbstractsPage() {
                     >
                       Cancel
                     </Button>
-                    <Button type="submit" disabled={isSubmitting}>
+                    <Button type="submit" disabled={isSubmitting || reviewData.status === "SUBMITTED"}>
                       {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Save Status
                     </Button>

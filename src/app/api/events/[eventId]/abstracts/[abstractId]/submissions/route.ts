@@ -12,7 +12,7 @@ import {
   submitAbstractReview,
   type SubmitAbstractReviewErrorCode,
 } from "@/services/abstract-service";
-import { requirePermission } from "@/lib/permissions/require-permission";
+import { isLinkedRole, requirePermission } from "@/lib/permissions/require-permission";
 
 /**
  * Per-reviewer abstract review submissions.
@@ -110,7 +110,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // Anonymized view (submitter + non-staff org roles): strip reviewer
     // identity + per-criterion detail so the reader sees consolidated feedback
     // without learning who-said-what.
-    if (!isOrgStaff && !isEventReviewer) {
+    // The author always gets it, even one who reviews on this event too: their
+    // pool membership must not show them who scored their own abstract.
+    if (!isOrgStaff && (!isEventReviewer || isAbstractSpeaker)) {
       return NextResponse.json({
         submissions: aggregate.submissions.map((s) => ({
           id: s.id,
@@ -153,6 +155,7 @@ const HTTP_STATUS_FOR_SUBMIT_CODE: Record<SubmitAbstractReviewErrorCode, number>
   USER_NOT_FOUND: 404,
   NOT_A_REVIEWER: 403,
   NOT_REVIEWABLE: 409,
+  OWN_ABSTRACT: 403,
   CONFLICT_OF_INTEREST: 403,
   EMPTY_REVIEW: 400,
   INVALID_OVERALL_SCORE: 400,
@@ -177,22 +180,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // REGISTRANT / SUBMITTER roles can't review. Everyone else can (if they're
-    // in the reviewer pool OR assigned to this abstract).
-    if (session.user.role === "REGISTRANT" || session.user.role === "SUBMITTER") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    // Staff score with `abstracts.decide`; reviewers through the service's own
-    // rule (in the event's pool OR assigned to this abstract alone), which is
-    // wider than the pool `linked` resolves to, so their lookup stays by id.
+    // Staff score with `abstracts.decide`. Everyone outside the organisation
+    // goes through the service's own rule (in the event's pool OR assigned to
+    // this abstract, and not its author), whatever their account's role: a
+    // reviewer is usually a speaker already, so a SUBMITTER. That rule is wider
+    // than the events `linked` resolves to, so their lookup stays by id.
     const gate = requirePermission(session, "abstracts.decide", {
       route: "events/[eventId]/abstracts/[abstractId]/submissions:POST",
       eventId,
-      linkedRoles: ["REVIEWER"],
+      linkedRoles: "linked",
     });
     if (!gate.ok) return gate.response;
-    const eventWhere = session.user.role === "REVIEWER" ? { id: eventId } : gate.eventWhere;
+    const eventWhere = isLinkedRole(session.user.role) ? { id: eventId } : gate.eventWhere;
 
     if (!body) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });

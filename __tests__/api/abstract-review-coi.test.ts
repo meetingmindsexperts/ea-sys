@@ -11,7 +11,8 @@ const { mockDb, mockAuth } = vi.hoisted(() => ({
     event: { findFirst: vi.fn() },
     abstract: { findFirst: vi.fn() },
     abstractReviewer: { findUnique: vi.fn() },
-    abstractReviewSubmission: { upsert: vi.fn() },
+    abstractReviewSubmission: { upsert: vi.fn(), findMany: vi.fn() },
+    user: { findUnique: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },
   mockAuth: vi.fn(),
@@ -192,5 +193,48 @@ describe("submissions GET — per-reviewer visibility (H9b)", () => {
     const body = await res.json();
     expect(JSON.stringify(body)).not.toContain("Alice");
     expect(body.submissions[0].reviewNotes).toBe("Solid work");
+  });
+});
+
+describe("abstract review: the right follows the pool and the assignment, not the role", () => {
+  const author = { userId: "someone-else", email: "author@example.com" };
+
+  it.each(["SUBMITTER", "REGISTRANT"])("a %s on the pool may submit", async (role) => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", role, organizationId: null } });
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: author });
+    const res = await POST(makeReq({ overallScore: 80 }), { params });
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstractReviewSubmission.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["SUBMITTER", "REGISTRANT"])("a %s neither on the pool nor assigned is refused", async (role) => {
+    mockAuth.mockResolvedValue({ user: { id: "stranger", role, organizationId: null } });
+    const res = await POST(makeReq({ overallScore: 80 }), { params });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("NOT_A_REVIEWER");
+    expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+  });
+
+  it("the author is refused even on the pool", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", role: "SUBMITTER", organizationId: null } });
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: "u1", email: "me@example.com" } });
+    const res = await POST(makeReq({ overallScore: 80 }), { params });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("OWN_ABSTRACT");
+    expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+  });
+
+  it("an author on the pool reads their own abstract's reviews without names", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", role: "SUBMITTER", organizationId: null } });
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", speaker: { userId: "u1" } });
+    mockDb.abstractReviewSubmission.findMany.mockResolvedValue([
+      { id: "s1", overallScore: 70, reviewNotes: "Fine", recommendedFormat: null, criteriaScores: null, confidence: null, submittedAt: new Date(0), updatedAt: new Date(0), reviewerUserId: "other", reviewer: { firstName: "Named", lastName: "Reviewer", email: "named@example.com" } },
+    ]);
+    const res = await GET(makeReq({}), { params });
+    expect(res.status).toBe(200);
+    const text = JSON.stringify(await res.json());
+    expect(text).toContain("Fine");
+    expect(text).not.toContain("Named");
+    expect(text).not.toContain("other");
   });
 });

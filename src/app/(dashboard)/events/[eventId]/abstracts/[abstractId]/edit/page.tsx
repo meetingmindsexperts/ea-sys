@@ -613,11 +613,11 @@ export default function EditAbstractPage() {
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">
-          {gone ? "This abstract no longer exists" : "Couldn't load this abstract"}
+          {gone ? "We can't show this abstract" : "Couldn't load this abstract"}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           {gone
-            ? "It may have been deleted, or the link may be out of date. Nothing else has changed."
+            ? "It may have been deleted, or your account may not have access to it. If you were asked to review it, open it from My Reviews."
             : "Something went wrong fetching it. Your work is safe — please try again."}
         </p>
         <div className="mt-6 flex justify-center gap-2">

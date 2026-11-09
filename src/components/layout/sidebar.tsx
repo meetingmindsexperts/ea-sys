@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useOrgBranding, useOrganizations, useEvent, useSubmitterContext } from "@/hooks/use-api";
+import { useOrgBranding, useOrganizations, useEvent, useHasReviewWork, useSubmitterContext } from "@/hooks/use-api";
 
 import { useActiveOrg } from "@/contexts/active-org-context";
 
@@ -83,6 +83,9 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
     isSubmitter && isEventPage ? (eventId as string) : "",
   );
 
+  // A REVIEWER has the link regardless, so only other accounts need to ask.
+  const { data: hasReviewWork } = useHasReviewWork(!!role && role !== "REVIEWER");
+
   const handleOrgSwitch = (orgId: string | null) => {
     setActiveOrgId(orgId);
     // Invalidate all cached queries so they refetch with the new org header
@@ -100,6 +103,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
     isEventPage,
     currentEvent,
     submitterCtx,
+    hasReviewWork,
   });
   const activeHref = activeNavHref(pathname, baseNavigation);
 
