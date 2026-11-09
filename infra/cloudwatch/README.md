@@ -6,7 +6,7 @@
 
 | Group | Source on the box | What it holds |
 |---|---|---|
-| `ea-sys/docker` | `/var/lib/docker/containers/*/*-json.log` | Every container's stdout/stderr **except** pino info/debug lines (already in `ea-sys/app`): warnings, errors, crash traces, OOM and boot failures. Each line carries `attrs.ea_sys_service` = `blue` / `green` / `worker` (compose label). |
+| `ea-sys/docker` | `/var/lib/docker/containers/*/*-json.log` | stdout/stderr of blue, green and the worker **except** pino info/debug lines (already in `ea-sys/app`): warnings, errors, crash traces, OOM and boot failures. Each line carries `attrs.ea_sys_service` = `blue` / `green` / `worker` (compose label); an `include` filter on that label keeps MediaMTX out (it has `ea-sys/mediamtx`). `publish_multi_logs` gives each container file its own stream: without it the agent follows only the most recently written file under a wildcard, and MediaMTX's chatter during a webinar would hide a crashing slot. |
 | `ea-sys/nginx-error` | `/var/log/nginx/error.log` | 502s, upstream refusals, TLS and config errors |
 
 When the app is down, run **`npm run prod:diagnose`** from a laptop (§"App not loading" below). When it is up, the `/logs` viewer reads these groups as "CloudWatch: containers / app log / nginx errors".
@@ -112,6 +112,8 @@ aws iam simulate-principal-policy \
 ```
 
 Without it the viewer shows "CloudWatch logs unavailable" and logs `logs:cloudwatch-unavailable`; nothing else is affected.
+
+The viewer caps a CloudWatch query at the last 24 hours, shows the megabytes each query scanned in its source badge, and skips an auto-refresh tick while a query is still running. Known gap: Docker splits a line over 16 KB, and the continuation pieces carry no pino level, so they ship to `ea-sys/docker` even when the line was info.
 
 ### Step 2.2 — Install + configure the agent on the Mumbai box
 

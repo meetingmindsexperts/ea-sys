@@ -9,7 +9,7 @@
  * 2. A Docker json-file line is unwrapped to the container's own output with
  *    its service label, and plain stderr reads as an error.
  * 3. Results come back oldest-first like every other source; "all" is capped
- *    at 7 days; a query that outlives the wait is STOPPED and marked partial.
+ *    at 24 hours; the source label shows the bytes scanned; a query that outlives the wait is STOPPED and marked partial.
  * 4. A failed query throws, so the route answers with an error, not "no logs".
  */
 
@@ -116,11 +116,12 @@ describe("readCloudWatchLogs", () => {
     expect(isCloudWatchLogSource("toString")).toBe(false);
   });
 
-  it("returns rows oldest-first, converts Insights time to ISO, caps 'all' at 7 days", async () => {
+  it("returns rows oldest-first, converts Insights time to ISO, caps 'all' at 24 hours and shows bytes scanned", async () => {
     send.mockImplementation(async (c: { kind: string }) => {
       if (c.kind === "start") return { queryId: "q1" };
       return {
         status: "Complete",
+        statistics: { bytesScanned: 3 * 1_048_576 },
         results: [row("2026-11-09 05:00:02.000", '{"level":50}'), row("2026-11-09 05:00:01.000", '{"level":50}')],
       };
     });
@@ -130,10 +131,10 @@ describe("readCloudWatchLogs", () => {
 
     expect(out.logs.map((l) => l.timestamp)).toEqual(["2026-11-09T05:00:01.000Z", "2026-11-09T05:00:02.000Z"]);
     expect(out.partial).toBe(false);
-    expect(out.source).toBe("cloudwatch (ea-sys/app last 7d)");
+    expect(out.source).toBe("cloudwatch (ea-sys/app, last 24h, 3.0 MB scanned)");
     const start = send.mock.calls[0][0].input;
     expect(start.logGroupName).toBe("ea-sys/app");
-    expect(start.endTime - start.startTime).toBeLessThanOrEqual(7 * 24 * 3600 + 1);
+    expect(start.endTime - start.startTime).toBeLessThanOrEqual(24 * 3600 + 1);
     expect(send.mock.calls.some(([c]) => c.kind === "stop")).toBe(false);
   });
 
@@ -151,8 +152,17 @@ describe("readCloudWatchLogs", () => {
 
     expect(out.partial).toBe(true);
     expect(out.logs).toHaveLength(1);
-    expect(out.source).toBe("cloudwatch (ea-sys/docker, partial)");
+    expect(out.source).toBe("cloudwatch (ea-sys/docker, 0.0 MB scanned, partial)");
     expect(send.mock.calls.filter(([c]) => c.kind === "stop")[0][0].input).toEqual({ queryId: "q2" });
+  });
+
+  it("containers at info level points to the app log, where those lines live", async () => {
+    send.mockImplementation(async (c: { kind: string }) =>
+      c.kind === "start" ? { queryId: "q4" } : { status: "Complete", results: [] },
+    );
+    const p = readCloudWatchLogs("cloudwatch-docker", { level: "info", search: "", tail: 10, sinceDate: new Date(Date.now() - 600_000) });
+    await vi.runAllTimersAsync();
+    expect((await p).source).toContain("info/debug are in CloudWatch: app log");
   });
 
   it("a group the agent has not created yet reads as empty with a hint; other start errors throw", async () => {

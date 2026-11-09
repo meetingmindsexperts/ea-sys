@@ -24,6 +24,22 @@ MINUTES="${MINUTES:-15}"
 
 hr() { printf '\n== %s\n' "$*"; }
 
+# `aws logs tail` for one group, with the two failures that are not "no lines"
+# said in words: a group the agent has not created, and an expired AWS login.
+tail_group() {
+  local group="$1" lines="$2" out
+  if ! out=$(aws logs tail "$group" --region "$REGION" --since "${MINUTES}m" --format short 2>&1); then
+    case "$out" in
+      *ResourceNotFound*) echo "  ! $group does not exist yet: the CloudWatch agent config is not applied (infra/cloudwatch/setup.sh on the box)" ;;
+      *ExpiredToken*|*credentials*|*AccessDenied*) echo "  ! cannot read $group with your AWS login: $(echo "$out" | head -1)" ;;
+      *) echo "  ! $(echo "$out" | head -2)" ;;
+    esac
+    return
+  fi
+  [ -n "$out" ] || { echo "  nothing"; return; }
+  printf '%s\n' "$out" | tail -n "$lines"
+}
+
 # Docker json-file lines → "time [service] line". Plain lines pass through.
 unwrap() {
   python3 -c '
@@ -47,7 +63,8 @@ for path in /api/health /worker/health; do
   head -c 300 /tmp/ea-sys-diag.$$ 2>/dev/null; echo
 done
 rm -f /tmp/ea-sys-diag.$$
-echo "(000 = nothing answered: box or nginx down. 502/504 = nginx up, app not answering.)"
+echo "(000 = nothing answered: the box or nginx is down, or check your own network/DNS first."
+echo " 502/504 = nginx is up, the app is not answering.)"
 
 hr "2. The EC2 box ($INSTANCE_ID)"
 aws ec2 describe-instance-status --region "$REGION" --instance-ids "$INSTANCE_ID" \
@@ -61,16 +78,13 @@ aws cloudwatch describe-alarms --region "$REGION" --state-value ALARM \
   | sed 's/^/  /' | grep . || echo "  none"
 
 hr "4. Container output, last ${MINUTES}m (warnings, errors, crash traces; ea-sys/docker)"
-aws logs tail ea-sys/docker --region "$REGION" --since "${MINUTES}m" --format short 2>&1 \
-  | tail -n 60 | unwrap | grep . || echo "  nothing"
+tail_group ea-sys/docker 60 | unwrap
 
 hr "5. nginx errors, last ${MINUTES}m (ea-sys/nginx-error)"
-aws logs tail ea-sys/nginx-error --region "$REGION" --since "${MINUTES}m" --format short 2>&1 \
-  | tail -n 25 | cut -c1-400 | grep . || echo "  nothing"
+tail_group ea-sys/nginx-error 25 | cut -c1-400
 
 hr "6. App errors, last ${MINUTES}m (ea-sys/error)"
-aws logs tail ea-sys/error --region "$REGION" --since "${MINUTES}m" --format short 2>&1 \
-  | tail -n 25 | cut -c1-400 | grep . || echo "  nothing"
+tail_group ea-sys/error 25 | cut -c1-400
 
 hr "Next, if you need to look on the box (run these yourself):"
 cat <<EOF

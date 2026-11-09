@@ -67,10 +67,15 @@
             "retention_in_days": 30,
             "filters": [
               {
+                "type": "include",
+                "expression": "\"ea_sys_service\":\""
+              },
+              {
                 "type": "exclude",
                 "expression": "level\\\\\":(10|20|30)[,}]"
               }
-            ]
+            ],
+            "publish_multi_logs": true
           },
           {
             "file_path": "/var/log/nginx/error.log",

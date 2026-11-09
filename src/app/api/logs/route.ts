@@ -21,6 +21,9 @@ const ALLOWED_LEVELS = new Set(["all", "error", "warn", "info", "debug"]);
 // container output now arrives through CloudWatch (`cloudwatch-docker`).
 const ALLOWED_SOURCES = new Set(["file", "database", ...Object.keys(CLOUDWATCH_LOG_GROUPS)]);
 const MAX_TAIL = 2000;
+// CloudWatch rejects an Insights query over 10k characters; nobody searches
+// logs with more than a line of text.
+const MAX_SEARCH = 200;
 
 type LogEntry = {
   timestamp: string;
@@ -249,6 +252,14 @@ export async function GET(req: Request) {
       apiLogger.warn({ msg: "logs:invalid-source", source: sourceParam, userId: session.user.id });
       return NextResponse.json(
         { error: `Invalid 'source' parameter. Allowed: ${[...ALLOWED_SOURCES].join(", ")}` },
+        { status: 400 }
+      );
+    }
+
+    if (search.length > MAX_SEARCH) {
+      apiLogger.warn({ msg: "logs:search-too-long", length: search.length, userId: session.user.id });
+      return NextResponse.json(
+        { error: `Search is limited to ${MAX_SEARCH} characters` },
         { status: 400 }
       );
     }

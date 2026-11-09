@@ -43,9 +43,13 @@ export function isCloudWatchLogSource(v: string): v is CloudWatchLogSource {
 
 type LogEntry = { timestamp: string; level: string; message: string };
 
-// "all" is capped: an Insights query is billed per GB scanned, and the groups
-// keep 30 days. A week is plenty for the viewer; older lines are a console job.
-const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+// "all" is capped: an Insights query is billed per GB scanned, the viewer can
+// auto-refresh every 9s, and ea-sys/app holds every info line. A day is plenty
+// for the viewer; older lines are a console job.
+const MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
+// Without a request timeout the SDK waits on a hung socket forever, and the
+// 15s deadline below is only checked between polls.
+const REQUEST_TIMEOUT_MS = 5_000;
 const POLL_INTERVAL_MS = 500;
 const MAX_WAIT_MS = 15_000;
 
@@ -53,7 +57,11 @@ const REGION = process.env.AWS_CLOUDWATCH_REGION || process.env.AWS_REGION || "a
 
 let client: CloudWatchLogsClient | null = null;
 function getClient(): CloudWatchLogsClient {
-  if (!client) client = new CloudWatchLogsClient({ region: REGION });
+  if (!client)
+    client = new CloudWatchLogsClient({
+      region: REGION,
+      requestHandler: { requestTimeout: REQUEST_TIMEOUT_MS, connectionTimeout: REQUEST_TIMEOUT_MS },
+    });
   return client;
 }
 
@@ -193,11 +201,13 @@ export async function readCloudWatchLogs(
   const deadline = Date.now() + MAX_WAIT_MS;
   let status: string | undefined;
   let rows: ResultField[][] = [];
+  let bytesScanned = 0;
   for (;;) {
     await sleep(POLL_INTERVAL_MS);
     const res = await cw.send(new GetQueryResultsCommand({ queryId }));
     status = res.status;
     rows = res.results ?? [];
+    bytesScanned = res.statistics?.bytesScanned ?? bytesScanned;
     if (status === "Complete") break;
     if (status === "Failed" || status === "Cancelled" || status === "Timeout") {
       throw new Error(`CloudWatch query ${status}`);
@@ -217,6 +227,13 @@ export async function readCloudWatchLogs(
     .map((row) => toLogEntry(source, insightsTimeToIso(field(row, "@timestamp")), field(row, "@message") ?? ""))
     .reverse(); // newest-first from Insights → oldest-first like every other source
 
-  const window = capped ? " last 7d" : "";
-  return { logs, source: `cloudwatch (${logGroupName}${window}${partial ? ", partial" : ""})`, partial };
+  // Shown so the cost of a wide window is visible where it is chosen.
+  const notes = [`${(bytesScanned / 1_048_576).toFixed(1)} MB scanned`];
+  if (capped) notes.unshift("last 24h");
+  if (partial) notes.push("partial");
+  // The agent drops pino info/debug from ea-sys/docker (ea-sys/app has them).
+  if (source === "cloudwatch-docker" && (opts.level === "info" || opts.level === "debug")) {
+    notes.push("info/debug are in CloudWatch: app log");
+  }
+  return { logs, source: `cloudwatch (${logGroupName}, ${notes.join(", ")})`, partial };
 }

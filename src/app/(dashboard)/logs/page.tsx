@@ -68,8 +68,13 @@ export default function LogsPage() {
   const [showArchives, setShowArchives] = useState(false);
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
+  // A CloudWatch query can take several seconds; auto-refresh must not stack a
+  // second one (each is billed by bytes scanned) on top of one still running.
+  const inFlightRef = useRef(false);
 
-  const fetchLogs = useCallback(async () => {
+  const fetchLogs = useCallback(async (opts?: { skipIfBusy?: boolean }) => {
+    if (opts?.skipIfBusy && inFlightRef.current) return;
+    inFlightRef.current = true;
     try {
       const params = new URLSearchParams({
         level: levelFilter,
@@ -97,6 +102,7 @@ export default function LogsPage() {
       toast.error("Failed to fetch logs");
       console.error(error);
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
     }
   }, [levelFilter, timeRange, logSource, debouncedSearch]);
@@ -109,7 +115,7 @@ export default function LogsPage() {
     if (!autoRefresh) return;
 
     const interval = setInterval(() => {
-      fetchLogs();
+      fetchLogs({ skipIfBusy: true });
     }, 9000); // Refresh every 9 seconds
 
     return () => clearInterval(interval);
