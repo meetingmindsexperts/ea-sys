@@ -126,6 +126,12 @@ describe("sendPendingAssignments: one email per reviewer", () => {
   it("copies the event's Auto-CC, never the reviewer themselves", async () => {
     await sendPendingAssignments(sendArgs);
     expect(sent().cc).toEqual([{ email: "ops@example.com" }]);
+    // The speaker record's second inbox is copied too, as on every email to a speaker.
+    sendEmailSpy.mockClear();
+    assignmentUpdateMany.mockClear();
+    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: "DR", additionalEmail: "assistant@clinic.com" }]);
+    await sendPendingAssignments(sendArgs);
+    expect(sent().cc).toEqual([{ email: "ops@example.com" }, { email: "assistant@clinic.com" }]);
   });
 
   it("fills {{title}} from the reviewer's speaker record", async () => {
@@ -353,6 +359,19 @@ describe("notifyReviewerPoolAdded", () => {
       eventId: "ev1",
       OR: [{ userId: { in: ["u1"] } }, { email: { equals: "jane@x.com", mode: "insensitive" } }],
     });
+  });
+
+  it("copies the reviewer's additional email (their speaker record's) beside the event's Auto-CC", async () => {
+    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: "DR", additionalEmail: "Assistant@Clinic.com" }]);
+    vi.mocked(getEventTemplate).mockResolvedValueOnce({ ...ASSIGNMENT_TEMPLATE, slug: "reviewer-pool-invitation" } as never);
+    await notifyReviewerPoolAdded(poolArgs);
+    expect(sendEmailSpy.mock.calls[0][0].cc).toEqual([{ email: "ops@example.com" }, { email: "assistant@clinic.com" }]);
+  });
+
+  it("no speaker record, or none with a second address: only the event's Auto-CC", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValueOnce({ ...ASSIGNMENT_TEMPLATE, slug: "reviewer-pool-invitation" } as never);
+    await notifyReviewerPoolAdded(poolArgs);
+    expect(sendEmailSpy.mock.calls[0][0].cc).toEqual([{ email: "ops@example.com" }]);
   });
 
   it("an empty or failed title lookup never costs the reviewer their email", async () => {

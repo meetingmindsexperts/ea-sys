@@ -6,23 +6,35 @@ import { apiLogger } from "@/lib/logger";
 import { db } from "@/lib/db";
 import { getTitleLabel } from "@/lib/utils";
 
+/** What a reviewer's speaker record on the event adds to their emails. */
+export interface ReviewerSpeakerRecord {
+  /** The Title enum, e.g. "DR", for `{{title}}`. */
+  title: string | null;
+  /** Their second inbox, copied on emails about them like every other email to a speaker. */
+  additionalEmail: string | null;
+}
+
+const NO_SPEAKER_RECORD: ReviewerSpeakerRecord = { title: null, additionalEmail: null };
+
 /**
- * Reviewers' titles (the Title enum, e.g. "DR") for `{{title}}`. A reviewer
- * account stores none; their speaker record on this event usually does. The
+ * Each reviewer's title and additional email. A reviewer account stores
+ * neither; their speaker record on this event usually does. The
  * account-linked record wins over one matched by address.
  *
- * Never throws: a failed lookup gives no titles, and the email still goes out
+ * Never throws: a failed lookup gives nothing, and the email still goes out
  * ("Dear  Ortiz" beats no email). Nov 10, 2026: MEHF's templates were edited
  * to "Dear {{title}} {{lastName}}" and, with no title supplied, every reviewer
  * email was refused on the unresolved token, so the reviewer was never told.
- * Used by the reviewer emails here and by the reviewers bulk email.
+ * The same day the additional email was found to be left off the CC of every
+ * reviewer email. Used by the reviewer emails here, the reviewers bulk email
+ * and the Reviewers page.
  */
-export async function reviewerTitles(
+export async function reviewerSpeakerRecords(
   eventId: string,
   reviewers: { id: string; email: string }[],
-): Promise<Map<string, string | null>> {
-  const titles = new Map<string, string | null>();
-  if (reviewers.length === 0) return titles;
+): Promise<Map<string, ReviewerSpeakerRecord>> {
+  const records = new Map<string, ReviewerSpeakerRecord>();
+  if (reviewers.length === 0) return records;
   try {
     const speakers = await db.speaker.findMany({
       where: {
@@ -32,22 +44,23 @@ export async function reviewerTitles(
           ...reviewers.map((r) => ({ email: { equals: r.email, mode: "insensitive" as const } })),
         ],
       },
-      select: { userId: true, email: true, title: true },
+      select: { userId: true, email: true, title: true, additionalEmail: true },
       orderBy: { createdAt: "asc" },
     });
     for (const r of reviewers) {
       const linked = speakers.find((s) => s.userId === r.id);
       const byAddress = speakers.find((s) => s.email.toLowerCase() === r.email.toLowerCase());
-      titles.set(r.id, (linked ?? byAddress)?.title ?? null);
+      const speaker = linked ?? byAddress;
+      if (speaker) records.set(r.id, { title: speaker.title ?? null, additionalEmail: speaker.additionalEmail ?? null });
     }
   } catch (err) {
     apiLogger.warn({ err, msg: "reviewer-title:lookup-failed", eventId });
   }
-  return titles;
+  return records;
 }
 
-async function reviewerTitle(eventId: string, reviewer: { id: string; email: string }): Promise<string> {
-  return getTitleLabel((await reviewerTitles(eventId, [reviewer])).get(reviewer.id));
+async function reviewerSpeakerRecord(eventId: string, reviewer: { id: string; email: string }): Promise<ReviewerSpeakerRecord> {
+  return (await reviewerSpeakerRecords(eventId, [reviewer])).get(reviewer.id) ?? NO_SPEAKER_RECORD;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -291,7 +304,7 @@ async function leaseAndSend(
       apiLogger.warn({ msg: "reviewer-assignment:no-template", eventId });
       return refuse("NO_TEMPLATE", "The reviewer assignment email template is missing");
     }
-    const title = await reviewerTitle(eventId, reviewer);
+    const speakerRecord = await reviewerSpeakerRecord(eventId, reviewer);
 
     // The only trace a killed send can leave: its claim, now expired.
     const reclaimed = free.some((row) => !!row.notifyClaimedAt);
@@ -318,8 +331,8 @@ async function leaseAndSend(
     const to = [{ email: reviewer.email, name: `${reviewer.firstName ?? ""} ${reviewer.lastName ?? ""}`.trim() || reviewer.email }];
     const result = await sendEmail({
       to,
-      cc: brandingCc(tpl.branding, to),
-      ...renderAssignmentEmail(tpl, reviewer, title, mine),
+      cc: brandingCc(tpl.branding, to, [speakerRecord.additionalEmail]),
+      ...renderAssignmentEmail(tpl, reviewer, getTitleLabel(speakerRecord.title), mine),
       from: brandingFrom(tpl.branding),
       emailType: "reviewer_assignment",
       stream: "transactional",
@@ -367,8 +380,9 @@ export async function notifyReviewerPoolAdded(args: {
 }): Promise<{ ok: true } | { ok: false; code: "NO_TEMPLATE" | "SEND_FAILED"; message: string }> {
   try {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const speakerRecord = await reviewerSpeakerRecord(args.eventId, args.reviewer);
     const vars = {
-      title: await reviewerTitle(args.eventId, args.reviewer),
+      title: getTitleLabel(speakerRecord.title),
       firstName: args.reviewer.firstName ?? "",
       lastName: args.reviewer.lastName ?? "",
       eventName: args.eventName,
@@ -387,7 +401,7 @@ export async function notifyReviewerPoolAdded(args: {
     const to = [{ email: args.reviewer.email, name: `${vars.firstName} ${vars.lastName}`.trim() || args.reviewer.email }];
     const result = await sendEmail({
       to,
-      cc: brandingCc(branding, to),
+      cc: brandingCc(branding, to, [speakerRecord.additionalEmail]),
       ...rendered,
       from: brandingFrom(branding),
       emailType: "reviewer_pool_invitation",

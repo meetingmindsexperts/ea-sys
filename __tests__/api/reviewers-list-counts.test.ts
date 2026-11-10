@@ -68,6 +68,15 @@ describe("GET reviewers", () => {
     expect(sendable).toEqual({ ...sendableAssignmentWhere("ev1"), userId: { in: ["r1", "r2"] } });
   });
 
+  it("a reviewer with a speaker record on the event carries its title; an account alone has none", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([
+      { id: "s1", email: "one@x.com", title: "DR", firstName: "One", lastName: "R", organization: null, jobTitle: null, status: "CONFIRMED", userId: "r1" },
+    ]);
+    const body = await (await get()).json();
+    const titles = Object.fromEntries(body.reviewers.map((r: { userId: string; title: string | null }) => [r.userId, r.title]));
+    expect(titles).toEqual({ r1: "DR", r2: null });
+  });
+
   it("names the people holding assignments who are not on the pool", async () => {
     const body = await (await get()).json();
     expect(body.assignedOffPool).toEqual([{ userId: "x9", firstName: "Gone", lastName: "Reviewer", email: "gone@x.com", assigned: 1 }]);

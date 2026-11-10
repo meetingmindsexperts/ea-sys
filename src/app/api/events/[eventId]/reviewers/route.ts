@@ -49,6 +49,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         select: {
           id: true,
           email: true,
+          title: true,
           firstName: true,
           lastName: true,
           organization: true,
@@ -123,6 +124,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         return {
           speakerId: s.id,
           userId: s.userId,
+          title: s.title as string | null,
           firstName: s.firstName,
           lastName: s.lastName,
           email: s.email,
@@ -144,6 +146,8 @@ export async function GET(req: Request, { params }: RouteParams) {
           reviewers.push({
             speakerId: "",
             userId,
+            // An account stores no title; only a speaker record on the event does.
+            title: null,
             firstName: user.firstName,
             lastName: user.lastName,
             email: user.email,

@@ -21,7 +21,7 @@ import {
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
 import { EXCLUDE_FACULTY_WHERE } from "./faculty-filter";
 import { getTitleLabel } from "./utils";
-import { reviewerTitles } from "@/lib/abstract-reviewer-notify";
+import { reviewerSpeakerRecords } from "@/lib/abstract-reviewer-notify";
 import { resolveTimezone, formatTimeInTz, tzLabel } from "./event-time";
 import { buildPaymentReminderVars } from "./payment-reminder";
 import { googleCalendarUrl, outlookCalendarUrl, buildIcsContent } from "./calendar-links";
@@ -811,7 +811,7 @@ interface ResolvedRecipient {
    * render time — keeps the recipient row faithful to the DB while letting
    * one helper own the enum→display mapping (same as sendRegistrationConfirmation).
    * Reviewers come from the User table, which has no title column; theirs comes
-   * from their speaker record on the event (reviewerTitles).
+   * from their speaker record on the event (reviewerSpeakerRecords).
    */
   title?: string | null;
   /** Per-abstract context for the per-abstract types (one recipient per abstract). */
@@ -1368,13 +1368,14 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       select: { id: true, email: true, firstName: true, lastName: true },
     });
     // From each reviewer's speaker record on this event, as the automatic emails do.
-    const titles = await reviewerTitles(eventId, reviewerUsers);
+    const speakerRecords = await reviewerSpeakerRecords(eventId, reviewerUsers);
     recipients = reviewerUsers.map((u) => ({
       id: u.id,
       email: u.email,
+      additionalEmail: speakerRecords.get(u.id)?.additionalEmail ?? null,
       firstName: u.firstName,
       lastName: u.lastName,
-      title: titles.get(u.id) ?? null,
+      title: speakerRecords.get(u.id)?.title ?? null,
     }));
   } else if (recipientType === "speakers") {
     const parsedStatus = filters?.status ? speakerStatusSchema.safeParse(filters.status) : null;

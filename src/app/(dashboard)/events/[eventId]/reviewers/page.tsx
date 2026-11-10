@@ -43,6 +43,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { formatPersonName } from "@/lib/utils";
 import { plural, sendAssignmentsReport, type SendReportLevel } from "./send-report";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -51,6 +52,8 @@ import { BulkEmailDialog } from "@/components/bulk-email-dialog";
 interface Reviewer {
   speakerId: string;
   userId: string;
+  /** From their speaker record on this event; an account alone has none. */
+  title?: string | null;
   firstName: string;
   lastName: string;
   email: string;
@@ -525,7 +528,7 @@ function Reviewers({ eventId }: { eventId: string }) {
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="text-lg font-semibold">
-                            {reviewer.firstName} {reviewer.lastName}
+                            {formatPersonName(reviewer.title, reviewer.firstName, reviewer.lastName)}
                           </h3>
                           {reviewer.needsEmailConfirmation && (
                             <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
