@@ -21,13 +21,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserCheck, Plus, Mail, Building2, Trash2, Send, X } from "lucide-react";
 import { PermissionGate } from "@/components/permissions/permission-gate";
@@ -48,6 +41,7 @@ import { plural, sendAssignmentsReport, type SendReportLevel } from "./send-repo
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 interface Reviewer {
   speakerId: string;
@@ -78,6 +72,7 @@ interface AssignedOffPool {
 interface AvailableSpeaker {
   id: string;
   email: string;
+  title?: string | null;
   firstName: string;
   lastName: string;
   organization: string | null;
@@ -159,6 +154,10 @@ function Reviewers({ eventId }: { eventId: string }) {
   const reviewers: Reviewer[] = data?.reviewers ?? [];
   const assignedOffPool: AssignedOffPool[] = data?.assignedOffPool ?? [];
   const availableSpeakers: AvailableSpeaker[] = data?.availableSpeakers ?? [];
+  const speakerOptions = availableSpeakers.map((speaker) => ({
+    value: speaker.id,
+    label: `${formatPersonName(speaker.title, speaker.firstName, speaker.lastName)} (${speaker.email})`,
+  }));
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [addTab, setAddTab] = useState<string>("speaker");
@@ -364,18 +363,17 @@ function Reviewers({ eventId }: { eventId: string }) {
                     </p>
                   ) : (
                     <>
-                      <Select value={selectedSpeakerId} onValueChange={setSelectedSpeakerId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a speaker..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableSpeakers.map((speaker) => (
-                            <SelectItem key={speaker.id} value={speaker.id}>
-                              {speaker.firstName} {speaker.lastName} — {speaker.email}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {/* The app's standard picker: an event can hold hundreds of
+                          speakers, and the plain list had no way to search them. */}
+                      <SearchableSelect
+                        value={selectedSpeakerId}
+                        displayLabel={speakerOptions.find((o) => o.value === selectedSpeakerId)?.label}
+                        onChange={setSelectedSpeakerId}
+                        options={speakerOptions}
+                        placeholder="Select a speaker..."
+                        searchPlaceholder="Search by name or email..."
+                        emptyText="No speaker matches."
+                      />
                       <Button
                         onClick={handleAddFromSpeaker}
                         disabled={!selectedSpeakerId || addReviewer.isPending}
