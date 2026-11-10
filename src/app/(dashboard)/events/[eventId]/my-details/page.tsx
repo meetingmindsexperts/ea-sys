@@ -88,7 +88,17 @@ interface MyProfile {
   agreementAcceptedAt: string | null;
   sourceRegistration: SourceRegistration | null;
   abstracts: AbstractRow[];
+  /**
+   * Details the person gave elsewhere (their account, an earlier event) for
+   * the fields that are empty here. Only on the GET of an incomplete profile;
+   * they fill the form and are saved by the person's own Save, never before.
+   */
+  suggested?: Partial<Record<SuggestedField, string>>;
 }
+
+type SuggestedField =
+  | "title" | "role" | "specialty" | "customSpecialty" | "organization" | "jobTitle"
+  | "phone" | "city" | "state" | "zipCode" | "country" | "bio";
 
 /** Editable subset of MyProfile (email stays immutable — sign-in identity). */
 interface ProfileForm {
@@ -111,22 +121,24 @@ interface ProfileForm {
 }
 
 function toProfileForm(p: MyProfile): ProfileForm {
+  // The person's own value, else what they gave elsewhere, else blank.
+  const value = (field: SuggestedField) => p[field]?.trim() || p.suggested?.[field] || "";
   return {
-    title: p.title ?? "",
+    title: value("title"),
     firstName: p.firstName,
     lastName: p.lastName,
-    role: p.role ?? "",
-    specialty: p.specialty ?? "",
-    customSpecialty: p.customSpecialty ?? "",
-    organization: p.organization ?? "",
-    jobTitle: p.jobTitle ?? "",
-    phone: p.phone ?? "",
+    role: value("role"),
+    specialty: value("specialty"),
+    customSpecialty: value("customSpecialty"),
+    organization: value("organization"),
+    jobTitle: value("jobTitle"),
+    phone: value("phone"),
     additionalEmail: p.additionalEmail ?? "",
-    city: p.city ?? "",
-    state: p.state ?? "",
-    zipCode: p.zipCode ?? "",
-    country: p.country ?? "",
-    bio: p.bio ?? "",
+    city: value("city"),
+    state: value("state"),
+    zipCode: value("zipCode"),
+    country: value("country"),
+    bio: value("bio"),
     photo: p.photo,
   };
 }
@@ -319,6 +331,10 @@ export default function SubmitterProfilePage() {
   if (!profile) return null;
 
   const missingFields = missingProfileFields(profile);
+  // The form opens filled with what the person gave elsewhere; say so, and
+  // name what they still have to type themselves (a bio, usually).
+  const prefilled = Object.keys(profile.suggested ?? {}).length > 0;
+  const stillMissing = missingProfileFields({ ...profile, ...profile.suggested });
   // Name lock (owner rule, Aug 5, 2026): a name that's already on file —
   // including anyone with an existing registration — is greyed out like the
   // email; changes go through the organizing team. A blank name (rare) can
@@ -370,7 +386,12 @@ export default function SubmitterProfilePage() {
       {missingFields.length > 0 && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
           <strong>Please complete your details</strong>
-
+          {prefilled && (
+            <p className="mt-1">
+              We filled in the details you gave us before. Check them
+              {stillMissing.length > 0 ? `, add what is missing (${stillMissing.join(", ")})` : ""} and press Save.
+            </p>
+          )}
         </div>
       )}
 

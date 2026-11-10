@@ -9,6 +9,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { syncToContact } from "@/lib/contact-sync";
 import { computeDetailsDelta, syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { suggestSpeakerDetails } from "@/lib/submitter-profile-suggestions";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -142,7 +143,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
       );
     }
 
-    return NextResponse.json(speaker);
+    // The details the person already gave elsewhere, for the form's empty
+    // fields. Offered, never written: only their own Save stores them.
+    const suggested = await suggestSpeakerDetails({
+      userId: session.user.id,
+      eventId,
+      sessionTokenVersion: session.user.tokenVersion,
+      current: speaker,
+    });
+    return NextResponse.json({ ...speaker, suggested });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching submitter profile" });
