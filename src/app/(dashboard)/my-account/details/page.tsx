@@ -5,6 +5,7 @@ import { useForm, useWatch, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Lock, Mail, UserRound } from "lucide-react";
 import { MARKETING_CONSENT_TEXT } from "@/lib/marketing-consent";
 import { Button } from "@/components/ui/button";
@@ -96,6 +97,7 @@ export default function MyDetailsPage() {
     };
   }, [reset]);
 
+  const queryClient = useQueryClient();
   const onSubmit = async (values: FormValues) => {
     const res = await fetch("/api/registrant/account-details", {
       method: "PUT",
@@ -108,6 +110,9 @@ export default function MyDetailsPage() {
       toast.error(data.error || "Could not save your details. Please try again.");
       return;
     }
+    // The event's registration page keeps its list for five minutes; without
+    // this it showed the old details, and its Edit wrote them back.
+    queryClient.invalidateQueries({ queryKey: ["registrant", "registrations"] });
     const n = data.registrations?.updated ?? 0;
     toast.success(n > 0 ? `Saved. ${n} upcoming registration${n === 1 ? "" : "s"} updated too.` : "Your details are saved.");
     reset(values);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { eventUsesEntryBarcode } from "@/lib/entry-barcode-policy";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
@@ -9,6 +10,76 @@ import { apiLogger } from "@/lib/logger";
 import { linkConfirmedRegistrations, loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { writeOwnAttendee } from "@/lib/registrant-details";
+
+/**
+ * What a person is sent about their own registration: the fields their page
+ * shows, and nothing else (review of the portal, Nov 10, 2026).
+ *
+ * Until then this was `include` with `attendee: true`, so every column went to
+ * the browser: the staff's internal notes (the staff form promises "not
+ * visible to the attendee"), their tags, the DTCM code, the sponsor and the
+ * tracking columns. A new column on either table is now private until it is
+ * added here.
+ */
+const OWN_REGISTRATION_SELECT = {
+  id: true,
+  serialId: true,
+  status: true,
+  paymentStatus: true,
+  qrCode: true,
+  groupId: true,
+  createdAt: true,
+  originalPrice: true,
+  discountAmount: true,
+  event: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      startDate: true,
+      endDate: true,
+      venue: true,
+      city: true,
+      country: true,
+      bannerImage: true,
+      taxRate: true,
+      taxLabel: true,
+      eventType: true,
+    },
+  },
+  attendee: {
+    select: {
+      title: true,
+      role: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      additionalEmail: true,
+      organization: true,
+      jobTitle: true,
+      phone: true,
+      city: true,
+      country: true,
+      specialty: true,
+      dietaryReqs: true,
+      associationName: true,
+      memberId: true,
+      studentId: true,
+      studentIdExpiry: true,
+      registrationType: true,
+    },
+  },
+  ticketType: { select: { id: true, name: true, price: true, currency: true } },
+  pricingTier: { select: { id: true, name: true, price: true, currency: true } },
+  promoCode: { select: { code: true } },
+  // Group registration: the payer covering this member, which drives the
+  // portal's "covered by {company}" note instead of Pay Now (review H1).
+  group: { select: { billingAccount: { select: { name: true } } } },
+  payments: {
+    select: { id: true, amount: true, currency: true, status: true, receiptUrl: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  },
+} satisfies Prisma.RegistrationSelect;
 
 /**
  * GET /api/registrant/registrations
@@ -44,35 +115,7 @@ export async function GET(req: Request) {
 
     const registrations = await db.registration.findMany({
       where: ownRegistrationWhere(scope),
-      include: {
-        event: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            startDate: true,
-            endDate: true,
-            venue: true,
-            city: true,
-            country: true,
-            bannerImage: true,
-            taxRate: true,
-            taxLabel: true,
-            eventType: true,
-          },
-        },
-        attendee: true,
-        ticketType: { select: { id: true, name: true, price: true, currency: true } },
-        pricingTier: { select: { id: true, name: true, price: true, currency: true } },
-        promoCode: { select: { code: true } },
-        // Group registration: the payer covering this member — drives the
-        // portal's "covered by {company}" note instead of Pay Now (review H1).
-        group: { select: { billingAccount: { select: { name: true } } } },
-        payments: {
-          select: { id: true, amount: true, currency: true, status: true, receiptUrl: true, createdAt: true },
-          orderBy: { createdAt: "desc" },
-        },
-      },
+      select: OWN_REGISTRATION_SELECT,
       orderBy: { createdAt: "desc" },
     });
 
@@ -180,28 +223,8 @@ export async function PUT(req: Request) {
       ...(attendee.studentIdExpiry !== undefined && { studentIdExpiry: attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null }),
     });
 
-    // Return updated registration
-    const updated = await db.registration.findFirst({
-      where: { id: registrationId },
-      include: {
-        event: {
-          select: {
-            id: true, name: true, slug: true, startDate: true, endDate: true,
-            venue: true, city: true, country: true, bannerImage: true,
-          },
-        },
-        attendee: true,
-        ticketType: { select: { id: true, name: true, price: true, currency: true } },
-        pricingTier: { select: { id: true, name: true, price: true, currency: true } },
-        promoCode: { select: { code: true } },
-        payments: {
-          select: { id: true, amount: true, currency: true, status: true, receiptUrl: true, createdAt: true },
-          orderBy: { createdAt: "desc" },
-        },
-      },
-    });
-
-    return NextResponse.json(updated);
+    // No row comes back: the page refetches its list (through the select above).
+    return NextResponse.json({ success: true });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating registrant registration" });

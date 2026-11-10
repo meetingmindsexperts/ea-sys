@@ -72,6 +72,21 @@ describe("buildJourney", () => {
     expect(labels(steps)).toEqual(["Registered:done", "Free:done", "Checked in:done", "Survey to answer:action", "2 certificates ready:done"]);
   });
 
+  it("an unpaid fee is a to-do while the event is ahead, and a fact once it is over", () => {
+    const owing = reg({ ticketType: { name: "Physician", price: 250 } });
+    const journey = (event: typeof past) => labels(buildJourney({ registration: owing, event, surveys: [], certificateCount: 0, now: NOW }));
+    expect(journey(upcoming)).toContain("Payment due:action");
+    // Over: nothing waits for them (the checkout no longer serves this event).
+    expect(journey(past)).toContain("Not paid:missed");
+    expect(journey(past).some((step) => step.endsWith(":action"))).toBe(false);
+  });
+
+  it("a settled or free registration reads the same after the event", () => {
+    const journey = (over: Record<string, unknown>) => labels(buildJourney({ registration: reg(over), event: past, surveys: [], certificateCount: 0, now: NOW }));
+    expect(journey({ paymentStatus: "PAID", ticketType: { name: "Physician", price: 250 } })).toContain("Paid:done");
+    expect(journey({})).toContain("Free:done");
+  });
+
   it("no check-in step on a webinar or for an online attendee", () => {
     const keys = (event: typeof past, over = {}) => buildJourney({ registration: reg(over), event, surveys: [], certificateCount: 0, now: NOW }).map((s) => s.key);
     expect(keys({ ...past, eventType: "WEBINAR" })).not.toContain("checkin");

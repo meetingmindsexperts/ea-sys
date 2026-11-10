@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import authConfig from "@/lib/auth.config";
 import { maxBodySizeFor } from "@/lib/body-limits";
-import { confinementRedirect, type ConfinementGrants } from "@/lib/route-confinement";
+import { confinementRedirect, portalSignInRedirect, type ConfinementGrants } from "@/lib/route-confinement";
 
 // Use the Edge-compatible auth config (no Node.js modules like bcrypt, prisma)
 const { auth } = NextAuth(authConfig);
@@ -143,6 +143,10 @@ export default auth((req) => {
       }
     }
   }
+
+  // ── A signed-out visitor to the portal goes to sign-in, and comes back ──
+  const signIn = portalSignInRedirect(!!req.auth?.user, pathname, req.nextUrl.search);
+  if (signIn) return NextResponse.redirect(new URL(signIn, req.nextUrl));
 
   // ── Confinement: where this person may go in the dashboard UI ──
   // One pure function (src/lib/route-confinement.ts), pinned by a role-by-path

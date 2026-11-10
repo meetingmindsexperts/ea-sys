@@ -6,7 +6,7 @@
  * then read the diff.
  */
 import { describe, it, expect } from "vitest";
-import { confinementRedirect } from "@/lib/route-confinement";
+import { confinementRedirect, portalSignInRedirect } from "@/lib/route-confinement";
 
 const ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "BASE", "REVIEWER", "SUBMITTER", "REGISTRANT", "CUSTOM", "UNKNOWN", ""];
 
@@ -75,5 +75,19 @@ describe("per-person grants open their module", () => {
 
   it("a grant opens only its own module", () => {
     expect(confinementRedirect("ONSITE", "/crm", { hrAccess: true, procurementSettle: true })).toBe("/events");
+  });
+});
+
+describe("a signed-out visitor to the portal", () => {
+  it("goes to sign-in carrying the page and its query, so an emailed link lands where it said", () => {
+    expect(portalSignInRedirect(false, "/my-account/replay/ev1", "")).toBe("/login?callbackUrl=%2Fmy-account%2Freplay%2Fev1");
+    expect(portalSignInRedirect(false, "/my-account", "?tab=past")).toBe("/login?callbackUrl=%2Fmy-account%3Ftab%3Dpast");
+  });
+
+  it("leaves a signed-in visitor, and every page outside the portal, to the rules below it", () => {
+    expect(portalSignInRedirect(true, "/my-account/certificates", "")).toBeNull();
+    expect(portalSignInRedirect(false, "/events/e1", "")).toBeNull();
+    expect(portalSignInRedirect(false, "/my-accounting", "")).toBeNull();
+    expect(portalSignInRedirect(false, "/api/registrant/registrations", "")).toBeNull();
   });
 });

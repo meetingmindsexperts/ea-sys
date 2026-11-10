@@ -22,7 +22,11 @@
 export interface SignOutEventRef {
   id: string;
   slug?: string | null;
+  status?: string | null;
 }
+
+/** The event sign-in page loads only for these (the public event API's rule). */
+const OPEN_STATUSES = new Set(["PUBLISHED", "LIVE"]);
 
 export function signOutCallbackUrl(
   role: string | null | undefined,
@@ -30,6 +34,9 @@ export function signOutCallbackUrl(
 ): string {
   if (role !== "SUBMITTER" && role !== "REGISTRANT") return "/login";
   if (!event?.slug) return "/login";
+  // An event that is over or not published has no sign-in page: it showed a
+  // red "Event not found" straight after a normal sign-out (Nov 10, 2026).
+  if (event.status && !OPEN_STATUSES.has(event.status)) return "/login";
   if (role === "REGISTRANT") return `/e/${event.slug}/login?redirect=registration`;
   return `/e/${event.slug}/login?redirect=${encodeURIComponent(`/events/${event.id}/my-details`)}`;
 }

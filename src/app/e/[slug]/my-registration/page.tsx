@@ -881,7 +881,9 @@ export default function EventMyRegistrationPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => signOut({ callbackUrl: `/e/${slug}/login?redirect=registration` })}
+                // `event` is null when the public API refused the slug (over, or not
+                // published): that event has no sign-in page to land on.
+                onClick={() => signOut({ callbackUrl: event ? `/e/${slug}/login?redirect=registration` : "/login" })}
               >
                 <LogOut className="h-4 w-4 sm:mr-1.5" />
                 <span className="hidden sm:inline">Sign out</span>

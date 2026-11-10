@@ -52,6 +52,10 @@ describe("registrant self-edit", () => {
   it("touches every registration on the attendee, in the same transaction as the attendee write", async () => {
     const res = await put({ registrationId: "reg1", attendee: { firstName: "New" } });
     expect(res.status).toBe(200);
+    // No row is sent back (the page refetches its list through the route's
+    // allow-list): one read, the ownership check.
+    expect(await res.json()).toEqual({ success: true });
+    expect(mockDb.registration.findFirst).toHaveBeenCalledTimes(1);
     expect(mockDb.$transaction).toHaveBeenCalledTimes(1);
     // The rows are locked, in id order, before they are touched.
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.registration.updateMany.mock.invocationCallOrder[0]);

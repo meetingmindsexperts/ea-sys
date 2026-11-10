@@ -124,6 +124,20 @@ function emptyBaseRedirect(extra: readonly AreaGrant[], pages: readonly string[]
   return pages[0];
 }
 
+/**
+ * Where a signed-OUT visitor to a portal page is sent: the sign-in page,
+ * carrying the page they asked for (review of the portal, Nov 10, 2026).
+ *
+ * The pages build the same address themselves, but the dashboard layout above
+ * them redirects to a bare /login first, so the replay button in an email
+ * dropped a signed-out person on My events (or the Events list) after sign-in.
+ * Only the portal: its links are the ones that arrive by email.
+ */
+export function portalSignInRedirect(signedIn: boolean, pathname: string, search: string): string | null {
+  if (signedIn || !under(pathname, "/my-account")) return null;
+  return `/login?callbackUrl=${encodeURIComponent(pathname + search)}`;
+}
+
 export function confinementRedirect(role: string | null | undefined, pathname: string, grants?: ConfinementGrants | null): string | null {
   if (pathname.startsWith("/api/")) return null;
 

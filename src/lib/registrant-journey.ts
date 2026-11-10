@@ -109,7 +109,14 @@ export function buildJourney(input: {
   now: Date;
 }): JourneyStep[] {
   const { registration: reg, event, surveys, certificateCount, now } = input;
-  const steps: JourneyStep[] = [registeredStep(reg.status), paymentStep(reg)];
+  const over = now.getTime() > event.endDate.getTime();
+  const payment = paymentStep(reg);
+  // Once the event is over the fee is a fact, not a to-do (review of the
+  // portal, Nov 10, 2026): "Complete your payment" stayed on My events for
+  // ever, and its Pay now ended in "Registration not found" because the
+  // checkout only serves an event that is still open.
+  const unpaidAndOver = over && payment.state === "action";
+  const steps: JourneyStep[] = [registeredStep(reg.status), unpaidAndOver ? { key: "payment", label: "Not paid", state: "missed" } : payment];
   // A webinar and an online attendee never pass the desk.
   const atVenue = event.eventType !== "WEBINAR" && reg.attendanceMode !== "VIRTUAL";
   if (atVenue && ATTENDING.has(reg.status)) steps.push(checkInStep(reg.status, event.endDate, now));
@@ -117,7 +124,7 @@ export function buildJourney(input: {
   if (surveys.length > 0) steps.push(surveyStep(surveys));
   if (certificateCount > 0) {
     steps.push({ key: "certificate", label: certificateCount === 1 ? "Certificate ready" : `${certificateCount} certificates ready`, state: "done" });
-  } else if (ATTENDING.has(reg.status) && now.getTime() > event.endDate.getTime()) {
+  } else if (ATTENDING.has(reg.status) && over) {
     steps.push({ key: "certificate", label: "No certificate yet", state: "waiting" });
   }
   return steps;

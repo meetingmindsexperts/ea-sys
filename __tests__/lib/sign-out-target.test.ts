@@ -35,6 +35,16 @@ describe("signOutCallbackUrl", () => {
     expect(signOutCallbackUrl("REGISTRANT", { id: "ev1", slug: null })).toBe("/login");
   });
 
+  it("an event that is over or not published has no sign-in page, so both roles get /login", () => {
+    for (const status of ["COMPLETED", "DRAFT", "CANCELLED"]) {
+      expect(signOutCallbackUrl("REGISTRANT", { ...ev, status })).toBe("/login");
+      expect(signOutCallbackUrl("SUBMITTER", { ...ev, status })).toBe("/login");
+    }
+    for (const status of ["PUBLISHED", "LIVE"]) {
+      expect(signOutCallbackUrl("REGISTRANT", { ...ev, status })).toBe("/e/MEHF2026/login?redirect=registration");
+    }
+  });
+
   it("undefined role (session not yet loaded) falls back to /login", () => {
     expect(signOutCallbackUrl(undefined, ev)).toBe("/login");
     expect(signOutCallbackUrl(null, ev)).toBe("/login");

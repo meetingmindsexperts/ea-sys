@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
-import { loadRegistrantScope, type RegistrantScope } from "@/lib/registrant-access";
+import { linkConfirmedRegistrations, loadRegistrantScope, type RegistrantScope } from "@/lib/registrant-access";
 
 /**
  * The one way a page of a person's own portal (/my-account and the pages
@@ -32,6 +32,13 @@ export async function loadRegistrantPortal<T>(
     result = await runWithTenantLane(orgId, { route: `page:${path}`, userId }, async () => {
       const scope = await loadRegistrantScope(userId, { sessionTokenVersion: session.user.tokenVersion });
       if (!scope) return null;
+      // A registration staff added or imported for a confirmed account is
+      // listed here by its address, but My Details and the webinar room go by
+      // the link. Until Nov 10, 2026 only the event's own page linked it, so
+      // the three disagreed. A no-op for an account that has not confirmed.
+      await linkConfirmedRegistrations(scope).catch((err) => {
+        apiLogger.warn({ err, msg: "registrant-portal:link-failed", path, userId });
+      });
       return { scope, data: await load(scope) };
     });
   } catch (err) {

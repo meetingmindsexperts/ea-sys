@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### My portal: six fixes from a review of /my-account (November 10)
+
+- **Staff notes no longer reach the attendee's browser** - `GET /api/registrant/registrations` (the list behind an event's My Registration page) sent whole Registration and Attendee rows: internal notes, staff tags, the DTCM code, sponsor and tracking columns. Own rows only, so nobody saw another person's, but the staff form promises "not visible to the attendee". It now sends an allow-list of the fields the page shows; the PUT answers `{ success: true }` instead of the row
+- **An emailed portal link keeps its destination** - A signed-out person opening `/my-account/...` (the replay button in an email) landed on a bare `/login` and, after sign-in, on My events or the Events list. The middleware now sends them to `/login?callbackUrl=<the page>` (`portalSignInRedirect` in `route-confinement.ts`)
+- **A past event's unpaid fee is a fact, not a to-do** - "Complete your payment" stayed on My events for ever and its Pay now ended in "Registration not found". Once the event is over the step reads "Not paid" and nothing waits
+- **A registration listed on My events is linked on any portal page** - Staff-added and imported registrations for a confirmed account were listed by address but linked only when the person opened that event's page, so a My Details save skipped them and the webinar room treated them as not registered. `loadRegistrantPortal` now links them (a no-op for an unconfirmed account)
+- **A My Details save refreshes the event page's copy** - It showed the old details for up to five minutes, and its Edit wrote them back
+- **Sign out never lands on "Event not found"** - An attendee whose event is over or unpublished signs out to `/login` (`signOutCallbackUrl` reads the event's status; the event page's own Sign out does the same)
+
 ### Webinar replays: an uploaded recording, watched in the portal (November 10)
 
 - **Replay link (Vimeo) in the Webinar Console** (owner, Nov 10) - Zoom's cloud recording expires and its link can be forwarded, so an organiser uploads the recording to the organisation's Vimeo account and pastes the video's link on the console's Recording card (`settings.webinar.replayUrl`). Once the webinar is over, registered attendees watch it in place of the Zoom recording, while "Show the recording to attendees" is on. Saving a link never flips that switch (it also shows Zoom's recording); the card says when it is off, and "Preview the saved replay" plays the link as attendees will get it. Only a Vimeo video link is accepted, and the player address is built from the parsed video id, never from the pasted text (`src/lib/webinar/replay-video.ts`). A clone never carries a replay link

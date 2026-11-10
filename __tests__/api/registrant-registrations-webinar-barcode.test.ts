@@ -60,6 +60,17 @@ describe("GET /api/registrant/registrations", () => {
     const body = (await (await GET(new Request("http://x"))).json()) as { id: string; qrCode: string | null }[];
     expect(body.find((r) => r.id === "w")?.qrCode).toBeNull();
     expect(body.find((r) => r.id === "c")?.qrCode).toBe("CONF-1");
-    expect(mockDb.registration.findMany.mock.calls[0][0].include.event.select.eventType).toBe(true);
+    const { select, include } = mockDb.registration.findMany.mock.calls[0][0];
+    expect(select.event.select.eventType).toBe(true);
+    // An allow-list, never the whole row: the staff's internal notes, their
+    // tags and the DTCM code went to the attendee's browser until Nov 10, 2026.
+    expect(include).toBeUndefined();
+    expect(select.attendee).not.toBe(true);
+    for (const hidden of ["notes", "dtcmBarcode", "sponsorId", "certAutoIssueError", "stripeCheckoutSessionId"]) {
+      expect(select).not.toHaveProperty(hidden);
+    }
+    for (const hidden of ["tags", "customFields", "externalId"]) {
+      expect(select.attendee.select).not.toHaveProperty(hidden);
+    }
   });
 });
