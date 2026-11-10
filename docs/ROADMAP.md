@@ -21,17 +21,26 @@ day. These were recorded instead:
   speaker's additional-email rule already leaves two sensitive links to the primary address only
   (reimbursement, profile form). Options if this is revisited: send the second inbox a copy without
   the link, or stop treating acceptance as mailbox proof when the invitation was copied.
-- **Saved copies keep the old greeting.** The built-in reviewer templates now greet with the title,
-  but about 32 events hold their own saved copy of `reviewer-assignment` and
-  `reviewer-pool-invitation` with "Dear {{firstName}} {{lastName}}". Only MEHF2027 has a reviewer
-  pool, and its copies were edited by hand. Fix when a second event starts reviewing: an idempotent
-  REPLACE of the exact old sentence in unedited copies, as `20261110140000` did, or Reset to Default
-  on that event. Not done now: a production data change for templates nobody is sending.
+- **Saved copies of the Reviewer Invitation keep the older wording (one-email change, Nov 10,
+  2026).** The built-in wording now gets a reviewer in through `{{portalAccess}}`. Six events
+  hold a saved copy from earlier the same day: three with the first fixed text, two with the
+  two-button wording, and MEHF2027's, edited by its organiser. They still send
+  (`{{setupLink}}` resolves to the portal link for a reviewer who needs no password), but
+  they tell every reviewer to set a password. MEHF2027 is the only event with a reviewer
+  pool: its organiser replaces the two-button part with `{{portalAccess}}` in the editor.
+  For the other five, press Reset to Default when they start reviewing, or delete the
+  unedited rows by content hash in a migration. Not done now: a production data change for
+  templates nobody is sending (the same call as before).
+- **Left in place by the one-email change:** the saved `reviewer-assignment` and
+  `reviewer-pool-invitation` rows on about 36 events (hidden, `RETIRED_SYSTEM_TEMPLATE_SLUGS`),
+  and the unread `AbstractReviewer.notifiedAt` / `notifyClaimedAt` / `notifyClaimToken`
+  columns (a column is never dropped). Send invitation to all records nobody, so every press
+  goes to everyone; if organisers ask "who have I not emailed", the answer is in the email
+  log (`templateSlug = 'reviewer-invitation'`), not on the page.
 - **Older, MED: `emailVerified` was read as "has a password": FIXED Nov 10, 2026.** A registrant
-  added as a reviewer showed "Pending Invitation", was skipped by Send assignments, and Send
-  invitation mailed a link that replaced their password. One rule now, `reviewerAccountIsSetUp()`
-  in `abstract-reviewer-access.ts`, asked by the Reviewers page, the assignment email and the
-  invitation route. It reads the role (only an invited REVIEWER account starts without a
+  added as a reviewer showed "Pending Invitation" and Send invitation mailed a link that
+  replaced their password. One rule now, `reviewerAccountIsSetUp()` in
+  `abstract-reviewer-access.ts`, asked by the Reviewers page and the reviewer invitation. It reads the role (only an invited REVIEWER account starts without a
   password); a real "password set at" column would say it directly if a third kind of account
   ever appears.
 - **Older, HIGH, awaiting the owner (review of `5c66e67d`, traced by reading, not run): a submitter

@@ -1,31 +1,33 @@
 /**
- * Reviewer emails. Since Nov 10, 2026 none is automatic: the organiser sends
- * the pool email from the Reviewers page, and "Send assignments" emails each
- * reviewer ONE message listing every assignment not emailed yet
- * (sendPendingAssignments), instead of one email per assignment.
+ * THE reviewer email (Nov 10, 2026: one template, not three). Sent only by
+ * hand from the Reviewers page: the row's Send button and Send to all both
+ * call sendReviewerInvitation.
  *
- * The rows are leased before the send and marked after it (review of
- * 2df0f9e6). This file pins the ORDER and the outcomes with a mocked client;
- * the race itself needs real Postgres and lives in
- * tests/integration-db/reviewer-assignment-claim.db.test.ts.
+ * What differs per reviewer is {{portalAccess}}: an account with no password
+ * yet gets a freshly minted set-password link, one that can already sign in
+ * gets the portal button and NO link that could replace its password.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { sendEmailSpy, speakerFindMany, userFindUnique, assignmentFindMany, assignmentUpdateMany, logger } = vi.hoisted(() => ({
+const { sendEmailSpy, speakerFindMany, userFindUnique, tokenDeleteMany, tokenCreate, logger } = vi.hoisted(() => ({
   sendEmailSpy: vi.fn(),
   speakerFindMany: vi.fn(),
   userFindUnique: vi.fn(),
-  assignmentFindMany: vi.fn(),
-  assignmentUpdateMany: vi.fn(),
+  tokenDeleteMany: vi.fn(),
+  tokenCreate: vi.fn(),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("@/lib/db", () => ({
-  db: {
-    speaker: { findMany: speakerFindMany },
-    user: { findUnique: userFindUnique },
-    abstractReviewer: { findMany: assignmentFindMany, updateMany: assignmentUpdateMany },
-  },
-}));
+vi.mock("@/lib/db", () => {
+  const verificationToken = { deleteMany: tokenDeleteMany, create: tokenCreate };
+  return {
+    db: {
+      speaker: { findMany: speakerFindMany },
+      user: { findUnique: userFindUnique },
+      verificationToken,
+      $transaction: (cb: (tx: unknown) => unknown) => cb({ verificationToken }),
+    },
+  };
+});
 
 vi.mock("@/lib/email", async () => {
   const actual = await vi.importActual<typeof import("@/lib/email")>("@/lib/email");
@@ -33,436 +35,197 @@ vi.mock("@/lib/email", async () => {
     sendEmail: sendEmailSpy,
     brandingCc: actual.brandingCc,
     getEventTemplate: vi.fn(),
-    getDefaultTemplate: vi.fn().mockReturnValue({ slug: "reviewer-pool-invitation", subject: "s", htmlContent: "h", textContent: "t" }),
+    getDefaultTemplate: vi.fn(),
     renderAndWrap: vi.fn(actual.renderAndWrap),
     brandingFrom: vi.fn().mockReturnValue({ email: "from@x.com" }),
   };
 });
 vi.mock("@/lib/logger", () => ({ apiLogger: logger }));
+vi.mock("@/lib/security", () => ({ hashVerificationToken: (t: string) => `hash:${t}` }));
 
-import { ASSIGNMENT_CLAIM_TTL_MS, notifyReviewerPoolAdded, sendPendingAssignments, sendReviewerSetupInvitation } from "@/lib/abstract-reviewer-notify";
-import { sendableAssignmentWhere } from "@/lib/abstract-reviewer-access";
-import { getDefaultTemplate, getEventTemplate, renderAndWrap } from "@/lib/email";
+import { inviterNameOf, reviewerSpeakerRecords, sendReviewerInvitation } from "@/lib/abstract-reviewer-notify";
+import { getDefaultTemplate, getEventTemplate } from "@/lib/email";
 import { DEFAULT_TEMPLATE_BODIES } from "@/lib/email-template-defaults";
 import { EMAIL_TEMPLATE_SPECS } from "@/lib/email-template-registry";
-import { findUnresolvedTokens } from "@/lib/template-tokens";
+import { REVIEWER_SETUP_LINK_DAYS } from "@/lib/reviewer-portal-access";
+import { findUnresolvedTokens, UNRESOLVED_TOKENS_CODE } from "@/lib/template-tokens";
 
-const JANE = { id: "u1", firstName: "Jane", lastName: "Doe", email: "jane@x.com", emailVerified: new Date() };
-const ASSIGNMENT_TEMPLATE = {
-  subject: "Abstracts for Review | {{eventName}}",
-  htmlContent: "<p>Dear {{title}} {{lastName}}, as {{role}}:</p><p>{{abstractTitle}}</p><p>{{abstractCount}}</p>",
-  textContent: "Dear {{title}} {{lastName}}, as {{role}}:\n  {{abstractTitle}}",
-  branding: { eventName: "MedCon", emailCcAddresses: ["ops@example.com", "JANE@x.com"] },
-};
-const sendArgs = { eventId: "ev1", organizationId: "org1", reviewerUserId: "u1", triggeredByUserId: "admin1" };
+const DEFAULT = DEFAULT_TEMPLATE_BODIES["reviewer-invitation"];
+const BRANDING = { eventName: "MedCon", emailCcAddresses: ["ops@example.com", "NEW@x.com"] };
+/** An invited reviewer: no password yet. */
+const NEW_REVIEWER = { id: "u1", firstName: "Dina", lastName: "Ortiz", email: "New@x.com", role: "REVIEWER", emailVerified: null };
+/** A speaker with their own account, added as a reviewer: has a password, no emailVerified. */
+const HAS_ACCOUNT = { id: "u2", firstName: "Sam", lastName: "Lee", email: "sam@x.com", role: "SUBMITTER", emailVerified: null };
 
-const PENDING = [
-  { id: "ar1", notifyClaimedAt: null },
-  { id: "ar2", notifyClaimedAt: null },
-];
-const MINE = [
-  { id: "ar1", role: "PRIMARY", abstract: { title: "Novel Therapy" } },
-  { id: "ar2", role: "PRIMARY", abstract: { title: "Heart <Failure> & CBT" } },
-];
-
-/** The two reads: first the pending rows, then (by claim token) the rows this call owns. */
-function assignmentReads(pending: unknown[], mine: unknown[]) {
-  assignmentFindMany.mockImplementation(({ where }: { where: { notifyClaimToken?: string } }) =>
-    Promise.resolve(where.notifyClaimToken ? mine : pending),
-  );
-}
-const claimCall = () => assignmentUpdateMany.mock.calls.find(([arg]) => arg.data.notifyClaimToken)?.[0];
-const markCall = () => assignmentUpdateMany.mock.calls.find(([arg]) => arg.data.notifiedAt)?.[0];
-const releaseCall = () =>
-  assignmentUpdateMany.mock.calls.find(([arg]) => arg.data.notifyClaimToken === null && !arg.data.notifiedAt)?.[0];
+const args = (reviewer: typeof NEW_REVIEWER) => ({
+  eventId: "ev1",
+  organizationId: "org1",
+  eventName: "MedCon",
+  eventSlug: "MEDCON",
+  reviewer,
+  organizationName: "Meeting Minds Experts",
+  inviterName: "Sarah Ahmed",
+  triggeredByUserId: "admin1",
+});
 const sent = () => sendEmailSpy.mock.calls[0][0];
 
 beforeEach(() => {
   vi.clearAllMocks();
   sendEmailSpy.mockResolvedValue({ success: true });
   speakerFindMany.mockResolvedValue([]);
-  userFindUnique.mockResolvedValue(JANE);
-  vi.mocked(getEventTemplate).mockResolvedValue(ASSIGNMENT_TEMPLATE);
-  assignmentReads(PENDING, MINE);
-  assignmentUpdateMany.mockResolvedValue({ count: 2 });
+  userFindUnique.mockResolvedValue({ emailSignature: "<p>Sarah, Secretariat</p>" });
+  vi.mocked(getEventTemplate).mockResolvedValue({ ...DEFAULT, branding: BRANDING });
 });
 
-describe("sendPendingAssignments: one email per reviewer", () => {
-  it("lists every unsent assignment in one email, then marks them notified", async () => {
-    expect(await sendPendingAssignments(sendArgs)).toEqual({ ok: true, sent: 2, recorded: true, reclaimed: false });
-    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
-    expect(sent().subject).toBe("Abstracts for Review | MedCon");
-    expect(sent().htmlContent).toContain("1. Novel Therapy<br>2. Heart &lt;Failure&gt; &amp; CBT");
-    expect(sent().htmlContent).toMatch(/>2<\/p>/);
-    expect(sent().textContent).toContain("1. Novel Therapy\n  2. Heart <Failure> & CBT");
-    expect(sent().textContent).not.toContain("<br>");
-    expect(sent().logContext).toMatchObject({ entityType: "USER", entityId: "u1", eventId: "ev1", templateSlug: "reviewer-assignment" });
-    expect(markCall()).toEqual({
-      where: { userId: "u1", notifyClaimToken: claimCall().data.notifyClaimToken },
-      data: { notifiedAt: expect.any(Date), notifyClaimedAt: null, notifyClaimToken: null },
-    });
+describe("sendReviewerInvitation: a reviewer with no password yet", () => {
+  it("mints a fresh set-password link, replacing any earlier one, and sends both buttons", async () => {
+    expect(await sendReviewerInvitation(args(NEW_REVIEWER))).toEqual({ ok: true, kind: "setup" });
+
+    // One address holds one invitation: the old token goes, a hashed one is stored.
+    expect(tokenDeleteMany).toHaveBeenCalledWith({ where: { identifier: "new@x.com" } });
+    const stored = tokenCreate.mock.calls[0][0].data;
+    expect(stored.identifier).toBe("new@x.com");
+    expect(stored.token).toMatch(/^hash:[0-9a-f]{64}$/);
+    // The link lasts exactly as long as the email says it does.
+    const days = (stored.expires.getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(REVIEWER_SETUP_LINK_DAYS - 0.1);
+    expect(days).toBeLessThanOrEqual(REVIEWER_SETUP_LINK_DAYS);
+    expect(sent().htmlContent).toContain(`within ${REVIEWER_SETUP_LINK_DAYS} days`);
+
+    const raw = stored.token.slice("hash:".length);
+    const link = `/accept-invitation?token=${raw}&amp;email=new%40x.com&amp;eventSlug=MEDCON`;
+    expect(sent().htmlContent).toContain(link);
+    expect(sent().htmlContent).toContain("SET YOUR PASSWORD");
+    expect(sent().htmlContent).toContain("REVIEWER PORTAL");
+    expect(sent().htmlContent).toContain("/login?callbackUrl=%2Fmy-reviews");
+    // The text part gets plain lines, never the block's markup.
+    expect(sent().textContent).toContain(`SET YOUR PASSWORD: `);
+    expect(sent().textContent).toContain(`token=${raw}&email=new%40x.com`);
+    expect(sent().textContent).not.toContain("<div");
+    expect(sent().logContext).toMatchObject({ entityType: "USER", entityId: "u1", eventId: "ev1", templateSlug: "reviewer-invitation", triggeredByUserId: "admin1" });
+    expect(sent().emailType).toBe("reviewer_invitation");
   });
 
-  it("asks for exactly what the page counts: the shared sendable rule", async () => {
-    await sendPendingAssignments(sendArgs);
-    expect(assignmentFindMany.mock.calls[0][0].where).toEqual({ ...sendableAssignmentWhere("ev1"), userId: "u1" });
-    expect(sendableAssignmentWhere("ev1")).toEqual({
-      notifiedAt: null,
-      conflictFlag: false,
-      abstract: { eventId: "ev1", status: { in: ["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"] } },
-    });
-  });
-
-  it("names the role when all share it, and says Reviewer when they differ", async () => {
-    await sendPendingAssignments(sendArgs);
-    expect(sent().textContent).toContain("as Primary reviewer:");
-    assignmentReads(PENDING, [
-      { id: "ar1", role: "PRIMARY", abstract: { title: "A" } },
-      { id: "ar2", role: "SECONDARY", abstract: { title: "B" } },
-    ]);
-    await sendPendingAssignments(sendArgs);
-    expect(sendEmailSpy.mock.calls[1][0].textContent).toContain("as Reviewer:");
-  });
-
-  it("copies the event's Auto-CC, never the reviewer themselves", async () => {
-    await sendPendingAssignments(sendArgs);
-    expect(sent().cc).toEqual([{ email: "ops@example.com" }]);
-    // The speaker record's second inbox is copied too, as on every email to a speaker.
-    sendEmailSpy.mockClear();
-    assignmentUpdateMany.mockClear();
-    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: "DR", additionalEmail: "assistant@clinic.com" }]);
-    await sendPendingAssignments(sendArgs);
-    expect(sent().cc).toEqual([{ email: "ops@example.com" }, { email: "assistant@clinic.com" }]);
-  });
-
-  it("fills {{title}} from the reviewer's speaker record", async () => {
-    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: "DR" }]);
-    await sendPendingAssignments(sendArgs);
-    expect(sent().textContent).toContain("Dear Dr. Doe");
-  });
-
-  it("sends nothing and claims nothing when nothing is pending", async () => {
-    assignmentReads([], []);
-    expect(await sendPendingAssignments(sendArgs)).toMatchObject({ ok: false, code: "NOTHING_PENDING" });
-    expect(sendEmailSpy).not.toHaveBeenCalled();
-    expect(assignmentUpdateMany).not.toHaveBeenCalled();
-  });
-
-  it("refuses an unknown reviewer and a missing template without claiming or sending", async () => {
-    userFindUnique.mockResolvedValueOnce(null);
-    expect(await sendPendingAssignments(sendArgs)).toMatchObject({ ok: false, code: "REVIEWER_NOT_FOUND" });
-    vi.mocked(getEventTemplate).mockResolvedValueOnce(null);
-    expect(await sendPendingAssignments(sendArgs)).toMatchObject({ ok: false, code: "NO_TEMPLATE" });
-    expect(sendEmailSpy).not.toHaveBeenCalled();
-    expect(assignmentUpdateMany).not.toHaveBeenCalled();
-  });
-
-  it("a registrant added as a reviewer gets the digest: their own account has a password, verified or not", async () => {
-    userFindUnique.mockResolvedValue({ ...JANE, emailVerified: null, role: "REGISTRANT" });
-    expect(await sendPendingAssignments(sendArgs)).toMatchObject({ ok: true, sent: 2 });
-    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it("an account that never accepted its invitation gets no digest: it has no password to log in with", async () => {
-    userFindUnique.mockResolvedValue({ ...JANE, emailVerified: null });
-    expect(await sendPendingAssignments(sendArgs)).toMatchObject({ ok: false, code: "ACCOUNT_NOT_SET_UP" });
-    expect(sendEmailSpy).not.toHaveBeenCalled();
-    expect(assignmentUpdateMany).not.toHaveBeenCalled();
+  it("leaves nothing unresolved from the built-in wording, signed by whoever pressed Send", async () => {
+    await sendReviewerInvitation(args(NEW_REVIEWER));
+    expect(findUnresolvedTokens(sent().subject, sent().htmlContent, sent().textContent)).toEqual([]);
+    expect(sent().subject).toBe("Invitation to review abstracts | MedCon");
+    expect(sent().htmlContent).toContain("Sarah, Secretariat");
   });
 });
 
-describe("the send lease: no duplicate, nothing silently lost", () => {
-  it("claims BEFORE sending, with a WHERE on the row's own columns only", async () => {
-    await sendPendingAssignments(sendArgs);
-    const claimOrder = assignmentUpdateMany.mock.invocationCallOrder[0];
-    expect(claimOrder).toBeLessThan(sendEmailSpy.mock.invocationCallOrder[0]);
-    const claim = claimCall();
-    expect(claim.where).toEqual({
-      id: { in: ["ar1", "ar2"] },
-      userId: "u1",
-      notifiedAt: null,
-      conflictFlag: false,
-      OR: [{ notifyClaimedAt: null }, { notifyClaimedAt: { lt: expect.any(Date) } }],
+describe("sendReviewerInvitation: a reviewer who can already sign in", () => {
+  it("sends the portal button only, and mints NO link that could replace their password", async () => {
+    expect(await sendReviewerInvitation(args(HAS_ACCOUNT))).toEqual({ ok: true, kind: "portal" });
+    expect(tokenDeleteMany).not.toHaveBeenCalled();
+    expect(tokenCreate).not.toHaveBeenCalled();
+    expect(sent().htmlContent).toContain("REVIEWER PORTAL");
+    expect(sent().htmlContent).toContain("signing in with sam@x.com");
+    expect(sent().htmlContent).not.toContain("SET YOUR PASSWORD");
+    expect(sent().htmlContent).not.toContain("accept-invitation");
+    expect(sent().textContent).not.toContain("accept-invitation");
+  });
+
+  it("a copy saved before {{portalAccess}} still renders: its set-password button leads to the portal", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValue({
+      subject: "Abstracts for Review | {{eventName}}",
+      htmlContent: '<p>First, set your password, within {{expiresIn}}.</p><a href="{{setupLink}}">SET YOUR PASSWORD</a><a href="{{reviewLink}}">REVIEWER PORTAL</a>',
+      textContent: "SET YOUR PASSWORD: {{setupLink}}",
+      branding: BRANDING,
     });
-    // A relation filter here would not be re-tested after a row lock wait.
-    expect(claim.where).not.toHaveProperty("abstract");
-    expect(claim.data).toEqual({ notifyClaimedAt: expect.any(Date), notifyClaimToken: expect.any(String) });
-  });
-
-  it("emails only the rows this call owns, read back by its token", async () => {
-    assignmentReads(PENDING, [MINE[0]]);
-    assignmentUpdateMany.mockResolvedValue({ count: 1 });
-    expect(await sendPendingAssignments(sendArgs)).toMatchObject({ ok: true, sent: 1 });
-    expect(assignmentFindMany.mock.calls[1][0].where).toEqual({ userId: "u1", notifyClaimToken: claimCall().data.notifyClaimToken });
-    expect(sent().htmlContent).toContain("Novel Therapy");
-    expect(sent().htmlContent).not.toContain("CBT");
-  });
-
-  it("another send holds every row: IN_PROGRESS, no claim, no email", async () => {
-    assignmentReads([{ id: "ar1", notifyClaimedAt: new Date() }], MINE);
-    expect(await sendPendingAssignments(sendArgs)).toMatchObject({ ok: false, code: "IN_PROGRESS" });
-    expect(assignmentUpdateMany).not.toHaveBeenCalled();
-    expect(sendEmailSpy).not.toHaveBeenCalled();
-  });
-
-  it("losing the claim to a send that got there first: IN_PROGRESS, no email", async () => {
-    assignmentUpdateMany.mockResolvedValue({ count: 0 });
-    expect(await sendPendingAssignments(sendArgs)).toMatchObject({ ok: false, code: "IN_PROGRESS" });
-    expect(sendEmailSpy).not.toHaveBeenCalled();
-  });
-
-  it("a failed send releases the claim, so the rows stay pending and can be sent again", async () => {
-    sendEmailSpy.mockResolvedValue({ success: false, error: "provider said no", code: "PROVIDER" });
-    expect(await sendPendingAssignments(sendArgs)).toEqual({ ok: false, code: "SEND_FAILED", message: "The email could not be sent" });
-    expect(releaseCall()).toEqual({
-      where: { userId: "u1", notifyClaimToken: claimCall().data.notifyClaimToken, notifiedAt: null },
-      data: { notifyClaimedAt: null, notifyClaimToken: null },
-    });
-    expect(markCall()).toBeUndefined();
-  });
-
-  it("a template fault reaches the organiser in its own words", async () => {
-    sendEmailSpy.mockResolvedValue({ success: false, error: "Email not sent: it still contains {{venue}}", code: "UNRESOLVED_TOKENS" });
-    expect(await sendPendingAssignments(sendArgs)).toMatchObject({ code: "SEND_FAILED", message: "Email not sent: it still contains {{venue}}" });
-  });
-
-  it("never throws, and a throwing send releases too", async () => {
-    sendEmailSpy.mockRejectedValue(new Error("SES down"));
-    await expect(sendPendingAssignments(sendArgs)).resolves.toMatchObject({ ok: false, code: "SEND_FAILED" });
-    expect(releaseCall()).toBeDefined();
-  });
-
-  it("sent but not recorded is NOT a failed send: ok, logged at error, claim kept", async () => {
-    vi.useFakeTimers();
-    try {
-      assignmentUpdateMany.mockImplementation(({ data }: { data: { notifiedAt?: Date } }) =>
-        data.notifiedAt ? Promise.reject(new Error("db unreachable")) : Promise.resolve({ count: 2 }),
-      );
-      const sending = sendPendingAssignments(sendArgs);
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(await sending).toEqual({ ok: true, sent: 2, recorded: false, reclaimed: false });
-      expect(sendEmailSpy).toHaveBeenCalledTimes(1);
-      expect(releaseCall()).toBeUndefined();
-      expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-assignment:sent-not-recorded", count: 2 }));
-      // Tried for about 10 seconds (at 0, 0.2, 1.2, 4.2 and 7.2), not given up on in half a second.
-      expect(assignmentUpdateMany.mock.calls.filter(([a]) => a.data.notifiedAt)).toHaveLength(5);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("a database blip of a few seconds after the send still records it: one email, nothing left to send again", async () => {
-    vi.useFakeTimers();
-    try {
-      let marks = 0;
-      assignmentUpdateMany.mockImplementation(({ data }: { data: { notifiedAt?: Date } }) => {
-        if (!data.notifiedAt) return Promise.resolve({ count: 2 });
-        marks += 1;
-        // Down for the first three tries (0, 0.2 and 1.2 seconds), back by the fourth.
-        return marks <= 3 ? Promise.reject(new Error("connection closed")) : Promise.resolve({ count: 2 });
-      });
-      const sending = sendPendingAssignments(sendArgs);
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(await sending).toEqual({ ok: true, sent: 2, recorded: true, reclaimed: false });
-      expect(sendEmailSpy).toHaveBeenCalledTimes(1);
-      expect(logger.error).not.toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-assignment:sent-not-recorded" }));
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("takes over a claim older than the lease and says the earlier send was interrupted", async () => {
-    const old = new Date(Date.now() - ASSIGNMENT_CLAIM_TTL_MS - 60_000);
-    assignmentReads([{ id: "ar1", notifyClaimedAt: old }, { id: "ar2", notifyClaimedAt: null }], MINE);
-    expect(await sendPendingAssignments(sendArgs)).toMatchObject({ ok: true, reclaimed: true });
-    expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-assignment:interrupted-send-reclaimed", rows: 1 }));
+    expect(await sendReviewerInvitation(args(HAS_ACCOUNT))).toEqual({ ok: true, kind: "portal" });
+    expect(findUnresolvedTokens(sent().htmlContent, sent().textContent)).toEqual([]);
+    expect(sent().htmlContent).not.toContain("accept-invitation");
+    expect(sent().textContent).toContain("SET YOUR PASSWORD: http");
+    expect(sent().textContent).toContain("/login?callbackUrl=%2Fmy-reviews");
   });
 });
 
-describe("what the titles become in each part of the email", () => {
-  const withTemplate = (over: Partial<typeof ASSIGNMENT_TEMPLATE>) =>
-    vi.mocked(getEventTemplate).mockResolvedValue({ ...ASSIGNMENT_TEMPLATE, ...over });
-
-  it("a subject using {{abstractTitle}} gets plain text, never entities or <br>", async () => {
-    withTemplate({ subject: "Assigned: {{abstractTitle}}" });
-    await sendPendingAssignments(sendArgs);
-    expect(sent().subject).toBe("Assigned: 2 abstracts");
-    assignmentReads(PENDING, [MINE[1]]);
-    await sendPendingAssignments(sendArgs);
-    expect(sendEmailSpy.mock.calls[1][0].subject).toBe("Assigned: Heart <Failure> & CBT");
+describe("sendReviewerInvitation: title, additional email and failures", () => {
+  it("takes the title and the additional email from the reviewer's speaker record on the event", async () => {
+    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "new@x.com", title: "DR", additionalEmail: "assistant@x.com" }]);
+    await sendReviewerInvitation(args(NEW_REVIEWER));
+    expect(sent().htmlContent).toContain("Dear Dr. Ortiz,");
+    // The event's Auto-CC (minus the reviewer's own address, whatever its case) plus the second inbox.
+    expect(sent().cc.map((c: { email: string }) => c.email)).toEqual(["ops@example.com", "assistant@x.com"]);
+    expect(sent().to).toEqual([{ email: "New@x.com", name: "Dina Ortiz" }]);
   });
 
-  it("one abstract is not numbered", async () => {
-    assignmentReads(PENDING, [MINE[0]]);
-    await sendPendingAssignments(sendArgs);
-    expect(sent().htmlContent).toContain(">Novel Therapy<");
-    expect(sent().textContent).toContain("\n  Novel Therapy");
-    expect(sent().textContent).not.toContain("1. ");
+  it("no speaker record: no title, and the email still goes", async () => {
+    await sendReviewerInvitation(args(NEW_REVIEWER));
+    expect(sent().htmlContent).toContain("Dear  Ortiz,");
   });
 
-  it("a title holding {{...}} or line breaks cannot get the whole email refused or split a subject", async () => {
-    withTemplate({ subject: "Assigned: {{abstractTitle}}" });
-    assignmentReads(PENDING, [{ id: "ar1", role: "PRIMARY", abstract: { title: "Role of {{IL-6}}\nin  heart\tfailure" } }]);
-    await sendPendingAssignments(sendArgs);
-    expect(sent().subject).toBe("Assigned: Role of { {IL-6} } in heart failure");
-    expect(findUnresolvedTokens(sent().subject, sent().htmlContent)).toEqual([]);
+  it("falls back to the built-in wording when the event has no saved copy", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValue(null);
+    vi.mocked(getDefaultTemplate).mockReturnValue({ slug: "reviewer-invitation", name: "Reviewer Invitation", ...DEFAULT });
+    expect(await sendReviewerInvitation(args(HAS_ACCOUNT))).toEqual({ ok: true, kind: "portal" });
+    expect(getDefaultTemplate).toHaveBeenCalledWith("reviewer-invitation");
   });
 
-  it("an apostrophe is escaped in the HTML list (the shared five-character helper)", async () => {
-    assignmentReads(PENDING, [{ id: "ar1", role: "PRIMARY", abstract: { title: "Crohn's disease" } }]);
-    await sendPendingAssignments(sendArgs);
-    expect(sent().htmlContent).toContain("Crohn&#39;s disease");
-    expect(sent().textContent).toContain("Crohn's disease");
+  it("no template at all: refused BEFORE a link is minted, so the link they hold keeps working", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValue(null);
+    vi.mocked(getDefaultTemplate).mockReturnValue(undefined);
+    expect(await sendReviewerInvitation(args(NEW_REVIEWER))).toMatchObject({ ok: false, code: "NO_TEMPLATE" });
+    expect(tokenDeleteMany).not.toHaveBeenCalled();
+    expect(sendEmailSpy).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-invitation:no-template" }));
   });
 
-  it.each([1, 3])("the REAL default reads right and leaves no token for %i abstract(s)", async (n) => {
-    const def = DEFAULT_TEMPLATE_BODIES["reviewer-assignment"];
-    vi.mocked(getEventTemplate).mockResolvedValue({ ...def, branding: { eventName: "MedCon" } });
-    assignmentReads(PENDING, MINE.concat([{ id: "ar3", role: "PRIMARY", abstract: { title: "Third" } }]).slice(0, n));
-    await sendPendingAssignments(sendArgs);
-    expect(findUnresolvedTokens(sent().subject, sent().htmlContent)).toEqual([]);
-    expect(findUnresolvedTokens(sent().textContent)).toEqual([]);
-    expect(sent().textContent).not.toMatch(/the following abstract|Review Abstract|this abstract/);
-    expect(sent().subject).toBe("Your abstract review assignment for MedCon");
+  it("a template fault reaches the organiser in its own words; a provider error does not", async () => {
+    sendEmailSpy.mockResolvedValueOnce({ success: false, code: UNRESOLVED_TOKENS_CODE, error: "The template has an unknown token: {{deadline}}" });
+    expect(await sendReviewerInvitation(args(HAS_ACCOUNT))).toEqual({ ok: false, code: "SEND_FAILED", message: "The template has an unknown token: {{deadline}}" });
+    sendEmailSpy.mockResolvedValueOnce({ success: false, code: "PROVIDER", error: "SES: throttled (request id 123)" });
+    expect(await sendReviewerInvitation(args(HAS_ACCOUNT))).toEqual({ ok: false, code: "SEND_FAILED", message: "The email could not be sent" });
+    expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-invitation:send-failed", reviewerUserId: "u2" }));
+  });
+
+  it("never throws: a database error is a failed send, logged", async () => {
+    tokenCreate.mockRejectedValueOnce(new Error("db down"));
+    expect(await sendReviewerInvitation(args(NEW_REVIEWER))).toEqual({ ok: false, code: "SEND_FAILED", message: "The email could not be sent" });
+    expect(sendEmailSpy).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-invitation:send-error" }));
   });
 });
 
-describe("notifyReviewerPoolAdded", () => {
-  const poolArgs = { eventId: "ev1", organizationId: "org1", reviewer: JANE, eventName: "MedCon", triggeredByUserId: "admin1" };
+describe("the built-in Reviewer Invitation", () => {
+  const spec = EMAIL_TEMPLATE_SPECS.find((t) => t.slug === "reviewer-invitation")!;
 
-  beforeEach(() => vi.mocked(getEventTemplate).mockResolvedValue(null));
-
-  it("emails the reviewer the pool-invitation with USER log context and says it went", async () => {
-    expect(await notifyReviewerPoolAdded(poolArgs)).toEqual({ ok: true });
-    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
-    expect(sent().to).toEqual([{ email: "jane@x.com", name: "Jane Doe" }]);
-    expect(sent().logContext).toMatchObject({ entityType: "USER", entityId: "u1", eventId: "ev1", templateSlug: "reviewer-pool-invitation" });
+  it("uses only tokens its sender fills, and gets in through {{portalAccess}}", () => {
+    const allowed = new Set(spec.variables.map((v) => v.key));
+    const used = findUnresolvedTokens(DEFAULT.subject, DEFAULT.htmlContent, DEFAULT.textContent);
+    expect(used.filter((t) => !allowed.has(t))).toEqual([]);
+    expect(DEFAULT.htmlContent).toContain("{{portalAccess}}");
+    expect(DEFAULT.textContent).toContain("{{portalAccess}}");
+    // One wording for both reviewers: nothing tells everyone to set a password.
+    expect(DEFAULT.htmlContent).not.toMatch(/set your password/i);
+    expect(spec.rawHtmlKeys).toEqual(["portalAccess"]);
+    expect(spec.name).toBe("Reviewer Invitation");
   });
+});
 
-  it("a refused send is reported, not swallowed (the row button said 'sent' whatever happened)", async () => {
-    sendEmailSpy.mockResolvedValueOnce({ success: false, error: "Email not sent: it still contains {{title}}", code: "UNRESOLVED_TOKENS" });
-    expect(await notifyReviewerPoolAdded(poolArgs)).toEqual({ ok: false, code: "SEND_FAILED", message: "Email not sent: it still contains {{title}}" });
-  });
-
-  it("does not throw if the email send throws", async () => {
-    sendEmailSpy.mockRejectedValueOnce(new Error("SES down"));
-    await expect(notifyReviewerPoolAdded(poolArgs)).resolves.toMatchObject({ ok: false, code: "SEND_FAILED" });
-  });
-
-  it("skips sending when no template is configured", async () => {
-    vi.mocked(getDefaultTemplate).mockReturnValueOnce(undefined);
-    expect(await notifyReviewerPoolAdded(poolArgs)).toMatchObject({ ok: false, code: "NO_TEMPLATE" });
-    expect(sendEmailSpy).not.toHaveBeenCalled();
-  });
-
-  it("fills {{title}} from the speaker record, the account-linked one first", async () => {
+describe("reviewerSpeakerRecords", () => {
+  it("prefers the linked record, and never takes one another account has claimed", async () => {
     speakerFindMany.mockResolvedValue([
-      { userId: null, email: "JANE@x.com", title: "MS" },
-      { userId: "u1", email: "old@x.com", title: "PROF" },
+      { userId: "someone-else", email: "new@x.com", title: "PROF", additionalEmail: "theirs@x.com" },
+      { userId: null, email: "SAM@x.com", title: "MR", additionalEmail: null },
     ]);
-    await notifyReviewerPoolAdded(poolArgs);
-    expect(vi.mocked(renderAndWrap).mock.calls[0][1]).toMatchObject({ title: "Prof.", lastName: "Doe" });
-    expect(speakerFindMany.mock.calls[0][0].where).toEqual({
-      eventId: "ev1",
-      OR: [{ userId: { in: ["u1"] } }, { email: { equals: "jane@x.com", mode: "insensitive" } }],
-    });
+    const records = await reviewerSpeakerRecords("ev1", [NEW_REVIEWER, HAS_ACCOUNT]);
+    expect(records.get("u1")).toBeUndefined();
+    expect(records.get("u2")).toEqual({ title: "MR", additionalEmail: null });
   });
 
-  it("copies the reviewer's additional email (their speaker record's) beside the event's Auto-CC", async () => {
-    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: "DR", additionalEmail: "Assistant@Clinic.com" }]);
-    vi.mocked(getEventTemplate).mockResolvedValueOnce({ ...ASSIGNMENT_TEMPLATE, slug: "reviewer-pool-invitation" } as never);
-    await notifyReviewerPoolAdded(poolArgs);
-    expect(sendEmailSpy.mock.calls[0][0].cc).toEqual([{ email: "ops@example.com" }, { email: "assistant@clinic.com" }]);
-  });
-
-  it("no speaker record, or none with a second address: only the event's Auto-CC", async () => {
-    vi.mocked(getEventTemplate).mockResolvedValueOnce({ ...ASSIGNMENT_TEMPLATE, slug: "reviewer-pool-invitation" } as never);
-    await notifyReviewerPoolAdded(poolArgs);
-    expect(sendEmailSpy.mock.calls[0][0].cc).toEqual([{ email: "ops@example.com" }]);
-  });
-
-  it("an empty or failed title lookup never costs the reviewer their email", async () => {
-    speakerFindMany.mockRejectedValue(new Error("pool timeout"));
-    await notifyReviewerPoolAdded(poolArgs);
-    expect(vi.mocked(renderAndWrap).mock.calls[0][1]).toHaveProperty("title", "");
-    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+  it("a failed lookup gives nothing and is logged", async () => {
+    speakerFindMany.mockRejectedValue(new Error("db down"));
+    expect((await reviewerSpeakerRecords("ev1", [NEW_REVIEWER])).size).toBe(0);
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-title:lookup-failed" }));
   });
 });
 
-describe("sendReviewerSetupInvitation: the editable account invitation", () => {
-  const args = {
-    eventId: "ev1",
-    organizationId: "org1",
-    reviewer: { id: "u1", firstName: "Jane", lastName: "Doe", email: "jane@x.com" },
-    eventName: "MedCon",
-    triggeredByUserId: "admin1",
-    organizationName: "Meeting Minds Experts",
-    inviterName: "Sam Admin",
-    setupLink: "https://events.example.com/accept-invitation?token=abc&email=jane%40x.com",
-    expiresIn: "7 days",
-  };
-  const branding = { eventName: "MedCon", emailCcAddresses: ["ops@example.com"] };
-  const useRealDefault = () =>
-    vi.mocked(getEventTemplate).mockResolvedValueOnce({ ...DEFAULT_TEMPLATE_BODIES["reviewer-invitation"], branding } as never);
-
-  it("the REAL default greets by title, carries both links, and leaves no token", async () => {
-    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: "DR", additionalEmail: null }]);
-    useRealDefault();
-    expect(await sendReviewerSetupInvitation(args)).toEqual({ ok: true });
-    const sent = sendEmailSpy.mock.calls[0][0];
-    expect(sent.subject).toBe("Invitation to review abstracts | MedCon");
-    expect(sent.textContent).toContain("Dear Dr. Doe,");
-    expect(sent.textContent).toContain("Thank you for agreeing to serve as an abstract reviewer for MedCon.");
-    // The setup link works once; the portal link is the way in every time after.
-    expect(sent.textContent).toContain("This link works once, within 7 days.");
-    expect(sent.textContent).toContain(`SET YOUR PASSWORD: ${args.setupLink}`);
-    expect(sent.textContent).toContain("signing in with jane@x.com:");
-    expect(sent.textContent).toMatch(/REVIEWER PORTAL: \S+\/login\?callbackUrl=%2Fmy-reviews/);
-    expect(sent.htmlContent).toContain("token=abc&amp;email=jane%40x.com");
-    // A default serves every event and must be true of this portal: the link
-    // signs nobody in, and a review with no scores cannot be submitted.
-    expect(sent.textContent).not.toMatch(/automatically|leave the scores blank/i);
-    expect(sent.textContent).toContain("conflict of interest with any abstract, please let the event organizer know.");
-    expect(findUnresolvedTokens(sent.subject + sent.htmlContent + sent.textContent)).toEqual([]);
-    expect(sent.logContext).toMatchObject({ templateSlug: "reviewer-invitation", entityId: "u1", triggeredByUserId: "admin1" });
-  });
-
-  it("fills every token the template offers, so an organiser who uses one is not refused", async () => {
-    useRealDefault();
-    await sendReviewerSetupInvitation(args);
-    const vars = vi.mocked(renderAndWrap).mock.calls[0][1] as Record<string, string>;
-    const offered = EMAIL_TEMPLATE_SPECS.find((t) => t.slug === "reviewer-invitation")!.variables.map((v) => v.key);
-    expect(offered.filter((key) => !(key in vars))).toEqual([]);
-    expect(vars).toMatchObject({ inviterName: "Sam Admin", organizationName: "Meeting Minds Experts", email: "jane@x.com", expiresIn: "7 days" });
-  });
-
-  it("is signed by whoever pressed Send, as Preview shows it", async () => {
-    userFindUnique.mockResolvedValue({ emailSignature: "<p>Sam Admin<br>Secretariat</p>" });
-    useRealDefault();
-    await sendReviewerSetupInvitation(args);
-    expect(userFindUnique).toHaveBeenCalledWith({ where: { id: "admin1" }, select: { emailSignature: true } });
-    expect(sendEmailSpy.mock.calls[0][0].htmlContent).toContain("Sam Admin<br>Secretariat");
-  });
-
-  it("a failed signature lookup never costs the reviewer their invitation", async () => {
-    userFindUnique.mockRejectedValue(new Error("pool timeout"));
-    useRealDefault();
-    expect(await sendReviewerSetupInvitation(args)).toEqual({ ok: true });
-    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-email:signature-lookup-failed" }));
-  });
-
-  it("goes to the account's main address; the additional email and the event's Auto-CC are copied", async () => {
-    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: null, additionalEmail: "assistant@clinic.com" }]);
-    useRealDefault();
-    await sendReviewerSetupInvitation(args);
-    const sent = sendEmailSpy.mock.calls[0][0];
-    expect(sent.to).toEqual([{ email: "jane@x.com", name: "Jane Doe" }]);
-    expect(sent.cc).toEqual([{ email: "ops@example.com" }, { email: "assistant@clinic.com" }]);
-  });
-
-  it("a template edited to use a token nothing fills is refused in its own words, not sent broken", async () => {
-    vi.mocked(getEventTemplate).mockResolvedValueOnce({ subject: "s", htmlContent: "<p>{{setupLink}}</p>", textContent: "t", branding } as never);
-    sendEmailSpy.mockResolvedValueOnce({ success: false, error: "Email not sent: it still contains {{venue}}", code: "UNRESOLVED_TOKENS" });
-    expect(await sendReviewerSetupInvitation(args)).toEqual({ ok: false, code: "SEND_FAILED", message: "Email not sent: it still contains {{venue}}" });
+describe("inviterNameOf", () => {
+  it("is the full name, else the address, else a plain word", () => {
+    expect(inviterNameOf({ firstName: "Sarah", lastName: "Ahmed", email: "s@x.com" })).toBe("Sarah Ahmed");
+    expect(inviterNameOf({ firstName: "Sarah", email: "s@x.com" })).toBe("s@x.com");
+    expect(inviterNameOf({})).toBe("A team member");
   });
 });

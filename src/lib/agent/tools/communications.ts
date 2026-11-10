@@ -7,7 +7,7 @@ import { executeBulkEmail, BulkEmailError } from "@/lib/bulk-email";
 import { resetEmailTemplateToDefault } from "@/lib/email-template-reset";
 import { createCustomEmailTemplate, duplicateEmailTemplate, slugifyTemplateName } from "@/lib/email-template-create";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
-import { EMAIL_TEMPLATE_REGISTRY, isSystemTemplateSlug, templateAllowedTokenKeys } from "@/lib/email-template-registry";
+import { EMAIL_TEMPLATE_REGISTRY, RETIRED_SYSTEM_TEMPLATE_SLUGS, isSystemTemplateSlug, templateAllowedTokenKeys } from "@/lib/email-template-registry";
 import { findUnresolvedTokens, normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
 import {
   MAX_EMAIL_RECIPIENTS,
@@ -171,7 +171,8 @@ const listMedia: ToolExecutor = async (input, ctx) => {
 const listEmailTemplates: ToolExecutor = async (_input, ctx) => {
   try {
     const templates = await db.emailTemplate.findMany({
-      where: { eventId: ctx.eventId },
+      // Withdrawn system templates keep their saved rows; nothing sends them.
+      where: { eventId: ctx.eventId, slug: { notIn: [...RETIRED_SYSTEM_TEMPLATE_SLUGS] } },
       select: { id: true, name: true, subject: true, slug: true, isActive: true, createdAt: true },
       orderBy: { createdAt: "desc" },
     });

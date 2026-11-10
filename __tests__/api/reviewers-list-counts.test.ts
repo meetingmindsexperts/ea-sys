@@ -1,11 +1,11 @@
 /**
- * The Reviewers list (Nov 10, 2026): each reviewer's assigned and
- * not-emailed-yet counts, the people holding assignments off the pool, and a
- * response the browser never serves from its cache.
+ * The Reviewers list (Nov 10, 2026): how many abstracts each reviewer holds,
+ * the people holding assignments off the pool, and a response the browser
+ * never serves from its cache.
  *
  * The cache line was found in the browser: with stale-while-revalidate the
- * refetch after "Send assignments" was answered with the OLD list for up to 30
- * seconds, so the counts and buttons stayed wrong and invited a second press.
+ * refetch after a send was answered with the OLD list for up to 30 seconds, so
+ * the counts and buttons stayed wrong and invited a second press.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -30,7 +30,6 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { sendableAssignmentWhere } from "@/lib/abstract-reviewer-access";
 import { GET } from "@/app/api/events/[eventId]/reviewers/route";
 
 const USERS = [
@@ -47,10 +46,8 @@ beforeEach(() => {
   mockDb.user.findMany.mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
     Promise.resolve(USERS.filter((u) => where.id.in.includes(u.id))),
   );
-  // Every assignment on the event, and (the sendable rule) the ones a press would email.
-  mockDb.abstractReviewer.findMany.mockImplementation(({ where }: { where: { notifiedAt?: null } }) =>
-    Promise.resolve(where.notifiedAt === null ? [{ userId: "r1" }] : [{ userId: "r1" }, { userId: "r1" }, { userId: "r2" }, { userId: "x9" }]),
-  );
+  // Every assignment on the event.
+  mockDb.abstractReviewer.findMany.mockResolvedValue([{ userId: "r1" }, { userId: "r1" }, { userId: "r2" }, { userId: "x9" }]);
 });
 
 describe("GET reviewers", () => {
@@ -60,12 +57,12 @@ describe("GET reviewers", () => {
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
   });
 
-  it("counts every assignment as assigned, and as not emailed only what a press would send", async () => {
+  it("counts each reviewer's assignments, and nothing about emails: no email is tied to an assignment", async () => {
     const body = await (await get()).json();
     const byId = Object.fromEntries(body.reviewers.map((r: { userId: string; assignments: unknown }) => [r.userId, r.assignments]));
-    expect(byId).toEqual({ r1: { assigned: 2, unsent: 1 }, r2: { assigned: 1, unsent: 0 } });
-    const sendable = mockDb.abstractReviewer.findMany.mock.calls.map(([a]) => a.where).find((w) => w.notifiedAt === null);
-    expect(sendable).toEqual({ ...sendableAssignmentWhere("ev1"), userId: { in: ["r1", "r2"] } });
+    expect(byId).toEqual({ r1: { assigned: 2 }, r2: { assigned: 1 } });
+    expect(mockDb.abstractReviewer.findMany).toHaveBeenCalledTimes(1);
+    expect(mockDb.abstractReviewer.findMany.mock.calls[0][0].where).toEqual({ abstract: { eventId: "ev1" } });
   });
 
   it("a reviewer with a speaker record on the event carries its title; an account alone has none", async () => {

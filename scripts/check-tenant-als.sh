@@ -251,7 +251,7 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/events/[eventId]/reviewers/route.ts"                                    # Abstract (July 31, 2026)
   "src/app/api/events/[eventId]/reviewers/[reviewerId]/route.ts"                       # Abstract (July 31, 2026)
   "src/app/api/events/[eventId]/reviewers/[reviewerId]/resend-invitation/route.ts"     # Abstract (July 31, 2026)
-  "src/app/api/events/[eventId]/reviewers/send-assignments/route.ts"                   # Abstract (Nov 10, 2026)
+  "src/app/api/events/[eventId]/reviewers/send-invitations/route.ts"                   # Abstract (Nov 10, 2026)
   "src/app/api/events/[eventId]/import/abstracts/route.ts"                             # Abstract (July 31, 2026)
   "src/app/api/events/[eventId]/abstracts/route.ts"                                    # Abstract — dual/resource-org (July 31, 2026)
   "src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts"                       # Abstract — dual/resource-org (July 31, 2026)

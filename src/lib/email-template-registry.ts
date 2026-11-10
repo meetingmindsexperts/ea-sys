@@ -26,6 +26,15 @@
  */
 import { CERT_COVER_TEMPLATE_NAMES, CERT_BUNDLE_COVER_TEMPLATE_NAME } from "@/lib/certificates/email-tokens";
 
+/**
+ * System templates that no longer exist (Nov 10, 2026: the three reviewer
+ * emails became one, `reviewer-invitation`). Events still hold saved rows
+ * under these slugs, and a slug is a key, so the rows stay; they are hidden
+ * from the Email Templates list and are neither system nor custom templates,
+ * or 36 events would each have gained two "custom" templates in every picker.
+ */
+export const RETIRED_SYSTEM_TEMPLATE_SLUGS: readonly string[] = ["reviewer-assignment", "reviewer-pool-invitation"];
+
 /** The system templates, in the order they are seeded onto an event. */
 export const SYSTEM_TEMPLATE_SLUG_LIST = [
   "registration-confirmation",
@@ -39,8 +48,6 @@ export const SYSTEM_TEMPLATE_SLUG_LIST = [
   "abstract-status-update",
   "submitter-welcome",
   "session-proposal-welcome",
-  "reviewer-assignment",
-  "reviewer-pool-invitation",
   "reviewer-invitation",
   "abstract-reminder",
   "custom-notification",
@@ -433,46 +440,10 @@ export const EMAIL_TEMPLATE_REGISTRY: Readonly<Record<SystemTemplateSlug, EmailT
     ],
     rawHtmlKeys: [],
   },
-  "reviewer-assignment": {
-    slug: "reviewer-assignment",
-    name: "Reviewer Assignment",
-    description: "Sent from the Reviewers page (Send assignments): one email per reviewer listing every new assignment. Assigning sends nothing",
-    recipient: "reviewer",
-    surfaces: ["console"],
-    variables: [
-    { key: "title", description: "Reviewer title, e.g. Dr. (from their speaker record on this event; empty when none)" },
-    { key: "firstName", description: "Reviewer first name" },
-    { key: "lastName", description: "Reviewer last name" },
-    { key: "eventName", description: "Event name" },
-    { key: "abstractTitle", description: "The abstracts newly assigned to this reviewer, one title per line (numbered when several). For body text, not inside a link" },
-    { key: "abstractCount", description: "Number of abstracts listed in this email" },
-    { key: "role", description: "Reviewer role (e.g. Primary reviewer); plain Reviewer when the listed abstracts carry different roles" },
-    { key: "reviewLink", description: "Link to the reviewer's My Reviews portal" },
-    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
-    ],
-    rawHtmlKeys: [],
-  },
-  "reviewer-pool-invitation": {
-    slug: "reviewer-pool-invitation",
-    name: "Reviewer Added to Event",
-    description: "Sent to a reviewer from the Reviewers page (Send email), and as the Review Invitation from Communications. Adding a reviewer sends nothing",
-    recipient: "reviewer",
-    surfaces: ["console", "bulk"],
-    bulk: { type: "invitation", label: "Review Invitation", description: "Send each reviewer the added-as-a-reviewer email", audiences: [{ audience: "reviewers", order: 1 }] },
-    variables: [
-    { key: "title", description: "Reviewer title, e.g. Dr. (from their speaker record on this event; empty when none)" },
-    { key: "firstName", description: "Reviewer first name" },
-    { key: "lastName", description: "Reviewer last name" },
-    { key: "eventName", description: "Event name" },
-    { key: "reviewLink", description: "Link to the reviewer's My Reviews portal" },
-    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
-    ],
-    rawHtmlKeys: [],
-  },
   "reviewer-invitation": {
     slug: "reviewer-invitation",
-    name: "Reviewer Account Invitation",
-    description: "Sent from the Reviewers page (Send invitation) to a reviewer who has no password yet: the link opens the page where they set one",
+    name: "Reviewer Invitation",
+    description: "The one reviewer email, sent from the Reviewers page (Send invitation on a row, or Send invitation to all). A reviewer with no password yet gets the link to set one; one who can already sign in goes straight to My Reviews. Adding a reviewer or assigning an abstract sends nothing",
     recipient: "reviewer",
     surfaces: ["console"],
     variables: [
@@ -482,13 +453,14 @@ export const EMAIL_TEMPLATE_REGISTRY: Readonly<Record<SystemTemplateSlug, EmailT
     { key: "email", description: "The address the account is on (the one they sign in with)" },
     { key: "eventName", description: "Event name" },
     { key: "organizationName", description: "The name reviewers know you by (the attendee-facing brand in Settings)" },
-    { key: "inviterName", description: "The team member who pressed Send invitation" },
-    { key: "setupLink", description: "The personal link to accept the invitation and set a password. It works once. Keep it: without it the reviewer cannot get in" },
-    { key: "reviewLink", description: "Link to the reviewer's My Reviews portal, for every visit after the password is set" },
-    { key: "expiresIn", description: "How long the link works, e.g. 7 days" },
+    { key: "inviterName", description: "The team member who pressed Send" },
+    { key: "portalAccess", description: "How THIS reviewer gets in, written for you: a reviewer with no password yet gets a Set your password button (it works once, and the email says for how long) and the Reviewer Portal button; one who can already sign in gets the Reviewer Portal button only. Keep it: without it a new reviewer cannot get in" },
+    { key: "reviewLink", description: "Plain link to the reviewer's My Reviews portal (sign-in first). Already inside portalAccess" },
+    { key: "setupLink", description: "Older copies only: the set-password link (the portal link for a reviewer who can already sign in). New wording uses portalAccess" },
+    { key: "expiresIn", description: "How long a set-password link works, e.g. 10 days" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
     ],
-    rawHtmlKeys: [],
+    rawHtmlKeys: ["portalAccess"],
   },
   "abstract-reminder": {
     slug: "abstract-reminder",
@@ -1195,6 +1167,17 @@ export function isSystemTemplateSlug(slug: string): slug is SystemTemplateSlug {
   return Object.prototype.hasOwnProperty.call(EMAIL_TEMPLATE_REGISTRY, slug);
 }
 
+/**
+ * The name a template is shown under. A system template's name is OURS, and
+ * its saved row keeps the name it was seeded with: when the reviewer
+ * invitation stopped being an "account" invitation (Nov 10, 2026) every event
+ * that had opened its Email Templates page kept the old name. A custom
+ * template's name is the organiser's.
+ */
+export function templateDisplayName(slug: string, storedName: string): string {
+  return isSystemTemplateSlug(slug) ? EMAIL_TEMPLATE_REGISTRY[slug].name : storedName;
+}
+
 /** The templates the Event Settings tab lists (the most-used ones). */
 export const CORE_TEMPLATE_SLUGS: ReadonlySet<string> = new Set(
   EMAIL_TEMPLATE_SPECS.filter((t) => t.core).map((t) => t.slug),
@@ -1240,10 +1223,16 @@ export const BULK_EMAIL_TEMPLATE_SLUGS: Readonly<Record<string, string>> = (() =
 
 /**
  * The slug for (type, audience): the template carrying that type for that
- * audience (a reviewer "invitation" is the reviewer pool invitation), else the
- * type's first template for any audience, else null.
+ * audience, else the type's first template for any audience, else null.
+ *
+ * A reviewer "invitation" is NOT a bulk email since Nov 10, 2026: the one
+ * reviewer invitation carries a per-reviewer set-password link, minted where
+ * it is sent (the Reviewers page). Without this line the type would fall
+ * through to the speaker invitation, and a scheduled row or an agent call
+ * naming it would send reviewers the wrong email.
  */
 export function bulkTemplateSlugFor(emailType: string, recipientType: string): string | null {
+  if (emailType === "invitation" && recipientType === "reviewers") return null;
   for (const t of EMAIL_TEMPLATE_SPECS) {
     if (t.bulk?.type === emailType && t.bulk.audiences.some((a) => a.audience === recipientType)) return t.slug;
   }

@@ -20,6 +20,7 @@ import {
 import { SESv2Client, SendEmailCommand, type SendEmailCommandInput } from "@aws-sdk/client-sesv2";
 import juice from "juice";
 import { EMAIL_TEMPLATE_SPECS, GLOBAL_RAW_HTML_KEYS, GLOBAL_EVENT_VARIABLES } from "./email-template-registry";
+import { reviewerPortalAccess, REVIEWER_SETUP_EXPIRES_IN } from "./reviewer-portal-access";
 import { DEFAULT_TEMPLATE_BODIES } from "./email-template-defaults";
 import { apiLogger } from "./logger";
 import { logEmail, type EmailLogContext } from "./email-log";
@@ -1843,15 +1844,16 @@ export function getSamplePreviewVariables(
     presenterEmail: "john.doe@example.com",
     abstractTitles: "Sample Abstract Title",
     abstractCount: 1,
-    // reviewer-assignment / reviewer-pool-invitation previews — real sends
-    // build these in abstract-reviewer-notify.ts.
+    // reviewer-invitation preview: real sends build these per reviewer in
+    // abstract-reviewer-notify.ts. The preview shows a NEW reviewer's copy
+    // (set a password, then the portal); one who can already sign in gets the
+    // portal button only.
     reviewLink: "#",
     role: "Primary reviewer",
-    // reviewer-invitation preview: the real link is minted per reviewer when
-    // Send invitation is pressed (resend-invitation route).
+    portalAccess: reviewerPortalAccess({ email: "john.doe@example.com", reviewLink: "#", setupLink: "#" }).html,
     setupLink: "#",
     inviterName: "Sarah Ahmed",
-    expiresIn: "7 days",
+    expiresIn: REVIEWER_SETUP_EXPIRES_IN,
     // document-delivery preview — real sends fill these from the Invoice row
     // in sendInvoiceEmail (invoice-service.ts).
     documentType: "Credit Note",

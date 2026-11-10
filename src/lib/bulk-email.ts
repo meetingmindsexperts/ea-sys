@@ -1980,8 +1980,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     };
 
     if (recipientType === "reviewers") {
-      // The reviewer pool invitation's button (the same link the automatic
-      // "added as a reviewer" email carries).
+      // For a custom email to reviewers: the way into My Reviews (the
+      // reviewer invitation itself is sent from the Reviewers page, where a
+      // new reviewer's set-password link is minted).
       vars.reviewLink = `${appUrl}/login?callbackUrl=${encodeURIComponent("/my-reviews")}`;
     }
 

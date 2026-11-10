@@ -93,24 +93,6 @@ export function linkedRoleAbstractFilter(user: { id: string; role?: string | nul
   return {};
 }
 
-/**
- * THE rule for which assignments "Send assignments" would email right now:
- * not emailed yet, no declared conflict, and the abstract still up for review
- * on this event. The Reviewers page's "not emailed yet" count, the send
- * route's recipient list and the email itself all use it, so a count can never
- * show something a press would not send (review of 2df0f9e6: a conflict-flagged
- * or decided assignment kept the button forever). The send lease
- * (notifyClaimedAt) stays out on purpose: a row under a claim is still not
- * emailed.
- */
-export function sendableAssignmentWhere(eventId: string): Prisma.AbstractReviewerWhereInput {
-  return {
-    notifiedAt: null,
-    conflictFlag: false,
-    abstract: { eventId, status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] } },
-  };
-}
-
 /** The ids on the event's reviewer pool; anything malformed is no pool. */
 export function reviewerPoolIds(settings: unknown): string[] {
   const ids = (settings as { reviewerUserIds?: unknown } | null)?.reviewerUserIds;
@@ -152,10 +134,11 @@ export function isOwnAbstract(
  * usually has no `emailVerified` at all.
  *
  * Until this, `emailVerified` alone stood for "has a password": a registrant
- * added as a reviewer showed "Pending Invitation", Send assignments skipped
- * them, and Send invitation mailed a link that REPLACED their password. They
- * already see My Reviews in their portal once abstracts are assigned.
- * The Reviewers page, the assignment email and the invitation route all ask this.
+ * added as a reviewer showed "Pending Invitation" and Send invitation mailed
+ * a link that REPLACED their password. They already see My Reviews in their
+ * portal once abstracts are assigned.
+ * The Reviewers page and the reviewer invitation (which of its two forms a
+ * reviewer gets) both ask this.
  */
 export function reviewerAccountIsSetUp(user: { role?: string | null; emailVerified?: Date | null } | null | undefined): boolean {
   if (!user) return false;

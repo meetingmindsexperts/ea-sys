@@ -1,4 +1,4 @@
-import { mustConfirmEmailToReview, sendableAssignmentWhere, reviewerAccountIsSetUp } from "@/lib/abstract-reviewer-access";
+import { mustConfirmEmailToReview, reviewerAccountIsSetUp } from "@/lib/abstract-reviewer-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -69,12 +69,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     const settings = (event.settings as Record<string, unknown>) || {};
     const reviewerUserIds = (settings.reviewerUserIds as string[]) || [];
 
-    // The reviewers' accounts, every assignment on the event (how many each
-    // person holds), and the ones "Send assignments" would email right now:
-    // the SAME rule the send route and the email use, so the page never
-    // counts something a press would not send (assignment emails are sent by
-    // hand, Nov 10, 2026).
-    const [reviewerUsers, assignmentRows, sendableRows] = await Promise.all([
+    // The reviewers' accounts and every assignment on the event (how many
+    // each person holds). No email is tied to an assignment since Nov 10,
+    // 2026: My Reviews shows a reviewer what they hold.
+    const [reviewerUsers, assignmentRows] = await Promise.all([
       reviewerUserIds.length > 0
         ? db.user.findMany({
             where: { id: { in: reviewerUserIds } },
@@ -82,23 +80,12 @@ export async function GET(req: Request, { params }: RouteParams) {
           })
         : [],
       db.abstractReviewer.findMany({ where: { abstract: { eventId } }, select: { userId: true } }),
-      reviewerUserIds.length > 0
-        ? db.abstractReviewer.findMany({
-            where: { ...sendableAssignmentWhere(eventId), userId: { in: reviewerUserIds } },
-            select: { userId: true },
-          })
-        : [],
     ]);
 
     const reviewerUserMap = new Map(reviewerUsers.map((u) => [u.id, u]));
-    const tally = (rows: { userId: string }[]) => {
-      const counts = new Map<string, number>();
-      for (const row of rows) counts.set(row.userId, (counts.get(row.userId) ?? 0) + 1);
-      return counts;
-    };
-    const assignedBy = tally(assignmentRows);
-    const unsentBy = tally(sendableRows);
-    const countsFor = (userId: string) => ({ assigned: assignedBy.get(userId) ?? 0, unsent: unsentBy.get(userId) ?? 0 });
+    const assignedBy = new Map<string, number>();
+    for (const row of assignmentRows) assignedBy.set(row.userId, (assignedBy.get(row.userId) ?? 0) + 1);
+    const countsFor = (userId: string) => ({ assigned: assignedBy.get(userId) ?? 0 });
 
     // People holding assignments here who are NOT on the pool (removed before
     // Remove took assignments with it, or assigned through the agent). They

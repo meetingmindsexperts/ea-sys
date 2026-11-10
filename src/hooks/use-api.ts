@@ -800,56 +800,42 @@ export function useResendReviewerInvitation(eventId: string) {
   });
 }
 
-/** One request's answer from the send-assignments route. */
-interface SendAssignmentsRound {
+/** One request's answer from the send-invitations route. */
+interface SendInvitationsRound {
   emailed: number;
   failed: number;
-  busy: number;
-  notSetUp: number;
-  notRecorded: number;
   remaining: number;
   nextAfter: string | null;
-  results: { reviewerId: string; ok: boolean; sent?: number; recorded?: boolean; reclaimed?: boolean; code?: string; message?: string }[];
+  results: { reviewerId: string; ok: boolean; kind?: string; message?: string }[];
 }
 
-/** What one press of Send assignments came to, over all its requests. */
-export interface SendAssignmentsOutcome {
+/** What one press of Send to all came to, over all its requests. */
+export interface SendInvitationsOutcome {
   emailed: number;
   failed: number;
-  /** Held by another send, or by one interrupted in the last 10 minutes. */
-  busy: number;
-  /** Account not set up yet: they need their invitation first. */
-  notSetUp: number;
-  /** Emailed, but it could not be recorded: still shown as not emailed. */
-  notRecorded: number;
-  /** An earlier send to them was interrupted, so they may have the email twice. */
-  reclaimed: number;
   firstFailure: string | null;
-  /** A later request failed: what went is counted above, the rest still shows as not emailed. */
+  /** A later request failed: what went is counted above, the rest were not emailed. */
   interrupted: string | null;
 }
 
-/** Far more than any event needs; a guard against a loop that never ends. */
+/** Far more than any committee needs; a guard against a loop that never ends. */
 const MAX_SEND_ROUNDS = 40;
 
 /**
  * The server sends for about 30 seconds per request (its gateway cuts a
- * response at 60) and answers where to carry on, so a large event is several
- * requests behind one press. Stopping part-way is safe: whoever was not
- * reached still shows as not emailed, and two sends at once cannot both email
- * a reviewer (their rows are leased before the email). The one repeat left is
- * a send killed mid-email: the next press after the lease says so (reclaimed).
+ * response at 60) and answers where to carry on, so a large committee is
+ * several requests behind one press.
  */
-async function sendAssignmentsInRounds(eventId: string, reviewerIds?: string[]): Promise<SendAssignmentsOutcome> {
-  const total: SendAssignmentsOutcome = { emailed: 0, failed: 0, busy: 0, notSetUp: 0, notRecorded: 0, reclaimed: 0, firstFailure: null, interrupted: null };
+async function sendInvitationsInRounds(eventId: string): Promise<SendInvitationsOutcome> {
+  const total: SendInvitationsOutcome = { emailed: 0, failed: 0, firstFailure: null, interrupted: null };
   let after: string | null = null;
   for (let round = 0; round < MAX_SEND_ROUNDS; round++) {
-    let page: SendAssignmentsRound;
+    let page: SendInvitationsRound;
     try {
-      page = await fetchApi<SendAssignmentsRound>(`/api/events/${eventId}/reviewers/send-assignments`, {
+      page = await fetchApi<SendInvitationsRound>(`/api/events/${eventId}/reviewers/send-invitations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...(reviewerIds ? { reviewerIds } : {}), ...(after ? { after } : {}) }),
+        body: JSON.stringify(after ? { after } : {}),
       });
     } catch (err) {
       // Nothing went at all: let the caller show the error.
@@ -859,11 +845,7 @@ async function sendAssignmentsInRounds(eventId: string, reviewerIds?: string[]):
     }
     total.emailed += page.emailed;
     total.failed += page.failed;
-    total.busy += page.busy;
-    total.notSetUp += page.notSetUp;
-    total.notRecorded += page.notRecorded;
-    total.reclaimed += page.results.filter((r) => r.ok && r.reclaimed).length;
-    total.firstFailure ??= page.results.find((r) => !r.ok && r.code !== "NOTHING_PENDING" && r.code !== "IN_PROGRESS" && r.code !== "ACCOUNT_NOT_SET_UP")?.message ?? null;
+    total.firstFailure ??= page.results.find((r) => !r.ok)?.message ?? null;
     if (!page.nextAfter) return total;
     after = page.nextAfter;
   }
@@ -871,13 +853,11 @@ async function sendAssignmentsInRounds(eventId: string, reviewerIds?: string[]):
   return total;
 }
 
-/** Email reviewers their unsent assignments, one email each (none named = everyone on the pool with some). */
-export function useSendReviewerAssignments(eventId: string) {
+/** Send to all: the reviewer invitation to everyone on the event's pool. */
+export function useSendReviewerInvitations(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (reviewerIds?: string[]) => sendAssignmentsInRounds(eventId, reviewerIds),
-    // Settled, not success: after a failed or interrupted send the counts and
-    // buttons must still show who is waiting.
+    mutationFn: () => sendInvitationsInRounds(eventId),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
     },
@@ -930,7 +910,7 @@ export function useAssignAbstractReviewer(eventId: string, abstractId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstractReviewers(eventId, abstractId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
-      // The Reviewers page counts each reviewer's unsent assignments.
+      // The Reviewers page counts each reviewer's assignments.
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
     },
   });
@@ -946,7 +926,7 @@ export function useUnassignAbstractReviewer(eventId: string, abstractId: string)
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstractReviewers(eventId, abstractId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
-      // The Reviewers page counts each reviewer's unsent assignments.
+      // The Reviewers page counts each reviewer's assignments.
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
     },
   });

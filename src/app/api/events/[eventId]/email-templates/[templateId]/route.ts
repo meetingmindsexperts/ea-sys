@@ -10,7 +10,7 @@ import { ensurePersonalSurveyLink } from "@/lib/survey/invitation-link";
 import { sendEmail, renderTemplate, renderTemplatePlain, templateVariablesFor, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
 import { resetEmailTemplateToDefault } from "@/lib/email-template-reset";
 import { normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
-import { CUSTOM_TEMPLATE_VARIABLE_GROUPS, templateAllowedTokenKeys } from "@/lib/email-template-registry";
+import { CUSTOM_TEMPLATE_VARIABLE_GROUPS, templateAllowedTokenKeys, templateDisplayName } from "@/lib/email-template-registry";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { buildCertCoverTemplatePreview } from "@/lib/certificates/bundle";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
@@ -94,7 +94,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({
-      template,
+      template: { ...template, name: templateDisplayName(template.slug, template.name) },
       // Global event block + this slug's own, so the editor lists every
       // token that will actually resolve.
       variables: templateVariablesFor(template.slug),

@@ -767,7 +767,7 @@ export interface AssignedReviewerUser {
 export type AssignReviewerResult =
   | {
       ok: true;
-      /** created = new assignment (no email: sent by hand, sendPendingAssignments); updated = role/COI flipped; noop = idempotent re-assign. */
+      /** created = new assignment (no email: My Reviews shows it); updated = role/COI flipped; noop = idempotent re-assign. */
       kind: "created" | "updated" | "noop";
       assignment: ReviewerAssignmentSummary;
       reviewer: AssignedReviewerUser;
@@ -920,9 +920,9 @@ export async function assignReviewer(input: AssignReviewerInput): Promise<Assign
       })
       .catch((err) => apiLogger.error({ err, eventId, abstractId }, "assign-reviewer:audit-log-failed"));
 
-    // No email here (owner, Nov 10, 2026): the organiser sends each reviewer
-    // one email listing their new assignments, from the Reviewers page
-    // (sendPendingAssignments in abstract-reviewer-notify.ts).
+    // No email here (owner, Nov 10, 2026): My Reviews shows the reviewer what
+    // they hold, and the organiser sends the one Reviewer Invitation from the
+    // Reviewers page (sendReviewerInvitation in abstract-reviewer-notify.ts).
 
     return { ok: true, kind: "created", assignment, reviewer: user };
   } catch (err) {

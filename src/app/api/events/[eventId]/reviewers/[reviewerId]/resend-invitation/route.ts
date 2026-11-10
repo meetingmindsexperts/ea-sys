@@ -1,26 +1,25 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
-import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/security";
-import { notifyReviewerPoolAdded, sendReviewerSetupInvitation } from "@/lib/abstract-reviewer-notify";
-import { reviewerAccountIsSetUp } from "@/lib/abstract-reviewer-access";
+import { getClientIp, checkRateLimit } from "@/lib/security";
+import { inviterNameOf, sendReviewerInvitation } from "@/lib/abstract-reviewer-notify";
 import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 
 /**
- * Send a reviewer their email: the ONLY way a reviewer is emailed about being
- * added, since adding one sends nothing (owner, Nov 10, 2026: "disable auto
- * email trigger on reviewer addition, send email manually"). The path keeps
- * its old "resend" name so existing clients keep working.
+ * Send ONE reviewer the reviewer invitation: the row's Send button on the
+ * Reviewers page. Adding a reviewer sends nothing (owner, Nov 10, 2026), so
+ * this and Send to all (`reviewers/send-invitations`) are the only ways a
+ * reviewer is emailed. The path keeps its old "resend" name so existing
+ * clients keep working.
  *
- * A pending account gets a freshly minted setup token and the account-setup
- * invitation; an account that can already sign in gets the event-level
- * "you're a reviewer" email. A send failure surfaces (502) so the organiser
- * knows it did not go.
+ * One email for everyone (sendReviewerInvitation): an account with no
+ * password yet gets a freshly minted set-password link in it, one that can
+ * already sign in gets the portal button. A send failure surfaces (502) so
+ * the organiser knows it did not go.
  */
 interface RouteParams {
   params: Promise<{ eventId: string; reviewerId: string }>;
@@ -73,76 +72,29 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Reviewer account not found" }, { status: 404 });
     }
 
-    // An account that can already sign in gets the "added as a reviewer"
-    // email. A refused send surfaces (502), as the setup invite's does below:
-    // until Nov 10, 2026 this answered "sent" whatever happened.
-    // "Can already sign in" is reviewerAccountIsSetUp, never emailVerified alone:
-    // a registrant has a password and no emailVerified, and the setup link
-    // below would have REPLACED that password.
-    if (reviewerAccountIsSetUp(user)) {
-      const sent = await notifyReviewerPoolAdded({
-        eventId,
-        organizationId: session.user.organizationId ?? null,
-        reviewer: user,
-        eventName: event.name,
-        triggeredByUserId: session.user.id,
-      });
-      if (!sent.ok) {
-        apiLogger.error({ msg: "reviewer-invite-resend:pool-send-failed", eventId, reviewerUserId: reviewerId, code: sent.code });
-        return NextResponse.json({ error: sent.message, code: "EMAIL_SEND_FAILED" }, { status: 502 });
-      }
-      apiLogger.info({ msg: "reviewer-invite-resend:pool", eventId, reviewerUserId: reviewerId });
-      db.auditLog.create({
-        data: { eventId, userId: session.user.id, action: "UPDATE", entityType: "EventReviewer", entityId: reviewerId, changes: { resend: "pool", ip: getClientIp(req) } },
-      }).catch((err) => apiLogger.error({ err, msg: "resend-invitation:audit-log-failed" }));
-      return NextResponse.json({ success: true, sent: true, type: "pool" });
-    }
-
-    // Pending account → re-mint a fresh setup token + resend the setup invite.
-    const invitationToken = crypto.randomBytes(32).toString("hex");
-    const invitationTokenHash = hashVerificationToken(invitationToken);
-    const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    const normalizedEmail = user.email.toLowerCase();
-
-    await db.$transaction(async (tx) => {
-      await tx.verificationToken.deleteMany({ where: { identifier: normalizedEmail } });
-      await tx.verificationToken.create({ data: { identifier: normalizedEmail, token: invitationTokenHash, expires: tokenExpiry } });
-    });
-
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-    const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(normalizedEmail)}&eventSlug=${encodeURIComponent(event.slug)}`;
-
     // A reviewer is an HCP: the invitation names the attendee-facing brand (public-brand.ts).
     const brand = session.user.organizationId ? await loadPublicBrandForOrg(orgGuard.orgId) : null;
-    const inviterName = session.user.firstName && session.user.lastName
-      ? `${session.user.firstName} ${session.user.lastName}`
-      : session.user.email || "A team member";
-
-    // The event's own template (Email Templates → Reviewer Account Invitation).
-    // The event's Auto-CC and the reviewer's additional email are copied; the
-    // account stays on their main address (owner, Nov 10, 2026).
-    const sent = await sendReviewerSetupInvitation({
+    const sent = await sendReviewerInvitation({
       eventId,
       organizationId: session.user.organizationId ?? null,
-      reviewer: user,
       eventName: event.name,
-      triggeredByUserId: session.user.id,
+      eventSlug: event.slug,
+      reviewer: user,
       organizationName: brand?.name || "your organization",
-      inviterName,
-      setupLink,
-      expiresIn: "7 days",
+      inviterName: inviterNameOf(session.user),
+      triggeredByUserId: session.user.id,
     });
     if (!sent.ok) {
       apiLogger.error({ msg: "reviewer-invite-resend:send-failed", eventId, reviewerUserId: reviewerId, code: sent.code });
       return NextResponse.json({ error: sent.message, code: "EMAIL_SEND_FAILED" }, { status: 502 });
     }
 
-    apiLogger.info({ msg: "reviewer-invite-resend:setup", eventId, reviewerUserId: reviewerId });
+    apiLogger.info({ msg: "reviewer-invite-resend:sent", eventId, reviewerUserId: reviewerId, kind: sent.kind });
     db.auditLog.create({
-      data: { eventId, userId: session.user.id, action: "UPDATE", entityType: "EventReviewer", entityId: reviewerId, changes: { resend: "setup", ip: getClientIp(req) } },
+      data: { eventId, userId: session.user.id, action: "UPDATE", entityType: "EventReviewer", entityId: reviewerId, changes: { resend: sent.kind, ip: getClientIp(req) } },
     }).catch((err) => apiLogger.error({ err, msg: "resend-invitation:audit-log-failed" }));
 
-    return NextResponse.json({ success: true, sent: true, type: "setup" });
+    return NextResponse.json({ success: true, sent: true, type: sent.kind });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error resending reviewer invitation" });

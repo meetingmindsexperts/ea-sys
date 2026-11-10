@@ -24,7 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserCheck, Plus, Mail, Building2, Trash2, Send, X } from "lucide-react";
 import { PermissionGate } from "@/components/permissions/permission-gate";
-import { useReviewers, useAddReviewer, useRemoveReviewer, useResendReviewerInvitation, useSendReviewerAssignments, type SendAssignmentsOutcome } from "@/hooks/use-api";
+import { useReviewers, useAddReviewer, useRemoveReviewer, useResendReviewerInvitation, useSendReviewerInvitations, type SendInvitationsOutcome } from "@/hooks/use-api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { formatPersonName } from "@/lib/utils";
-import { plural, sendAssignmentsReport, type SendReportLevel } from "./send-report";
+import { plural, sendInvitationsReport, type SendReportLevel } from "./send-report";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
@@ -56,8 +56,8 @@ interface Reviewer {
   speakerStatus: string | null;
   accountActive: boolean;
   needsEmailConfirmation?: boolean;
-  /** Assigned abstracts on this event, and how many were not emailed yet. */
-  assignments?: { assigned: number; unsent: number };
+  /** Abstracts assigned to them on this event. */
+  assignments?: { assigned: number };
 }
 
 /** Someone holding assignments on this event who is not on its reviewer pool. */
@@ -97,30 +97,18 @@ export default function ReviewersPage() {
   );
 }
 
-/** A new account is sent the setup invitation; one that can sign in, the reviewer email. */
-function sendLabel(accountActive: boolean, sending: boolean): string {
-  if (sending) return "Sending...";
-  return accountActive ? "Send email" : "Send invitation";
-}
-
-/**
- * "3 abstracts assigned, 1 not emailed yet" under each reviewer. "Not emailed
- * yet" counts only what a press would send now; someone who has not set up
- * their account needs the invitation first, so the line says so.
- */
-function assignmentSummary(a: { assigned: number; unsent: number } | undefined, accountActive: boolean): string {
+/** How many abstracts a reviewer holds. My Reviews shows them which; no email lists them. */
+function assignmentSummary(a: { assigned: number } | undefined): string {
   if (!a || a.assigned === 0) return "No abstracts assigned yet";
-  const assigned = `${a.assigned} abstract${a.assigned === 1 ? "" : "s"} assigned`;
-  if (a.unsent === 0) return assigned;
-  return accountActive ? `${assigned}, ${a.unsent} not emailed yet` : `${assigned}, ${a.unsent} not emailed yet: send the invitation first`;
+  return `${plural(a.assigned, "abstract", "abstracts")} assigned`;
 }
 
 /** A failure stays until closed; a warning long enough to read; a success the usual few seconds. */
 const SEND_REPORT_DURATION: Record<SendReportLevel, number | undefined> = { error: Infinity, warning: 15000, info: undefined, success: undefined };
 
-/** Every outcome of a Send assignments press in ONE toast, the worst first (see send-report.ts). */
-function reportSendAssignments(res: SendAssignmentsOutcome): void {
-  const { level, lines } = sendAssignmentsReport(res);
+/** Every outcome of a Send to all press in ONE toast, the worst first (see send-report.ts). */
+function reportSendInvitations(res: SendInvitationsOutcome): void {
+  const { level, lines } = sendInvitationsReport(res);
   const [title, ...rest] = lines;
   toast[level](title, {
     duration: SEND_REPORT_DURATION[level],
@@ -146,8 +134,8 @@ function Reviewers({ eventId }: { eventId: string }) {
   const addReviewer = useAddReviewer(eventId);
   const removeReviewer = useRemoveReviewer(eventId);
   const resendInvitation = useResendReviewerInvitation(eventId);
-  const sendAssignments = useSendReviewerAssignments(eventId);
-  const [sendingAssignmentsFor, setSendingAssignmentsFor] = useState<string | "all" | null>(null);
+  const sendInvitations = useSendReviewerInvitations(eventId);
+  const [sendAllOpen, setSendAllOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<Reviewer | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
 
@@ -235,11 +223,7 @@ function Reviewers({ eventId }: { eventId: string }) {
     setResendingId(userId);
     try {
       const res = await resendInvitation.mutateAsync(userId);
-      toast.success(
-        res.type === "setup"
-          ? `Invitation sent to ${name}`
-          : `Reviewer email sent to ${name}`,
-      );
+      toast.success(res.type === "setup" ? `Invitation sent to ${name}, with the link to set a password` : `Invitation sent to ${name}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send the email");
     } finally {
@@ -247,22 +231,15 @@ function Reviewers({ eventId }: { eventId: string }) {
     }
   };
 
-  // Assigning sends nothing (Nov 10, 2026): this emails each reviewer once,
-  // listing every assignment they have not been told about yet.
-  const handleSendAssignments = async (target: string | "all") => {
-    setSendingAssignmentsFor(target);
+  // Send to all: the same invitation the row's Send button sends, to everyone
+  // on the list. Nothing records who was already emailed, so it asks first.
+  const handleSendToAll = async () => {
     try {
-      reportSendAssignments(await sendAssignments.mutateAsync(target === "all" ? undefined : [target]));
+      reportSendInvitations(await sendInvitations.mutateAsync());
     } catch (error) {
-      const reason = error instanceof Error ? error.message : "Failed to send assignments";
-      toast.error(`${reason}. The list shows who is still waiting; pressing Send again is safe.`);
-    } finally {
-      setSendingAssignmentsFor(null);
+      toast.error(error instanceof Error ? error.message : "Failed to send the invitations");
     }
   };
-  // What a press of Send all would send: accounts not set up are left out
-  // (they get the invitation first), so the number is honest.
-  const totalUnsent = reviewers.reduce((n, r) => n + (r.accountActive ? r.assignments?.unsent ?? 0 : 0), 0);
 
   // Selection helpers
   const allSelected = reviewers.length > 0 && reviewers.every((r) => selectedIds.has(r.userId));
@@ -317,14 +294,10 @@ function Reviewers({ eventId }: { eventId: string }) {
         </div>
 
         <div className="flex gap-2">
-          {totalUnsent > 0 && (
-            <Button
-              variant="outline"
-              onClick={() => handleSendAssignments("all")}
-              disabled={sendingAssignmentsFor !== null}
-            >
+          {reviewers.length > 0 && (
+            <Button variant="outline" onClick={() => setSendAllOpen(true)} disabled={sendInvitations.isPending}>
               <Send className="mr-2 h-4 w-4" />
-              {sendingAssignmentsFor === "all" ? "Sending..." : `Send all assignments (${totalUnsent})`}
+              {sendInvitations.isPending ? "Sending..." : `Send invitation to all (${reviewers.length})`}
             </Button>
           )}
           {reviewers.length > 0 && (
@@ -333,7 +306,7 @@ function Reviewers({ eventId }: { eventId: string }) {
               onClick={() => setBulkEmailOpen(true)}
             >
               <Send className="mr-2 h-4 w-4" />
-              {selectedIds.size > 0 ? `Email (${selectedIds.size})` : "Email All"}
+              {selectedIds.size > 0 ? `Custom email (${selectedIds.size})` : "Custom email"}
             </Button>
           )}
           <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
@@ -565,15 +538,15 @@ function Reviewers({ eventId }: { eventId: string }) {
                               {reviewer.jobTitle && ` • ${reviewer.jobTitle}`}
                             </div>
                           )}
-                          <div>{assignmentSummary(reviewer.assignments, reviewer.accountActive)}</div>
+                          <div>{assignmentSummary(reviewer.assignments)}</div>
                         </div>
                       </div>
                     </div>
 
                     <div className="flex gap-2 shrink-0">
                       {/* Adding a reviewer sends nothing (Nov 10, 2026): this
-                          is how they hear. A new account gets the setup
-                          invitation, an active one the reviewer email. */}
+                          is how they hear. One email for everyone; a new
+                          account's copy carries the link to set a password. */}
                       <Button
                         variant="outline"
                         size="sm"
@@ -583,22 +556,11 @@ function Reviewers({ eventId }: { eventId: string }) {
                             `${reviewer.firstName} ${reviewer.lastName}`
                           )
                         }
-                        disabled={resendingId === reviewer.userId}
+                        disabled={resendingId === reviewer.userId || sendInvitations.isPending}
                       >
                         <Send className="mr-2 h-4 w-4" />
-                        {sendLabel(reviewer.accountActive, resendingId === reviewer.userId)}
+                        {resendingId === reviewer.userId ? "Sending..." : "Send invitation"}
                       </Button>
-                      {reviewer.accountActive && (reviewer.assignments?.unsent ?? 0) > 0 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleSendAssignments(reviewer.userId)}
-                          disabled={sendingAssignmentsFor !== null}
-                        >
-                          <Send className="mr-2 h-4 w-4" />
-                          {sendingAssignmentsFor === reviewer.userId ? "Sending..." : `Send assignments (${reviewer.assignments?.unsent})`}
-                        </Button>
-                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -639,6 +601,22 @@ function Reviewers({ eventId }: { eventId: string }) {
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog open={sendAllOpen} onOpenChange={setSendAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send the invitation to all {plural(reviewers.length, "reviewer", "reviewers")}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Everyone on this list is emailed the Reviewer Invitation, including people you have already sent it to.
+              A reviewer who has no password yet gets a new link to set one, and any earlier link stops working.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSendToAll}>Send to all</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Remove also takes away their assignments on this event (Nov 10, 2026).
           Open and target are separate states: the target is kept while the

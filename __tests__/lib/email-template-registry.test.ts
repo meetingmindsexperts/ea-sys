@@ -36,15 +36,15 @@ const tokensIn = (...parts: string[]) => {
 };
 
 describe("registry shape", () => {
-  it("holds 39 system templates, each with a body and a spec under its own slug", () => {
-    expect(SYSTEM_TEMPLATE_SLUG_LIST).toHaveLength(39);
+  it("holds 37 system templates, each with a body and a spec under its own slug", () => {
+    expect(SYSTEM_TEMPLATE_SLUG_LIST).toHaveLength(37);
     for (const slug of SYSTEM_TEMPLATE_SLUG_LIST) {
       expect(EMAIL_TEMPLATE_REGISTRY[slug].slug).toBe(slug);
       expect(DEFAULT_TEMPLATE_BODIES[slug].subject.length).toBeGreaterThan(0);
       expect(DEFAULT_TEMPLATE_BODIES[slug].htmlContent.length).toBeGreaterThan(0);
       expect(EMAIL_TEMPLATE_REGISTRY[slug].description.length).toBeGreaterThan(0);
     }
-    expect(new Set(SYSTEM_TEMPLATE_SLUG_LIST).size).toBe(39);
+    expect(new Set(SYSTEM_TEMPLATE_SLUG_LIST).size).toBe(37);
   });
 
   it("derives DEFAULT_TEMPLATES, TEMPLATE_VARIABLES and the client-safe slug set from the registry, in seed order", () => {
@@ -99,14 +99,14 @@ describe("the body-to-contract check", () => {
 });
 
 describe("the derived raw-key set", () => {
-  it("is exactly the set the hand list held on September 18, 2026, plus the thank-you's surveyBlock (Oct 6)", () => {
+  it("is exactly the set the hand list held on September 18, 2026, plus surveyBlock (Oct 6) and the reviewer's portalAccess (Nov 10)", () => {
     const derived = new Set([...GLOBAL_RAW_HTML_KEYS, ...EMAIL_TEMPLATE_SPECS.flatMap((t) => t.rawHtmlKeys)]);
     expect([...derived].sort()).toEqual(
       [
         "paymentBlock", "rsvpButton", "receiptBlock", "taxBlock", "presentationDetails", "memberSummary",
         "moderatorDetails", "agreementBlock", "travelGrantBlock", "passcodeBlock", "recordingBlock",
         "calendarBlock", "entryBarcode", "organizerSignature", "reviewNotes", "claimSummary", "presenterFeeBlock",
-        "surveyBlock",
+        "surveyBlock", "portalAccess",
       ].sort(),
     );
     // And the renderer honours it without a caller opting in.
@@ -116,7 +116,7 @@ describe("the derived raw-key set", () => {
 });
 
 describe("the type-to-slug maps", () => {
-  it("bulk: the seventeen types map as the hand map did, and a reviewer invitation is the pool invitation", () => {
+  it("bulk: the seventeen types map as the hand map did, and a reviewer invitation is not a bulk email", () => {
     expect(BULK_EMAIL_TEMPLATE_SLUGS).toEqual({
       invitation: "speaker-invitation",
       agreement: "speaker-agreement",
@@ -136,7 +136,9 @@ describe("the type-to-slug maps", () => {
       "abstract-decision": "abstract-status-update",
       "abstract-reminder": "abstract-reminder",
     });
-    expect(bulkTemplateSlugFor("invitation", "reviewers")).toBe("reviewer-pool-invitation");
+    // Sent from the Reviewers page only (a per-reviewer set-password link), and
+    // never allowed to fall through to the speaker invitation.
+    expect(bulkTemplateSlugFor("invitation", "reviewers")).toBeNull();
     expect(bulkTemplateSlugFor("invitation", "speakers")).toBe("speaker-invitation");
     expect(bulkTemplateSlugFor("confirmation", "registrations")).toBe("registration-confirmation");
     expect(bulkTemplateSlugFor("certificate", "registrations")).toBeNull();
@@ -172,7 +174,6 @@ describe("the dialog option lists", () => {
     ]);
     expect(bulkEmailTypeOptionsFor("reviewers")).toEqual([
       { value: "custom", label: "Custom Email", description: "Write a custom message to reviewers" },
-      { value: "invitation", label: "Review Invitation", description: "Send each reviewer the added-as-a-reviewer email" },
     ]);
     expect(bulkEmailTypeOptionsFor("registrations")).toEqual([
       { value: "confirmation", label: "Registration Confirmation", description: "Confirm their registration" },

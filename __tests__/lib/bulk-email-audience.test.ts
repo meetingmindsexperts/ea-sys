@@ -81,10 +81,11 @@ import { BULK_EMAIL_TEMPLATE_SLUGS, bulkTemplateSlugFor } from "@/lib/bulk-email
 import { SYSTEM_TEMPLATE_SLUGS } from "@/lib/email-template-slugs";
 
 describe("bulkTemplateSlugFor", () => {
-  it("a reviewer invitation is the reviewer pool invitation, a speaker invitation the speaker one", () => {
-    // Before this the dialog previewed custom-notification for reviewers and
-    // the server sent speaker-invitation ("You're Invited to Speak").
-    expect(bulkTemplateSlugFor("invitation", "reviewers")).toBe("reviewer-pool-invitation");
+  it("a reviewer invitation is not a bulk email, and never the speaker one", () => {
+    // The one reviewer invitation is sent from the Reviewers page (a new
+    // reviewer's set-password link is minted there). An earlier version of
+    // this map sent reviewers speaker-invitation ("You're Invited to Speak").
+    expect(bulkTemplateSlugFor("invitation", "reviewers")).toBeNull();
     expect(bulkTemplateSlugFor("invitation", "speakers")).toBe("speaker-invitation");
   });
   it("saved templates and certificates have no fixed slug", () => {
@@ -95,6 +96,7 @@ describe("bulkTemplateSlugFor", () => {
   it("every mapped slug is a system template, so each has a built-in default", () => {
     const system = new Set<string>(SYSTEM_TEMPLATE_SLUGS);
     for (const slug of Object.values(BULK_EMAIL_TEMPLATE_SLUGS)) expect(system.has(slug), slug).toBe(true);
-    expect(system.has("reviewer-pool-invitation")).toBe(true);
+    expect(system.has("reviewer-invitation")).toBe(true);
+    expect(system.has("reviewer-pool-invitation")).toBe(false);
   });
 });

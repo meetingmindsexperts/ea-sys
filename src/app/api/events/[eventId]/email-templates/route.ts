@@ -7,7 +7,8 @@ import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { DEFAULT_TEMPLATES, allTemplateVariables } from "@/lib/email";
-import { isWebinarTemplateSlug } from "@/lib/email-template-slugs";
+import { isRetiredTemplateSlug, isWebinarTemplateSlug } from "@/lib/email-template-slugs";
+import { templateDisplayName } from "@/lib/email-template-registry";
 import {
   EMAIL_TEMPLATE_SLUG_MAX,
   EMAIL_TEMPLATE_SLUG_RE,
@@ -87,7 +88,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // seed them nor return them — keeping them out of the Email Templates list
     // and every surface that reads this endpoint.
     const isWebinarEvent = event.eventType === "WEBINAR";
-    const isVisible = (slug: string) => isWebinarEvent || !isWebinarTemplateSlug(slug);
+    // A withdrawn system template's saved row is kept and never listed.
+    const isVisible = (slug: string) => !isRetiredTemplateSlug(slug) && (isWebinarEvent || !isWebinarTemplateSlug(slug));
 
     let templates = await db.emailTemplate.findMany({
       where: { eventId },
@@ -137,6 +139,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       // locale-aware, where Postgres ordering depends on the column collation.
       templates: templates
         .filter((t) => isVisible(t.slug))
+        // A system template is listed under its current name, not the one it was seeded with.
+        .map((t) => ({ ...t, name: templateDisplayName(t.slug, t.name) }))
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
       variables: allTemplateVariables(),
     });

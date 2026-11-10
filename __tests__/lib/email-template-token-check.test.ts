@@ -76,16 +76,17 @@ describe("precision: the rules that keep it from crying wolf", () => {
     expect(check("survey-thankyou", "{{presentationDetails}}")).toEqual(["presentationDetails"]);
   });
 
-  it("the reviewer emails are sent by hand from the Reviewers page, and the digest's count is a real token (Nov 10, 2026)", () => {
-    const spec = (slug: string) => EMAIL_TEMPLATE_SPECS.find((t) => t.slug === slug)!;
-    // Neither is automatic any more: adding a reviewer and assigning an abstract send nothing.
-    expect(spec("reviewer-assignment").surfaces).toEqual(["console"]);
-    expect(spec("reviewer-pool-invitation").surfaces).toEqual(["console", "bulk"]);
-    // {{abstractCount}} is filled by sendPendingAssignments, so the editor must not flag it.
-    expect(check("reviewer-assignment", "{{abstractCount}} {{abstractTitle}} {{title}} {{role}} {{reviewLink}}")).toEqual([]);
-    // abstractTitle stays escaped by default everywhere: the digest passes it raw for its own call only.
-    expect(spec("reviewer-assignment").rawHtmlKeys).toEqual([]);
-    expect(check("reviewer-assignment", "{{presentationDetails}}")).toEqual(["presentationDetails"]);
+  it("the one reviewer email is sent by hand from the Reviewers page (Nov 10, 2026)", () => {
+    const spec = (slug: string) => EMAIL_TEMPLATE_SPECS.find((t) => t.slug === slug);
+    // Not automatic, and not a bulk email: adding a reviewer and assigning an abstract send nothing.
+    expect(spec("reviewer-invitation")!.surfaces).toEqual(["console"]);
+    expect(spec("reviewer-assignment")).toBeUndefined();
+    expect(spec("reviewer-pool-invitation")).toBeUndefined();
+    // The tokens its sender fills, the older two included: a copy saved before
+    // {{portalAccess}} must not be flagged for tokens that still resolve.
+    expect(check("reviewer-invitation", "{{portalAccess}} {{title}} {{email}} {{reviewLink}} {{setupLink}} {{expiresIn}} {{inviterName}}")).toEqual([]);
+    // The abstracts are not listed in an email any more: My Reviews shows them.
+    expect(check("reviewer-invitation", "{{abstractTitle}} {{presentationDetails}}")).toEqual(["abstractTitle", "presentationDetails"]);
   });
 
   it("allows the RSVP tokens, which bulk fills when an RSVP is chosen", () => {

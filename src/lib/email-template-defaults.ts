@@ -469,72 +469,12 @@ Log In: {{loginLink}}
 
 {{organizerSignature}}`,
   },
-  "reviewer-assignment": {
-    subject: "Your abstract review assignment for {{eventName}}",
-    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
-    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Abstract Review Assignment</h1>
-    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
-    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
-    <p>Dear <strong>{{title}} {{firstName}} {{lastName}}</strong>,</p>
-    <p>You have been assigned as <strong>{{role}}</strong> to review the following for <strong>{{eventName}}</strong>:</p>
-    <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0;">
-      <p style="margin: 0; font-weight: 600; color: #111827;">{{abstractTitle}}</p>
-    </div>
-    <p>Please log in to your reviewer portal to read each abstract and submit your scores and feedback.</p>
-    <div style="text-align: center; margin: 30px 0;">
-      <a href="{{reviewLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Go to My Reviews</a>
-    </div>
-    <p style="color: #6b7280; font-size: 14px;">If you believe you have a conflict of interest with any abstract listed here, please let the event organizer know.</p>
-    {{organizerSignature}}
-  </div>`,
-    textContent: `Abstract Review Assignment - {{eventName}}
-
-Dear {{title}} {{firstName}} {{lastName}},
-
-You have been assigned as {{role}} to review the following for {{eventName}}:
-
-  {{abstractTitle}}
-
-Please log in to your reviewer portal to read each abstract and submit your scores and feedback.
-
-Go to My Reviews: {{reviewLink}}
-
-If you believe you have a conflict of interest with any abstract listed here, please let the event organizer know.
-
-{{organizerSignature}}`,
-  },
-  "reviewer-pool-invitation": {
-    subject: "You've been added as a reviewer — {{eventName}}",
-    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
-    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">You're a Reviewer</h1>
-    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
-    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
-    <p>Dear <strong>{{title}} {{firstName}} {{lastName}}</strong>,</p>
-    <p>You have been added as a reviewer for <strong>{{eventName}}</strong>. The abstracts assigned to you will appear in My Reviews, where you can record your scores and feedback.</p>
-    <div style="text-align: center; margin: 30px 0;">
-      <a href="{{reviewLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Go to My Reviews</a>
-    </div>
-    <p style="color: #6b7280; font-size: 14px;">If you have any questions, please contact the event organizer.</p>
-    {{organizerSignature}}
-  </div>`,
-    textContent: `You've been added as a reviewer - {{eventName}}
-
-Dear {{title}} {{firstName}} {{lastName}},
-
-You have been added as a reviewer for {{eventName}}. The abstracts assigned to you will appear in My Reviews, where you can record your scores and feedback.
-
-Go to My Reviews: {{reviewLink}}
-
-If you have any questions, please contact the event organizer.
-
-{{organizerSignature}}`,
-  },
-  // The owner's wording (Nov 10, 2026), with what is one event's own (how many
-  // abstracts, the deadline, the secretariat's sign-off) left for that event's
-  // copy, and the steps worded for THIS portal: the setup link sets a password
-  // once and signs nobody in, so the email also carries the link that works
-  // every time after. A conflict of interest goes to the organiser: the portal
-  // refuses a review with no scores, and its notes can be read by the author.
+  // The one reviewer email (Nov 10, 2026). The wording is the owner's, made
+  // generic; what differs per reviewer is {{portalAccess}}, written by the
+  // system (reviewer-portal-access.ts): a set-password button for an account
+  // with none yet, the portal button for everyone. A conflict of interest goes
+  // to the organiser: the portal refuses a review with no scores, and its
+  // notes can be read by the author.
   "reviewer-invitation": {
     subject: "Invitation to review abstracts | {{eventName}}",
     htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
@@ -544,7 +484,7 @@ If you have any questions, please contact the event organizer.
     <p>Please find information below regarding the review process.</p>
     <p><strong>To review the abstracts:</strong></p>
     <ul>
-      <li>Set your password with the first button below (once), then sign in to your review portal</li>
+      <li>Open your review portal with the button below</li>
       <li>In the portal you can access all abstracts you have been asked to review</li>
       <li>Reviewed abstracts are marked &quot;Submitted&quot;.</li>
       <li>Click &quot;Review&quot; to open the selected abstract. You will then be taken to a new page that shows the abstract and its details.</li>
@@ -552,14 +492,7 @@ If you have any questions, please contact the event organizer.
       <li>If you believe you have a conflict of interest with any abstract, please let the event organizer know.</li>
     </ul>
     <p><strong>Viewing Abstracts</strong></p>
-    <p>First, set your password. This link works once, within {{expiresIn}}.</p>
-    <div style="text-align: center; margin: 20px 0;">
-      <a href="{{setupLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">SET YOUR PASSWORD</a>
-    </div>
-    <p>After that, enter the Reviewer Portal at any time by signing in with {{email}}:</p>
-    <div style="text-align: center; margin: 20px 0;">
-      <a href="{{reviewLink}}" style="display: inline-block; background: #ffffff; color: #00aade; padding: 13px 27px; text-decoration: none; border-radius: 8px; font-weight: 500; border: 1px solid #00aade;">REVIEWER PORTAL</a>
-    </div>
+    {{portalAccess}}
     <p>Please let us know if you need any additional information or have any questions.</p>
     <p>Thank you again for your support.</p>
     {{organizerSignature}}
@@ -574,7 +507,7 @@ Please find information below regarding the review process.
 
 To review the abstracts:
 
-- Set your password with the first link below (once), then sign in to your review portal
+- Open your review portal with the link below
 - In the portal you can access all abstracts you have been asked to review
 - Reviewed abstracts are marked "Submitted".
 - Click "Review" to open the selected abstract. You will then be taken to a new page that shows the abstract and its details.
@@ -583,13 +516,7 @@ To review the abstracts:
 
 Viewing Abstracts
 
-First, set your password. This link works once, within {{expiresIn}}.
-
-SET YOUR PASSWORD: {{setupLink}}
-
-After that, enter the Reviewer Portal at any time by signing in with {{email}}:
-
-REVIEWER PORTAL: {{reviewLink}}
+{{portalAccess}}
 
 Please let us know if you need any additional information or have any questions.
 

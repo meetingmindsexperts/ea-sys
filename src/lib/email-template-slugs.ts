@@ -9,7 +9,7 @@
  *
  * Leaf module: imports only the registry leaf, safe for any bundle.
  */
-import { SYSTEM_TEMPLATE_SLUG_LIST } from "@/lib/email-template-registry";
+import { RETIRED_SYSTEM_TEMPLATE_SLUGS, SYSTEM_TEMPLATE_SLUG_LIST } from "@/lib/email-template-registry";
 
 export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set(SYSTEM_TEMPLATE_SLUG_LIST);
 
@@ -33,7 +33,17 @@ export function isWebinarTemplateSlug(slug: string): boolean {
  * template that the bulk-email dialog should offer as a selectable send option.
  */
 export function isCustomTemplateSlug(slug: string): boolean {
-  return !SYSTEM_TEMPLATE_SLUGS.has(slug);
+  return !SYSTEM_TEMPLATE_SLUGS.has(slug) && !isRetiredTemplateSlug(slug);
+}
+
+const RETIRED_TEMPLATE_SLUGS: ReadonlySet<string> = new Set(RETIRED_SYSTEM_TEMPLATE_SLUGS);
+
+/**
+ * True for a system template that was withdrawn. Its saved rows are kept and
+ * never listed or offered: nothing sends them any more.
+ */
+export function isRetiredTemplateSlug(slug: string): boolean {
+  return RETIRED_TEMPLATE_SLUGS.has(slug);
 }
 
 /**

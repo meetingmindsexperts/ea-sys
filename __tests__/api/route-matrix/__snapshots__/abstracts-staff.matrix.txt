@@ -363,7 +363,7 @@ POST reviewers/[reviewerId]/resend-invitation
   API_KEY     401         401         401         401
   NONE        401         401         401         401
 
-POST reviewers/send-assignments
+POST reviewers/send-invitations
   caller      conf        assigned    webinar     foreign
   SUPER_ADMIN 200 r w     200 r w     200 r w     404
   OPERATOR    403         403         403         403

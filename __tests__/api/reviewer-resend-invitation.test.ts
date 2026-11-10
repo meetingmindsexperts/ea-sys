@@ -1,12 +1,13 @@
 /**
- * Reviewer invitation resend. Recovers a reviewer stranded by a failed/lost
- * invite: pending account → re-mint setup token + resend setup invite; active
- * account → resend the pool reminder. Unlike the silent add path, a send
- * failure surfaces (502).
+ * The row's Send button on the Reviewers page: ONE reviewer, the one reviewer
+ * invitation (Nov 10, 2026). Which of its two forms the reviewer gets, and the
+ * set-password link, are sendReviewerInvitation's (its own test); this route
+ * finds the reviewer on the event's pool, hands them over and reports the
+ * outcome. A send failure surfaces (502).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, setupSpy, notifyPoolSpy } = vi.hoisted(() => {
+const { mockDb, mockAuth, sendSpy } = vi.hoisted(() => {
   const tx = {
     verificationToken: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({}) },
   };
@@ -20,8 +21,7 @@ const { mockDb, mockAuth, setupSpy, notifyPoolSpy } = vi.hoisted(() => {
       _tx: tx,
     },
     mockAuth: vi.fn(),
-    setupSpy: vi.fn().mockResolvedValue({ ok: true }),
-    notifyPoolSpy: vi.fn().mockResolvedValue({ ok: true }),
+    sendSpy: vi.fn(),
   };
 });
 
@@ -36,12 +36,18 @@ vi.mock("@/lib/security", () => ({
   hashVerificationToken: (t: string) => `hash:${t}`,
   checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
 }));
-vi.mock("@/lib/abstract-reviewer-notify", () => ({ notifyReviewerPoolAdded: notifyPoolSpy, sendReviewerSetupInvitation: setupSpy }));
+vi.mock("@/lib/abstract-reviewer-notify", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/abstract-reviewer-notify")>("@/lib/abstract-reviewer-notify");
+  return { sendReviewerInvitation: sendSpy, inviterNameOf: actual.inviterNameOf };
+});
+vi.mock("@/lib/public-brand-server", () => ({ loadPublicBrandForOrg: async () => ({ name: "Meeting Minds Experts" }) }));
 
 import { POST } from "@/app/api/events/[eventId]/reviewers/[reviewerId]/resend-invitation/route";
 
 const params = Promise.resolve({ eventId: "ev1", reviewerId: "r1" });
 const req = () => new Request("http://localhost/resend", { method: "POST" });
+
+const REVIEWER = { id: "r1", email: "Rev@X.com", firstName: "Rev", lastName: "One", emailVerified: null, role: "REVIEWER" };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -50,75 +56,53 @@ beforeEach(() => {
     id: "ev1", name: "MedCon", slug: "medcon",
     settings: { reviewerUserIds: ["r1"] }, emailFromAddress: null, emailFromName: null,
   });
-  setupSpy.mockResolvedValue({ ok: true });
-  notifyPoolSpy.mockResolvedValue({ ok: true });
+  mockDb.user.findUnique.mockResolvedValue(REVIEWER);
+  sendSpy.mockResolvedValue({ ok: true, kind: "setup" });
 });
 
 describe("reviewer resend-invitation", () => {
-  it("the setup invite goes through the event's own template, with a fresh personal link and who sent it", async () => {
-    mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "Rev@X.com", firstName: "Rev", lastName: "One", emailVerified: null, role: "REVIEWER" });
-    expect((await POST(req(), { params })).status).toBe(200);
-    const sent = setupSpy.mock.calls[0][0];
-    expect(sent).toMatchObject({ eventId: "ev1", eventName: "MedCon", reviewer: { id: "r1" }, inviterName: "A B", expiresIn: "7 days", triggeredByUserId: "admin1" });
-    // The link carries the token that was just stored (hashed) and the event to land on.
-    const token = new URL(sent.setupLink).searchParams.get("token");
-    expect(mockDb._tx.verificationToken.create.mock.calls[0][0].data.token).toBe(`hash:${token}`);
-    expect(sent.setupLink).toContain("email=rev%40x.com");
-    expect(sent.setupLink).toContain("eventSlug=medcon");
-  });
-
-  it("pending account: re-mints a token + resends the setup invite", async () => {
-    mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "Rev@X.com", firstName: "Rev", lastName: "One", emailVerified: null, role: "REVIEWER" });
+  it("hands the reviewer to the one sender, with the event, the brand and who pressed Send", async () => {
     const res = await POST(req(), { params });
-    const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body.type).toBe("setup");
-    expect(mockDb._tx.verificationToken.deleteMany).toHaveBeenCalledWith({ where: { identifier: "rev@x.com" } });
-    expect(mockDb._tx.verificationToken.create).toHaveBeenCalledTimes(1);
-    expect(setupSpy).toHaveBeenCalledTimes(1);
-    expect(notifyPoolSpy).not.toHaveBeenCalled();
-  });
-
-  it("active account: resends the pool reminder (no token mint)", async () => {
-    mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "rev@x.com", firstName: "Rev", lastName: "One", emailVerified: new Date() });
-    const res = await POST(req(), { params });
-    const body = await res.json();
-    expect(res.status).toBe(200);
-    expect(body.type).toBe("pool");
-    expect(notifyPoolSpy).toHaveBeenCalledTimes(1);
-    expect(setupSpy).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual({ success: true, sent: true, type: "setup" });
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    expect(sendSpy).toHaveBeenCalledWith({
+      eventId: "ev1",
+      organizationId: "org1",
+      eventName: "MedCon",
+      eventSlug: "medcon",
+      reviewer: REVIEWER,
+      organizationName: "Meeting Minds Experts",
+      inviterName: "A B",
+      triggeredByUserId: "admin1",
+    });
+    // The link is the sender's to mint: this route stores no token itself.
     expect(mockDb._tx.verificationToken.create).not.toHaveBeenCalled();
   });
 
-  it("a registrant on the pool gets the reviewer email, never a setup link: that link would replace their password", async () => {
-    mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "rev@x.com", firstName: "Rev", lastName: "One", emailVerified: null, role: "REGISTRANT" });
-    const res = await POST(req(), { params });
-    expect((await res.json()).type).toBe("pool");
-    expect(notifyPoolSpy).toHaveBeenCalledTimes(1);
-    expect(setupSpy).not.toHaveBeenCalled();
-    expect(mockDb._tx.verificationToken.deleteMany).not.toHaveBeenCalled();
-    expect(mockDb._tx.verificationToken.create).not.toHaveBeenCalled();
+  it("says which form went: a reviewer who can already sign in was sent the portal, no set-password link", async () => {
+    sendSpy.mockResolvedValue({ ok: true, kind: "portal" });
+    expect(await (await POST(req(), { params })).json()).toMatchObject({ type: "portal" });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ resend: "portal" });
   });
 
-  it("active account: a refused email is a 502 with its reason, never 'sent' (Nov 10, 2026)", async () => {
-    mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "rev@x.com", firstName: "Rev", lastName: "One", emailVerified: new Date() });
-    notifyPoolSpy.mockResolvedValueOnce({ ok: false, code: "SEND_FAILED", message: "Email not sent: it still contains {{title}}" });
-    const res = await POST(req(), { params });
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "Email not sent: it still contains {{title}}", code: "EMAIL_SEND_FAILED" });
-  });
-
-  it("pending account: a refused invitation is a 502 with its reason (an edited template can leave a token unfilled)", async () => {
-    mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "rev@x.com", firstName: "Rev", lastName: "One", emailVerified: null, role: "REVIEWER" });
-    setupSpy.mockResolvedValueOnce({ ok: false, code: "SEND_FAILED", message: "Email not sent: it still contains {{venue}}" });
+  it("a refused email is a 502 with its reason, never 'sent'", async () => {
+    sendSpy.mockResolvedValueOnce({ ok: false, code: "SEND_FAILED", message: "Email not sent: it still contains {{venue}}" });
     const res = await POST(req(), { params });
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "Email not sent: it still contains {{venue}}", code: "EMAIL_SEND_FAILED" });
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
   });
 
-  it("404 when the user isn't in the event's reviewer pool", async () => {
+  it("404 when the user isn't in the event's reviewer pool, and nothing is sent", async () => {
     mockDb.event.findFirst.mockResolvedValue({ id: "ev1", name: "MedCon", slug: "medcon", settings: { reviewerUserIds: [] }, emailFromAddress: null, emailFromName: null });
-    const res = await POST(req(), { params });
-    expect(res.status).toBe(404);
+    expect((await POST(req(), { params })).status).toBe(404);
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it("404 when the account is gone", async () => {
+    mockDb.user.findUnique.mockResolvedValue(null);
+    expect((await POST(req(), { params })).status).toBe(404);
+    expect(sendSpy).not.toHaveBeenCalled();
   });
 });

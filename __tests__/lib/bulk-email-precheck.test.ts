@@ -409,8 +409,12 @@ describe("precheckBulkEmailViability — saved templates resolve at enqueue (com
     expect(loadActiveEventTemplateRow).toHaveBeenCalledTimes(1);
   });
 
-  it("a reviewer invitation is slug-mapped (reviewer-pool-invitation) and passes the type guard", async () => {
-    const res = await precheckBulkEmailViability({ eventId: "evt-1", recipientType: "reviewers", emailType: "invitation" });
+  it("a reviewer invitation is refused as a bulk email: it is sent from the Reviewers page", async () => {
+    await expect(
+      precheckBulkEmailViability({ eventId: "evt-1", recipientType: "reviewers", emailType: "invitation" }),
+    ).rejects.toMatchObject({ status: 400 });
+    // A custom email to reviewers still goes.
+    const res = await precheckBulkEmailViability({ eventId: "evt-1", recipientType: "reviewers", emailType: "custom", customSubject: "Reminder", customMessage: "Please review by Friday." });
     expect(res.event.id).toBe("evt-1");
   });
 });
