@@ -529,43 +529,64 @@ If you have any questions, please contact the event organizer.
 
 {{organizerSignature}}`,
   },
+  // The owner's wording (Nov 10, 2026), with what is one event's own (how many
+  // abstracts, the deadline, the secretariat's sign-off) left for that event's
+  // copy, and the steps worded for THIS portal: the link sets a password, it
+  // does not sign anyone in.
   "reviewer-invitation": {
-    subject: "You've been invited to join {{organizationName}}",
+    subject: "Invitation to review abstracts | {{eventName}}",
     htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
-    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">You're Invited!</h1>
-    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Join {{organizationName}}</p>
-    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
-    <p>Hi <strong>{{title}} {{firstName}} {{lastName}}</strong>,</p>
-    <p><strong>{{inviterName}}</strong> has invited you to join <strong>{{organizationName}}</strong> as a <strong>Reviewer</strong> for <strong>{{eventName}}</strong>.</p>
-    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
-      <h3 style="margin-top: 0; color: #374151;">Invitation Details</h3>
-      <table style="width: 100%; border-collapse: collapse;">
-        <tr><td style="padding: 8px 0; color: #6b7280;">Organization:</td><td style="padding: 8px 0; font-weight: 500;">{{organizationName}}</td></tr>
-        <tr><td style="padding: 8px 0; color: #6b7280;">Event:</td><td style="padding: 8px 0; font-weight: 500;">{{eventName}}</td></tr>
-        <tr><td style="padding: 8px 0; color: #6b7280;">Your Role:</td><td style="padding: 8px 0; font-weight: 500;">Reviewer</td></tr>
-        <tr><td style="padding: 8px 0; color: #6b7280;">Your Email:</td><td style="padding: 8px 0; font-weight: 500;">{{email}}</td></tr>
-      </table>
-    </div>
+    <p>Dear {{title}} {{lastName}},</p>
+    <p>Thank you for agreeing to serve as an abstract reviewer for <strong>{{eventName}}</strong>. We are truly grateful for your contribution.</p>
+    <p>The abstracts assigned to you are in your review portal, and we would greatly appreciate receiving your completed evaluations by the deadline the organisers have given you.</p>
+    <p>Please find information below regarding the review process.</p>
+    <p><strong>To review the abstracts:</strong></p>
+    <ul>
+      <li>Click on the link below to set your password and open your review portal</li>
+      <li>In the portal you can access all abstracts you have been asked to review</li>
+      <li>Reviewed abstracts are marked &quot;Submitted&quot;.</li>
+      <li>Click &quot;Review&quot; to open the selected abstract. You will then be taken to a new page that shows the abstract and its details.</li>
+      <li>Based on the review criteria shown, award a score for each abstract and enter any comments you wish to make about the abstract</li>
+      <li>If you are allocated an abstract and have a conflict of interest, please leave the scores blank and make a note in the comment field.</li>
+    </ul>
+    <p><strong>Viewing Abstracts</strong></p>
+    <p>To enter the Reviewer Portal, click on the link provided below. The first time, you will be asked to set your password.</p>
     <div style="text-align: center; margin: 30px 0;">
-      <a href="{{setupLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Accept Invitation &amp; Set Password</a>
+      <a href="{{setupLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">REVIEWER PORTAL</a>
     </div>
-    <p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Note:</strong> This invitation will expire in {{expiresIn}}.</p>
-    <p style="color: #6b7280; font-size: 14px;">If you didn't expect this invitation, you can safely ignore this email.</p>
+    <p style="color: #6b7280; font-size: 14px;">This link works for {{expiresIn}}. Your account is on {{email}}.</p>
+    <p>Please let us know if you need any additional information or have any questions.</p>
+    <p>Thank you again for your support.</p>
     {{organizerSignature}}
   </div>`,
-    textContent: `You've been invited to join {{organizationName}}
+    textContent: `Dear {{title}} {{lastName}},
 
-Hi {{title}} {{firstName}} {{lastName}},
+Thank you for agreeing to serve as an abstract reviewer for {{eventName}}. We are truly grateful for your contribution.
 
-{{inviterName}} has invited you to join {{organizationName}} as a Reviewer for {{eventName}}.
+The abstracts assigned to you are in your review portal, and we would greatly appreciate receiving your completed evaluations by the deadline the organisers have given you.
 
-Your email: {{email}}
+Please find information below regarding the review process.
 
-Accept Invitation & Set Password: {{setupLink}}
+To review the abstracts:
 
-Note: This invitation will expire in {{expiresIn}}.
+- Click on the link below to set your password and open your review portal
+- In the portal you can access all abstracts you have been asked to review
+- Reviewed abstracts are marked "Submitted".
+- Click "Review" to open the selected abstract. You will then be taken to a new page that shows the abstract and its details.
+- Based on the review criteria shown, award a score for each abstract and enter any comments you wish to make about the abstract
+- If you are allocated an abstract and have a conflict of interest, please leave the scores blank and make a note in the comment field.
 
-If you didn't expect this invitation, you can safely ignore this email.
+Viewing Abstracts
+
+To enter the Reviewer Portal, click on the link provided below. The first time, you will be asked to set your password.
+
+REVIEWER PORTAL: {{setupLink}}
+
+This link works for {{expiresIn}}. Your account is on {{email}}.
+
+Please let us know if you need any additional information or have any questions.
+
+Thank you again for your support.
 
 {{organizerSignature}}`,
   },

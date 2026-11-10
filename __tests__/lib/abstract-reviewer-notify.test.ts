@@ -398,16 +398,19 @@ describe("sendReviewerSetupInvitation: the editable account invitation", () => {
   const useRealDefault = () =>
     vi.mocked(getEventTemplate).mockResolvedValueOnce({ ...DEFAULT_TEMPLATE_BODIES["reviewer-invitation"], branding } as never);
 
-  it("the REAL default says who invited them, carries the link, and leaves no token", async () => {
+  it("the REAL default greets by title, carries the personal link, and leaves no token", async () => {
     speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: "DR", additionalEmail: null }]);
     useRealDefault();
     expect(await sendReviewerSetupInvitation(args)).toEqual({ ok: true });
     const sent = sendEmailSpy.mock.calls[0][0];
-    expect(sent.subject).toBe("You've been invited to join Meeting Minds Experts");
-    expect(sent.textContent).toContain("Hi Dr. Jane Doe,");
-    expect(sent.textContent).toContain("Sam Admin has invited you to join Meeting Minds Experts as a Reviewer for MedCon.");
-    expect(sent.textContent).toContain(`Accept Invitation & Set Password: ${args.setupLink}`);
+    expect(sent.subject).toBe("Invitation to review abstracts | MedCon");
+    expect(sent.textContent).toContain("Dear Dr. Doe,");
+    expect(sent.textContent).toContain("Thank you for agreeing to serve as an abstract reviewer for MedCon.");
+    expect(sent.textContent).toContain(`REVIEWER PORTAL: ${args.setupLink}`);
+    expect(sent.textContent).toContain("This link works for 7 days. Your account is on jane@x.com.");
     expect(sent.htmlContent).toContain("token=abc&amp;email=jane%40x.com");
+    // A default serves every event: it never promises a sign-in the link does not give.
+    expect(sent.textContent).not.toMatch(/automatically/i);
     expect(findUnresolvedTokens(sent.subject + sent.htmlContent + sent.textContent)).toEqual([]);
     expect(sent.logContext).toMatchObject({ templateSlug: "reviewer-invitation", entityId: "u1", triggeredByUserId: "admin1" });
   });
