@@ -184,6 +184,9 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
           presentationType: data.presentationType || undefined,
           trackId: data.trackId || undefined,
           themeId: data.themeId || undefined,
+          // Always stated: left out, the server keeps the stored sub-theme (or
+          // clears it on a theme change) whatever the picker shows.
+          subThemeId: data.subThemeId || null,
           coAuthors: data.coAuthors,
           ...(data.status && { status: data.status }),
         }),

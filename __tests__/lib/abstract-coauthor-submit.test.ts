@@ -117,6 +117,10 @@ describe("the two abstract forms", () => {
     expect(src.match(/updateMutation\.mutate\(/g)).toHaveLength(1);
   });
 
+  it("edit page: the save states the sub-theme the picker shows", () => {
+    expect(read(pages[1])).toContain("subThemeId: data.subThemeId || null,");
+  });
+
   it("edit page: Delete Draft is offered only with abstracts.delete, and its failure shows the server's message", () => {
     const src = read(pages[1]);
     expect(src).toContain('useCan("abstracts.delete", eventId) === "allowed"');
