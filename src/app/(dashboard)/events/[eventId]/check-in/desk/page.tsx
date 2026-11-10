@@ -36,11 +36,11 @@ export default function DeskPage() {
       <header className="sticky top-0 z-10 border-b bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            {branding?.logo && (
+            {branding?.publicLogo && (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img
-                src={branding.logo}
-                alt={branding.name || "Organisation"}
+                src={branding.publicLogo}
+                alt={branding.publicName}
                 className="h-10 max-w-[96px] shrink-0 object-contain border-r pr-3"
               />
             )}

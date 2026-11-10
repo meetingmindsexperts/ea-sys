@@ -1,3 +1,4 @@
+import { readPublicBrand } from "@/lib/public-brand";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
@@ -54,9 +55,11 @@ export async function loadSiteContext(host: string | null) {
   // Only the named fields leave this function: the settings JSON also holds
   // encrypted credentials and must never reach a page.
   const catalogue = row && readCatalogueSettings(row.settings);
-  const organization: SiteOrganization | null = row && catalogue && {
-    name: row.name,
-    logo: row.logo,
+  // The attendee-facing brand, not the organisation's own name (public-brand.ts).
+  const brand = row && readPublicBrand(row.settings, row);
+  const organization: SiteOrganization | null = row && catalogue && brand && {
+    name: brand.name,
+    logo: brand.logo,
     catalogue,
     email: catalogue.contactEmail ?? row.companyEmail,
     phone: catalogue.contactPhone ?? row.companyPhone,

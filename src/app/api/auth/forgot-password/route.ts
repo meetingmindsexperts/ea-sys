@@ -1,3 +1,6 @@
+import { isTeamRole } from "@/lib/team-roles";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -35,6 +38,14 @@ const forgotPasswordSchema = z.object({
 
 function getPasswordResetIdentifier(email: string) {
   return `password-reset:${email.toLowerCase()}`;
+}
+
+/** Staff know the organisation (the email's default); everyone else its attendee-facing brand. */
+async function attendeeProductName(user: { role: string; organizationId: string | null }, req: Request): Promise<string | undefined> {
+  if (isTeamRole(user.role)) return undefined;
+  const orgId = user.organizationId ?? (await resolveRequestOrgId(req));
+  if (!orgId) return undefined;
+  return (await loadPublicBrandForOrg(orgId)).name;
 }
 
 export async function POST(req: Request) {
@@ -150,6 +161,7 @@ export async function POST(req: Request) {
           firstName: true,
           lastName: true,
           organizationId: true,
+          role: true,
         },
       },
     );
@@ -213,10 +225,12 @@ export async function POST(req: Request) {
     const returnTo = verifiedEventSlug ? validated.data.returnTo : undefined;
     const resetLink = `${appUrl}${resetPath}?token=${token}&email=${encodeURIComponent(email)}${returnTo ? `&from=${returnTo}` : ""}`;
 
+    const productName = await attendeeProductName(user, req);
     const emailTemplate = emailTemplates.passwordReset({
       recipientName: `${user.firstName} ${user.lastName}`,
       resetLink,
       expiresIn: "1 hour",
+      productName,
     });
 
     // Send email synchronously to ensure delivery before responding.

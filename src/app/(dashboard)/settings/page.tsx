@@ -1,5 +1,6 @@
 "use client";
 
+import { PublicBrandFields } from "@/components/settings/public-brand-fields";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
@@ -226,6 +227,8 @@ export default function SettingsPage() {
     currency: "USD",
     emailNotifications: true,
     website: "",
+    publicName: "",
+    publicLogo: null as string | null,
   });
   const [logoUploading, setLogoUploading] = useState(false);
 
@@ -293,6 +296,8 @@ export default function SettingsPage() {
           currency: data.settings?.currency || "USD",
           emailNotifications: data.settings?.emailNotifications ?? true,
           website: data.settings?.website || "",
+          publicName: data.settings?.publicBrand?.name || "",
+          publicLogo: data.settings?.publicBrand?.logo || null,
         });
       } else {
         console.error("settings:organization-load-failed", res.status);
@@ -370,6 +375,7 @@ export default function SettingsPage() {
             currency: orgFormData.currency,
             emailNotifications: orgFormData.emailNotifications,
             website,
+            publicBrand: { name: orgFormData.publicName.trim(), logo: orgFormData.publicLogo },
           },
         }),
       });
@@ -946,6 +952,14 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
+
+              <PublicBrandFields
+                name={orgFormData.publicName}
+                logo={orgFormData.publicLogo}
+                orgName={orgFormData.name}
+                disabled={!canEditOrg}
+                onChange={(next) => setOrgFormData((prev) => ({ ...prev, ...next }))}
+              />
 
               <div className="space-y-2">
                 <Label htmlFor="org-website">Website</Label>

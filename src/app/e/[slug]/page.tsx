@@ -1,3 +1,4 @@
+import { readPublicBrand } from "@/lib/public-brand";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
@@ -117,7 +118,7 @@ async function loadEvent(id: string) {
         venue: true, address: true, city: true, country: true, eventType: true, specialty: true, status: true,
         bannerImage: true, bannerImageMobile: true, cmeHours: true, settings: true, supportEmail: true,
         maxAttendees: true, seatCount: true,
-        organization: { select: { name: true, logo: true } },
+        organization: { select: { name: true, logo: true, settings: true } },
         ticketTypes: {
           // What the public form sells: active, never the hidden Faculty type.
           where: { isActive: true, isFaculty: false },
@@ -150,7 +151,10 @@ async function loadEvent(id: string) {
   const anchor = anchorId
     ? await db.eventSession.findFirst({ where: { id: anchorId, eventId: id }, select: { startTime: true, endTime: true } })
     : null;
-  return { event: event && anchor ? { ...event, startDate: anchor.startTime, endDate: anchor.endTime } : event, sessions };
+  // Only the attendee-facing brand leaves (public-brand.ts): the settings JSON
+  // also holds encrypted credentials.
+  const branded = event && { ...event, organization: readPublicBrand(event.organization.settings, event.organization) };
+  return { event: branded && anchor ? { ...branded, startDate: anchor.startTime, endDate: anchor.endTime } : branded, sessions };
 }
 
 type Speaker = { id: string; name: string; jobTitle: string | null; organization: string | null; photo: string | null };

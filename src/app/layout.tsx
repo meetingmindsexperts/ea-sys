@@ -1,3 +1,5 @@
+import { headers } from "next/headers";
+import { loadPublicBrandForHost } from "@/lib/public-brand-server";
 import type { Metadata } from "next";
 import { geistMono, geistSans } from "./fonts";
 import { Providers } from "@/components/providers";
@@ -10,10 +12,15 @@ const appUrl =
   process.env.NEXTAUTH_URL ||
   "https://events.meetingmindsgroup.com";
 
-export const metadata: Metadata = {
+// The tab title is the attendee-facing brand (public-brand.ts); the dashboard
+// layout names the organisation instead for staff.
+export async function generateMetadata(): Promise<Metadata> {
+  const brand = await loadPublicBrandForHost((await headers()).get("host"));
+  return { ...metadata, title: brand.name, description: `${brand.name}: registrations, abstracts and certificates for conferences, meetings and webinars` };
+}
+
+const metadata: Metadata = {
   metadataBase: new URL(appUrl),
-  title: "Meeting Minds Events Management Platform",
-  description: "Event management platform by Meeting Minds Group for conferences, meetings, and events",
   icons: {
     // The logo is black on transparent, so a dark browser theme gets the white copy. Square and
     // trimmed of its margin, or a tab shrinks the wide logo to about 60% of its height.

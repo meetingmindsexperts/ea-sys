@@ -1539,13 +1539,16 @@ ${params.expiresIn ? `Note: This invitation will expire in ${params.expiresIn}.`
     recipientName: string;
     resetLink: string;
     expiresIn?: string;
+    /** The brand the recipient knows: the organisation's for staff, the attendee-facing one otherwise. */
+    productName?: string;
   }) => {
+    const product = params.productName ?? "MM Group Events";
     const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Reset Your Password</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">We received a request to reset your password.</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Hi <strong>${escapeHtml(params.recipientName)}</strong>,</p>
-    <p>Use the button below to set a new password for your MM Group Events account.</p>
+    <p>Use the button below to set a new password for your ${escapeHtml(product)} account.</p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="${escapeHtml(params.resetLink)}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Reset Password</a>
     </div>
@@ -1553,9 +1556,9 @@ ${params.expiresIn ? `Note: This invitation will expire in ${params.expiresIn}.`
     <p style="color: #6b7280; font-size: 14px;">If you did not request a password reset, you can safely ignore this email.</p>
   </div>`;
     return {
-      subject: "Reset your MM Group Events password",
-      htmlContent: inlineCss(wrapWithBranding(bodyHtml, {})),
-      textContent: `Reset your MM Group Events password
+      subject: `Reset your ${product} password`,
+      htmlContent: inlineCss(wrapWithBranding(bodyHtml, { emailFooterHtml: `<p>Sent from ${escapeHtml(product)}</p>` })),
+      textContent: `Reset your ${product} password
 
 Hi ${params.recipientName},
 

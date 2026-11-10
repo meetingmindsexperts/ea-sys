@@ -218,6 +218,9 @@ export interface OrgBranding {
   name: string | null;
   logo: string | null;
   primaryColor: string | null;
+  /** The attendee-facing brand (src/lib/public-brand.ts): what HCPs and the kiosk show. */
+  publicName: string;
+  publicLogo: string | null;
 }
 
 /**

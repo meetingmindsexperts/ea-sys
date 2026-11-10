@@ -1,3 +1,4 @@
+import { PUBLIC_BRAND_SETTINGS_KEY, publicBrandSettingsSchema } from "@/lib/public-brand";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
@@ -26,6 +27,8 @@ const updateOrganizationSchema = z.object({
     // The organisation's website: the exit button on every webinar's thank-you
     // screen unless the webinar sets its own (Nov 5, 2026). "" clears it.
     website: exitLinkField.optional(),
+    // The name and logo HCPs see (src/lib/public-brand.ts); empty halves fall back to the organisation's.
+    publicBrand: publicBrandSettingsSchema.optional(),
   }).optional(),
   // Billing / Invoice fields
   companyName: z.string().max(255).nullable().optional(),
@@ -41,7 +44,7 @@ const updateOrganizationSchema = z.object({
 });
 
 /** The organisation preferences the Settings screen reads and any staff member may see. */
-const ORG_GENERAL_SETTINGS = ["timezone", "dateFormat", "currency", "emailNotifications", DEFAULT_REG_TYPES_SETTING, "website"] as const;
+const ORG_GENERAL_SETTINGS = [PUBLIC_BRAND_SETTINGS_KEY, "timezone", "dateFormat", "currency", "emailNotifications", DEFAULT_REG_TYPES_SETTING, "website"] as const;
 
 export async function GET(req: Request) {
   try {

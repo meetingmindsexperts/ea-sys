@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
+import { isTeamRole } from "@/lib/team-roles";
 import { useOrgBranding, useOrganizations, useEvent, useMyPortalSummary, useSubmitterContext } from "@/hooks/use-api";
 
 import { useActiveOrg } from "@/contexts/active-org-context";
@@ -47,6 +48,12 @@ import { activeNavHref, computeSidebarNav, sidebarSkipsEventFetch } from "./side
  * (`mobile`) the body of the slide-out menu below it, where it is never
  * collapsed and `onNavigate` closes the menu once a link is followed.
  */
+/** The org logo sits beside its name; an attendee-facing logo already carries the name, so it takes the row. */
+function logoSize(collapsed: boolean, staff: boolean): string {
+  if (collapsed) return "h-8 w-8";
+  return staff ? "h-9 max-w-[60px]" : "h-11 max-w-[170px]";
+}
+
 export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void } = {}) {
   const pathname = usePathname();
   const { isCollapsed: collapsedSetting, toggleSidebar } = useSidebar();
@@ -58,8 +65,11 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
   const { data: branding } = useOrgBranding();
   const qc = useQueryClient();
   const { activeOrgId, setActiveOrgId, isOrgOverride } = useActiveOrg();
-  const orgLogo = branding?.logo ?? null;
-  const orgName = branding?.name ?? session?.user?.organizationName ?? null;
+  // Staff see the organisation; attendees, authors and reviewers its
+  // attendee-facing brand (public-brand.ts).
+  const staff = isTeamRole(session?.user?.role);
+  const orgLogo = (staff ? branding?.logo : branding?.publicLogo) ?? null;
+  const orgName = staff ? (branding?.name ?? session?.user?.organizationName ?? null) : (branding?.publicName ?? null);
   const isSuperAdmin  = session?.user?.role === "SUPER_ADMIN";
   // Read at request time on the server and handed down, because a NEXT_PUBLIC_
   // constant is baked at build and master and the platform share one image.
@@ -132,7 +142,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
               <img
                 src={orgLogo}
                 alt={orgName || "Organization"}
-                className={cn("object-contain shrink-0", isCollapsed ? "h-8 w-8" : "h-9 max-w-[60px]")}
+                className={cn("object-contain shrink-0", logoSize(isCollapsed, staff))}
               />
             ) : null}
             {!orgLogo && isCollapsed && (
@@ -140,7 +150,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
                 {(orgName || "E")[0]}
               </span>
             )}
-            {!isCollapsed && (
+            {!isCollapsed && (staff || !orgLogo) && (
               <span className={cn(
                 "text-[11px] font-semibold text-primary/80 tracking-wide uppercase shrink-0 leading-tight line-clamp-2",
                 orgLogo && "border-l border-border pl-3"

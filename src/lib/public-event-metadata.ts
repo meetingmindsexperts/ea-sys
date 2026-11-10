@@ -1,3 +1,4 @@
+import { loadPublicBrandForHost } from "@/lib/public-brand-server";
 import type { Metadata } from "next";
 import { cache } from "react";
 import { headers } from "next/headers";
@@ -19,7 +20,6 @@ import { publicEventWhereForHost } from "@/lib/public-event";
  * layout and the leaf section layout share a single query per request.
  */
 
-const SITE_NAME = "Meeting Minds Events";
 const MAX_DESCRIPTION = 160;
 
 // `host` participates in the React cache() key so two layouts on the same
@@ -161,7 +161,8 @@ export async function buildEventMetadata({
 
     // Banner is the share image when present (relative path resolves via the
     // root layout's metadataBase); otherwise fall back to the platform logo.
-    const ogImage = event.bannerImage || "/mmg-logo.png";
+    const brand = await loadPublicBrandForHost(host);
+    const ogImage = event.bannerImage || brand.logo;
 
     return {
       title,
@@ -169,16 +170,16 @@ export async function buildEventMetadata({
       openGraph: {
         title,
         description,
-        siteName: SITE_NAME,
+        siteName: brand.name,
         type: "website",
         url: `/e/${slug}`,
-        images: [{ url: ogImage, alt: event.name }],
+        ...(ogImage && { images: [{ url: ogImage, alt: event.name }] }),
       },
       twitter: {
         card: "summary_large_image",
         title,
         description,
-        images: [ogImage],
+        ...(ogImage && { images: [ogImage] }),
       },
     };
   } catch (err) {

@@ -1,3 +1,4 @@
+import { readPublicBrand } from "@/lib/public-brand";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
@@ -73,12 +74,13 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const host = h.get("host");
   const origin = siteOrigin(host, h.get("x-forwarded-proto"));
   const tenant = await resolveTenantOrg(normalizeHost(host)).catch(() => null);
-  const organization = tenant?.orgId
+  const orgRow = tenant?.orgId
     ? await db.organization.findUnique({ where: { id: tenant.orgId }, select: { name: true, logo: true, settings: true } }).catch((err) => {
         apiLogger.warn({ err, msg: "catalogue:metadata-org-failed" });
         return null;
       })
     : null;
+  const organization = orgRow && { ...orgRow, ...readPublicBrand(orgRow.settings, orgRow) };
   // The organisation's own intro, when it wrote one, is what a search result shows.
   const description = (organization && readCatalogueSettings(organization.settings).intro) || DESCRIPTION;
   const filtered = !!(query.q || query.country || query.type || query.specialty);

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { signInErrorMessage } from "@/lib/sign-in-messages";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -40,6 +40,8 @@ type LoginForm = z.infer<typeof loginSchema>;
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // The staff door (/staff/login) shares this form; staff are invited, never sign up.
+  const staffDoor = usePathname().startsWith("/staff");
   // Same-origin paths ONLY (Sep 21, 2026 security review, finding #3). This
   // was read raw and pushed, so a crafted link landed a signed-in ADMIN on an
   // attacker's page — on the real domain, with the real login, right after
@@ -103,7 +105,7 @@ function LoginForm() {
       <CardHeader className="space-y-1">
         <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
         <CardDescription>
-          Sign in to MM Group Events
+          Sign in to your account
         </CardDescription>
       </CardHeader>
       <Form {...form}>
@@ -169,12 +171,14 @@ function LoginForm() {
               </div>
             </div>
             {/* Accounts for attendees (Nov 5, 2026). Staff are still invited. */}
-            <p className="text-sm text-muted-foreground text-center">
-              New here?{" "}
-              <Link href="/signup" className="text-primary hover:underline">
-                Create an account
-              </Link>
-            </p>
+            {!staffDoor && (
+              <p className="text-sm text-muted-foreground text-center">
+                New here?{" "}
+                <Link href="/signup" className="text-primary hover:underline">
+                  Create an account
+                </Link>
+              </p>
+            )}
           </CardFooter>
         </form>
       </Form>

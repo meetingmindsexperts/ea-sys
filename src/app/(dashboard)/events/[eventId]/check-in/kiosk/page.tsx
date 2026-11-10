@@ -212,7 +212,7 @@ export default function KioskCheckInPage() {
   const eventBanner = event?.bannerImage || event?.emailHeaderImage || null;
   const eventBannerMobile = event?.bannerImage ? event?.bannerImageMobile ?? null : null;
   // A LOGO (drawn for a light background) only when the event has no artwork.
-  const logoMark = eventBanner ? null : branding?.logo || null;
+  const logoMark = eventBanner ? null : branding?.publicLogo || null;
   // Read through a ref so the scan handler is not re-created (and its debounce
   // state reset) every time the event query refetches.
   const allowReprintRef = useRef(allowReprint);
@@ -688,7 +688,7 @@ export default function KioskCheckInPage() {
           /* eslint-disable-next-line @next/next/no-img-element -- organiser-uploaded path, not a build-time asset */
           <img
             src={logoMark}
-            alt={branding?.name ?? "Organiser"}
+            alt={branding?.publicName ?? "Organiser"}
             className="mt-8 h-24 w-auto max-w-[680px] object-contain px-5 py-3"
           />
         )}
