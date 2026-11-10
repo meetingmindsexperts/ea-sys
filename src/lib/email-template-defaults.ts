@@ -839,7 +839,7 @@ Dear {{title}} {{lastName}},
 
 Thank you for joining {{eventName}}. We hope you found it valuable.
 
-{{recordingBlock}}
+{{recordingBlockText}}
 
 {{surveyBlockText}}
 

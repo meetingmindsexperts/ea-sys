@@ -7,6 +7,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isBreakSessionType } from "@/lib/session-enums";
 import { readWebinarPageBranding, readWebinarSettings, webinarRecordingShown } from "@/lib/webinar";
+import { sessionReplayKind } from "@/lib/webinar/replay";
 import { getSponsorTiers, getSponsors } from "@/lib/sponsors";
 import { BUILT_IN_SPONSOR_TIER_KEYS, sponsorTierLabel } from "@/lib/sponsor-tiers";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
@@ -225,6 +226,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     );
 
     const recordingHidden = event.eventType === "WEBINAR" && !webinarRecordingShown(event.settings);
+    // Which replay the page offers (webinar/replay.ts): a state, never the link, which stays behind
+    // the registration-gated `../recording` route.
+    const replayKind = sessionReplayKind({
+      eventType: event.eventType,
+      settings: event.settings,
+      session,
+      recordingStatus: session.zoomMeeting?.recordingStatus,
+    });
     return NextResponse.json({
       event: {
         name: event.name,
@@ -257,6 +266,8 @@ export async function GET(req: Request, { params }: RouteParams) {
         // the page is told nothing about it, so it shows neither a replay nor a "processing" note, and
         // promises none.
         recordingHidden,
+        // "embed": the organiser's uploaded replay, played in the page. "zoom": Zoom's recording.
+        replayKind,
         zoomMeeting:
           session.zoomMeeting && recordingHidden ? { ...session.zoomMeeting, recordingStatus: null } : session.zoomMeeting,
         speakers: session.speakers.map((s) => ({

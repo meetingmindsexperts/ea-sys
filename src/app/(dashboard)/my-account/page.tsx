@@ -11,6 +11,7 @@ import {
   CreditCard,
   GraduationCap,
   MapPin,
+  PlayCircle,
   Ticket,
 } from "lucide-react";
 import { db } from "@/lib/db";
@@ -18,6 +19,7 @@ import { DEFAULT_EVENT_TIMEZONE, formatEventDateRange, localDateInTz } from "@/l
 import { cmeTotals, findReleasedCertificates, type PortalCertificate } from "@/lib/registrant-certificates";
 import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
 import { loadRegistrantPortal } from "@/lib/registrant-portal";
+import { loadReplayFacts } from "@/lib/registrant-replays";
 import {
   buildJourney,
   JOURNEY_REGISTRATION_FIELDS,
@@ -37,8 +39,8 @@ import { cn } from "@/lib/utils";
 
 /**
  * Every event a person is registered for, each as a journey: registered,
- * paid, checked in, survey, certificate (Nov 4, 2026; journey Nov 9, 2026,
- * docs/MY_PORTAL_PLAN.md phase 2).
+ * paid, checked in, replay, survey, certificate (Nov 4, 2026; journey Nov 9,
+ * 2026, docs/MY_PORTAL_PLAN.md phase 2; a webinar's replay Nov 10, 2026).
  *
  * A LIST, NOT A SECOND PORTAL. Until April 21 this route rendered a full
  * cross-event registration page, which was removed so that a registration is
@@ -80,11 +82,15 @@ async function loadEvents(scope: RegistrantScope) {
     findReleasedCertificates(scope),
     db.user.findUnique({ where: { id: scope.userId }, select: { firstName: true } }),
   ]);
-  const facts = await loadSurveyFacts(
-    registrations.map((r) => ({ id: r.id, eventId: r.event.id })),
-    new Date(),
-  );
-  return { registrations, certificates, firstName: user?.firstName?.trim() || null, ...facts };
+  const now = new Date();
+  const [facts, replays] = await Promise.all([
+    loadSurveyFacts(
+      registrations.map((r) => ({ id: r.id, eventId: r.event.id })),
+      now,
+    ),
+    loadReplayFacts(scope, registrations, now),
+  ]);
+  return { registrations, certificates, firstName: user?.firstName?.trim() || null, replays, ...facts };
 }
 
 type Loaded = Awaited<ReturnType<typeof loadEvents>>;
@@ -106,6 +112,8 @@ interface RegistrationJourney {
   ticketName: string | null;
   steps: JourneyStep[];
   surveys: SurveyLine[];
+  /** This registration may watch the webinar's replay now (registrant-replays.ts). */
+  replay: boolean;
 }
 
 interface EventCardData {
@@ -117,7 +125,7 @@ interface EventCardData {
 
 /** One card per event: its registrations' journeys and its certificates. */
 function buildCards(data: Loaded, now: Date): EventCardData[] {
-  const { registrations, certificates, surveys, responses } = data;
+  const { registrations, certificates, surveys, responses, replays } = data;
   const liveLinks = new Set(data.liveLinks);
   const events = new Map<string, EventSummary>();
   for (const r of registrations) events.set(r.event.id, r.event);
@@ -140,8 +148,9 @@ function buildCards(data: Loaded, now: Date): EventCardData[] {
       return {
         id: r.id,
         ticketName: r.ticketType?.name ?? null,
-        steps: buildJourney({ registration: r, event: r.event, surveys: lines, certificateCount: certs.length, now }),
+        steps: buildJourney({ registration: r, event: r.event, surveys: lines, certificateCount: certs.length, replay: replays.has(r.id), now }),
         surveys: lines,
+        replay: replays.has(r.id),
       };
     });
     return {
@@ -336,6 +345,7 @@ function DateBlock({ event }: { event: EventSummary }) {
 
 function EventCard({ card, featured }: { card: EventCardData; featured?: string }) {
   const { event, where, journeys, certificates } = card;
+  const hasReplay = journeys.some((j) => j.replay);
   return (
     <Card id={`event-${event.id}`} className={cn("h-full gap-0 overflow-hidden py-0", featured && "border-primary/40 ring-1 ring-primary/20")}>
       <EventCardBanner event={event} />
@@ -388,6 +398,15 @@ function EventCard({ card, featured }: { card: EventCardData; featured?: string 
             <Link href={`/e/${event.slug}/my-registration`}>
               {featured ? "View registration and badge" : "Open registration"}
               <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden />
+            </Link>
+          </Button>
+        )}
+        {/* Its own portal page plays it, after checking the registration again. */}
+        {hasReplay && (
+          <Button asChild variant="outline" className="h-11 w-full sm:h-9 sm:w-auto">
+            <Link href={`/my-account/replay/${event.id}`}>
+              <PlayCircle className="mr-1.5 h-4 w-4" aria-hidden />
+              Watch replay
             </Link>
           </Button>
         )}

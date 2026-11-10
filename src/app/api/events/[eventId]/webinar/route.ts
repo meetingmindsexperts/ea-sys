@@ -14,6 +14,7 @@ import { exitLinkField, readOrgWebsite } from "@/lib/webinar-exit-link";
 import { isUploadOrHttpsUrl, readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
 import { redactZoomHostFields } from "@/lib/zoom-visibility";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
+import { replayLinkField } from "@/lib/webinar/replay-video";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
 import { enableWebinarQA } from "@/lib/zoom";
 
@@ -62,6 +63,8 @@ const updateWebinarSchema = z.object({
   livePolls: z.boolean().optional(),
   // The recording on the attendee page (off unless turned on).
   showRecording: z.boolean().optional(),
+  // The organiser's uploaded replay, a Vimeo video link; "" clears it (Nov 10, 2026).
+  replayUrl: replayLinkField.optional(),
   // The thank-you screen's exit button for THIS webinar; "" falls back to the
   // organisation's website (Nov 5, 2026).
   exitUrl: exitLinkField.optional(),

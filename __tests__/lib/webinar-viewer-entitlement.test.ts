@@ -14,6 +14,7 @@ import {
   resetRoomOpenCache,
   viewerRefusal,
   viewerRegistrationWhere,
+  viewerStandingWhere,
 } from "@/lib/webinar/viewer-entitlement";
 
 beforeEach(() => {
@@ -38,6 +39,15 @@ describe("viewerRegistrationWhere", () => {
         },
       ],
     });
+  });
+
+  it("is the standing rule plus whose registration it is: the portal's replay page reuses the standing half (Nov 10, 2026)", () => {
+    for (const t of ["WEBINAR", "CONFERENCE", null]) {
+      const standing = viewerStandingWhere(t);
+      expect(standing).not.toHaveProperty("eventId");
+      expect(standing).not.toHaveProperty("userId");
+      expect(viewerRegistrationWhere("ev1", "u1", t)).toEqual({ eventId: "ev1", userId: "u1", ...standing });
+    }
   });
 
   it("never lets PENDING, WAITLISTED or CANCELLED through on a webinar", () => {

@@ -113,6 +113,10 @@ export interface WebinarSettings {
    *  Off unless turned on; while off the page shows no replay and the
    *  recording route refuses the link. */
   showRecording?: boolean;
+  /** The organiser's uploaded replay, a Vimeo video link (Nov 10, 2026): once the webinar is over
+   *  the attendee page plays it in place of Zoom's recording, which expires. Shown only while
+   *  showRecording is on. See src/lib/webinar/replay.ts. */
+  replayUrl?: string;
   /** Files for attendees, in display order (Oct 6, 2026); see
    *  src/lib/webinar/handouts.ts. Written only by the handouts routes. */
   handouts?: import("./webinar/handouts").WebinarHandout[];
@@ -149,16 +153,23 @@ export function webinarRecordingShown(settings: unknown): boolean {
 }
 
 /**
- * The {{recordingBlock}} of a webinar email: a Watch Replay button once the recording is fetched, a
+ * The {{recordingBlock}} of a webinar email: a Watch Replay button once there is a replay, a
  * "coming shortly" line before that, and nothing at all while the organiser has not switched the
  * recording on (Oct 28, 2026), since the thank-you email goes out on its own.
+ *
+ * `recordingUrl` comes from replayEmailUrl (webinar/replay.ts). `replayPageUrl` is the person's
+ * replay page in their portal: the "coming shortly" line links it, because the thank-you is sent
+ * before an organiser can upload a replay and no later email announces one (Nov 10, 2026).
  */
-export function webinarRecordingBlock(shown: boolean, recordingUrl: string, format: "html" | "text"): string {
+export function webinarRecordingBlock(shown: boolean, recordingUrl: string, format: "html" | "text", replayPageUrl = ""): string {
   if (!shown) return "";
-  const pending = "The recording will be available shortly. We'll send it to you as soon as it's ready.";
-  if (format === "text") return recordingUrl ? `Watch replay: ${recordingUrl}` : pending;
-  if (!recordingUrl) return `<p style="color:#6b7280;">${pending}</p>`;
-  return `<div style="text-align:center; margin:20px 0;"><a href="${recordingUrl}" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Watch Replay</a></div>`;
+  const button = (href: string, label: string) =>
+    `<div style="text-align:center; margin:20px 0;"><a href="${href}" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">${label}</a></div>`;
+  if (recordingUrl) return format === "text" ? `Watch replay: ${recordingUrl}` : button(recordingUrl, "Watch Replay");
+  const pending = "The recording will be available shortly.";
+  if (!replayPageUrl) return format === "text" ? pending : `<p style="color:#6b7280;">${pending}</p>`;
+  if (format === "text") return `${pending} Watch it here once it is ready: ${replayPageUrl}`;
+  return `<p style="color:#6b7280;">${pending} You can watch it here once it is ready.</p>${button(replayPageUrl, "Open the replay page")}`;
 }
 
 export interface WebinarPageBranding {

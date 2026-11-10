@@ -140,6 +140,7 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
+import { isValidReplayUrl, REPLAY_LINK_MESSAGE } from "@/lib/webinar/replay-video";
 import { isHttpsLink } from "@/lib/webinar-exit-link";
 import { webinarRoomEnded } from "@/lib/webinar-page-layout";
 import { BrandingImageField } from "@/components/events/branding-image-field";
@@ -488,10 +489,13 @@ export default function WebinarConsolePage() {
 
         <TabsContent value="analytics" className="space-y-6 mt-4">
           <RecordingCard
+            // Remounts when the saved link changes, so the field shows what is stored.
+            key={`recording:${data ? "loaded" : "loading"}:${data?.webinar?.replayUrl ?? ""}`}
             eventId={eventId}
             zoom={data?.zoomMeeting ?? null}
             sessionEnded={status === "ended"}
             shown={data?.webinar?.showRecording === true}
+            replayUrl={data?.webinar?.replayUrl ?? ""}
           />
           <AttendanceCard
             eventId={eventId}
@@ -1350,6 +1354,7 @@ function RecordingCard({
   zoom,
   sessionEnded,
   shown,
+  replayUrl,
 }: {
   eventId: string;
   zoom:
@@ -1364,6 +1369,8 @@ function RecordingCard({
   sessionEnded: boolean;
   /** Whether the attendee page offers the recording (off unless turned on, Oct 28, 2026). */
   shown: boolean;
+  /** The organiser's uploaded replay, a Vimeo video link, or "" (Nov 10, 2026). */
+  replayUrl: string;
 }) {
   const eventTz = useEventTz();
   const fetchRecording = useFetchWebinarRecording(eventId);
@@ -1377,6 +1384,26 @@ function RecordingCard({
       toast.success(next ? "Attendees can now watch the recording" : "Recording hidden from attendees");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not change the recording setting");
+    }
+  };
+
+  // The uploaded replay (Nov 10, 2026): a Vimeo link the attendee page plays once the webinar is over.
+  const [replayValue, setReplayValue] = useState(replayUrl);
+  const replayTrimmed = replayValue.trim();
+  const replayInvalid = replayTrimmed.length > 0 && !isValidReplayUrl(replayTrimmed);
+
+  const saveReplay = async () => {
+    if (replayInvalid) {
+      toast.error(REPLAY_LINK_MESSAGE);
+      return;
+    }
+    try {
+      // Saving a link also switches the recording on: a pasted replay is meant to be watched, and a
+      // switch left off would hide it with no sign of why. Removing the link leaves the switch alone.
+      await updateSettings.mutateAsync(replayTrimmed ? { replayUrl: replayTrimmed, showRecording: true } : { replayUrl: "" });
+      toast.success(replayTrimmed ? "Replay saved. Registered attendees can now watch it." : "Replay link removed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save the replay link");
     }
   };
 
@@ -1422,7 +1449,7 @@ function RecordingCard({
               Recording
             </ConsoleTitle>
             <CardDescription>
-              Zoom cloud recording, checked automatically after the session ends.
+              Your uploaded replay, or the Zoom cloud recording, which is checked automatically after the session ends.
             </CardDescription>
           </div>
           <Button
@@ -1442,13 +1469,14 @@ function RecordingCard({
         </div>
       </CardHeader>
       <CardContent>
-        {canManage && zoom ? (
+        {canManage ? (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
             <label htmlFor="show-recording" className="space-y-0.5">
               <span className="block text-sm font-medium">Show the recording to attendees</span>
               <span className="block text-xs text-muted-foreground">
                 Off by default. When on, registered attendees see &quot;Recording available&quot; and a Watch Replay
-                button on the webinar page once the recording is fetched.
+                button on the webinar page: your replay link below if there is one, else the Zoom recording once
+                it is fetched.
               </span>
             </label>
             <Switch
@@ -1457,6 +1485,44 @@ function RecordingCard({
               disabled={updateSettings.isPending}
               onCheckedChange={(next) => void toggleShown(next)}
             />
+          </div>
+        ) : null}
+        {canManage ? (
+          <div className="mb-4 space-y-2 rounded-md border p-3">
+            <Label htmlFor="replay-url">Replay link (Vimeo)</Label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                id="replay-url"
+                name="replayUrl"
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                value={replayValue}
+                onChange={(e) => setReplayValue(e.target.value)}
+                maxLength={500}
+                placeholder="https://vimeo.com/123456789"
+                aria-invalid={replayInvalid}
+                aria-describedby="replay-url-help"
+              />
+              <Button
+                onClick={() => void saveReplay()}
+                disabled={updateSettings.isPending || replayTrimmed === replayUrl.trim()}
+                className="shrink-0"
+              >
+                {updateSettings.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                Save
+              </Button>
+            </div>
+            <p id="replay-url-help" className={replayInvalid ? "text-xs text-red-600" : "text-xs text-muted-foreground"}>
+              {replayInvalid
+                ? `${REPLAY_LINK_MESSAGE}.`
+                : "Upload the recording to Vimeo and paste the video's link. Once the webinar is over, registered attendees can watch it under My events and on the webinar page, in place of the Zoom recording, which expires. In Vimeo, limit the video's embedding to this site so it plays nowhere else."}
+            </p>
+            {replayUrl && !shown ? (
+              <p className="text-xs font-medium text-amber-700">
+                Attendees cannot see this replay: &quot;Show the recording to attendees&quot; is off.
+              </p>
+            ) : null}
           </div>
         ) : null}
         {!zoom ? (

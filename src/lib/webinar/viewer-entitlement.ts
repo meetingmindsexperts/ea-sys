@@ -32,19 +32,26 @@ const NOTHING_OWED: Prisma.RegistrationWhereInput = {
   ],
 };
 
+/**
+ * The standing half of the rule: the status and payment a registration needs, whoever holds it.
+ * For a caller that decides WHOSE registration it is by another rule (the portal's replay page,
+ * registrant-replays.ts); everything else uses viewerRegistrationWhere below.
+ */
+export function viewerStandingWhere(eventType: string | null | undefined): Prisma.RegistrationWhereInput {
+  if (eventType !== "WEBINAR") return { status: { not: "CANCELLED" } };
+  return {
+    status: { in: WEBINAR_VIEWER_STATUSES },
+    OR: [{ paymentStatus: { in: [...SETTLED_PAYMENT_STATUSES] } }, NOTHING_OWED],
+  };
+}
+
 /** The registration filter for a viewer of this event. `eventType` picks the rule (see the header). */
 export function viewerRegistrationWhere(
   eventId: string,
   userId: string,
   eventType: string | null | undefined,
 ): Prisma.RegistrationWhereInput {
-  if (eventType !== "WEBINAR") return { eventId, userId, status: { not: "CANCELLED" } };
-  return {
-    eventId,
-    userId,
-    status: { in: WEBINAR_VIEWER_STATUSES },
-    OR: [{ paymentStatus: { in: [...SETTLED_PAYMENT_STATUSES] } }, NOTHING_OWED],
-  };
+  return { eventId, userId, ...viewerStandingWhere(eventType) };
 }
 
 export type ViewerRefusal = "PENDING_APPROVAL" | "WAITLISTED" | "PAYMENT_OUTSTANDING";

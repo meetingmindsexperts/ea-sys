@@ -10,7 +10,7 @@ const { mockDb, mockAuth, mockRate } = vi.hoisted(() => ({
     event: { findFirst: vi.fn() },
     eventSession: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn() },
-    webinarChatMessage: { findMany: vi.fn(), create: vi.fn() },
+    webinarChatMessage: { findMany: vi.fn(), create: vi.fn(), findFirst: vi.fn() },
   },
   mockAuth: vi.fn(),
   mockRate: vi.fn(),
@@ -345,7 +345,7 @@ describe("review of f35de631", () => {
   it("L7: a pin that aged out of the window is still found", async () => {
     setEvent({ ...chatOn, pinnedMessageId: "old-pin" });
     setMessages([msg("m1")]);
-    mockDb.webinarChatMessage.findFirst = vi.fn().mockResolvedValue(msg("old-pin", { authorKind: "staff", authorName: "Pro Ducer" }));
+    mockDb.webinarChatMessage.findFirst.mockResolvedValue(msg("old-pin", { authorKind: "staff", authorName: "Pro Ducer" }));
     mockAuth.mockResolvedValue(attendee);
     expect((await (await get()).json()).pinned).toMatchObject({ id: "old-pin" });
   });

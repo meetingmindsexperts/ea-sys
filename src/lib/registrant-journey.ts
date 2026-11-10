@@ -6,12 +6,13 @@ import { DEFAULT_CERTIFICATE_SURVEY_NAME, isLiveConfig, surveyLinkIdentifiers } 
 
 /**
  * A person's journey through one event on My events (docs/MY_PORTAL_PLAN.md,
- * phase 2): Registered → Payment → Checked in → Survey → Certificate.
+ * phase 2): Registered → Payment → Checked in → Replay → Survey → Certificate.
  *
  * Read-only, and never a second copy of a rule: payment is the event page's
  * own money math (readRegistrationBasePrice + computeRegistrationFinancials),
  * "answered" is hasAnswered's rule (survey-service.ts) applied in one batch,
- * and certificates are whatever findReleasedCertificates released.
+ * certificates are whatever findReleasedCertificates released, and a webinar's
+ * replay is registrant-replays.ts's answer.
  *
  * Each step carries its state as a WORD as well as a colour, so it reads the
  * same to someone who cannot tell green from amber.
@@ -20,7 +21,7 @@ import { DEFAULT_CERTIFICATE_SURVEY_NAME, isLiveConfig, surveyLinkIdentifiers } 
 export type StepState = "done" | "action" | "waiting" | "missed";
 
 export interface JourneyStep {
-  key: "registered" | "payment" | "checkin" | "survey" | "certificate";
+  key: "registered" | "payment" | "checkin" | "replay" | "survey" | "certificate";
   label: string;
   state: StepState;
 }
@@ -103,6 +104,8 @@ export function buildJourney(input: {
   event: { endDate: Date; eventType: string | null };
   surveys: readonly SurveyLine[];
   certificateCount: number;
+  /** This registration may watch the webinar's replay now (registrant-replays.ts). */
+  replay?: boolean;
   now: Date;
 }): JourneyStep[] {
   const { registration: reg, event, surveys, certificateCount, now } = input;
@@ -110,6 +113,7 @@ export function buildJourney(input: {
   // A webinar and an online attendee never pass the desk.
   const atVenue = event.eventType !== "WEBINAR" && reg.attendanceMode !== "VIRTUAL";
   if (atVenue && ATTENDING.has(reg.status)) steps.push(checkInStep(reg.status, event.endDate, now));
+  if (input.replay) steps.push({ key: "replay", label: "Replay ready", state: "done" });
   if (surveys.length > 0) steps.push(surveyStep(surveys));
   if (certificateCount > 0) {
     steps.push({ key: "certificate", label: certificateCount === 1 ? "Certificate ready" : `${certificateCount} certificates ready`, state: "done" });

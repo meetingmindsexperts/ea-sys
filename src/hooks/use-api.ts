@@ -3114,6 +3114,8 @@ export interface WebinarConsoleData {
     qaUpvote?: boolean;
     livePolls?: boolean;
     showRecording?: boolean;
+    /** The organiser's uploaded replay, a Vimeo video link (webinar/replay.ts). */
+    replayUrl?: string;
     handouts?: WebinarHandout[];
     exitUrl?: string;
   };

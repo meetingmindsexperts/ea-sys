@@ -4,6 +4,13 @@
 `2504de88` sidebar + My certificates, `abf9d639` journey, `6a65c77e` Take
 survey, `134a2e86` My abstracts). Not yet deployed at the time of writing.
 
+**Added Nov 10, 2026: a webinar's replay.** My events shows a "Replay ready"
+step and a Watch replay button, and `/my-account/replay/{eventId}` plays the
+organiser's uploaded replay (or links Zoom's recording) for a registration in
+good standing. Rules: `src/lib/registrant-replays.ts` over
+`src/lib/webinar/replay.ts`. It works whatever the event's status, which the
+webinar's public page does not.
+
 Owner request (Nov 9, 2026): "under this one portal, I should see my entire
 journey, if I completed surveys; in the sidebar, show collated certificates as
 My certificates and My abstracts". Priority for the day.

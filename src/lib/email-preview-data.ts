@@ -31,6 +31,7 @@ import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "./even
 import { buildSpeakerEmailContext } from "./speaker-agreement";
 import { buildAbstractManagementLink } from "./abstract-notifications";
 import { webinarRecordingBlock, webinarRecordingShown } from "./webinar";
+import { replayEmailUrl, replayPageUrl, sessionReplayKind } from "./webinar/replay";
 
 export async function buildRealPreviewOverrides(
   eventId: string,
@@ -51,6 +52,8 @@ export async function buildRealPreviewOverrides(
               id: true,
               name: true,
               startTime: true,
+              endTime: true,
+              status: true,
               location: true,
               zoomMeeting: {
                 select: { recordingStatus: true, recordingUrl: true },
@@ -119,11 +122,16 @@ export async function buildRealPreviewOverrides(
         overrides.passcodeBlock = "";
         // The organiser's recording switch applies to webinars, as in the real send.
         const recordingShown = event.eventType !== "WEBINAR" || webinarRecordingShown(event.settings);
-        const recordingUrl =
-          recordingShown && session.zoomMeeting.recordingStatus === "AVAILABLE" && session.zoomMeeting.recordingUrl
-            ? session.zoomMeeting.recordingUrl
-            : "";
-        overrides.recordingBlock = webinarRecordingBlock(recordingShown, recordingUrl, "html");
+        // Which replay, by the one rule the real send uses (webinar/replay.ts).
+        const replayPage = replayPageUrl(appUrl, eventId);
+        const replayKind = sessionReplayKind({
+          eventType: event.eventType,
+          settings: event.settings,
+          session: { id: session.id, status: session.status, endTime: session.endTime },
+          recordingStatus: session.zoomMeeting.recordingStatus,
+        });
+        const recordingUrl = replayEmailUrl(replayKind, replayPage, session.zoomMeeting.recordingUrl);
+        overrides.recordingBlock = webinarRecordingBlock(recordingShown, recordingUrl, "html", replayPage);
       }
     }
 

@@ -32,6 +32,7 @@ import { HandoutsCard, useWebinarHandouts } from "@/components/webinar/handouts-
 import { PanelistsCard, collectPanelists } from "@/components/webinar/panelists-card";
 import { EndOfWebinarSurvey } from "@/components/webinar/end-survey-dialog";
 import { WebinarExitScreen } from "@/components/webinar/exit-screen";
+import { ReplayPlayer } from "@/components/webinar/replay-player";
 import { isWebinarOver, webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { cn, formatPersonName } from "@/lib/utils";
@@ -166,6 +167,9 @@ interface SessionDetail {
   track?: { name: string; color: string } | null;
   /** A webinar whose organiser has not switched the recording on: the page promises no replay (Oct 28, 2026). */
   recordingHidden?: boolean;
+  /** Which replay is on offer (webinar/replay.ts): the organiser's uploaded one, played in this
+   *  page, or Zoom's recording, opened on Zoom. Absent or null: none. */
+  replayKind?: "embed" | "zoom" | null;
   zoomMeeting?: {
     // B2: recordingUrl + recordingPassword are no longer served by the public
     // detail route. They come from the registration-gated `../recording` route.
@@ -277,6 +281,8 @@ export default function PublicSessionPage() {
   // B2: the recording URL + passcode are credentials. They're fetched on demand
   // from the registration-gated route, never shipped with the public payload.
   const [recording, setRecording] = useState<{ url: string; password: string | null } | null>(null);
+  // The organiser's uploaded replay, once the gated route has handed over its player address.
+  const [replayEmbedUrl, setReplayEmbedUrl] = useState<string | null>(null);
   const [recordingLoading, setRecordingLoading] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
   // Tracks whether the current viewer is allowed to pull an SDK signature.
@@ -577,11 +583,14 @@ export default function PublicSessionPage() {
    */
   async function handleWatchRecording() {
     if (recordingLoading) return;
+    // Already playing in the page: nothing to fetch or open.
+    if (replayEmbedUrl) return;
     if (recording) {
       window.open(recording.url, "_blank");
       return;
     }
-    const tab = window.open("", "_blank");
+    // An uploaded replay plays in this page, so no tab is opened for it.
+    const tab = session?.replayKind === "embed" ? null : window.open("", "_blank");
     setRecordingLoading(true);
     setRecordingError(null);
     try {
@@ -606,7 +615,14 @@ export default function PublicSessionPage() {
         console.error("recording fetch failed", res.status, data);
         return;
       }
-      const data: { recordingUrl: string; recordingPassword: string | null } = await res.json();
+      const data:
+        | { kind: "embed"; embedUrl: string }
+        | { kind?: "zoom"; recordingUrl: string; recordingPassword: string | null } = await res.json();
+      if (data.kind === "embed") {
+        tab?.close();
+        setReplayEmbedUrl(data.embedUrl);
+        return;
+      }
       setRecording({ url: data.recordingUrl, password: data.recordingPassword });
       if (tab) tab.location.href = data.recordingUrl;
       else window.open(data.recordingUrl, "_blank");
@@ -619,7 +635,9 @@ export default function PublicSessionPage() {
     }
   }
 
-  const hasRecording = session?.zoomMeeting?.recordingStatus === "AVAILABLE";
+  // The organiser's uploaded replay plays here; Zoom's recording opens on Zoom.
+  const replayEmbedded = session?.replayKind === "embed";
+  const hasRecording = replayEmbedded || session?.zoomMeeting?.recordingStatus === "AVAILABLE";
   // The organiser shows the recording and Zoom has not delivered it yet: the exit screen says it is coming.
   const recordingStatus = session?.zoomMeeting?.recordingStatus;
   const replayExpected =
@@ -794,9 +812,12 @@ export default function PublicSessionPage() {
         )}
         {webinarEnded ? (
           <>
+            {replayEmbedUrl && <ReplayPlayer embedUrl={replayEmbedUrl} title={session?.name || "the webinar"} />}
             <WebinarExitScreen
               sessionName={session?.name || joinInfo?.sessionName || "The webinar"}
               hasRecording={hasRecording}
+              replayEmbedded={replayEmbedded}
+              replayPlaying={replayEmbedUrl !== null}
               recordingPassword={recording?.password ?? null}
               recordingLoading={recordingLoading}
               recordingError={recordingError}
@@ -860,6 +881,8 @@ export default function PublicSessionPage() {
             joinInfo={joinInfo}
             authState={authState}
             hasRecording={hasRecording}
+            replayEmbedded={replayEmbedded}
+            replayPlaying={replayEmbedUrl !== null}
             recordingPassword={recording?.password ?? null}
             recordingLoading={recordingLoading}
             onWatchRecording={handleWatchRecording}
@@ -1012,7 +1035,8 @@ export default function PublicSessionPage() {
               )}
 
             {/* Recording replay */}
-            {hasRecording && !isJoining && (
+            {replayEmbedUrl && !isJoining && <ReplayPlayer embedUrl={replayEmbedUrl} title={session?.name || "the session"} />}
+            {hasRecording && !isJoining && !replayEmbedUrl && (
               <Card className="border-emerald-200 bg-emerald-50/50 shadow-sm">
                 <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-6">
                   <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
@@ -1021,7 +1045,9 @@ export default function PublicSessionPage() {
                   <div className="flex-1 text-center sm:text-left">
                     <p className="font-semibold text-lg">Recording available</p>
                     <p className="text-sm text-muted-foreground">
-                      Missed the live session? Watch the recording on Zoom.
+                      {replayEmbedded
+                        ? "Missed the live session? Watch the recording here."
+                        : "Missed the live session? Watch the recording on Zoom."}
                     </p>
                     {recordingError && (
                       <p className="text-xs text-red-600 mt-1">{recordingError}</p>
@@ -1043,7 +1069,7 @@ export default function PublicSessionPage() {
                   >
                     <PlayCircle className="h-5 w-5" />
                     {recordingLoading ? "Loading…" : "Watch Replay"}
-                    <ExternalLink className="h-4 w-4" />
+                    {!replayEmbedded && <ExternalLink className="h-4 w-4" />}
                   </Button>
                 </CardContent>
               </Card>
@@ -1311,6 +1337,8 @@ function StickyCta({
   joinInfo,
   authState,
   hasRecording,
+  replayEmbedded,
+  replayPlaying,
   recordingPassword,
   recordingLoading,
   onWatchRecording,
@@ -1333,6 +1361,10 @@ function StickyCta({
   joinInfo: JoinInfo | null;
   authState: JoinAuthState;
   hasRecording: boolean;
+  /** The replay is the organiser's upload: it plays in this page, so no "opens elsewhere" icon. */
+  replayEmbedded: boolean;
+  /** That replay is on screen below: the button has done its work. */
+  replayPlaying: boolean;
   recordingPassword: string | null;
   recordingLoading: boolean;
   onWatchRecording: () => void;
@@ -1366,15 +1398,17 @@ function StickyCta({
               </p>
             )}
           </div>
-          <Button
-            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-            onClick={onWatchRecording}
-            disabled={recordingLoading}
-          >
-            <PlayCircle className="h-4 w-4" />
-            {recordingLoading ? "Loading…" : "Watch Replay"}
-            <ExternalLink className="h-4 w-4" />
-          </Button>
+          {!replayPlaying && (
+            <Button
+              className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={onWatchRecording}
+              disabled={recordingLoading}
+            >
+              <PlayCircle className="h-4 w-4" />
+              {recordingLoading ? "Loading…" : "Watch Replay"}
+              {!replayEmbedded && <ExternalLink className="h-4 w-4" />}
+            </Button>
+          )}
         </CardContent>
       </Card>
     );

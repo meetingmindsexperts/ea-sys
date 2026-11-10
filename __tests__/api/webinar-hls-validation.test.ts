@@ -292,3 +292,35 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
     expect(mockDb.zoomMeeting.findFirst).not.toHaveBeenCalled();
   });
 });
+
+describe("PUT /webinar: the uploaded replay link (Nov 10, 2026)", () => {
+  const patchOf = () =>
+    ((mockUpdateEventSettings.mock.calls[0] as unknown[])[1] as (c: Record<string, unknown>) => Record<string, unknown>)({ webinar: { sessionId: "anchor1" } });
+
+  it("saves a Vimeo video link, trimmed, beside the switch the console sends with it", async () => {
+    const res = await callPut({ replayUrl: "  https://vimeo.com/123456789/abcdef1234 ", showRecording: true });
+    expect(res.status).toBe(200);
+    expect(patchOf()).toEqual({
+      webinar: { sessionId: "anchor1", replayUrl: "https://vimeo.com/123456789/abcdef1234", showRecording: true },
+    });
+  });
+
+  it("an empty string clears it and leaves the switch alone", async () => {
+    const res = await callPut({ replayUrl: "" });
+    expect(res.status).toBe(200);
+    expect(patchOf()).toEqual({ webinar: { sessionId: "anchor1", replayUrl: "" } });
+  });
+
+  it.each([
+    "https://zoom.us/rec/play/abc",
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "https://vimeo.com/showcase/7654321",
+    "https://vimeo.com.evil.example/123456789",
+    "javascript:alert(1)",
+  ])("refuses %s with 400, logged, and writes nothing", async (replayUrl) => {
+    const res = await callPut({ replayUrl });
+    expect(res.status).toBe(400);
+    expect(mockUpdateEventSettings).not.toHaveBeenCalled();
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(expect.anything(), "webinar:settings-validation-failed");
+  });
+});

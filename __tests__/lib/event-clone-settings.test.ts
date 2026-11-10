@@ -34,6 +34,14 @@ describe("cloneEventSettings", () => {
     expect((out.webinar as Record<string, unknown>).provisioningAt).toBeUndefined();
   });
 
+  it("a clone never carries the source webinar's replay or its recording switch (Nov 10, 2026)", () => {
+    // The replay is one past webinar's video; on a clone it would be offered as the NEW webinar's.
+    const out = cloneEventSettings({
+      webinar: { showRecording: true, replayUrl: "https://vimeo.com/123456789", waitingRoom: true },
+    });
+    expect(out.webinar).toEqual({ waitingRoom: true });
+  });
+
   it("resets staff-assignment lists to [] but preserves publish flags + deadlines (existing contract)", () => {
     const out = cloneEventSettings({
       reviewerUserIds: ["u1"],

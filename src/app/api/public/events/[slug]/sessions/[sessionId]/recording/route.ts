@@ -8,6 +8,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { webinarRecordingShown } from "@/lib/webinar";
+import { sessionReplayKind, uploadedReplay } from "@/lib/webinar/replay";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -25,6 +26,10 @@ type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
  * `recordingStatus` stays on the public detail route — it's a state, not a
  * credential, so the page can render "Recording processing" / "Watch replay"
  * without holding the secret. The button calls this route to fetch it.
+ *
+ * Two answers since Nov 10, 2026 (webinar/replay.ts decides which): the
+ * organiser's uploaded replay as `{ kind: "embed", embedUrl }`, played in the
+ * page, else Zoom's recording with its passcode as before.
  */
 export async function GET(req: Request, { params }: RouteParams) {
   try {
@@ -100,6 +105,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const session = await db.eventSession.findFirst({
       where: { id: sessionId, eventId: event.id },
       select: {
+        id: true,
+        status: true,
+        endTime: true,
         zoomMeeting: {
           select: { recordingUrl: true, recordingPassword: true, recordingStatus: true },
         },
@@ -111,7 +119,20 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const zoom = session.zoomMeeting;
-    if (!zoom || zoom.recordingStatus !== "AVAILABLE" || !zoom.recordingUrl) {
+    const question = { eventType: event.eventType, settings: event.settings, session };
+    const kind = sessionReplayKind({ ...question, recordingStatus: zoom?.recordingStatus });
+    const uploaded = kind === "embed" ? uploadedReplay(question) : null;
+    if (uploaded) {
+      apiLogger.info(
+        { sessionId, eventId: event.id, userId: authSession.user.id, isOrgStaff, kind },
+        "session-recording:served",
+      );
+      const embedded = NextResponse.json({ kind: "embed", embedUrl: uploaded.embedUrl });
+      embedded.headers.set("Cache-Control", "private, no-store");
+      return embedded;
+    }
+
+    if (kind !== "zoom" || !zoom?.recordingUrl) {
       apiLogger.warn(
         { sessionId, eventId: event.id, recordingStatus: zoom?.recordingStatus ?? null },
         "session-recording:not-available",
@@ -123,11 +144,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     apiLogger.info(
-      { sessionId, eventId: event.id, userId: authSession.user.id, isOrgStaff },
+      { sessionId, eventId: event.id, userId: authSession.user.id, isOrgStaff, kind },
       "session-recording:served",
     );
 
     const response = NextResponse.json({
+      kind: "zoom",
       recordingUrl: zoom.recordingUrl,
       recordingPassword: zoom.recordingPassword,
       recordingStatus: zoom.recordingStatus,

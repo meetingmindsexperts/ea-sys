@@ -31,14 +31,15 @@ const YOUTUBE_HOSTS = new Set([
   "www.youtube-nocookie.com",
 ]);
 
-const VIMEO_HOSTS = new Set([
+/** Shared with the uploaded replay's parser (replay-video.ts). */
+export const VIMEO_HOSTS: ReadonlySet<string> = new Set([
   "vimeo.com",
   "www.vimeo.com",
   "player.vimeo.com",
 ]);
 
 const YT_ID_RE = /^[A-Za-z0-9_-]{6,20}$/;
-const VIMEO_ID_RE = /^\d{6,15}$/;
+export const VIMEO_ID_RE = /^\d{6,15}$/;
 
 /** Extract the YouTube video id from any common URL shape. */
 function youtubeId(u: URL): string | null {

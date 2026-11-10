@@ -33,4 +33,24 @@ describe("webinarRecordingBlock", () => {
     expect(webinarRecordingBlock(true, "", "html")).toContain("available shortly");
     expect(webinarRecordingBlock(true, "", "text")).toContain("available shortly");
   });
+
+  it("with the person's replay page given, the coming-shortly line links it: the thank-you goes before a replay is uploaded (Nov 10, 2026)", () => {
+    const page = "https://events.example.com/my-account/replay/evt-1";
+    const html = webinarRecordingBlock(true, "", "html", page);
+    expect(html).toContain("The recording will be available shortly. You can watch it here once it is ready.");
+    expect(html).toContain(`href="${page}"`);
+    expect(html).toContain("Open the replay page");
+    expect(webinarRecordingBlock(true, "", "text", page)).toBe(`The recording will be available shortly. Watch it here once it is ready: ${page}`);
+    // A replay there is: the button is the replay's, and the page link is not repeated.
+    expect(webinarRecordingBlock(true, url, "html", page)).toContain(`href="${url}"`);
+    expect(webinarRecordingBlock(true, url, "html", page)).not.toContain("Open the replay page");
+    // Hidden stays empty.
+    expect(webinarRecordingBlock(false, "", "html", page)).toBe("");
+  });
+
+  it("promises no follow-up email: none is sent", () => {
+    for (const block of [webinarRecordingBlock(true, "", "html"), webinarRecordingBlock(true, "", "html", "https://x.example/p")]) {
+      expect(block).not.toContain("send it to you");
+    }
+  });
 });

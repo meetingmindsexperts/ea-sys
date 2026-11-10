@@ -1821,6 +1821,8 @@ export function getSamplePreviewVariables(
     passcodeBlock: "",
     recordingBlock:
       '<div style="text-align:center; margin:20px 0;"><a href="#" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Watch Replay</a></div>',
+    // The plain-text part's own line: the HTML button in it would arrive as raw markup.
+    recordingBlockText: "Watch replay: #",
     // The thank-you's end-of-webinar survey button (step 5 of several surveys);
     // real sends mint each person's link in bulk-email.ts.
     surveyBlock:

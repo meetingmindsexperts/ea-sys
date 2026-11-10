@@ -13,6 +13,8 @@ import { Card, CardContent } from "@/components/ui/card";
 export function WebinarExitScreen({
   sessionName,
   hasRecording,
+  replayEmbedded = false,
+  replayPlaying = false,
   recordingPassword,
   recordingLoading,
   recordingError,
@@ -24,6 +26,10 @@ export function WebinarExitScreen({
   sessionName: string;
   /** The recording is fetched and the organiser has switched it on. */
   hasRecording: boolean;
+  /** The replay is the organiser's upload (Nov 10, 2026): it plays in the page, above this screen. */
+  replayEmbedded?: boolean;
+  /** That replay is on screen: the button has done its work. */
+  replayPlaying?: boolean;
   recordingPassword: string | null;
   recordingLoading: boolean;
   /** Why the replay did not open (not registered, network), shown under the button. */
@@ -49,12 +55,12 @@ export function WebinarExitScreen({
           </p>
         </div>
 
-        {hasRecording && (
+        {hasRecording && !replayPlaying && (
           <div className="flex flex-col items-center gap-2">
             <Button className="gap-2" onClick={onWatchRecording} disabled={recordingLoading}>
               <PlayCircle className="h-4 w-4" />
               {recordingLoading ? "Loading…" : "Watch the replay"}
-              <ExternalLink className="h-4 w-4" />
+              {!replayEmbedded && <ExternalLink className="h-4 w-4" />}
             </Button>
             {recordingError && <p className="text-xs text-red-600">{recordingError}</p>}
             {recordingPassword && (

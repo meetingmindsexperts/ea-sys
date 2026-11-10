@@ -33,6 +33,7 @@ import {
 import { ensurePersonalSurveyLink, surveyLinkWasRepaired } from "./survey/invitation-link";
 import { buildThankYouSurveyBlock, registrationsThatAnswered, resolveThankYouSurvey, withThankYouSurveyBlock } from "./webinar-thank-you-survey";
 import { webinarRecordingBlock, webinarRecordingShown } from "./webinar";
+import { replayEmailUrl, replayPageUrl, sessionReplayKind } from "./webinar/replay";
 import { mintPersonalSurveyLink, resolveInvitationSurvey, responseWhereForSurvey } from "@/services/survey-service";
 import { surveyRespondedSchema } from "./survey/responded-filter";
 import { isDailyMode, type SurveyResponseModeValue } from "./survey/response-mode";
@@ -1792,7 +1793,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     const [anchorSession, zoomMeeting] = await Promise.all([
       db.eventSession.findFirst({
         where: { id: anchorSessionId, eventId },
-        select: { startTime: true, endTime: true },
+        select: { startTime: true, endTime: true, status: true },
       }),
       // eventId binds the anchor meeting to THIS event (multi-tenancy sweep) —
       // a stale settings.webinar.sessionId can't pull another org's join URL
@@ -1846,10 +1847,20 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // The organiser's switch (Oct 28, 2026): while the recording is not shown to attendees the email
     // neither links it nor promises it, since the thank-you goes out on its own at end + 30 min.
     const recordingShown = webinarRecordingShown(event.settings);
-    const recordingUrl =
-      recordingShown && zoomMeeting?.recordingStatus === "AVAILABLE" && zoomMeeting.recordingUrl
-        ? zoomMeeting.recordingUrl
-        : "";
+    const sessionPageUrl = `${appUrl}/e/${event.slug}/session/${anchorSessionId}`;
+    // One rule for which replay (webinar/replay.ts, Nov 10, 2026): the organiser's uploaded replay
+    // links the person's replay page in their portal, Zoom's recording keeps its own link. A
+    // webinar email follows the webinar's switch whatever the event's type, as it always has.
+    const replayPage = replayPageUrl(appUrl, event.id);
+    const replayKind = anchorSession
+      ? sessionReplayKind({
+          eventType: "WEBINAR",
+          settings: event.settings,
+          session: { id: anchorSessionId, status: anchorSession.status, endTime: anchorSession.endTime },
+          recordingStatus: zoomMeeting?.recordingStatus,
+        })
+      : null;
+    const recordingUrl = replayEmailUrl(replayKind, replayPage, zoomMeeting?.recordingUrl);
     webinarEnrichment = {
       // Attendees join through OUR gated session page (waiting room → embed/HLS),
       // NOT the raw Zoom URL. The session page handles auth + registration-gating
@@ -1857,18 +1868,18 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // Zoom link directly would bypass the waiting room entirely.
       // (Panelists get the real Zoom join URL via the separate panelist-email
       // path in src/lib/webinar-panelist-email.ts — unchanged.)
-      joinUrl: `${appUrl}/e/${event.slug}/session/${anchorSessionId}`,
+      joinUrl: sessionPageUrl,
       passcode,
       webinarDate,
       webinarTime,
       recordingUrl,
       passcodeBlockHtml: "",
       passcodeBlockText: "",
-      recordingBlockHtml: webinarRecordingBlock(recordingShown, recordingUrl, "html"),
-      recordingBlockText: webinarRecordingBlock(recordingShown, recordingUrl, "text"),
+      recordingBlockHtml: webinarRecordingBlock(recordingShown, recordingUrl, "html", replayPage),
+      recordingBlockText: webinarRecordingBlock(recordingShown, recordingUrl, "text", replayPage),
       ...buildWebinarCalendarEnrichment({
         eventName: event.name,
-        joinUrl: `${appUrl}/e/${event.slug}/session/${anchorSessionId}`,
+        joinUrl: sessionPageUrl,
         start: anchorSession?.startTime ?? null,
         end: anchorSession?.endTime ?? null,
       }),
