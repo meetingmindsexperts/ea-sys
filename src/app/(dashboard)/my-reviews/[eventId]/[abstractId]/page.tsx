@@ -16,14 +16,10 @@ import { useMyReview, useSubmitMyReview, type MyReview, type RecommendedFormat }
 import { ApiError } from "@/lib/api-fetch";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { formatDate } from "@/lib/utils";
+import { RECOMMENDED_FORMAT_LABELS } from "@/lib/recommended-formats";
 
 type OpenReview = Extract<MyReview, { conflict: false }>;
 
-const FORMAT_LABELS: Record<RecommendedFormat, string> = {
-  ORAL: "Oral presentation",
-  POSTER: "Poster",
-  NEITHER: "Neither",
-};
 
 const joinParts = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(", ");
 
@@ -79,6 +75,11 @@ function ReviewForm({ review, eventId, abstractId }: { review: OpenReview; event
   const [reviewNotes, setReviewNotes] = useState(submission?.reviewNotes ?? "");
   const [format, setFormat] = useState<RecommendedFormat | undefined>(submission?.recommendedFormat ?? undefined);
 
+  // The event's own list; a format already on the review stays shown even if
+  // the organiser has since stopped offering it.
+  const formatChoices = submission?.recommendedFormat && !review.formats.includes(submission.recommendedFormat)
+    ? [...review.formats, submission.recommendedFormat]
+    : review.formats;
   const usesCriteria = criteria.length > 0;
   const scoreValid = overallScore !== null && Number.isInteger(overallScore) && overallScore >= 0 && overallScore <= 100;
   // Against the current criteria: an organiser can change them while this is open.
@@ -129,8 +130,8 @@ function ReviewForm({ review, eventId, abstractId }: { review: OpenReview; event
             <SelectValue placeholder="Optional" />
           </SelectTrigger>
           <SelectContent>
-            {(Object.keys(FORMAT_LABELS) as RecommendedFormat[]).map((f) => (
-              <SelectItem key={f} value={f}>{FORMAT_LABELS[f]}</SelectItem>
+            {formatChoices.map((f) => (
+              <SelectItem key={f} value={f}>{RECOMMENDED_FORMAT_LABELS[f]}</SelectItem>
             ))}
           </SelectContent>
         </Select>

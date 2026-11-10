@@ -18,7 +18,7 @@ const { mockDb } = vi.hoisted(() => ({
     event: { findFirst: vi.fn() },
     abstract: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     abstractReviewer: { findUnique: vi.fn() },
-    abstractReviewSubmission: { upsert: vi.fn(), findMany: vi.fn() },
+    abstractReviewSubmission: { upsert: vi.fn(), findMany: vi.fn(), findUnique: vi.fn().mockResolvedValue(null) },
     user: { findUnique: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
@@ -272,5 +272,33 @@ describe("submitAbstractReview: a partial set of criteria", () => {
   it("all of them computes the weighted score", async () => {
     await submitAbstractReview({ ...input, criteriaScores: [{ criterionId: "c1", score: 8 }, { criterionId: "c2", score: 0 }] });
     expect(mockDb.abstractReviewSubmission.upsert.mock.calls[0][0].create.overallScore).toBe(48);
+  });
+});
+
+describe("submitAbstractReview: the recommended format follows the event's presentation types", () => {
+  const input = { eventId: "ev1", abstractId: "ab1", reviewerUserId: "pool-rev", actor: { userId: "pool-rev" }, source: "rest" as const, overallScore: 70 };
+  beforeEach(() => {
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: "x", email: "a@example.com" } });
+    mockDb.user.findUnique.mockResolvedValue({ id: "pool-rev", email: "pool@example.com", role: "REVIEWER", emailConfirmedAt: null });
+    mockDb.abstractReviewSubmission.findUnique.mockResolvedValue(null);
+  });
+
+  it("refuses Poster on an oral-only event", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...EVENT.settings, abstractPresentationTypes: ["ORAL"] } });
+    const r = await submitAbstractReview({ ...input, recommendedFormat: "POSTER" });
+    expect(r).toMatchObject({ ok: false, code: "INVALID_RECOMMENDED_FORMAT" });
+  });
+
+  it("accepts Workshop where the event takes workshops", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...EVENT.settings, abstractPresentationTypes: ["WORKSHOP"] } });
+    const r = await submitAbstractReview({ ...input, recommendedFormat: "WORKSHOP" });
+    expect(r.ok).toBe(true);
+  });
+
+  it("keeps a format already on the review after the organiser stops offering it", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...EVENT.settings, abstractPresentationTypes: ["ORAL"] } });
+    mockDb.abstractReviewSubmission.findUnique.mockResolvedValue({ recommendedFormat: "POSTER" });
+    const r = await submitAbstractReview({ ...input, recommendedFormat: "POSTER" });
+    expect(r.ok).toBe(true);
   });
 });

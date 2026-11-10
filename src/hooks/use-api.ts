@@ -14,6 +14,7 @@ import type { DeskDaySummary } from "@/lib/desk-day-summary";
 import type { DetCredentialsStatus, DetEnvironment, DetPerformanceSummary } from "@/lib/dtcm-eticket/types";
 import type { DtcmSectionMapping } from "@/lib/dtcm-eticket/sections";
 import type { CatalogueSettings } from "@/lib/catalogue";
+import type { RecommendedFormatValue } from "@/lib/recommended-formats";
 
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
@@ -340,7 +341,7 @@ export interface MyReviewCriterion {
   weight: number;
 }
 
-export type RecommendedFormat = "ORAL" | "POSTER" | "NEITHER";
+export type RecommendedFormat = RecommendedFormatValue;
 
 interface MyReviewBase {
   event: { id: string; name: string; startDate: string; endDate: string };
@@ -370,6 +371,8 @@ export type MyReview =
       };
       assignmentRole: string | null;
       canSubmit: boolean;
+      /** What this event lets a reviewer recommend (recommended-formats.ts). */
+      formats: RecommendedFormat[];
       criteria: MyReviewCriterion[];
       submission: {
         overallScore: number | null;

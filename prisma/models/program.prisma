@@ -418,6 +418,9 @@ enum RecommendedFormat {
   ORAL
   POSTER
   NEITHER
+  // Nov 10, 2026: any type the event offers (src/lib/recommended-formats.ts)
+  VIDEO
+  WORKSHOP
 }
 
 enum AbstractReviewerRole {

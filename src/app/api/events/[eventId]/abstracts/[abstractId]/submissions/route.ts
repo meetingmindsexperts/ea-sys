@@ -14,6 +14,7 @@ import {
 } from "@/services/abstract-service";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
+import { RECOMMENDED_FORMAT_VALUES } from "@/lib/recommended-formats";
 
 /**
  * Per-reviewer abstract review submissions.
@@ -41,7 +42,7 @@ const submissionSchema = z.object({
   criteriaScores: z.array(criterionScoreSchema).max(50).optional(),
   overallScore: z.number().int().min(0).max(100).optional(),
   reviewNotes: z.string().max(5000).optional(),
-  recommendedFormat: z.enum(["ORAL", "POSTER", "NEITHER"]).optional(),
+  recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),
   confidence: z.number().int().min(1).max(5).optional(),
 });
 

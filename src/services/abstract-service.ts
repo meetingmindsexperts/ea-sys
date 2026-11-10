@@ -36,6 +36,7 @@ import {
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
 import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOnReviewerPool, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
+import { recommendableFormats, type RecommendedFormatValue } from "@/lib/recommended-formats";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -338,8 +339,7 @@ export async function changeAbstractStatus(
 //  - a completely empty payload is rejected (EMPTY_REVIEW) on every path;
 //  - notes over 5000 chars are rejected (was: MCP silently truncated).
 
-export type ReviewRecommendedFormat = "ORAL" | "POSTER" | "NEITHER";
-const RECOMMENDED_FORMAT_VALUES = new Set<string>(["ORAL", "POSTER", "NEITHER"]);
+export type ReviewRecommendedFormat = RecommendedFormatValue;
 
 /** Abstract statuses open for review — shared with the assign paths (H6). */
 export const REVIEWABLE_ABSTRACT_STATUSES = new Set<string>(REVIEWABLE_STATUS_LIST);
@@ -571,12 +571,22 @@ export async function submitAbstractReview(
     if (confidence !== undefined && (!Number.isInteger(confidence) || confidence < 1 || confidence > 5)) {
       return { ok: false, code: "INVALID_CONFIDENCE", message: "confidence must be an integer between 1 and 5" };
     }
-    if (recommendedFormat !== undefined && !RECOMMENDED_FORMAT_VALUES.has(recommendedFormat)) {
-      return {
-        ok: false,
-        code: "INVALID_RECOMMENDED_FORMAT",
-        message: `Invalid recommendedFormat. Must be one of: ${[...RECOMMENDED_FORMAT_VALUES].join(", ")}`,
-      };
+    // What this event offers (Content, Abstracts), or the value already on the
+    // review: an organiser narrowing the types must not block re-saving a score.
+    if (recommendedFormat !== undefined) {
+      const allowed: string[] = recommendableFormats(event.settings);
+      const existing = await db.abstractReviewSubmission.findUnique({
+        where: { abstractId_reviewerUserId: { abstractId, reviewerUserId } },
+        select: { recommendedFormat: true },
+      });
+      if (!allowed.includes(recommendedFormat) && existing?.recommendedFormat !== recommendedFormat) {
+        apiLogger.warn({ msg: "abstract-submission:format-not-offered", eventId, abstractId, recommendedFormat, source });
+        return {
+          ok: false,
+          code: "INVALID_RECOMMENDED_FORMAT",
+          message: `This event does not offer that format. Choose one of: ${allowed.join(", ")}`,
+        };
+      }
     }
     if (reviewNotes !== undefined && reviewNotes.length > 5000) {
       return { ok: false, code: "INVALID_REVIEW_NOTES", message: "reviewNotes must be at most 5000 characters" };

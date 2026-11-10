@@ -11,7 +11,7 @@ const { mockDb, mockAuth } = vi.hoisted(() => ({
     event: { findFirst: vi.fn() },
     abstract: { findFirst: vi.fn() },
     abstractReviewer: { findUnique: vi.fn() },
-    abstractReviewSubmission: { upsert: vi.fn(), findMany: vi.fn() },
+    abstractReviewSubmission: { upsert: vi.fn(), findMany: vi.fn(), findUnique: vi.fn().mockResolvedValue(null) },
     user: { findUnique: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },

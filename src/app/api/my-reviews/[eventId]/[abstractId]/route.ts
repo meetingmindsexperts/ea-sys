@@ -6,6 +6,7 @@ import { resolveEventTenant } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { REVIEWABLE_ABSTRACT_STATUSES, isOnReviewerPool, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
+import { recommendableFormats } from "@/lib/recommended-formats";
 
 /**
  * One abstract, for the person reviewing it: what the review page reads.
@@ -121,6 +122,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         },
         assignmentRole: assignment?.role ?? null,
         canSubmit: (REVIEWABLE_ABSTRACT_STATUSES as readonly string[]).includes(abstract.status),
+        formats: recommendableFormats(event.settings),
         criteria,
         submission: submission
           ? { ...submission, stale: submission.updatedAt.getTime() < abstract.submittedAt.getTime() }

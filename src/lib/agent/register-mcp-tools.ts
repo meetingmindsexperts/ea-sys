@@ -20,6 +20,7 @@ import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE, requiresApproval } from
 import { apiLogger } from "@/lib/logger";
 import { dashboardPathForTool, dashboardUrl } from "@/lib/agent/dashboard-links";
 import { MANUAL_PAYMENT_STATUSES } from "@/lib/registration-payment-policy";
+import { RECOMMENDED_FORMAT_VALUES } from "@/lib/recommended-formats";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -422,7 +423,7 @@ export function registerAllMcpTools(
       criteriaScores: z.record(z.string(), z.number().int().min(0).max(10)).optional(),
       overallScore: z.number().int().min(0).max(100).optional(),
       reviewNotes: z.string().optional(),
-      recommendedFormat: z.enum(["ORAL", "POSTER", "NEITHER"]).optional(),
+      recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),
       confidence: z.number().int().min(1).max(5).optional(),
     }},
     { name: "admin_submit_review_on_behalf", description: "Org-admin: record a review on behalf of a specific human reviewer. Takes explicit reviewerUserId (the person whose scores these are). Available via API-key MCP because the attribution is explicit in the payload. Upserts on (abstractId, reviewerUserId) — same underlying row as submit_abstract_review. Audit trail flags the submission as source=mcp-on-behalf-of with actorUserId so 'X recorded by admin on behalf of Y' is traceable. The target reviewer must already be authorised for this event (in event.settings.reviewerUserIds or explicitly assigned via AbstractReviewer).", params: {
@@ -431,7 +432,7 @@ export function registerAllMcpTools(
       criteriaScores: z.record(z.string(), z.number().int().min(0).max(10)).optional(),
       overallScore: z.number().int().min(0).max(100).optional(),
       reviewNotes: z.string().optional(),
-      recommendedFormat: z.enum(["ORAL", "POSTER", "NEITHER"]).optional(),
+      recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),
       confidence: z.number().int().min(1).max(5).optional(),
     }},
     { name: "get_abstract_scores", description: "Return all reviewer submissions on an abstract plus per-criterion + overall aggregates (mean/min/max, count).", params: {
