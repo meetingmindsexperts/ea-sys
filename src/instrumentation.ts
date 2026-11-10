@@ -106,8 +106,14 @@ export const onRequestError = async (...args: RequestErrorArgs) => {
     return;
   }
 
-  await logUnhandledRequestError(args);
+  // Sentry first: the logger forwards errors to Sentry too, and whichever
+  // capture runs first is the one Sentry keeps. This one carries the request.
+  try {
+    const { captureRequestError } = await import("@sentry/nextjs");
+    captureRequestError(...args);
+  } catch (sentryErr) {
+    console.error("request:unhandled-error-sentry-failed", sentryErr);
+  }
 
-  const { captureRequestError } = await import("@sentry/nextjs");
-  captureRequestError(...args);
+  await logUnhandledRequestError(args);
 };

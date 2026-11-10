@@ -37,7 +37,7 @@ describe("onRequestError", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs the error with its route, then forwards to Sentry", async () => {
+  it("forwards to Sentry, then logs the error with its route", async () => {
     const err = new Error("boom");
 
     await onRequestError(err, request, context);
@@ -54,8 +54,9 @@ describe("onRequestError", () => {
       "request:unhandled-error",
     );
     expect(mockCapture).toHaveBeenCalledWith(err, request, context);
-    expect(mockLogger.error.mock.invocationCallOrder[0]).toBeLessThan(
-      mockCapture.mock.invocationCallOrder[0],
+    // Sentry first: the logger forwards to Sentry too and the first capture wins.
+    expect(mockCapture.mock.invocationCallOrder[0]).toBeLessThan(
+      mockLogger.error.mock.invocationCallOrder[0],
     );
   });
 

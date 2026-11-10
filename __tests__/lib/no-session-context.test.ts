@@ -83,8 +83,9 @@ describe("noSessionContext", () => {
   it("reports host, ip, a truncated user agent and the prefetch signals", () => {
     const ctx = noSessionContext(
       request({
-        host: "0.0.0.0:3000",
-        "x-forwarded-host": "events.example.com",
+        host: "events.example.com",
+        // The client's to send (nginx does not set it), so never the logged host.
+        "x-forwarded-host": "forged.example",
         "x-real-ip": "203.0.113.9",
         "user-agent": "M".repeat(500),
         "next-router-prefetch": "1",

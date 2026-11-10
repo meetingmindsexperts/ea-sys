@@ -156,7 +156,7 @@ export async function POST(req: Request) {
       // ours on a host we do not know, or a slug nobody has. The path passed
       // the allow-list above, so it is never a token route.
       apiLogger.warn(
-        { ip, site: body.site, path, route: route.pattern, host },
+        { ip, site: body.site, path: path.slice(0, 200), route: route.pattern, host: host?.slice(0, 200) ?? null },
         "analytics:track-unresolved-site",
       );
       return noContent();

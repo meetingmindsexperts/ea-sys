@@ -37,8 +37,9 @@ export type NoSessionContext =
 function fromHeaders(h: Headers): NoSessionContext {
   const purpose = `${h.get("purpose") ?? ""} ${h.get("sec-purpose") ?? ""}`;
   return {
-    // nginx forwards the public name; the bare Host is the fallback.
-    host: h.get("x-forwarded-host") ?? h.get("host"),
+    // nginx sets Host to the public name. X-Forwarded-Host is the client's to
+    // send, so it is never read here.
+    host: h.get("host")?.slice(0, USER_AGENT_MAX) ?? null,
     hasSessionCookie: SESSION_COOKIE.test(h.get("cookie") ?? ""),
     userAgent: h.get("user-agent")?.slice(0, USER_AGENT_MAX) ?? null,
     prefetch: h.has("next-router-prefetch"),
