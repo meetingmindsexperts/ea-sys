@@ -296,12 +296,18 @@ function CategoryRegistrationContent() {
   };
   // Signed in: the account step is the session, and the details start from
   // the person's last registration. "Not you?" registers someone else on this
-  // browser (a shared laptop, an assistant) without signing anyone out. Not
-  // for staff: they open public forms to register other people.
+  // browser (a shared laptop, an assistant) without signing anyone out.
+  // Staff usually open public forms to register other people, so for them the
+  // session is used only once they choose "Register myself" (or arrive with
+  // ?self=1 from the organizer view). Until Nov 10, 2026 there was no such
+  // choice: a staff member registering themselves was told they already had an
+  // account, signed in, and landed on the same step again.
   const { data: session } = useSession();
   const [notYou, setNotYou] = useState(false);
   const staffSession = isTeamRole(session?.user?.role);
-  const signedInEmail = deskQr || notYou || staffSession ? null : session?.user?.email?.toLowerCase() ?? null;
+  const [staffSelf, setStaffSelf] = useState(() => searchParams.get("self") === "1");
+  const signedInEmail = deskQr || notYou || (staffSession && !staffSelf) ? null : session?.user?.email?.toLowerCase() ?? null;
+  const offerStaffSelf = !deskQr && staffSession && !staffSelf && !!session?.user?.email;
   const stepOneSubtitle = signedInEmail ? "You're signed in. Continue to your details." : "Create your account to get started.";
   const [emailCheck, setEmailCheck] = useState<
     | { state: "idle" }
@@ -565,6 +571,7 @@ function CategoryRegistrationContent() {
   // restored on this browser is someone's details too.
   function registerSomeoneElse() {
     setNotYou(true);
+    setStaffSelf(false);
     form.setValue("email", "");
     for (const key of PROFILE_FIELDS) form.setValue(key, "");
     setEmailCheck({ state: "idle" });
@@ -1065,6 +1072,24 @@ function CategoryRegistrationContent() {
                       {selectedTierContent.welcomeHtml && (
                         <div className="rich-content-tables prose prose-slate max-w-none [&>*]:mb-4 [&>*:last-child]:mb-0"
                           dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedTierContent.welcomeHtml!) }} />
+                      )}
+
+                      {offerStaffSelf && (
+                        <div className="max-w-md mx-auto rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm text-slate-700">
+                          You&apos;re signed in as staff (<span className="font-medium text-slate-900 break-all">{session?.user?.email}</span>).
+                          {" "}Registering yourself? Use your account; registering someone else, fill in the form below.
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="mt-3 w-full"
+                            onClick={() => {
+                              setNotYou(false);
+                              setStaffSelf(true);
+                            }}
+                          >
+                            Register myself
+                          </Button>
+                        </div>
                       )}
 
                       {signedInEmail ? (

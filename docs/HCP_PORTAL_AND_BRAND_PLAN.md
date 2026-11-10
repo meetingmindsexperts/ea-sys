@@ -55,7 +55,7 @@ in §7.
 | `a1296982` dashboard shell no longer scrolls up over a blank strip | Committed, **not pushed**. Safe to push on its own |
 | `8c6bf855` attendee-facing brand (Settings field, sign-in pages, catalogue, event pages, link previews, HCP sidebar, kiosk, reset email) plus `/staff/login` | Committed, **not pushed**. Review found 0 BLOCKER, 0 HIGH, 2 MED, 8 LOW |
 | Fixes for that review (staff tab titles, a settings leak in the public event API, logo restricted to uploads or https, brand cache, confirmation email footer, reset email never failing on branding) and the removal of `/staff/login` (D6) | Stage 2a, in progress |
-| Staff cannot register themselves for an event or webinar | Diagnosed Nov 10 (§5, Stage 2b). Not fixed |
+| Staff cannot register themselves for an event or webinar | Fixed Nov 10 (Stage 2b), committed, not pushed |
 | Favicon still the MM Group mark on HCP pages | Not started. Needs a square crop of the MME globe |
 
 ---

@@ -425,6 +425,10 @@ export default function RegisterOverviewPage() {
                           <ExternalLink className="h-3 w-3 mr-1" /> Open
                         </a>
                       </Button>
+                      {/* Staff attending themselves: the form uses their signed-in account. */}
+                      <Button size="sm" className="h-7 text-xs shrink-0" asChild>
+                        <a href={`${formUrl}?self=1`}>Register myself</a>
+                      </Button>
                     </div>
                   </div>
                 </div>
