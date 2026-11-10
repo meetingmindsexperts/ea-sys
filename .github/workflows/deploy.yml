@@ -74,11 +74,16 @@ jobs:
 
       # Run type-check in background, lint in foreground, then collect both.
       # Both are independent — saves ~15-20s vs running sequentially.
+      #
+      # `wait` must name the type check's PID. A bare `wait` returns 0 whatever
+      # the background job found, so until Nov 10, 2026 a type error could never
+      # fail this step: one sat on main for a day with every run green.
       - name: Type check & Lint
         run: |
           npm run type-check &
+          TYPECHECK_PID=$!
           npm run lint
-          wait
+          wait "$TYPECHECK_PID"
 
       # Blue-green migrates BEFORE the nginx swap, so a DROP/RENAME/SET NOT NULL
       # breaks the old slot while it is still serving real users — and a code
