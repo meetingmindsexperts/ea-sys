@@ -87,6 +87,12 @@ describe("buildJourney", () => {
     expect(journey({})).toContain("Free:done");
   });
 
+  it("never says Not checked in beside a certificate: the desk does not scan everyone", () => {
+    const journey = (certificateCount: number) => labels(buildJourney({ registration: reg({ paymentStatus: "PAID" }), event: past, surveys: [], certificateCount, now: NOW }));
+    expect(journey(0)).toContain("Not checked in:missed");
+    expect(journey(1)).toEqual(["Registered:done", "Paid:done", "Certificate ready:done"]);
+  });
+
   it("no check-in step on a webinar or for an online attendee", () => {
     const keys = (event: typeof past, over = {}) => buildJourney({ registration: reg(over), event, surveys: [], certificateCount: 0, now: NOW }).map((s) => s.key);
     expect(keys({ ...past, eventType: "WEBINAR" })).not.toContain("checkin");

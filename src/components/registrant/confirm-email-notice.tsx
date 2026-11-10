@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { MailCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -37,6 +38,7 @@ export function ConfirmEmailNotice({ email, forReviews = false }: { email?: stri
     },
     enabled: !email,
   });
+  const router = useRouter();
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
 
@@ -51,6 +53,14 @@ export function ConfirmEmailNotice({ email, forReviews = false }: { email?: stri
       if (!res.ok) {
         console.error("registrant:confirm-email-send-failed", res.status, body);
         toast.error(body.error ?? "Couldn't send the link. Please try again.");
+        return;
+      }
+      // Already confirmed (in another tab, or the session is a few minutes
+      // behind): no link was sent, so do not ask them to check their inbox.
+      if (body.confirmed) {
+        toast.success("Your email is already confirmed");
+        if (!email) void status.refetch();
+        router.refresh();
         return;
       }
       setSent(true);

@@ -10,6 +10,7 @@ import { apiLogger } from "@/lib/logger";
 import { linkConfirmedRegistrations, loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { writeOwnAttendee } from "@/lib/registrant-details";
+import { checkRateLimit } from "@/lib/security";
 
 /**
  * What a person is sent about their own registration: the fields their page
@@ -173,6 +174,15 @@ export async function PUT(req: Request) {
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/registrations", userId: session?.user?.id }, async () => {
 
+    const rl = checkRateLimit({ key: `registrant-self-edit:${session.user.id}`, limit: 30, windowMs: 60 * 60 * 1000 });
+    if (!rl.allowed) {
+      apiLogger.warn({ msg: "registrant-self-edit:rate-limited", userId: session.user.id, retryAfterSeconds: rl.retryAfterSeconds });
+      return NextResponse.json(
+        { error: "Too many saves. Please try again later.", retryAfterSeconds: rl.retryAfterSeconds, limit: 30, windowSeconds: 3600 },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+      );
+    }
+
     const body = await req.json();
     const validated = selfEditSchema.safeParse(body);
     if (!validated.success) {
@@ -194,7 +204,7 @@ export async function PUT(req: Request) {
     // Verify ownership
     const registration = await db.registration.findFirst({
       where: { id: registrationId, userId: session.user.id },
-      select: { id: true, attendeeId: true, eventId: true },
+      select: { id: true, attendeeId: true, eventId: true, createdSource: true },
     });
 
     if (!registration) {
@@ -202,13 +212,21 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
+    // A speaker's Faculty registration takes its name from the speaker record,
+    // never the other way (the name lock, owner, Aug 5, 2026; My Details skips
+    // these rows for the same reason). The other fields are theirs to edit.
+    const nameLocked = registration.createdSource === "SPEAKER_COMPANION";
+    if (nameLocked && (attendee.firstName || attendee.lastName)) {
+      apiLogger.warn({ msg: "registrant-self-edit:faculty-name-not-changed", userId: session.user.id, registrationId });
+    }
+
     // Attendee fields only; the shared write also touches the registration(s)
     // on this attendee and follows with the contact store (registrant-details.ts).
     await writeOwnAttendee(registration, {
       ...(attendee.title !== undefined && { title: attendee.title || null }),
       ...(attendee.role !== undefined && { role: attendee.role }),
-      ...(attendee.firstName && { firstName: attendee.firstName }),
-      ...(attendee.lastName && { lastName: attendee.lastName }),
+      ...(!nameLocked && attendee.firstName && { firstName: attendee.firstName }),
+      ...(!nameLocked && attendee.lastName && { lastName: attendee.lastName }),
       ...(attendee.additionalEmail !== undefined && { additionalEmail: attendee.additionalEmail?.trim() || null }),
       ...(attendee.organization !== undefined && { organization: attendee.organization || null }),
       ...(attendee.jobTitle !== undefined && { jobTitle: attendee.jobTitle || null }),

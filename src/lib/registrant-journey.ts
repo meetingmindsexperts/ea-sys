@@ -119,7 +119,13 @@ export function buildJourney(input: {
   const steps: JourneyStep[] = [registeredStep(reg.status), unpaidAndOver ? { key: "payment", label: "Not paid", state: "missed" } : payment];
   // A webinar and an online attendee never pass the desk.
   const atVenue = event.eventType !== "WEBINAR" && reg.attendanceMode !== "VIRTUAL";
-  if (atVenue && ATTENDING.has(reg.status)) steps.push(checkInStep(reg.status, event.endDate, now));
+  if (atVenue && ATTENDING.has(reg.status)) {
+    const checkIn = checkInStep(reg.status, event.endDate, now);
+    // The desk does not scan everyone: most attendance certificates belong to
+    // people it never marked. A certificate is the better evidence, so the
+    // row does not say "Not checked in" beside "Certificate ready".
+    if (checkIn.state !== "missed" || certificateCount === 0) steps.push(checkIn);
+  }
   if (input.replay) steps.push({ key: "replay", label: "Replay ready", state: "done" });
   if (surveys.length > 0) steps.push(surveyStep(surveys));
   if (certificateCount > 0) {

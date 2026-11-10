@@ -130,7 +130,8 @@ describe("who owns a certificate", () => {
       pdfUrl: { not: null },
       OR: [
         { registration: { OR: [{ userId: "u1" }, { userId: null, attendee: { email: { equals: "anna@example.com", mode: "insensitive" } } }] } },
-        { speaker: { OR: [{ userId: "u1" }, { email: { equals: "anna@example.com", mode: "insensitive" } }] } },
+        // userId: null: a speaker record another account has claimed is theirs, whatever address it carries.
+        { speaker: { OR: [{ userId: "u1" }, { userId: null, email: { equals: "anna@example.com", mode: "insensitive" } }] } },
       ],
     });
     // Unconfirmed: someone else's earlier registration on this address stays hidden.

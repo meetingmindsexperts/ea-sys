@@ -872,7 +872,7 @@ export default function EventMyRegistrationPage() {
                 size="sm"
                 className="border-primary/40 bg-primary/5 font-medium text-primary hover:bg-primary/10 hover:text-primary"
               >
-                <a href="/my-registration">
+                <a href="/my-account">
                   <LayoutList className="h-4 w-4 sm:mr-1.5" />
                   <span className="hidden sm:inline">All my events</span>
                   <span className="sm:hidden">My events</span>

@@ -346,6 +346,9 @@ function DateBlock({ event }: { event: EventSummary }) {
 function EventCard({ card, featured }: { card: EventCardData; featured?: string }) {
   const { event, where, journeys, certificates } = card;
   const hasReplay = journeys.some((j) => j.replay);
+  // A badge only for someone who passes the desk: a webinar or an online
+  // attendee has none, and their journey has no check-in step.
+  const hasBadge = journeys.some((j) => j.steps.some((step) => step.key === "checkin"));
   return (
     <Card id={`event-${event.id}`} className={cn("h-full gap-0 overflow-hidden py-0", featured && "border-primary/40 ring-1 ring-primary/20")}>
       <EventCardBanner event={event} />
@@ -396,7 +399,7 @@ function EventCard({ card, featured }: { card: EventCardData; featured?: string 
         {journeys.length > 0 && (
           <Button asChild variant={featured ? "default" : "outline"} className="h-11 w-full sm:h-9 sm:w-auto">
             <Link href={`/e/${event.slug}/my-registration`}>
-              {featured ? "View registration and badge" : "Open registration"}
+              {featured && hasBadge ? "View registration and badge" : "Open registration"}
               <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden />
             </Link>
           </Button>

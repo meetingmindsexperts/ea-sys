@@ -345,7 +345,7 @@ export function Header() {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="flex items-center gap-2">
+            <Button variant="ghost" className="flex items-center gap-2" aria-label={`Account menu, ${session?.user?.firstName ?? ""} ${session?.user?.lastName ?? ""}`.trim()}>
               <Avatar className="h-8 w-8">
                 <AvatarImage src={session?.user?.image || undefined} />
                 <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">

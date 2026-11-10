@@ -154,8 +154,8 @@ export default function MyDetailsPage() {
             <SectionTitle icon={UserRound} title="About you" />
             <div className="grid gap-4 sm:grid-cols-[8rem_1fr_1fr]">
               <div className="space-y-1.5">
-                <Label>Title</Label>
-                <Controller control={control} name="title" render={({ field }) => <TitleSelect value={field.value} onChange={field.onChange} />} />
+                <Label htmlFor="details-title">Title</Label>
+                <Controller control={control} name="title" render={({ field }) => <TitleSelect id="details-title" value={field.value} onChange={field.onChange} />} />
               </div>
               <TextField label="First name" required error={fieldError("firstName")} {...register("firstName")} />
               <TextField label="Last name" required error={fieldError("lastName")} {...register("lastName")} />
@@ -174,17 +174,17 @@ export default function MyDetailsPage() {
             <SectionTitle title="Work" />
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>
+                <Label htmlFor="details-role">
                   Role <span className="text-destructive">*</span>
                 </Label>
-                <Controller control={control} name="role" render={({ field }) => <RoleSelect value={field.value} onChange={field.onChange} />} />
+                <Controller control={control} name="role" render={({ field }) => <RoleSelect id="details-role" value={field.value} onChange={field.onChange} />} />
                 {fieldError("role")}
               </div>
               <div className="space-y-1.5">
-                <Label>
+                <Label htmlFor="details-specialty">
                   Specialty <span className="text-destructive">*</span>
                 </Label>
-                <Controller control={control} name="specialty" render={({ field }) => <SpecialtySelect value={field.value} onChange={field.onChange} />} />
+                <Controller control={control} name="specialty" render={({ field }) => <SpecialtySelect id="details-specialty" value={field.value} onChange={field.onChange} />} />
                 {fieldError("specialty")}
               </div>
               {specialty === "Others" && (
@@ -198,10 +198,10 @@ export default function MyDetailsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <TextField label="Mobile number" required type="tel" autoComplete="tel" error={fieldError("phone")} {...register("phone")} />
               <div className="space-y-1.5">
-                <Label>
+                <Label htmlFor="details-country">
                   Country <span className="text-destructive">*</span>
                 </Label>
-                <Controller control={control} name="country" render={({ field }) => <CountrySelect value={field.value} onChange={field.onChange} />} />
+                <Controller control={control} name="country" render={({ field }) => <CountrySelect id="details-country" value={field.value} onChange={field.onChange} />} />
                 {fieldError("country")}
               </div>
               <TextField label="City" required autoComplete="address-level2" error={fieldError("city")} {...register("city")} />

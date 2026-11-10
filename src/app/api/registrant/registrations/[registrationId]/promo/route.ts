@@ -88,7 +88,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const reg = await ownedRegistration(registrationId, actor.id, session.user.tokenVersion);
-    if (!reg) return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    if (!reg) {
+      apiLogger.warn({ msg: "registrant/promo:registration-not-found", registrationId, userId: actor.id });
+      return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
 
     const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success) {
@@ -135,7 +138,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/promo", userId: actor.id }, async () => {
 
     const reg = await ownedRegistration(registrationId, actor.id, session.user.tokenVersion);
-    if (!reg) return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    if (!reg) {
+      apiLogger.warn({ msg: "registrant/promo:registration-not-found", registrationId, userId: actor.id });
+      return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
 
     const result = await removePromoCodeFromRegistration({ registrationId, eventId: reg.eventId, source: "registrant" });
     if (!result.ok) {

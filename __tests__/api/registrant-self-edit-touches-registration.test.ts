@@ -63,6 +63,16 @@ describe("registrant self-edit", () => {
     expect(tx.attendee.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ firstName: "New" }) }));
   });
 
+  it("a speaker's Faculty registration keeps its name (it follows the speaker record); the other fields save", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg1", attendeeId: "att1", eventId: "ev1", createdSource: "SPEAKER_COMPANION" });
+    const res = await put({ registrationId: "reg1", attendee: { firstName: "Renamed", lastName: "Person", phone: "+971500000000" } });
+    expect(res.status).toBe(200);
+    const written = tx.attendee.update.mock.calls[0][0].data;
+    expect(written).toMatchObject({ phone: "+971500000000" });
+    expect(written).not.toHaveProperty("firstName");
+    expect(written).not.toHaveProperty("lastName");
+  });
+
   it("someone else's registration is a 404 and nothing is written", async () => {
     mockDb.registration.findFirst.mockResolvedValue(null);
     const res = await put({ registrationId: "reg9", attendee: { firstName: "New" } });

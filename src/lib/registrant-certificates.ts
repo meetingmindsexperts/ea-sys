@@ -55,12 +55,14 @@ export type PortalCertificate = Prisma.IssuedCertificateGetPayload<{ select: typ
 
 /**
  * The person's certificates: through a registration they own (registrant-access.ts)
- * or a speaker record linked to them. A speaker record matched only by email
- * counts once the account has proven that address, the same rule.
+ * or a speaker record linked to them. An UNCLAIMED speaker record on their
+ * address counts once the account has proven that address, the same rule: one
+ * already linked to another account is that account's, whatever email it
+ * carries (until Nov 10, 2026 the address alone matched a claimed record).
  */
 function ownedWhere(scope: RegistrantScope): Prisma.IssuedCertificateWhereInput {
   const speaker: Prisma.SpeakerWhereInput[] = [{ userId: scope.userId }];
-  if (scope.confirmed && scope.email) speaker.push({ email: { equals: scope.email, mode: "insensitive" } });
+  if (scope.confirmed && scope.email) speaker.push({ userId: null, email: { equals: scope.email, mode: "insensitive" } });
   return {
     revokedAt: null,
     pdfUrl: { not: null },

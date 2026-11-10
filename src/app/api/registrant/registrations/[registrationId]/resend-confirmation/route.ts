@@ -106,6 +106,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!registration) {
+      apiLogger.warn({ msg: "registrant/resend-confirmation:registration-not-found", registrationId, userId: session.user.id });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
