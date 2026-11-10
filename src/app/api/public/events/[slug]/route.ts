@@ -1,3 +1,4 @@
+import { readPublicBrand } from "@/lib/public-brand";
 import { readFormFields } from "@/lib/registration-form-fields";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -94,6 +95,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           select: {
             name: true,
             logo: true,
+            settings: true,
           },
         },
         ticketTypes: {
@@ -237,6 +239,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       webinarSession,
       ...event,
       settings: undefined,
+      // Only the attendee-facing brand (public-brand.ts): the organisation's
+      // settings JSON holds encrypted credentials and must never be spread out.
+      organization: readPublicBrand(event.organization.settings, event.organization),
       // Raw counters stay private — the public payload carries only the flag.
       maxAttendees: undefined,
       seatCount: undefined,

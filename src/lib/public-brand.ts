@@ -23,7 +23,14 @@ export const PUBLIC_BRAND_SETTINGS_KEY = "publicBrand";
 
 export const publicBrandSettingsSchema = z.object({
   name: z.string().trim().max(120).optional(),
-  logo: z.string().max(500).nullable().optional(),
+  // Our own uploads or an https address: it renders on every public page, so a
+  // third-party http or protocol-relative URL would hand every visitor's IP out.
+  logo: z
+    .string()
+    .max(500)
+    .regex(/^(\/uploads\/|https:\/\/)/, "Upload the logo, or use an https:// address")
+    .nullable()
+    .optional(),
 });
 
 /** What a page shows when no organisation answers for this address. */

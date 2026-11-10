@@ -19,12 +19,21 @@ export const loadPublicBrandForHost = cache(async (host: string | null): Promise
   }
 });
 
+// Per container, a minute: every page render reads the brand (the root layout's
+// tab title), and a Settings change showing within a minute is fine.
+const BRAND_TTL_MS = 60_000;
+const brandCache = new Map<string, { brand: PublicBrand; at: number }>();
+
 export async function loadPublicBrandForOrg(orgId: string): Promise<PublicBrand> {
+  const hit = brandCache.get(orgId);
+  if (hit && Date.now() - hit.at < BRAND_TTL_MS) return hit.brand;
   const org = await db.organization.findUnique({ where: { id: orgId }, select: { name: true, logo: true, settings: true } });
-  return org ? readPublicBrand(org.settings, org) : NO_ORGANISATION_BRAND;
+  const brand = org ? readPublicBrand(org.settings, org) : NO_ORGANISATION_BRAND;
+  brandCache.set(orgId, { brand, at: Date.now() });
+  return brand;
 }
 
-/** The organisation's own name and logo, for the staff door. */
+/** The organisation's own name and logo: what staff see (the dashboard's tab title). */
 export const loadStaffBrandForHost = cache(async (host: string | null): Promise<PublicBrand> => {
   try {
     const tenant = await resolveTenantOrg(normalizeHost(host));

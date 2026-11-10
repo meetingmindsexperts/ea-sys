@@ -3,9 +3,7 @@ import type { PublicBrand } from "@/lib/public-brand";
 
 /**
  * The frame around every sign-in page: the form on the left, the brand panel on
- * the right. The HCP doors (/login, /signup) pass the attendee-facing brand and
- * the staff door (/staff/login) the organisation's own (public-brand.ts); the
- * forms inside are the same.
+ * the right, under the brand the layout passes (public-brand.ts).
  */
 function BrandMark({ brand, className }: { brand: PublicBrand; className: string }) {
   if (!brand.logo) return <span className="text-xl font-semibold text-primary">{brand.name}</span>;

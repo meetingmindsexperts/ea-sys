@@ -1,3 +1,4 @@
+import { loadPublicBrandForHost } from "@/lib/public-brand-server";
 import { NextResponse } from "next/server";
 import { Prisma, type UserRole } from "@prisma/client";
 import bcrypt from "bcryptjs";
@@ -184,6 +185,7 @@ async function answerExistingAddress(
     recipientName: name,
     signInLink: `${appUrl}/login`,
     resetLink: `${appUrl}/forgot-password`,
+    productName: (await loadPublicBrandForHost(req.headers.get("host"))).name,
   });
   const result = await sendEmail({
     to: [{ email, name }],

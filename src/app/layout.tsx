@@ -12,7 +12,7 @@ const appUrl =
   process.env.NEXTAUTH_URL ||
   "https://events.meetingmindsgroup.com";
 
-// The tab title is the attendee-facing brand (public-brand.ts); the dashboard
+// The tab title is the attendee-facing brand (public-brand.ts). The dashboard
 // layout names the organisation instead for staff.
 export async function generateMetadata(): Promise<Metadata> {
   const brand = await loadPublicBrandForHost((await headers()).get("host"));

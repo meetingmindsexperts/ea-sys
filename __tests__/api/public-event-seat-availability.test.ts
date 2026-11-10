@@ -170,3 +170,18 @@ describe("public event API — the call for abstracts", () => {
     expect(body.abstractSettings.allowAbstractSubmissions).toBe(false);
   });
 });
+
+describe("public event API: the organisation", () => {
+  it("returns only the attendee-facing name and logo, never the settings JSON (credentials live there)", async () => {
+    const res = await payload([], {
+      organization: {
+        name: "MM Group",
+        logo: "/uploads/mmg.png",
+        settings: { zoom: { clientSecret: "ENCRYPTED-SECRET" }, publicBrand: { name: "Meeting Minds Experts", logo: "/uploads/mme.png" } },
+      },
+    });
+    const text = JSON.stringify(res);
+    expect(text).not.toContain("ENCRYPTED-SECRET");
+    expect((res as unknown as { organization: unknown }).organization).toEqual({ name: "Meeting Minds Experts", logo: "/uploads/mme.png" });
+  });
+});

@@ -1,3 +1,4 @@
+import { loadPublicBrandForHost } from "@/lib/public-brand-server";
 import crypto from "crypto";
 import { db } from "./db";
 import { apiLogger } from "./logger";
@@ -71,11 +72,14 @@ export async function sendEmailVerification(params: {
     });
 
     const verifyLink = `${appUrl}/verify-email?token=${rawToken}&email=${encodeURIComponent(email)}`;
+    // A team address joining knows the organisation; everyone else its attendee-facing brand.
+    const productName = purpose === "team" ? undefined : (await loadPublicBrandForHost(null)).name;
     const tpl = emailTemplates.emailVerification({
       recipientName: name,
       verifyLink,
       expiresIn: "7 days",
       purpose,
+      productName,
     });
 
     const result = await sendEmail({

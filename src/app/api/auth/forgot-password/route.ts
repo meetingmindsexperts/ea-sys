@@ -43,9 +43,15 @@ function getPasswordResetIdentifier(email: string) {
 /** Staff know the organisation (the email's default); everyone else its attendee-facing brand. */
 async function attendeeProductName(user: { role: string; organizationId: string | null }, req: Request): Promise<string | undefined> {
   if (isTeamRole(user.role)) return undefined;
-  const orgId = user.organizationId ?? (await resolveRequestOrgId(req));
-  if (!orgId) return undefined;
-  return (await loadPublicBrandForOrg(orgId)).name;
+  try {
+    const orgId = user.organizationId ?? (await resolveRequestOrgId(req));
+    if (!orgId) return undefined;
+    return (await loadPublicBrandForOrg(orgId)).name;
+  } catch (err) {
+    // A brand lookup must never cost someone their reset email: send the default wording.
+    apiLogger.warn({ err, msg: "forgot-password:brand-lookup-failed" });
+    return undefined;
+  }
 }
 
 export async function POST(req: Request) {

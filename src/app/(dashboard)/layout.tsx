@@ -1,3 +1,7 @@
+import type { Metadata } from "next";
+import { headers } from "next/headers";
+import { isTeamRole } from "@/lib/team-roles";
+import { loadPublicBrandForHost, loadStaffBrandForHost } from "@/lib/public-brand-server";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -9,6 +13,15 @@ import { RuntimeFlagsProvider } from "@/components/runtime-flags";
 import { isHrModuleEnabled, isProcurementModuleEnabled, isCustomRolesEnabled, isBlueprintModuleEnabled } from "@/lib/module-flags";
 import { senderDomain } from "@/lib/sender-domain";
 import { orgHasModule } from "@/lib/module-entitlements";
+
+// The tab title: staff see the organisation, everyone else in the dashboard
+// (attendees, authors, reviewers) the attendee-facing brand (public-brand.ts).
+export async function generateMetadata(): Promise<Metadata> {
+  const [session, h] = await Promise.all([auth(), headers()]);
+  const host = h.get("host");
+  const brand = isTeamRole(session?.user?.role) ? await loadStaffBrandForHost(host) : await loadPublicBrandForHost(host);
+  return { title: brand.name };
+}
 
 export default async function DashboardLayout({
   children,

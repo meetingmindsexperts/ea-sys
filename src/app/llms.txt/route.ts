@@ -1,3 +1,4 @@
+import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
           country: true, eventType: true, specialty: true, bannerImage: true, cmeHours: true,
         },
       }),
-      tenant.orgId ? db.organization.findUnique({ where: { id: tenant.orgId }, select: { name: true } }) : null,
+      tenant.orgId ? loadPublicBrandForOrg(tenant.orgId) : null,
       listTopicValues(scope),
     ]);
     const body = llmsText({

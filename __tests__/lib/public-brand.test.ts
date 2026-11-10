@@ -37,3 +37,26 @@ describe("the password reset email names the recipient's brand", () => {
     expect(emailTemplates.passwordReset({ recipientName: "A B", resetLink: "https://x/r" }).subject).toBe("Reset your MM Group Events password");
   });
 });
+
+describe("the confirmation and account-exists emails name the attendee-facing brand", () => {
+  it("footer says the brand when given, the staff default otherwise", async () => {
+    const { emailTemplates } = await import("@/lib/email");
+    const conf = emailTemplates.emailVerification({ recipientName: "A", verifyLink: "https://x/v", purpose: "account", productName: "Meeting Minds Experts" });
+    expect(conf.htmlContent).toContain("Sent from Meeting Minds Experts");
+    expect(conf.htmlContent).not.toContain("MM Group");
+    const exists = emailTemplates.accountExists({ recipientName: "A", signInLink: "https://x/l", resetLink: "https://x/r", productName: "Meeting Minds Experts" });
+    expect(exists.htmlContent).toContain("Sent from Meeting Minds Experts");
+    expect(emailTemplates.emailVerification({ recipientName: "A", verifyLink: "https://x/v", purpose: "team" }).htmlContent).toContain("Sent from MM Group Events");
+  });
+});
+
+describe("publicBrand.logo", () => {
+  it("takes our uploads or https, never a third-party http or protocol-relative address", async () => {
+    const { publicBrandSettingsSchema } = await import("@/lib/public-brand");
+    expect(publicBrandSettingsSchema.safeParse({ logo: "/uploads/photos/x.png" }).success).toBe(true);
+    expect(publicBrandSettingsSchema.safeParse({ logo: "https://cdn.example.com/x.png" }).success).toBe(true);
+    for (const bad of ["http://tracker.example/x.png", "//tracker.example/x.png", "javascript:alert(1)", "data:image/svg+xml;base64,AA"]) {
+      expect(publicBrandSettingsSchema.safeParse({ logo: bad }).success).toBe(false);
+    }
+  });
+});

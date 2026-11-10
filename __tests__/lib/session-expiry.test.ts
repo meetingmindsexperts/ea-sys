@@ -47,7 +47,7 @@ describe("httpStatusOf", () => {
 });
 
 describe("buildLoginRedirect", () => {
-  it("sends a dashboard path to the staff login, carrying it back", () => {
+  it("sends a dashboard path to the login, carrying it back", () => {
     expect(buildLoginRedirect("/crm/companies")).toBe(
       "/login?callbackUrl=%2Fcrm%2Fcompanies&reason=expired",
     );

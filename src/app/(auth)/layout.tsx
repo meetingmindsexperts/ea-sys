@@ -3,8 +3,10 @@ import { Award, FileText, Ticket } from "lucide-react";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { loadPublicBrandForHost } from "@/lib/public-brand-server";
 
-// The HCP doors: the attendee-facing brand (public-brand.ts), set in Settings.
-// Staff sign in at /staff/login, under the organisation's own.
+// One sign-in door for everyone (owner, Nov 10, 2026): before sign-in nobody is
+// known, so it shows the address's attendee-facing brand (public-brand.ts); staff
+// see the organisation's own once inside. A separate staff address comes later
+// (docs/HCP_PORTAL_AND_BRAND_PLAN.md, Stage 3).
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
   const brand = await loadPublicBrandForHost((await headers()).get("host"));
   return (

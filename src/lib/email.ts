@@ -1292,6 +1292,11 @@ export function normalizeBodyImages(html: string): string {
   });
 }
 
+/** "Sent from <brand>" for a system email whose recipient knows a specific brand (public-brand.ts). */
+function productFooter(productName: string | undefined): EmailBranding {
+  return productName ? { emailFooterHtml: `<p>Sent from ${escapeHtml(productName)}</p>` } : {};
+}
+
 function defaultFooterHtml(eventName: string | undefined): string {
   if (eventName) return `<p>This email was sent regarding ${escapeHtml(eventName)}</p>`;
   return `<p>Sent from MM Group Events</p>`;
@@ -1557,7 +1562,7 @@ ${params.expiresIn ? `Note: This invitation will expire in ${params.expiresIn}.`
   </div>`;
     return {
       subject: `Reset your ${product} password`,
-      htmlContent: inlineCss(wrapWithBranding(bodyHtml, { emailFooterHtml: `<p>Sent from ${escapeHtml(product)}</p>` })),
+      htmlContent: inlineCss(wrapWithBranding(bodyHtml, productFooter(product))),
       textContent: `Reset your ${product} password
 
 Hi ${params.recipientName},
@@ -1628,6 +1633,8 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
      * "account": an account made at /signup, which signs in only once confirmed.
      */
     purpose?: EmailConfirmationPurpose;
+    /** The attendee-facing brand for the footer; omitted, the staff default. */
+    productName?: string;
   }) => {
     const purpose = params.purpose ?? "team";
     // The link asks for the account's password (or a signed-in session), so
@@ -1660,7 +1667,7 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
     const subject = purpose === "account" ? "Confirm your Meeting Minds account" : "Verify your email — Meeting Minds";
     return {
       subject,
-      htmlContent: inlineCss(wrapWithBranding(bodyHtml, {})),
+      htmlContent: inlineCss(wrapWithBranding(bodyHtml, productFooter(params.productName))),
       textContent: `${subject}
 
 Hi ${params.recipientName},
@@ -1679,7 +1686,7 @@ ${ignore}`,
    * already has an account, so the sign-up screen never says which addresses
    * are registered (Nov 5, 2026).
    */
-  accountExists: (params: { recipientName: string; signInLink: string; resetLink: string }) => {
+  accountExists: (params: { recipientName: string; signInLink: string; resetLink: string; productName?: string }) => {
     const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">You already have an account</h1>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 16px 0 20px 0;">
@@ -1693,7 +1700,7 @@ ${ignore}`,
   </div>`;
     return {
       subject: "You already have a Meeting Minds account",
-      htmlContent: inlineCss(wrapWithBranding(bodyHtml, {})),
+      htmlContent: inlineCss(wrapWithBranding(bodyHtml, productFooter(params.productName))),
       textContent: `You already have an account
 
 Hi ${params.recipientName},
