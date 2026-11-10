@@ -836,6 +836,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "events/registrations:committee-role-without-faculty", eventId, userId: session.user.id });
       return NextResponse.json({ error: "A committee role is set when adding as Faculty.", code: "FACULTY_TERMS_INVALID" }, { status: 400 });
     }
+    // Adding Faculty is an organiser's call, not the desk's (review M3): it is
+    // free, holds no seat, leaves the delegate counts, and may adopt a
+    // hand-made "Faculty" type. The same key as adding a speaker.
+    if (asFaculty) {
+      const facultyGate = requirePermission(session, "speakers.create", { route: "events/[eventId]/registrations:POST:faculty", eventId });
+      if (!facultyGate.ok) return facultyGate.response;
+    }
     const role = committeeRole ?? "NONE";
     const facultyTypeId = asFaculty ? await ensureFacultyTicketType(eventId) : null;
 

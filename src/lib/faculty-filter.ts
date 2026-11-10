@@ -9,7 +9,8 @@ import type { Prisma } from "@prisma/client";
  *
  * Keyed on `ticketType.isFaculty` (NOT `createdSource`): a speaker who is ALSO a
  * real registrant has a real ticket type, so they correctly count as a delegate;
- * only the auto-created Faculty companions are excluded. `NOT { ticketType
+ * only registrations on the Faculty type are excluded: a speaker's automatic
+ * companion, or someone added as Faculty from Add Registration (committee). `NOT { ticketType
  * isFaculty: true }` also keeps registrations with a null ticketType (legacy).
  *
  * Operational surfaces (badge generation, check-in, survey, DTCM) deliberately
@@ -76,7 +77,8 @@ export const SPEAKERS_TYPE_LABEL = "Faculty (speakers and committee)";
 /**
  * The registration types staff may pick for a registration (Oct 22, 2026).
  * The speakers' type is offered only to a registration already on it, so it
- * can be moved off, and never to anyone else: Add Registration hides it too,
+ * can be moved off, and never to anyone else: Add Registration offers Faculty
+ * only as its own choice (src/lib/faculty-registration.ts), never as the raw type,
  * and picking it by hand left Uzma Sharif (BHS2026) on it with no way back.
  */
 export function pickableRegTypes<T extends { id: string; isFaculty?: boolean | null }>(

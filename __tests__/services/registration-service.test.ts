@@ -1178,7 +1178,21 @@ describe("createRegistration — added as Faculty (Nov 10, 2026: Faculty is the 
     expect(mockDb.registration.create).not.toHaveBeenCalled();
   });
 
+  it("skips the type's own window, cap and approval (an adopted hand-made Faculty type may carry them)", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...FACULTY_TYPE, salesEnd: new Date(Date.now() - 86400000), soldCount: 5, quantity: 5, requiresApproval: true });
+    const result = await asFaculty();
+    expect(result.ok).toBe(true);
+    expect(mockDb.registration.create.mock.calls[0][0].data.status).toBe("CONFIRMED");
+  });
+
+  it("the audit entry says added as Faculty, with the badge", async () => {
+    await asFaculty();
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ createdSource: "FACULTY_ADMIN", badgeType: "Scientific Committee" });
+  });
+
   it.each([
+    ["a sponsor", { sponsorId: "sp-1" }],
+    ["a payer", { billingAccountId: "ba-1" }],
     ["a rate", { pricingTierId: "pt-1" }],
     ["a promo code", { promoCode: "SAVE10" }],
     ["a payment status that charges", { paymentStatus: "UNPAID" }],

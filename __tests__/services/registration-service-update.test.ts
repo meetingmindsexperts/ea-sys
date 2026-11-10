@@ -246,6 +246,28 @@ describe("guards + sentinels come back as result values", () => {
     expect(r.ok).toBe(true);
   });
 
+  // Review M2 of 152ff140: added as Faculty, then moved onto a delegate type,
+  // it becomes an ordinary admin-added row and claims its seat (it would
+  // otherwise stay seatless outside every cap and recount, for good).
+  it("moving an added-as-Faculty row off Faculty makes it ADMIN_DASHBOARD and claims a type seat", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt-fac", paymentStatus: "COMPLIMENTARY", createdSource: "FACULTY_ADMIN" }));
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt1", isFaculty: false, name: "Physician" });
+    const r = await updateRegistration({ ...base, ticketTypeId: "tt1" });
+    expect(r.ok).toBe(true);
+    const data = mockDb._tx.registration.updateMany.mock.calls.at(-1)![0].data;
+    expect(data.createdSource).toBe("ADMIN_DASHBOARD");
+    // A seat is claimed on the new type (the guarded increment).
+    expect(mockDb._tx.ticketType.updateMany.mock.calls.length + mockDb._tx.$executeRaw.mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it("a speaker's companion moved off Faculty keeps its source (unchanged behaviour)", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt-fac", paymentStatus: "COMPLIMENTARY", createdSource: "SPEAKER_COMPANION" }));
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt1", isFaculty: false, name: "Physician" });
+    const r = await updateRegistration({ ...base, ticketTypeId: "tt1" });
+    expect(r.ok).toBe(true);
+    expect(mockDb._tx.registration.updateMany.mock.calls.at(-1)![0].data).not.toHaveProperty("createdSource");
+  });
+
   // Owner, Oct 26, 2026: the Exhibitor registration type always sets the
   // Exhibitor badge type, even over the badge type the edit form sent.
   it("moving onto the Exhibitor type sets the Exhibitor badge type, over the one sent", async () => {

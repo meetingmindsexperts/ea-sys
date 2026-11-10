@@ -9,7 +9,7 @@ import { resolveSupportingDocument } from "@/lib/supporting-document";
 describe("completedAtOnCreate", () => {
   const now = new Date("2026-10-28T10:00:00Z");
   it("is now for the self-service paths and the speaker companion", () => {
-    for (const source of ["PUBLIC_REGISTER", "PUBLIC_SUBMITTER", "PUBLIC_COMPLETION_FORM", "GROUP_REGISTER", "SPEAKER_COMPANION"] as const) {
+    for (const source of ["PUBLIC_REGISTER", "PUBLIC_SUBMITTER", "PUBLIC_COMPLETION_FORM", "GROUP_REGISTER", "SPEAKER_COMPANION", "FACULTY_ADMIN"] as const) {
       expect(completedAtOnCreate(source, now), source).toEqual(now);
     }
   });

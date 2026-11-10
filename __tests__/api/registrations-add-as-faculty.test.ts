@@ -79,6 +79,14 @@ describe("POST registrations, added as Faculty", () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  it("403 for a desk role: adding Faculty is an organiser's call (the speakers.create key)", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "m1", role: "MEMBER", organizationId: "org1", firstName: "Mo" } });
+    const res = await post({ asFaculty: true });
+    expect(res.status).toBe(403);
+    expect(mockEnsureFaculty).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
   it("an ordinary add is untouched: no Faculty type resolved, nothing forced", async () => {
     await post({ ticketTypeId: "tt-standard", paymentStatus: "UNPAID" });
     expect(mockEnsureFaculty).not.toHaveBeenCalled();

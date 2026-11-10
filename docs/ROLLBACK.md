@@ -184,6 +184,18 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   `SELECT id, "abstractId", "recommendedFormat" FROM "AbstractReviewSubmission" WHERE "recommendedFormat" IN ('VIDEO','WORKSHOP');`.
   Never delete the enum values.
 
+- **Added as Faculty (`FACULTY_ADMIN`, Nov 10, 2026; migration
+  `20261110100000_registration_source_faculty_admin`).** Once someone is added as Faculty from
+  Add Registration, an image older than this release cannot read that registration: its Prisma
+  client throws on the unknown enum value, so that event's registrations list, check-in and
+  exports fail, including on an old container still draining during a blue/green deploy.
+  Before rolling back past it, note those rows and set them to `SPEAKER_COMPANION` (the other
+  seatless source, so no seat count moves), set them back after rolling forward. Setting them
+  to `ADMIN_DASHBOARD` instead would make them seat-holders that never claimed a seat; if that
+  is done, run `scripts/reconcile-soldcounts.ts` afterwards. Read-only check:
+  `SELECT id, "eventId" FROM "Registration" WHERE "createdSource" = 'FACULTY_ADMIN';`.
+  Never delete the enum value.
+
 - **Bind mounts are untouched**: `public/uploads/`, `logs/`, and `.env` live on the host
   and survive any image swap. (The DB is untouched too — a code rollback never touches data.)
 

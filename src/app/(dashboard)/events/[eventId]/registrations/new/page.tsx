@@ -25,6 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import type { TicketType } from "../types";
 import { COMMITTEE_ROLES, COMMITTEE_ROLE_LABELS, type CommitteeRole } from "@/lib/faculty-registration";
+import { SPEAKERS_TYPE_LABEL } from "@/lib/faculty-filter";
 
 /** The Type picker's value for "Faculty": the route resolves the event's Faculty type itself. */
 const FACULTY_CHOICE = "__faculty__";
@@ -80,6 +81,8 @@ export default function NewRegistrationPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [committeeRole, setCommitteeRole] = useState<CommitteeRole>("NONE");
+  // Faculty is offered to whoever may add a speaker (the route checks the same key).
+  const canAddFaculty = useCan("speakers.create", eventId) === "allowed";
   const [formData, setFormData] = useState<{
     ticketTypeId: string;
     pricingTierId: string;
@@ -174,10 +177,10 @@ export default function NewRegistrationPage() {
           // "Charge to another account" — orthogonal to paymentStatus.
           billingAccountId: asFaculty ? undefined : formData.billingAccountId || undefined,
           payerReference:
-            formData.billingAccountId && formData.payerReference
+            !asFaculty && formData.billingAccountId && formData.payerReference
               ? formData.payerReference
               : undefined,
-          attendeeIsGuarantor: formData.billingAccountId
+          attendeeIsGuarantor: !asFaculty && formData.billingAccountId
             ? formData.attendeeIsGuarantor
             : undefined,
           attendee: {
@@ -336,7 +339,7 @@ export default function NewRegistrationPage() {
                         type, and the registration is free, seatless and not a
                         delegate. Inactive types are left out: the create path
                         refuses them, so offering one only failed on save. */}
-                    <SelectItem value={FACULTY_CHOICE}>Faculty</SelectItem>
+                    {canAddFaculty && <SelectItem value={FACULTY_CHOICE}>{SPEAKERS_TYPE_LABEL}</SelectItem>}
                     {(ticketTypes as TicketType[]).filter((t) => !t.isFaculty && t.isActive !== false).map((regType) => {
                       // Hide the "- $X" suffix when the type has ANY pricing
                       // tiers (active or inactive) — the Pricing Tier dropdown

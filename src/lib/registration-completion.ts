@@ -14,6 +14,9 @@ const COMPLETE_ON_CREATE: ReadonlySet<RegistrationCreatedSource> = new Set<Regis
   "GROUP_REGISTER",
   // The speaker's details come from their speaker record; the desk never asks them to complete.
   "SPEAKER_COMPANION",
+  // Added as Faculty by staff, who typed the details (review M1): never "Form
+  // not completed", so no completion link can move them off Faculty seatless.
+  "FACULTY_ADMIN",
 ]);
 
 /** The `completedAt` a new registration starts with. */

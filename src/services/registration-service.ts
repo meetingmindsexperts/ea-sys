@@ -505,6 +505,7 @@ function facultyTermsRefusal(input: CreateRegistrationInput, typeIsFaculty: bool
   if (input.pricingTierId) return "A Faculty registration has no rate.";
   if (input.promoCode) return "A Faculty registration takes no promo code.";
   if (input.paymentStatus && input.paymentStatus !== "COMPLIMENTARY") return "A Faculty registration is complimentary.";
+  if (input.sponsorId || input.billingAccountId) return "A Faculty registration has no sponsor or payer.";
   return null;
 }
 
@@ -697,7 +698,10 @@ export async function createRegistration(
   // is the race-safety net — this pre-check short-circuits for the
   // common case where the caller is already past the window and saves
   // the attendee.create round-trip.
-  if (ticketType) {
+  // Faculty skips the type's own window, cap and approval (review L1): an
+  // adopted hand-made "Faculty" type may still carry them, and a speaker's
+  // companion never meets them either.
+  if (ticketType && !input.asFaculty) {
     const now = new Date();
     const windowClosed =
       (ticketType.salesStart && new Date(ticketType.salesStart) > now) ||
@@ -858,7 +862,7 @@ export async function createRegistration(
   // registration starts PENDING regardless of caller input.
   const rawStatus: ManualRegistrationStatus =
     input.status ?? RegistrationStatus.CONFIRMED;
-  const finalStatus: RegistrationStatus = ticketType?.requiresApproval
+  const finalStatus: RegistrationStatus = ticketType?.requiresApproval && !input.asFaculty
     ? RegistrationStatus.PENDING
     : rawStatus;
 
@@ -1172,6 +1176,8 @@ export async function createRegistration(
           // the Activity timeline can say "Presenter sign-up" for a row with
           // no staff actor instead of "System" (Sep 28, 2026).
           ...(input.createdSource ? { createdSource: input.createdSource } : {}),
+          // Added as Faculty: the Activity entry says so, with the badge (review L5).
+          ...(input.asFaculty ? { createdSource: "FACULTY_ADMIN", badgeType: input.badgeType ?? null } : {}),
         },
       },
     })
@@ -1591,6 +1597,13 @@ export async function updateRegistration(
       };
     }
     const { isChangingType, effectiveTypeId, nextTierId, originalPrice: retierOriginalPrice } = repricing;
+    // Added as Faculty, now moved onto a delegate type (Faculty is never a
+    // destination): from here it is an ordinary admin-added registration and
+    // claims its seat like one (review M2). Without this it would stay
+    // seatless on a delegate type for good, outside every cap and recount.
+    // A speaker's companion keeps its documented behaviour.
+    const leavesFaculty = isChangingType && existing.createdSource === "FACULTY_ADMIN";
+    const nextCreatedSource = leavesFaculty ? "ADMIN_DASHBOARD" : existing.createdSource;
 
     const expectedUpdatedAt = input.expectedUpdatedAt ?? null;
     if (!expectedUpdatedAt) {
@@ -1636,7 +1649,7 @@ export async function updateRegistration(
           attendanceMode: effectiveMode,
           ticketTypeId: effectiveTypeId,
           pricingTierId: seatTierId,
-          createdSource: existing.createdSource,
+          createdSource: nextCreatedSource,
         },
         promoCodeId: existing.promoCodeId,
         eventId,
@@ -1699,6 +1712,7 @@ export async function updateRegistration(
         ...(input.badgeType !== undefined && { badgeType: input.badgeType }),
         ...(input.dtcmBarcode !== undefined && { dtcmBarcode: input.dtcmBarcode || null }),
         ...(ticketTypeId && { ticketTypeId }),
+        ...(leavesFaculty && { createdSource: "ADMIN_DASHBOARD" as const }),
         // After the badge type the form sent, so moving onto Exhibitor wins.
         ...exhibitorBadgeData(newTicketTypeName),
         // Persist the resolved tier (undefined = leave unchanged) + re-stamped

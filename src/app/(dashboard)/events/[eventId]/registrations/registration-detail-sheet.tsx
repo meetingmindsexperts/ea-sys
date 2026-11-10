@@ -1749,6 +1749,17 @@ export function RegistrationDetailSheet({
                         </span>
                       </p>
                     )}
+                    {/* Added as Faculty (review M2): leaving Faculty makes it an ordinary
+                        delegate registration that takes a seat, and Faculty cannot be picked again here. */}
+                    {isEditing && selectedRegistration.createdSource === "FACULTY_ADMIN" && !stagedTypeIsFaculty && (
+                      <p className="flex items-start gap-1 text-xs text-amber-800">
+                        <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          Added as Faculty. On a delegate type they become a delegate and take a seat;
+                          they cannot be moved back to Faculty from here.
+                        </span>
+                      </p>
+                    )}
                   </div>
                   {/* Webinars print no badges, so no badge type. */}
                   {!isWebinarEvent && (
