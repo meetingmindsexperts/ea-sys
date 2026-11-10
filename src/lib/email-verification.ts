@@ -1,4 +1,4 @@
-import { loadPublicBrandForHost } from "@/lib/public-brand-server";
+import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 import crypto from "crypto";
 import { db } from "./db";
 import { apiLogger } from "./logger";
@@ -42,6 +42,8 @@ export async function sendEmailVerification(params: {
   email: string;
   name: string;
   purpose?: EmailConfirmationPurpose;
+  /** The organisation whose attendee-facing brand signs the email; omitted, the default wording. */
+  organizationId?: string | null;
 }): Promise<"sent" | "rate-limited" | "failed"> {
   const { name, purpose = "team" } = params;
   // Lower-cased as verify-email reads it, or a mixed-case address gets a link
@@ -72,8 +74,12 @@ export async function sendEmailVerification(params: {
     });
 
     const verifyLink = `${appUrl}/verify-email?token=${rawToken}&email=${encodeURIComponent(email)}`;
-    // A team address joining knows the organisation; everyone else its attendee-facing brand.
-    const productName = purpose === "team" ? undefined : (await loadPublicBrandForHost(null)).name;
+    // A team address joining knows the organisation; everyone else its
+    // attendee-facing brand, from the organisation the caller names (never
+    // guessed from a missing host: on the platform that resolves to nobody).
+    const productName = purpose !== "team" && params.organizationId
+      ? (await loadPublicBrandForOrg(params.organizationId)).name
+      : undefined;
     const tpl = emailTemplates.emailVerification({
       recipientName: name,
       verifyLink,

@@ -235,7 +235,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // still gets their account below, so they can sign in and confirm.
     if (existingUser && (await speakerClaimPending(event.id, emailLower, !!existingUser.emailConfirmedAt))) {
       apiLogger.info({ msg: "public/submitter:speaker-claim-needs-confirmation", eventId: event.id, existingAccount: true });
-      const sent = await sendEmailVerification({ email: emailLower, name: `${data.firstName} ${data.lastName}`, purpose: "speaker" });
+      const sent = await sendEmailVerification({ organizationId: event.organizationId, email: emailLower, name: `${data.firstName} ${data.lastName}`, purpose: "speaker" });
       return NextResponse.json(
         {
           error: `The organisers already have a speaker profile for ${emailLower}. ${claimLinkNote(sent)}`,
@@ -335,7 +335,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // contact sync, companion registration or welcome email for details
       // nobody has proven are theirs.
       apiLogger.info({ msg: "public/submitter:speaker-claim-needs-confirmation", eventId: event.id });
-      const sent = await sendEmailVerification({ email: emailLower, name: `${data.firstName} ${data.lastName}`, purpose: "speaker" });
+      const sent = await sendEmailVerification({ organizationId: event.organizationId, email: emailLower, name: `${data.firstName} ${data.lastName}`, purpose: "speaker" });
       return NextResponse.json({
         success: true,
         needsConfirmation: true,

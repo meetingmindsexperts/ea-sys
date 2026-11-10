@@ -117,7 +117,7 @@ describe("ensureRegistrantAccount", () => {
     await ensureRegistrantAccount(base);
     expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg1" }, data: { userId: "u-exist" } });
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
-    expect(sendVerifySpy).toHaveBeenCalledWith({ email: "jane@example.com", name: "Jane Doe", purpose: "registrations" });
+    expect(sendVerifySpy).toHaveBeenCalledWith({ email: "jane@example.com", name: "Jane Doe", purpose: "registrations", organizationId: "org1" });
   });
 
   it("new user with earlier registrations on the address: takes none of them, is sent a confirmation link", async () => {
@@ -125,7 +125,7 @@ describe("ensureRegistrantAccount", () => {
     await ensureRegistrantAccount(base);
     expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg1" }, data: { userId: "u-new" } });
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
-    expect(sendVerifySpy).toHaveBeenCalledWith({ email: "jane@example.com", name: "Jane Doe", purpose: "registrations" });
+    expect(sendVerifySpy).toHaveBeenCalledWith({ email: "jane@example.com", name: "Jane Doe", purpose: "registrations", organizationId: "org1" });
   });
 
   it("new user: creates REGISTRANT, org-null for external, links only this registration, notifies", async () => {

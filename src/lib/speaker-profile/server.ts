@@ -14,6 +14,7 @@ import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { resolvePublicEventOrg } from "@/lib/tenant/event-tenant";
 import { profileSlotForLabel } from "./constants";
+import { readPublicBrand } from "@/lib/public-brand";
 
 /**
  * 24 random bytes → 32-char base64url token. Plaintext-in-DB (like
@@ -82,7 +83,7 @@ export async function loadProfileFormForSlug(req: Request, slug: string, token: 
           timezone: true,
           venue: true,
           city: true,
-          organization: { select: { name: true } },
+          organization: { select: { name: true, logo: true, settings: true } },
         },
       },
     },
@@ -94,8 +95,11 @@ export async function loadProfileFormForSlug(req: Request, slug: string, token: 
   }
   // Only the slot-filling documents (alias-matched) — other speaker docs
   // (bio doc, CV) are not this form's business and must not leak to it.
+  // HCP-facing: the attendee-facing brand, never the organisation's own name,
+  // and never its settings JSON (credentials live there). public-brand.ts.
   return {
     ...row,
+    event: { ...row.event, organization: readPublicBrand(row.event.organization.settings, row.event.organization) },
     speaker: {
       ...row.speaker,
       documents: row.speaker.documents.filter((d) => profileSlotForLabel(d.label) !== null),

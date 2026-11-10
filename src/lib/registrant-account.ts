@@ -108,7 +108,7 @@ export async function ensureRegistrantAccount(args: {
         where: { id: registrationId },
         data: { userId: existingUser.id },
       });
-      await claimOrConfirm({ userId: existingUser.id, email, confirmed: !!existingUser.emailConfirmedAt }, `${firstName} ${lastName}`);
+      await claimOrConfirm({ userId: existingUser.id, email, confirmed: !!existingUser.emailConfirmedAt }, `${firstName} ${lastName}`, organizationId);
       // Record terms acceptance (first time only — never overwrite).
       if (!existingUser.termsAcceptedAt) {
         await db.user.update({
@@ -148,7 +148,7 @@ export async function ensureRegistrantAccount(args: {
       if (needsEmailVerification(email)) {
         void sendEmailVerification({ email, name: `${firstName} ${lastName}` });
       } else {
-        await claimOrConfirm({ userId: newUser.id, email, confirmed: false }, `${firstName} ${lastName}`);
+        await claimOrConfirm({ userId: newUser.id, email, confirmed: false }, `${firstName} ${lastName}`, organizationId);
       }
       // Notify admins of the new signup (non-blocking).
       notifyEventAdmins(eventId, {
@@ -173,12 +173,12 @@ export async function ensureRegistrantAccount(args: {
  * an unconfirmed one is sent a confirmation link, but only when there is
  * something to claim, so most registrants never get an extra email.
  */
-async function claimOrConfirm(scope: { userId: string; email: string; confirmed: boolean }, name: string): Promise<void> {
+async function claimOrConfirm(scope: { userId: string; email: string; confirmed: boolean }, name: string, organizationId: string): Promise<void> {
   if (scope.confirmed) {
     await linkConfirmedRegistrations(scope);
     return;
   }
   if (!(await hasUnclaimedRegistrations(scope))) return;
   apiLogger.info({ msg: "registrant-account:confirmation-requested", userId: scope.userId });
-  void sendEmailVerification({ email: scope.email, name, purpose: "registrations" });
+  void sendEmailVerification({ email: scope.email, name, purpose: "registrations", organizationId });
 }

@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { round2 } from "@/lib/registration-financials";
 import { readGroupRegistrationSettings } from "@/lib/group-registration-settings";
+import { readPublicBrand } from "@/lib/public-brand";
 
 /**
  * GET /api/registrant/my-group — the coordinator's own group registrations.
@@ -66,7 +67,7 @@ export async function GET(req: Request) {
             settings: true,
             // Org branding so the portal wears the organiser's colour rather
             // than a hardcoded accent. Nullable — the page falls back.
-            organization: { select: { name: true, primaryColor: true } },
+            organization: { select: { name: true, logo: true, primaryColor: true, settings: true } },
           },
         },
         registrations: {
@@ -149,7 +150,7 @@ export async function GET(req: Request) {
           bannerImageMobile: g.event.bannerImageMobile,
           taxRate: g.event.taxRate ? Number(g.event.taxRate) : null,
           taxLabel: g.event.taxLabel,
-          organizationName: g.event.organization?.name ?? null,
+          organizationName: g.event.organization ? readPublicBrand(g.event.organization.settings, g.event.organization).name : null,
           primaryColor: g.event.organization?.primaryColor ?? null,
         },
         groupSettings: {

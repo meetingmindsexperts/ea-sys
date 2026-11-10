@@ -14,6 +14,7 @@
  * production, and silent in both. Same reasoning and same shape as
  * `resolveReimbursementEventOrg`.
  */
+import { readPublicBrand } from "@/lib/public-brand";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
@@ -70,7 +71,7 @@ export async function loadTravelGrantForSlug(req: Request, slug: string, token: 
           city: true,
           settings: true,
           travelGrantTermsHtml: true,
-          organization: { select: { name: true } },
+          organization: { select: { name: true, logo: true, settings: true } },
         },
       },
     },
@@ -80,5 +81,7 @@ export async function loadTravelGrantForSlug(req: Request, slug: string, token: 
     apiLogger.warn({ slug, eventId: row.eventId }, "travel-grant-public:tenant-mismatch");
     return null;
   }
-  return row;
+  // HCP-facing: the attendee-facing brand, never the organisation's own name,
+  // and never its settings JSON (credentials live there). public-brand.ts.
+  return { ...row, event: { ...row.event, organization: readPublicBrand(row.event.organization.settings, row.event.organization) } };
 }

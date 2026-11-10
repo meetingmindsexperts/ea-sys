@@ -36,6 +36,7 @@ import {
 } from "@/lib/type-evidence";
 import { parseEvidenceRequestIdentifier } from "@/lib/evidence-request";
 import { syncToContact } from "@/lib/contact-sync";
+import { readPublicBrand } from "@/lib/public-brand";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -64,7 +65,7 @@ const REGISTRATION_SELECT = {
       startDate: true,
       bannerImage: true,
       bannerImageMobile: true,
-      organization: { select: { name: true } },
+      organization: { select: { name: true, logo: true, settings: true } },
     },
   },
 } satisfies Prisma.RegistrationSelect;
@@ -162,7 +163,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           startDate: registration.event.startDate,
           bannerImage: registration.event.bannerImage,
           bannerImageMobile: registration.event.bannerImageMobile,
-          organizationName: registration.event.organization.name,
+          organizationName: readPublicBrand(registration.event.organization.settings, registration.event.organization).name,
         },
         firstName: registration.attendee.firstName,
         lastName: registration.attendee.lastName,

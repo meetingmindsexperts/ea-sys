@@ -87,7 +87,7 @@ describe("POST /api/auth/signup", () => {
     const created = mockDb.user.create.mock.calls[0][0].data;
     expect(created).not.toHaveProperty("emailConfirmedAt");
     expect(created).not.toHaveProperty("emailVerified");
-    expect(mockSendVerification).toHaveBeenCalledWith({ email: "sara.haddad@example.com", name: "Sara Haddad", purpose: "account" });
+    expect(mockSendVerification).toHaveBeenCalledWith(expect.objectContaining({ email: "sara.haddad@example.com", name: "Sara Haddad", purpose: "account" }));
   });
 
   it("an address with an account: the same answer, the account untouched, a note sent instead of a link", async () => {
@@ -159,7 +159,7 @@ describe("POST /api/auth/resend-confirmation", () => {
     mockNeedsConfirmation.mockResolvedValue(true);
     const res = await post(resend, { email: "Sara.Haddad@example.com" });
     expect(res.status).toBe(200);
-    expect(mockSendVerification).toHaveBeenCalledWith({ email: "sara.haddad@example.com", name: "Sara Haddad", purpose: "account" });
+    expect(mockSendVerification).toHaveBeenCalledWith(expect.objectContaining({ email: "sara.haddad@example.com", name: "Sara Haddad", purpose: "account" }));
   });
 
   it("an unknown address and an ordinary account get the same answer and no email", async () => {

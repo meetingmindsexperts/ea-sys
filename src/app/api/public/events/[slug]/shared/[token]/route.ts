@@ -32,6 +32,7 @@ import {
 import type { AbstractStatus, Prisma, RegistrationStatus, SessionProposalStatus } from "@prisma/client";
 import { isPlausibleShareToken } from "@/lib/share-token";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
+import { readPublicBrand } from "@/lib/public-brand";
 import {
   REGISTRATION_ROW_CAP,
   attendeeSelect,
@@ -55,7 +56,7 @@ const EVENT_SELECT = {
   timezone: true,
   bannerImage: true,
   bannerImageMobile: true,
-  organization: { select: { name: true } },
+  organization: { select: { name: true, logo: true, settings: true } },
 } as const;
 
 type SharedEvent = Prisma.EventGetPayload<{ select: typeof EVENT_SELECT }>;
@@ -68,7 +69,7 @@ function branding(event: SharedEvent) {
     timezone: event.timezone,
     bannerImage: event.bannerImage,
     bannerImageMobile: event.bannerImageMobile,
-    organizationName: event.organization.name,
+    organizationName: readPublicBrand(event.organization.settings, event.organization).name,
   };
 }
 

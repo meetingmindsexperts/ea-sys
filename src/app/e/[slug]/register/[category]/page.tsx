@@ -536,6 +536,18 @@ function CategoryRegistrationContent() {
   }, [signedInEmail, regTypeOptions.length, form]);
 
   const prefillRequested = useRef(false);
+  // A staff member switching to "Register myself" starts from their own
+  // details: whatever was on the form (a draft restored on this browser, or
+  // someone they were registering) is somebody else's, as "Not you?" assumes.
+  const wasStaffSelf = useRef(false);
+  useEffect(() => {
+    const nowSelf = staffSession && staffSelf;
+    if (nowSelf && !wasStaffSelf.current) {
+      for (const key of PROFILE_FIELDS) form.setValue(key, "");
+      prefillRequested.current = false;
+    }
+    wasStaffSelf.current = nowSelf;
+  }, [staffSession, staffSelf, form]);
   const signedInRef = useRef(signedInEmail);
   signedInRef.current = signedInEmail;
   useEffect(() => {
@@ -571,7 +583,12 @@ function CategoryRegistrationContent() {
   // restored on this browser is someone's details too.
   function registerSomeoneElse() {
     setNotYou(true);
-    setStaffSelf(false);
+    if (staffSelf) {
+      setStaffSelf(false);
+      const query = new URLSearchParams(searchParams.toString());
+      query.delete("self");
+      router.replace(query.size ? `?${query.toString()}` : "?", { scroll: false });
+    }
     form.setValue("email", "");
     for (const key of PROFILE_FIELDS) form.setValue(key, "");
     setEmailCheck({ state: "idle" });
@@ -1085,6 +1102,10 @@ function CategoryRegistrationContent() {
                             onClick={() => {
                               setNotYou(false);
                               setStaffSelf(true);
+                              // In the address too, so a reload keeps the choice.
+                              const query = new URLSearchParams(searchParams.toString());
+                              query.set("self", "1");
+                              router.replace(`?${query.toString()}`, { scroll: false });
                             }}
                           >
                             Register myself

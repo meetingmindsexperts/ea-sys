@@ -15,6 +15,7 @@ import { sendEmail, emailTemplates } from "@/lib/email";
 import { getClientIp, hashVerificationToken } from "@/lib/security";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyReviewerPoolAdded } from "@/lib/abstract-reviewer-notify";
+import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 
 const addReviewerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("speaker"), speakerId: z.string().min(1).max(100) }),
@@ -425,12 +426,8 @@ async function findOrCreateReviewerUser(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
   const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(normalizedEmail)}&eventSlug=${encodeURIComponent(eventSlug)}`;
 
-  const organization = session.user.organizationId
-    ? await db.organization.findUnique({
-        where: { id: session.user.organizationId },
-        select: { name: true },
-      })
-    : null;
+  // A reviewer is an HCP: the invitation names the attendee-facing brand (public-brand.ts).
+  const brand = session.user.organizationId ? await loadPublicBrandForOrg(session.user.organizationId) : null;
 
   const inviterName = session.user.firstName && session.user.lastName
     ? `${session.user.firstName} ${session.user.lastName}`
@@ -439,7 +436,8 @@ async function findOrCreateReviewerUser(
   const emailTemplate = emailTemplates.userInvitation({
     recipientName: `${firstName} ${lastName}`,
     recipientEmail: email,
-    organizationName: organization?.name || "your organization",
+    organizationName: brand?.name || "your organization",
+    productName: brand?.name,
     inviterName,
     role: "Reviewer",
     setupLink,

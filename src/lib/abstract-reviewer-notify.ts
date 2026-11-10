@@ -4,19 +4,47 @@ import { db } from "@/lib/db";
 import { getTitleLabel } from "@/lib/utils";
 
 /**
- * The reviewer's title (e.g. "Dr.") for `{{title}}`. A reviewer account stores
- * none; their speaker record on this event usually does. Empty when there is
- * none, so a template that says "Dear {{title}} {{lastName}}" still sends
- * (Nov 10, 2026: MEHF's edited templates did, and the send was refused on the
- * unresolved token, so the reviewer was never told).
+ * Reviewers' titles (the Title enum, e.g. "DR") for `{{title}}`. A reviewer
+ * account stores none; their speaker record on this event usually does. The
+ * account-linked record wins over one matched by address.
+ *
+ * Never throws: a failed lookup gives no titles, and the email still goes out
+ * ("Dear  Ortiz" beats no email). Nov 10, 2026: MEHF's templates were edited
+ * to "Dear {{title}} {{lastName}}" and, with no title supplied, every reviewer
+ * email was refused on the unresolved token, so the reviewer was never told.
+ * Used by the automatic emails here and by the reviewers bulk email.
  */
+export async function reviewerTitles(
+  eventId: string,
+  reviewers: { id: string; email: string }[],
+): Promise<Map<string, string | null>> {
+  const titles = new Map<string, string | null>();
+  if (reviewers.length === 0) return titles;
+  try {
+    const speakers = await db.speaker.findMany({
+      where: {
+        eventId,
+        OR: [
+          { userId: { in: reviewers.map((r) => r.id) } },
+          ...reviewers.map((r) => ({ email: { equals: r.email, mode: "insensitive" as const } })),
+        ],
+      },
+      select: { userId: true, email: true, title: true },
+      orderBy: { createdAt: "asc" },
+    });
+    for (const r of reviewers) {
+      const linked = speakers.find((s) => s.userId === r.id);
+      const byAddress = speakers.find((s) => s.email.toLowerCase() === r.email.toLowerCase());
+      titles.set(r.id, (linked ?? byAddress)?.title ?? null);
+    }
+  } catch (err) {
+    apiLogger.warn({ err, msg: "reviewer-title:lookup-failed", eventId });
+  }
+  return titles;
+}
+
 async function reviewerTitle(eventId: string, reviewer: { id: string; email: string }): Promise<string> {
-  const speaker = await db.speaker.findFirst({
-    where: { eventId, OR: [{ userId: reviewer.id }, { email: { equals: reviewer.email, mode: "insensitive" } }] },
-    select: { title: true },
-    orderBy: { createdAt: "asc" },
-  });
-  return getTitleLabel(speaker?.title);
+  return getTitleLabel((await reviewerTitles(eventId, [reviewer])).get(reviewer.id));
 }
 
 /**

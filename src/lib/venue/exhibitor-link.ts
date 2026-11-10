@@ -36,7 +36,7 @@ export const FLOOR_PLAN_EVENT_SELECT = {
   bannerImage: true,
   bannerImageMobile: true,
   settings: true,
-  organization: { select: { name: true } },
+  organization: { select: { name: true, logo: true, settings: true } },
 } as const;
 
 export type FloorPlanEvent = Prisma.EventGetPayload<{ select: typeof FLOOR_PLAN_EVENT_SELECT }> & { organizationId: string };

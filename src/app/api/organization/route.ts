@@ -1,3 +1,4 @@
+import { forgetBrand } from "@/lib/public-brand-server";
 import { PUBLIC_BRAND_SETTINGS_KEY, publicBrandSettingsSchema } from "@/lib/public-brand";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -188,6 +189,8 @@ export async function PUT(req: Request) {
         ...(invoicePrefix !== undefined && { invoicePrefix }),
       },
     });
+
+    forgetBrand(orgId);
 
     // Log the action
     await db.auditLog.create({

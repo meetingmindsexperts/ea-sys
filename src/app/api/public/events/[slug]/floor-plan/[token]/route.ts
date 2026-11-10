@@ -13,6 +13,7 @@ import { apiLogger } from "@/lib/logger";
 import { exhibitorMap } from "@/lib/venue/exhibitor-view";
 import { FLOOR_PLAN_HEADERS, withFloorPlanLink } from "@/lib/venue/exhibitor-link";
 import { loadVenueProgramme } from "@/services/venue-programme-service";
+import { readPublicBrand } from "@/lib/public-brand";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
 const ROUTE = "public-floor-plan";
@@ -28,7 +29,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       const base = `/api/public/events/${encodeURIComponent(slug)}/floor-plan/${encodeURIComponent(token)}`;
       return NextResponse.json(
         {
-          event: { name: event.name, startDate: event.startDate, endDate: event.endDate, timezone: event.timezone, bannerImage: event.bannerImage, bannerImageMobile: event.bannerImageMobile, organizationName: event.organization.name, venue: event.venue, city: event.city },
+          event: { name: event.name, startDate: event.startDate, endDate: event.endDate, timezone: event.timezone, bannerImage: event.bannerImage, bannerImageMobile: event.bannerImageMobile, organizationName: readPublicBrand(event.organization.settings, event.organization).name, venue: event.venue, city: event.city },
           updatedAt: new Date(updatedAt).toISOString(),
           layout: map.layout,
           sponsors: programme.sponsors.map((s) => ({ id: s.id, name: s.name, ...(s.tier && { tier: s.tier }) })),

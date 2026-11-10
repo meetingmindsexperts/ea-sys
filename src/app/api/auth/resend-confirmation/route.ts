@@ -1,3 +1,4 @@
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
     // Not awaited (portal review, Nov 9, 2026): waiting for SES only on this
     // path made the response slower exactly when the address has a pending
     // sign-up. The outcome is still logged.
-    void sendEmailVerification({ email, name: `${user.firstName} ${user.lastName}`.trim(), purpose: "account" })
+    void sendEmailVerification({ email, name: `${user.firstName} ${user.lastName}`.trim(), purpose: "account", organizationId: await resolveRequestOrgId(req) })
       .then((sent) => apiLogger.info({ msg: "auth/resend-confirmation:sent", userId: user.id, confirmation: sent }))
       .catch((err) => apiLogger.error({ err, msg: "auth/resend-confirmation:send-failed", userId: user.id }));
     return NextResponse.json(ACCEPTED);

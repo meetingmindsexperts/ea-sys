@@ -38,10 +38,26 @@ export const loadStaffBrandForHost = cache(async (host: string | null): Promise<
   try {
     const tenant = await resolveTenantOrg(normalizeHost(host));
     if (!tenant.orgId) return NO_ORGANISATION_BRAND;
-    const org = await db.organization.findUnique({ where: { id: tenant.orgId }, select: { name: true, logo: true } });
-    return org ?? NO_ORGANISATION_BRAND;
+    return await loadOrgOwnBrand(tenant.orgId);
   } catch (err) {
     apiLogger.warn({ err, msg: "staff-brand:load-failed", host });
     return NO_ORGANISATION_BRAND;
   }
 });
+
+const ownBrandCache = new Map<string, { brand: PublicBrand; at: number }>();
+
+async function loadOrgOwnBrand(orgId: string): Promise<PublicBrand> {
+  const hit = ownBrandCache.get(orgId);
+  if (hit && Date.now() - hit.at < BRAND_TTL_MS) return hit.brand;
+  const org = await db.organization.findUnique({ where: { id: orgId }, select: { name: true, logo: true } });
+  const brand = org ?? NO_ORGANISATION_BRAND;
+  ownBrandCache.set(orgId, { brand, at: Date.now() });
+  return brand;
+}
+
+/** After Settings saves: this container shows the new brand at once (others within a minute). */
+export function forgetBrand(orgId: string): void {
+  brandCache.delete(orgId);
+  ownBrandCache.delete(orgId);
+}

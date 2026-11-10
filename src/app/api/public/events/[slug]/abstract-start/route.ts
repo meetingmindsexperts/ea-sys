@@ -313,7 +313,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (await speakerClaimPending(event.id, emailLower, !!scope?.confirmed)) {
       apiLogger.info({ msg: "public/abstract-start:speaker-claim-needs-confirmation", eventId: event.id });
-      const sent = await sendEmailVerification({ email: emailLower, name: `${firstName} ${lastName}`, purpose: "speaker" });
+      const sent = await sendEmailVerification({ organizationId: event.organizationId, email: emailLower, name: `${firstName} ${lastName}`, purpose: "speaker" });
       return NextResponse.json(
         {
           error: `The organisers already have a speaker profile for ${emailLower}. ${claimLinkNote(sent)}`,
@@ -370,7 +370,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // This event's speaker record is the organisers' and unclaimed: the
       // account takes it over once it confirms the address (upsertEventSpeaker).
       apiLogger.info({ msg: "public/abstract-start:speaker-claim-needs-confirmation", eventId: event.id });
-      const sent = await sendEmailVerification({ email: emailLower, name: `${firstName} ${lastName}`, purpose: "speaker" });
+      const sent = await sendEmailVerification({ organizationId: event.organizationId, email: emailLower, name: `${firstName} ${lastName}`, purpose: "speaker" });
       return NextResponse.json(
         {
           error: `The organisers already have a speaker profile for ${emailLower}. ${claimLinkNote(sent)}`,

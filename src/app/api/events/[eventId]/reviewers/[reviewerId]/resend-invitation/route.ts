@@ -9,6 +9,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/security";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { notifyReviewerPoolAdded } from "@/lib/abstract-reviewer-notify";
+import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 
 /**
  * Resend a reviewer's invitation.
@@ -101,9 +102,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
     const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(normalizedEmail)}&eventSlug=${encodeURIComponent(event.slug)}`;
 
-    const organization = session.user.organizationId
-      ? await db.organization.findUnique({ where: { id: orgGuard.orgId }, select: { name: true } })
-      : null;
+    // A reviewer is an HCP: the invitation names the attendee-facing brand (public-brand.ts).
+    const brand = session.user.organizationId ? await loadPublicBrandForOrg(orgGuard.orgId) : null;
     const inviterName = session.user.firstName && session.user.lastName
       ? `${session.user.firstName} ${session.user.lastName}`
       : session.user.email || "A team member";
@@ -111,7 +111,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const emailTemplate = emailTemplates.userInvitation({
       recipientName: `${user.firstName} ${user.lastName}`,
       recipientEmail: user.email,
-      organizationName: organization?.name || "your organization",
+      organizationName: brand?.name || "your organization",
+      productName: brand?.name,
       inviterName,
       role: "Reviewer",
       setupLink,

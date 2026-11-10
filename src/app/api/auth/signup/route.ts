@@ -1,3 +1,4 @@
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { loadPublicBrandForHost } from "@/lib/public-brand-server";
 import { NextResponse } from "next/server";
 import { Prisma, type UserRole } from "@prisma/client";
@@ -148,7 +149,7 @@ export async function POST(req: Request) {
       throw err;
     }
 
-    const sent = await sendEmailVerification({ email, name: `${firstName} ${lastName}`, purpose: "account" });
+    const sent = await sendEmailVerification({ email, name: `${firstName} ${lastName}`, purpose: "account", organizationId: await resolveRequestOrgId(req) });
     apiLogger.info({ msg: "auth/signup:account-created", userId, confirmation: sent });
     return NextResponse.json(ACCEPTED);
   } catch (err) {
@@ -169,7 +170,7 @@ async function answerExistingAddress(
 ): Promise<void> {
   const name = `${user.firstName} ${user.lastName}`.trim();
   if (await signInNeedsConfirmation(user)) {
-    const sent = await sendEmailVerification({ email, name, purpose: "account" });
+    const sent = await sendEmailVerification({ email, name, purpose: "account", organizationId: await resolveRequestOrgId(req) });
     apiLogger.info({ msg: "auth/signup:unconfirmed-resent", userId: user.id, confirmation: sent });
     return;
   }

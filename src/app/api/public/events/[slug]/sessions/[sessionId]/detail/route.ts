@@ -11,6 +11,7 @@ import { getSponsorTiers, getSponsors } from "@/lib/sponsors";
 import { BUILT_IN_SPONSOR_TIER_KEYS, sponsorTierLabel } from "@/lib/sponsor-tiers";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { resolveWebinarExitLink } from "@/lib/webinar-exit-link";
+import { readPublicBrand } from "@/lib/public-brand";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -67,7 +68,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         organizationId: true,
         // settings only to resolve the webinar's exit button below; the
         // response names the organisation and nothing else of it.
-        organization: { select: { name: true, settings: true } },
+        organization: { select: { name: true, logo: true, settings: true } },
       },
     });
 
@@ -232,7 +233,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         bannerImage: event.bannerImage,
         bannerImageMobile: event.bannerImageMobile,
         timezone: event.timezone,
-        organization: { name: event.organization.name },
+        organization: { name: readPublicBrand(event.organization.settings, event.organization).name },
         // Webinar attendee page: logo + full-page background replace the banner.
         webinarBranding: event.eventType === "WEBINAR" ? readWebinarPageBranding(event.settings) : null,
         // The thank-you screen's exit button (Nov 5, 2026): the webinar's own

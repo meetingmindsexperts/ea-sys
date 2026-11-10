@@ -5,11 +5,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { sendEmailSpy, speakerFindFirst } = vi.hoisted(() => ({
+const { sendEmailSpy, speakerFindMany } = vi.hoisted(() => ({
   sendEmailSpy: vi.fn().mockResolvedValue(undefined),
-  speakerFindFirst: vi.fn().mockResolvedValue(null),
+  speakerFindMany: vi.fn().mockResolvedValue([]),
 }));
-vi.mock("@/lib/db", () => ({ db: { speaker: { findFirst: speakerFindFirst } } }));
+vi.mock("@/lib/db", () => ({ db: { speaker: { findMany: speakerFindMany } } }));
 
 vi.mock("@/lib/email", () => ({
   sendEmail: sendEmailSpy,
@@ -117,21 +117,39 @@ describe("notifyReviewerPoolAdded", () => {
 
 describe("{{title}} in the reviewer emails (Nov 10, 2026)", () => {
   it("fills it from the reviewer's speaker record on the event, for both emails", async () => {
-    speakerFindFirst.mockResolvedValue({ title: "DR" });
+    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: "DR" }]);
     const { renderAndWrap } = await import("@/lib/email");
     await notifyReviewerAssigned(baseArgs);
     await notifyReviewerPoolAdded({ eventId: "ev1", organizationId: "org1", reviewer: baseArgs.reviewer, eventName: "MedCon" });
     const calls = vi.mocked(renderAndWrap).mock.calls;
     expect(calls[0][1]).toMatchObject({ title: "Dr.", lastName: "Doe" });
     expect(calls[1][1]).toMatchObject({ title: "Dr.", lastName: "Doe" });
-    expect(speakerFindFirst.mock.calls[0][0].where).toEqual({
+    expect(speakerFindMany.mock.calls[0][0].where).toEqual({
       eventId: "ev1",
-      OR: [{ userId: "u1" }, { email: { equals: "jane@x.com", mode: "insensitive" } }],
+      OR: [{ userId: { in: ["u1"] } }, { email: { equals: "jane@x.com", mode: "insensitive" } }],
     });
   });
 
+  it("prefers the account-linked speaker record over an older one at the address", async () => {
+    speakerFindMany.mockResolvedValue([
+      { userId: null, email: "JANE@x.com", title: "MS" },
+      { userId: "u1", email: "old@x.com", title: "PROF" },
+    ]);
+    const { renderAndWrap } = await import("@/lib/email");
+    await notifyReviewerAssigned(baseArgs);
+    expect(vi.mocked(renderAndWrap).mock.calls[0][1]).toMatchObject({ title: "Prof." });
+  });
+
   it("is empty, never missing, when there is no speaker record, so the send is not refused", async () => {
-    speakerFindFirst.mockResolvedValue(null);
+    speakerFindMany.mockResolvedValue([]);
+    const { renderAndWrap } = await import("@/lib/email");
+    await notifyReviewerAssigned(baseArgs);
+    expect(vi.mocked(renderAndWrap).mock.calls[0][1]).toHaveProperty("title", "");
+    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed lookup never costs the reviewer their email", async () => {
+    speakerFindMany.mockRejectedValue(new Error("pool timeout"));
     const { renderAndWrap } = await import("@/lib/email");
     await notifyReviewerAssigned(baseArgs);
     expect(vi.mocked(renderAndWrap).mock.calls[0][1]).toHaveProperty("title", "");

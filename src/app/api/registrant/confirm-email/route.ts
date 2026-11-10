@@ -63,7 +63,8 @@ export async function POST(req: Request) {
       );
     }
 
-    return await runWithTenantLane(await resolveRequestOrgId(req), { route: "registrant/confirm-email:POST", userId }, async () => {
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/confirm-email:POST", userId }, async () => {
       const user = await account(userId);
       if (!user) {
         apiLogger.warn({ msg: "registrant/confirm-email:POST user-not-found", userId });
@@ -77,6 +78,7 @@ export async function POST(req: Request) {
         // A Meeting Minds address keeps the team wording; confirming it also
         // attaches the organisation, as it always has.
         purpose: needsEmailVerification(user.email) ? "team" : "registrations",
+        organizationId: orgId,
       });
       if (outcome === "rate-limited") {
         // The address's own limit (any trigger), not this button's.

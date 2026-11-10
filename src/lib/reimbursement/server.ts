@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { resolvePublicEventOrg } from "@/lib/tenant/event-tenant";
+import { readPublicBrand } from "@/lib/public-brand";
 
 /**
  * 24 random bytes → 32-char base64url token. Unguessable, URL-safe.
@@ -96,7 +97,7 @@ export async function loadReimbursementForSlug(req: Request, slug: string, token
           eventType: true,
           venue: true,
           city: true,
-          organization: { select: { name: true } },
+          organization: { select: { name: true, logo: true, settings: true } },
           // Event default for the offered reimbursement types.
           settings: true,
         },
@@ -112,5 +113,7 @@ export async function loadReimbursementForSlug(req: Request, slug: string, token
     apiLogger.warn({ slug, eventId: row.eventId }, "reimbursement-public:tenant-mismatch");
     return null;
   }
-  return row;
+  // HCP-facing: the attendee-facing brand, never the organisation's own name,
+  // and never its settings JSON (credentials live there). public-brand.ts.
+  return { ...row, event: { ...row.event, organization: readPublicBrand(row.event.organization.settings, row.event.organization) } };
 }

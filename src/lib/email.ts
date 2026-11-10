@@ -1292,6 +1292,12 @@ export function normalizeBodyImages(html: string): string {
   });
 }
 
+/** " on <product>" after the organisation's name, unless they are the same words. */
+function invitationProductPhrase(organizationName: string, productName: string | undefined): string {
+  if (!productName) return " on MM Group Events";
+  return productName === organizationName ? "" : ` on ${productName}`;
+}
+
 /** "Sent from <brand>" for a system email whose recipient knows a specific brand (public-brand.ts). */
 function productFooter(productName: string | undefined): EmailBranding {
   return productName ? { emailFooterHtml: `<p>Sent from ${escapeHtml(productName)}</p>` } : {};
@@ -1500,17 +1506,20 @@ export const systemTemplates = {
     recipientName: string;
     recipientEmail: string;
     organizationName: string;
+    /** The product the recipient joins; omitted, the staff tool ("MM Group Events"). */
+    productName?: string;
     inviterName: string;
     role: string;
     setupLink: string;
     expiresIn?: string;
   }) => {
+    const onProduct = invitationProductPhrase(params.organizationName, params.productName);
     const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">You're Invited!</h1>
-    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Join ${escapeHtml(params.organizationName)} on MM Group Events</p>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Join ${escapeHtml(params.organizationName)}${escapeHtml(onProduct)}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Hi <strong>${escapeHtml(params.recipientName)}</strong>,</p>
-    <p><strong>${escapeHtml(params.inviterName)}</strong> has invited you to join <strong>${escapeHtml(params.organizationName)}</strong> on MM Group Events as a <strong>${escapeHtml(params.role)}</strong>.</p>
+    <p><strong>${escapeHtml(params.inviterName)}</strong> has invited you to join <strong>${escapeHtml(params.organizationName)}</strong>${escapeHtml(onProduct)} as a <strong>${escapeHtml(params.role)}</strong>.</p>
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Invitation Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
@@ -1532,7 +1541,7 @@ export const systemTemplates = {
 
 Hi ${params.recipientName},
 
-${params.inviterName} has invited you to join ${params.organizationName} on MM Group Events as a ${params.role}.
+${params.inviterName} has invited you to join ${params.organizationName}${onProduct} as a ${params.role}.
 
 Accept Invitation & Set Password: ${params.setupLink}
 

@@ -37,7 +37,7 @@ describe("POST /api/registrant/confirm-email", () => {
   it("sends the link to the account's own address from the database, with the registrations wording", async () => {
     const res = await POST(new Request("http://x", { method: "POST" }));
     expect(res.status).toBe(200);
-    expect(mockSend).toHaveBeenCalledWith({ email: "anna@example.com", name: "Anna K", purpose: "registrations" });
+    expect(mockSend).toHaveBeenCalledWith({ email: "anna@example.com", name: "Anna K", purpose: "registrations", organizationId: null });
   });
 
   it("sends nothing to an account already confirmed", async () => {
