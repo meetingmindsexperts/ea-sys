@@ -200,4 +200,44 @@ describe("webinar thank-you: the replay", () => {
     await executeBulkEmail(INPUT);
     expect(sent().htmlContent).toMatch(/\/e\/web-1\/session\/s1/);
   });
+
+  it("says how to get in: sign in with the address you registered with", async () => {
+    await executeBulkEmail(INPUT);
+    const { htmlContent, textContent } = sent();
+    expect(htmlContent).toContain("Sign in with the email address you registered with");
+    expect(textContent ?? "").toContain("Sign in with the email address you registered with");
+  });
+
+  it("a template SAVED before this release, with {{recordingBlock}} in its text part: text there, never the button's HTML", async () => {
+    mockGetEventTemplate.mockResolvedValue({
+      subject: "Thank you",
+      htmlContent: "<p>Thanks</p>{{recordingBlock}}",
+      textContent: "Thanks\n\n{{recordingBlock}}",
+    });
+    await executeBulkEmail(INPUT);
+    const { htmlContent, textContent } = sent();
+    expect(htmlContent).toMatch(new RegExp(`href="${PAGE.source}"[^>]*>Watch Replay`));
+    expect(textContent ?? "").toMatch(new RegExp(`Watch replay: ${PAGE.source}`));
+    expect(textContent ?? "").not.toContain("<div");
+    expect(textContent ?? "").not.toContain("<a ");
+  });
+
+  it("an event that is not a WEBINAR is never sent to the replay page, which answers for webinars only", async () => {
+    // Two conferences on production carry webinar settings; the portal page would refuse everyone.
+    const conference = (webinar: Record<string, unknown>) => ({ ...EVENT(webinar), eventType: "CONFERENCE" });
+    mockDb.event.findFirst.mockResolvedValue(conference({ showRecording: true, replayUrl: VIMEO }));
+    await executeBulkEmail(INPUT);
+    const pending = sent().htmlContent;
+    expect(pending).not.toContain("/my-account/replay/");
+    expect(pending).not.toContain("Watch Replay");
+    expect(pending).toContain("The recording will be available shortly.");
+
+    mockSendEmail.mockClear();
+    mockDb.event.findFirst.mockResolvedValue(conference({ showRecording: true, replayUrl: VIMEO }));
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(ZOOM);
+    await executeBulkEmail(INPUT);
+    const zoom = sent().htmlContent;
+    expect(zoom).toContain('href="https://zoom.us/rec/play/abc"');
+    expect(zoom).not.toContain("/my-account/replay/");
+  });
 });

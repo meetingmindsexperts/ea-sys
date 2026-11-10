@@ -165,11 +165,20 @@ export function webinarRecordingBlock(shown: boolean, recordingUrl: string, form
   if (!shown) return "";
   const button = (href: string, label: string) =>
     `<div style="text-align:center; margin:20px 0;"><a href="${href}" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">${label}</a></div>`;
-  if (recordingUrl) return format === "text" ? `Watch replay: ${recordingUrl}` : button(recordingUrl, "Watch Replay");
+  // The replay page checks the registration, so the person must be signed in as the address
+  // they registered with: said here, because most past registrants have no account yet and the
+  // sign-in page alone would not tell them why (review of 40aded04).
+  const signIn = "Sign in with the email address you registered with. If you have no account yet, create one with that address.";
+  const note = `<p style="color:#6b7280; font-size:13px; text-align:center;">${signIn}</p>`;
+  if (recordingUrl) {
+    const viaReplayPage = replayPageUrl !== "" && recordingUrl === replayPageUrl;
+    if (format === "text") return viaReplayPage ? `Watch replay: ${recordingUrl}\n${signIn}` : `Watch replay: ${recordingUrl}`;
+    return viaReplayPage ? `${button(recordingUrl, "Watch Replay")}${note}` : button(recordingUrl, "Watch Replay");
+  }
   const pending = "The recording will be available shortly.";
   if (!replayPageUrl) return format === "text" ? pending : `<p style="color:#6b7280;">${pending}</p>`;
-  if (format === "text") return `${pending} Watch it here once it is ready: ${replayPageUrl}`;
-  return `<p style="color:#6b7280;">${pending} You can watch it here once it is ready.</p>${button(replayPageUrl, "Open the replay page")}`;
+  if (format === "text") return `${pending} Watch it here once it is ready: ${replayPageUrl}\n${signIn}`;
+  return `<p style="color:#6b7280;">${pending} You can watch it here once it is ready.</p>${button(replayPageUrl, "Open the replay page")}${note}`;
 }
 
 export interface WebinarPageBranding {

@@ -2,7 +2,7 @@
 
 import { useCan } from "@/hooks/use-can";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { DEFAULT_EVENT_TIMEZONE, formatDateTimeInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import type { LucideIcon } from "lucide-react";
 import { useParams } from "next/navigation";
@@ -140,7 +140,8 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
-import { isValidReplayUrl, REPLAY_LINK_MESSAGE } from "@/lib/webinar/replay-video";
+import { parseReplayVideo, REPLAY_LINK_MESSAGE } from "@/lib/webinar/replay-video";
+import { ReplayPlayer } from "@/components/webinar/replay-player";
 import { isHttpsLink } from "@/lib/webinar-exit-link";
 import { webinarRoomEnded } from "@/lib/webinar-page-layout";
 import { BrandingImageField } from "@/components/events/branding-image-field";
@@ -1390,7 +1391,14 @@ function RecordingCard({
   // The uploaded replay (Nov 10, 2026): a Vimeo link the attendee page plays once the webinar is over.
   const [replayValue, setReplayValue] = useState(replayUrl);
   const replayTrimmed = replayValue.trim();
-  const replayInvalid = replayTrimmed.length > 0 && !isValidReplayUrl(replayTrimmed);
+  const replayInvalid = replayTrimmed.length > 0 && parseReplayVideo(replayTrimmed) === null;
+  // The SAVED link as attendees will get it, played here on request: the only way to know a
+  // pasted link plays on this site (a Vimeo link can be valid and still refuse to play here).
+  const savedReplay = parseReplayVideo(replayUrl);
+  const [previewing, setPreviewing] = useState(false);
+  // The site's own address, for the Vimeo embed setting. Not known on the server, so it is read as
+  // an external value: the browser's on the client, a neutral phrase while rendering there.
+  const siteHost = useSyncExternalStore(subscribeToNothing, readSiteHost, () => "this site's address");
 
   const saveReplay = async () => {
     if (replayInvalid) {
@@ -1398,10 +1406,11 @@ function RecordingCard({
       return;
     }
     try {
-      // Saving a link also switches the recording on: a pasted replay is meant to be watched, and a
-      // switch left off would hide it with no sign of why. Removing the link leaves the switch alone.
-      await updateSettings.mutateAsync(replayTrimmed ? { replayUrl: replayTrimmed, showRecording: true } : { replayUrl: "" });
-      toast.success(replayTrimmed ? "Replay saved. Registered attendees can now watch it." : "Replay link removed");
+      // The link only. It never flips "Show the recording to attendees": that switch also shows
+      // Zoom's recording, so a link pasted and later removed would leave a recording the organiser
+      // had hidden on offer (review of 40aded04). The line under the field says when it is off.
+      await updateSettings.mutateAsync({ replayUrl: replayTrimmed });
+      toast.success(replaySavedMessage(replayTrimmed, shown));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save the replay link");
     }
@@ -1516,12 +1525,37 @@ function RecordingCard({
             <p id="replay-url-help" className={replayInvalid ? "text-xs text-red-600" : "text-xs text-muted-foreground"}>
               {replayInvalid
                 ? `${REPLAY_LINK_MESSAGE}.`
-                : "Upload the recording to Vimeo and paste the video's link. Once the webinar is over, registered attendees can watch it under My events and on the webinar page, in place of the Zoom recording, which expires. In Vimeo, limit the video's embedding to this site so it plays nowhere else."}
+                : "Upload the recording to Vimeo and paste the video's link. Once the webinar is over, registered attendees can watch it under My events and on the webinar page, in place of the Zoom recording, which expires."}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              In Vimeo, set the video&apos;s privacy to hidden from vimeo.com (embed only) and allow embedding only on{" "}
+              <span className="font-mono text-foreground">{siteHost}</span>. Without both, anyone an attendee shares the
+              Vimeo link with can watch it. Removing the link here does not remove the video from Vimeo.
             </p>
             {replayUrl && !shown ? (
               <p className="text-xs font-medium text-amber-700">
-                Attendees cannot see this replay: &quot;Show the recording to attendees&quot; is off.
+                Attendees cannot see this replay: switch on &quot;Show the recording to attendees&quot; above.
               </p>
+            ) : null}
+            {savedReplay ? (
+              <div className="space-y-2 pt-1">
+                <Button type="button" variant="outline" size="sm" onClick={() => setPreviewing((on) => !on)}>
+                  <PlayCircle className="h-4 w-4 mr-2" />
+                  {previewing ? "Hide preview" : "Preview the saved replay"}
+                </Button>
+                {previewing ? (
+                  <>
+                    {/* A check that it plays, not a viewing room: kept small. */}
+                    <div className="max-w-xl">
+                      <ReplayPlayer embedUrl={savedReplay.embedUrl} title="the saved replay" />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Press play. If Vimeo shows an error here, attendees will see it too: check the link and the
+                      video&apos;s embed settings.
+                    </p>
+                  </>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : null}
@@ -3732,6 +3766,17 @@ function StreamTimelineCard({ eventId, live }: { eventId: string; live: boolean 
       </CardContent>
     </Card>
   );
+}
+
+/** The page's address never changes while it is open. */
+const subscribeToNothing = () => () => {};
+const readSiteHost = () => window.location.host;
+
+/** What the console says after a replay link is saved or removed. */
+function replaySavedMessage(link: string, shown: boolean): string {
+  if (!link) return "Replay link removed";
+  if (shown) return "Replay saved. Registered attendees can watch it once the webinar is over.";
+  return 'Replay saved. Switch on "Show the recording to attendees" to offer it.';
 }
 
 /**

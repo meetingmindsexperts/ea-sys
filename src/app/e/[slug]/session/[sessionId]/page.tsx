@@ -640,7 +640,10 @@ export default function PublicSessionPage() {
   const hasRecording = replayEmbedded || session?.zoomMeeting?.recordingStatus === "AVAILABLE";
   // The organiser shows the recording and Zoom has not delivered it yet: the exit screen says it is coming.
   const recordingStatus = session?.zoomMeeting?.recordingStatus;
+  // Never beside a replay that is already there: with an uploaded replay Zoom's own recording can
+  // still be pending, and the screen said "Watch the replay" and "available soon" at once.
   const replayExpected =
+    !hasRecording &&
     Boolean(session?.zoomMeeting) &&
     !session?.recordingHidden &&
     (recordingStatus === "PENDING" || recordingStatus === "NOT_REQUESTED");
@@ -812,7 +815,7 @@ export default function PublicSessionPage() {
         )}
         {webinarEnded ? (
           <>
-            {replayEmbedUrl && <ReplayPlayer embedUrl={replayEmbedUrl} title={session?.name || "the webinar"} />}
+            {replayEmbedUrl && <ReplayPlayer bringIntoView embedUrl={replayEmbedUrl} title={session?.name || "the webinar"} />}
             <WebinarExitScreen
               sessionName={session?.name || joinInfo?.sessionName || "The webinar"}
               hasRecording={hasRecording}
@@ -1035,7 +1038,7 @@ export default function PublicSessionPage() {
               )}
 
             {/* Recording replay */}
-            {replayEmbedUrl && !isJoining && <ReplayPlayer embedUrl={replayEmbedUrl} title={session?.name || "the session"} />}
+            {replayEmbedUrl && !isJoining && <ReplayPlayer bringIntoView embedUrl={replayEmbedUrl} title={session?.name || "the session"} />}
             {hasRecording && !isJoining && !replayEmbedUrl && (
               <Card className="border-emerald-200 bg-emerald-50/50 shadow-sm">
                 <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-6">

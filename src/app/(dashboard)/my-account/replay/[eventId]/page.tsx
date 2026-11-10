@@ -4,6 +4,7 @@ import { formatEventDateRange } from "@/lib/event-time";
 import { apiLogger } from "@/lib/logger";
 import { loadRegistrantPortal } from "@/lib/registrant-portal";
 import { loadPortalReplay, type PortalReplay } from "@/lib/registrant-replays";
+import { isTeamRole } from "@/lib/team-roles";
 import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
 import { ReplayPlayer } from "@/components/webinar/replay-player";
 import { Button } from "@/components/ui/button";
@@ -25,15 +26,18 @@ const EVENT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 export default async function ReplayPage({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId: raw } = await params;
   const eventId = EVENT_ID.test(raw) ? raw : null;
-  const { scope, data: replay } = await loadRegistrantPortal<PortalReplay>(
+  const { scope, role, data: replay } = await loadRegistrantPortal<PortalReplay>(
     eventId ? `/my-account/replay/${eventId}` : "/my-account",
     async (s) => (eventId ? loadPortalReplay(s, eventId, new Date()) : { state: "not-registered" }),
   );
 
   if (replay.state === "not-registered") {
     apiLogger.warn({ msg: "registrant-replay:not-registered", eventId, userId: scope.userId });
+  } else if (replay.state === "none" && replay.expected) {
+    // Not a refusal: the thank-you email sends everyone here before anything is uploaded.
+    apiLogger.info({ msg: "registrant-replay:not-ready-yet", eventId, userId: scope.userId });
   } else if (replay.state === "none") {
-    apiLogger.warn({ msg: "registrant-replay:not-available", eventId, userId: scope.userId, expected: replay.expected });
+    apiLogger.warn({ msg: "registrant-replay:not-offered", eventId, userId: scope.userId });
   } else {
     apiLogger.info({ msg: "registrant-replay:served", eventId, userId: scope.userId, kind: replay.state });
   }
@@ -49,11 +53,15 @@ export default async function ReplayPage({ params }: { params: Promise<{ eventId
         <>
           <PageHeader title="Replay" />
           {/* Registrations made earlier under this address appear once it is confirmed. */}
-          {!scope.confirmed && <ConfirmEmailNotice email={scope.email} />}
+          {!scope.confirmed && !isTeamRole(role) && <ConfirmEmailNotice email={scope.email} />}
           <Notice
             icon={VideoOff}
             title="We could not find this replay"
-            text={`No confirmed registration for this webinar is linked to ${scope.email}.`}
+            text={
+              isTeamRole(role)
+                ? "This page plays a replay for a registered attendee. As staff, preview it on the Webinar Console: Analytics, Recording, Preview the saved replay."
+                : `No registration under ${scope.email} includes this replay. It needs a confirmed registration for the webinar, with nothing left to pay.`
+            }
           />
         </>
       ) : (

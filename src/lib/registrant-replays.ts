@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
 import { readWebinarSettings, webinarRecordingShown } from "@/lib/webinar";
-import { sessionReplayKind, uploadedReplay } from "@/lib/webinar/replay";
+import { sessionlessReplay, sessionReplayKind, uploadedReplay } from "@/lib/webinar/replay";
 import { viewerStandingWhere } from "@/lib/webinar/viewer-entitlement";
 
 /**
@@ -19,6 +19,8 @@ import { viewerStandingWhere } from "@/lib/webinar/viewer-entitlement";
  *  - In good standing: viewer-entitlement.ts (confirmed, and paid or nothing owed), the rule for
  *    watching the webinar live.
  *  - WHICH replay: webinar/replay.ts (the organiser's switch, their uploaded replay, else Zoom's).
+ *    A webinar with no session of its own, as most on production are, is judged by the event
+ *    (sessionlessReplay).
  *
  * Event columns ride on the registration read, as on My events: this file never queries Event
  * directly and always runs inside the portal's tenant lane (registrant-portal.ts).
@@ -33,6 +35,7 @@ const ANCHOR_FIELDS = {
   id: true,
   eventId: true,
   status: true,
+  startTime: true,
   endTime: true,
   zoomMeeting: { select: { recordingStatus: true, recordingUrl: true, recordingPassword: true } },
 } satisfies Prisma.EventSessionSelect;
@@ -49,35 +52,40 @@ export async function loadReplayFacts(
 
   const entitled = await db.registration.findMany({
     where: { eventId: { in: webinarIds }, ...portalViewerWhere(scope) },
-    select: { id: true, eventId: true, event: { select: { settings: true } } },
+    select: { id: true, eventId: true, event: { select: { settings: true, status: true, endDate: true } } },
   });
-  const settingsByEvent = new Map(entitled.map((r) => [r.eventId, r.event.settings]));
-  const anchors = [...settingsByEvent].flatMap(([eventId, settings]) => {
-    const sessionId = readWebinarSettings(settings)?.sessionId;
-    return sessionId ? [{ eventId, settings, sessionId }] : [];
-  });
-  if (anchors.length === 0) return replays;
+  if (entitled.length === 0) return replays;
 
-  const sessions = await db.eventSession.findMany({
-    where: { id: { in: anchors.map((a) => a.sessionId) } },
-    select: ANCHOR_FIELDS,
-  });
+  const events = new Map(entitled.map((r) => [r.eventId, r.event]));
+  const anchorIds = [...events.values()].flatMap((e) => readWebinarSettings(e.settings)?.sessionId ?? []);
+  const sessions =
+    anchorIds.length > 0 ? await db.eventSession.findMany({ where: { id: { in: anchorIds } }, select: ANCHOR_FIELDS }) : [];
+
   const eventsWithReplay = new Set<string>();
-  for (const { eventId, settings, sessionId } of anchors) {
+  for (const [eventId, event] of events) {
     // The anchor is bound to its own event: a stale pointer never borrows another event's session.
-    const session = sessions.find((s) => s.id === sessionId && s.eventId === eventId);
-    if (!session) continue;
-    const kind = sessionReplayKind({
-      eventType: "WEBINAR",
-      settings,
-      session,
-      recordingStatus: session.zoomMeeting?.recordingStatus,
-      now,
-    });
-    if (kind) eventsWithReplay.add(eventId);
+    const anchorId = readWebinarSettings(event.settings)?.sessionId;
+    const session = sessions.find((s) => s.id === anchorId && s.eventId === eventId) ?? null;
+    if (hasReplay(event, session, now)) eventsWithReplay.add(eventId);
   }
   for (const r of entitled) if (eventsWithReplay.has(r.eventId)) replays.add(r.id);
   return replays;
+}
+
+type Anchor = Prisma.EventSessionGetPayload<{ select: typeof ANCHOR_FIELDS }>;
+
+/** Whether this webinar has a replay now: by its session, or by the event when it has none. */
+function hasReplay(event: { settings: unknown; status: string; endDate: Date }, session: Anchor | null, now: Date): boolean {
+  if (!session) return sessionlessReplay({ settings: event.settings, event, now }) !== null;
+  return (
+    sessionReplayKind({
+      eventType: "WEBINAR",
+      settings: event.settings,
+      session,
+      recordingStatus: session.zoomMeeting?.recordingStatus,
+      now,
+    }) !== null
+  );
 }
 
 export interface ReplayEvent {
@@ -105,17 +113,22 @@ export async function loadPortalReplay(scope: RegistrantScope, eventId: string, 
     where: { eventId, ...portalViewerWhere(scope) },
     select: {
       id: true,
-      event: { select: { id: true, name: true, slug: true, startDate: true, endDate: true, timezone: true, settings: true } },
+      event: {
+        select: { id: true, name: true, slug: true, startDate: true, endDate: true, timezone: true, status: true, settings: true },
+      },
     },
   });
   if (!registration) return { state: "not-registered" };
 
-  const { settings, ...event } = registration.event;
+  const { settings, status, ...event } = registration.event;
   const none: PortalReplay = { state: "none", event, expected: webinarRecordingShown(settings) };
   const sessionId = readWebinarSettings(settings)?.sessionId;
-  if (!sessionId) return none;
-  const session = await db.eventSession.findFirst({ where: { id: sessionId, eventId }, select: ANCHOR_FIELDS });
-  if (!session) return none;
+  const session = sessionId ? await db.eventSession.findFirst({ where: { id: sessionId, eventId }, select: ANCHOR_FIELDS }) : null;
+  if (!session) {
+    // No session of its own (or a pointer to one that is gone): the event answers.
+    const video = sessionlessReplay({ settings, event: { status, endDate: event.endDate }, now });
+    return video ? { state: "embed", event, embedUrl: video.embedUrl } : none;
+  }
 
   const question = { eventType: "WEBINAR", settings, session, now };
   const kind = sessionReplayKind({ ...question, recordingStatus: session.zoomMeeting?.recordingStatus });

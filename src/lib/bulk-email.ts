@@ -1849,14 +1849,15 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     const recordingShown = webinarRecordingShown(event.settings);
     const sessionPageUrl = `${appUrl}/e/${event.slug}/session/${anchorSessionId}`;
     // One rule for which replay (webinar/replay.ts, Nov 10, 2026): the organiser's uploaded replay
-    // links the person's replay page in their portal, Zoom's recording keeps its own link. A
-    // webinar email follows the webinar's switch whatever the event's type, as it always has.
-    const replayPage = replayPageUrl(appUrl, event.id);
+    // links the person's replay page in their portal, Zoom's recording keeps its own link. The
+    // switch above gates the block whatever the event's type, as it always has; the replay page
+    // exists for WEBINAR events only, so no other type is ever sent there (review of 40aded04).
+    const replayPage = event.eventType === "WEBINAR" ? replayPageUrl(appUrl, event.id) : "";
     const replayKind = anchorSession
       ? sessionReplayKind({
-          eventType: "WEBINAR",
+          eventType: event.eventType,
           settings: event.settings,
-          session: { id: anchorSessionId, status: anchorSession.status, endTime: anchorSession.endTime },
+          session: { id: anchorSessionId, ...anchorSession },
           recordingStatus: zoomMeeting?.recordingStatus,
         })
       : null;
@@ -2359,8 +2360,12 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       typeof vars.surveyBlock === "string" && vars.surveyBlock.length > 0
         ? withThankYouSurveyBlock(tplWithGrant)
         : tplWithGrant;
+    // A template saved before Nov 10, 2026 has {{recordingBlock}} in its TEXT part too, where the
+    // button's HTML would arrive as raw markup: the text part gets the block's text form.
+    const plainText =
+      typeof vars.recordingBlockText === "string" ? { text: { recordingBlock: vars.recordingBlockText } } : undefined;
     return {
-      ...renderAndWrap(tplForSend, vars, branding, rawHtmlKeys),
+      ...renderAndWrap(tplForSend, vars, branding, rawHtmlKeys, plainText),
       barcodeAttachment,
       presenterAttachment,
     };

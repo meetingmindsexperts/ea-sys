@@ -14,6 +14,7 @@
  * WHO may watch is not decided here: that is viewer-entitlement.ts, asked by the recording route.
  */
 import { readWebinarSettings, webinarRecordingShown } from "@/lib/webinar";
+import { webinarRoomEnded } from "@/lib/webinar-page-layout";
 import { parseReplayVideo, type ParsedReplayVideo } from "@/lib/webinar/replay-video";
 
 export type ReplayKind = "embed" | "zoom";
@@ -21,6 +22,7 @@ export type ReplayKind = "embed" | "zoom";
 export interface ReplaySession {
   id: string;
   status: string;
+  startTime: Date;
   endTime: Date;
 }
 
@@ -32,10 +34,19 @@ interface ReplayQuestion {
   now?: Date;
 }
 
-/** Over: closed by the producer, or past its scheduled end and not live now. */
+/**
+ * Over, by the page's own rule (webinarRoomEnded): never while live, past the scheduled end, or
+ * closed by the producer from the scheduled start on. Not a second definition: a close the day
+ * before is a rehearsal there, so it must be one here, or a saved link would replace the waiting
+ * room on the day (review of 40aded04).
+ */
 function sessionOver(session: ReplaySession, now: Date): boolean {
-  if (session.status === "COMPLETED") return true;
-  return session.status !== "LIVE" && session.endTime.getTime() <= now.getTime();
+  return webinarRoomEnded({
+    status: session.status,
+    startMs: session.startTime.getTime(),
+    endMs: session.endTime.getTime(),
+    now: now.getTime(),
+  });
 }
 
 /**
@@ -51,6 +62,28 @@ export function uploadedReplay(q: ReplayQuestion): ParsedReplayVideo | null {
   if (!video) return null;
   if (webinar?.sessionId && webinar.sessionId !== q.session.id) return null;
   return sessionOver(q.session, q.now ?? new Date()) ? video : null;
+}
+
+/**
+ * The uploaded replay of a webinar that has NO session of its own, or null. Most webinars on
+ * production were run outside the EA-SYS room and have none (8 of 13 on Nov 10, 2026): without
+ * this the console would save a link no attendee could ever see (review of 40aded04, HIGH).
+ * With no session to ask, "over" is the event's: marked Completed, or its end date passed and
+ * neither live nor cancelled. The organiser's switch applies as everywhere. Only the portal asks
+ * this: such a webinar has no session page.
+ */
+export function sessionlessReplay(q: {
+  settings: unknown;
+  event: { status: string; endDate: Date };
+  now?: Date;
+}): ParsedReplayVideo | null {
+  if (!webinarRecordingShown(q.settings)) return null;
+  const video = parseReplayVideo(readWebinarSettings(q.settings)?.replayUrl);
+  if (!video) return null;
+  const { status, endDate } = q.event;
+  if (status === "COMPLETED") return video;
+  if (status === "LIVE" || status === "CANCELLED") return null;
+  return endDate.getTime() <= (q.now ?? new Date()).getTime() ? video : null;
 }
 
 /** The replay on offer for this session, or null for none. `recordingStatus` is its ZoomMeeting's. */

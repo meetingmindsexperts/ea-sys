@@ -40,12 +40,26 @@ describe("webinarRecordingBlock", () => {
     expect(html).toContain("The recording will be available shortly. You can watch it here once it is ready.");
     expect(html).toContain(`href="${page}"`);
     expect(html).toContain("Open the replay page");
-    expect(webinarRecordingBlock(true, "", "text", page)).toBe(`The recording will be available shortly. Watch it here once it is ready: ${page}`);
-    // A replay there is: the button is the replay's, and the page link is not repeated.
-    expect(webinarRecordingBlock(true, url, "html", page)).toContain(`href="${url}"`);
-    expect(webinarRecordingBlock(true, url, "html", page)).not.toContain("Open the replay page");
+    expect(webinarRecordingBlock(true, "", "text", page)).toContain(`The recording will be available shortly. Watch it here once it is ready: ${page}`);
     // Hidden stays empty.
     expect(webinarRecordingBlock(false, "", "html", page)).toBe("");
+  });
+
+  it("a link to the replay page says how to get in: most past registrants have no account yet", () => {
+    const page = "https://events.example.com/my-account/replay/evt-1";
+    const signIn = "Sign in with the email address you registered with";
+    // The replay page as the replay itself (an uploaded replay), and as the coming-shortly link.
+    for (const block of [webinarRecordingBlock(true, page, "html", page), webinarRecordingBlock(true, "", "html", page)]) {
+      expect(block).toContain(signIn);
+      expect(block).toContain("create one with that address");
+    }
+    expect(webinarRecordingBlock(true, page, "text", page)).toBe(
+      `Watch replay: ${page}\nSign in with the email address you registered with. If you have no account yet, create one with that address.`,
+    );
+    expect(webinarRecordingBlock(true, page, "html", page)).not.toContain("Open the replay page");
+    // Zoom's own link needs no account, so it carries no such line.
+    expect(webinarRecordingBlock(true, url, "html", page)).not.toContain(signIn);
+    expect(webinarRecordingBlock(true, url, "text", page)).toBe(`Watch replay: ${url}`);
   });
 
   it("promises no follow-up email: none is sent", () => {

@@ -30,13 +30,20 @@ const confirmed = { userId: "u1", email: "dr@hospital.com", confirmed: true };
 const unconfirmed = { userId: "u1", email: "dr@hospital.com", confirmed: false };
 
 const webinar = (id: string) => ({ id: `r-${id}`, event: { id, eventType: "WEBINAR" } });
-const entitledRow = (eventId: string, webinarSettings: Record<string, unknown>, id = `r-${eventId}`) => ({
+const STARTED = new Date("2026-11-10T07:30:00Z");
+const UPCOMING = new Date("2026-12-01T18:00:00Z");
+const entitledRow = (
+  eventId: string,
+  webinarSettings: Record<string, unknown>,
+  id = `r-${eventId}`,
+  event: { status: string; endDate: Date } = { status: "PUBLISHED", endDate: ENDED },
+) => ({
   id,
   eventId,
-  event: { settings: { webinar: webinarSettings } },
+  event: { settings: { webinar: webinarSettings }, ...event },
 });
 const anchor = (eventId: string, over: Record<string, unknown> = {}) => ({
-  id: `s-${eventId}`, eventId, status: "COMPLETED", endTime: ENDED, zoomMeeting: null, ...over,
+  id: `s-${eventId}`, eventId, status: "COMPLETED", startTime: STARTED, endTime: ENDED, zoomMeeting: null, ...over,
 });
 
 beforeEach(() => {
@@ -107,15 +114,35 @@ describe("loadReplayFacts", () => {
   });
 
   it("a stale anchor pointer never borrows another event's session", async () => {
-    mockDb.registration.findMany.mockResolvedValue([entitledRow("w1", { sessionId: "s-w2", showRecording: true, replayUrl: VIMEO })]);
-    mockDb.eventSession.findMany.mockResolvedValue([anchor("w2")]);
+    // w1 points at w2's session, which has a fetched Zoom recording. w1 has no link and is not
+    // over, so the only way it could show a replay is by borrowing that session.
+    mockDb.registration.findMany.mockResolvedValue([
+      entitledRow("w1", { sessionId: "s-w2", showRecording: true }, "r-w1", { status: "PUBLISHED", endDate: UPCOMING }),
+    ]);
+    mockDb.eventSession.findMany.mockResolvedValue([anchor("w2", { zoomMeeting: { recordingStatus: "AVAILABLE" } })]);
     expect((await loadReplayFacts(confirmed, [webinar("w1")], NOW)).size).toBe(0);
   });
 
-  it("a webinar with no anchor session recorded: nothing, and no session read", async () => {
-    mockDb.registration.findMany.mockResolvedValue([entitledRow("w1", { showRecording: true, replayUrl: VIMEO })]);
-    expect((await loadReplayFacts(confirmed, [webinar("w1")], NOW)).size).toBe(0);
+  it("a webinar with NO session of its own (most on production): the event answers, with no session read", async () => {
+    // Completed, link saved, switch on: the case the console used to confirm and nobody could watch.
+    const noSession = { showRecording: true, replayUrl: VIMEO };
+    mockDb.registration.findMany.mockResolvedValue([entitledRow("w1", noSession, "r-w1", { status: "COMPLETED", endDate: ENDED })]);
+    expect([...(await loadReplayFacts(confirmed, [webinar("w1")], NOW))]).toEqual(["r-w1"]);
     expect(mockDb.eventSession.findMany).not.toHaveBeenCalled();
+
+    // Not over yet, or the switch off: nothing.
+    mockDb.registration.findMany.mockResolvedValue([entitledRow("w1", noSession, "r-w1", { status: "PUBLISHED", endDate: UPCOMING })]);
+    expect((await loadReplayFacts(confirmed, [webinar("w1")], NOW)).size).toBe(0);
+    mockDb.registration.findMany.mockResolvedValue([entitledRow("w1", { replayUrl: VIMEO }, "r-w1", { status: "COMPLETED", endDate: ENDED })]);
+    expect((await loadReplayFacts(confirmed, [webinar("w1")], NOW)).size).toBe(0);
+  });
+
+  it("a pointer to a session that is gone is treated the same way: the event answers", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      entitledRow("w1", { sessionId: "deleted", showRecording: true, replayUrl: VIMEO }, "r-w1", { status: "COMPLETED", endDate: ENDED }),
+    ]);
+    mockDb.eventSession.findMany.mockResolvedValue([]);
+    expect([...(await loadReplayFacts(confirmed, [webinar("w1")], NOW))]).toEqual(["r-w1"]);
   });
 
   it("two webinars, one with a replay: only that one; two registrations on it both get it", async () => {
@@ -131,13 +158,17 @@ describe("loadReplayFacts", () => {
   it("never reads the Event table directly: the settings ride on the registration read (event lane ratchet)", async () => {
     await loadReplayFacts(confirmed, [webinar("w1")], NOW);
     for (const fn of Object.values(mockDb.event)) expect(fn).not.toHaveBeenCalled();
-    expect(mockDb.registration.findMany.mock.calls[0][0].select).toEqual({ id: true, eventId: true, event: { select: { settings: true } } });
+    expect(mockDb.registration.findMany.mock.calls[0][0].select).toEqual({
+      id: true,
+      eventId: true,
+      event: { select: { settings: true, status: true, endDate: true } },
+    });
   });
 });
 
 describe("loadPortalReplay: what /my-account/replay/{eventId} shows", () => {
   const eventRow = (webinarSettings: Record<string, unknown>) => ({
-    id: "w1", name: "Best of EHA", slug: "best-of-eha", startDate: ENDED, endDate: ENDED, timezone: "Asia/Dubai",
+    id: "w1", name: "Best of EHA", slug: "best-of-eha", startDate: ENDED, endDate: ENDED, timezone: "Asia/Dubai", status: "COMPLETED",
     settings: { webinar: { sessionId: "s-w1", ...webinarSettings }, reviewerUserIds: ["secret"] },
   });
   const ZOOM = { recordingStatus: "AVAILABLE", recordingUrl: "https://zoom.us/rec/play/1", recordingPassword: "pw" };
@@ -174,10 +205,13 @@ describe("loadPortalReplay: what /my-account/replay/{eventId} shows", () => {
     expect(mockDb.eventSession.findFirst).not.toHaveBeenCalled();
   });
 
-  it("it does not ask the event's status: a webinar marked Completed still plays", async () => {
-    await loadPortalReplay(confirmed, "w1", NOW);
-    expect(JSON.stringify(mockDb.registration.findFirst.mock.calls[0][0])).not.toMatch(/"status":\s*\{"in":\["DRAFT"|PUBLISHED/);
-    expect(mockDb.registration.findFirst.mock.calls[0][0].where.event).toEqual({ eventType: "WEBINAR" });
+  it("the event's status is no gate: a webinar marked Completed still plays", async () => {
+    // The public webinar page answers only for DRAFT, PUBLISHED and LIVE events. This one must not.
+    expect((await loadPortalReplay(confirmed, "w1", NOW)).state).toBe("embed");
+    const where = mockDb.registration.findFirst.mock.calls[0][0].where;
+    expect(where.event).toEqual({ eventType: "WEBINAR" });
+    expect(JSON.stringify(where)).not.toContain("PUBLISHED");
+    expect(JSON.stringify(where)).not.toContain("DRAFT");
   });
 
   it("Zoom's recording when there is no upload: its link and passcode", async () => {
@@ -224,14 +258,25 @@ describe("loadPortalReplay: what /my-account/replay/{eventId} shows", () => {
     expect((await loadPortalReplay(confirmed, "w1", NOW)).state).toBe("none");
   });
 
-  it("no anchor recorded, or the anchor gone: none", async () => {
-    mockDb.registration.findFirst.mockResolvedValue({ id: "r1", event: { ...eventRow({}), settings: { webinar: { showRecording: true, replayUrl: VIMEO } } } });
-    expect((await loadPortalReplay(confirmed, "w1", NOW)).state).toBe("none");
+  it("no session of its own, or the session gone: the event answers (Completed here, so it plays)", async () => {
+    const noSession = { ...eventRow({}), settings: { webinar: { showRecording: true, replayUrl: VIMEO } } };
+    mockDb.registration.findFirst.mockResolvedValue({ id: "r1", event: noSession });
+    expect(await loadPortalReplay(confirmed, "w1", NOW)).toMatchObject({ state: "embed", embedUrl: EMBED });
     expect(mockDb.eventSession.findFirst).not.toHaveBeenCalled();
 
     mockDb.registration.findFirst.mockResolvedValue({ id: "r1", event: eventRow({ showRecording: true, replayUrl: VIMEO }) });
     mockDb.eventSession.findFirst.mockResolvedValue(null);
-    expect((await loadPortalReplay(confirmed, "w1", NOW)).state).toBe("none");
+    expect((await loadPortalReplay(confirmed, "w1", NOW)).state).toBe("embed");
+  });
+
+  it("no session and the event not over: not ready yet, never a replay before the webinar", async () => {
+    const upcoming = { ...eventRow({}), status: "PUBLISHED", endDate: UPCOMING, settings: { webinar: { showRecording: true, replayUrl: VIMEO } } };
+    mockDb.registration.findFirst.mockResolvedValue({ id: "r1", event: upcoming });
+    expect(await loadPortalReplay(confirmed, "w1", NOW)).toMatchObject({ state: "none", expected: true });
+  });
+
+  it("the event's status never reaches the page: it is read for the rule only", async () => {
+    expect(JSON.stringify(await loadPortalReplay(confirmed, "w1", NOW))).not.toContain("COMPLETED");
   });
 });
 

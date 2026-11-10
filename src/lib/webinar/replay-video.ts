@@ -21,7 +21,9 @@ export interface ParsedReplayVideo {
   id: string;
   /** Present on an unlisted video; without it Vimeo refuses to play one. */
   hash: string | null;
-  /** The player address: controls on, nothing autoplayed, no tracking cookie (`dnt`). */
+  /** The player address: controls on, nothing autoplayed. `dnt=1` asks Vimeo not to collect
+   *  session data or analytics for the play (so Vimeo's own view statistics do not count it
+   *  either); Vimeo says some essential cookies remain. */
   embedUrl: string;
 }
 
@@ -43,9 +45,12 @@ function videoIdIndex(host: string, parts: string[]): number {
 /** A pasted Vimeo video link as a safe embed, or null for anything else. */
 export function parseReplayVideo(raw: string | null | undefined): ParsedReplayVideo | null {
   if (!raw || typeof raw !== "string" || raw.length > MAX_URL_LENGTH) return null;
+  // "vimeo.com/123456789" as people type it: the host is checked below either way.
+  const text = raw.trim();
+  const candidate = /^(www\.|player\.)?vimeo\.com\//i.test(text) ? `https://${text}` : text;
   let url: URL;
   try {
-    url = new URL(raw.trim());
+    url = new URL(candidate);
   } catch {
     return null;
   }
@@ -58,8 +63,10 @@ export function parseReplayVideo(raw: string | null | undefined): ParsedReplayVi
   const id = at >= 0 ? parts[at] : undefined;
   if (!id || !VIMEO_ID_RE.test(id)) return null;
 
-  const candidate = url.searchParams.get("h") ?? parts[at + 1] ?? "";
-  const hash = VIMEO_HASH_RE.test(candidate) ? candidate.toLowerCase() : null;
+  // The first VALID hash: a junk ?h= must not hide the one in the path.
+  const hashes = [...url.searchParams.getAll("h"), parts[at + 1] ?? ""];
+  const found = hashes.find((h) => VIMEO_HASH_RE.test(h));
+  const hash = found ? found.toLowerCase() : null;
   const query = hash ? `h=${hash}&dnt=1` : "dnt=1";
   return { id, hash, embedUrl: `https://player.vimeo.com/video/${id}?${query}` };
 }

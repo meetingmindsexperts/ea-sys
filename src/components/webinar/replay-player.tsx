@@ -11,12 +11,21 @@
 import { useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 
-export function ReplayPlayer({ embedUrl, title }: { embedUrl: string; title: string }) {
+export function ReplayPlayer({
+  embedUrl,
+  title,
+  bringIntoView = false,
+}: {
+  embedUrl: string;
+  title: string;
+  /** The webinar page loads it from a button that can sit below the fold. Elsewhere it is the
+   *  page's own content and scrolling to it would push the title away. */
+  bringIntoView?: boolean;
+}) {
   const ref = useRef<HTMLDivElement | null>(null);
-  // The button that loads it can sit below the fold (the exit screen), so bring the video into view.
   useEffect(() => {
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [embedUrl]);
+    if (bringIntoView) ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [embedUrl, bringIntoView]);
 
   return (
     // Never taller than the window: at full width on a wide screen a 16:9 frame would be, and the

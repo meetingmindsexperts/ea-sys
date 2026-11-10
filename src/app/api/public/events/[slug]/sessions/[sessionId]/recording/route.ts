@@ -107,6 +107,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       select: {
         id: true,
         status: true,
+        startTime: true,
         endTime: true,
         zoomMeeting: {
           select: { recordingUrl: true, recordingPassword: true, recordingStatus: true },

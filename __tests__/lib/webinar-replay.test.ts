@@ -4,11 +4,12 @@
  * its edges are pinned here against the real settings readers.
  */
 import { describe, it, expect } from "vitest";
-import { replayEmailUrl, replayPageUrl, sessionReplayKind, uploadedReplay } from "@/lib/webinar/replay";
+import { replayEmailUrl, replayPageUrl, sessionlessReplay, sessionReplayKind, uploadedReplay } from "@/lib/webinar/replay";
 
 const NOW = new Date("2026-11-10T12:00:00Z");
 const VIMEO = "https://vimeo.com/123456789/abcdef1234";
-const over = { id: "anchor", status: "COMPLETED", endTime: new Date("2026-11-10T08:30:00Z") };
+const START = new Date("2026-11-10T07:30:00Z");
+const over = { id: "anchor", status: "COMPLETED", startTime: START, endTime: new Date("2026-11-10T08:30:00Z") };
 const settings = (webinar: Record<string, unknown>) => ({ webinar: { sessionId: "anchor", ...webinar } });
 const kind = (over_: Partial<Parameters<typeof sessionReplayKind>[0]>) =>
   sessionReplayKind({ eventType: "WEBINAR", settings: settings({ showRecording: true, replayUrl: VIMEO }), session: over, recordingStatus: null, now: NOW, ...over_ });
@@ -39,15 +40,22 @@ describe("sessionReplayKind", () => {
   });
 
   it("a link saved early waits for the end: never over the waiting room or the live video", () => {
-    const future = new Date("2026-11-11T08:30:00Z");
-    expect(kind({ session: { id: "anchor", status: "SCHEDULED", endTime: future } })).toBeNull();
-    expect(kind({ session: { id: "anchor", status: "DRAFT", endTime: future } })).toBeNull();
+    const tomorrow = { startTime: new Date("2026-11-11T07:30:00Z"), endTime: new Date("2026-11-11T08:30:00Z") };
+    expect(kind({ session: { id: "anchor", status: "SCHEDULED", ...tomorrow } })).toBeNull();
+    expect(kind({ session: { id: "anchor", status: "DRAFT", ...tomorrow } })).toBeNull();
     // Live, even running past its scheduled end.
-    expect(kind({ session: { id: "anchor", status: "LIVE", endTime: over.endTime } })).toBeNull();
-    // Closed by the producer before the scheduled end: over.
-    expect(kind({ session: { id: "anchor", status: "COMPLETED", endTime: future } })).toBe("embed");
+    expect(kind({ session: { ...over, status: "LIVE" } })).toBeNull();
     // Never opened in the system and past its end: over.
-    expect(kind({ session: { id: "anchor", status: "SCHEDULED", endTime: over.endTime } })).toBe("embed");
+    expect(kind({ session: { ...over, status: "SCHEDULED" } })).toBe("embed");
+  });
+
+  it("is the page's own rule for 'ended' (webinarRoomEnded), rehearsal included", () => {
+    // Closed by the producer after the scheduled start, before the scheduled end: over.
+    const running = { startTime: new Date("2026-11-10T11:30:00Z"), endTime: new Date("2026-11-10T13:00:00Z") };
+    expect(kind({ session: { id: "anchor", status: "COMPLETED", ...running } })).toBe("embed");
+    // Opened and closed the day BEFORE, to test the stream: a rehearsal, so the waiting room stays.
+    const tomorrow = { startTime: new Date("2026-11-11T07:30:00Z"), endTime: new Date("2026-11-11T08:30:00Z") };
+    expect(kind({ session: { id: "anchor", status: "COMPLETED", ...tomorrow } })).toBeNull();
   });
 
   it("the link belongs to the webinar's own session only", () => {
@@ -68,6 +76,32 @@ describe("sessionReplayKind", () => {
     expect(kind({ ...conference, recordingStatus: "AVAILABLE" })).toBe("zoom");
     expect(kind({ ...conference, recordingStatus: "PENDING" })).toBeNull();
     expect(kind({ eventType: null, settings: {}, recordingStatus: "AVAILABLE" })).toBe("zoom");
+  });
+});
+
+describe("sessionlessReplay: a webinar run outside the EA-SYS room has no session to ask", () => {
+  const ended = new Date("2026-11-01T18:00:00Z");
+  const upcoming = new Date("2026-12-01T18:00:00Z");
+  const on = { webinar: { showRecording: true, replayUrl: VIMEO } };
+  const ask = (settings: unknown, status: string, endDate: Date) => sessionlessReplay({ settings, event: { status, endDate }, now: NOW });
+
+  it("plays once the event is marked Completed, or its end date has passed", () => {
+    expect(ask(on, "COMPLETED", upcoming)?.embedUrl).toBe("https://player.vimeo.com/video/123456789?h=abcdef1234&dnt=1");
+    expect(ask(on, "PUBLISHED", ended)).not.toBeNull();
+    expect(ask(on, "DRAFT", ended)).not.toBeNull();
+  });
+
+  it("not before the event is over, never while it is live, never when it was cancelled", () => {
+    expect(ask(on, "PUBLISHED", upcoming)).toBeNull();
+    expect(ask(on, "LIVE", ended)).toBeNull();
+    expect(ask(on, "CANCELLED", ended)).toBeNull();
+  });
+
+  it("the organiser's switch and the Vimeo-only rule apply as everywhere", () => {
+    expect(ask({ webinar: { replayUrl: VIMEO } }, "COMPLETED", ended)).toBeNull();
+    expect(ask({ webinar: { showRecording: true } }, "COMPLETED", ended)).toBeNull();
+    expect(ask({ webinar: { showRecording: true, replayUrl: "https://evil.example/x" } }, "COMPLETED", ended)).toBeNull();
+    expect(ask(null, "COMPLETED", ended)).toBeNull();
   });
 });
 

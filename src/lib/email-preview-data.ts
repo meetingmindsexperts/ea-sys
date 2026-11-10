@@ -123,15 +123,17 @@ export async function buildRealPreviewOverrides(
         // The organiser's recording switch applies to webinars, as in the real send.
         const recordingShown = event.eventType !== "WEBINAR" || webinarRecordingShown(event.settings);
         // Which replay, by the one rule the real send uses (webinar/replay.ts).
-        const replayPage = replayPageUrl(appUrl, eventId);
+        // The replay page exists for WEBINAR events only (as in the real send).
+        const replayPage = event.eventType === "WEBINAR" ? replayPageUrl(appUrl, eventId) : "";
         const replayKind = sessionReplayKind({
           eventType: event.eventType,
           settings: event.settings,
-          session: { id: session.id, status: session.status, endTime: session.endTime },
+          session,
           recordingStatus: session.zoomMeeting.recordingStatus,
         });
         const recordingUrl = replayEmailUrl(replayKind, replayPage, session.zoomMeeting.recordingUrl);
         overrides.recordingBlock = webinarRecordingBlock(recordingShown, recordingUrl, "html", replayPage);
+        overrides.recordingBlockText = webinarRecordingBlock(recordingShown, recordingUrl, "text", replayPage);
       }
     }
 

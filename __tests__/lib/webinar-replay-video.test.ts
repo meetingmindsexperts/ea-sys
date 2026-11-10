@@ -20,6 +20,9 @@ describe("parseReplayVideo: the Vimeo link shapes an organiser copies", () => {
     ["a video inside a showcase", "https://vimeo.com/showcase/7654321/video/123456789", "https://player.vimeo.com/video/123456789?dnt=1"],
     ["a video in a channel", "https://vimeo.com/channels/staffpicks/123456789", "https://player.vimeo.com/video/123456789?dnt=1"],
     ["surrounding spaces", "  https://vimeo.com/123456789  ", "https://player.vimeo.com/video/123456789?dnt=1"],
+    ["typed without https://", "vimeo.com/123456789/abcdef1234", "https://player.vimeo.com/video/123456789?h=abcdef1234&dnt=1"],
+    ["typed with www and no https://", "www.vimeo.com/123456789", "https://player.vimeo.com/video/123456789?dnt=1"],
+    ["a junk ?h= does not hide the hash in the path", "https://vimeo.com/123456789/abcdef1234?h=zz", "https://player.vimeo.com/video/123456789?h=abcdef1234&dnt=1"],
   ])("%s", (_label, raw, expected) => {
     expect(embed(raw)).toBe(expected);
   });
@@ -42,6 +45,9 @@ describe("parseReplayVideo: the Vimeo link shapes an organiser copies", () => {
     ["a script address", "javascript:alert(1)//vimeo.com/123456789"],
     ["a data address", "data:text/html,<script>alert(1)</script>"],
     ["not an address", "vimeo 123456789"],
+    ["another site typed without a scheme", "evil.example/vimeo.com/123456789"],
+    ["a look-alike typed without a scheme", "vimeo.com.evil.example/123456789"],
+    ["Vimeo's embed code, not its link", '<iframe src="https://player.vimeo.com/video/123456789"></iframe>'],
     ["empty", ""],
   ])("refuses %s", (_label, raw) => {
     expect(parseReplayVideo(raw)).toBeNull();
