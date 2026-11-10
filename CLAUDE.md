@@ -415,6 +415,7 @@ Clients (including AI agents) should parse `retryAfterSeconds` and back off. Do 
 | Resend account confirmation (per IP) | 10 | 1 hr |
 | My Details save `/api/registrant/account-details` (per user) | 30 | 1 hr |
 | Take survey link `/api/registrant/registrations/[id]/survey-link` (per user) | 20 | 1 hr |
+| Send reviewer assignments `/api/events/[id]/reviewers/send-assignments` (per user) | 30 | 1 hr |
 | Login FAILURES per email (every login door; successes not counted) | 10 | 15 min |
 | Login FAILURES per IP (every login door; successes not counted) | 100 | 15 min |
 
@@ -462,6 +463,7 @@ Thresholds are best-effort; in-memory store means limits reset on EC2/Docker res
 - Reviewers are assigned per-event via `Event.settings.reviewerUserIds` (JSON array of User IDs)
 - `Speaker.userId` (nullable FK) links speakers to User accounts
 - The Reviewers page lets admins add reviewers via two methods: pick from speakers, or invite by email
+- **Assigning an abstract sends NO email either (Nov 10, 2026)**: "Send assignments" on the Reviewers page (`reviewers/send-assignments`, `sendPendingAssignments` in `abstract-reviewer-notify.ts`) emails each reviewer ONE message listing every assignment with `AbstractReviewer.notifiedAt` still null, through the event's `reviewer-assignment` template (`{{abstractTitle}}` = the list, `{{abstractCount}}`). Removing a reviewer from the pool also deletes their assignments on the event (submitted reviews are kept)
 - New reviewer accounts are created with `organizationId: null`. Adding a reviewer sends NO email (owner, Nov 10, 2026): the organiser presses Send on the reviewer's row (setup invitation for a new account, the reviewer email for an active one; `reviewers/[reviewerId]/resend-invitation`)
 
 ### Submitter Registration

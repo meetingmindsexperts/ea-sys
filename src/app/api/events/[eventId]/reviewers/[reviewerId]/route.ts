@@ -55,6 +55,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       ),
     }));
 
+    // And off every abstract assigned to them on this event (owner, Nov 10,
+    // 2026): the assignment is the review right, so leaving it would let a
+    // removed reviewer keep scoring. Reviews already submitted are kept; their
+    // link to the assignment is set to null by the schema.
+    const removed = await db.abstractReviewer.deleteMany({
+      where: { userId: reviewerId, abstract: { eventId } },
+    });
+    apiLogger.info({ msg: "events/reviewers:removed", eventId, reviewerUserId: reviewerId, assignmentsRemoved: removed.count });
+
     // Audit log (non-blocking)
     db.auditLog.create({
       data: {
@@ -63,11 +72,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "EventReviewer",
         entityId: reviewerId,
-        changes: { removedUserId: reviewerId, ip: getClientIp(req) },
+        changes: { removedUserId: reviewerId, assignmentsRemoved: removed.count, ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, assignmentsRemoved: removed.count });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error removing reviewer" });

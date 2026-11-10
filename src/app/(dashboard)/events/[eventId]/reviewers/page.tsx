@@ -31,7 +31,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserCheck, Plus, Mail, Building2, Trash2, Send, X } from "lucide-react";
 import { PermissionGate } from "@/components/permissions/permission-gate";
-import { useReviewers, useAddReviewer, useRemoveReviewer, useResendReviewerInvitation } from "@/hooks/use-api";
+import { useReviewers, useAddReviewer, useRemoveReviewer, useResendReviewerInvitation, useSendReviewerAssignments } from "@/hooks/use-api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -48,6 +58,8 @@ interface Reviewer {
   speakerStatus: string | null;
   accountActive: boolean;
   needsEmailConfirmation?: boolean;
+  /** Assigned abstracts on this event, and how many were not emailed yet. */
+  assignments?: { assigned: number; unsent: number };
 }
 
 interface AvailableSpeaker {
@@ -83,6 +95,19 @@ function sendLabel(accountActive: boolean, sending: boolean): string {
   return accountActive ? "Send email" : "Send invitation";
 }
 
+/** "3 abstracts assigned, 1 not emailed yet" under each reviewer. */
+function assignmentSummary(a: { assigned: number; unsent: number } | undefined): string {
+  if (!a || a.assigned === 0) return "No abstracts assigned yet";
+  const assigned = `${a.assigned} abstract${a.assigned === 1 ? "" : "s"} assigned`;
+  return a.unsent > 0 ? `${assigned}, ${a.unsent} not emailed yet` : assigned;
+}
+
+function removeDescription(assigned: number): string {
+  const base = "They come off this event's reviewer pool";
+  if (assigned === 0) return `${base}. They have no abstracts assigned here.`;
+  return `${base} and off the ${assigned} abstract${assigned === 1 ? "" : "s"} assigned to them, so they can no longer score ${assigned === 1 ? "it" : "them"}. Reviews they already submitted are kept.`;
+}
+
 function triStateChecked(all: boolean, some: boolean): boolean | "indeterminate" {
   if (all) return true;
   return some ? "indeterminate" : false;
@@ -95,6 +120,9 @@ function Reviewers({ eventId }: { eventId: string }) {
   const addReviewer = useAddReviewer(eventId);
   const removeReviewer = useRemoveReviewer(eventId);
   const resendInvitation = useResendReviewerInvitation(eventId);
+  const sendAssignments = useSendReviewerAssignments(eventId);
+  const [sendingAssignmentsFor, setSendingAssignmentsFor] = useState<string | "all" | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<Reviewer | null>(null);
 
   const reviewers: Reviewer[] = data?.reviewers ?? [];
   const availableSpeakers: AvailableSpeaker[] = data?.availableSpeakers ?? [];
@@ -161,8 +189,9 @@ function Reviewers({ eventId }: { eventId: string }) {
   const handleRemoveReviewer = async (userId: string, name: string) => {
     setRemovingId(userId);
     try {
-      await removeReviewer.mutateAsync(userId);
-      toast.success(`${name} removed from reviewers`);
+      const res = await removeReviewer.mutateAsync(userId);
+      const gone = res.assignmentsRemoved;
+      toast.success(gone > 0 ? `${name} removed, with ${gone} assignment${gone === 1 ? "" : "s"}` : `${name} removed from reviewers`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to remove reviewer");
     } finally {
@@ -185,6 +214,24 @@ function Reviewers({ eventId }: { eventId: string }) {
       setResendingId(null);
     }
   };
+
+  // Assigning sends nothing (Nov 10, 2026): this emails each reviewer once,
+  // listing every assignment they have not been told about yet.
+  const handleSendAssignments = async (target: string | "all") => {
+    setSendingAssignmentsFor(target);
+    try {
+      const res = await sendAssignments.mutateAsync(target === "all" ? undefined : [target]);
+      if (res.emailed > 0) toast.success(`Assignments emailed to ${res.emailed} reviewer${res.emailed === 1 ? "" : "s"}`);
+      const failed = res.results.filter((r) => !r.ok && r.code !== "NOTHING_PENDING");
+      if (failed.length > 0) toast.error(`${failed.length} could not be sent: ${failed[0].message ?? "send failed"}`);
+      if (res.emailed === 0 && failed.length === 0) toast.info("Nothing new to send");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send assignments");
+    } finally {
+      setSendingAssignmentsFor(null);
+    }
+  };
+  const totalUnsent = reviewers.reduce((n, r) => n + (r.assignments?.unsent ?? 0), 0);
 
   // Selection helpers
   const allSelected = reviewers.length > 0 && reviewers.every((r) => selectedIds.has(r.userId));
@@ -239,6 +286,16 @@ function Reviewers({ eventId }: { eventId: string }) {
         </div>
 
         <div className="flex gap-2">
+          {totalUnsent > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => handleSendAssignments("all")}
+              disabled={sendingAssignmentsFor !== null}
+            >
+              <Send className="mr-2 h-4 w-4" />
+              {sendingAssignmentsFor === "all" ? "Sending..." : `Send all assignments (${totalUnsent})`}
+            </Button>
+          )}
           {reviewers.length > 0 && (
             <Button
               variant="outline"
@@ -478,6 +535,7 @@ function Reviewers({ eventId }: { eventId: string }) {
                               {reviewer.jobTitle && ` • ${reviewer.jobTitle}`}
                             </div>
                           )}
+                          <div>{assignmentSummary(reviewer.assignments)}</div>
                         </div>
                       </div>
                     </div>
@@ -500,15 +558,21 @@ function Reviewers({ eventId }: { eventId: string }) {
                         <Send className="mr-2 h-4 w-4" />
                         {sendLabel(reviewer.accountActive, resendingId === reviewer.userId)}
                       </Button>
+                      {(reviewer.assignments?.unsent ?? 0) > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleSendAssignments(reviewer.userId)}
+                          disabled={sendingAssignmentsFor !== null}
+                        >
+                          <Send className="mr-2 h-4 w-4" />
+                          {sendingAssignmentsFor === reviewer.userId ? "Sending..." : `Send assignments (${reviewer.assignments?.unsent})`}
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() =>
-                          handleRemoveReviewer(
-                            reviewer.userId,
-                            `${reviewer.firstName} ${reviewer.lastName}`
-                          )
-                        }
+                        onClick={() => setRemoveTarget(reviewer)}
                         disabled={removingId === reviewer.userId}
                         className="text-destructive hover:text-destructive"
                       >
@@ -523,6 +587,31 @@ function Reviewers({ eventId }: { eventId: string }) {
           </div>
         )}
       </div>
+
+      {/* Remove also takes away their assignments on this event (Nov 10, 2026). */}
+      <AlertDialog open={!!removeTarget} onOpenChange={(o) => !o && setRemoveTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove {removeTarget ? `${removeTarget.firstName} ${removeTarget.lastName}` : "this reviewer"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>{removeDescription(removeTarget?.assignments?.assigned ?? 0)}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!removeTarget) return;
+                handleRemoveReviewer(removeTarget.userId, `${removeTarget.firstName} ${removeTarget.lastName}`);
+                setRemoveTarget(null);
+              }}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Bulk Email Dialog */}
       <BulkEmailDialog

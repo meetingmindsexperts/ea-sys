@@ -410,7 +410,7 @@ export function registerAllMcpTools(
       abstractId: z.string(), status: z.enum(["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]),
       force: z.boolean().optional(),
     }},
-    { name: "assign_reviewer_to_abstract", description: "Assign a reviewer to a specific abstract. Role defaults to SECONDARY. Idempotent upsert — re-calling updates role and/or conflictFlag on an existing assignment. conflictFlag marks a conflict of interest and is ENFORCED: a conflicted reviewer is blocked from submitting a review.", params: {
+    { name: "assign_reviewer_to_abstract", description: "Assign a reviewer to a specific abstract. Role defaults to SECONDARY. Idempotent upsert — re-calling updates role and/or conflictFlag on an existing assignment. conflictFlag marks a conflict of interest and is ENFORCED: a conflicted reviewer is blocked from submitting a review. Sends no email: the organiser emails each reviewer their new assignments from the Reviewers page (Send assignments). A reviewer sees only the abstracts assigned to them.", params: {
       abstractId: z.string(), userId: z.string(),
       role: z.enum(["PRIMARY", "SECONDARY", "CONSULTING"]).optional(),
       conflictFlag: z.boolean().optional().describe("Conflict of interest. Enforced — a conflicted reviewer cannot score this abstract. Toggleable on re-call."),

@@ -34,7 +34,6 @@ import {
   readRequiredReviewCount,
 } from "@/lib/abstract-review";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
-import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
 import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
 import { recommendableFormats, type RecommendedFormatValue } from "@/lib/recommended-formats";
 
@@ -767,7 +766,7 @@ export interface AssignedReviewerUser {
 export type AssignReviewerResult =
   | {
       ok: true;
-      /** created = new assignment (notification sent); updated = role/COI flipped; noop = idempotent re-assign. */
+      /** created = new assignment (no email: sent by hand, sendPendingAssignments); updated = role/COI flipped; noop = idempotent re-assign. */
       kind: "created" | "updated" | "noop";
       assignment: ReviewerAssignmentSummary;
       reviewer: AssignedReviewerUser;
@@ -807,7 +806,7 @@ export async function assignReviewer(input: AssignReviewerInput): Promise<Assign
 
     // H6: don't assign a reviewer onto an abstract that isn't up for review —
     // a DRAFT (author's private WIP), a WITHDRAWN, or an already-decided
-    // abstract. Assignment + its notification email only make sense while the
+    // abstract. An assignment only makes sense while the
     // abstract can actually be scored (parity with the scoring gate).
     if (!REVIEWABLE_ABSTRACT_STATUSES.has(abstract.status)) {
       apiLogger.warn({ msg: "abstract-reviewer:assign-rejected", code: "NOT_REVIEWABLE", eventId, abstractId, status: abstract.status, source: input.source });
@@ -911,19 +910,9 @@ export async function assignReviewer(input: AssignReviewerInput): Promise<Assign
       })
       .catch((err) => apiLogger.error({ err, eventId, abstractId }, "assign-reviewer:audit-log-failed"));
 
-    // Tell the reviewer they have an abstract to review — only on a NEW
-    // assignment (role/COI flips return above). Failure-isolated inside the
-    // helper; never breaks the assignment.
-    await notifyReviewerAssigned({
-      eventId,
-      organizationId: input.organizationId,
-      reviewer: user,
-      eventName: event.name,
-      abstractTitle: abstract.title,
-      role: assignment.role,
-      source: input.source,
-      triggeredByUserId: input.actorUserId,
-    });
+    // No email here (owner, Nov 10, 2026): the organiser sends each reviewer
+    // one email listing their new assignments, from the Reviewers page
+    // (sendPendingAssignments in abstract-reviewer-notify.ts).
 
     return { ok: true, kind: "created", assignment, reviewer: user };
   } catch (err) {

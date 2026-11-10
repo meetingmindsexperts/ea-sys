@@ -140,6 +140,7 @@ export function AbstractReviewersCard({
         <CardDescription className="text-xs">
           Assign reviewers to this abstract with a role and conflict flag. A reviewer sees and
           scores only the abstracts assigned to them: nobody can review this one until it is assigned.
+          Assigning sends no email: use Send assignments on the Reviewers page.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">

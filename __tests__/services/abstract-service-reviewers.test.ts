@@ -22,7 +22,7 @@ const { mockDb, mockApiLogger, mockNotify } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
-vi.mock("@/lib/abstract-reviewer-notify", () => ({ notifyReviewerAssigned: mockNotify }));
+vi.mock("@/lib/abstract-reviewer-notify", () => ({ sendPendingAssignments: mockNotify, notifyReviewerPoolAdded: mockNotify }));
 vi.mock("@/lib/abstract-review", () => ({
   computeSubmissionAggregates: vi.fn(),
   computeWeightedOverallScore: vi.fn(),
@@ -58,7 +58,7 @@ beforeEach(() => {
 });
 
 describe("assignReviewer", () => {
-  it("creates a new assignment (default SECONDARY, no COI), audits with source, notifies the reviewer", async () => {
+  it("creates a new assignment (default SECONDARY, no COI), audits with source, and sends NO email (sent by hand since Nov 10, 2026)", async () => {
     const r = await assignReviewer(BASE);
     expect(r).toMatchObject({ ok: true, kind: "created" });
     expect(mockDb.abstractReviewer.create).toHaveBeenCalledWith(
@@ -73,9 +73,7 @@ describe("assignReviewer", () => {
         changes: expect.objectContaining({ source: "rest", reviewerUserId: "rev1" }),
       }),
     });
-    expect(mockNotify).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewer: REVIEWER, abstractTitle: "T", source: "rest" }),
-    );
+    expect(mockNotify).not.toHaveBeenCalled();
   });
 
   it("persists conflictFlag on create (the H8 class can't recur — one implementation)", async () => {

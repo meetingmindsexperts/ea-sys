@@ -201,6 +201,10 @@ model AbstractReviewer {
   userId         String
   assignedAt     DateTime             @default(now())
   assignedById   String
+  // When the reviewer was emailed about this assignment. Assigning sends
+  // nothing (owner, Nov 10, 2026); "Send assignments" on the Reviewers page
+  // emails each reviewer once, listing the rows still null here.
+  notifiedAt     DateTime?
   role           AbstractReviewerRole @default(SECONDARY)
   conflictFlag   Boolean              @default(false)
 

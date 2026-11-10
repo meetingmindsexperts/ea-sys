@@ -67,15 +67,31 @@ export async function GET(req: Request, { params }: RouteParams) {
     const settings = (event.settings as Record<string, unknown>) || {};
     const reviewerUserIds = (settings.reviewerUserIds as string[]) || [];
 
-    // Fetch reviewer User records
-    const reviewerUsers = reviewerUserIds.length > 0
-      ? await db.user.findMany({
-          where: { id: { in: reviewerUserIds } },
-          select: { id: true, email: true, firstName: true, lastName: true, emailVerified: true, role: true, emailConfirmedAt: true },
-        })
-      : [];
+    // Fetch reviewer User records, and each one's assignments on this event:
+    // how many, and how many not emailed yet (assignment emails are sent by
+    // hand, Nov 10, 2026).
+    const [reviewerUsers, assignmentRows] = reviewerUserIds.length > 0
+      ? await Promise.all([
+          db.user.findMany({
+            where: { id: { in: reviewerUserIds } },
+            select: { id: true, email: true, firstName: true, lastName: true, emailVerified: true, role: true, emailConfirmedAt: true },
+          }),
+          db.abstractReviewer.findMany({
+            where: { userId: { in: reviewerUserIds }, abstract: { eventId } },
+            select: { userId: true, notifiedAt: true },
+          }),
+        ])
+      : [[], []];
 
     const reviewerUserMap = new Map(reviewerUsers.map((u) => [u.id, u]));
+    const assignmentCounts = new Map<string, { assigned: number; unsent: number }>();
+    for (const row of assignmentRows) {
+      const c = assignmentCounts.get(row.userId) ?? { assigned: 0, unsent: 0 };
+      c.assigned += 1;
+      if (!row.notifiedAt) c.unsent += 1;
+      assignmentCounts.set(row.userId, c);
+    }
+    const countsFor = (userId: string) => assignmentCounts.get(userId) ?? { assigned: 0, unsent: 0 };
 
     // Build reviewers list: speakers whose userId is in reviewerUserIds
     const reviewers = speakers
@@ -93,6 +109,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           speakerStatus: s.status as string | null,
           accountActive: !!user?.emailVerified,
           needsEmailConfirmation: !!user && mustConfirmEmailToReview(user),
+          assignments: countsFor(s.userId!),
         };
       });
 
@@ -113,6 +130,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             speakerStatus: null,
             accountActive: !!user.emailVerified,
             needsEmailConfirmation: mustConfirmEmailToReview(user),
+            assignments: countsFor(userId),
           });
         }
       }

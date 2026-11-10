@@ -775,11 +775,13 @@ export function useRemoveReviewer(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (reviewerId: string) =>
-      fetchApi(`/api/events/${eventId}/reviewers/${reviewerId}`, {
+      fetchApi<{ success: boolean; assignmentsRemoved: number }>(`/api/events/${eventId}/reviewers/${reviewerId}`, {
         method: "DELETE",
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
+      // Their assignments went too: the abstracts and each one's Reviewers card.
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "abstracts"] });
     },
   });
 }
@@ -791,6 +793,21 @@ export function useResendReviewerInvitation(eventId: string) {
       fetchApi<{ success: boolean; sent: boolean; type: "setup" | "pool" }>(
         `/api/events/${eventId}/reviewers/${reviewerId}/resend-invitation`,
         { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
+    },
+  });
+}
+
+/** Email reviewers their unsent assignments, one email each (none named = everyone with some). */
+export function useSendReviewerAssignments(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (reviewerIds?: string[]) =>
+      fetchApi<{ emailed: number; failed: number; results: { reviewerId: string; ok: boolean; sent?: number; code?: string; message?: string }[] }>(
+        `/api/events/${eventId}/reviewers/send-assignments`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reviewerIds ? { reviewerIds } : {}) },
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
@@ -844,6 +861,8 @@ export function useAssignAbstractReviewer(eventId: string, abstractId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstractReviewers(eventId, abstractId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+      // The Reviewers page counts each reviewer's unsent assignments.
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
     },
   });
 }
@@ -858,6 +877,8 @@ export function useUnassignAbstractReviewer(eventId: string, abstractId: string)
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstractReviewers(eventId, abstractId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+      // The Reviewers page counts each reviewer's unsent assignments.
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
     },
   });
 }
