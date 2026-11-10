@@ -19,9 +19,13 @@ const { mockDb, ensureCompanionSpy, upsertSpy, rateLimitSpy, compareSpy, txUserU
     user: { findUnique: vi.fn(), findFirst: vi.fn() },
     // Written by the shared public-credential guard (review M7).
     loginEvent: { create: vi.fn() },
-    registration: { findFirst: vi.fn() },
-    // Read only by the lookup intent's prefill (Sep 29, 2026).
-    speaker: { findFirst: vi.fn() },
+    registration: { findFirst: vi.fn(), findMany: vi.fn() },
+    // Read only by the lookup intent's prefill (Sep 29, 2026). What the person
+    // gave ELSEWHERE comes through the shared rule (own-details-sources.ts):
+    // the account's saved details, their latest speaker records and
+    // registrations.
+    speaker: { findFirst: vi.fn(), findMany: vi.fn() },
+    accountProfile: { findUnique: vi.fn() },
     // No presenter rates on this event -> the D4 comp path, which is what this
     // file asserts. The route asks BEFORE the transaction (Sep 21, 2026), so
     // the mock has to answer.
@@ -95,6 +99,9 @@ beforeEach(() => {
   });
   mockDb.registration.findFirst.mockResolvedValue(null);
   mockDb.speaker.findFirst.mockResolvedValue(null);
+  mockDb.registration.findMany.mockResolvedValue([]);
+  mockDb.speaker.findMany.mockResolvedValue([]);
+  mockDb.accountProfile.findUnique.mockResolvedValue(null);
   upsertSpy.mockResolvedValue("sp1");
   ensureCompanionSpy.mockResolvedValue({ status: "created", registrationId: "reg1" });
 });
@@ -245,14 +252,13 @@ describe("abstract-start — lookup, then confirmed details", () => {
   it("lookup checks the password, returns details merged field by field, and creates nothing", async () => {
     // A speaker profile from ANOTHER event has the organisation; the latest
     // registration elsewhere has the phone; the account has the name.
-    mockDb.speaker.findFirst
-      .mockResolvedValueOnce(null) // no speaker on this event
-      .mockResolvedValueOnce({ organization: "Heart Institute", jobTitle: "Consultant", phone: null });
-    mockDb.registration.findFirst
-      .mockResolvedValueOnce(null) // no registration on this event
-      .mockResolvedValueOnce({ attendee: { phone: "+971500000000", country: "United Arab Emirates" } });
+    // Neither a speaker nor a registration on this event (the beforeEach).
+    mockDb.speaker.findMany.mockResolvedValue([{ organization: "Heart Institute", jobTitle: "Consultant", phone: null }]);
+    mockDb.registration.findMany.mockResolvedValue([{ attendee: { phone: "+971500000000", country: "United Arab Emirates" } }]);
     const res = await POST(makeReq({ ...validBody, intent: "lookup" }), params);
     expect(res.status).toBe(200);
+    // Elsewhere means elsewhere: this event's own rows are read ahead of these.
+    expect(mockDb.speaker.findMany.mock.calls[0][0].where).toMatchObject({ eventId: { not: "ev1" } });
     const body = (await res.json()) as { prefill: Record<string, string> };
     expect(body.prefill).toMatchObject({
       firstName: "Jane",
@@ -269,9 +275,8 @@ describe("abstract-start — lookup, then confirmed details", () => {
   });
 
   it("lookup says whether the person already holds a registration here, so the form skips the ID fields", async () => {
-    // Order: the prefill's on-event row, its latest-anywhere row, then holdsLiveRegistration.
+    // Order: the registration on this event, then holdsLiveRegistration.
     mockDb.registration.findFirst
-      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ id: "reg-here" });
     mockDb.speaker.findFirst.mockResolvedValue(null);

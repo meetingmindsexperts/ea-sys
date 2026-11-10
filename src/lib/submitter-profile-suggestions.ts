@@ -1,7 +1,6 @@
-import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { loadOwnDetailSources, type OwnDetails } from "@/lib/own-details-sources";
 import { loadRegistrantScope } from "@/lib/registrant-access";
-import { readAccountDetails } from "@/lib/registrant-details";
 import { isProfileIncomplete, type ProfileCompletenessInput } from "@/lib/submitter-profile-completeness";
 
 /**
@@ -15,11 +14,10 @@ import { isProfileIncomplete, type ProfileCompletenessInput } from "@/lib/submit
  * nothing is written until they press Save, so an account edit still never
  * reaches a speaker record on its own (registrant-details.ts).
  *
- * Sources, first one with a value wins, per empty field:
- *  1. the account's details, exactly as /my-account/details shows them
- *     (readAccountDetails: the saved profile, else the latest registration);
- *  2. the person's own speaker records on other events, newest first. This is
- *     where a bio comes from: an account has none.
+ * Where the values come from is loadOwnDetailSources (own-details-sources.ts),
+ * the one rule the abstract sign-in door reads too: the account's saved
+ * details, the person's speaker records on other events (where a bio lives),
+ * their latest registrations.
  */
 
 export const SUGGESTED_FIELDS = [
@@ -38,7 +36,7 @@ export const SUGGESTED_FIELDS = [
 ] as const;
 export type SuggestedField = (typeof SUGGESTED_FIELDS)[number];
 
-type Details = Partial<Record<SuggestedField, string | null>>;
+type Details = Pick<OwnDetails, SuggestedField>;
 export type SpeakerDetailSuggestions = Partial<Record<SuggestedField, string>>;
 
 const filled = (v: string | null | undefined): v is string => typeof v === "string" && v.trim().length > 0;
@@ -62,8 +60,6 @@ export function pickSuggestions(current: Details, sources: Details[]): SpeakerDe
   return out;
 }
 
-const SPEAKER_SELECT = Object.fromEntries(SUGGESTED_FIELDS.map((f) => [f, true])) as Record<SuggestedField, true>;
-
 /**
  * Never throws: a failed lookup means an empty form, as before, not a page
  * that will not load.
@@ -76,17 +72,9 @@ export async function suggestSpeakerDetails(args: {
 }): Promise<SpeakerDetailSuggestions> {
   if (!isProfileIncomplete(args.current)) return {};
   try {
-    const [scope, otherSpeakers] = await Promise.all([
-      loadRegistrantScope(args.userId, { sessionTokenVersion: args.sessionTokenVersion }),
-      db.speaker.findMany({
-        where: { userId: args.userId, eventId: { not: args.eventId } },
-        orderBy: { updatedAt: "desc" },
-        take: 3,
-        select: SPEAKER_SELECT,
-      }),
-    ]);
-    const account = scope ? (await readAccountDetails(scope)).details : null;
-    return pickSuggestions(args.current, [...(account ? [account] : []), ...otherSpeakers]);
+    const scope = await loadRegistrantScope(args.userId, { sessionTokenVersion: args.sessionTokenVersion });
+    const sources = await loadOwnDetailSources({ userId: args.userId, scope, exceptEventId: args.eventId });
+    return pickSuggestions(args.current, sources);
   } catch (err) {
     apiLogger.warn({ err, msg: "submitter-profile:suggestions-failed", userId: args.userId, eventId: args.eventId });
     return {};

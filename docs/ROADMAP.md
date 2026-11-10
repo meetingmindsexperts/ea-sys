@@ -34,6 +34,26 @@ day. These were recorded instead:
   invitation route. It reads the role (only an invited REVIEWER account starts without a
   password); a real "password set at" column would say it directly if a third kind of account
   ever appears.
+- **Older, HIGH, awaiting the owner (review of `5c66e67d`, traced by reading, not run): a submitter
+  account that never proved its address gets another person's registration as its companion.**
+  `speaker-companion.ts` finds a registration on the event by address alone (linked or not) and
+  makes it the speaker's `sourceRegistrationId`; the submitter door creates an account with no
+  mailbox proof and then calls it. Someone who signs up at an event's abstract door with a
+  registered guest's address would read that registration's entry barcode, serial and payment
+  status on My Details, and their Save would copy title, organisation, phone, bio, photo and
+  additional email onto the guest's attendee record. The three address matches there are also the
+  unescaped `equals` (underscore wildcard) and they WRITE, unlike the rest of the list below.
+  Likely fix: require the proven address (`accountConfirmed`) before adopting a registration that
+  is not linked to the caller, as `upsertEventSpeaker` already does for a speaker record.
+- **LOW, listed only (review of `5c66e67d`, the My Details prefill):** a failed suggestion lookup
+  logs at `warn`; a suggested bio over 5,000 characters or a city/state/country over 100 is
+  refused by the self-edit save with no field named (organiser routes allow 10,000 and 255; none
+  on production today); after Cancel the banner still says "press Save"; the cross-event speaker
+  read has no organisation filter (the tenant lane confines it on the platform instance, master
+  spans organisations); the gate hook and the nudge pay for the suggestion queries and discard
+  them; `SuggestedField` is retyped in the page, and "Custom specialty" is not named as still
+  missing when "Others" is suggested without one. Also older: the My Details GET's two 404s are
+  silent.
 - **Older: about 30 other case-insensitive `equals` on addresses** (`grep 'equals: .*mode: "insensitive"'`).
   The eight that decide whose a record is were fixed (`equalsIgnoringCase`). The rest find or
   de-duplicate people (imports, contact matching, sign-up checks): an underscore there can match a

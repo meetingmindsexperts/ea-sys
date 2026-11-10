@@ -6,6 +6,7 @@ import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { sendEmailVerification } from "@/lib/email-verification";
 import { loadRegistrantScope, ownRegistrationWhere, speakerClaimPending } from "@/lib/registrant-access";
+import { firstGiven, loadOwnDetailSources, OWN_DETAIL_SELECT } from "@/lib/own-details-sources";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
@@ -72,18 +73,12 @@ const DETAIL_KEYS = [
 type DetailKey = (typeof DETAIL_KEYS)[number];
 type DetailSource = Partial<Record<DetailKey, string | null>> | null | undefined;
 
-const DETAIL_SELECT = {
-  title: true, role: true, firstName: true, lastName: true, additionalEmail: true,
-  organization: true, jobTitle: true, phone: true, city: true, country: true,
-  specialty: true, customSpecialty: true,
-} as const;
-
 /**
  * What to prefill for a person signing in, field by field, from the most
  * specific record that has a value: their speaker profile on this event, their
- * registration on this event, their latest speaker profile anywhere, their
- * latest registration anywhere, then the account's own name. Only this
- * person's rows (their user id or their email) are read.
+ * registration on this event, then what they gave elsewhere (the one rule in
+ * own-details-sources.ts, shared with the event's My Details), then the
+ * account's own name. Only this person's rows are read.
  */
 async function loadPresenterPrefill(args: {
   eventId: string;
@@ -98,32 +93,20 @@ async function loadPresenterPrefill(args: {
   // invited speaker's details are theirs until the address is proven.
   const scope = await loadRegistrantScope(args.userId, "password-checked");
   const confirmed = !!scope?.confirmed;
-  const mine = confirmed ? { OR: [{ userId: args.userId }, { email: args.email }] } : { userId: args.userId };
-  const [speakerHere, latestSpeaker, latestRegistration] = await Promise.all([
+  const [speakerHere, elsewhere] = await Promise.all([
     db.speaker.findFirst({
       where: { eventId: args.eventId, email: args.email, ...(confirmed ? {} : { userId: args.userId }) },
-      select: DETAIL_SELECT,
+      select: OWN_DETAIL_SELECT,
     }),
-    db.speaker.findFirst({ where: mine, orderBy: { updatedAt: "desc" }, select: DETAIL_SELECT }),
-    db.registration.findFirst({
-      where: { status: { not: "CANCELLED" }, ...(scope ? ownRegistrationWhere(scope) : { userId: args.userId }) },
-      orderBy: { createdAt: "desc" },
-      select: { attendee: { select: DETAIL_SELECT } },
-    }),
+    loadOwnDetailSources({ userId: args.userId, scope, exceptEventId: args.eventId }),
   ]);
   const sources: DetailSource[] = [
     speakerHere,
     args.hereAttendee,
-    latestSpeaker,
-    latestRegistration?.attendee,
+    ...elsewhere,
     { firstName: args.user.firstName, lastName: args.user.lastName },
   ];
-  const out = {} as Record<DetailKey, string>;
-  for (const key of DETAIL_KEYS) {
-    const found = sources.find((src) => src?.[key]?.toString().trim());
-    out[key] = found?.[key]?.toString() ?? "";
-  }
-  return out;
+  return Object.fromEntries(DETAIL_KEYS.map((key) => [key, firstGiven(sources, key)])) as Record<DetailKey, string>;
 }
 
 interface RouteParams {

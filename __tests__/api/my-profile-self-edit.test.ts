@@ -10,7 +10,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, syncSpy, rateLimitSpy } = vi.hoisted(() => ({
+const { mockDb, mockAuth, syncSpy, rateLimitSpy, suggestSpy } = vi.hoisted(() => ({
+  suggestSpy: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
     speaker: { findFirst: vi.fn(), update: vi.fn() },
@@ -33,7 +34,9 @@ vi.mock("@/lib/event-access", () => ({
   buildEventAccessWhere: (_u: unknown, id: string) => ({ id }),
 }));
 
-import { PATCH } from "@/app/api/events/[eventId]/abstracts/my-profile/route";
+vi.mock("@/lib/submitter-profile-suggestions", () => ({ suggestSpeakerDetails: suggestSpy }));
+
+import { GET, PATCH } from "@/app/api/events/[eventId]/abstracts/my-profile/route";
 
 const params = { params: Promise.resolve({ eventId: "ev1" }) };
 const req = (body: unknown) =>
@@ -67,13 +70,47 @@ const existingSpeaker = {
 beforeEach(() => {
   vi.clearAllMocks();
   rateLimitSpy.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
-  mockAuth.mockResolvedValue({ user: { id: "u-sub", role: "SUBMITTER", organizationId: null } });
+  suggestSpy.mockResolvedValue({ phone: "+971 50 000 0000" });
+  mockAuth.mockResolvedValue({ user: { id: "u-sub", role: "SUBMITTER", organizationId: null, tokenVersion: 4 } });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
   mockDb.speaker.findFirst.mockResolvedValue(structuredClone(existingSpeaker));
   mockDb.speaker.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
     ...structuredClone(existingSpeaker),
     ...args.data,
   }));
+});
+
+// The form opens filled with what the person gave elsewhere (Nov 10, 2026).
+describe("my-profile GET: details the person already gave", () => {
+  const get = () => GET(new Request("http://localhost/my-profile"), params);
+
+  it("offers them for the CALLER and THIS event, beside the stored record", async () => {
+    const res = await get();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { phone: string | null; suggested: Record<string, string> };
+    expect(body.suggested).toEqual({ phone: "+971 50 000 0000" });
+    // The stored value is untouched: only the person's own Save stores a suggestion.
+    expect(body.phone).toBeNull();
+    expect(mockDb.speaker.update).not.toHaveBeenCalled();
+    expect(suggestSpy).toHaveBeenCalledWith({
+      userId: "u-sub",
+      eventId: "ev1",
+      sessionTokenVersion: 4,
+      current: expect.objectContaining({ id: "sp1", phone: null }),
+    });
+  });
+
+  it("someone with no speaker record here is offered nothing", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue(null);
+    expect((await get()).status).toBe(404);
+    expect(suggestSpy).not.toHaveBeenCalled();
+  });
+
+  it("a save answers with the stored record only", async () => {
+    const res = await PATCH(req({ phone: "123" }), params);
+    expect(((await res.json()) as { suggested?: unknown }).suggested).toBeUndefined();
+    expect(suggestSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("my-profile PATCH — ownership + auth", () => {

@@ -5,17 +5,15 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { db, loadRegistrantScope, readAccountDetails, warn } = vi.hoisted(() => ({
-  db: { speaker: { findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() } },
+const { loadOwnDetailSources, loadRegistrantScope, warn } = vi.hoisted(() => ({
+  loadOwnDetailSources: vi.fn(),
   loadRegistrantScope: vi.fn(),
-  readAccountDetails: vi.fn(),
   warn: vi.fn(),
 }));
 
-vi.mock("@/lib/db", () => ({ db }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn, info: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/registrant-access", () => ({ loadRegistrantScope }));
-vi.mock("@/lib/registrant-details", () => ({ readAccountDetails }));
+vi.mock("@/lib/own-details-sources", () => ({ loadOwnDetailSources }));
 
 import { pickSuggestions, suggestSpeakerDetails } from "@/lib/submitter-profile-suggestions";
 
@@ -29,11 +27,12 @@ const account = {
 };
 const args = { userId: "u1", eventId: "ev1", sessionTokenVersion: 3, current: blank };
 
+const scope = { userId: "u1", email: "a@b.co", confirmed: true };
+
 beforeEach(() => {
   vi.clearAllMocks();
-  loadRegistrantScope.mockResolvedValue({ userId: "u1", email: "a@b.co", confirmed: true });
-  readAccountDetails.mockResolvedValue({ details: account, source: "registration" });
-  db.speaker.findMany.mockResolvedValue([]);
+  loadRegistrantScope.mockResolvedValue(scope);
+  loadOwnDetailSources.mockResolvedValue([account]);
 });
 
 describe("pickSuggestions", () => {
@@ -58,8 +57,8 @@ describe("pickSuggestions", () => {
 });
 
 describe("suggestSpeakerDetails", () => {
-  it("offers the account's details, then the bio from the person's other speaker records", async () => {
-    db.speaker.findMany.mockResolvedValue([{ ...blank, organization: "Old employer", bio: "Twenty years in haematology." }]);
+  it("offers what the shared rule holds, asked for THIS person and every event but this one", async () => {
+    loadOwnDetailSources.mockResolvedValue([account, { ...blank, organization: "Old employer", bio: "Twenty years in haematology." }]);
 
     const got = await suggestSpeakerDetails(args);
 
@@ -67,32 +66,18 @@ describe("suggestSpeakerDetails", () => {
       title: "DR", role: "PHARMA", specialty: "Cardiology", organization: "Acme", jobTitle: "Lead",
       phone: "+971 50 000 0000", city: "Dubai", country: "United Arab Emirates", bio: "Twenty years in haematology.",
     });
-    // Their OWN records only, and never this event's.
-    expect(db.speaker.findMany.mock.calls[0][0].where).toEqual({ userId: "u1", eventId: { not: "ev1" } });
     expect(loadRegistrantScope).toHaveBeenCalledWith("u1", { sessionTokenVersion: 3 });
-  });
-
-  it("writes nothing", async () => {
-    await suggestSpeakerDetails(args);
-    expect(db.speaker.update).not.toHaveBeenCalled();
-    expect(db.speaker.updateMany).not.toHaveBeenCalled();
+    expect(loadOwnDetailSources).toHaveBeenCalledWith({ userId: "u1", scope, exceptEventId: "ev1" });
   });
 
   it("a complete profile is asked nothing and offered nothing", async () => {
     const complete = { ...blank, role: "PHARMA", specialty: "Cardiology", organization: "Acme", jobTitle: "Lead", phone: "1", city: "Dubai", country: "UAE", bio: "Bio" };
     expect(await suggestSpeakerDetails({ ...args, current: complete })).toEqual({});
-    expect(db.speaker.findMany).not.toHaveBeenCalled();
-    expect(readAccountDetails).not.toHaveBeenCalled();
-  });
-
-  it("an account that no longer exists still gets the other speaker records", async () => {
-    loadRegistrantScope.mockResolvedValue(null);
-    db.speaker.findMany.mockResolvedValue([{ ...blank, city: "Muscat" }]);
-    expect(await suggestSpeakerDetails(args)).toEqual({ city: "Muscat" });
+    expect(loadOwnDetailSources).not.toHaveBeenCalled();
   });
 
   it("a failed lookup is logged and the form opens empty, as before", async () => {
-    db.speaker.findMany.mockRejectedValue(new Error("db down"));
+    loadOwnDetailSources.mockRejectedValue(new Error("db down"));
     expect(await suggestSpeakerDetails(args)).toEqual({});
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "submitter-profile:suggestions-failed", userId: "u1", eventId: "ev1" }));
   });
