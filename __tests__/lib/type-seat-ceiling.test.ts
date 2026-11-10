@@ -214,11 +214,11 @@ describe("claimSeatsOverselling on a tier — bulk paths move both, unguarded, t
 });
 
 describe("HELD_SEAT_WHERE — the one row-truth predicate every recount spreads", () => {
-  it("is not-cancelled, in-person, not a speaker companion (null createdSource kept IN)", () => {
+  it("is not-cancelled, in-person, not seatless Faculty (a speaker companion or added as Faculty; null createdSource kept IN)", () => {
     expect(HELD_SEAT_WHERE).toEqual({
       status: { not: "CANCELLED" },
       attendanceMode: "IN_PERSON",
-      OR: [{ createdSource: null }, { createdSource: { not: "SPEAKER_COMPANION" } }],
+      OR: [{ createdSource: null }, { createdSource: { notIn: ["SPEAKER_COMPANION", "FACULTY_ADMIN"] } }],
     });
   });
 

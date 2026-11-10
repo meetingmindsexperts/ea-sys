@@ -37,7 +37,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 
-import { needsQrCode, seatCounter } from "@/lib/registration-seat";
+import { isSeatlessSource, needsQrCode, seatCounter } from "@/lib/registration-seat";
 import { applyRegistrationTransition, claimEventSeats, claimSeats } from "@/lib/registration-seat-db";
 import { resolveRepricing } from "@/lib/registration-repricing";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
@@ -425,6 +425,19 @@ export interface CreateRegistrationInput {
   /** Caller identity — written into `AuditLog.changes.source`. */
   source: "rest" | "mcp" | "agent" | "api";
 
+  /**
+   * Added as Faculty (Nov 10, 2026; owner: Faculty is the umbrella for invited
+   * speakers AND committee members). ONLY the admin Add Registration route
+   * sets it, with `ticketTypeId` = the event's isFaculty type. It is the one
+   * way past TICKET_TYPE_IS_FACULTY: comp only, no rate, no promo code, no
+   * seat (createdSource FACULTY_ADMIN, seatless), no speaker record. Every
+   * other caller (public forms, imports, bulk changes, MCP) stays refused.
+   */
+  asFaculty?: boolean;
+
+  /** The printed badge label (Faculty, Committee, ...); the faculty path sets it. */
+  badgeType?: string | null;
+
   /** REST callers pass `getClientIp(req)`. MCP omits. */
   requestIp?: string;
 
@@ -440,6 +453,7 @@ export type CreateRegistrationErrorCode =
   | "EVENT_NOT_FOUND"
   | "TICKET_TYPE_NOT_FOUND"
   | "TICKET_TYPE_IS_FACULTY"
+  | "FACULTY_TERMS_INVALID"
   | "SALES_NOT_STARTED"
   | "SALES_ENDED"
   | "SOLD_OUT"
@@ -481,6 +495,18 @@ export type CreateRegistrationResult =
     };
 
 // ── Service ──────────────────────────────────────────────────────────────────
+
+/**
+ * Why a faculty-path create is refused, or null. Faculty is comp and seatless:
+ * the type must be the event's Faculty type, and nothing may charge for it.
+ */
+function facultyTermsRefusal(input: CreateRegistrationInput, typeIsFaculty: boolean): string | null {
+  if (!typeIsFaculty) return "Adding as Faculty needs the event's Faculty type.";
+  if (input.pricingTierId) return "A Faculty registration has no rate.";
+  if (input.promoCode) return "A Faculty registration takes no promo code.";
+  if (input.paymentStatus && input.paymentStatus !== "COMPLIMENTARY") return "A Faculty registration is complimentary.";
+  return null;
+}
 
 export async function createRegistration(
   input: CreateRegistrationInput,
@@ -635,7 +661,15 @@ export async function createRegistration(
   // every delegate-facing count — a delegate placed on it disappears from the
   // stats. The UIs filter it client-side; this is the server-side guard that
   // also covers MCP/n8n callers (same rule as the importers' shared resolver).
-  if (ticketType?.isFaculty) {
+  if (input.asFaculty) {
+    // The explicit faculty path: the type must BE the Faculty type, and the
+    // registration is comp with nothing that would charge or seat it.
+    const facultyRefusal = facultyTermsRefusal(input, ticketType?.isFaculty === true);
+    if (facultyRefusal) {
+      apiLogger.warn({ msg: "registration:faculty-terms-invalid", eventId, reason: facultyRefusal, source, userId });
+      return { ok: false, code: "FACULTY_TERMS_INVALID", message: facultyRefusal };
+    }
+  } else if (ticketType?.isFaculty) {
     return {
       ok: false,
       code: "TICKET_TYPE_IS_FACULTY",
@@ -900,15 +934,18 @@ export async function createRegistration(
       // admin dashboard route → ADMIN_DASHBOARD; MCP → MCP_AGENT.
       // Declared BEFORE the seat claim because it decides WHICH counter is
       // claimed — see the comment in that block.
-      const createdSource =
-        input.createdSource ?? (source === "mcp" ? "MCP_AGENT" : "ADMIN_DASHBOARD");
+      const createdSource: RegistrationCreatedSource = input.asFaculty
+        ? "FACULTY_ADMIN"
+        : (input.createdSource ?? (source === "mcp" ? "MCP_AGENT" : "ADMIN_DASHBOARD"));
 
       // Atomic soldCount increment with sold-out guard inside the tx —
       // prevents overbooking under concurrent admin + public + MCP registrations.
       // VIRTUAL is uncapped: it does NOT consume a physical seat, so we skip
       // the increment AND the sold-out guard (a sold-out venue can still take
       // virtual signups).
-      if (ticketType && ticketTypeId && !isVirtual) {
+      // Seatless Faculty (FACULTY_ADMIN) claims nothing, as a speaker's
+      // companion never does: owner, Nov 10, 2026, committee hold no seat.
+      if (ticketType && ticketTypeId && !isVirtual && !isSeatlessSource(createdSource)) {
         // WHICH counter is decided by `seatCounter()` — the SAME pure function
         // the cancel/reactivate/type-change paths use to decide what to
         // RELEASE. Deriving both from one predicate is what makes claim and
@@ -979,6 +1016,7 @@ export async function createRegistration(
           eventId,
           ticketTypeId: ticketTypeId || null,
           ...exhibitorBadgeData(ticketType?.name),
+          ...(input.badgeType ? { badgeType: input.badgeType } : {}),
           pricingTierId: validPricingTierId,
           attendeeId: attendeeRecord.id,
           serialId,

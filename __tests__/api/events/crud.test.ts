@@ -935,7 +935,7 @@ describe("PUT /api/events/[eventId] — maxAttendees (event-wide cap, Option B)"
         status: { not: "CANCELLED" },
         attendanceMode: "IN_PERSON",
         ticketTypeId: { not: null },
-        OR: [{ createdSource: null }, { createdSource: { not: "SPEAKER_COMPANION" } }],
+        OR: [{ createdSource: null }, { createdSource: { notIn: ["SPEAKER_COMPANION", "FACULTY_ADMIN"] } }],
       }),
     });
   });

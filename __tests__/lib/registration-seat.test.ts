@@ -86,6 +86,9 @@ describe("seatCounter — which counter the seat is tallied on", () => {
     // even if a tier id were somehow set, a companion still counts on nothing
     expect(seatCounter({ createdSource: "SPEAKER_COMPANION", pricingTierId: "pt", ticketTypeId: "faculty_tt" })).toBeNull();
   });
+  it("added as Faculty from the admin form → null as well (owner, Nov 10, 2026: committee hold no seat)", () => {
+    expect(seatCounter({ createdSource: "FACULTY_ADMIN", pricingTierId: null, ticketTypeId: "faculty_tt" })).toBeNull();
+  });
 });
 
 describe("planSeatTransition — ticket-type axis (hybrid)", () => {

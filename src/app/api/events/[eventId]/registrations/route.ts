@@ -39,6 +39,8 @@ import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { getSponsorNameMap } from "@/lib/sponsors";
 import { parseSerialQuery } from "@/lib/registration-search";
 import { completionWhereFor } from "@/lib/registration-completion";
+import { ensureFacultyTicketType } from "@/lib/speaker-companion";
+import { COMMITTEE_ROLES, facultyBadgeType, withCommitteeTags } from "@/lib/faculty-registration";
 import { createRegistration } from "@/services/registration-service";
 import { HTTP_STATUS_FOR_REGISTRATION_ERROR } from "@/lib/registration-error-status";
 
@@ -79,6 +81,11 @@ const createRegistrationSchema = z.object({
   billingAccountId: z.string().min(1).max(100).optional(),
   payerReference: z.string().max(120).optional(),
   attendeeIsGuarantor: z.boolean().optional(),
+  // Add as Faculty (Nov 10, 2026): the event's Faculty type, resolved here,
+  // never sent by the browser; comp and seatless. Faculty is the umbrella for
+  // invited speakers and committee, so this needs no speaker record.
+  asFaculty: z.boolean().optional(),
+  committeeRole: z.enum(COMMITTEE_ROLES).optional(),
   attendee: z.object({
     title: titleEnum.optional(),
     // Demographic / professional classification — the public form collects
@@ -817,18 +824,32 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, pricingTierId, attendanceMode, attendee, notes, paymentStatus: requestedPaymentStatus, sponsorId, billingAccountId, payerReference, attendeeIsGuarantor } = validated.data;
+    const { ticketTypeId, pricingTierId, attendanceMode, attendee, notes, paymentStatus: requestedPaymentStatus, sponsorId, billingAccountId, payerReference, attendeeIsGuarantor, asFaculty, committeeRole } = validated.data;
+
+    // Faculty is its own choice: never alongside a type the browser picked,
+    // and a committee role only on it (a delegate's committee tag stays a tag).
+    if (asFaculty && ticketTypeId) {
+      apiLogger.warn({ msg: "events/registrations:faculty-with-type", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Add as Faculty or pick a registration type, not both.", code: "FACULTY_TERMS_INVALID" }, { status: 400 });
+    }
+    if (committeeRole && !asFaculty) {
+      apiLogger.warn({ msg: "events/registrations:committee-role-without-faculty", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "A committee role is set when adding as Faculty.", code: "FACULTY_TERMS_INVALID" }, { status: 400 });
+    }
+    const role = committeeRole ?? "NONE";
+    const facultyTypeId = asFaculty ? await ensureFacultyTicketType(eventId) : null;
 
     const result = await createRegistration({
       eventId,
       organizationId: orgGuard.orgId,
       userId: session.user.id,
-      ticketTypeId,
+      ticketTypeId: facultyTypeId ?? ticketTypeId,
       pricingTierId,
       attendanceMode,
-      attendee,
+      attendee: asFaculty ? { ...attendee, tags: withCommitteeTags(attendee.tags, role) } : attendee,
+      ...(asFaculty && { asFaculty: true, badgeType: facultyBadgeType(role) }),
       notes,
-      paymentStatus: requestedPaymentStatus,
+      paymentStatus: asFaculty ? (requestedPaymentStatus ?? "COMPLIMENTARY") : requestedPaymentStatus,
       sponsorId,
       billingAccountId,
       payerReference,

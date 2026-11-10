@@ -383,7 +383,7 @@ describe("PUT /api/events/[eventId]/tickets/[ticketId]", () => {
         ticketTypeId: "tt-1",
         status: { not: "CANCELLED" },
         attendanceMode: "IN_PERSON",
-        OR: [{ createdSource: null }, { createdSource: { not: "SPEAKER_COMPANION" } }],
+        OR: [{ createdSource: null }, { createdSource: { notIn: ["SPEAKER_COMPANION", "FACULTY_ADMIN"] } }],
       },
     });
   });

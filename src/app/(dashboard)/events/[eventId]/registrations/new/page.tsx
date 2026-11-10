@@ -24,6 +24,10 @@ import { AddPayerDialog } from "@/components/billing/add-payer-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import type { TicketType } from "../types";
+import { COMMITTEE_ROLES, COMMITTEE_ROLE_LABELS, type CommitteeRole } from "@/lib/faculty-registration";
+
+/** The Type picker's value for "Faculty": the route resolves the event's Faculty type itself. */
+const FACULTY_CHOICE = "__faculty__";
 import {
   MANUAL_PAYMENT_STATUS_HELPER_TEXT,
   MANUAL_PAYMENT_STATUSES,
@@ -75,6 +79,7 @@ export default function NewRegistrationPage() {
   const isHybridEvent = (eventData as { eventType?: string } | undefined)?.eventType === "HYBRID";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [committeeRole, setCommitteeRole] = useState<CommitteeRole>("NONE");
   const [formData, setFormData] = useState<{
     ticketTypeId: string;
     pricingTierId: string;
@@ -147,11 +152,14 @@ export default function NewRegistrationPage() {
     setError(null);
 
     try {
+      const asFaculty = formData.ticketTypeId === FACULTY_CHOICE;
       const res = await fetch(`/api/events/${eventId}/registrations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ticketTypeId: formData.ticketTypeId || undefined,
+          ticketTypeId: asFaculty ? undefined : formData.ticketTypeId || undefined,
+          // Faculty: free, no seat, no speaker record; committee is a role on top.
+          ...(asFaculty && { asFaculty: true, committeeRole }),
           // Only send pricingTierId when it matches the picked ticket type —
           // a stale selection (admin changed ticket type after picking a
           // tier) would otherwise fail server-side validation.
@@ -159,12 +167,12 @@ export default function NewRegistrationPage() {
             formData.pricingTierId && availableTiers.some((t) => t.id === formData.pricingTierId)
               ? formData.pricingTierId
               : undefined,
-          paymentStatus: formData.paymentStatus,
+          paymentStatus: asFaculty ? PaymentStatus.COMPLIMENTARY : formData.paymentStatus,
           // Only send a virtual mode on hybrid events (the picker is hidden
           // otherwise, so this stays IN_PERSON for non-hybrid events).
           attendanceMode: isHybridEvent ? formData.attendanceMode : undefined,
           // "Charge to another account" — orthogonal to paymentStatus.
-          billingAccountId: formData.billingAccountId || undefined,
+          billingAccountId: asFaculty ? undefined : formData.billingAccountId || undefined,
           payerReference:
             formData.billingAccountId && formData.payerReference
               ? formData.payerReference
@@ -322,14 +330,14 @@ export default function NewRegistrationPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">None</SelectItem>
-                    {/* Faculty is never offered here: that type backs speaker
-                        companions (created automatically when a speaker is
-                        added) and is excluded from every delegate-facing count,
-                        so a delegate placed on it silently disappears from the
-                        stats. On events cloned before the isFaculty-copy fix
-                        there can be TWO types named "Faculty", indistinguishable
-                        in this list — another reason not to show it. */}
-                    {(ticketTypes as TicketType[]).filter((t) => !t.isFaculty).map((regType) => {
+                    {/* Faculty (Nov 10, 2026; owner: the umbrella for invited
+                        speakers and committee). Offered as its own choice, never
+                        as the raw type: the route resolves the event's Faculty
+                        type, and the registration is free, seatless and not a
+                        delegate. Inactive types are left out: the create path
+                        refuses them, so offering one only failed on save. */}
+                    <SelectItem value={FACULTY_CHOICE}>Faculty</SelectItem>
+                    {(ticketTypes as TicketType[]).filter((t) => !t.isFaculty && t.isActive !== false).map((regType) => {
                       // Hide the "- $X" suffix when the type has ANY pricing
                       // tiers (active or inactive) — the Pricing Tier dropdown
                       // is the source of truth on the admin manual-add path,
@@ -355,9 +363,27 @@ export default function NewRegistrationPage() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Optional — leave empty to register without a type
+                  {formData.ticketTypeId === FACULTY_CHOICE
+                    ? "Faculty covers invited speakers and committee members: free, no seat, not counted as a delegate. Speakers are usually added on the Speakers page, which also puts them on the programme."
+                    : "Optional — leave empty to register without a type"}
                 </p>
               </div>
+              {formData.ticketTypeId === FACULTY_CHOICE && (
+                <div className="space-y-2">
+                  <Label htmlFor="committeeRole">Committee</Label>
+                  <Select value={committeeRole} onValueChange={(v) => setCommitteeRole(v as CommitteeRole)}>
+                    <SelectTrigger id="committeeRole" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COMMITTEE_ROLES.map((r) => (
+                        <SelectItem key={r} value={r}>{COMMITTEE_ROLE_LABELS[r]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Sets the committee tag and prints it on the badge.</p>
+                </div>
+              )}
               {/* Pricing tier — rendered when the picked ticket type has ANY
                   tiers (active OR inactive). Admin manual-add gets full control
                   over which tier to assign (e.g. record a late registrant at
@@ -405,8 +431,9 @@ export default function NewRegistrationPage() {
               <div className="space-y-2">
                 <Label htmlFor="paymentStatus">Payment Status</Label>
                 <Select
-                  value={formData.paymentStatus}
+                  value={formData.ticketTypeId === FACULTY_CHOICE ? PaymentStatus.COMPLIMENTARY : formData.paymentStatus}
                   onValueChange={(value) => setFormData({ ...formData, paymentStatus: value as PaymentStatus })}
+                  disabled={formData.ticketTypeId === FACULTY_CHOICE}
                 >
                   <SelectTrigger id="paymentStatus" className="w-full">
                     <SelectValue />
@@ -427,8 +454,8 @@ export default function NewRegistrationPage() {
           </CardContent>
         </Card>
 
-        {/* Section 1b: Billing — charge to another account */}
-        {canReadPayers && (
+        {/* Section 1b: Billing — charge to another account (never for Faculty, which is free). */}
+        {canReadPayers && formData.ticketTypeId !== FACULTY_CHOICE && (
           <Card>
             <CardHeader className="pb-4">
               <CardTitle className="text-base">Billing</CardTitle>

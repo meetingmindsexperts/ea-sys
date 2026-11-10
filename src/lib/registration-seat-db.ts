@@ -8,13 +8,13 @@
  * header, owner decision Sep 8, 2026) without any caller having to know.
  */
 import type { Prisma } from "@prisma/client";
-import { planSeatTransition, type SeatCounter, type SeatState } from "./registration-seat";
+import { planSeatTransition, SEATLESS_SOURCES, type SeatCounter, type SeatState } from "./registration-seat";
 
 /**
  * Row-truth mirror of `holdsSeat()` + `seatCounter()`: a registration holds a
  * seat under its ticket type when it is not cancelled, attending in person,
- * and not a speaker companion (companions are created uncapped and live on no
- * counter). The explicit OR keeps null `createdSource` rows IN, because Prisma
+ * and not seatless Faculty (a speaker's companion or someone added as Faculty:
+ * SEATLESS_SOURCES; they are created uncapped and live on no counter). The explicit OR keeps null `createdSource` rows IN, because Prisma
  * `not` excludes nulls. ONE definition, spread by every recount (the event-cap
  * PUT, the ticket-type PUT); the migration and scripts/reconcile-soldcounts.ts
  * restate it in SQL / via the helpers and a test pins the three predicates.
@@ -22,7 +22,7 @@ import { planSeatTransition, type SeatCounter, type SeatState } from "./registra
 export const HELD_SEAT_WHERE = {
   status: { not: "CANCELLED" },
   attendanceMode: "IN_PERSON",
-  OR: [{ createdSource: null }, { createdSource: { not: "SPEAKER_COMPANION" } }],
+  OR: [{ createdSource: null }, { createdSource: { notIn: [...SEATLESS_SOURCES] } }],
 } as const satisfies Prisma.RegistrationWhereInput;
 
 /**

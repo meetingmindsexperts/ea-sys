@@ -74,6 +74,21 @@ export interface SeatState {
 }
 
 /**
+ * Faculty registrations hold no seat (Nov 10, 2026, owner: committee hold no
+ * seat, the same as speakers): a speaker's automatic companion, and someone
+ * added as Faculty from the admin form (Faculty is the umbrella for invited
+ * speakers and committee). Keyed on how the row was made, never on the
+ * isFaculty type alone, so a delegate who was put on that type by hand before
+ * this existed still counts where it always did. ONE list: seatCounter and
+ * HELD_SEAT_WHERE (registration-seat-db.ts) both read it.
+ */
+export const SEATLESS_SOURCES = ["SPEAKER_COMPANION", "FACULTY_ADMIN"] as const satisfies readonly RegistrationCreatedSource[];
+
+export function isSeatlessSource(source: RegistrationCreatedSource | null | undefined): boolean {
+  return !!source && (SEATLESS_SOURCES as readonly string[]).includes(source);
+}
+
+/**
  * The self-service doors whose tier-priced registrations consume TIER
  * inventory. Both are public/unauthenticated, so the price the registrant is
  * given must carry the corresponding allocation: an Early-Bird sale (whether
@@ -110,7 +125,8 @@ export function seatCounter(
   // reconciliation never counts it. (Excluding by createdSource, not the
   // isFaculty ticket type, is exact — an admin who manually puts someone on the
   // Faculty type via the normal create path DOES increment that counter.)
-  if (state.createdSource === "SPEAKER_COMPANION") return null;
+  // Added as Faculty from the admin form: seatless the same way (SEATLESS_SOURCES).
+  if (isSeatlessSource(state.createdSource)) return null;
   if (state.createdSource && TIER_CONSUMING_SOURCES.has(state.createdSource) && state.pricingTierId) {
     return { kind: "tier", id: state.pricingTierId };
   }

@@ -704,7 +704,14 @@ describe("createRegistration — domain errors", () => {
     expect(mockDb.registration.create).not.toHaveBeenCalled();
   });
 
-  it("SALES_NOT_STARTED when salesStart is in the future", async () => {
+  it("a delegate path that names the Faculty type is still refused (asFaculty is the only way past)", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...FREE_TICKET, isFaculty: true });
+    const result = await createRegistration({ ...BASE_INPUT, paymentStatus: "COMPLIMENTARY" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TICKET_TYPE_IS_FACULTY");
+  });
+
+    it("SALES_NOT_STARTED when salesStart is in the future", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue({
       ...PAID_TICKET,
       salesStart: new Date(Date.now() + 24 * 60 * 60 * 1000),
@@ -1141,5 +1148,44 @@ describe("createRegistration — promo code", () => {
     expect((await createRegistration({ ...BASE_INPUT, promoCode: "SAVE20", expectedPrice: 80 })).ok).toBe(true);
     expect((await createRegistration({ ...BASE_INPUT, expectedPrice: 100 })).ok).toBe(true);
     expect(await createRegistration({ ...BASE_INPUT, expectedPrice: 90 })).toMatchObject({ ok: false, code: "PRICE_CHANGED" });
+  });
+});
+
+describe("createRegistration — added as Faculty (Nov 10, 2026: Faculty is the umbrella for speakers and committee)", () => {
+  const FACULTY_TYPE = { ...FREE_TICKET, id: "tt-faculty", name: "Faculty", isFaculty: true, quantity: 999999 };
+  const asFaculty = (over: Record<string, unknown> = {}) =>
+    createRegistration({ ...BASE_INPUT, ticketTypeId: "tt-faculty", paymentStatus: "COMPLIMENTARY", asFaculty: true, badgeType: "Scientific Committee", ...over });
+
+  beforeEach(() => {
+    mockDb.ticketType.findFirst.mockResolvedValue(FACULTY_TYPE);
+  });
+
+  it("creates on the Faculty type as FACULTY_ADMIN, comp, with the badge, and claims NO seat", async () => {
+    const result = await asFaculty();
+    expect(result.ok).toBe(true);
+    const data = mockDb.registration.create.mock.calls[0][0].data;
+    expect(data).toMatchObject({ ticketTypeId: "tt-faculty", createdSource: "FACULTY_ADMIN", badgeType: "Scientific Committee", paymentStatus: "COMPLIMENTARY" });
+    // Seatless: neither the type counter nor the event cap moves.
+    expect(mockDb.ticketType.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the type is not the Faculty type", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue(FREE_TICKET);
+    const result = await asFaculty({ ticketTypeId: "tt-free" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("FACULTY_TERMS_INVALID");
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a rate", { pricingTierId: "pt-1" }],
+    ["a promo code", { promoCode: "SAVE10" }],
+    ["a payment status that charges", { paymentStatus: "UNPAID" }],
+  ])("refuses %s: Faculty is free", async (_label, over) => {
+    const result = await asFaculty(over);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("FACULTY_TERMS_INVALID");
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
   });
 });

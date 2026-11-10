@@ -62,6 +62,8 @@ export interface TicketType {
   soldCount: number;
   /** Hidden Faculty companion ticket type (excluded from delegate counts). */
   isFaculty?: boolean;
+  /** An inactive type takes no new registrations (the create path refuses it). */
+  isActive?: boolean;
   /** Supporting-document policy — see src/lib/supporting-document.ts. */
   requiresDocument?: boolean;
   documentRequired?: boolean;

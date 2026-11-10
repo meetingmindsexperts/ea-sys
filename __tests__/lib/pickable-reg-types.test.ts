@@ -26,6 +26,6 @@ describe("pickableRegTypes", () => {
   });
 
   it("labels it so it cannot be mistaken for an ordinary Faculty", () => {
-    expect(SPEAKERS_TYPE_LABEL).toBe("Faculty (speakers)");
+    expect(SPEAKERS_TYPE_LABEL).toBe("Faculty (speakers and committee)");
   });
 });

@@ -65,8 +65,13 @@ export function displayRegistrationType(
   return input.ticketTypeName ?? emptyLabel;
 }
 
-/** How the speakers' automatic type is named in a registration-type picker. */
-export const SPEAKERS_TYPE_LABEL = "Faculty (speakers)";
+/**
+ * How the Faculty type is named in a registration-type picker. Faculty is the
+ * umbrella for invited speakers and committee (owner, Nov 9, 2026); the
+ * bracket keeps it apart from an ordinary type some events still have that is
+ * also called "Faculty".
+ */
+export const SPEAKERS_TYPE_LABEL = "Faculty (speakers and committee)";
 
 /**
  * The registration types staff may pick for a registration (Oct 22, 2026).

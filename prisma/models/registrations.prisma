@@ -420,6 +420,12 @@ enum RegistrationCreatedSource {
   /// facet"): comp, uncapped Faculty type, organizer-added. Gives the
   /// speaker badge/barcode/DTCM/check-in/survey via the normal machinery.
   SPEAKER_COMPANION
+  /// Added as Faculty from the admin Add Registration form (Nov 10, 2026):
+  /// Faculty is the umbrella for invited speakers AND committee members, so a
+  /// committee member needs no speaker record. Comp, on the isFaculty type,
+  /// and SEATLESS like SPEAKER_COMPANION (owner: committee hold no seat);
+  /// see SEATLESS_SOURCES in registration-seat.ts.
+  FACULTY_ADMIN
   /// Member of a group registration — created by the coordinator via the
   /// public `/e/[slug]/group/register` flow (docs/GROUP_REGISTRATION_PLAN.md).
   /// The company payer covers the money (billingAccountId + groupId set);

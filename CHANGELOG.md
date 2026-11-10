@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Add a registration as Faculty (November 10)
+
+- **Faculty is the umbrella for invited speakers and committee members** (owner, Nov 9). Add Registration offers type **Faculty** with a committee choice (Committee / Organizing / Scientific): free, holds no seat, not counted as a delegate, no speaker record. The tags (`Committee`, plus `Organizing Committee` or `Scientific Committee`) and the badge are set for you. New `RegistrationCreatedSource.FACULTY_ADMIN` (migration `20261110100000`, additive enum; a rollback image older than it cannot read such a row), seatless like a speaker's companion (`SEATLESS_SOURCES` in `registration-seat.ts`). Every other door (public forms, imports, bulk changes, the AI agent) still refuses the Faculty type
+- Add Registration no longer lists inactive registration types, which the server refused on save
+
 ### Account sign-up and My account (November 9)
 
 Plan: `docs/ACCOUNT_SIGNUP_PLAN.md`.

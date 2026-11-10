@@ -3,8 +3,12 @@
 > **Owner ruling, Nov 9, 2026: Faculty is the umbrella: invited speakers AND committee
 > members.** This record's use of "faculty" to mean "a speaker", and its statement that
 > committee members are "different from faculty", predate the ruling. Committee stays a
-> tag and a badge. A speaker record stays optional. Not yet built: a committee-only person
-> on the Faculty type; until then they count as a delegate (§2's table).
+> tag and a badge. A speaker record stays optional. **Built Nov 10, 2026:** Add Registration
+> offers type Faculty with a committee role (createdSource `FACULTY_ADMIN`, comp, seatless,
+> no speaker record; `src/lib/faculty-registration.ts`), so a committee-only person no longer
+> counts as a delegate. **Tag case:** the dashboard Title-Cases every tag, so production
+> holds `Committee`, and the split tags are `Organizing Committee` / `Scientific Committee`,
+> not the lowercase spellings below; the tag filter is case-sensitive.
 
 > **Who this is for:** organizers and engineers who need to add **committee members**
 > (organizing committee, scientific committee, or a single generic "committee") to an
