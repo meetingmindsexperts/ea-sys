@@ -163,16 +163,25 @@ async function releaseClaim(reviewerUserId: string, token: string, ctx: { eventI
   }
 }
 
-const MARK_ATTEMPTS = 3;
-const MARK_RETRY_MS = 200;
+/**
+ * How long the mark is retried, and the wait after each failed try. Longer
+ * than an ordinary connection blip, and well inside the request (the route
+ * keeps 30 seconds in hand for the send in flight).
+ */
+const MARK_DEADLINE_MS = 10_000;
+const MARK_WAITS_MS = [200, 1_000, 3_000];
 
 /**
- * The email is out: mark the rows emailed and drop the claim. Tried a few
- * times, because failing here must not be reported as a failed send (the
- * organiser would press again and the reviewer would get it twice).
+ * The email is out: mark the rows emailed and drop the claim. Failing here
+ * must not be reported as a failed send (the organiser would press again and
+ * the reviewer would get it twice), and it must not be given up on quickly
+ * either: rows left claimed and unmarked are emailed AGAIN by the first press
+ * after the lease expires. Three tries in half a second lost to a two second
+ * blip (review of 428991e8, Nov 10, 2026), so it is retried for 10 seconds.
  */
 async function recordSent(reviewerUserId: string, token: string, expected: number, ctx: { eventId: string }): Promise<boolean> {
-  for (let attempt = 1; attempt <= MARK_ATTEMPTS; attempt++) {
+  const startedAt = Date.now();
+  for (let attempt = 1; ; attempt++) {
     try {
       const marked = await db.abstractReviewer.updateMany({
         where: { userId: reviewerUserId, notifyClaimToken: token },
@@ -184,10 +193,11 @@ async function recordSent(reviewerUserId: string, token: string, expected: numbe
       return true;
     } catch (err) {
       apiLogger.warn({ err, msg: "reviewer-assignment:mark-attempt-failed", eventId: ctx.eventId, reviewerUserId, attempt });
-      if (attempt < MARK_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, MARK_RETRY_MS));
+      const wait = MARK_WAITS_MS[Math.min(attempt - 1, MARK_WAITS_MS.length - 1)];
+      if (Date.now() - startedAt + wait >= MARK_DEADLINE_MS) return false;
+      await new Promise((resolve) => setTimeout(resolve, wait));
     }
   }
-  return false;
 }
 
 /**

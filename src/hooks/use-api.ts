@@ -836,8 +836,9 @@ const MAX_SEND_ROUNDS = 40;
  * The server sends for about 30 seconds per request (its gateway cuts a
  * response at 60) and answers where to carry on, so a large event is several
  * requests behind one press. Stopping part-way is safe: whoever was not
- * reached still shows as not emailed, and pressing again cannot email anyone
- * twice (each reviewer's rows are leased before their email).
+ * reached still shows as not emailed, and two sends at once cannot both email
+ * a reviewer (their rows are leased before the email). The one repeat left is
+ * a send killed mid-email: the next press after the lease says so (reclaimed).
  */
 async function sendAssignmentsInRounds(eventId: string, reviewerIds?: string[]): Promise<SendAssignmentsOutcome> {
   const total: SendAssignmentsOutcome = { emailed: 0, failed: 0, busy: 0, notSetUp: 0, notRecorded: 0, reclaimed: 0, firstFailure: null, interrupted: null };

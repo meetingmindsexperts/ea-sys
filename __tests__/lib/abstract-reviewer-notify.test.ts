@@ -220,13 +220,42 @@ describe("the send lease: no duplicate, nothing silently lost", () => {
   });
 
   it("sent but not recorded is NOT a failed send: ok, logged at error, claim kept", async () => {
-    assignmentUpdateMany.mockImplementation(({ data }: { data: { notifiedAt?: Date } }) =>
-      data.notifiedAt ? Promise.reject(new Error("db unreachable")) : Promise.resolve({ count: 2 }),
-    );
-    expect(await sendPendingAssignments(sendArgs)).toEqual({ ok: true, sent: 2, recorded: false, reclaimed: false });
-    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
-    expect(releaseCall()).toBeUndefined();
-    expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-assignment:sent-not-recorded", count: 2 }));
+    vi.useFakeTimers();
+    try {
+      assignmentUpdateMany.mockImplementation(({ data }: { data: { notifiedAt?: Date } }) =>
+        data.notifiedAt ? Promise.reject(new Error("db unreachable")) : Promise.resolve({ count: 2 }),
+      );
+      const sending = sendPendingAssignments(sendArgs);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(await sending).toEqual({ ok: true, sent: 2, recorded: false, reclaimed: false });
+      expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+      expect(releaseCall()).toBeUndefined();
+      expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-assignment:sent-not-recorded", count: 2 }));
+      // Tried for about 10 seconds (at 0, 0.2, 1.2, 4.2 and 7.2), not given up on in half a second.
+      expect(assignmentUpdateMany.mock.calls.filter(([a]) => a.data.notifiedAt)).toHaveLength(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a database blip of a few seconds after the send still records it: one email, nothing left to send again", async () => {
+    vi.useFakeTimers();
+    try {
+      let marks = 0;
+      assignmentUpdateMany.mockImplementation(({ data }: { data: { notifiedAt?: Date } }) => {
+        if (!data.notifiedAt) return Promise.resolve({ count: 2 });
+        marks += 1;
+        // Down for the first three tries (0, 0.2 and 1.2 seconds), back by the fourth.
+        return marks <= 3 ? Promise.reject(new Error("connection closed")) : Promise.resolve({ count: 2 });
+      });
+      const sending = sendPendingAssignments(sendArgs);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(await sending).toEqual({ ok: true, sent: 2, recorded: true, reclaimed: false });
+      expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+      expect(logger.error).not.toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-assignment:sent-not-recorded" }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("takes over a claim older than the lease and says the earlier send was interrupted", async () => {

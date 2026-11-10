@@ -52,11 +52,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       where: gate.eventWhere,
       select: { id: true, name: true, slug: true, settings: true, emailFromAddress: true, emailFromName: true, emailCcAddresses: true },
     });
-    if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (!event) {
+      apiLogger.warn({ msg: "reviewer-invite-resend:event-not-found", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const settings = (event.settings as Record<string, unknown>) || {};
     const reviewerUserIds = (settings.reviewerUserIds as string[]) || [];
     if (!reviewerUserIds.includes(reviewerId)) {
+      apiLogger.warn({ msg: "reviewer-invite-resend:not-on-pool", eventId, reviewerUserId: reviewerId, userId: session.user.id });
       return NextResponse.json({ error: "Reviewer not found for this event" }, { status: 404 });
     }
 
@@ -64,7 +68,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       where: { id: reviewerId },
       select: { id: true, email: true, firstName: true, lastName: true, emailVerified: true },
     });
-    if (!user) return NextResponse.json({ error: "Reviewer account not found" }, { status: 404 });
+    if (!user) {
+      apiLogger.warn({ msg: "reviewer-invite-resend:account-not-found", eventId, reviewerUserId: reviewerId, userId: session.user.id });
+      return NextResponse.json({ error: "Reviewer account not found" }, { status: 404 });
+    }
 
     const eventFrom = event.emailFromAddress
       ? { email: event.emailFromAddress, name: event.emailFromName || undefined }

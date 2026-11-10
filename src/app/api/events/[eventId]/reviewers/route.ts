@@ -61,6 +61,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     ]);
 
     if (!event) {
+      apiLogger.warn({ msg: "events/reviewers:list-event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -210,6 +211,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!event) {
+      apiLogger.warn({ msg: "events/reviewers:add-event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -233,6 +235,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
 
       if (!speaker) {
+        apiLogger.warn({ msg: "events/reviewers:add-speaker-not-found", eventId, speakerId, userId: session.user.id });
         return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
       }
 
@@ -243,6 +246,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       } else {
         const result = await findOrCreateReviewerUser(speaker.email, speaker.firstName, speaker.lastName, session);
         if ("error" in result) {
+          apiLogger.warn({ msg: "events/reviewers:add-refused", eventId, speakerId: speaker.id, reason: result.error, userId: session.user.id });
           return NextResponse.json({ error: result.error }, { status: 400 });
         }
         userId = result.userId;
@@ -266,6 +270,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       const result = await findOrCreateReviewerUser(email, firstName, lastName, session);
       if ("error" in result) {
+        apiLogger.warn({ msg: "events/reviewers:add-refused", eventId, reason: result.error, userId: session.user.id });
         return NextResponse.json({ error: result.error }, { status: 400 });
       }
       userId = result.userId;
@@ -273,6 +278,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Check if already assigned
     if (reviewerUserIds.includes(userId)) {
+      apiLogger.warn({ msg: "events/reviewers:add-already-on-pool", eventId, reviewerUserId: userId, userId: session.user.id });
       return NextResponse.json(
         { error: "This person is already a reviewer for this event" },
         { status: 400 }
