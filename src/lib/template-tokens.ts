@@ -33,6 +33,15 @@ const ANY_TOKEN_RE = /\{\{([^{}]{1,120})\}\}/g;
 export const UNRESOLVED_TOKENS_CODE = "UNRESOLVED_TOKENS";
 
 /**
+ * Text people typed (a note, an abstract title) with `{{` and `}}` broken
+ * apart. sendEmail refuses any email still holding a `{{token}}`, so a value
+ * like "{{x}}" would otherwise stop the email that carries it.
+ */
+export function untokened(text: string): string {
+  return text.replace(/\{\{/g, "{ {").replace(/\}\}/g, "} }");
+}
+
+/**
  * How that refusal is recorded in `EmailLog.errorMessage` (followed by the
  * token list). The survey thank-you sweep reads it to stop retrying a send
  * that can only fail again until the template is fixed.

@@ -39,6 +39,7 @@ import { PUT as criterionPUT, DELETE as criterionDELETE } from "@/app/api/events
 import { GET as reviewersGET, POST as reviewersPOST } from "@/app/api/events/[eventId]/reviewers/route";
 import { DELETE as reviewerDELETE } from "@/app/api/events/[eventId]/reviewers/[reviewerId]/route";
 import { POST as reviewerResendPOST } from "@/app/api/events/[eventId]/reviewers/[reviewerId]/resend-invitation/route";
+import { POST as reviewerSendAssignmentsPOST } from "@/app/api/events/[eventId]/reviewers/send-assignments/route";
 import { GET as absReviewersGET, POST as absReviewersPOST } from "@/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/route";
 import { DELETE as absReviewerDELETE } from "@/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/[userId]/route";
 import { POST as resendConfirmationPOST } from "@/app/api/events/[eventId]/abstracts/[abstractId]/resend-confirmation/route";
@@ -71,6 +72,7 @@ const CASES: HandlerCase[] = [
   { name: "POST reviewers", handler: reviewersPOST, method: "POST", body: { type: "direct", email: "rev@x.test", firstName: "R", lastName: "V" } },
   { name: "DELETE reviewers/[reviewerId]", handler: reviewerDELETE, method: "DELETE", params: rev },
   { name: "POST reviewers/[reviewerId]/resend-invitation", handler: reviewerResendPOST, method: "POST", params: rev, body: {} },
+  { name: "POST reviewers/send-assignments", handler: reviewerSendAssignmentsPOST, method: "POST", body: {} },
   { name: "GET abstracts/[abstractId]/reviewers", handler: absReviewersGET, method: "GET", params: abs },
   { name: "POST abstracts/[abstractId]/reviewers", handler: absReviewersPOST, method: "POST", params: abs, body: { userId: "u-rev1" } },
   { name: "DELETE abstracts/[abstractId]/reviewers/[userId]", handler: absReviewerDELETE, method: "DELETE", params: { abstractId: "ab1", userId: "u-rev1" } },

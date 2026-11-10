@@ -2277,12 +2277,22 @@ export async function getEventTemplate(
 /**
  * Render a template with variables and wrap with branding.
  * This is the main function for preparing email HTML for sending.
+ *
+ * `plain` gives the subject and the text part their own value for a token
+ * whose HTML value is markup (a list joined with <br>, say): both are plain
+ * text, so the HTML value would put tags and entities in them. Everything else
+ * (the defaults, the global event block) stays one map, which a second render
+ * with bare variables would lose.
  */
 export function renderAndWrap(
   template: { subject: string; htmlContent: string; textContent: string },
   variables: Record<string, string | number | undefined>,
   branding: EmailBranding,
-  rawHtmlKeys?: Set<string>
+  rawHtmlKeys?: Set<string>,
+  plain?: {
+    subject?: Record<string, string | number | undefined>;
+    text?: Record<string, string | number | undefined>;
+  },
 ): { subject: string; htmlContent: string; textContent: string } {
   // {{organizerSignature}} lives in (almost) every default template since
   // July 16, 2026, but only human-triggered send paths thread a real value —
@@ -2296,11 +2306,11 @@ export function renderAndWrap(
   // already builds its own eventDate keeps winning, so this changes nothing for
   // the paths that were already correct and only fills the holes.
   const vars = { organizerSignature: "", ...(branding.eventVars ?? {}), ...variables };
-  const subject = renderTemplatePlain(template.subject, vars);
+  const subject = renderTemplatePlain(template.subject, plain?.subject ? { ...vars, ...plain.subject } : vars);
   const bodyHtml = renderTemplate(template.htmlContent, vars, rawHtmlKeys);
   const wrapped = wrapWithBranding(bodyHtml, branding);
   const htmlContent = inlineCss(wrapped);
-  const textContent = renderTemplatePlain(template.textContent, vars);
+  const textContent = renderTemplatePlain(template.textContent, plain?.text ? { ...vars, ...plain.text } : vars);
   return { subject, htmlContent, textContent };
 }
 

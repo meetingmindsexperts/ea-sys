@@ -76,6 +76,18 @@ describe("precision: the rules that keep it from crying wolf", () => {
     expect(check("survey-thankyou", "{{presentationDetails}}")).toEqual(["presentationDetails"]);
   });
 
+  it("the reviewer emails are sent by hand from the Reviewers page, and the digest's count is a real token (Nov 10, 2026)", () => {
+    const spec = (slug: string) => EMAIL_TEMPLATE_SPECS.find((t) => t.slug === slug)!;
+    // Neither is automatic any more: adding a reviewer and assigning an abstract send nothing.
+    expect(spec("reviewer-assignment").surfaces).toEqual(["console"]);
+    expect(spec("reviewer-pool-invitation").surfaces).toEqual(["console", "bulk"]);
+    // {{abstractCount}} is filled by sendPendingAssignments, so the editor must not flag it.
+    expect(check("reviewer-assignment", "{{abstractCount}} {{abstractTitle}} {{title}} {{role}} {{reviewLink}}")).toEqual([]);
+    // abstractTitle stays escaped by default everywhere: the digest passes it raw for its own call only.
+    expect(spec("reviewer-assignment").rawHtmlKeys).toEqual([]);
+    expect(check("reviewer-assignment", "{{presentationDetails}}")).toEqual(["presentationDetails"]);
+  });
+
   it("allows the RSVP tokens, which bulk fills when an RSVP is chosen", () => {
     // Using one without choosing an RSVP is refused at enqueue with a message
     // naming the fix, so it is legitimate to write into a template.

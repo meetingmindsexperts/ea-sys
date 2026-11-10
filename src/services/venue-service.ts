@@ -11,6 +11,7 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendEmail } from "@/lib/email";
 import { escapeHtml } from "@/lib/html";
+import { untokened } from "@/lib/template-tokens";
 import { updateEventSettings } from "@/lib/event-settings";
 import { shapeActivity, shapeFilter, shapeReport } from "@/lib/venue/venue-data";
 
@@ -101,12 +102,6 @@ export async function createReport(c: Caller, raw: unknown, ctxInfo: { eventName
   await emailReport(item, { ...ctxInfo, reportId: row.id }, c);
   return { ok: true };
 }
-
-/**
- * Text people typed (a note, the reported person's lines) with `{{` and `}}` broken apart. sendEmail refuses any
- * email still holding a `{{token}}`, so a line like "{{x}}" would otherwise stop the report about it being sent.
- */
-const untokened = (s: string) => s.replace(/\{\{/g, "{ {").replace(/\}\}/g, "} }");
 
 async function emailReport(item: Record<string, unknown>, info: { eventName: string; reporterName: string; inbox: string | null; reportId: string }, c: Caller) {
   const ctx = { organizationId: c.organizationId, eventId: c.eventId, userId: c.userId };

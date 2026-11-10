@@ -172,7 +172,7 @@ describe("the dialog option lists", () => {
     ]);
     expect(bulkEmailTypeOptionsFor("reviewers")).toEqual([
       { value: "custom", label: "Custom Email", description: "Write a custom message to reviewers" },
-      { value: "invitation", label: "Review Invitation", description: "Resend the reviewer pool invitation (the email a reviewer gets when added)" },
+      { value: "invitation", label: "Review Invitation", description: "Send each reviewer the added-as-a-reviewer email" },
     ]);
     expect(bulkEmailTypeOptionsFor("registrations")).toEqual([
       { value: "confirmation", label: "Registration Confirmation", description: "Confirm their registration" },

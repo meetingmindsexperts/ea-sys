@@ -1,4 +1,4 @@
-import { mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
+import { mustConfirmEmailToReview, sendableAssignmentWhere } from "@/lib/abstract-reviewer-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -67,31 +67,52 @@ export async function GET(req: Request, { params }: RouteParams) {
     const settings = (event.settings as Record<string, unknown>) || {};
     const reviewerUserIds = (settings.reviewerUserIds as string[]) || [];
 
-    // Fetch reviewer User records, and each one's assignments on this event:
-    // how many, and how many not emailed yet (assignment emails are sent by
+    // The reviewers' accounts, every assignment on the event (how many each
+    // person holds), and the ones "Send assignments" would email right now:
+    // the SAME rule the send route and the email use, so the page never
+    // counts something a press would not send (assignment emails are sent by
     // hand, Nov 10, 2026).
-    const [reviewerUsers, assignmentRows] = reviewerUserIds.length > 0
-      ? await Promise.all([
-          db.user.findMany({
+    const [reviewerUsers, assignmentRows, sendableRows] = await Promise.all([
+      reviewerUserIds.length > 0
+        ? db.user.findMany({
             where: { id: { in: reviewerUserIds } },
             select: { id: true, email: true, firstName: true, lastName: true, emailVerified: true, role: true, emailConfirmedAt: true },
-          }),
-          db.abstractReviewer.findMany({
-            where: { userId: { in: reviewerUserIds }, abstract: { eventId } },
-            select: { userId: true, notifiedAt: true },
-          }),
-        ])
-      : [[], []];
+          })
+        : [],
+      db.abstractReviewer.findMany({ where: { abstract: { eventId } }, select: { userId: true } }),
+      reviewerUserIds.length > 0
+        ? db.abstractReviewer.findMany({
+            where: { ...sendableAssignmentWhere(eventId), userId: { in: reviewerUserIds } },
+            select: { userId: true },
+          })
+        : [],
+    ]);
 
     const reviewerUserMap = new Map(reviewerUsers.map((u) => [u.id, u]));
-    const assignmentCounts = new Map<string, { assigned: number; unsent: number }>();
-    for (const row of assignmentRows) {
-      const c = assignmentCounts.get(row.userId) ?? { assigned: 0, unsent: 0 };
-      c.assigned += 1;
-      if (!row.notifiedAt) c.unsent += 1;
-      assignmentCounts.set(row.userId, c);
-    }
-    const countsFor = (userId: string) => assignmentCounts.get(userId) ?? { assigned: 0, unsent: 0 };
+    const tally = (rows: { userId: string }[]) => {
+      const counts = new Map<string, number>();
+      for (const row of rows) counts.set(row.userId, (counts.get(row.userId) ?? 0) + 1);
+      return counts;
+    };
+    const assignedBy = tally(assignmentRows);
+    const unsentBy = tally(sendableRows);
+    const countsFor = (userId: string) => ({ assigned: assignedBy.get(userId) ?? 0, unsent: unsentBy.get(userId) ?? 0 });
+
+    // People holding assignments here who are NOT on the pool (removed before
+    // Remove took assignments with it, or assigned through the agent). They
+    // can still score, and no button on this page emails them, so the page
+    // names them instead of hiding them.
+    const offPoolIds = [...assignedBy.keys()].filter((id) => !reviewerUserIds.includes(id));
+    const offPoolUsers = offPoolIds.length > 0
+      ? await db.user.findMany({ where: { id: { in: offPoolIds } }, select: { id: true, email: true, firstName: true, lastName: true } })
+      : [];
+    const assignedOffPool = offPoolUsers.map((u) => ({
+      userId: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      email: u.email,
+      assigned: assignedBy.get(u.id) ?? 0,
+    }));
 
     // Build reviewers list: speakers whose userId is in reviewerUserIds
     const reviewers = speakers
@@ -140,7 +161,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const reviewerSpeakerIds = new Set(reviewers.map((r) => r.speakerId));
     const availableSpeakers = speakers.filter((s) => !reviewerSpeakerIds.has(s.id));
 
-    const response = NextResponse.json({ reviewers, availableSpeakers });
+    const response = NextResponse.json({ reviewers, availableSpeakers, assignedOffPool });
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
     });

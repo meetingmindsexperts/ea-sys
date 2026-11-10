@@ -800,16 +800,84 @@ export function useResendReviewerInvitation(eventId: string) {
   });
 }
 
-/** Email reviewers their unsent assignments, one email each (none named = everyone with some). */
+/** One request's answer from the send-assignments route. */
+interface SendAssignmentsRound {
+  emailed: number;
+  failed: number;
+  busy: number;
+  notSetUp: number;
+  notRecorded: number;
+  remaining: number;
+  nextAfter: string | null;
+  results: { reviewerId: string; ok: boolean; sent?: number; recorded?: boolean; reclaimed?: boolean; code?: string; message?: string }[];
+}
+
+/** What one press of Send assignments came to, over all its requests. */
+export interface SendAssignmentsOutcome {
+  emailed: number;
+  failed: number;
+  /** Held by another send, or by one interrupted in the last 10 minutes. */
+  busy: number;
+  /** Account not set up yet: they need their invitation first. */
+  notSetUp: number;
+  /** Emailed, but it could not be recorded: still shown as not emailed. */
+  notRecorded: number;
+  /** An earlier send to them was interrupted, so they may have the email twice. */
+  reclaimed: number;
+  firstFailure: string | null;
+  /** A later request failed: what went is counted above, the rest still shows as not emailed. */
+  interrupted: string | null;
+}
+
+/** Far more than any event needs; a guard against a loop that never ends. */
+const MAX_SEND_ROUNDS = 40;
+
+/**
+ * The server sends for about 30 seconds per request (its gateway cuts a
+ * response at 60) and answers where to carry on, so a large event is several
+ * requests behind one press. Stopping part-way is safe: whoever was not
+ * reached still shows as not emailed, and pressing again cannot email anyone
+ * twice (each reviewer's rows are leased before their email).
+ */
+async function sendAssignmentsInRounds(eventId: string, reviewerIds?: string[]): Promise<SendAssignmentsOutcome> {
+  const total: SendAssignmentsOutcome = { emailed: 0, failed: 0, busy: 0, notSetUp: 0, notRecorded: 0, reclaimed: 0, firstFailure: null, interrupted: null };
+  let after: string | null = null;
+  for (let round = 0; round < MAX_SEND_ROUNDS; round++) {
+    let page: SendAssignmentsRound;
+    try {
+      page = await fetchApi<SendAssignmentsRound>(`/api/events/${eventId}/reviewers/send-assignments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...(reviewerIds ? { reviewerIds } : {}), ...(after ? { after } : {}) }),
+      });
+    } catch (err) {
+      // Nothing went at all: let the caller show the error.
+      if (round === 0) throw err;
+      total.interrupted = err instanceof Error ? err.message : "The send stopped";
+      return total;
+    }
+    total.emailed += page.emailed;
+    total.failed += page.failed;
+    total.busy += page.busy;
+    total.notSetUp += page.notSetUp;
+    total.notRecorded += page.notRecorded;
+    total.reclaimed += page.results.filter((r) => r.ok && r.reclaimed).length;
+    total.firstFailure ??= page.results.find((r) => !r.ok && r.code !== "NOTHING_PENDING" && r.code !== "IN_PROGRESS" && r.code !== "ACCOUNT_NOT_SET_UP")?.message ?? null;
+    if (!page.nextAfter) return total;
+    after = page.nextAfter;
+  }
+  total.interrupted = "The send is taking unusually long";
+  return total;
+}
+
+/** Email reviewers their unsent assignments, one email each (none named = everyone on the pool with some). */
 export function useSendReviewerAssignments(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (reviewerIds?: string[]) =>
-      fetchApi<{ emailed: number; failed: number; results: { reviewerId: string; ok: boolean; sent?: number; code?: string; message?: string }[] }>(
-        `/api/events/${eventId}/reviewers/send-assignments`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reviewerIds ? { reviewerIds } : {}) },
-      ),
-    onSuccess: () => {
+    mutationFn: (reviewerIds?: string[]) => sendAssignmentsInRounds(eventId, reviewerIds),
+    // Settled, not success: after a failed or interrupted send the counts and
+    // buttons must still show who is waiting.
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
     },
   });

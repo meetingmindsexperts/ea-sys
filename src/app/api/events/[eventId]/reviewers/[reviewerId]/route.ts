@@ -32,6 +32,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
 
     if (!event) {
+      apiLogger.warn({ msg: "events/reviewers:remove-event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -39,29 +40,34 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const reviewerUserIds = (settings.reviewerUserIds as string[]) || [];
 
     if (!reviewerUserIds.includes(reviewerId)) {
+      apiLogger.warn({ msg: "events/reviewers:remove-not-on-pool", eventId, reviewerUserId: reviewerId });
       return NextResponse.json(
         { error: "Reviewer not found for this event" },
         { status: 404 }
       );
     }
 
-    // Remove reviewer from event settings — atomic filter against the
-    // freshly-locked reviewerUserIds so a concurrent add/remove (or a
-    // parallel settings write to another key) can't be dropped.
+    // Off every abstract assigned to them on this event FIRST (owner, Nov 10,
+    // 2026): the assignment is the review right, so leaving it would let a
+    // removed reviewer keep scoring. Reviews already submitted are kept; their
+    // link to the assignment is set to null by the schema.
+    // The order matters. Pool first, and a failed delete left the review right
+    // in place with the person gone from the page and a retry answering 404.
+    // This way every failure can be retried: the pool entry goes last.
+    const removed = await db.abstractReviewer.deleteMany({
+      where: { userId: reviewerId, abstract: { eventId } },
+    });
+    apiLogger.info({ msg: "events/reviewers:assignments-removed", eventId, reviewerUserId: reviewerId, assignmentsRemoved: removed.count });
+
+    // Then off the pool: an atomic filter against the freshly-locked
+    // reviewerUserIds so a concurrent add/remove (or a parallel settings
+    // write to another key) can't be dropped.
     await updateEventSettings(eventId, (cur) => ({
       ...cur,
       reviewerUserIds: ((cur.reviewerUserIds as string[]) ?? []).filter(
         (id) => id !== reviewerId,
       ),
     }));
-
-    // And off every abstract assigned to them on this event (owner, Nov 10,
-    // 2026): the assignment is the review right, so leaving it would let a
-    // removed reviewer keep scoring. Reviews already submitted are kept; their
-    // link to the assignment is set to null by the schema.
-    const removed = await db.abstractReviewer.deleteMany({
-      where: { userId: reviewerId, abstract: { eventId } },
-    });
     apiLogger.info({ msg: "events/reviewers:removed", eventId, reviewerUserId: reviewerId, assignmentsRemoved: removed.count });
 
     // Audit log (non-blocking)

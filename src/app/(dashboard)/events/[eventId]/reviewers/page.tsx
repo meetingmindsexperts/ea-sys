@@ -31,7 +31,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserCheck, Plus, Mail, Building2, Trash2, Send, X } from "lucide-react";
 import { PermissionGate } from "@/components/permissions/permission-gate";
-import { useReviewers, useAddReviewer, useRemoveReviewer, useResendReviewerInvitation, useSendReviewerAssignments } from "@/hooks/use-api";
+import { useReviewers, useAddReviewer, useRemoveReviewer, useResendReviewerInvitation, useSendReviewerAssignments, type SendAssignmentsOutcome } from "@/hooks/use-api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,6 +60,15 @@ interface Reviewer {
   needsEmailConfirmation?: boolean;
   /** Assigned abstracts on this event, and how many were not emailed yet. */
   assignments?: { assigned: number; unsent: number };
+}
+
+/** Someone holding assignments on this event who is not on its reviewer pool. */
+interface AssignedOffPool {
+  userId: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+  assigned: number;
 }
 
 interface AvailableSpeaker {
@@ -95,11 +104,41 @@ function sendLabel(accountActive: boolean, sending: boolean): string {
   return accountActive ? "Send email" : "Send invitation";
 }
 
-/** "3 abstracts assigned, 1 not emailed yet" under each reviewer. */
-function assignmentSummary(a: { assigned: number; unsent: number } | undefined): string {
+/**
+ * "3 abstracts assigned, 1 not emailed yet" under each reviewer. "Not emailed
+ * yet" counts only what a press would send now; someone who has not set up
+ * their account needs the invitation first, so the line says so.
+ */
+function assignmentSummary(a: { assigned: number; unsent: number } | undefined, accountActive: boolean): string {
   if (!a || a.assigned === 0) return "No abstracts assigned yet";
   const assigned = `${a.assigned} abstract${a.assigned === 1 ? "" : "s"} assigned`;
-  return a.unsent > 0 ? `${assigned}, ${a.unsent} not emailed yet` : assigned;
+  if (a.unsent === 0) return assigned;
+  return accountActive ? `${assigned}, ${a.unsent} not emailed yet` : `${assigned}, ${a.unsent} not emailed yet: send the invitation first`;
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** Every outcome of a Send assignments press, in plain words. */
+function reportSendAssignments(res: SendAssignmentsOutcome): void {
+  if (res.emailed > 0) toast.success(`Assignments emailed to ${plural(res.emailed, "reviewer", "reviewers")}`);
+  if (res.failed > 0) toast.error(`${res.failed} could not be sent: ${res.firstFailure ?? "the send failed"}`);
+  if (res.notRecorded > 0) {
+    toast.error(`${plural(res.notRecorded, "reviewer was", "reviewers were")} emailed but it could not be recorded, so they still show as not emailed. Do not send to them again.`);
+  }
+  if (res.notSetUp > 0) {
+    toast.warning(`${plural(res.notSetUp, "reviewer has", "reviewers have")} not set up their account. Send their invitation first.`);
+  }
+  if (res.busy > 0) {
+    toast.info(`${plural(res.busy, "reviewer is", "reviewers are")} being emailed by another send, or a send to them was interrupted in the last 10 minutes. Try again after that.`);
+  }
+  if (res.reclaimed > 0) {
+    toast.warning(`${plural(res.reclaimed, "reviewer", "reviewers")} had an interrupted send earlier and may receive this email twice.`);
+  }
+  if (res.interrupted) {
+    toast.error(`The send stopped before the end (${res.interrupted}). The list shows who is still waiting; pressing Send again is safe.`);
+  }
+  const nothing = res.emailed + res.failed + res.notRecorded + res.notSetUp + res.busy === 0 && !res.interrupted;
+  if (nothing) toast.info("Nothing new to send");
 }
 
 function removeDescription(assigned: number): string {
@@ -123,8 +162,10 @@ function Reviewers({ eventId }: { eventId: string }) {
   const sendAssignments = useSendReviewerAssignments(eventId);
   const [sendingAssignmentsFor, setSendingAssignmentsFor] = useState<string | "all" | null>(null);
   const [removeTarget, setRemoveTarget] = useState<Reviewer | null>(null);
+  const [removeOpen, setRemoveOpen] = useState(false);
 
   const reviewers: Reviewer[] = data?.reviewers ?? [];
+  const assignedOffPool: AssignedOffPool[] = data?.assignedOffPool ?? [];
   const availableSpeakers: AvailableSpeaker[] = data?.availableSpeakers ?? [];
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -220,18 +261,17 @@ function Reviewers({ eventId }: { eventId: string }) {
   const handleSendAssignments = async (target: string | "all") => {
     setSendingAssignmentsFor(target);
     try {
-      const res = await sendAssignments.mutateAsync(target === "all" ? undefined : [target]);
-      if (res.emailed > 0) toast.success(`Assignments emailed to ${res.emailed} reviewer${res.emailed === 1 ? "" : "s"}`);
-      const failed = res.results.filter((r) => !r.ok && r.code !== "NOTHING_PENDING");
-      if (failed.length > 0) toast.error(`${failed.length} could not be sent: ${failed[0].message ?? "send failed"}`);
-      if (res.emailed === 0 && failed.length === 0) toast.info("Nothing new to send");
+      reportSendAssignments(await sendAssignments.mutateAsync(target === "all" ? undefined : [target]));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send assignments");
+      const reason = error instanceof Error ? error.message : "Failed to send assignments";
+      toast.error(`${reason}. The list shows who is still waiting; pressing Send again is safe.`);
     } finally {
       setSendingAssignmentsFor(null);
     }
   };
-  const totalUnsent = reviewers.reduce((n, r) => n + (r.assignments?.unsent ?? 0), 0);
+  // What a press of Send all would send: accounts not set up are left out
+  // (they get the invitation first), so the number is honest.
+  const totalUnsent = reviewers.reduce((n, r) => n + (r.accountActive ? r.assignments?.unsent ?? 0 : 0), 0);
 
   // Selection helpers
   const allSelected = reviewers.length > 0 && reviewers.every((r) => selectedIds.has(r.userId));
@@ -535,7 +575,7 @@ function Reviewers({ eventId }: { eventId: string }) {
                               {reviewer.jobTitle && ` • ${reviewer.jobTitle}`}
                             </div>
                           )}
-                          <div>{assignmentSummary(reviewer.assignments)}</div>
+                          <div>{assignmentSummary(reviewer.assignments, reviewer.accountActive)}</div>
                         </div>
                       </div>
                     </div>
@@ -558,7 +598,7 @@ function Reviewers({ eventId }: { eventId: string }) {
                         <Send className="mr-2 h-4 w-4" />
                         {sendLabel(reviewer.accountActive, resendingId === reviewer.userId)}
                       </Button>
-                      {(reviewer.assignments?.unsent ?? 0) > 0 && (
+                      {reviewer.accountActive && (reviewer.assignments?.unsent ?? 0) > 0 && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -572,7 +612,10 @@ function Reviewers({ eventId }: { eventId: string }) {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setRemoveTarget(reviewer)}
+                        onClick={() => {
+                          setRemoveTarget(reviewer);
+                          setRemoveOpen(true);
+                        }}
                         disabled={removingId === reviewer.userId}
                         className="text-destructive hover:text-destructive"
                       >
@@ -588,8 +631,29 @@ function Reviewers({ eventId }: { eventId: string }) {
         )}
       </div>
 
-      {/* Remove also takes away their assignments on this event (Nov 10, 2026). */}
-      <AlertDialog open={!!removeTarget} onOpenChange={(o) => !o && setRemoveTarget(null)}>
+      {assignedOffPool.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/60">
+          <CardContent className="pt-5 pb-4 text-sm text-amber-900 space-y-2">
+            <p className="font-medium">Assigned abstracts, but not on this list</p>
+            <p>
+              These people can still open and score what is assigned to them, and no button here emails them. Add them
+              as a reviewer to manage them here, or unassign them on the abstract.
+            </p>
+            <ul className="list-disc pl-5">
+              {assignedOffPool.map((p) => (
+                <li key={p.userId}>
+                  {`${p.firstName ?? ""} ${p.lastName ?? ""}`.trim() || p.email} ({p.email}): {plural(p.assigned, "abstract", "abstracts")}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Remove also takes away their assignments on this event (Nov 10, 2026).
+          Open and target are separate states: the target is kept while the
+          dialog closes, so its wording does not change mid-fade. */}
+      <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -603,7 +667,6 @@ function Reviewers({ eventId }: { eventId: string }) {
               onClick={() => {
                 if (!removeTarget) return;
                 handleRemoveReviewer(removeTarget.userId, `${removeTarget.firstName} ${removeTarget.lastName}`);
-                setRemoveTarget(null);
               }}
               className="bg-destructive text-white hover:bg-destructive/90"
             >

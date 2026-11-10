@@ -205,6 +205,13 @@ model AbstractReviewer {
   // nothing (owner, Nov 10, 2026); "Send assignments" on the Reviewers page
   // emails each reviewer once, listing the rows still null here.
   notifiedAt     DateTime?
+  // A short SEND LEASE, not a record of sending: claimed in one conditional
+  // UPDATE just before the reviewer's assignment email goes out, so two
+  // overlapping sends cannot both email the same rows. Cleared when the email
+  // is out or the send fails; a claim older than ASSIGNMENT_CLAIM_TTL_MS
+  // (abstract-reviewer-notify.ts) is taken over.
+  notifyClaimedAt  DateTime?
+  notifyClaimToken String?
   role           AbstractReviewerRole @default(SECONDARY)
   conflictFlag   Boolean              @default(false)
 

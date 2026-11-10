@@ -59,7 +59,7 @@ vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn().mockResolvedV
 vi.mock("@/lib/speaker-companion", () => ({
   ensureCompanionsForSpeakerEmails: vi.fn().mockResolvedValue({ created: 1, linked: 0, failed: 0 }),
 }));
-vi.mock("@/lib/abstract-reviewer-notify", () => ({ notifyReviewerAssigned: vi.fn() }));
+vi.mock("@/lib/abstract-reviewer-notify", () => ({ sendPendingAssignments: vi.fn(), notifyReviewerPoolAdded: vi.fn() }));
 vi.mock("@/lib/person-tag-sync", () => ({
   computeTagDelta: vi.fn(() => ({ added: [], removed: [] })),
   syncSpeakerTagsToRegistrations: vi.fn().mockResolvedValue(undefined),

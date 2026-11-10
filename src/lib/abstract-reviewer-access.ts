@@ -92,6 +92,30 @@ export function linkedRoleAbstractFilter(user: { id: string; role?: string | nul
   return {};
 }
 
+/**
+ * THE rule for which assignments "Send assignments" would email right now:
+ * not emailed yet, no declared conflict, and the abstract still up for review
+ * on this event. The Reviewers page's "not emailed yet" count, the send
+ * route's recipient list and the email itself all use it, so a count can never
+ * show something a press would not send (review of 2df0f9e6: a conflict-flagged
+ * or decided assignment kept the button forever). The send lease
+ * (notifyClaimedAt) stays out on purpose: a row under a claim is still not
+ * emailed.
+ */
+export function sendableAssignmentWhere(eventId: string): Prisma.AbstractReviewerWhereInput {
+  return {
+    notifiedAt: null,
+    conflictFlag: false,
+    abstract: { eventId, status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] } },
+  };
+}
+
+/** The ids on the event's reviewer pool; anything malformed is no pool. */
+export function reviewerPoolIds(settings: unknown): string[] {
+  const ids = (settings as { reviewerUserIds?: unknown } | null)?.reviewerUserIds;
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+}
+
 /** Pool membership: who can be assigned and emailed. It grants no abstract by itself. */
 export function isOnReviewerPool(settings: unknown, userId: string): boolean {
   const ids = (settings as { reviewerUserIds?: unknown } | null)?.reviewerUserIds;

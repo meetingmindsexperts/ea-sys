@@ -24,7 +24,7 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock("@/lib/abstract-reviewer-notify", () => ({ notifyReviewerAssigned: notifySpy }));
+vi.mock("@/lib/abstract-reviewer-notify", () => ({ sendPendingAssignments: notifySpy, notifyReviewerPoolAdded: notifySpy }));
 
 import { POST } from "@/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/route";
 

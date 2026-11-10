@@ -76,6 +76,22 @@ describe("assignReviewer", () => {
     expect(mockNotify).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["their linked speaker row", { userId: "rev1", email: "other@x.y" }],
+    ["an unlinked row at their address", { userId: null, email: "A@B.C" }],
+  ])("refuses a NEW assignment of an abstract's own author (%s): they could never open it", async (_label, speaker) => {
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", title: "T", status: "UNDER_REVIEW", speaker });
+    expect(await assignReviewer(BASE)).toMatchObject({ ok: false, code: "OWN_ABSTRACT" });
+    expect(mockDb.abstractReviewer.create).not.toHaveBeenCalled();
+  });
+
+  it("an existing assignment of the author can still be flagged or changed", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", title: "T", status: "UNDER_REVIEW", speaker: { userId: "rev1", email: "a@b.c" } });
+    mockDb.abstractReviewer.findUnique.mockResolvedValue({ id: "ar1", role: "SECONDARY", conflictFlag: false, assignedAt: new Date(0) });
+    mockDb.abstractReviewer.update.mockResolvedValue({ id: "ar1", role: "SECONDARY", conflictFlag: true, assignedAt: new Date(0) });
+    expect(await assignReviewer({ ...BASE, conflictFlag: true })).toMatchObject({ ok: true, kind: "updated" });
+  });
+
   it("persists conflictFlag on create (the H8 class can't recur — one implementation)", async () => {
     await assignReviewer({ ...BASE, conflictFlag: true, role: "PRIMARY" });
     expect(mockDb.abstractReviewer.create).toHaveBeenCalledWith(

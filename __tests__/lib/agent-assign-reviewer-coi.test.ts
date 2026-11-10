@@ -23,7 +23,7 @@ const { mockDb, mockNotify } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
-vi.mock("@/lib/abstract-reviewer-notify", () => ({ notifyReviewerAssigned: mockNotify }));
+vi.mock("@/lib/abstract-reviewer-notify", () => ({ sendPendingAssignments: mockNotify, notifyReviewerPoolAdded: mockNotify }));
 
 import { ABSTRACT_EXECUTORS } from "@/lib/agent/tools/abstracts";
 

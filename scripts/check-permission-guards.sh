@@ -69,6 +69,7 @@ SWEPT=(
   "src/app/api/events/[eventId]/reviewers/route.ts"
   "src/app/api/events/[eventId]/reviewers/[reviewerId]/route.ts"
   "src/app/api/events/[eventId]/reviewers/[reviewerId]/resend-invitation/route.ts"
+  "src/app/api/events/[eventId]/reviewers/send-assignments/route.ts"
   "src/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/route.ts"
   "src/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/[userId]/route.ts"
   "src/app/api/events/[eventId]/abstracts/[abstractId]/resend-confirmation/route.ts"

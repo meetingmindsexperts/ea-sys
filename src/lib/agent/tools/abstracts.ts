@@ -281,8 +281,8 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
 const ABSTRACT_REVIEWER_ROLES = new Set(["PRIMARY", "SECONDARY", "CONSULTING"]);
 
 // Thin MCP wrappers — the assignment domain logic (H6 reviewable-status gate,
-// upsert role/COI semantics incl. the H8 conflictFlag fix, audit, reviewer
-// notification) lives in abstract-service.assignReviewer / unassignReviewer,
+// upsert role/COI semantics incl. the H8 conflictFlag fix, the own-abstract
+// refusal, audit) lives in abstract-service.assignReviewer / unassignReviewer,
 // shared with the REST reviewers routes (duplication-audit finding 3: the two
 // surfaces used to carry ~130 mirrored lines that drifted twice). This
 // boundary keeps loose-input parsing + the MCP response/message shapes.

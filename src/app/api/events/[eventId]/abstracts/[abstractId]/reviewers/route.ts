@@ -18,8 +18,8 @@ import { assignReviewer, type AssignReviewerErrorCode } from "@/services/abstrac
  * abstract by itself (src/lib/abstract-reviewer-access.ts). It also carries the
  * reviewer's role and the conflict-of-interest flag.
  *
- * Domain logic (reviewable-status gate, upsert semantics, COI flag, audit,
- * reviewer notification) lives in abstract-service.assignReviewer, shared
+ * Domain logic (reviewable-status gate, own-abstract refusal, upsert
+ * semantics, COI flag, audit) lives in abstract-service.assignReviewer, shared
  * with the MCP assign_reviewer_to_abstract tool — this route keeps auth,
  * Zod, and HTTP response shaping.
  *
@@ -41,6 +41,7 @@ const HTTP_STATUS_FOR_ASSIGN: Record<AssignReviewerErrorCode, number> = {
   ABSTRACT_NOT_FOUND: 404,
   USER_NOT_FOUND: 404,
   NOT_REVIEWABLE: 409,
+  OWN_ABSTRACT: 409,
   UNKNOWN: 500,
 };
 

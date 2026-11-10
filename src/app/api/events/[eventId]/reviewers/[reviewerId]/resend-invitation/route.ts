@@ -70,17 +70,21 @@ export async function POST(req: Request, { params }: RouteParams) {
       ? { email: event.emailFromAddress, name: event.emailFromName || undefined }
       : undefined;
 
-    // Already-active account → resend the event-level pool invitation (a
-    // reminder; they already have a working login). notifyReviewerPoolAdded is
-    // failure-isolated, so we report success optimistically here.
+    // An account that can already sign in gets the "added as a reviewer"
+    // email. A refused send surfaces (502), as the setup invite's does below:
+    // until Nov 10, 2026 this answered "sent" whatever happened.
     if (user.emailVerified) {
-      await notifyReviewerPoolAdded({
+      const sent = await notifyReviewerPoolAdded({
         eventId,
         organizationId: session.user.organizationId ?? null,
         reviewer: user,
         eventName: event.name,
         triggeredByUserId: session.user.id,
       });
+      if (!sent.ok) {
+        apiLogger.error({ msg: "reviewer-invite-resend:pool-send-failed", eventId, reviewerUserId: reviewerId, code: sent.code });
+        return NextResponse.json({ error: sent.message, code: "EMAIL_SEND_FAILED" }, { status: 502 });
+      }
       apiLogger.info({ msg: "reviewer-invite-resend:pool", eventId, reviewerUserId: reviewerId });
       db.auditLog.create({
         data: { eventId, userId: session.user.id, action: "UPDATE", entityType: "EventReviewer", entityId: reviewerId, changes: { resend: "pool", ip: getClientIp(req) } },

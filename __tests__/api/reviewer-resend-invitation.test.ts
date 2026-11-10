@@ -21,7 +21,7 @@ const { mockDb, mockAuth, sendEmailSpy, notifyPoolSpy } = vi.hoisted(() => {
     },
     mockAuth: vi.fn(),
     sendEmailSpy: vi.fn().mockResolvedValue({ success: true }),
-    notifyPoolSpy: vi.fn().mockResolvedValue(undefined),
+    notifyPoolSpy: vi.fn().mockResolvedValue({ ok: true }),
   };
 });
 
@@ -56,6 +56,7 @@ beforeEach(() => {
     settings: { reviewerUserIds: ["r1"] }, emailFromAddress: null, emailFromName: null,
   });
   sendEmailSpy.mockResolvedValue({ success: true });
+  notifyPoolSpy.mockResolvedValue({ ok: true });
 });
 
 describe("reviewer resend-invitation", () => {
@@ -92,6 +93,14 @@ describe("reviewer resend-invitation", () => {
     expect(notifyPoolSpy).toHaveBeenCalledTimes(1);
     expect(sendEmailSpy).not.toHaveBeenCalled();
     expect(mockDb._tx.verificationToken.create).not.toHaveBeenCalled();
+  });
+
+  it("active account: a refused email is a 502 with its reason, never 'sent' (Nov 10, 2026)", async () => {
+    mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "rev@x.com", firstName: "Rev", lastName: "One", emailVerified: new Date() });
+    notifyPoolSpy.mockResolvedValueOnce({ ok: false, code: "SEND_FAILED", message: "Email not sent: it still contains {{title}}" });
+    const res = await POST(req(), { params });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "Email not sent: it still contains {{title}}", code: "EMAIL_SEND_FAILED" });
   });
 
   it("surfaces a send failure as 502 (not silent)", async () => {

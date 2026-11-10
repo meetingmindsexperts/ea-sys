@@ -78,7 +78,8 @@ export type EmailRecipientKind = "registration" | "speaker" | "reviewer" | "coor
  * something happens. `registration` / `speaker`: the Send Email menu on one
  * person's record. `bulk`: Communications. `console`: a dedicated console
  * (RSVP, reimbursement, travel grant, profile form, panelists, presenter
- * agreement). `certificates`: the certificate pipeline's cover emails.
+ * agreement, the Reviewers page). `certificates`: the certificate pipeline's
+ * cover emails.
  */
 export type EmailTemplateSurface = "automatic" | "registration" | "speaker" | "bulk" | "console" | "certificates";
 
@@ -434,16 +435,17 @@ export const EMAIL_TEMPLATE_REGISTRY: Readonly<Record<SystemTemplateSlug, EmailT
   "reviewer-assignment": {
     slug: "reviewer-assignment",
     name: "Reviewer Assignment",
-    description: "Sent to a reviewer assigned to a specific abstract",
+    description: "Sent from the Reviewers page (Send assignments): one email per reviewer listing every new assignment. Assigning sends nothing",
     recipient: "reviewer",
-    surfaces: ["automatic"],
+    surfaces: ["console"],
     variables: [
     { key: "title", description: "Reviewer title, e.g. Dr. (from their speaker record on this event; empty when none)" },
     { key: "firstName", description: "Reviewer first name" },
     { key: "lastName", description: "Reviewer last name" },
     { key: "eventName", description: "Event name" },
-    { key: "abstractTitle", description: "Title of the assigned abstract" },
-    { key: "role", description: "Reviewer role (e.g. Primary reviewer)" },
+    { key: "abstractTitle", description: "The abstracts newly assigned to this reviewer, one title per line (numbered when several). For body text, not inside a link" },
+    { key: "abstractCount", description: "Number of abstracts listed in this email" },
+    { key: "role", description: "Reviewer role (e.g. Primary reviewer); plain Reviewer when the listed abstracts carry different roles" },
     { key: "reviewLink", description: "Link to the reviewer's My Reviews portal" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
     ],
@@ -452,10 +454,10 @@ export const EMAIL_TEMPLATE_REGISTRY: Readonly<Record<SystemTemplateSlug, EmailT
   "reviewer-pool-invitation": {
     slug: "reviewer-pool-invitation",
     name: "Reviewer Added to Event",
-    description: "Sent to a reviewer added to the event's pool; also the Review Invitation from Communications",
+    description: "Sent to a reviewer from the Reviewers page (Send email), and as the Review Invitation from Communications. Adding a reviewer sends nothing",
     recipient: "reviewer",
-    surfaces: ["automatic", "bulk"],
-    bulk: { type: "invitation", label: "Review Invitation", description: "Resend the reviewer pool invitation (the email a reviewer gets when added)", audiences: [{ audience: "reviewers", order: 1 }] },
+    surfaces: ["console", "bulk"],
+    bulk: { type: "invitation", label: "Review Invitation", description: "Send each reviewer the added-as-a-reviewer email", audiences: [{ audience: "reviewers", order: 1 }] },
     variables: [
     { key: "title", description: "Reviewer title, e.g. Dr. (from their speaker record on this event; empty when none)" },
     { key: "firstName", description: "Reviewer first name" },

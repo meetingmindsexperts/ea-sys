@@ -196,6 +196,19 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   `SELECT id, "eventId" FROM "Registration" WHERE "createdSource" = 'FACULTY_ADMIN';`.
   Never delete the enum value.
 
+- **Reviewer emails sent by hand (Nov 10, 2026; migrations `20261110150000`, `20261110160000`,
+  `20261110170000`).** No data hazard: the three new `AbstractReviewer` columns are nullable
+  and an older image ignores them. Two behaviours come back with an older image, though.
+  It emails a reviewer on EVERY assignment again (and on adding one), and those emails do
+  not set `notifiedAt`, so after rolling forward they show as "not emailed yet" and a press
+  of Send assignments emails them a second time. After rolling forward, run the read-only
+  check and tell the organiser, or mark the rows by hand:
+  `SELECT ar."id", ar."assignedAt" FROM "AbstractReviewer" ar JOIN "Abstract" a ON a."id" = ar."abstractId" WHERE ar."notifiedAt" IS NULL AND EXISTS (SELECT 1 FROM "EmailLog" el WHERE el."eventId" = a."eventId" AND el."entityType" = 'USER' AND el."entityId" = ar."userId" AND el."templateSlug" = 'reviewer-assignment' AND el."status" = 'SENT' AND el."createdAt" >= ar."assignedAt" AND el."createdAt" < ar."assignedAt" + INTERVAL '2 minutes');`
+  The same check applies after the deploy itself, for an assignment made in the minutes
+  between the migration and the new image taking traffic. And an event template that uses
+  `{{abstractCount}}` is refused by an older image (it does not fill that token): remove
+  the token from the template before rolling back.
+
 - **Bind mounts are untouched**: `public/uploads/`, `logs/`, and `.env` live on the host
   and survive any image swap. (The DB is untouched too — a code rollback never touches data.)
 

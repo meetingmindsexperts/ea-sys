@@ -747,6 +747,7 @@ export type AssignReviewerErrorCode =
   | "ABSTRACT_NOT_FOUND"
   | "USER_NOT_FOUND"
   | "NOT_REVIEWABLE"
+  | "OWN_ABSTRACT"
   | "UNKNOWN";
 
 export interface ReviewerAssignmentSummary {
@@ -783,7 +784,7 @@ export async function assignReviewer(input: AssignReviewerInput): Promise<Assign
       }),
       db.abstract.findFirst({
         where: { id: abstractId, eventId },
-        select: { id: true, title: true, status: true },
+        select: { id: true, title: true, status: true, speaker: { select: { userId: true, email: true } } },
       }),
       db.user.findUnique({
         where: { id: reviewerUserId },
@@ -875,6 +876,15 @@ export async function assignReviewer(input: AssignReviewerInput): Promise<Assign
         .catch((err) => apiLogger.error({ err, eventId, abstractId }, "update-reviewer:audit-log-failed"));
 
       return { ok: true, kind: "updated", assignment: updated, reviewer: user };
+    }
+
+    // Nobody reviews their own abstract (abstract-reviewer-access.ts), so
+    // nobody is newly assigned it either: the portal hides it, the review
+    // service refuses it, and the assignment email would list an abstract its
+    // reader cannot open. An existing row can still be edited or flagged above.
+    if (isOwnAbstract(abstract.speaker, { id: user.id, email: user.email })) {
+      apiLogger.warn({ msg: "abstract-reviewer:assign-rejected", code: "OWN_ABSTRACT", eventId, abstractId, targetUserId: reviewerUserId, source: input.source });
+      return { ok: false, code: "OWN_ABSTRACT", message: "This is their own abstract, so they cannot review it." };
     }
 
     const assignment = await db.abstractReviewer.create({

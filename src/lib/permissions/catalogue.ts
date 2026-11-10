@@ -540,7 +540,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("abstracts.themes.manage", "Abstracts", "Abstract themes", "Manage the themes and sub-themes authors choose from.", E),
   app("abstracts.criteria.manage", "Abstracts", "Review criteria", "Manage the scoring criteria reviewers use.", E),
   app("submissions.share", "Abstracts", "Share submissions by link", "Turn on, set up and renew the read-only links that show abstracts or session proposals to people without a sign-in.", E),
-  app("reviewers.pool.manage", "Abstracts", "Reviewer pool", "Add and remove the event's reviewers.", E),
+  app("reviewers.pool.manage", "Abstracts", "Reviewer pool", "Add and remove the event's reviewers and send them their emails. Removing a reviewer also takes them off the abstracts assigned to them.", E),
 
   // ── Session proposals ──
   app("proposals.read", "Session proposals", "See session proposals", "Open the session proposals list and a proposal.", E),
