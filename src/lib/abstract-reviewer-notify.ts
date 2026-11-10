@@ -1,5 +1,23 @@
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import { apiLogger } from "@/lib/logger";
+import { db } from "@/lib/db";
+import { getTitleLabel } from "@/lib/utils";
+
+/**
+ * The reviewer's title (e.g. "Dr.") for `{{title}}`. A reviewer account stores
+ * none; their speaker record on this event usually does. Empty when there is
+ * none, so a template that says "Dear {{title}} {{lastName}}" still sends
+ * (Nov 10, 2026: MEHF's edited templates did, and the send was refused on the
+ * unresolved token, so the reviewer was never told).
+ */
+async function reviewerTitle(eventId: string, reviewer: { id: string; email: string }): Promise<string> {
+  const speaker = await db.speaker.findFirst({
+    where: { eventId, OR: [{ userId: reviewer.id }, { email: { equals: reviewer.email, mode: "insensitive" } }] },
+    select: { title: true },
+    orderBy: { createdAt: "asc" },
+  });
+  return getTitleLabel(speaker?.title);
+}
 
 /**
  * Notify a reviewer that they've been assigned a specific abstract to review.
@@ -30,6 +48,7 @@ export async function notifyReviewerAssigned(args: {
   try {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
     const vars = {
+      title: await reviewerTitle(args.eventId, args.reviewer),
       firstName: args.reviewer.firstName ?? "",
       lastName: args.reviewer.lastName ?? "",
       eventName: args.eventName,
@@ -96,6 +115,7 @@ export async function notifyReviewerPoolAdded(args: {
   try {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
     const vars = {
+      title: await reviewerTitle(args.eventId, args.reviewer),
       firstName: args.reviewer.firstName ?? "",
       lastName: args.reviewer.lastName ?? "",
       eventName: args.eventName,

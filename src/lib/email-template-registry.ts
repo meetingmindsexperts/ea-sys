@@ -438,6 +438,7 @@ export const EMAIL_TEMPLATE_REGISTRY: Readonly<Record<SystemTemplateSlug, EmailT
     recipient: "reviewer",
     surfaces: ["automatic"],
     variables: [
+    { key: "title", description: "Reviewer title, e.g. Dr. (from their speaker record on this event; empty when none)" },
     { key: "firstName", description: "Reviewer first name" },
     { key: "lastName", description: "Reviewer last name" },
     { key: "eventName", description: "Event name" },
@@ -456,6 +457,7 @@ export const EMAIL_TEMPLATE_REGISTRY: Readonly<Record<SystemTemplateSlug, EmailT
     surfaces: ["automatic", "bulk"],
     bulk: { type: "invitation", label: "Review Invitation", description: "Resend the reviewer pool invitation (the email a reviewer gets when added)", audiences: [{ audience: "reviewers", order: 1 }] },
     variables: [
+    { key: "title", description: "Reviewer title, e.g. Dr. (from their speaker record on this event; empty when none)" },
     { key: "firstName", description: "Reviewer first name" },
     { key: "lastName", description: "Reviewer last name" },
     { key: "eventName", description: "Event name" },
