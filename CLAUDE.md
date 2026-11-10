@@ -462,7 +462,7 @@ Thresholds are best-effort; in-memory store means limits reset on EC2/Docker res
 - Reviewers are assigned per-event via `Event.settings.reviewerUserIds` (JSON array of User IDs)
 - `Speaker.userId` (nullable FK) links speakers to User accounts
 - The Reviewers page lets admins add reviewers via two methods: pick from speakers, or invite by email
-- New reviewer accounts are created with `organizationId: null` and sent an invitation email
+- New reviewer accounts are created with `organizationId: null`. Adding a reviewer sends NO email (owner, Nov 10, 2026): the organiser presses Send on the reviewer's row (setup invitation for a new account, the reviewer email for an active one; `reviewers/[reviewerId]/resend-invitation`)
 
 ### Submitter Registration
 - Submitters self-register via `/e/[slug]/register` (public page, no auth)

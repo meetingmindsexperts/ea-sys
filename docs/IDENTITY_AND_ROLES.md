@@ -164,8 +164,8 @@ fails with:
    and they're added to the event's reviewer list (and can be assigned to specific abstracts).
 
 **If they have no account at all** (pure manually-added faculty/committee): skip steps 1–3.
-Just add them on the Reviewers page — a `REVIEWER` login is created and an invitation email
-is sent. Their speaker facet, badge, and check-in are untouched.
+Just add them on the Reviewers page: a `REVIEWER` login is created, and no email goes out
+until you press **Send invitation** on their row (since Nov 10, 2026). Their speaker facet, badge, and check-in are untouched.
 
 ---
 

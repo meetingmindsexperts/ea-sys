@@ -12,15 +12,15 @@ import { notifyReviewerPoolAdded } from "@/lib/abstract-reviewer-notify";
 import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 
 /**
- * Resend a reviewer's invitation.
+ * Send a reviewer their email: the ONLY way a reviewer is emailed about being
+ * added, since adding one sends nothing (owner, Nov 10, 2026: "disable auto
+ * email trigger on reviewer addition, send email manually"). The path keeps
+ * its old "resend" name so existing clients keep working.
  *
- * The add-reviewer flow logs a warning + silently returns when the invitation
- * email fails to send (`invitationSent: false`), so a reviewer can be stranded
- * with no account and no link, indistinguishable from "sent, not yet accepted".
- * This action recovers that: it re-mints the setup token + resends the
- * account-setup invite for a pending account, OR resends the event-level
- * "you're a reviewer" email for an already-active account. Unlike the add path,
- * it **surfaces** a send failure (502) so the organizer knows it didn't go.
+ * A pending account gets a freshly minted setup token and the account-setup
+ * invitation; an account that can already sign in gets the event-level
+ * "you're a reviewer" email. A send failure surfaces (502) so the organiser
+ * knows it did not go.
  */
 interface RouteParams {
   params: Promise<{ eventId: string; reviewerId: string }>;

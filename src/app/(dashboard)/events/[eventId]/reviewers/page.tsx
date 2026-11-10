@@ -77,6 +77,12 @@ export default function ReviewersPage() {
   );
 }
 
+/** A new account is sent the setup invitation; one that can sign in, the reviewer email. */
+function sendLabel(accountActive: boolean, sending: boolean): string {
+  if (sending) return "Sending...";
+  return accountActive ? "Send email" : "Send invitation";
+}
+
 function triStateChecked(all: boolean, some: boolean): boolean | "indeterminate" {
   if (all) return true;
   return some ? "indeterminate" : false;
@@ -170,11 +176,11 @@ function Reviewers({ eventId }: { eventId: string }) {
       const res = await resendInvitation.mutateAsync(userId);
       toast.success(
         res.type === "setup"
-          ? `Invitation re-sent to ${name}`
-          : `Reviewer reminder sent to ${name}`,
+          ? `Invitation sent to ${name}`
+          : `Reviewer email sent to ${name}`,
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to resend invitation");
+      toast.error(error instanceof Error ? error.message : "Failed to send the email");
     } finally {
       setResendingId(null);
     }
@@ -324,7 +330,7 @@ function Reviewers({ eventId }: { eventId: string }) {
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    An invitation email will be sent if this person doesn&apos;t have an account yet.
+                    No email is sent when you add them. Use Send on their row when you are ready.
                   </p>
                   <Button
                     onClick={handleAddByEmail}
@@ -477,22 +483,23 @@ function Reviewers({ eventId }: { eventId: string }) {
                     </div>
 
                     <div className="flex gap-2 shrink-0">
-                      {!reviewer.accountActive && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            handleResendInvitation(
-                              reviewer.userId,
-                              `${reviewer.firstName} ${reviewer.lastName}`
-                            )
-                          }
-                          disabled={resendingId === reviewer.userId}
-                        >
-                          <Send className="mr-2 h-4 w-4" />
-                          {resendingId === reviewer.userId ? "Sending..." : "Resend"}
-                        </Button>
-                      )}
+                      {/* Adding a reviewer sends nothing (Nov 10, 2026): this
+                          is how they hear. A new account gets the setup
+                          invitation, an active one the reviewer email. */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          handleResendInvitation(
+                            reviewer.userId,
+                            `${reviewer.firstName} ${reviewer.lastName}`
+                          )
+                        }
+                        disabled={resendingId === reviewer.userId}
+                      >
+                        <Send className="mr-2 h-4 w-4" />
+                        {sendLabel(reviewer.accountActive, resendingId === reviewer.userId)}
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"

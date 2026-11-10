@@ -11,11 +11,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { isLinkedRole, requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings } from "@/lib/event-settings";
-import { sendEmail, emailTemplates, brandingCc } from "@/lib/email";
-import { getClientIp, hashVerificationToken } from "@/lib/security";
+import { getClientIp } from "@/lib/security";
 import { syncToContact } from "@/lib/contact-sync";
-import { notifyReviewerPoolAdded } from "@/lib/abstract-reviewer-notify";
-import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 
 const addReviewerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("speaker"), speakerId: z.string().min(1).max(100) }),
@@ -165,7 +162,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, name: true, slug: true, settings: true, emailFromAddress: true, emailFromName: true, emailCcAddresses: true },
+      select: { id: true, name: true, settings: true },
     });
 
     if (!event) {
@@ -175,14 +172,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     const settings = (event.settings as Record<string, unknown>) || {};
     const reviewerUserIds = (settings.reviewerUserIds as string[]) || [];
 
+    // Adding a reviewer sends no email (owner, Nov 10, 2026: "disable auto
+    // email trigger on reviewer addition, send email manually"). The Reviewers
+    // page's Send button does it: the setup invitation for a new account, the
+    // "added as a reviewer" email for one that can already sign in.
     let userId: string;
-    let invitationSent = false;
     let reviewerEmail: string;
-    // Whether the reviewer's account already existed (vs newly created). A
-    // pre-existing account gets the event-level "you're a reviewer for X"
-    // pool email; a brand-new account gets the account-setup invitation
-    // instead (which already routes them to the event).
-    let accountExisted = false;
 
     if (validated.data.type === "speaker") {
       // ---- Add from speaker ----
@@ -201,17 +196,12 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       if (speaker.userId) {
         userId = speaker.userId;
-        accountExisted = true; // existing linked account — no setup invite sent
       } else {
-        const result = await findOrCreateReviewerUser(
-          speaker.email, speaker.firstName, speaker.lastName, session, event.slug, eventId, invitationMail(event)
-        );
+        const result = await findOrCreateReviewerUser(speaker.email, speaker.firstName, speaker.lastName, session);
         if ("error" in result) {
           return NextResponse.json({ error: result.error }, { status: 400 });
         }
         userId = result.userId;
-        invitationSent = result.invitationSent;
-        accountExisted = result.existed;
 
         // Link speaker to user. An existing account must have proven the address
         // first (the rule in speaker-companion.ts): a speaker record and its
@@ -230,13 +220,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       const { email, firstName, lastName } = validated.data;
       reviewerEmail = email;
 
-      const result = await findOrCreateReviewerUser(email, firstName, lastName, session, event.slug, eventId, invitationMail(event));
+      const result = await findOrCreateReviewerUser(email, firstName, lastName, session);
       if ("error" in result) {
         return NextResponse.json({ error: result.error }, { status: 400 });
       }
       userId = result.userId;
-      invitationSent = result.invitationSent;
-      accountExisted = result.existed;
     }
 
     // Check if already assigned
@@ -257,25 +245,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       // pass it — a Set keeps reviewerUserIds free of duplicates.
       reviewerUserIds: Array.from(new Set([...((cur.reviewerUserIds as string[]) ?? []), userId])),
     }));
-
-    // Tell a pre-existing reviewer account they've been added to this event's
-    // pool (new accounts get the account-setup invitation instead, which
-    // already routes them to the event). Failure-isolated in the helper.
-    if (accountExisted) {
-      const reviewerUser = await db.user.findUnique({
-        where: { id: userId },
-        select: { id: true, firstName: true, lastName: true, email: true },
-      });
-      if (reviewerUser) {
-        await notifyReviewerPoolAdded({
-          eventId,
-          organizationId: session.user.organizationId ?? null,
-          reviewer: reviewerUser,
-          eventName: event.name,
-          triggeredByUserId: session.user.id,
-        });
-      }
-    }
 
     // Sync reviewer to org contact store (fire-and-forget)
     if (validated.data.type === "speaker") {
@@ -321,7 +290,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         action: "CREATE",
         entityType: "EventReviewer",
         entityId: userId,
-        changes: { type: validated.data.type, email: reviewerEmail, invitationSent, ip: getClientIp(req) },
+        changes: { type: validated.data.type, email: reviewerEmail, emailed: false, ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
@@ -329,10 +298,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       {
         success: true,
         userId,
-        invitationSent,
-        message: invitationSent
-          ? "Reviewer added and invitation email sent"
-          : "Reviewer added to event",
+        invitationSent: false,
+        message: "Reviewer added. No email was sent: use Send on their row when you are ready.",
       },
       { status: 201 }
     );
@@ -356,28 +323,14 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
 }
 
-/**
- * The event's sender and its Auto-CC list (Settings), for the invitation. The
- * CC gets the setup link too: the owner chose that on Nov 10, 2026, knowing
- * whoever is copied could set up the reviewer's account.
- */
-function invitationMail(event: { emailFromAddress: string | null; emailFromName: string | null; emailCcAddresses: string[] }) {
-  return {
-    from: event.emailFromAddress ? { email: event.emailFromAddress, name: event.emailFromName || undefined } : undefined,
-    ccAddresses: event.emailCcAddresses,
-  };
-}
-
-// Shared helper: find an existing outside account or create a REVIEWER with an invitation
+// Shared helper: find an existing outside account or create a REVIEWER. Sends
+// nothing: the organiser emails reviewers by hand (owner, Nov 10, 2026).
 async function findOrCreateReviewerUser(
   email: string,
   firstName: string,
   lastName: string,
-  session: { user: { id: string; organizationId?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } },
-  eventSlug: string,
-  eventId: string,
-  mail: ReturnType<typeof invitationMail>,
-): Promise<{ userId: string; invitationSent: boolean; existed: boolean; confirmed?: boolean } | { error: string }> {
+  session: { user: { id: string; organizationId?: string | null } },
+): Promise<{ userId: string; existed: boolean; confirmed?: boolean } | { error: string }> {
   const normalizedEmail = email.toLowerCase();
 
   // Reviewers are created org-independent, so the org-less half of this scope
@@ -396,87 +349,23 @@ async function findOrCreateReviewerUser(
     if (!isLinkedRole(existingUser.role)) {
       return { error: `User already exists with role ${existingUser.role}. Change their role in Settings > Users first.` };
     }
-    return { userId: existingUser.id, invitationSent: false, existed: true, confirmed: !!existingUser.emailConfirmedAt };
+    return { userId: existingUser.id, existed: true, confirmed: !!existingUser.emailConfirmedAt };
   }
 
-  // Create new REVIEWER User with invitation (no organizationId — reviewers are org-independent)
-  const invitationToken = crypto.randomBytes(32).toString("hex");
-  const invitationTokenHash = hashVerificationToken(invitationToken);
-  const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  // A new REVIEWER account (no organizationId: reviewers are org-independent),
+  // with no setup link yet. The link is minted when the organiser sends the
+  // invitation from the Reviewers page (resend-invitation route).
   const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
-
-  const newUser = await db.$transaction(async (tx) => {
-    const user = await tx.user.create({
-      data: {
-        email: normalizedEmail,
-        firstName,
-        lastName,
-        role: "REVIEWER",
-        passwordHash: placeholderHash,
-      },
-      select: { id: true },
-    });
-
-    await tx.verificationToken.create({
-      data: {
-        identifier: normalizedEmail,
-        token: invitationTokenHash,
-        expires: tokenExpiry,
-      },
-    });
-
-    return user;
-  });
-
-  // Send invitation email
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-  const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(normalizedEmail)}&eventSlug=${encodeURIComponent(eventSlug)}`;
-
-  // A reviewer is an HCP: the invitation names the attendee-facing brand (public-brand.ts).
-  const brand = session.user.organizationId ? await loadPublicBrandForOrg(session.user.organizationId) : null;
-
-  const inviterName = session.user.firstName && session.user.lastName
-    ? `${session.user.firstName} ${session.user.lastName}`
-    : session.user.email || "A team member";
-
-  const emailTemplate = emailTemplates.userInvitation({
-    recipientName: `${firstName} ${lastName}`,
-    recipientEmail: email,
-    organizationName: brand?.name || "your organization",
-    productName: brand?.name,
-    inviterName,
-    role: "Reviewer",
-    setupLink,
-    expiresIn: "7 days",
-  });
-
-  const to = [{ email: normalizedEmail, name: `${firstName} ${lastName}` }];
-  const emailResult = await sendEmail({
-    to,
-    cc: brandingCc({ emailCcAddresses: mail.ccAddresses }, to),
-    subject: emailTemplate.subject,
-    htmlContent: emailTemplate.htmlContent,
-    textContent: emailTemplate.textContent,
-    from: mail.from,
-    emailType: "reviewer_invitation",
-    stream: "transactional",
-    logContext: {
-      organizationId: session.user.organizationId,
-      eventId,
-      entityType: "USER",
-      entityId: newUser.id,
-      templateSlug: "reviewer-invitation",
-      triggeredByUserId: session.user.id,
-    },
-  });
-
-  if (!emailResult.success) {
-    apiLogger.warn({
-      msg: "Failed to send reviewer invitation email",
+  const newUser = await db.user.create({
+    data: {
       email: normalizedEmail,
-      error: emailResult.error,
-    });
-  }
+      firstName,
+      lastName,
+      role: "REVIEWER",
+      passwordHash: placeholderHash,
+    },
+    select: { id: true },
+  });
 
-  return { userId: newUser.id, invitationSent: emailResult.success, existed: false };
+  return { userId: newUser.id, existed: false };
 }
