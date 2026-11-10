@@ -23,9 +23,8 @@ import { RECOMMENDED_FORMAT_VALUES } from "@/lib/recommended-formats";
  * with event access can read (reviewers see their own + others' for context,
  * organizers see all to make the final call).
  *
- * POST — upsert the CURRENT USER's submission. Auth requires the user to
- * be either in `event.settings.reviewerUserIds` OR have an explicit
- * `AbstractReviewer` row. Upserts on `(abstractId, reviewerUserId)` so
+ * POST — upsert the CURRENT USER's submission. Auth requires an
+ * `AbstractReviewer` row for the user (the event's pool alone is not enough). Upserts on `(abstractId, reviewerUserId)` so
  * reviewers can edit their own scores without creating duplicates.
  */
 
@@ -55,7 +54,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     // Who may read an abstract's reviews: staff holding `abstracts.read` on
-    // this event, reviewers (their pool) and the author (their own, below).
+    // this event, reviewers (assigned to it, below) and the author (their own, below).
     // Until Oct 2, 2026 this lookup was by id alone, so any account in the
     // organisation (CRM, HR, a desk temp on another event) read the
     // anonymised reviews of any abstract whose id it held.
@@ -85,7 +84,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     // Access matrix for reading reviewer feedback (tightened July 13 — review H9):
     //   - org STAFF (ADMIN/SUPER_ADMIN/ORGANIZER) → full per-reviewer view
-    //   - event-pool reviewers (REVIEWER role, org-independent) → full view
+    //   - reviewers ASSIGNED to this abstract (the pool alone is not enough
+    //     since Nov 10, 2026) → full view
     //   - the abstract's submitter → anonymized view: notes + overall
     //     aggregates only, no per-reviewer identity (the "Reviewer Feedback"
     //     card on /abstracts/[id]/edit is the one place a SUBMITTER sees this)
@@ -94,12 +94,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
     //     They used to get the full per-reviewer identities/notes/criteria via
     //     the bare isOrgMember check, which broke blind review sideways.
     //   - everyone else → 403
-    const reviewerUserIds = (event.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
-    // On the pool counts only on the terms reviewing itself does.
-    const isEventReviewer = reviewerUserIds.includes(session.user.id) && !mustConfirmEmailToReview(
-      await db.user.findUnique({ where: { id: session.user.id }, select: { role: true, emailConfirmedAt: true, tokenVersion: true } }),
-      session.user.tokenVersion ?? 0,
-    );
+    // An assignment counts only on the terms reviewing itself does.
+    const [assignment, account] = await Promise.all([
+      db.abstractReviewer.findUnique({
+        where: { abstractId_userId: { abstractId, userId: session.user.id } },
+        select: { conflictFlag: true },
+      }),
+      db.user.findUnique({ where: { id: session.user.id }, select: { role: true, emailConfirmedAt: true, tokenVersion: true } }),
+    ]);
+    const isEventReviewer = !!assignment && !mustConfirmEmailToReview(account, session.user.tokenVersion ?? 0);
     const isOrgMember = event.organizationId === session.user.organizationId;
     // Who-said-what is for the people who decide (abstracts.decide).
     // Asked on THIS event: a grant scoped to webinars must not unmask reviewer
@@ -116,15 +119,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // Anonymized view (submitter + non-staff org roles): strip reviewer
     // identity + per-criterion detail so the reader sees consolidated feedback
     // without learning who-said-what.
-    // The author always gets it, even one who reviews on this event too: their
-    // pool membership must not show them who scored their own abstract.
+    // The author always gets it, even one who reviews on this event too: an
+    // assignment must not show them who scored their own abstract.
     // So does a reviewer with a declared conflict: the review stops at the name.
-    const conflicted = isEventReviewer && !isOrgStaff
-      ? (await db.abstractReviewer.findUnique({
-          where: { abstractId_userId: { abstractId, userId: session.user.id } },
-          select: { conflictFlag: true },
-        }))?.conflictFlag === true
-      : false;
+    const conflicted = assignment?.conflictFlag === true;
     if (!isOrgStaff && (!isEventReviewer || isAbstractSpeaker || conflicted)) {
       return NextResponse.json({
         submissions: aggregate.submissions.map((s) => ({
@@ -196,8 +194,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Staff holding `abstracts.decide` score on the events it reaches. Everyone
-    // else goes through the service's own rule (in the event's pool OR assigned
-    // to this abstract, and not its author), whatever their account's role: a
+    // else goes through the service's own rule (assigned to this abstract, and
+    // not its author), whatever their account's role: a
     // reviewer is usually a speaker already, so a SUBMITTER, and a colleague can
     // be asked too. That rule is wider than the events a grant or `linked`
     // resolves to, so their lookup stays by id.
@@ -233,7 +231,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
     return await runWithTenant(event.organizationId, async () => {
-    // Domain logic — auth matrix (pool / assignment / H3 org-bound admin),
+    // Domain logic — auth matrix (assignment / H3 org-bound admin),
     // the H6 reviewable-status + COI + empty-payload gates, criteria
     // validation, the upsert, and the audit row — lives in
     // abstract-service.submitAbstractReview (review H7: this route + two MCP

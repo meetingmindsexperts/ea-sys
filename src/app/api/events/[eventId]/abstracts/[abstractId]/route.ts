@@ -1,4 +1,4 @@
-import { isOwnAbstract } from "@/lib/abstract-reviewer-access";
+import { assignedToReviewWhere, isOwnAbstract, linkedRoleAbstractFilter } from "@/lib/abstract-reviewer-access";
 import { NextResponse } from "next/server";
 import { can } from "@/lib/permissions/can";
 import { z } from "zod";
@@ -82,8 +82,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Staff holding `abstracts.read`, reviewers (their pool) and authors (their
-    // own, checked below). Not registrants.
+    // Staff holding `abstracts.read`, reviewers (assigned to it) and authors
+    // (their own). Not registrants.
     const gate = requirePermission(session, "abstracts.read", {
       route: "events/[eventId]/abstracts/[abstractId]:GET",
       eventId,
@@ -109,6 +109,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       where: {
         id: abstractId,
         eventId,
+        ...linkedRoleAbstractFilter(session.user),
       },
       include: {
         speaker: true,
@@ -183,10 +184,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(event.organizationId, async () => {
+    // A reviewer sets the status only of an abstract assigned to them; the
+    // event's reviewer pool alone is not enough (Nov 10, 2026).
     const existingAbstract = await db.abstract.findFirst({
       where: {
         id: abstractId,
         eventId,
+        ...(session.user.role === "REVIEWER" ? assignedToReviewWhere(session.user.id) : {}),
       },
       include: { speaker: { select: { userId: true, email: true, ...PROFILE_COMPLETENESS_SELECT } } },
     });
@@ -220,7 +224,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     // Staff who may set any status: holders of abstracts.update (a reviewer or
-    // submitter reaches this route through their own pool, with no grant).
+    // submitter reaches this route through their assignment or authorship, with no grant).
     const isAdmin = can(gate.principal, "abstracts.update");
     const isReviewer = session.user.role === "REVIEWER";
     const canReview = isAdmin || isReviewer;

@@ -13,10 +13,10 @@ import { assignReviewer, type AssignReviewerErrorCode } from "@/services/abstrac
  * Reviewer assignment for a specific abstract.
  *
  * Admins/organizers use POST here to assign a reviewer from the event's
- * reviewer pool to a specific abstract. This is additive — being in
- * `event.settings.reviewerUserIds` still grants global review rights on the
- * event's abstracts. Per-abstract assignments are useful for workload
- * distribution + conflict-of-interest tracking.
+ * reviewer pool to a specific abstract. The assignment IS the review right:
+ * since Nov 10, 2026 being in `event.settings.reviewerUserIds` grants no
+ * abstract by itself (src/lib/abstract-reviewer-access.ts). It also carries the
+ * reviewer's role and the conflict-of-interest flag.
  *
  * Domain logic (reviewable-status gate, upsert semantics, COI flag, audit,
  * reviewer notification) lives in abstract-service.assignReviewer, shared

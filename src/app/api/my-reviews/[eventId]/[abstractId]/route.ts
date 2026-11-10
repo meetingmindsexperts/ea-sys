@@ -5,7 +5,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { resolveEventTenant } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
-import { REVIEWABLE_ABSTRACT_STATUSES, isOnReviewerPool, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
+import { REVIEWABLE_ABSTRACT_STATUSES, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
 import { recommendableFormats } from "@/lib/recommended-formats";
 
 /**
@@ -85,7 +85,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
         }),
       ]);
 
-      if (!event || !abstract || (!assignment && !isOnReviewerPool(event.settings, user.id))) {
+      // Assigned only: the event's reviewer pool grants no abstract by itself.
+      if (!event || !abstract || !assignment) {
         apiLogger.warn({ msg: "my-reviews:not-a-reviewer", eventId, abstractId, userId: user.id, found: !!abstract });
         return NextResponse.json(NOT_FOUND, { status: 404 });
       }

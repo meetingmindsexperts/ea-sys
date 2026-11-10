@@ -33,8 +33,13 @@ function makeReq(body: Record<string, unknown>) {
   return new Request("http://localhost/sub", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
 }
 
+/** Since Nov 10, 2026 the assignment is the review right: "u1" holds one on ab1. */
+const assignedTo = (userId: string) => ({ where }: { where: { abstractId_userId: { userId: string } } }) =>
+  Promise.resolve(where.abstractId_userId.userId === userId ? { id: "ar1", conflictFlag: false } : null);
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockDb.abstractReviewer.findUnique.mockImplementation(assignedTo("u1"));
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "REVIEWER", organizationId: null } });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { reviewerUserIds: ["u1"] }, reviewCriteria: [] });
   mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "UNDER_REVIEW" });
@@ -62,11 +67,12 @@ describe("abstract review — COI enforcement", () => {
     expect(mockDb.abstractReviewSubmission.upsert).toHaveBeenCalledTimes(1);
   });
 
-  it("allows a pool reviewer with no explicit assignment (no COI flag to carry)", async () => {
+  it("refuses a pool reviewer with no assignment: the pool alone grants nothing (Nov 10, 2026)", async () => {
     mockDb.abstractReviewer.findUnique.mockResolvedValue(null);
     const res = await POST(makeReq({ overallScore: 80 }), { params });
-    expect(res.status).toBeLessThan(400);
-    expect(mockDb.abstractReviewSubmission.upsert).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("NOT_A_REVIEWER");
+    expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
   });
 });
 
@@ -92,10 +98,6 @@ describe("abstract review — H3 cross-org admin bind", () => {
 });
 
 describe("abstract review — H5 empty payload + H6 reviewable status", () => {
-  beforeEach(() => {
-    mockDb.abstractReviewer.findUnique.mockResolvedValue(null); // pool reviewer
-  });
-
   it("rejects a completely empty payload with 400 EMPTY_REVIEW (would mint an all-null row)", async () => {
     const res = await POST(makeReq({}), { params });
     expect(res.status).toBe(400);
@@ -133,7 +135,7 @@ describe("abstract review — H5 empty payload + H6 reviewable status", () => {
 
 // ── H9b (July 13, 2026): the submissions GET view matrix ─────────────────────
 // The full per-reviewer view (identities + notes + per-criterion) is for org
-// STAFF (ADMIN/SUPER_ADMIN/ORGANIZER) and pool reviewers only. MEMBER — a
+// STAFF (ADMIN/SUPER_ADMIN/ORGANIZER) and assigned reviewers only. MEMBER — a
 // read-only, documented-as-sponsor-side role — used to receive it via the bare
 // org-membership check, breaking blind review sideways. MEMBER (and the
 // submitter) now get the anonymized shape.
@@ -175,7 +177,7 @@ describe("submissions GET — per-reviewer visibility (H9b)", () => {
     expect(JSON.stringify(body)).toContain("Alice");
   });
 
-  it("pool REVIEWER keeps the full view; unrelated outsider still 403s", async () => {
+  it("an assigned REVIEWER keeps the full view; a pool member with no assignment and an outsider 403", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u1", role: "REVIEWER", organizationId: null } });
     const reviewerRes = await GET(getReq, { params });
     expect(reviewerRes.status).toBe(200);
@@ -185,6 +187,12 @@ describe("submissions GET — per-reviewer visibility (H9b)", () => {
     mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { reviewerUserIds: ["u1"] }, reviewCriteria: [] });
     const strangerRes = await GET(getReq, { params });
     expect(strangerRes.status).toBe(403);
+
+    // On the pool, not assigned to this abstract: no names, no scores.
+    mockAuth.mockResolvedValue({ user: { id: "pool-only", role: "REVIEWER", organizationId: null } });
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { reviewerUserIds: ["u1", "pool-only"] }, reviewCriteria: [] });
+    const poolOnlyRes = await GET(getReq, { params });
+    expect(poolOnlyRes.status).toBe(403);
   });
 
   it("the abstract's submitter gets the anonymized view (unchanged contract)", async () => {
@@ -197,10 +205,10 @@ describe("submissions GET — per-reviewer visibility (H9b)", () => {
   });
 });
 
-describe("abstract review: the right follows the pool and the assignment, not the role", () => {
+describe("abstract review: the right follows the assignment, not the role", () => {
   const author = { userId: "someone-else", email: "author@example.com" };
 
-  it.each(["SUBMITTER", "REGISTRANT"])("a %s on the pool may submit", async (role) => {
+  it.each(["SUBMITTER", "REGISTRANT"])("an assigned %s may submit", async (role) => {
     mockAuth.mockResolvedValue({ user: { id: "u1", role, organizationId: null } });
     mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: author });
     const res = await POST(makeReq({ overallScore: 80 }), { params });
@@ -238,7 +246,7 @@ describe("abstract review: the right follows the pool and the assignment, not th
     expect(JSON.stringify(await read.json())).not.toContain("Named");
   });
 
-  it("a colleague on the pool without abstracts.decide may submit too", async () => {
+  it("an assigned colleague without abstracts.decide may submit too", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u1", role: "ONSITE", organizationId: "org1" } });
     mockDb.user.findUnique.mockResolvedValue({ id: "u1", email: "u1@example.com", role: "ONSITE", emailConfirmedAt: null });
     mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: "x", email: "a@example.com" } });
@@ -246,7 +254,7 @@ describe("abstract review: the right follows the pool and the assignment, not th
     expect(res.status).toBeLessThan(400);
   });
 
-  it("a conflicted pool reviewer reads the anonymised view", async () => {
+  it("a conflicted assigned reviewer reads the anonymised view", async () => {
     mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", speaker: { userId: "x", email: "a@example.com" } });
     mockDb.abstractReviewer.findUnique.mockResolvedValue({ id: "ar1", conflictFlag: true });
     mockDb.abstractReviewSubmission.findMany.mockResolvedValue([
@@ -267,7 +275,7 @@ describe("abstract review: the right follows the pool and the assignment, not th
     expect(text).not.toContain("Named");
   });
 
-  it("the author is refused even on the pool", async () => {
+  it("the author is refused even when assigned", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u1", role: "SUBMITTER", organizationId: null } });
     mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: "u1", email: "me@example.com" } });
     const res = await POST(makeReq({ overallScore: 80 }), { params });
@@ -276,7 +284,7 @@ describe("abstract review: the right follows the pool and the assignment, not th
     expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
   });
 
-  it("an author on the pool reads their own abstract's reviews without names", async () => {
+  it("an assigned author reads their own abstract's reviews without names", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u1", role: "SUBMITTER", organizationId: null } });
     mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", speaker: { userId: "u1" } });
     mockDb.abstractReviewSubmission.findMany.mockResolvedValue([

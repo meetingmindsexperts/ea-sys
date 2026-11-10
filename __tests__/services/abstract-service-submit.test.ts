@@ -35,7 +35,7 @@ import { submitAbstractReview } from "@/services/abstract-service";
 const EVENT = {
   id: "ev1",
   organizationId: "orgA",
-  settings: { reviewerUserIds: ["pool-rev"] },
+  settings: { reviewerUserIds: ["pool-rev", "pool-only"] },
   reviewCriteria: [
     { id: "c1", weight: 60 },
     { id: "c2", weight: 40 },
@@ -45,6 +45,10 @@ const UPSERTED = {
   id: "sub1", overallScore: 80, reviewNotes: null, recommendedFormat: null,
   confidence: null, submittedAt: new Date(0), updatedAt: new Date(0), criteriaScores: null,
 };
+
+/** Since Nov 10, 2026 the assignment is the review right: "pool-rev" holds one, "pool-only" does not. */
+const assignedTo = (userId: string) => ({ where }: { where: { abstractId_userId: { userId: string } } }) =>
+  Promise.resolve(where.abstractId_userId.userId === userId ? { id: "ar1", conflictFlag: false } : null);
 
 const base = {
   eventId: "ev1",
@@ -56,7 +60,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockDb.event.findFirst.mockResolvedValue(EVENT);
   mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "UNDER_REVIEW" });
-  mockDb.abstractReviewer.findUnique.mockResolvedValue(null);
+  mockDb.abstractReviewer.findUnique.mockImplementation(assignedTo("pool-rev"));
   mockDb.user.findUnique.mockResolvedValue({ id: "pool-rev", firstName: "P", lastName: "R", email: "pool@example.com", role: "REVIEWER", emailConfirmedAt: new Date() });
   mockDb.abstractReviewSubmission.upsert.mockResolvedValue(UPSERTED);
   mockDb.user.findUnique.mockResolvedValue({ id: "rev1", firstName: "A", lastName: "B", email: "a@b.c" });
@@ -64,9 +68,20 @@ beforeEach(() => {
 });
 
 describe("authorization — the H3 org-bind lives in the service", () => {
-  it("pool reviewer self-submits fine", async () => {
+  it("an assigned reviewer self-submits fine", async () => {
     const r = await submitAbstractReview({ ...base, reviewerUserId: "pool-rev", actor: { userId: "pool-rev" }, overallScore: 80 });
     expect(r.ok).toBe(true);
+  });
+
+  it("the event's reviewer pool alone is not enough: no assignment, no review", async () => {
+    const r = await submitAbstractReview({ ...base, reviewerUserId: "pool-only", actor: { userId: "pool-only" }, overallScore: 80 });
+    expect(r).toMatchObject({ ok: false, code: "NOT_A_REVIEWER" });
+    expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+  });
+
+  it("nor for a target recorded on their behalf", async () => {
+    const r = await submitAbstractReview({ ...base, source: "mcp", reviewerUserId: "pool-only", actor: { userId: "admin1" }, overallScore: 80 });
+    expect(r).toMatchObject({ ok: false, code: "NOT_A_REVIEWER" });
   });
 
   it("org-bound ADMIN self-submits WITHOUT pool/assignment (REST parity preserved)", async () => {
@@ -90,8 +105,8 @@ describe("authorization — the H3 org-bind lives in the service", () => {
     expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
   });
 
-  it("the admin bypass is SELF-SUBMIT ONLY — on-behalf target must be pool/assigned", async () => {
-    // Org-bound admin records for a target who is neither pool nor assigned.
+  it("the admin bypass is SELF-SUBMIT ONLY — on-behalf target must be assigned", async () => {
+    // Org-bound admin records for a target who is not assigned.
     const r = await submitAbstractReview({
       ...base,
       reviewerUserId: "rev1",
@@ -108,7 +123,7 @@ describe("authorization — the H3 org-bind lives in the service", () => {
 });
 
 describe("on-behalf path", () => {
-  it("records for a pool-reviewer target, returns their identity, audits on-behalf source", async () => {
+  it("records for an assigned target, returns their identity, audits on-behalf source", async () => {
     const r = await submitAbstractReview({
       ...base,
       source: "mcp",
@@ -227,11 +242,11 @@ describe("submitAbstractReview: nobody reviews their own abstract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDb.event.findFirst.mockResolvedValue(EVENT);
-    mockDb.abstractReviewer.findUnique.mockResolvedValue(null);
+    mockDb.abstractReviewer.findUnique.mockImplementation(assignedTo("pool-rev"));
     mockDb.user.findUnique.mockResolvedValue({ id: "pool-rev", firstName: "P", lastName: "R", email: "pool@example.com", role: "REVIEWER", emailConfirmedAt: new Date() });
   });
 
-  it("refuses a pool reviewer on their own, by account", async () => {
+  it("refuses an assigned reviewer on their own, by account", async () => {
     mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: "pool-rev", email: "x@example.com" } });
     const r = await submitAbstractReview({ ...input, reviewerUserId: "pool-rev", actor: { userId: "pool-rev" } });
     expect(r).toMatchObject({ ok: false, code: "OWN_ABSTRACT" });

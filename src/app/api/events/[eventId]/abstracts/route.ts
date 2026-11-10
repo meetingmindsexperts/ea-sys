@@ -29,6 +29,7 @@ import {
   readAbstractLimits,
 } from "@/lib/abstract-limits";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
+import { linkedRoleAbstractFilter } from "@/lib/abstract-reviewer-access";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 import {
   isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE,
@@ -254,7 +255,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Who may list: staff holding `abstracts.read` on this event, and the two
     // outside identities the abstracts flow serves, reviewers (their pool's
-    // events) and authors (their own, filtered below). NOT registrants: until
+    // events, assigned abstracts only) and authors (their own, filtered below). NOT registrants: until
     // Oct 2, 2026 any delegate with an account could list, read and edit every
     // abstract on an event they had registered for.
     const gate = requirePermission(session, "abstracts.read", {
@@ -265,14 +266,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
     if (!gate.ok) return gate.response;
 
-    // For SUBMITTER, restrict to their own abstracts via speaker.userId
-    const submitterFilter = session.user.role === "SUBMITTER"
-      ? { speaker: { userId: session.user.id } }
-      : {};
+    // A SUBMITTER lists their own abstracts; a REVIEWER the ones assigned to
+    // them, never the whole event their pool membership opens (Nov 10, 2026).
+    const roleFilter = linkedRoleAbstractFilter(session.user);
 
     // A DRAFT is the submitter's private work-in-progress. Never surface drafts
     // to organizers / admins / reviewers — only the owning SUBMITTER (via
-    // submitterFilter above) sees their own drafts.
+    // roleFilter above) sees their own drafts.
     const statusFilter = abstractListStatusFilter({
       canSeeDrafts: session.user.role === "SUBMITTER",
       requestedStatus: status,
@@ -297,7 +297,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         ...(statusFilter !== undefined && { status: statusFilter }),
         ...(trackId && { trackId }),
         ...(speakerId && { speakerId }),
-        ...submitterFilter,
+        ...roleFilter,
       },
       include: {
         speaker: true,

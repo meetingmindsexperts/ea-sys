@@ -24,7 +24,9 @@ export type SessionUser = {
 export function buildEventAccessWhere(user: SessionUser, eventId?: string): Prisma.EventWhereInput {
   const id = eventId ? { id: eventId } : {};
 
-  // Reviewers: the events whose reviewer pool lists them.
+  // Reviewers: the events whose reviewer pool lists them. Which abstracts they
+  // then see is their assignments alone (linkedRoleAbstractFilter in
+  // abstract-reviewer-access.ts); the portal at /my-reviews needs neither.
   if (user.role === "REVIEWER") {
     return { ...id, settings: { path: ["reviewerUserIds"], array_contains: user.id } };
   }

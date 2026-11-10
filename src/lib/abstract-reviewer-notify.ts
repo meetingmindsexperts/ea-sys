@@ -1,4 +1,4 @@
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { apiLogger } from "@/lib/logger";
 import { db } from "@/lib/db";
 import { getTitleLabel } from "@/lib/utils";
@@ -94,8 +94,10 @@ export async function notifyReviewerAssigned(args: {
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: args.eventName };
     const rendered = renderAndWrap(tpl, vars, branding);
 
+    const to = [{ email: args.reviewer.email, name: `${vars.firstName} ${vars.lastName}`.trim() || args.reviewer.email }];
     await sendEmail({
-      to: [{ email: args.reviewer.email, name: `${vars.firstName} ${vars.lastName}`.trim() || args.reviewer.email }],
+      to,
+      cc: brandingCc(branding, to),
       ...rendered,
       from: brandingFrom(branding),
       emailType: "reviewer_assignment",
@@ -159,8 +161,10 @@ export async function notifyReviewerPoolAdded(args: {
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: args.eventName };
     const rendered = renderAndWrap(tpl, vars, branding);
 
+    const to = [{ email: args.reviewer.email, name: `${vars.firstName} ${vars.lastName}`.trim() || args.reviewer.email }];
     await sendEmail({
-      to: [{ email: args.reviewer.email, name: `${vars.firstName} ${vars.lastName}`.trim() || args.reviewer.email }],
+      to,
+      cc: brandingCc(branding, to),
       ...rendered,
       from: brandingFrom(branding),
       emailType: "reviewer_pool_invitation",

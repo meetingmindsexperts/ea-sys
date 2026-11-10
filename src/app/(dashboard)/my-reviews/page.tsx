@@ -21,7 +21,6 @@ interface Row {
   event: { id: string; name: string; slug: string; startDate: string; endDate: string };
   role: "PRIMARY" | "SECONDARY" | "CONSULTING" | null;
   conflictFlag: boolean;
-  source: "assigned" | "event-pool";
   submission: {
     overallScore: number | null;
     submittedAt: string;
@@ -185,8 +184,7 @@ export default function MyReviewsPage() {
             </span>
           </div>
 
-          <ReviewRows heading="Assigned to you" rows={rows.filter((r) => r.source === "assigned")} />
-          <ReviewRows heading="Also on this event" rows={rows.filter((r) => r.source === "event-pool")} />
+          <ReviewRows heading="Assigned to you" rows={rows} />
         </section>
       ))}
     </div>

@@ -11,8 +11,9 @@ const { sendEmailSpy, speakerFindMany } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/db", () => ({ db: { speaker: { findMany: speakerFindMany } } }));
 
-vi.mock("@/lib/email", () => ({
+vi.mock("@/lib/email", async () => ({
   sendEmail: sendEmailSpy,
+  brandingCc: (await vi.importActual<typeof import("@/lib/email")>("@/lib/email")).brandingCc,
   loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn().mockResolvedValue(null),
   getDefaultTemplate: vi.fn().mockReturnValue({ slug: "reviewer-assignment", subject: "s", htmlContent: "h", textContent: "t" }),
@@ -26,7 +27,7 @@ vi.mock("@/lib/email", () => ({
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { notifyReviewerAssigned, notifyReviewerPoolAdded } from "@/lib/abstract-reviewer-notify";
-import { getDefaultTemplate } from "@/lib/email";
+import { getDefaultTemplate, getEventTemplate } from "@/lib/email";
 
 const baseArgs = {
   eventId: "ev1",
@@ -42,6 +43,20 @@ const baseArgs = {
 beforeEach(() => vi.clearAllMocks());
 
 describe("notifyReviewerAssigned", () => {
+  it("copies the event's Auto-CC (Settings), never the reviewer themselves", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValueOnce({
+      subject: "s", htmlContent: "h", textContent: "t",
+      branding: { eventName: "MedCon", emailCcAddresses: ["ops@example.com", "JANE@x.com"] },
+    });
+    await notifyReviewerAssigned(baseArgs);
+    expect(sendEmailSpy.mock.calls[0][0].cc).toEqual([{ email: "ops@example.com" }]);
+  });
+
+  it("sends no CC when the event has none", async () => {
+    await notifyReviewerAssigned(baseArgs);
+    expect(sendEmailSpy.mock.calls[0][0].cc).toBeUndefined();
+  });
+
   it("emails the reviewer with the role label + abstract title + USER log context", async () => {
     await notifyReviewerAssigned(baseArgs);
     expect(sendEmailSpy).toHaveBeenCalledTimes(1);

@@ -510,7 +510,7 @@ If you believe you have a conflict of interest with this abstract, please let th
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{firstName}} {{lastName}}</strong>,</p>
-    <p>You have been added as a reviewer for <strong>{{eventName}}</strong>. You can now review the abstracts submitted to this event and record your scores and feedback.</p>
+    <p>You have been added as a reviewer for <strong>{{eventName}}</strong>. The abstracts assigned to you will appear in My Reviews, where you can record your scores and feedback.</p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="{{reviewLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Go to My Reviews</a>
     </div>
@@ -521,7 +521,7 @@ If you believe you have a conflict of interest with this abstract, please let th
 
 Dear {{firstName}} {{lastName}},
 
-You have been added as a reviewer for {{eventName}}. You can now review the abstracts submitted to this event and record your scores and feedback.
+You have been added as a reviewer for {{eventName}}. The abstracts assigned to you will appear in My Reviews, where you can record your scores and feedback.
 
 Go to My Reviews: {{reviewLink}}
 

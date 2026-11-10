@@ -36,9 +36,10 @@ vi.mock("@/lib/security", () => ({
   hashVerificationToken: (t: string) => `hash:${t}`,
   checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
 }));
-vi.mock("@/lib/email", () => ({
+vi.mock("@/lib/email", async () => ({
   sendEmail: sendEmailSpy,
   emailTemplates: { userInvitation: () => ({ subject: "s", htmlContent: "h", textContent: "t" }) },
+  brandingCc: (await vi.importActual<typeof import("@/lib/email")>("@/lib/email")).brandingCc,
 }));
 vi.mock("@/lib/abstract-reviewer-notify", () => ({ notifyReviewerPoolAdded: notifyPoolSpy }));
 
@@ -58,6 +59,18 @@ beforeEach(() => {
 });
 
 describe("reviewer resend-invitation", () => {
+  it("copies the event's Auto-CC on the setup invite (owner, Nov 10, 2026), never the reviewer twice", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1", name: "MedCon", slug: "medcon",
+      settings: { reviewerUserIds: ["r1"] }, emailFromAddress: null, emailFromName: null,
+      emailCcAddresses: ["Ops@Example.com", "rev@example.com"],
+    });
+    mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "rev@example.com", firstName: "R", lastName: "V", emailVerified: null });
+    const res = await POST(req(), { params });
+    expect(res.status).toBe(200);
+    expect(sendEmailSpy.mock.calls[0][0].cc).toEqual([{ email: "ops@example.com" }]);
+  });
+
   it("pending account: re-mints a token + resends the setup invite", async () => {
     mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "Rev@X.com", firstName: "Rev", lastName: "One", emailVerified: null });
     const res = await POST(req(), { params });

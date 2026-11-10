@@ -35,7 +35,7 @@ import {
 } from "@/lib/abstract-review";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
-import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOnReviewerPool, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
+import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
 import { recommendableFormats, type RecommendedFormatValue } from "@/lib/recommended-formats";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
@@ -443,12 +443,12 @@ async function isFormatAccepted(
  * Create or update one reviewer's submission for an abstract.
  *
  * Authorization (domain rule, owned here):
- *  - the target reviewer must be in the event's reviewer pool OR hold an
- *    explicit `AbstractReviewer` assignment;
+ *  - the target reviewer must hold an `AbstractReviewer` assignment on this
+ *    abstract; the event's reviewer pool alone is not enough (Nov 10, 2026);
  *  - EXCEPT a self-submitting org admin/organizer (role AND org bound to the
- *    event's org — the H3 bind) may score without either;
+ *    event's org — the H3 bind) may score without one;
  *  - the on-behalf path (actor ≠ reviewer) never gets the admin bypass — the
- *    TARGET must be pool/assigned, exactly as before.
+ *    TARGET must be assigned.
  * The account's role does not enter into it (src/lib/abstract-reviewer-access.ts).
  *
  * Nobody scores their own abstract, on any path, admin bypass included.
@@ -504,8 +504,8 @@ export async function submitAbstractReview(
       return { ok: false, code: "USER_NOT_FOUND", message: `User ${reviewerUserId} not found` };
     }
 
-    // ── Authorization: pool OR assignment OR (self-submit by a bound admin) ──
-    const isPoolReviewer = isOnReviewerPool(event.settings, reviewerUserId);
+    // ── Authorization: assignment OR (self-submit by a bound admin) ──────────
+    // The reviewer pool alone grants nothing (abstract-reviewer-access.ts).
     // H3 org-bind lives HERE: role alone is not enough — the actor's org must
     // be the event's org, or an admin of org B could inject a score into org
     // A's peer review.
@@ -516,7 +516,7 @@ export async function submitAbstractReview(
       can(principalFromUser({ id: actor.userId, role: actor.role, organizationId: actor.organizationId }), "abstracts.decide") &&
       !!actor.organizationId &&
       actor.organizationId === event.organizationId;
-    if (!isPoolReviewer && !assignment && !selfSubmitAdminBypass) {
+    if (!assignment && !selfSubmitAdminBypass) {
       apiLogger.warn({
         msg: "abstract-submission:not-a-reviewer",
         eventId, abstractId, reviewerUserId, actorUserId: actor.userId, role: actor.role ?? null, source,
@@ -525,8 +525,8 @@ export async function submitAbstractReview(
         ok: false,
         code: "NOT_A_REVIEWER",
         message: onBehalf
-          ? `User ${reviewerUserId} is not a reviewer for this event. Assign them to the abstract or add to event.settings.reviewerUserIds first.`
-          : "You are not a reviewer for this event",
+          ? `User ${reviewerUserId} is not assigned to this abstract. Assign them to it first.`
+          : "You are not assigned to review this abstract",
       };
     }
 

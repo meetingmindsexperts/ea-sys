@@ -1,7 +1,8 @@
 /**
  * The reviewer portal (Nov 9, 2026): the feed, its sidebar summary and the
  * review page's read. A SUBMITTER on a pool is the case production got wrong:
- * it was emailed the review and then refused it.
+ * it was emailed the review and then refused it. Since Nov 10, 2026 the
+ * assignment is the whole rule: the pool lists nothing by itself.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -50,7 +51,7 @@ beforeEach(() => {
   mockDb.event.findFirst.mockResolvedValue(EVENT);
   mockDb.abstract.findFirst.mockResolvedValue(ABSTRACT);
   mockDb.abstract.findMany.mockResolvedValue([]);
-  mockDb.abstractReviewer.findUnique.mockResolvedValue(null);
+  mockDb.abstractReviewer.findUnique.mockResolvedValue({ role: "PRIMARY", conflictFlag: false });
   mockDb.abstractReviewer.findFirst.mockResolvedValue(null);
   mockDb.abstractReviewer.findMany.mockResolvedValue([]);
   mockDb.abstractReviewSubmission.findUnique.mockResolvedValue(null);
@@ -60,13 +61,12 @@ beforeEach(() => {
 });
 
 describe("GET /api/my-reviews?summary=1", () => {
-  it("is true for a pool abstract or an assignment, whatever the role, never counting their own", async () => {
+  it("is true for an assignment, whatever the role, never counting their own; the pool alone is not", async () => {
     mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1" });
-    await expect((await feed(req("?summary=1"))).json()).resolves.toMatchObject({ hasReviewWork: true });
-    expect(mockDb.abstract.findFirst.mock.calls[0][0].where).toHaveProperty("speaker");
-    mockDb.abstract.findFirst.mockResolvedValue(null);
+    await expect((await feed(req("?summary=1"))).json()).resolves.toMatchObject({ hasReviewWork: false });
     mockDb.abstractReviewer.findFirst.mockResolvedValue({ id: "r1" });
     await expect((await feed(req("?summary=1"))).json()).resolves.toMatchObject({ hasReviewWork: true });
+    expect(mockDb.abstractReviewer.findFirst.mock.calls[0][0].where.abstract).toHaveProperty("speaker");
   });
 
   it("says whether they have an abstract of their own, by account only", async () => {
@@ -88,21 +88,18 @@ describe("GET /api/my-reviews", () => {
     event: { id: "ev1", name: "Conf", slug: "c", startDate: new Date("2027-01-15"), endDate: new Date("2027-01-17") },
   });
 
-  it("leaves the person's own abstracts out of both sources", async () => {
+  it("leaves the person's own abstracts out", async () => {
     await feed(req());
     const not = excludeOwnAbstracts({ id: "u1", email: "me@example.com" });
-    expect(mockDb.abstract.findMany.mock.calls[0][0].where).toMatchObject(not);
     expect(mockDb.abstractReviewer.findMany.mock.calls[0][0].where.abstract).toMatchObject(not);
   });
 
-  it("lists what was assigned before the rest of the pool", async () => {
+  it("lists only what was assigned, never the rest of the pool's event", async () => {
     mockDb.abstract.findMany.mockResolvedValue([row("pool1"), row("mine")]);
     mockDb.abstractReviewer.findMany.mockResolvedValue([{ abstractId: "mine", role: "SECONDARY", conflictFlag: false, abstract: row("mine") }]);
     const { rows } = await (await feed(req())).json();
-    expect(rows.map((r: { abstractId: string; source: string }) => [r.abstractId, r.source])).toEqual([
-      ["mine", "assigned"],
-      ["pool1", "event-pool"],
-    ]);
+    expect(rows.map((r: { abstractId: string }) => r.abstractId)).toEqual(["mine"]);
+    expect(mockDb.abstract.findMany).not.toHaveBeenCalled();
   });
 });
 
@@ -112,7 +109,7 @@ describe("an account that has not proven its address", () => {
   it("gets no rows from the feed and is told to confirm", async () => {
     const body = await (await feed(req())).json();
     expect(body).toEqual({ rows: [], total: 0, needsEmailConfirmation: true });
-    expect(mockDb.abstract.findMany).not.toHaveBeenCalled();
+    expect(mockDb.abstractReviewer.findMany).not.toHaveBeenCalled();
   });
 
   it("cannot read an abstract", async () => {
@@ -129,7 +126,7 @@ describe("an account that has not proven its address", () => {
 });
 
 describe("GET /api/my-reviews/[eventId]/[abstractId]", () => {
-  it("opens for a SUBMITTER on the pool, with no contact details and no other reviewer", async () => {
+  it("opens for an assigned SUBMITTER, with no contact details and no other reviewer", async () => {
     const res = await detail(req(), params);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -148,7 +145,9 @@ describe("GET /api/my-reviews/[eventId]/[abstractId]", () => {
     expect((await res.json()).assignmentRole).toBe("PRIMARY");
   });
 
-  it("is a 404 to anyone neither on the pool nor assigned, and to nobody signed in a 401", async () => {
+  it("is a 404 to anyone not assigned, the event's pool included, and to nobody signed in a 401", async () => {
+    mockDb.abstractReviewer.findUnique.mockResolvedValue(null);
+    expect((await detail(req(), params)).status).toBe(404); // on the pool (EVENT lists u1), not assigned
     mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: {} });
     expect((await detail(req(), params)).status).toBe(404);
     mockAuth.mockResolvedValue(null);

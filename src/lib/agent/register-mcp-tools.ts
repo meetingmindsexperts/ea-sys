@@ -426,7 +426,7 @@ export function registerAllMcpTools(
       recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),
       confidence: z.number().int().min(1).max(5).optional(),
     }},
-    { name: "admin_submit_review_on_behalf", description: "Org-admin: record a review on behalf of a specific human reviewer. Takes explicit reviewerUserId (the person whose scores these are). Available via API-key MCP because the attribution is explicit in the payload. Upserts on (abstractId, reviewerUserId) — same underlying row as submit_abstract_review. Audit trail flags the submission as source=mcp-on-behalf-of with actorUserId so 'X recorded by admin on behalf of Y' is traceable. The target reviewer must already be authorised for this event (in event.settings.reviewerUserIds or explicitly assigned via AbstractReviewer).", params: {
+    { name: "admin_submit_review_on_behalf", description: "Org-admin: record a review on behalf of a specific human reviewer. Takes explicit reviewerUserId (the person whose scores these are). Available via API-key MCP because the attribution is explicit in the payload. Upserts on (abstractId, reviewerUserId) — same underlying row as submit_abstract_review. Audit trail flags the submission as source=mcp-on-behalf-of with actorUserId so 'X recorded by admin on behalf of Y' is traceable. The target reviewer must already be assigned to this abstract (assign_reviewer_to_abstract); being on the event's reviewer pool is not enough.", params: {
       abstractId: z.string(),
       reviewerUserId: z.string().describe("The User.id of the reviewer whose review you are recording"),
       criteriaScores: z.record(z.string(), z.number().int().min(0).max(10)).optional(),

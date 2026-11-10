@@ -1,9 +1,9 @@
 /**
- * Who may review an abstract: the pool and the assignment, never the role, and
- * never your own abstract (Nov 9, 2026).
+ * Who may review an abstract: the assignment, never the role, never the pool
+ * alone (Nov 10, 2026), and never your own abstract (Nov 9, 2026).
  */
 import { describe, it, expect } from "vitest";
-import { becomesSubmitterToAuthor, excludeOwnAbstracts, isOnReviewerPool, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
+import { assignedToReviewWhere, becomesSubmitterToAuthor, excludeOwnAbstracts, isOnReviewerPool, isOwnAbstract, linkedRoleAbstractFilter, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
 import { computeWeightedOverallScore } from "@/lib/abstract-score";
 
 describe("isOnReviewerPool", () => {
@@ -88,4 +88,16 @@ describe("computeWeightedOverallScore", () => {
 describe("becomesSubmitterToAuthor", () => {
   it.each(["REGISTRANT", "REVIEWER"])("%s does", (role) => expect(becomesSubmitterToAuthor(role)).toBe(true));
   it.each(["SUBMITTER", "ADMIN", "ORGANIZER", "MEMBER", null, undefined])("%s does not", (role) => expect(becomesSubmitterToAuthor(role)).toBe(false));
+});
+
+describe("linkedRoleAbstractFilter", () => {
+  it("a REVIEWER lists the abstracts assigned to them, whatever pool they sit on", () => {
+    expect(linkedRoleAbstractFilter({ id: "u1", role: "REVIEWER" })).toEqual(assignedToReviewWhere("u1"));
+    expect(assignedToReviewWhere("u1")).toEqual({ reviewers: { some: { userId: "u1" } } });
+  });
+
+  it("a SUBMITTER lists their own; staff get nothing added (their permissions scope them)", () => {
+    expect(linkedRoleAbstractFilter({ id: "u1", role: "SUBMITTER" })).toEqual({ speaker: { userId: "u1" } });
+    expect(linkedRoleAbstractFilter({ id: "u1", role: "ORGANIZER" })).toEqual({});
+  });
 });

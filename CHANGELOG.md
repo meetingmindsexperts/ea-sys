@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Reviewers see only what they are assigned; reviewer emails copy the event's CC (November 10)
+
+- **A reviewer sees and scores only the abstracts assigned to them (owner, Nov 10)** - Being on an event's reviewer pool used to show every abstract on the event: on MEHF2027 six pool reviewers could read all 169 abstracts under review while two held one assignment each. The assignment is now the whole rule (`abstract-reviewer-access.ts`): the portal feed, the review page, the review save (REST and MCP, on-behalf included), the named reviews panel, and a REVIEWER account's event Abstracts list, abstract page and status change. The pool stays as the list an organiser assigns from and emails, and still decides which events a REVIEWER account opens. The portal's "Also on this event" group is gone. The default "added as a reviewer" email now says assigned abstracts appear in My Reviews. Session proposals are unchanged (they have no assignments). MCP `admin_submit_review_on_behalf` description updated (0.4.52; clients reconnect)
+- **Reviewer emails copy the event's Auto-CC (Settings)** - The invitation, its resend, the assignment email and the "added as a reviewer" email never passed the list to the sender. All four do now. The owner chose to include the new-account invitation, whose setup link the people copied can also use
+
 ### Add a registration as Faculty (November 10)
 
 - **Faculty is the umbrella for invited speakers and committee members** (owner, Nov 9). Add Registration offers type **Faculty** with a committee choice (Committee / Organizing / Scientific): free, holds no seat, not counted as a delegate, no speaker record. The tags (`Committee`, plus `Organizing Committee` or `Scientific Committee`) and the badge are set for you. New `RegistrationCreatedSource.FACULTY_ADMIN` (migration `20261110100000`, additive enum; a rollback image older than it cannot read such a row), seatless like a speaker's companion (`SEATLESS_SOURCES` in `registration-seat.ts`). Every other door (public forms, imports, bulk changes, the AI agent) still refuses the Faculty type

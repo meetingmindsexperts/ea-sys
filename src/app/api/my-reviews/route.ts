@@ -7,14 +7,12 @@ import { REVIEWABLE_ABSTRACT_STATUSES, excludeOwnAbstracts, mustConfirmEmailToRe
 /**
  * Reviewer portal feed.
  *
- * Returns every abstract visible to the current user as a reviewer, grouped
- * by event. Union of two entry points:
- *   1) Abstracts in events where `event.settings.reviewerUserIds` contains
- *      the user's id (global event-level reviewer).
- *   2) Abstracts with an explicit `AbstractReviewer` row for this user
- *      (per-abstract assignment — workload distribution / COI flag).
+ * Returns the abstracts assigned to the current user (`AbstractReviewer`
+ * rows), grouped by event. Being on an event's reviewer pool lists nothing by
+ * itself (owner, Nov 10, 2026: a reviewer sees what they are assigned, not
+ * every abstract; until then the pool listed the whole event).
  *
- * Open to any signed-in account: the two entry points are the whole rule, and
+ * Open to any signed-in account: the assignment is the whole rule, and
  * the role is not part of it (src/lib/abstract-reviewer-access.ts). A person's
  * own abstracts never appear. `?summary=1` answers only whether they have any
  * of this and any abstract of their own, which decides the sidebar's links.
@@ -38,23 +36,14 @@ function submissionStatusOf(sub: { updatedAt: Date } | null | undefined, abstrac
   return sub.updatedAt.getTime() < abstractSubmittedAt.getTime() ? "NEEDS_UPDATE" : "SUBMITTED";
 }
 
-/** Whether the feed would list anything for this person, for the sidebar. Stops at the first of each. */
+/** Whether the feed would list anything for this person, for the sidebar. Stops at the first. */
 async function hasReviewWork(user: ReviewerIdentity): Promise<boolean> {
   const reviewable = { ...excludeOwnAbstracts(user), status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] } };
-  const [fromPool, assignment] = await Promise.all([
-    db.abstract.findFirst({
-      where: {
-        ...reviewable,
-        event: { status: { not: "CANCELLED" }, settings: { path: ["reviewerUserIds"], array_contains: user.id } },
-      },
-      select: { id: true },
-    }),
-    db.abstractReviewer.findFirst({
-      where: { userId: user.id, abstract: { ...reviewable, event: { status: { not: "CANCELLED" } } } },
-      select: { id: true },
-    }),
-  ]);
-  return !!fromPool || !!assignment;
+  const assignment = await db.abstractReviewer.findFirst({
+    where: { userId: user.id, abstract: { ...reviewable, event: { status: { not: "CANCELLED" } } } },
+    select: { id: true },
+  });
+  return !!assignment;
 }
 
 export async function GET(req: Request) {
@@ -81,104 +70,42 @@ export async function GET(req: Request) {
     }
     const notOwn = excludeOwnAbstracts(identity);
 
-    // Pull both sources in parallel:
-    //   1. Abstracts in events where the user is in settings.reviewerUserIds
-    //      (event-level pool — same JSON-path filter buildEventAccessWhere
-    //      uses for the REVIEWER role). Filtering at the DB avoids scanning
-    //      every event in the deployment.
-    //   2. Abstracts with an explicit AbstractReviewer row for this user
-    //      (per-abstract assignment, independent of the pool).
     // Only abstracts that are actually up for review appear in the portal
     // (review H6): a DRAFT is the author's private work-in-progress and a
-    // WITHDRAWN abstract is dead — neither should surface to reviewers as
-    // PENDING work (both list routes already filter drafts via
-    // abstractListStatusFilter; the portal feed forgot to).
-    const [abstractsFromPool, explicitAssignments] = await Promise.all([
-      db.abstract.findMany({
-        where: {
-          ...notOwn,
-          status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] },
-          event: {
-            status: { not: "CANCELLED" },
-            settings: { path: ["reviewerUserIds"], array_contains: userId },
+    // WITHDRAWN abstract is dead.
+    const assignments = await db.abstractReviewer.findMany({
+      where: {
+        userId,
+        abstract: { ...notOwn, status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] }, event: { status: { not: "CANCELLED" } } },
+      },
+      select: {
+        role: true,
+        conflictFlag: true,
+        abstract: {
+          select: {
+            id: true,
+            serialId: true,
+            title: true,
+            status: true,
+            submittedAt: true,
+            event: { select: { id: true, name: true, slug: true, startDate: true, endDate: true } },
           },
         },
-        select: {
-          id: true,
-          serialId: true,
-          title: true,
-          status: true,
-          submittedAt: true,
-          eventId: true,
-          event: { select: { id: true, name: true, slug: true, startDate: true, endDate: true } },
-        },
-      }),
-      db.abstractReviewer.findMany({
-        where: {
-          userId,
-          abstract: { ...notOwn, status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] }, event: { status: { not: "CANCELLED" } } },
-        },
-        select: {
-          abstractId: true,
-          role: true,
-          conflictFlag: true,
-          abstract: {
-            select: {
-              id: true,
-              serialId: true,
-              title: true,
-              status: true,
-              submittedAt: true,
-              eventId: true,
-              event: { select: { id: true, name: true, slug: true, startDate: true, endDate: true } },
-            },
-          },
-        },
-      }),
-    ]);
+      },
+    });
 
-    // Merge — de-dup by abstract id. Explicit assignment row wins so we keep
-    // the role + conflictFlag metadata attached.
-    type Row = {
-      abstractId: string;
-      serialId: number | null;
-      title: string;
-      status: string;
-      submittedAt: Date;
-      event: { id: string; name: string; slug: string; startDate: Date; endDate: Date };
-      role: string | null;
-      conflictFlag: boolean;
-      source: "assigned" | "event-pool";
-    };
-    const merged = new Map<string, Row>();
-    for (const a of abstractsFromPool) {
-      merged.set(a.id, {
-        abstractId: a.id,
-        serialId: a.serialId,
-        title: a.title,
-        status: a.status,
-        submittedAt: a.submittedAt,
-        event: a.event,
-        role: null,
-        conflictFlag: false,
-        source: "event-pool",
-      });
-    }
-    for (const row of explicitAssignments) {
-      merged.set(row.abstract.id, {
-        abstractId: row.abstract.id,
-        serialId: row.abstract.serialId,
-        title: row.abstract.title,
-        status: row.abstract.status,
-        submittedAt: row.abstract.submittedAt,
-        event: row.abstract.event,
-        role: row.role,
-        conflictFlag: row.conflictFlag,
-        source: "assigned",
-      });
-    }
+    const assigned = assignments.map((row) => ({
+      abstractId: row.abstract.id,
+      serialId: row.abstract.serialId,
+      title: row.abstract.title,
+      status: row.abstract.status,
+      submittedAt: row.abstract.submittedAt,
+      event: row.abstract.event,
+      role: row.role,
+      conflictFlag: row.conflictFlag,
+    }));
 
-    const abstractIds = [...merged.keys()];
+    const abstractIds = assigned.map((row) => row.abstractId);
     const ownSubmissions = abstractIds.length
       ? await db.abstractReviewSubmission.findMany({
           where: { abstractId: { in: abstractIds }, reviewerUserId: userId },
@@ -187,7 +114,7 @@ export async function GET(req: Request) {
       : [];
     const subsByAbstract = new Map(ownSubmissions.map((s) => [s.abstractId, s]));
 
-    const rows = [...merged.values()].map((row) => {
+    const rows = assigned.map((row) => {
       const sub = subsByAbstract.get(row.abstractId);
       return {
         ...row,
@@ -203,12 +130,10 @@ export async function GET(req: Request) {
       };
     });
 
-    // Sort by event start date desc, then within each event what was assigned
-    // to this person before the rest of the pool, pending first in each.
+    // Sort by event start date desc, then pending first within each event.
     rows.sort((a, b) => {
       const eventCmp = b.event.startDate.getTime() - a.event.startDate.getTime();
       if (eventCmp !== 0) return eventCmp;
-      if (a.source !== b.source) return a.source === "assigned" ? -1 : 1;
       const order: Record<string, number> = { PENDING: 0, NEEDS_UPDATE: 1, SUBMITTED: 2 };
       return (order[a.submissionStatus] ?? 3) - (order[b.submissionStatus] ?? 3);
     });

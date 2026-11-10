@@ -1,12 +1,17 @@
 /**
  * Who may review an abstract: THE rule, shared by the portal feed, the review
- * page's read and the review service (Nov 9, 2026).
+ * page's read, the review service and the event's abstract routes (Nov 9, 2026).
  *
- * Review rights follow the event's reviewer pool and the per-abstract
- * assignment, never `User.role`. Most reviewers are speakers already, so their
- * account is a SUBMITTER: production added one to a pool, emailed them twice
- * and then refused the review, because the sidebar and the submit route asked
- * for role REVIEWER.
+ * Review rights follow the per-abstract ASSIGNMENT, never `User.role`, and
+ * never the event's reviewer pool alone (owner, Nov 10, 2026: "reviewer only
+ * sees what they are assigned, not all abstracts"; on MEHF2027 six pool
+ * members could read all 169 abstracts while two held one assignment each).
+ * The pool is the list of people an organiser assigns from and emails, and it
+ * still decides which events a REVIEWER account can open.
+ *
+ * Most reviewers are speakers already, so their account is a SUBMITTER:
+ * production added one to a pool, emailed them twice and then refused the
+ * review, because the sidebar and the submit route asked for role REVIEWER.
  *
  * Nobody reviews their own abstract, whatever else they hold. "Own" matches the
  * linked account OR the address, because a speaker row is often unlinked. It
@@ -64,6 +69,27 @@ export interface ReviewerIdentity {
 /** The statuses a review may be written against. A DRAFT is private; the rest are decided or dead. */
 export const REVIEWABLE_ABSTRACT_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"] as const;
 
+/**
+ * The abstracts assigned to this person: spread into an abstract `where`. A
+ * conflict-flagged assignment still lists (the portal shows the flag); the
+ * review service and the reviews route refuse it separately.
+ */
+export function assignedToReviewWhere(userId: string): Prisma.AbstractWhereInput {
+  return { reviewers: { some: { userId } } };
+}
+
+/**
+ * Which of an event's abstracts the two outside accounts reach on the event's
+ * own abstract routes: a SUBMITTER their own, a REVIEWER the ones assigned to
+ * them. Staff are scoped by their permissions, so nothing is added for them.
+ */
+export function linkedRoleAbstractFilter(user: { id: string; role?: string | null }): Prisma.AbstractWhereInput {
+  if (user.role === "SUBMITTER") return { speaker: { userId: user.id } };
+  if (user.role === "REVIEWER") return assignedToReviewWhere(user.id);
+  return {};
+}
+
+/** Pool membership: who can be assigned and emailed. It grants no abstract by itself. */
 export function isOnReviewerPool(settings: unknown, userId: string): boolean {
   const ids = (settings as { reviewerUserIds?: unknown } | null)?.reviewerUserIds;
   return Array.isArray(ids) && ids.includes(userId);

@@ -20,7 +20,7 @@ vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { PUT } from "@/app/api/events/[eventId]/abstracts/[abstractId]/route";
+import { GET, PUT } from "@/app/api/events/[eventId]/abstracts/[abstractId]/route";
 
 const params = { params: Promise.resolve({ eventId: "ev1", abstractId: "ab1" }) };
 const put = (body: unknown) =>
@@ -49,5 +49,22 @@ describe("a REVIEWER setting the status of an abstract", () => {
     mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "SUBMITTED", speaker: { userId: "u9", email: "author@example.com" } });
     const res = await put({ status: "UNDER_REVIEW" });
     expect((await res.json()).code).not.toBe("OWN_ABSTRACT");
+  });
+});
+
+describe("a REVIEWER reaches only abstracts assigned to them (Nov 10, 2026)", () => {
+  it("the status change looks the abstract up through their assignment: the pool alone finds nothing", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue(null);
+    const res = await put({ status: "ACCEPTED" });
+    expect(res.status).toBe(404);
+    expect(mockDb.abstract.findFirst.mock.calls[0][0].where).toMatchObject({ reviewers: { some: { userId: "rev1" } } });
+    expect(mockDb.abstract.update).not.toHaveBeenCalled();
+  });
+
+  it("so does reading it", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue(null);
+    const res = await GET(new Request("http://x"), params);
+    expect(res.status).toBe(404);
+    expect(mockDb.abstract.findFirst.mock.calls[0][0].where).toMatchObject({ reviewers: { some: { userId: "rev1" } } });
   });
 });

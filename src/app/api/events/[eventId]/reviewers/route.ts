@@ -11,7 +11,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { isLinkedRole, requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings } from "@/lib/event-settings";
-import { sendEmail, emailTemplates } from "@/lib/email";
+import { sendEmail, emailTemplates, brandingCc } from "@/lib/email";
 import { getClientIp, hashVerificationToken } from "@/lib/security";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyReviewerPoolAdded } from "@/lib/abstract-reviewer-notify";
@@ -165,7 +165,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, name: true, slug: true, settings: true, emailFromAddress: true, emailFromName: true },
+      select: { id: true, name: true, slug: true, settings: true, emailFromAddress: true, emailFromName: true, emailCcAddresses: true },
     });
 
     if (!event) {
@@ -203,11 +203,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         userId = speaker.userId;
         accountExisted = true; // existing linked account — no setup invite sent
       } else {
-        const eventFrom = event.emailFromAddress
-          ? { email: event.emailFromAddress, name: event.emailFromName || undefined }
-          : undefined;
         const result = await findOrCreateReviewerUser(
-          speaker.email, speaker.firstName, speaker.lastName, session, event.slug, eventId, eventFrom
+          speaker.email, speaker.firstName, speaker.lastName, session, event.slug, eventId, invitationMail(event)
         );
         if ("error" in result) {
           return NextResponse.json({ error: result.error }, { status: 400 });
@@ -233,10 +230,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const { email, firstName, lastName } = validated.data;
       reviewerEmail = email;
 
-      const eventFrom = event.emailFromAddress
-        ? { email: event.emailFromAddress, name: event.emailFromName || undefined }
-        : undefined;
-      const result = await findOrCreateReviewerUser(email, firstName, lastName, session, event.slug, eventId, eventFrom);
+      const result = await findOrCreateReviewerUser(email, firstName, lastName, session, event.slug, eventId, invitationMail(event));
       if ("error" in result) {
         return NextResponse.json({ error: result.error }, { status: 400 });
       }
@@ -362,6 +356,18 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
 }
 
+/**
+ * The event's sender and its Auto-CC list (Settings), for the invitation. The
+ * CC gets the setup link too: the owner chose that on Nov 10, 2026, knowing
+ * whoever is copied could set up the reviewer's account.
+ */
+function invitationMail(event: { emailFromAddress: string | null; emailFromName: string | null; emailCcAddresses: string[] }) {
+  return {
+    from: event.emailFromAddress ? { email: event.emailFromAddress, name: event.emailFromName || undefined } : undefined,
+    ccAddresses: event.emailCcAddresses,
+  };
+}
+
 // Shared helper: find an existing outside account or create a REVIEWER with an invitation
 async function findOrCreateReviewerUser(
   email: string,
@@ -370,7 +376,7 @@ async function findOrCreateReviewerUser(
   session: { user: { id: string; organizationId?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } },
   eventSlug: string,
   eventId: string,
-  emailFrom?: { email: string; name?: string }
+  mail: ReturnType<typeof invitationMail>,
 ): Promise<{ userId: string; invitationSent: boolean; existed: boolean; confirmed?: boolean } | { error: string }> {
   const normalizedEmail = email.toLowerCase();
 
@@ -444,12 +450,14 @@ async function findOrCreateReviewerUser(
     expiresIn: "7 days",
   });
 
+  const to = [{ email: normalizedEmail, name: `${firstName} ${lastName}` }];
   const emailResult = await sendEmail({
-    to: [{ email: normalizedEmail, name: `${firstName} ${lastName}` }],
+    to,
+    cc: brandingCc({ emailCcAddresses: mail.ccAddresses }, to),
     subject: emailTemplate.subject,
     htmlContent: emailTemplate.htmlContent,
     textContent: emailTemplate.textContent,
-    from: emailFrom,
+    from: mail.from,
     emailType: "reviewer_invitation",
     stream: "transactional",
     logContext: {

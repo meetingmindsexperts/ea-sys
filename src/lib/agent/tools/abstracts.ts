@@ -469,7 +469,7 @@ function parseReviewFields(input: Record<string, unknown>): {
 // Org-admin-only sibling of submit_abstract_review. Takes an explicit
 // reviewerUserId so API-key / OAuth-less callers can record a submission
 // attributed to a specific human. Same shared service; the on-behalf path
-// requires the TARGET reviewer to be pool/assigned (no admin bypass) and the
+// requires the TARGET reviewer to be assigned (no admin bypass) and the
 // audit row flags source "mcp-on-behalf-of".
 const adminSubmitReviewOnBehalf: ToolExecutor = async (input, ctx) => {
   try {

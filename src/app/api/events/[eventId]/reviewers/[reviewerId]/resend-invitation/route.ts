@@ -7,7 +7,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/security";
-import { sendEmail, emailTemplates } from "@/lib/email";
+import { sendEmail, emailTemplates, brandingCc } from "@/lib/email";
 import { notifyReviewerPoolAdded } from "@/lib/abstract-reviewer-notify";
 import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 
@@ -50,7 +50,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, name: true, slug: true, settings: true, emailFromAddress: true, emailFromName: true },
+      select: { id: true, name: true, slug: true, settings: true, emailFromAddress: true, emailFromName: true, emailCcAddresses: true },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
@@ -119,8 +119,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       expiresIn: "7 days",
     });
 
+    // The event's Auto-CC is copied, setup link included (owner, Nov 10, 2026).
+    const to = [{ email: normalizedEmail, name: `${user.firstName} ${user.lastName}` }];
     const emailResult = await sendEmail({
-      to: [{ email: normalizedEmail, name: `${user.firstName} ${user.lastName}` }],
+      to,
+      cc: brandingCc({ emailCcAddresses: event.emailCcAddresses }, to),
       subject: emailTemplate.subject,
       htmlContent: emailTemplate.htmlContent,
       textContent: emailTemplate.textContent,
