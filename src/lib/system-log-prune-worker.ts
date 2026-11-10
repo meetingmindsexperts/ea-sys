@@ -57,8 +57,7 @@ export async function runSystemLogPruneTick(now: Date = new Date()): Promise<{
 
   if (deleted > 0 || capped) {
     apiLogger.info(
-      { msg: "system-log-prune:tick", deleted, capped, cutoff: cutoff.toISOString() },
-      "SystemLog retention sweep",
+      { msg: "system-log-prune:tick", deleted, capped, cutoff: cutoff.toISOString(), detail: "SystemLog retention sweep" },
     );
   }
   return { deleted, capped };

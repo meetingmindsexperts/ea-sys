@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { noSessionContextFromHeaders } from "@/lib/no-session-context";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { denyNonHr } from "@/hr/lib/hr-roles";
@@ -12,7 +13,7 @@ import { ensureLeaveCodes } from "@/hr/services/hr-seed-service";
 export async function GET() {
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/leave-codes:unauthorized" });
+    apiLogger.warn({ msg: "hr/leave-codes:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/leave-codes" });

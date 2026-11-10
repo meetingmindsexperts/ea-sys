@@ -57,8 +57,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     if (!can(gate.principal, "barcode.view")) {
       apiLogger.warn(
-        { msg: "dtcm-pool:barcode-role-refused", eventId, userId: session.user.id, role: session.user.role },
-        "Role may staff the desk but may not hold a door credential",
+        { msg: "dtcm-pool:barcode-role-refused", eventId, userId: session.user.id, role: session.user.role, detail: "Role may staff the desk but may not hold a door credential" },
       );
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -73,8 +72,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         });
         if (!event) {
           apiLogger.warn(
-            { msg: "dtcm-pool:event-not-found", eventId, userId: session.user.id, role: session.user.role },
-            "Event not found or not accessible",
+            { msg: "dtcm-pool:event-not-found", eventId, userId: session.user.id, role: session.user.role, detail: "Event not found or not accessible" },
           );
           return NextResponse.json({ error: "Event not found" }, { status: 404 });
         }
@@ -88,7 +86,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       },
     );
   } catch (error) {
-    apiLogger.error({ err: error, msg: "dtcm-pool:get-failed" }, "Failed to read the DTCM pool");
+    apiLogger.error({ err: error, msg: "dtcm-pool:get-failed", detail: "Failed to read the DTCM pool" });
     return NextResponse.json({ error: "Failed to read the code pool" }, { status: 500 });
   }
 }
@@ -106,8 +104,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // budget — the same ordering the registrations export uses.
     if (!can(gate.principal, "barcode.view")) {
       apiLogger.warn(
-        { msg: "dtcm-pool:barcode-role-refused", eventId, userId: session.user.id, role: session.user.role },
-        "Role may staff the desk but may not assign a door credential",
+        { msg: "dtcm-pool:barcode-role-refused", eventId, userId: session.user.id, role: session.user.role, detail: "Role may staff the desk but may not assign a door credential" },
       );
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -128,8 +125,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const registrationId = typeof body?.registrationId === "string" ? body.registrationId : null;
     if (!registrationId) {
       apiLogger.warn(
-        { msg: "dtcm-pool:missing-registration-id", eventId, userId: session.user.id },
-        "Claim called without a registrationId",
+        { msg: "dtcm-pool:missing-registration-id", eventId, userId: session.user.id, detail: "Claim called without a registrationId" },
       );
       return NextResponse.json(
         { error: "registrationId is required", code: "MISSING_REGISTRATION_ID" },
@@ -147,8 +143,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
         if (!event) {
           apiLogger.warn(
-            { msg: "dtcm-pool:event-not-found", eventId, userId: session.user.id, role: session.user.role },
-            "Event not found or not accessible",
+            { msg: "dtcm-pool:event-not-found", eventId, userId: session.user.id, role: session.user.role, detail: "Event not found or not accessible" },
           );
           return NextResponse.json({ error: "Event not found" }, { status: 404 });
         }
@@ -169,8 +164,8 @@ export async function POST(req: Request, { params }: RouteParams) {
               registrationId,
               outcome: outcome.status,
               userId: session.user.id,
+              detail: "Manual DTCM claim did not assign a code",
             },
-            "Manual DTCM claim did not assign a code",
           );
         }
 
@@ -199,8 +194,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
   } catch (error) {
     apiLogger.error(
-      { err: error, msg: "dtcm-pool:claim-failed", ip: getClientIp(req) },
-      "Failed to claim a DTCM code",
+      { err: error, msg: "dtcm-pool:claim-failed", ip: getClientIp(req), detail: "Failed to claim a DTCM code" },
     );
     return NextResponse.json({ error: "Failed to assign a code" }, { status: 500 });
   }

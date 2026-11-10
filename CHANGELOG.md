@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Production warnings audit: the small fixes (November 10)
+
+From a read of ten days of production warnings (Oct 31 to Nov 10).
+
+- **A "no session" warning says what arrived** - Staff requests were refused as signed out seconds after a successful sign-in (HR routes, `/blueprint`), and the lines carried nothing to tell an expired tab from a session fault. `noSessionContext()` (`src/lib/no-session-context.ts`) adds the host, whether a session cookie came with the request (a yes or no, never the value), the browser, the router prefetch headers and the address to the HR, Blueprint, CRM and travel-grant warnings. A signed-out `/crm` request now logs `crm-page:no-session`, no longer "module not enabled"
+- **An uncaught request error reaches the log table** - `onRequestError` told Sentry only, so a 500 from a route with no catch never showed in SystemLog, the error-rate card or the admin alert. It now also logs `request:unhandled-error` (Node runtime; the path without its query string)
+- **Co-authors: the form says what is wrong** - The abstract form sent blank and half-filled co-author rows and over-long text, and the server answered "Invalid input" (one author failed 22 times). The inputs carry the server's length limits (`CO_AUTHOR_MAX_LENGTH`), blank rows are dropped, a row without both names is named in the message, and a refusal shows the field
+- **Delete Draft only for those who may** - The abstract edit page showed it to authors, whom the server always refused. It follows the `abstracts.delete` permission like the list page
+- **Accepting an invitation links the person's records** - It confirmed the address but, unlike the confirmation link, never claimed the speaker rows and guest registrations on it, so a reviewer added from a speaker stayed unlinked
+- **The existing-account notice on the registration form is true again** - It promised the registration would be in the account after signing in later; since Nov 5 that needs the email confirmed. It now says to sign in first
+- **Log lines that can be read** - A failed DET connection logs its cause (`ENOTFOUND`, refused, TLS); 33 log calls that wrote two `msg` keys keep the code in `msg` and the sentence in `detail` (pinned by `no-double-msg-log-calls.test.ts`); an agent tool refusal names the user and an agent speaker update warns once, not twice; the dead-link analytics warning, the webinar Q&A and handouts sign-in warnings, the completion form and the reimbursement link warnings carry the address and enough to tell a broken link from guessing
+
 ### My portal: six fixes from a review of /my-account (November 10)
 
 - **Staff notes no longer reach the attendee's browser** - `GET /api/registrant/registrations` (the list behind an event's My Registration page) sent whole Registration and Attendee rows: internal notes, staff tags, the DTCM code, sponsor and tracking columns. Own rows only, so nobody saw another person's, but the staff form promises "not visible to the attendee". It now sends an allow-list of the fields the page shows; the PUT answers `{ success: true }` instead of the row

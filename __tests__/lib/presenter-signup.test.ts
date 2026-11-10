@@ -165,7 +165,6 @@ describe("an event that DOES charge presenters never hands out a free comp", () 
     // Silence here would be the worst outcome: no registration, no signal.
     expect(apiLogger.error).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "presenter-signup:rate-required-but-unresolved" }),
-      expect.any(String),
     );
   });
 

@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { CountrySelect } from "@/components/ui/country-select";
 import { Plus, Trash2, Users } from "lucide-react";
-import { type CoAuthor, EMPTY_CO_AUTHOR } from "@/lib/abstract-coauthors";
+import { type CoAuthor, CO_AUTHOR_MAX_LENGTH, EMPTY_CO_AUTHOR } from "@/lib/abstract-coauthors";
 import { DEFAULT_MAX_CO_AUTHORS } from "@/lib/abstract-limits";
 
 interface CoAuthorFieldsProps {
@@ -90,6 +90,7 @@ export function CoAuthorFields({
                     value={row.firstName}
                     onChange={(e) => update(i, "firstName", e.target.value)}
                     placeholder="Jane"
+                    maxLength={CO_AUTHOR_MAX_LENGTH.firstName}
                     required
                     disabled={disabled}
                   />
@@ -100,6 +101,7 @@ export function CoAuthorFields({
                     value={row.lastName}
                     onChange={(e) => update(i, "lastName", e.target.value)}
                     placeholder="Doe"
+                    maxLength={CO_AUTHOR_MAX_LENGTH.lastName}
                     required
                     disabled={disabled}
                   />
@@ -109,6 +111,7 @@ export function CoAuthorFields({
                   <Input
                     value={row.jobTitle ?? ""}
                     onChange={(e) => update(i, "jobTitle", e.target.value)}
+                    maxLength={CO_AUTHOR_MAX_LENGTH.jobTitle}
                     disabled={disabled}
                   />
                 </div>
@@ -117,6 +120,7 @@ export function CoAuthorFields({
                   <Input
                     value={row.organization ?? ""}
                     onChange={(e) => update(i, "organization", e.target.value)}
+                    maxLength={CO_AUTHOR_MAX_LENGTH.organization}
                     disabled={disabled}
                   />
                 </div>

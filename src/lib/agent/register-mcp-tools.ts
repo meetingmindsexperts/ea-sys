@@ -44,6 +44,9 @@ async function runTool(name: string, input: Record<string, unknown>, ctx: AgentC
         tool: name,
         eventId: ctx.eventId,
         organizationId: ctx.organizationId,
+        // Who was refused: the signed-in person, or the placeholder id on an
+        // API key (a refusal with no caller could not be followed up).
+        userId: ctx.userId,
         source: ctx.source,
         durationMs,
         err: typeof errObj.error === "string" ? errObj.error : JSON.stringify(errObj.error),

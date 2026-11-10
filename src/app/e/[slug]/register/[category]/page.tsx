@@ -1206,8 +1206,10 @@ function CategoryRegistrationContent() {
                       {/* Only for the email it was checked for: editing the email hides it. */}
                       {emailCheck.state === "has-account" && emailCheck.email === form.watch("email").trim().toLowerCase() && (
                         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm text-slate-700">
-                          You already have an account with this email. Sign in with your existing password to manage
-                          your registration later; the password typed here won&apos;t change it.{" "}
+                          You already have an account with this email. Sign in first to have this registration in
+                          your account straight away. If you continue without signing in, it may only show up there
+                          after you confirm your email address. The password typed here won&apos;t change your
+                          account&apos;s password.{" "}
                           <a
                             href={signInBackHere(emailCheck.email)}
                             className="text-primary hover:underline font-medium"

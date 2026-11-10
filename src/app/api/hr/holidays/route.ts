@@ -12,6 +12,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { noSessionContextFromHeaders } from "@/lib/no-session-context";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
@@ -28,7 +29,7 @@ const createSchema = z.object({
 export async function GET() {
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/holidays:unauthorized" });
+    apiLogger.warn({ msg: "hr/holidays:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/holidays" });
@@ -57,7 +58,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/holidays:unauthorized" });
+    apiLogger.warn({ msg: "hr/holidays:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/holidays", write: true });

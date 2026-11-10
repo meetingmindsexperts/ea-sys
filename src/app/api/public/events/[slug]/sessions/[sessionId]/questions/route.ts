@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { checkRateLimit } from "@/lib/security";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { QUESTION_MAX_LENGTH, qaUpvoteEnabled, sortByVotes } from "@/lib/webinar/questions";
 import { loadQuestionContext as loadContext, resolveAsker } from "@/lib/webinar/viewer-question-access";
@@ -11,6 +11,12 @@ import { livePollsEnabled } from "@/lib/webinar/live-polls";
 import { viewerPoll } from "@/lib/webinar/live-polls-server";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
+
+/** Who was refused for not being signed in: the address and browser tell an
+ *  expired sign-in on the page from a script walking session ids. */
+function callerOf(req: Request) {
+  return { ip: getClientIp(req), userAgent: req.headers.get("user-agent")?.slice(0, 200) ?? null };
+}
 
 const askSchema = z.object({
   question: z.string().trim().min(3, "Please type a question").max(QUESTION_MAX_LENGTH),
@@ -32,7 +38,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       req.json().catch(() => ({})),
     ]);
     if (!authSession?.user) {
-      apiLogger.warn({ slug, sessionId }, "webinar-question:ask-unauthenticated");
+      apiLogger.warn({ slug, sessionId, ...callerOf(req) }, "webinar-question:ask-unauthenticated");
       return NextResponse.json({ error: "Sign in required", code: "UNAUTHENTICATED" }, { status: 401 });
     }
 
@@ -107,7 +113,7 @@ export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [authSession, { slug, sessionId }] = await Promise.all([auth(), params]);
     if (!authSession?.user) {
-      apiLogger.warn({ slug, sessionId }, "webinar-question:list-unauthenticated");
+      apiLogger.warn({ slug, sessionId, ...callerOf(req) }, "webinar-question:list-unauthenticated");
       return NextResponse.json({ error: "Sign in required", code: "UNAUTHENTICATED" }, { status: 401 });
     }
     const event = await loadContext(req, slug, sessionId);

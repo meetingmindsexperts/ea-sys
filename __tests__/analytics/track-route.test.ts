@@ -187,7 +187,14 @@ describe("what is refused", () => {
     await POST(post(VALID));
     expect(mockEnqueue).not.toHaveBeenCalled();
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ site: "hema-2026" }),
+      // Enough to tell a broken link from guessing: the page, its route
+      // pattern and the host it was asked on.
+      expect.objectContaining({
+        site: "hema-2026",
+        path: "/e/hema-2026/register",
+        route: expect.any(String),
+        host: "events.meetingmindsgroup.com",
+      }),
       "analytics:track-unresolved-site",
     );
   });

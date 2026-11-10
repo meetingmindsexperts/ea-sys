@@ -144,8 +144,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           requested: all ? "all" : (registrationIds?.length ?? 0),
           matched: droppedForPayment,
           droppedForPayment,
+          detail: "No badge-eligible registrations",
         },
-        "No badge-eligible registrations",
       );
 
       if (droppedForPayment === 0) {
@@ -174,8 +174,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // H4: over the per-request cap. Refuse rather than freeze the box mid-render.
     if (registrations.length > MAX_BADGES_PER_REQUEST) {
       apiLogger.warn(
-        { msg: "badges:over-cap", eventId, cap: MAX_BADGES_PER_REQUEST, matched: registrations.length },
-        "Badge request exceeds the per-request cap",
+        { msg: "badges:over-cap", eventId, cap: MAX_BADGES_PER_REQUEST, matched: registrations.length, detail: "Badge request exceeds the per-request cap" },
       );
       return NextResponse.json(
         {
@@ -207,7 +206,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         badges: registrations.length,
         withDtcmQr: dtcmCount,
         missingDtcm: registrations.length - dtcmCount,
-      }, "DTCM-flagged event — QR codes rendered on badges carrying a DTCM barcode");
+        detail: "DTCM-flagged event: QR codes rendered on badges carrying a DTCM barcode",
+      });
     }
 
     // Record the print for analytics ("badges printed vs registered" +

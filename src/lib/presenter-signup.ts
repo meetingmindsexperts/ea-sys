@@ -325,7 +325,6 @@ export async function ensureSubmitterRegistration(
           chosenTicketTypeId: input.ticketTypeId ?? null,
           availableCount: selection.availableCount,
         },
-        "presenter-signup:rate-required-but-unresolved",
       );
       await ensureSpeakerCompanionRegistration(speaker, { linkOnly: true, expectedLink });
       return null;

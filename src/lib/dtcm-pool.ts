@@ -217,8 +217,8 @@ export async function claimSpareDtcmCode(args: {
           eventId: args.eventId,
           registrationId: args.registrationId,
           poolSize: pool.length,
+          detail: "No spare DTCM code left for this event",
         },
-        "No spare DTCM code left for this event",
       );
       return { status: "pool-empty" };
     }
@@ -268,8 +268,8 @@ export async function claimSpareDtcmCode(args: {
               registrationId: args.registrationId,
               codePrefix: code.slice(0, 8),
               holders: holders.length,
+              detail: "Another registration claimed this spare first; taking the next",
             },
-            "Another registration claimed this spare first — taking the next",
           );
           continue;
         }
@@ -283,8 +283,8 @@ export async function claimSpareDtcmCode(args: {
             // line is read in /logs, which is broader than the code's audience.
             codePrefix: code.slice(0, 8),
             sparesBefore: spares.length,
+            detail: "Assigned a spare DTCM code",
           },
-          "Assigned a spare DTCM code",
         );
         return { status: "assigned", code };
       } catch (err) {
@@ -305,14 +305,13 @@ export async function claimSpareDtcmCode(args: {
         eventId: args.eventId,
         registrationId: args.registrationId,
         attempts: Math.min(spares.length, MAX_CLAIM_ATTEMPTS),
+        detail: "Every spare DTCM code attempted collided; assign one by hand",
       },
-      "Every spare DTCM code attempted collided — assign one by hand",
     );
     return { status: "failed" };
   } catch (err) {
     apiLogger.error(
-      { err, msg: "dtcm-pool:claim-failed", eventId: args.eventId, registrationId: args.registrationId },
-      "Could not assign a DTCM code",
+      { err, msg: "dtcm-pool:claim-failed", eventId: args.eventId, registrationId: args.registrationId, detail: "Could not assign a DTCM code" },
     );
     return { status: "failed" };
   }

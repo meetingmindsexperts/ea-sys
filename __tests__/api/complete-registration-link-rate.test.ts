@@ -209,6 +209,15 @@ describe("POST with a rated link", () => {
     }));
   });
 
+  it("logs a body that fails validation with the event and the address", async () => {
+    const { apiLogger } = await import("@/lib/logger");
+    const res = await post({ title: "NOT_A_TITLE" });
+    expect(res.status).toBe(400);
+    expect(apiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "Completion form validation failed", slug: SLUG, ip: "1.2.3.4", errors: expect.anything() }),
+    );
+  });
+
   it("refuses a closed rate (D3) and writes nothing", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue(type({ pricingTiers: [rate({ salesEnd: new Date(Date.now() - DAY) })] }));
     const res = await post();

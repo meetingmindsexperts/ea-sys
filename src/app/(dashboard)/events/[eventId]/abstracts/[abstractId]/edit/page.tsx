@@ -45,7 +45,8 @@ import {
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
 import { PresenterAgreementCard } from "@/components/abstracts/presenter-agreement-card";
 import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
-import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
+import { abstractErrorMessage, normalizeCoAuthors, prepareCoAuthorsForSubmit } from "@/lib/abstract-coauthors";
+import { useCan } from "@/hooks/use-can";
 import { countWords } from "@/lib/abstract-content";
 import { exceedsAbstractLimit, readAbstractLimits } from "@/lib/abstract-limits";
 
@@ -110,6 +111,9 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   // they must contact the organizer. Organizers/reviewers keep the broader set.
   const canEdit = isSubmitter ? status === "DRAFT" : editableStatuses.includes(status);
   const submitterLocked = isSubmitter && status !== "DRAFT";
+  // Deleting needs its own permission, which authors do not hold: the route
+  // refuses them, so the button is not offered (same gate as the list page).
+  const canDeleteAbstracts = useCan("abstracts.delete", eventId) === "allowed";
   /**
    * Per-event caps, mirroring the server's grandfathering rule exactly.
    *
@@ -185,8 +189,9 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
         }),
       });
       if (!res.ok) {
-        const err = await res.json();
-        const e = new Error(err.error || "Failed to update abstract") as Error & { code?: string; status?: number };
+        const err = await res.json().catch(() => ({}));
+        // A validation 400 says which field: show that, not "Invalid input".
+        const e = new Error(abstractErrorMessage(err, "Failed to update abstract")) as Error & { code?: string; status?: number };
         e.code = err.code;
         e.status = res.status;
         throw e;
@@ -214,7 +219,10 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   const deleteMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete abstract");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to delete abstract");
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -222,10 +230,27 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
       toast.success("Abstract deleted");
       router.push(`/events/${eventId}/abstracts`);
     },
-    onError: () => toast.error("Failed to delete abstract"),
+    onError: (err: Error) => toast.error(err.message || "Failed to delete abstract"),
   });
 
   const isPending = updateMutation.isPending || deleteMutation.isPending;
+
+  // Every save goes through here: blank co-author rows are dropped, and a
+  // half-filled one stops with its row number (the server would refuse the
+  // lot with "Invalid input").
+  const save = (status?: string) => {
+    const coAuthorCheck = prepareCoAuthorsForSubmit(editData.coAuthors);
+    if (!coAuthorCheck.ok) {
+      toast.error(coAuthorCheck.message);
+      return;
+    }
+    updateMutation.mutate({
+      ...editData,
+      coAuthors: coAuthorCheck.coAuthors,
+      ...(status && { status }),
+      expectedUpdatedAt: abstractUpdatedAt,
+    });
+  };
 
   return (
     <div className="space-y-6 pb-12">
@@ -364,7 +389,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                         toast.error(SUB_THEME_REQUIRED_MESSAGE);
                         return;
                       }
-                      updateMutation.mutate({ ...editData, status: "SUBMITTED", expectedUpdatedAt: abstractUpdatedAt });
+                      save("SUBMITTED");
                     }}
                   >
                     {updateMutation.isPending ? (
@@ -378,12 +403,12 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                   variant={status === "DRAFT" ? "outline" : "default"}
                   className={status !== "DRAFT" ? "w-full btn-gradient font-semibold h-11" : "w-full"}
                   disabled={isPending || limitBlocked}
-                  onClick={() => updateMutation.mutate({ ...editData, expectedUpdatedAt: abstractUpdatedAt })}
+                  onClick={() => save()}
                 >
                   <Save className="mr-2 h-4 w-4" />
                   {updateMutation.isPending ? "Saving…" : "Save Changes"}
                 </Button>
-                {status === "DRAFT" && (
+                {status === "DRAFT" && canDeleteAbstracts && (
                   <Button
                     variant="outline"
                     className="w-full text-red-600 hover:bg-red-50"
@@ -404,7 +429,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                     disabled={isPending}
                     onClick={() => {
                       if (confirm("Withdraw this abstract? You can contact the organiser to reverse this.")) {
-                        updateMutation.mutate({ ...editData, status: "WITHDRAWN", expectedUpdatedAt: abstractUpdatedAt });
+                        save("WITHDRAWN");
                       }
                     }}
                   >

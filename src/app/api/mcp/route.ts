@@ -209,8 +209,7 @@ async function handleMcp(req: Request): Promise<Response> {
     });
     if (!rl.allowed) {
       apiLogger.warn(
-        { msg: "MCP rate-limit rejection", keyPrefix: authResult.keyPrefix, retryAfterSeconds: rl.retryAfterSeconds },
-        "mcp:rate-limited",
+        { msg: "mcp:rate-limited", keyPrefix: authResult.keyPrefix, retryAfterSeconds: rl.retryAfterSeconds, detail: "MCP rate-limit rejection" },
       );
       return withCors(
         req,

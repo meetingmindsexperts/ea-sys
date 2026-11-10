@@ -1073,7 +1073,7 @@ export async function createRegistration(
         };
       }
       if (err.code === "EVENT_FULL") {
-        apiLogger.warn({ msg: "registration:create-event-full", eventId, source }, "registration-service:event-full");
+        apiLogger.warn({ msg: "registration:create-event-full", eventId, source, detail: "registration-service:event-full" });
         return {
           ok: false,
           code: "EVENT_FULL",
@@ -1696,8 +1696,8 @@ export async function updateRegistration(
               // Truncated: /logs has a wider audience than the code does.
               codePrefix: input.dtcmBarcode.trim().slice(0, 8),
               source,
+              detail: "DTCM code assigned to a registration that another already holds",
             },
-            "DTCM code assigned to a registration that another already holds",
           );
         }
       }

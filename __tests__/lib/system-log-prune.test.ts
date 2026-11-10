@@ -78,7 +78,6 @@ describe("runSystemLogPruneTick", () => {
     expect(result.deleted).toBe(20_000);
     expect(mockLogger.info).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "system-log-prune:tick", capped: true }),
-      expect.any(String),
     );
   });
 

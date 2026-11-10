@@ -18,6 +18,7 @@
  *
  * Rate-limited per IP + per token. Every rejection logs `{ slug, stage }`.
  */
+import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -47,6 +48,13 @@ import {
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
 
+/** A refused link in the log, never the link itself: the first 8 hex
+ *  characters of its SHA-256. The same tag from many addresses is one stale
+ *  link being opened; many tags from one address is guessing. */
+function tokenTag(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 8);
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const { slug, token } = await params;
@@ -68,13 +76,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     // host+slug FIRST — the swept token lookup below fail-closes without it.
     const org = await resolveReimbursementEventOrg(req, slug);
     if (!org) {
-      apiLogger.warn({ slug, stage: "load-org" }, "reimbursement-public:invalid-token");
+      apiLogger.warn({ slug, ip, link: tokenTag(token), stage: "load-org" }, "reimbursement-public:invalid-token");
       return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
     }
     return await runWithTenant(org, async () => {
     const row = await loadReimbursementForSlug(req, slug, token);
     if (!row) {
-      apiLogger.warn({ slug, stage: "load" }, "reimbursement-public:invalid-token");
+      apiLogger.warn({ slug, ip, link: tokenTag(token), stage: "load" }, "reimbursement-public:invalid-token");
       return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
     }
 
@@ -182,13 +190,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     // read + the conditional-claim updateMany below run on this org's lane.
     const org = await resolveReimbursementEventOrg(req, slug);
     if (!org) {
-      apiLogger.warn({ slug, stage: "submit-load-org" }, "reimbursement-public:invalid-token");
+      apiLogger.warn({ slug, ip, link: tokenTag(token), stage: "submit-load-org" }, "reimbursement-public:invalid-token");
       return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
     }
     return await runWithTenant(org, async () => {
     const row = await loadReimbursementForSlug(req, slug, token);
     if (!row) {
-      apiLogger.warn({ slug, stage: "submit-load" }, "reimbursement-public:invalid-token");
+      apiLogger.warn({ slug, ip, link: tokenTag(token), stage: "submit-load" }, "reimbursement-public:invalid-token");
       return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
     }
     if (row.status === "SUBMITTED") {

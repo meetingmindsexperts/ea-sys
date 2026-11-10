@@ -461,8 +461,7 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
   const valid = await validate(eventId, input, input.startTime, input.endTime);
   if (!valid.ok) {
     apiLogger.warn(
-      { msg: "session-service:create-rejected", eventId, userId, source, code: valid.code },
-      valid.message,
+      { msg: "session-service:create-rejected", eventId, userId, source, code: valid.code, detail: valid.message },
     );
     return valid;
   }
@@ -521,8 +520,7 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
   } catch (err) {
     if (isAbstractUniqueViolation(err)) {
       apiLogger.warn(
-        { msg: "session-service:abstract-unique-race", eventId, userId, source },
-        "Abstract was assigned to another session concurrently",
+        { msg: "session-service:abstract-unique-race", eventId, userId, source, detail: "Abstract was assigned to another session concurrently" },
       );
       return fail("ABSTRACT_ALREADY_ASSIGNED", "Abstract is already assigned to another session");
     }
@@ -629,8 +627,7 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
   });
   if (!valid.ok) {
     apiLogger.warn(
-      { msg: "session-service:update-rejected", sessionId, eventId, userId, source, code: valid.code },
-      valid.message,
+      { msg: "session-service:update-rejected", sessionId, eventId, userId, source, code: valid.code, detail: valid.message },
     );
     return valid;
   }
@@ -750,8 +747,7 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
     }
     if (isAbstractUniqueViolation(err)) {
       apiLogger.warn(
-        { msg: "session-service:abstract-unique-race", sessionId, eventId, userId, source },
-        "Abstract was assigned to another session concurrently",
+        { msg: "session-service:abstract-unique-race", sessionId, eventId, userId, source, detail: "Abstract was assigned to another session concurrently" },
       );
       return fail("ABSTRACT_ALREADY_ASSIGNED", "Abstract is already assigned to another session");
     }

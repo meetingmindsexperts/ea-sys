@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { noSessionContextFromHeaders } from "@/lib/no-session-context";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
@@ -25,7 +26,7 @@ export async function DELETE(
 ) {
   const [session, { holidayId }] = await Promise.all([auth(), params]);
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/holiday:unauthorized" });
+    apiLogger.warn({ msg: "hr/holiday:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/holiday", write: true });

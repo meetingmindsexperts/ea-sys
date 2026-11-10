@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
+import { noSessionContextFromHeaders } from "@/lib/no-session-context";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { denyNonHr } from "@/hr/lib/hr-roles";
@@ -15,7 +16,7 @@ export async function GET(
 ) {
   const [session, { employeeId }] = await Promise.all([auth(), params]);
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/balance:unauthorized" });
+    apiLogger.warn({ msg: "hr/balance:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/balance" });

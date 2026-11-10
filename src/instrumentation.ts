@@ -69,9 +69,34 @@ function errorMessageOf(err: unknown): string {
   return "";
 }
 
-export const onRequestError = async (
-  ...args: Parameters<typeof import("@sentry/nextjs").captureRequestError>
-) => {
+type RequestErrorArgs = Parameters<typeof import("@sentry/nextjs").captureRequestError>;
+
+// An uncaught request error used to reach Sentry only, so it never landed in
+// the SystemLog table or the admin alert (audit, Nov 10, 2026). The logger
+// pulls fs/stream/path, so it is imported on the Node runtime only, the same
+// way register() does it; on Edge the Sentry forward below is still the record.
+// The query string is dropped from the path: it can carry a token. A failure
+// here must never throw out of the hook, or the Sentry forward would be lost.
+async function logUnhandledRequestError([err, request, context]: RequestErrorArgs) {
+  if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  try {
+    const { apiLogger } = await import("./lib/logger");
+    apiLogger.error(
+      {
+        err,
+        path: request?.path?.split("?")[0],
+        method: request?.method,
+        routeType: context?.routeType,
+        routePath: context?.routePath,
+      },
+      "request:unhandled-error",
+    );
+  } catch (logErr) {
+    console.error("request:unhandled-error-log-failed", logErr);
+  }
+}
+
+export const onRequestError = async (...args: RequestErrorArgs) => {
   const [err] = args;
   const message = errorMessageOf(err);
   // Malformed Next-Router-State-Tree headers come from stale clients, bots, and
@@ -80,6 +105,8 @@ export const onRequestError = async (
   if (/router state header/i.test(message)) {
     return;
   }
+
+  await logUnhandledRequestError(args);
 
   const { captureRequestError } = await import("@sentry/nextjs");
   captureRequestError(...args);

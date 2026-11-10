@@ -286,15 +286,10 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
         .filter(Boolean);
     }
 
+    // No warning here for a missing token: runOptimisticUpdate (reached through
+    // the service) logs "optimistic-lock:missing-expectedUpdatedAt" once for
+    // both doors. A second line here made every agent update write two rows.
     const expectedUpdatedAt = typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : null;
-    if (!expectedUpdatedAt) {
-      apiLogger.warn({
-        msg: "optimistic-lock:missing-expectedUpdatedAt",
-        resource: "speaker",
-        resourceId: speakerId,
-        source: ctx.source,
-      });
-    }
 
     // ONE implementation, shared with the REST PUT (contacts review H4): the
     // optimistic-locked write, the tag mirror onto the registration facet, the

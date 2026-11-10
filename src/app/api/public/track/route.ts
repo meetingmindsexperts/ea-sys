@@ -145,12 +145,20 @@ export async function POST(req: Request) {
       return noContent();
     }
 
-    const binding = await resolveSite(req.headers.get("host"), body.site);
+    const host = req.headers.get("host");
+    const binding = await resolveSite(host, body.site);
     if (!binding) {
       // Dropped rather than stored org-less. An unattributable hit is worth
       // nothing, and admitting one would force the RLS policy to allow orphan
       // rows for no benefit.
-      apiLogger.warn({ ip, site: body.site }, "analytics:track-unresolved-site");
+      //
+      // The path, its route pattern and the Host say which it was: a page of
+      // ours on a host we do not know, or a slug nobody has. The path passed
+      // the allow-list above, so it is never a token route.
+      apiLogger.warn(
+        { ip, site: body.site, path, route: route.pattern, host },
+        "analytics:track-unresolved-site",
+      );
       return noContent();
     }
 

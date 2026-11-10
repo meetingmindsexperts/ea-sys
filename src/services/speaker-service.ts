@@ -464,7 +464,8 @@ export async function cascadeSpeakerDecline(input: {
     apiLogger.info({
       msg: "speaker-decline:companion-cancelled",
       eventId, speakerId, registrationId: reg.id, source, actorUserId: actorUserId ?? null,
-    }, "Companion registration cancelled with speaker decline — badge + entry barcode revoked");
+      detail: "Companion registration cancelled with speaker decline: badge + entry barcode revoked",
+    });
 
     // Extra audit row tying the cancellation to the speaker decline (the
     // cancel itself already wrote REGISTRATION_CANCELLED).
@@ -649,6 +650,8 @@ export async function updateSpeaker(
       expectedUpdatedAt,
       resourceLabel: "speaker",
       resourceId: speakerId,
+      source,
+      userId: actorUserId,
     });
 
     if (!lock.ok && lock.reason === "NOT_FOUND") {

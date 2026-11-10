@@ -103,6 +103,36 @@ describe("errors", () => {
     expect(err).toMatchObject({ stage: "purchaseBasket", httpStatus: null, isNoResponse: true });
   });
 
+  it("log why a request got no answer, with any quoted credential redacted", async () => {
+    script();
+    await getDetAccessToken(creds);
+    logger.warn.mockClear();
+    const cause = Object.assign(new Error("getaddrinfo ENOTFOUND et.example apikey123secret"), { code: "ENOTFOUND" });
+    fetchMock.mockImplementationOnce(() => Promise.reject(new TypeError("fetch failed for ?api_key=apikey123secret", { cause })));
+    await getDetPerformance(creds, "P1").catch(() => {});
+    expect(logger.warn).toHaveBeenCalledWith({
+      msg: "dtcm-eticket:no-response",
+      stage: "performanceMap",
+      environment: "staging",
+      timedOut: false,
+      errorName: "TypeError",
+      errorMessage: "fetch failed for ?api_key=***",
+      causeCode: "ENOTFOUND",
+      causeMessage: "getaddrinfo ENOTFOUND et.example ***",
+    });
+  });
+
+  it("log a timeout by name, with no cause to report", async () => {
+    script();
+    await getDetAccessToken(creds);
+    logger.warn.mockClear();
+    fetchMock.mockImplementationOnce(() => Promise.reject(new DOMException("timed out", "TimeoutError")));
+    await getDetPerformance(creds, "P1").catch(() => {});
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "dtcm-eticket:no-response", timedOut: true, errorName: "TimeoutError", causeCode: null }),
+    );
+  });
+
   it("never log the API key, the secret or a request body", async () => {
     script([400, detError("5005", "Section soldout")]);
     await createDetBasket(creds, { performanceCode: "P1", area: "A", priceTypeCode: "C" }).catch(() => {});

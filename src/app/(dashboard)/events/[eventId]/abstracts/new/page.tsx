@@ -30,7 +30,7 @@ import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_RE
 import { AbstractSubThemeSelect, subThemesOf } from "@/components/abstracts/abstract-sub-theme-select";
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
 import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
-import type { CoAuthor } from "@/lib/abstract-coauthors";
+import { type CoAuthor, abstractErrorMessage, prepareCoAuthorsForSubmit } from "@/lib/abstract-coauthors";
 import { countWords } from "@/lib/abstract-content";
 import { readAbstractLimits } from "@/lib/abstract-limits";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
@@ -114,8 +114,9 @@ export default function NewAbstractPage() {
         }),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to submit abstract");
+        const err = await res.json().catch(() => ({}));
+        // A validation 400 says which field: show that, not "Invalid input".
+        throw new Error(abstractErrorMessage(err, "Failed to submit abstract"));
       }
       return res.json();
     },
@@ -170,8 +171,16 @@ export default function NewAbstractPage() {
       toast.error(SUB_THEME_REQUIRED_MESSAGE);
       return;
     }
+    // Blank co-author rows are dropped; a half-filled one stops here with its
+    // row number (the server would refuse the lot with "Invalid input").
+    const coAuthorCheck = prepareCoAuthorsForSubmit(formData.coAuthors);
+    if (!coAuthorCheck.ok) {
+      toast.error(coAuthorCheck.message);
+      return;
+    }
     createMutation.mutate({
       ...formData,
+      coAuthors: coAuthorCheck.coAuthors,
       status: asDraft ? "DRAFT" : "SUBMITTED",
     });
   };

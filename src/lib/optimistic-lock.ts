@@ -91,8 +91,12 @@ export async function runOptimisticUpdate<TWhere, TData>(opts: {
   /** Used in the warn log when a caller skips the lock — helps us track migration. */
   resourceLabel: string;
   resourceId: string;
+  /** Which door the write came through ("rest" / "mcp" / "agent"), for the warn log. */
+  source?: string;
+  /** Who made the write, for the warn log. */
+  userId?: string | null;
 }): Promise<OptimisticUpdateResult> {
-  const { model, where, data, expectedUpdatedAt, resourceLabel, resourceId } = opts;
+  const { model, where, data, expectedUpdatedAt, resourceLabel, resourceId, source, userId } = opts;
 
   if (expectedUpdatedAt) {
     const lockedWhere = {
@@ -115,11 +119,15 @@ export async function runOptimisticUpdate<TWhere, TData>(opts: {
   }
 
   // Legacy unconditional path. Same query shape but no lock — emit a warn so
-  // we can audit which callers haven't migrated yet.
+  // we can audit which callers haven't migrated yet. This is the ONE place the
+  // line is written for a caller that goes through this helper: do not log it
+  // again at the call site (the agent speaker tool did, two rows per update).
   apiLogger.warn({
     msg: "optimistic-lock:missing-expectedUpdatedAt",
     resource: resourceLabel,
     resourceId,
+    source,
+    userId: userId ?? undefined,
   });
   const result = await model.updateMany({ where, data });
   if (result.count === 0) return { ok: false, reason: "NOT_FOUND" };

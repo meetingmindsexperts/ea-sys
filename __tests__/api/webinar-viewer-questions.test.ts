@@ -68,6 +68,21 @@ describe("public: ask a question", () => {
     expect((await ask(req({ question: "Hello there" }), publicParams)).status).toBe(401);
   });
 
+  it("the signed-out refusals say who asked: the address and a cut-down browser string", async () => {
+    mockAuth.mockResolvedValue(null);
+    const signedOut = (method: "GET" | "POST") =>
+      new Request("http://localhost/x", {
+        method,
+        headers: { "content-type": "application/json", "user-agent": "U".repeat(500) },
+        body: method === "POST" ? JSON.stringify({ question: "Hello there" }) : undefined,
+      });
+    const who = { slug: "test-webinar", sessionId: "s1", ip: "1.2.3.4", userAgent: "U".repeat(200) };
+    await ask(signedOut("POST"), publicParams);
+    expect(mockWarn).toHaveBeenCalledWith(who, "webinar-question:ask-unauthenticated");
+    await listMine(signedOut("GET"), publicParams);
+    expect(mockWarn).toHaveBeenCalledWith(who, "webinar-question:list-unauthenticated");
+  });
+
   it("403 when not registered for the event", async () => {
     mockAuth.mockResolvedValue(attendee);
     mockDb.registration.findFirst.mockResolvedValue(null);

@@ -8,6 +8,7 @@
  *   - the public /uploads catch-all BLOCKS the reimbursements/ prefix
  *     (passport scans + receipts must only stream via the authed route)
  */
+import { createHash } from "crypto";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockRateLimit, mockNotify, mockSendEmail, mockGetEventTemplate } = vi.hoisted(() => ({
@@ -236,6 +237,32 @@ describe("POST /api/public/events/[slug]/reimbursement/[token]", () => {
     const res = await POST(jsonReq(validBody), params());
     expect(res.status).toBe(404);
     expect(mockDb.speakerReimbursement.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("logs a refused link with the address and a short hash of the token, never the token", async () => {
+    const { apiLogger } = await import("@/lib/logger");
+    // sha256("tok123") starts with these 8 hex characters.
+    const link = createHash("sha256").update("tok123").digest("hex").slice(0, 8);
+    const refusedWith = (stage: string) =>
+      expect(apiLogger.warn).toHaveBeenCalledWith(
+        { slug: "esh-monthly", ip: "127.0.0.1", link, stage },
+        "reimbursement-public:invalid-token",
+      );
+
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(null);
+    await POST(jsonReq(validBody), params());
+    refusedWith("submit-load");
+    await GET(jsonReq(undefined), params());
+    refusedWith("load");
+
+    mockDb.event.findFirst.mockResolvedValue(null);
+    await POST(jsonReq(validBody), params());
+    refusedWith("submit-load-org");
+    await GET(jsonReq(undefined), params());
+    refusedWith("load-org");
+
+    expect(link).toMatch(/^[0-9a-f]{8}$/);
+    expect(JSON.stringify(vi.mocked(apiLogger.warn).mock.calls)).not.toContain("tok123");
   });
 
   it("404s a valid token pasted under another event's slug", async () => {

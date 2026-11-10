@@ -633,7 +633,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const validated = completionSchema.safeParse(body);
     if (!validated.success) {
-      apiLogger.warn({ msg: "Completion form validation failed", errors: validated.error.flatten() });
+      apiLogger.warn({ msg: "Completion form validation failed", slug, ip: getClientIp(req), errors: validated.error.flatten() });
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 

@@ -135,7 +135,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         registrationId,
         userId: session.user.id,
         paymentStatus: registration.paymentStatus,
-      }, "Desk admitted a payment-blocked attendee via explicit override");
+        detail: "Desk admitted a payment-blocked attendee via explicit override",
+      });
     }
 
     const updatedRegistration = await executeCheckIn({
@@ -293,7 +294,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       // H5: the unknown-barcode scan is the single highest-value line to trace
       // at a live door ("why didn't that badge scan?") — a wrong-event badge, a
       // mis-print, or a probing/forged code. It logged nothing before.
-      apiLogger.warn({ msg: "check-in:qr-unknown-code", eventId, userId: session.user.id, kiosk: isKiosk }, "Scanned code matched no registration");
+      apiLogger.warn({ msg: "check-in:qr-unknown-code", eventId, userId: session.user.id, kiosk: isKiosk, detail: "Scanned code matched no registration" });
       return NextResponse.json({ error: "Invalid code — not found" }, { status: 404 });
     }
 

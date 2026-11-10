@@ -18,6 +18,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { noSessionContext } from "@/lib/no-session-context";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
@@ -54,7 +55,7 @@ export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId }] = await Promise.all([auth(), params]);
     if (!session?.user) {
-      apiLogger.warn({ eventId }, "travel-grants:unauthorized");
+      apiLogger.warn({ eventId, ...noSessionContext(req) }, "travel-grants:unauthorized");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const gate = requirePermission(session, "travelGrants.manage", { route: "events/[eventId]/travel-grants:GET", eventId });
@@ -181,7 +182,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId }] = await Promise.all([auth(), params]);
     if (!session?.user) {
-      apiLogger.warn({ eventId }, "travel-grants:unauthorized");
+      apiLogger.warn({ eventId, ...noSessionContext(req) }, "travel-grants:unauthorized");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const gate = requirePermission(session, "travelGrants.manage", { route: "events/[eventId]/travel-grants:POST", eventId });

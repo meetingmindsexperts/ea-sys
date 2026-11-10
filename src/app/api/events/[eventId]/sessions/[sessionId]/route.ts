@@ -249,8 +249,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const webinarSettings = readWebinarSettings(event.settings);
     if (webinarSettings?.sessionId === sessionId) {
       apiLogger.warn(
-        { msg: "session-delete:webinar-anchor-refused", sessionId, eventId, userId: session.user.id },
-        "Refused to delete the webinar anchor session",
+        { msg: "session-delete:webinar-anchor-refused", sessionId, eventId, userId: session.user.id, detail: "Refused to delete the webinar anchor session" },
       );
       return NextResponse.json(
         {

@@ -7,6 +7,9 @@ import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/securi
 import { createNotification } from "@/lib/notifications";
 import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import { ORG_ADMIN_ROLES } from "@/lib/team-roles";
+import { linkConfirmedRegistrations, linkConfirmedSpeakers } from "@/lib/registrant-access";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 
 const acceptInvitationSchema = z.object({
   token: z.string().min(1),
@@ -140,10 +143,32 @@ export async function POST(req: Request) {
       });
     });
 
+    // The address is proven now, so claim what was made on it earlier, exactly
+    // as verify-email does: the speaker records the organisers added (a
+    // reviewer picked from the speakers while the account was unconfirmed
+    // stayed unlinked without this) and the unlinked registrations. Inside the
+    // host's tenant lane. Best-effort: a failure here must not fail the
+    // acceptance, the password is already set.
+    const proven = { userId: user.id, email, confirmed: true };
+    const hostOrgId = await resolveRequestOrgId(req).catch((err) => {
+      apiLogger.error({ err, msg: "accept-invitation:host-org-resolve-failed", userId: user.id });
+      return null;
+    });
+    const [linkedRegistrations, claimedSpeakers] = await runWithTenantLane(
+      hostOrgId,
+      { route: "auth/accept-invitation", userId: user.id },
+      () => Promise.all([linkConfirmedRegistrations(proven), linkConfirmedSpeakers(proven, hostOrgId)]),
+    ).catch((err) => {
+      apiLogger.error({ err, msg: "accept-invitation:link-confirmed-failed", userId: user.id });
+      return [0, 0];
+    });
+
     apiLogger.info({
       msg: "User accepted invitation",
       email,
       userId: user.id,
+      linkedRegistrations,
+      claimedSpeakers,
     });
 
     // Notify org admins of new team member (non-blocking)

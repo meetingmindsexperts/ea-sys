@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
+import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readHandouts, toPublicHandout } from "@/lib/webinar/handouts";
 import { loadQuestionContext, resolveAsker } from "@/lib/webinar/viewer-question-access";
@@ -17,7 +18,12 @@ export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [authSession, { slug, sessionId }] = await Promise.all([auth(), params]);
     if (!authSession?.user) {
-      apiLogger.warn({ slug, sessionId }, "webinar-handouts:list-unauthenticated");
+      // The address and browser tell an expired sign-in on the page from a
+      // script walking session ids.
+      apiLogger.warn(
+        { slug, sessionId, ip: getClientIp(req), userAgent: req.headers.get("user-agent")?.slice(0, 200) ?? null },
+        "webinar-handouts:list-unauthenticated",
+      );
       return NextResponse.json({ error: "Sign in required", code: "UNAUTHENTICATED" }, { status: 401 });
     }
     const event = await loadQuestionContext(req, slug, sessionId, { includeCompleted: true });

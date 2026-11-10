@@ -116,6 +116,31 @@ describe("runOptimisticUpdate — without expectedUpdatedAt", () => {
     );
   });
 
+  it("writes the warn once, with the door and the caller when the service passes them", async () => {
+    const model = makeModel();
+    model.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    await runOptimisticUpdate({
+      model,
+      where: { id: "spk-1", eventId: "evt-1" },
+      data: { firstName: "Alice", updatedAt: new Date() },
+      expectedUpdatedAt: null,
+      resourceLabel: "speaker",
+      resourceId: "spk-1",
+      source: "agent",
+      userId: "user-7",
+    });
+
+    expect(mockApiLogger.warn).toHaveBeenCalledTimes(1);
+    expect(mockApiLogger.warn).toHaveBeenCalledWith({
+      msg: "optimistic-lock:missing-expectedUpdatedAt",
+      resource: "speaker",
+      resourceId: "spk-1",
+      source: "agent",
+      userId: "user-7",
+    });
+  });
+
   it("treats undefined the same as null — fall back path", async () => {
     const model = makeModel();
     model.updateMany.mockResolvedValueOnce({ count: 1 });

@@ -306,8 +306,7 @@ export async function executeCheckIn(args: ExecuteCheckInArgs) {
       throw new CheckInCancelledError();
     }
     apiLogger.info(
-      { msg: "check-in:already-claimed-concurrent", eventId: args.eventId, registrationId: args.registrationId },
-      "Concurrent check-in lost the claim; returning existing row",
+      { msg: "check-in:already-claimed-concurrent", eventId: args.eventId, registrationId: args.registrationId, detail: "Concurrent check-in lost the claim; returning existing row" },
     );
     return existing;
   }
@@ -400,8 +399,7 @@ export async function undoCheckIn(args: UndoCheckInArgs): Promise<UndoCheckInRes
   if (claim.count === 0) {
     // Either not checked in, wrong event, or a concurrent undo already won.
     apiLogger.warn(
-      { msg: "check-in:undo-not-checked-in", eventId: args.eventId, registrationId: args.registrationId, source: args.source },
-      "Undo check-in: registration was not checked in",
+      { msg: "check-in:undo-not-checked-in", eventId: args.eventId, registrationId: args.registrationId, source: args.source, detail: "Undo check-in: registration was not checked in" },
     );
     return { ok: false, code: "NOT_CHECKED_IN", message: "This registration is not checked in." };
   }
@@ -412,8 +410,7 @@ export async function undoCheckIn(args: UndoCheckInArgs): Promise<UndoCheckInRes
   });
 
   apiLogger.info(
-    { msg: "check-in:undone", eventId: args.eventId, registrationId: args.registrationId, source: args.source },
-    "Check-in undone",
+    { msg: "check-in:undone", eventId: args.eventId, registrationId: args.registrationId, source: args.source, detail: "Check-in undone" },
   );
 
   db.auditLog

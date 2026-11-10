@@ -93,6 +93,27 @@ function redact(creds: DetCredentials, text: string): string {
   return [creds.apiKey, creds.clientSecret].filter((v) => v.length >= 4).reduce((t, v) => t.replaceAll(v, "***"), text);
 }
 
+/**
+ * Why a request got no answer, for the log only: the error's name and message
+ * and its cause's code and message (ENOTFOUND, ECONNREFUSED, a TLS failure, a
+ * reset). Redacted, in the URL-encoded form too, because a URL error can quote
+ * the URL, which carries the API key.
+ */
+function noResponseCause(creds: DetCredentials, err: unknown): Record<string, string | null> {
+  const clean = (v: unknown): string | null => {
+    if (typeof v !== "string" && typeof v !== "number") return null;
+    return redact(creds, String(v)).replaceAll(encodeURIComponent(creds.apiKey), "***").slice(0, 300);
+  };
+  const error = err instanceof Error ? err : null;
+  const cause = error?.cause && typeof error.cause === "object" ? (error.cause as { code?: unknown; message?: unknown }) : null;
+  return {
+    errorName: clean(error?.name),
+    errorMessage: clean(error ? error.message : String(err)),
+    causeCode: clean(cause?.code),
+    causeMessage: clean(cause?.message),
+  };
+}
+
 /** DET's error body is `{ code, httpStatusCode, message, reference }`; anything else is kept short. */
 function errorFromBody(creds: DetCredentials, stage: DetStage, status: number, text: string): DetApiError {
   let parsed: Json | null = null;
@@ -136,7 +157,13 @@ async function send(
     });
   } catch (err) {
     const timedOut = err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError");
-    apiLogger.warn({ msg: "dtcm-eticket:no-response", stage, environment: creds.environment, timedOut });
+    apiLogger.warn({
+      msg: "dtcm-eticket:no-response",
+      stage,
+      environment: creds.environment,
+      timedOut,
+      ...noResponseCause(creds, err),
+    });
     throw new DetApiError(
       timedOut ? `DET ${stage} timed out after ${REQUEST_TIMEOUT_MS / 1000}s` : `DET ${stage} could not be reached`,
       stage,

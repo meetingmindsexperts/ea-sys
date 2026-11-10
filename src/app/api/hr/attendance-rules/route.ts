@@ -13,6 +13,7 @@ import { z } from "zod";
 import { calendarDateSchema } from "@/hr/lib/hr-date";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
+import { noSessionContextFromHeaders } from "@/lib/no-session-context";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
@@ -56,7 +57,7 @@ const createSchema = z
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/attendance-rules:unauthorized" });
+    apiLogger.warn({ msg: "hr/attendance-rules:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/attendance-rules" });
@@ -84,7 +85,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/attendance-rules:unauthorized" });
+    apiLogger.warn({ msg: "hr/attendance-rules:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/attendance-rules", write: true });

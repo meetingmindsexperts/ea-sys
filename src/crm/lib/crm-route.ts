@@ -14,6 +14,7 @@ import { z } from "zod";
 import { getOrgContext, type OrgContext } from "@/lib/api-auth";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { apiLogger } from "@/lib/logger";
+import { noSessionContext } from "@/lib/no-session-context";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
 import { orgModuleState } from "@/lib/module-entitlements";
@@ -41,14 +42,15 @@ export async function requireCrmRead(
     // (reads AND, transitively, writes/deletes/purges) passes through, and the
     // core getOrgContext returns null silently on any auth failure (no session,
     // expired session, invalid/expired API key). "Every failure path logs"
-    // (CRM review M1). No PII — auth failed, so there's no user/org yet.
+    // (CRM review M1). Auth failed, so there is no user/org yet: the line
+    // carries the request's context instead (never the cookie's value).
     let route = "";
     try {
       route = new URL(req.url).pathname;
     } catch {
       /* malformed URL — route stays "" */
     }
-    apiLogger.warn({ msg: "crm-route:unauthorized", method: req.method, route });
+    apiLogger.warn({ msg: "crm-route:unauthorized", method: req.method, route, ...noSessionContext(req) });
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
   // Entitlement before permission: the ORGANISATION must have the CRM before

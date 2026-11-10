@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
+import { noSessionContextFromHeaders } from "@/lib/no-session-context";
 import { isBlueprintModuleEnabled } from "@/lib/module-flags";
 import { requireOrgId } from "@/lib/require-org";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -32,7 +33,7 @@ export async function blueprintGuard(permission: PermissionKey, route: string): 
   }
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: `${route}:unauthorized` });
+    apiLogger.warn({ msg: `${route}:unauthorized`, ...(await noSessionContextFromHeaders()) });
     return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
   const org = requireOrgId(session, { route });

@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
+import { noSessionContextFromHeaders } from "@/lib/no-session-context";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { denyNonHr } from "@/hr/lib/hr-roles";
@@ -18,7 +19,7 @@ import { LeaveYearNotHeldError } from "@/hr/services/leave-balance-service";
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/summary:unauthorized" });
+    apiLogger.warn({ msg: "hr/summary:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/summary" });

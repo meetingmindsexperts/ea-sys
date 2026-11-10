@@ -234,6 +234,21 @@ describe("attendee: list and download", () => {
     expect(mockStorage.readStoredFile).not.toHaveBeenCalled();
   });
 
+  it("signed out: the list's refusal says who asked (address, cut-down browser string)", async () => {
+    mockAuth.mockResolvedValue(null);
+    const { apiLogger } = await import("@/lib/logger");
+    await list(new Request("http://x", { headers: { "user-agent": "U".repeat(500) } }), publicParams);
+    expect(apiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1", ip: "1.2.3.4", userAgent: "U".repeat(200) }),
+      "webinar-handouts:list-unauthenticated",
+    );
+    await list(new Request("http://x"), publicParams);
+    expect(apiLogger.warn).toHaveBeenLastCalledWith(
+      expect.objectContaining({ userAgent: null }),
+      "webinar-handouts:list-unauthenticated",
+    );
+  });
+
   it("signed in but not registered: refused (a forwarded link opens for no one else)", async () => {
     mockAuth.mockResolvedValue(attendee);
     expect((await list(new Request("http://x"), publicParams)).status).toBe(403);

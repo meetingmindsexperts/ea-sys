@@ -15,6 +15,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { noSessionContextFromHeaders } from "@/lib/no-session-context";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
@@ -75,7 +76,7 @@ const clearSchema = z.object({
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/attendance:unauthorized" });
+    apiLogger.warn({ msg: "hr/attendance:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/attendance" });
@@ -248,7 +249,7 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/attendance:unauthorized" });
+    apiLogger.warn({ msg: "hr/attendance:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/attendance", write: true });
@@ -305,7 +306,7 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/attendance:unauthorized" });
+    apiLogger.warn({ msg: "hr/attendance:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/attendance", write: true });

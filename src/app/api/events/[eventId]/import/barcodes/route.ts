@@ -215,7 +215,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             registrationId: registration.id,
             rowNum,
             userId: session.user.id,
-          }, "Row replaces a different existing DTCM barcode on this registration");
+            detail: "Row replaces a different existing DTCM barcode on this registration",
+          });
         }
 
         await db.registration.update({

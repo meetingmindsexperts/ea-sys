@@ -15,6 +15,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { noSessionContextFromHeaders } from "@/lib/no-session-context";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
@@ -69,7 +70,7 @@ export const HTTP_STATUS_FOR_EMPLOYEE_ERROR: Record<EmployeeErrorCode, number> =
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/employees:unauthorized" });
+    apiLogger.warn({ msg: "hr/employees:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/employees" });
@@ -108,7 +109,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
-    apiLogger.warn({ msg: "hr/employees:unauthorized" });
+    apiLogger.warn({ msg: "hr/employees:unauthorized", ...(await noSessionContextFromHeaders()) });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyNonHr(session, { route: "hr/employees", write: true });
