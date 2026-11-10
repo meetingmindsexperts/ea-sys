@@ -361,38 +361,43 @@ async function leaseAndSend(
   }
 }
 
-/**
- * The "added as a reviewer" email (`reviewer-pool-invitation`), for an account
- * that can already sign in. Sent only by hand since Nov 10, 2026: the row's
- * Send email button on the Reviewers page (adding a reviewer sends nothing).
- * A new account gets the account-setup invitation instead.
- *
- * Never throws, and says whether the email went: a refused send (an unresolved
- * token in the event's template, a provider error) must reach the organiser,
- * who would otherwise be told it was sent.
- */
-export async function notifyReviewerPoolAdded(args: {
+export type ReviewerEmailResult = { ok: true } | { ok: false; code: "NO_TEMPLATE" | "SEND_FAILED"; message: string };
+
+interface ReviewerEmailArgs {
   eventId: string;
   organizationId: string | null;
   reviewer: { id: string; firstName: string | null; lastName: string | null; email: string };
   eventName: string;
   triggeredByUserId?: string | null;
-}): Promise<{ ok: true } | { ok: false; code: "NO_TEMPLATE" | "SEND_FAILED"; message: string }> {
+}
+
+/**
+ * One reviewer, one of the event's reviewer templates. The reviewer's own
+ * values (title, names, the event) are filled here; `extra` is what only that
+ * email has. Their additional email is copied beside the event's Auto-CC.
+ *
+ * Never throws, and says whether the email went: a refused send (an unresolved
+ * token in the event's template, a provider error) must reach the organiser,
+ * who would otherwise be told it was sent.
+ */
+async function sendReviewerTemplate(
+  email: { slug: "reviewer-pool-invitation" | "reviewer-invitation"; emailType: string; log: string },
+  args: ReviewerEmailArgs,
+  extra: Record<string, string>,
+): Promise<ReviewerEmailResult> {
   try {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
     const speakerRecord = await reviewerSpeakerRecord(args.eventId, args.reviewer);
     const vars = {
       title: getTitleLabel(speakerRecord.title),
       firstName: args.reviewer.firstName ?? "",
       lastName: args.reviewer.lastName ?? "",
       eventName: args.eventName,
-      reviewLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/my-reviews")}`,
+      ...extra,
     };
 
-    const tpl = (await getEventTemplate(args.eventId, "reviewer-pool-invitation"))
-      || getDefaultTemplate("reviewer-pool-invitation");
+    const tpl = (await getEventTemplate(args.eventId, email.slug)) || getDefaultTemplate(email.slug);
     if (!tpl) {
-      apiLogger.warn({ msg: "No template found for reviewer-pool-invitation", eventId: args.eventId });
+      apiLogger.warn({ msg: `No template found for ${email.slug}`, eventId: args.eventId });
       return { ok: false, code: "NO_TEMPLATE", message: "The reviewer email template is missing" };
     }
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: args.eventName };
@@ -404,27 +409,67 @@ export async function notifyReviewerPoolAdded(args: {
       cc: brandingCc(branding, to, [speakerRecord.additionalEmail]),
       ...rendered,
       from: brandingFrom(branding),
-      emailType: "reviewer_pool_invitation",
+      emailType: email.emailType,
       stream: "transactional",
       logContext: {
         organizationId: args.organizationId,
         eventId: args.eventId,
         entityType: "USER",
         entityId: args.reviewer.id,
-        templateSlug: "reviewer-pool-invitation",
+        templateSlug: email.slug,
         triggeredByUserId: args.triggeredByUserId ?? null,
       },
     });
     if (!result.success) {
-      apiLogger.error({ msg: "reviewer-pool:send-failed", eventId: args.eventId, reviewerUserId: args.reviewer.id, code: result.code, error: result.error });
+      apiLogger.error({ msg: `${email.log}:send-failed`, eventId: args.eventId, reviewerUserId: args.reviewer.id, code: result.code, error: result.error });
       const message = result.code === UNRESOLVED_TOKENS_CODE && result.error ? result.error : "The email could not be sent";
       return { ok: false, code: "SEND_FAILED", message };
     }
 
-    apiLogger.info({ msg: "reviewer-pool:notified", eventId: args.eventId, reviewerUserId: args.reviewer.id });
+    apiLogger.info({ msg: `${email.log}:notified`, eventId: args.eventId, reviewerUserId: args.reviewer.id });
     return { ok: true };
   } catch (err) {
-    apiLogger.error({ err, msg: "reviewer-pool:notify-failed", eventId: args.eventId, reviewerUserId: args.reviewer.id });
+    apiLogger.error({ err, msg: `${email.log}:notify-failed`, eventId: args.eventId, reviewerUserId: args.reviewer.id });
     return { ok: false, code: "SEND_FAILED", message: "The email could not be sent" };
   }
+}
+
+/**
+ * The "added as a reviewer" email (`reviewer-pool-invitation`), for an account
+ * that can already sign in. Sent only by hand since Nov 10, 2026: the row's
+ * Send email button on the Reviewers page (adding a reviewer sends nothing).
+ * A new account gets the account-setup invitation instead.
+ */
+export function notifyReviewerPoolAdded(args: ReviewerEmailArgs): Promise<ReviewerEmailResult> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  return sendReviewerTemplate(
+    { slug: "reviewer-pool-invitation", emailType: "reviewer_pool_invitation", log: "reviewer-pool" },
+    args,
+    { reviewLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/my-reviews")}` },
+  );
+}
+
+/**
+ * The account-setup invitation (`reviewer-invitation`), for a reviewer whose
+ * account has no password yet: the row's Send invitation button. Its text was
+ * fixed in code until Nov 10, 2026 (owner: "give option to edit this text");
+ * it is now the event's own template, edited on the Email Templates page.
+ *
+ * The link sets the password of the account on the reviewer's MAIN address.
+ * Their additional email is copied like on every other email (owner, Nov 10).
+ */
+export function sendReviewerSetupInvitation(
+  args: ReviewerEmailArgs & { organizationName: string; inviterName: string; setupLink: string; expiresIn: string },
+): Promise<ReviewerEmailResult> {
+  return sendReviewerTemplate(
+    { slug: "reviewer-invitation", emailType: "reviewer_invitation", log: "reviewer-setup" },
+    args,
+    {
+      email: args.reviewer.email,
+      organizationName: args.organizationName,
+      inviterName: args.inviterName,
+      setupLink: args.setupLink,
+      expiresIn: args.expiresIn,
+    },
+  );
 }

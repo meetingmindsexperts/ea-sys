@@ -40,7 +40,7 @@ vi.mock("@/lib/email", async () => {
 });
 vi.mock("@/lib/logger", () => ({ apiLogger: logger }));
 
-import { ASSIGNMENT_CLAIM_TTL_MS, notifyReviewerPoolAdded, sendPendingAssignments } from "@/lib/abstract-reviewer-notify";
+import { ASSIGNMENT_CLAIM_TTL_MS, notifyReviewerPoolAdded, sendPendingAssignments, sendReviewerSetupInvitation } from "@/lib/abstract-reviewer-notify";
 import { sendableAssignmentWhere } from "@/lib/abstract-reviewer-access";
 import { getDefaultTemplate, getEventTemplate, renderAndWrap } from "@/lib/email";
 import { DEFAULT_TEMPLATE_BODIES } from "@/lib/email-template-defaults";
@@ -379,5 +379,51 @@ describe("notifyReviewerPoolAdded", () => {
     await notifyReviewerPoolAdded(poolArgs);
     expect(vi.mocked(renderAndWrap).mock.calls[0][1]).toHaveProperty("title", "");
     expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sendReviewerSetupInvitation: the editable account invitation", () => {
+  const args = {
+    eventId: "ev1",
+    organizationId: "org1",
+    reviewer: { id: "u1", firstName: "Jane", lastName: "Doe", email: "jane@x.com" },
+    eventName: "MedCon",
+    triggeredByUserId: "admin1",
+    organizationName: "Meeting Minds Experts",
+    inviterName: "Sam Admin",
+    setupLink: "https://events.example.com/accept-invitation?token=abc&email=jane%40x.com",
+    expiresIn: "7 days",
+  };
+  const branding = { eventName: "MedCon", emailCcAddresses: ["ops@example.com"] };
+  const useRealDefault = () =>
+    vi.mocked(getEventTemplate).mockResolvedValueOnce({ ...DEFAULT_TEMPLATE_BODIES["reviewer-invitation"], branding } as never);
+
+  it("the REAL default says who invited them, carries the link, and leaves no token", async () => {
+    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: "DR", additionalEmail: null }]);
+    useRealDefault();
+    expect(await sendReviewerSetupInvitation(args)).toEqual({ ok: true });
+    const sent = sendEmailSpy.mock.calls[0][0];
+    expect(sent.subject).toBe("You've been invited to join Meeting Minds Experts");
+    expect(sent.textContent).toContain("Hi Dr. Jane Doe,");
+    expect(sent.textContent).toContain("Sam Admin has invited you to join Meeting Minds Experts as a Reviewer for MedCon.");
+    expect(sent.textContent).toContain(`Accept Invitation & Set Password: ${args.setupLink}`);
+    expect(sent.htmlContent).toContain("token=abc&amp;email=jane%40x.com");
+    expect(findUnresolvedTokens(sent.subject + sent.htmlContent + sent.textContent)).toEqual([]);
+    expect(sent.logContext).toMatchObject({ templateSlug: "reviewer-invitation", entityId: "u1", triggeredByUserId: "admin1" });
+  });
+
+  it("goes to the account's main address; the additional email and the event's Auto-CC are copied", async () => {
+    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: null, additionalEmail: "assistant@clinic.com" }]);
+    useRealDefault();
+    await sendReviewerSetupInvitation(args);
+    const sent = sendEmailSpy.mock.calls[0][0];
+    expect(sent.to).toEqual([{ email: "jane@x.com", name: "Jane Doe" }]);
+    expect(sent.cc).toEqual([{ email: "ops@example.com" }, { email: "assistant@clinic.com" }]);
+  });
+
+  it("a template edited to use a token nothing fills is refused in its own words, not sent broken", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValueOnce({ subject: "s", htmlContent: "<p>{{setupLink}}</p>", textContent: "t", branding } as never);
+    sendEmailSpy.mockResolvedValueOnce({ success: false, error: "Email not sent: it still contains {{venue}}", code: "UNRESOLVED_TOKENS" });
+    expect(await sendReviewerSetupInvitation(args)).toEqual({ ok: false, code: "SEND_FAILED", message: "Email not sent: it still contains {{venue}}" });
   });
 });

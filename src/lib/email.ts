@@ -1847,6 +1847,11 @@ export function getSamplePreviewVariables(
     // build these in abstract-reviewer-notify.ts.
     reviewLink: "#",
     role: "Primary reviewer",
+    // reviewer-invitation preview: the real link is minted per reviewer when
+    // Send invitation is pressed (resend-invitation route).
+    setupLink: "#",
+    inviterName: "Sarah Ahmed",
+    expiresIn: "7 days",
     // document-delivery preview — real sends fill these from the Invoice row
     // in sendInvoiceEmail (invoice-service.ts).
     documentType: "Credit Note",

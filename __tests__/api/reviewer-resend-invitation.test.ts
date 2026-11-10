@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, sendEmailSpy, notifyPoolSpy } = vi.hoisted(() => {
+const { mockDb, mockAuth, setupSpy, notifyPoolSpy } = vi.hoisted(() => {
   const tx = {
     verificationToken: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({}) },
   };
@@ -20,7 +20,7 @@ const { mockDb, mockAuth, sendEmailSpy, notifyPoolSpy } = vi.hoisted(() => {
       _tx: tx,
     },
     mockAuth: vi.fn(),
-    sendEmailSpy: vi.fn().mockResolvedValue({ success: true }),
+    setupSpy: vi.fn().mockResolvedValue({ ok: true }),
     notifyPoolSpy: vi.fn().mockResolvedValue({ ok: true }),
   };
 });
@@ -36,12 +36,7 @@ vi.mock("@/lib/security", () => ({
   hashVerificationToken: (t: string) => `hash:${t}`,
   checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
 }));
-vi.mock("@/lib/email", async () => ({
-  sendEmail: sendEmailSpy,
-  emailTemplates: { userInvitation: () => ({ subject: "s", htmlContent: "h", textContent: "t" }) },
-  brandingCc: (await vi.importActual<typeof import("@/lib/email")>("@/lib/email")).brandingCc,
-}));
-vi.mock("@/lib/abstract-reviewer-notify", () => ({ notifyReviewerPoolAdded: notifyPoolSpy }));
+vi.mock("@/lib/abstract-reviewer-notify", () => ({ notifyReviewerPoolAdded: notifyPoolSpy, sendReviewerSetupInvitation: setupSpy }));
 
 import { POST } from "@/app/api/events/[eventId]/reviewers/[reviewerId]/resend-invitation/route";
 
@@ -55,21 +50,21 @@ beforeEach(() => {
     id: "ev1", name: "MedCon", slug: "medcon",
     settings: { reviewerUserIds: ["r1"] }, emailFromAddress: null, emailFromName: null,
   });
-  sendEmailSpy.mockResolvedValue({ success: true });
+  setupSpy.mockResolvedValue({ ok: true });
   notifyPoolSpy.mockResolvedValue({ ok: true });
 });
 
 describe("reviewer resend-invitation", () => {
-  it("copies the event's Auto-CC on the setup invite (owner, Nov 10, 2026), never the reviewer twice", async () => {
-    mockDb.event.findFirst.mockResolvedValue({
-      id: "ev1", name: "MedCon", slug: "medcon",
-      settings: { reviewerUserIds: ["r1"] }, emailFromAddress: null, emailFromName: null,
-      emailCcAddresses: ["Ops@Example.com", "rev@example.com"],
-    });
-    mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "rev@example.com", firstName: "R", lastName: "V", emailVerified: null });
-    const res = await POST(req(), { params });
-    expect(res.status).toBe(200);
-    expect(sendEmailSpy.mock.calls[0][0].cc).toEqual([{ email: "ops@example.com" }]);
+  it("the setup invite goes through the event's own template, with a fresh personal link and who sent it", async () => {
+    mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "Rev@X.com", firstName: "Rev", lastName: "One", emailVerified: null });
+    expect((await POST(req(), { params })).status).toBe(200);
+    const sent = setupSpy.mock.calls[0][0];
+    expect(sent).toMatchObject({ eventId: "ev1", eventName: "MedCon", reviewer: { id: "r1" }, inviterName: "A B", expiresIn: "7 days", triggeredByUserId: "admin1" });
+    // The link carries the token that was just stored (hashed) and the event to land on.
+    const token = new URL(sent.setupLink).searchParams.get("token");
+    expect(mockDb._tx.verificationToken.create.mock.calls[0][0].data.token).toBe(`hash:${token}`);
+    expect(sent.setupLink).toContain("email=rev%40x.com");
+    expect(sent.setupLink).toContain("eventSlug=medcon");
   });
 
   it("pending account: re-mints a token + resends the setup invite", async () => {
@@ -80,7 +75,7 @@ describe("reviewer resend-invitation", () => {
     expect(body.type).toBe("setup");
     expect(mockDb._tx.verificationToken.deleteMany).toHaveBeenCalledWith({ where: { identifier: "rev@x.com" } });
     expect(mockDb._tx.verificationToken.create).toHaveBeenCalledTimes(1);
-    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+    expect(setupSpy).toHaveBeenCalledTimes(1);
     expect(notifyPoolSpy).not.toHaveBeenCalled();
   });
 
@@ -91,7 +86,7 @@ describe("reviewer resend-invitation", () => {
     expect(res.status).toBe(200);
     expect(body.type).toBe("pool");
     expect(notifyPoolSpy).toHaveBeenCalledTimes(1);
-    expect(sendEmailSpy).not.toHaveBeenCalled();
+    expect(setupSpy).not.toHaveBeenCalled();
     expect(mockDb._tx.verificationToken.create).not.toHaveBeenCalled();
   });
 
@@ -103,12 +98,12 @@ describe("reviewer resend-invitation", () => {
     expect(await res.json()).toEqual({ error: "Email not sent: it still contains {{title}}", code: "EMAIL_SEND_FAILED" });
   });
 
-  it("surfaces a send failure as 502 (not silent)", async () => {
+  it("pending account: a refused invitation is a 502 with its reason (an edited template can leave a token unfilled)", async () => {
     mockDb.user.findUnique.mockResolvedValue({ id: "r1", email: "rev@x.com", firstName: "Rev", lastName: "One", emailVerified: null });
-    sendEmailSpy.mockResolvedValueOnce({ success: false, error: "SES rejected" });
+    setupSpy.mockResolvedValueOnce({ ok: false, code: "SEND_FAILED", message: "Email not sent: it still contains {{venue}}" });
     const res = await POST(req(), { params });
     expect(res.status).toBe(502);
-    expect((await res.json()).code).toBe("EMAIL_SEND_FAILED");
+    expect(await res.json()).toEqual({ error: "Email not sent: it still contains {{venue}}", code: "EMAIL_SEND_FAILED" });
   });
 
   it("404 when the user isn't in the event's reviewer pool", async () => {

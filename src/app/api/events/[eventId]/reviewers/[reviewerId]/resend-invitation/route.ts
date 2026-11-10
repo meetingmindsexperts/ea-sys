@@ -7,8 +7,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/security";
-import { sendEmail, emailTemplates, brandingCc } from "@/lib/email";
-import { notifyReviewerPoolAdded } from "@/lib/abstract-reviewer-notify";
+import { notifyReviewerPoolAdded, sendReviewerSetupInvitation } from "@/lib/abstract-reviewer-notify";
 import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 
 /**
@@ -50,7 +49,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, name: true, slug: true, settings: true, emailFromAddress: true, emailFromName: true, emailCcAddresses: true },
+      select: { id: true, name: true, slug: true, settings: true },
     });
     if (!event) {
       apiLogger.warn({ msg: "reviewer-invite-resend:event-not-found", eventId, userId: session.user.id });
@@ -72,10 +71,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "reviewer-invite-resend:account-not-found", eventId, reviewerUserId: reviewerId, userId: session.user.id });
       return NextResponse.json({ error: "Reviewer account not found" }, { status: 404 });
     }
-
-    const eventFrom = event.emailFromAddress
-      ? { email: event.emailFromAddress, name: event.emailFromName || undefined }
-      : undefined;
 
     // An account that can already sign in gets the "added as a reviewer"
     // email. A refused send surfaces (502), as the setup invite's does below:
@@ -119,44 +114,23 @@ export async function POST(req: Request, { params }: RouteParams) {
       ? `${session.user.firstName} ${session.user.lastName}`
       : session.user.email || "A team member";
 
-    const emailTemplate = emailTemplates.userInvitation({
-      recipientName: `${user.firstName} ${user.lastName}`,
-      recipientEmail: user.email,
+    // The event's own template (Email Templates → Reviewer Account Invitation).
+    // The event's Auto-CC and the reviewer's additional email are copied; the
+    // account stays on their main address (owner, Nov 10, 2026).
+    const sent = await sendReviewerSetupInvitation({
+      eventId,
+      organizationId: session.user.organizationId ?? null,
+      reviewer: user,
+      eventName: event.name,
+      triggeredByUserId: session.user.id,
       organizationName: brand?.name || "your organization",
-      productName: brand?.name,
       inviterName,
-      role: "Reviewer",
       setupLink,
       expiresIn: "7 days",
     });
-
-    // The event's Auto-CC is copied, setup link included (owner, Nov 10, 2026).
-    const to = [{ email: normalizedEmail, name: `${user.firstName} ${user.lastName}` }];
-    const emailResult = await sendEmail({
-      to,
-      cc: brandingCc({ emailCcAddresses: event.emailCcAddresses }, to),
-      subject: emailTemplate.subject,
-      htmlContent: emailTemplate.htmlContent,
-      textContent: emailTemplate.textContent,
-      from: eventFrom,
-      emailType: "reviewer_invitation",
-      stream: "transactional",
-      logContext: {
-        organizationId: session.user.organizationId,
-        eventId,
-        entityType: "USER",
-        entityId: user.id,
-        templateSlug: "reviewer-invitation",
-        triggeredByUserId: session.user.id,
-      },
-    });
-
-    if (!emailResult.success) {
-      apiLogger.error({ msg: "reviewer-invite-resend:send-failed", eventId, reviewerUserId: reviewerId, error: emailResult.error });
-      return NextResponse.json(
-        { error: "Failed to send the invitation email. Please check the address and try again.", code: "EMAIL_SEND_FAILED" },
-        { status: 502 },
-      );
+    if (!sent.ok) {
+      apiLogger.error({ msg: "reviewer-invite-resend:send-failed", eventId, reviewerUserId: reviewerId, code: sent.code });
+      return NextResponse.json({ error: sent.message, code: "EMAIL_SEND_FAILED" }, { status: 502 });
     }
 
     apiLogger.info({ msg: "reviewer-invite-resend:setup", eventId, reviewerUserId: reviewerId });

@@ -529,6 +529,46 @@ If you have any questions, please contact the event organizer.
 
 {{organizerSignature}}`,
   },
+  "reviewer-invitation": {
+    subject: "You've been invited to join {{organizationName}}",
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">You're Invited!</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Join {{organizationName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
+    <p>Hi <strong>{{title}} {{firstName}} {{lastName}}</strong>,</p>
+    <p><strong>{{inviterName}}</strong> has invited you to join <strong>{{organizationName}}</strong> as a <strong>Reviewer</strong> for <strong>{{eventName}}</strong>.</p>
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151;">Invitation Details</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 8px 0; color: #6b7280;">Organization:</td><td style="padding: 8px 0; font-weight: 500;">{{organizationName}}</td></tr>
+        <tr><td style="padding: 8px 0; color: #6b7280;">Event:</td><td style="padding: 8px 0; font-weight: 500;">{{eventName}}</td></tr>
+        <tr><td style="padding: 8px 0; color: #6b7280;">Your Role:</td><td style="padding: 8px 0; font-weight: 500;">Reviewer</td></tr>
+        <tr><td style="padding: 8px 0; color: #6b7280;">Your Email:</td><td style="padding: 8px 0; font-weight: 500;">{{email}}</td></tr>
+      </table>
+    </div>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="{{setupLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Accept Invitation &amp; Set Password</a>
+    </div>
+    <p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Note:</strong> This invitation will expire in {{expiresIn}}.</p>
+    <p style="color: #6b7280; font-size: 14px;">If you didn't expect this invitation, you can safely ignore this email.</p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `You've been invited to join {{organizationName}}
+
+Hi {{title}} {{firstName}} {{lastName}},
+
+{{inviterName}} has invited you to join {{organizationName}} as a Reviewer for {{eventName}}.
+
+Your email: {{email}}
+
+Accept Invitation & Set Password: {{setupLink}}
+
+Note: This invitation will expire in {{expiresIn}}.
+
+If you didn't expect this invitation, you can safely ignore this email.
+
+{{organizerSignature}}`,
+  },
   "abstract-reminder": {
     subject: "Reminder: Submit Your Abstract for {{eventName}}",
     htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
