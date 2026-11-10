@@ -8,6 +8,10 @@
  *
  * This runs the step's REAL text from the workflow, under `bash -e` as GitHub does, with `npm`
  * replaced by a stub, so restoring the bare `wait` fails here.
+ *
+ * What the bare `wait` had been hiding was not a type error but a crash: tsc ran out of memory on
+ * every CI run (Node's 4 GB default; the repo needs 4.8 GB), so the first push of the PID fix
+ * failed the pipeline. The step must therefore give the type check a heap limit, pinned below.
  */
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
@@ -48,6 +52,25 @@ describe("deploy.yml: the Type check & Lint step", () => {
     const script = stepScript("Type check & Lint");
     expect(script).toContain("npm run type-check &");
     expect(script).toContain("npm run lint");
+  });
+
+  it("gives the type check a heap limit above Node's 4 GB default: without it tsc crashes in CI", () => {
+    const limit = /NODE_OPTIONS=--max-old-space-size=(\d+) npm run type-check &/.exec(stepScript("Type check & Lint"));
+    expect(limit, "the type check must run with NODE_OPTIONS=--max-old-space-size=<MB>").not.toBeNull();
+    // Measured Nov 10, 2026: `tsc --extendedDiagnostics` reports 4,840 MB for the repo as CI sees it.
+    expect(Number(limit![1])).toBeGreaterThanOrEqual(6144);
+  });
+
+  it("the limit reaches the type check and nothing else: lint keeps its own", () => {
+    const probe = `npm() {
+  if [ "$2" = "type-check" ]; then echo "type-check:\${NODE_OPTIONS:-none}"; return 0; fi
+  if [ "$2" = "lint" ]; then echo "lint:\${NODE_OPTIONS:-none}"; return 0; fi
+}
+unset NODE_OPTIONS
+`;
+    const out = spawnSync("bash", ["-e", "-c", probe + stepScript("Type check & Lint")], { encoding: "utf8" }).stdout;
+    expect(out).toMatch(/type-check:--max-old-space-size=\d+/);
+    expect(out).toContain("lint:none");
   });
 
   it("passes when both pass", () => {

@@ -76,11 +76,19 @@ jobs:
       # Both are independent — saves ~15-20s vs running sequentially.
       #
       # `wait` must name the type check's PID. A bare `wait` returns 0 whatever
-      # the background job found, so until Nov 10, 2026 a type error could never
-      # fail this step: one sat on main for a day with every run green.
+      # the background job found, so until Nov 10, 2026 this step could never
+      # fail on the type check, and what it hid was worse than a type error: tsc
+      # was dying of "JavaScript heap out of memory" on every run, so nothing
+      # here was type-checked at all (the build job's own check covers the app,
+      # not the tests).
+      #
+      # The heap limit is for that: the whole repo, tests included (7,221 files,
+      # 595k lines on Nov 10, 2026), needs 4.8 GB, over Node's 4 GB default. Same
+      # value as the build job. When the repo outgrows it this step now FAILS,
+      # loudly: raise it then (the runner has 16 GB; lint runs beside it).
       - name: Type check & Lint
         run: |
-          npm run type-check &
+          NODE_OPTIONS=--max-old-space-size=6144 npm run type-check &
           TYPECHECK_PID=$!
           npm run lint
           wait "$TYPECHECK_PID"
