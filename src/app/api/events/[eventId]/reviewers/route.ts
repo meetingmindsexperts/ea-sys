@@ -162,7 +162,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     const availableSpeakers = speakers.filter((s) => !reviewerSpeakerIds.has(s.id));
 
     const response = NextResponse.json({ reviewers, availableSpeakers, assignedOffPool });
-    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    // Never from the browser's cache: the page refetches this right after a
+    // send, an add or a remove, and with stale-while-revalidate the browser
+    // answered that refetch with the OLD list for up to 30 seconds, so the
+    // counts and Send buttons stayed wrong and invited a second press
+    // (found in the browser, Nov 10, 2026). React Query is the cache here.
+    response.headers.set("Cache-Control", "private, no-store");
     return response;
     });
   } catch (error) {
