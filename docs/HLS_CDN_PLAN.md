@@ -1,6 +1,6 @@
 # CloudFront in front of the live stream: plan
 
-Status: ON IN PRODUCTION since Nov 9, 2026 (distribution `E4S57RCP6XUPP`, `d3vq9gpx1lng4k.cloudfront.net`, `HLS_CDN_BASE` set on the box and confirmed in `ea-sys-blue`). Step 0 (Zoom's real bitrate) waits for a Zoom practice stream. Planned Nov 6, 2026. Supersedes the AWS half of
+Status: ON IN PRODUCTION since Nov 9, 2026 (distribution `E4S57RCP6XUPP`, `d3vq9gpx1lng4k.cloudfront.net`, `HLS_CDN_BASE` set on the box and confirmed in `ea-sys-blue`). First real webinar through it on Nov 10, 2026 (§10). Step 0 has a first estimate from that webinar, about 0.7 to 1 Mbps, still to be measured directly. Planned Nov 6, 2026. Supersedes the AWS half of
 [LIVE_STREAMING.md §13](LIVE_STREAMING.md), which this plan corrects in three places (§4).
 Backlog entry: [ROADMAP](ROADMAP.md), "Webinar streaming: what the Nov 5 security review left
 for later", item 4.
@@ -189,4 +189,30 @@ so no room, watchdog or email could react). Publish key printed on the box:
 - **Player fallback** (read in `live-player.tsx`): both the native and hls.js paths fall back to
   the box once on a fatal error. Not covered: a CloudFront edge that stalls without erroring; the
   stall watchdog then reconnects to CloudFront again. Rare; unsetting `HLS_CDN_BASE` is the fix.
+
+## 10. First webinar through CloudFront, Nov 10, 2026
+
+"Test Webinar" (`cmw91pdnr0001qs01htw8ih3v`), Zoom pushing a custom live stream. The room was open
+from 11:30 to 11:35 Dubai (audit: `ROOM_OPENED` 07:30:01Z, `STREAM_LIVE` 07:30:30Z, `ROOM_CLOSED`
+07:35:18Z). The owner reported it worked; prod data and CloudFront agree.
+
+- **Through CloudFront, no server errors.** 1,029 requests and 161 MB in the window, 5xx rate 0,
+  4xx rate 2.5% (the playlist 404s before the stream starts and after it ends, as designed).
+  Per minute while live: about 200 requests and 30 to 36 MB.
+- **People.** 12 registrations (all confirmed, complimentary), 5 joined the room, 7 questions,
+  2 live polls. Every scheduled email sent with no failures: 15 minute and 1 hour reminders,
+  live now, thank-you to all 12.
+- **Bitrate, step 0, first estimate.** 30 to 36 MB a minute is 4.0 to 4.8 Mbps for all viewers.
+  At two requests per viewer per 4 s segment, 200 requests a minute is 6 to 7 players, which
+  matches 5 attendees plus staff previewing. So the stream ran at **about 0.7 to 1 Mbps**, below
+  the 1.5 Mbps this plan assumed: the box alone would hold more than §1 says, and one viewer-hour
+  is about 0.3 to 0.45 GB, so the §3 costs are on the high side. Still an estimate (player count
+  inferred, slides with little motion); measure segment sizes directly at a longer stream before
+  relying on it.
+- **Not measured.** The cache hit rate needs CloudFront's additional metrics, which are off
+  (they cost). The box's nginx access log for `/stream/` would show origin load; not read.
+- **Seen, not caused by the CDN.** The first Start stream press, 15 minutes before, was refused
+  with `STREAM_NOT_CONFIGURED`; the next press a minute later worked. `ZoomMeeting.streamStatus`
+  still reads `ACTIVE` after the stream ended, because it flips to `ENDED` only when someone polls
+  stream-status. The recording was not switched on, so the thank-you email carried no replay.
 

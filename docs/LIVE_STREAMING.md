@@ -396,6 +396,9 @@ the setup script: [infra/cloudfront/](../infra/cloudfront/).
   ($50 a month) emails the owner.
 - **Not done:** a failover origin (the DR box gets no RTMP, since Zoom pushes to one address) and
   signed cookies (ROADMAP, Webinar streaming item 3).
+- **First webinar through it (Nov 10, 2026):** 5 attendees, 161 MB over 5 minutes, no 5xx. The
+  stream ran at about 0.7 to 1 Mbps, an estimate, below the 1.5 Mbps the capacity figures above
+  assume ([HLS_CDN_PLAN.md §10](HLS_CDN_PLAN.md)).
 
 ---
 
