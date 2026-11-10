@@ -128,7 +128,9 @@ function AcceptInvitationForm() {
 
       // Redirect to login after a short delay
       setTimeout(() => {
-        router.push(eventSlug ? `/e/${eventSlug}/login` : "/login");
+        // Only a reviewer's invitation names an event: after signing in they
+        // land on their reviews, not on the Events list one click away.
+        router.push(eventSlug ? `/e/${eventSlug}/login?redirect=${encodeURIComponent("/my-reviews")}` : "/login");
       }, 2000);
     } catch (err) {
       console.error("[accept-invitation] error", err);

@@ -75,6 +75,16 @@ describe("GET reviewers", () => {
     const body = await (await get()).json();
     const titles = Object.fromEntries(body.reviewers.map((r: { userId: string; title: string | null }) => [r.userId, r.title]));
     expect(titles).toEqual({ r1: "DR", r2: null });
+    // The mock ignores `select`, so the column being asked for is pinned too.
+    expect(mockDb.speaker.findMany.mock.calls[0][0].select.title).toBe(true);
+  });
+
+  it("an unlinked speaker record on the reviewer's address gives the title too, as the emails read it", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([
+      { id: "s2", email: "TWO@x.com", title: "PROF", firstName: "Two", lastName: "R", organization: null, jobTitle: null, status: "CONFIRMED", userId: null },
+    ]);
+    const body = await (await get()).json();
+    expect(body.reviewers.find((r: { userId: string }) => r.userId === "r2").title).toBe("PROF");
   });
 
   it("names the people holding assignments who are not on the pool", async () => {

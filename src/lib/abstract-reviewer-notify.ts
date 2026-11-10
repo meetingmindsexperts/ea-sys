@@ -66,6 +66,22 @@ async function reviewerSpeakerRecord(eventId: string, reviewer: { id: string; em
   return (await reviewerSpeakerRecords(eventId, [reviewer])).get(reviewer.id) ?? NO_SPEAKER_RECORD;
 }
 
+/**
+ * The signature of whoever pressed Send, for `{{organizerSignature}}`. Preview
+ * and Send test always showed it; the real reviewer emails went out unsigned
+ * (review of 0f77a7ee, Nov 10, 2026). Never costs the email: none on a failure.
+ */
+async function senderSignature(userId: string | null | undefined): Promise<string> {
+  if (!userId) return "";
+  try {
+    const sender = await db.user.findUnique({ where: { id: userId }, select: { emailSignature: true } });
+    return sender?.emailSignature ?? "";
+  } catch (err) {
+    apiLogger.warn({ err, msg: "reviewer-email:signature-lookup-failed", userId });
+    return "";
+  }
+}
+
 const ROLE_LABELS: Record<string, string> = {
   PRIMARY: "Primary reviewer",
   SECONDARY: "Secondary reviewer",
@@ -103,6 +119,12 @@ export type SendPendingAssignmentsResult =
 
 type AssignmentTemplate = NonNullable<Awaited<ReturnType<typeof getEventTemplate>>>;
 
+/** Sign in, then My Reviews: the one link every reviewer email gives to the portal. */
+function myReviewsLink(): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  return `${appUrl}/login?callbackUrl=${encodeURIComponent("/my-reviews")}`;
+}
+
 /** One line, no control characters, no `{{` (sendEmail would refuse the whole email on it). */
 function listTitle(raw: string): string {
   return untokened(raw.replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim()) || "Untitled abstract";
@@ -119,8 +141,8 @@ function renderAssignmentEmail(
   reviewer: { firstName: string | null; lastName: string | null },
   title: string,
   rows: { role: string; abstract: { title: string } }[],
+  organizerSignature: string,
 ) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
   const titles = rows.map((r) => listTitle(r.abstract.title));
   const lines = titles.length === 1 ? titles : titles.map((t, i) => `${i + 1}. ${t}`);
   const vars = {
@@ -130,7 +152,8 @@ function renderAssignmentEmail(
     eventName: tpl.branding.eventName ?? "",
     role: roleLabelFor(rows.map((r) => r.role)),
     abstractCount: titles.length,
-    reviewLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/my-reviews")}`,
+    reviewLink: myReviewsLink(),
+    organizerSignature,
   };
   return renderAndWrap(
     tpl,
@@ -307,7 +330,10 @@ async function leaseAndSend(
       apiLogger.warn({ msg: "reviewer-assignment:no-template", eventId });
       return refuse("NO_TEMPLATE", "The reviewer assignment email template is missing");
     }
-    const speakerRecord = await reviewerSpeakerRecord(eventId, reviewer);
+    const [speakerRecord, organizerSignature] = await Promise.all([
+      reviewerSpeakerRecord(eventId, reviewer),
+      senderSignature(args.triggeredByUserId),
+    ]);
 
     // The only trace a killed send can leave: its claim, now expired.
     const reclaimed = free.some((row) => !!row.notifyClaimedAt);
@@ -335,7 +361,7 @@ async function leaseAndSend(
     const result = await sendEmail({
       to,
       cc: brandingCc(tpl.branding, to, [speakerRecord.additionalEmail]),
-      ...renderAssignmentEmail(tpl, reviewer, getTitleLabel(speakerRecord.title), mine),
+      ...renderAssignmentEmail(tpl, reviewer, getTitleLabel(speakerRecord.title), mine, organizerSignature),
       from: brandingFrom(tpl.branding),
       emailType: "reviewer_assignment",
       stream: "transactional",
@@ -389,12 +415,16 @@ async function sendReviewerTemplate(
   extra: Record<string, string>,
 ): Promise<ReviewerEmailResult> {
   try {
-    const speakerRecord = await reviewerSpeakerRecord(args.eventId, args.reviewer);
+    const [speakerRecord, organizerSignature] = await Promise.all([
+      reviewerSpeakerRecord(args.eventId, args.reviewer),
+      senderSignature(args.triggeredByUserId),
+    ]);
     const vars = {
       title: getTitleLabel(speakerRecord.title),
       firstName: args.reviewer.firstName ?? "",
       lastName: args.reviewer.lastName ?? "",
       eventName: args.eventName,
+      organizerSignature,
       ...extra,
     };
 
@@ -444,11 +474,10 @@ async function sendReviewerTemplate(
  * A new account gets the account-setup invitation instead.
  */
 export function notifyReviewerPoolAdded(args: ReviewerEmailArgs): Promise<ReviewerEmailResult> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
   return sendReviewerTemplate(
     { slug: "reviewer-pool-invitation", emailType: "reviewer_pool_invitation", log: "reviewer-pool" },
     args,
-    { reviewLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/my-reviews")}` },
+    { reviewLink: myReviewsLink() },
   );
 }
 
@@ -468,6 +497,8 @@ export function sendReviewerSetupInvitation(
     { slug: "reviewer-invitation", emailType: "reviewer_invitation", log: "reviewer-setup" },
     args,
     {
+      // The setup link works once; this one is the way in every time after.
+      reviewLink: myReviewsLink(),
       email: args.reviewer.email,
       organizationName: args.organizationName,
       inviterName: args.inviterName,

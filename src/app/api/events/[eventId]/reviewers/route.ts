@@ -146,8 +146,10 @@ export async function GET(req: Request, { params }: RouteParams) {
           reviewers.push({
             speakerId: "",
             userId,
-            // An account stores no title; only a speaker record on the event does.
-            title: null,
+            // An account stores no title; a speaker record on the event does. Not
+            // linked to this account, it can still be theirs by address (and
+            // nobody else's), which is how the emails read it too.
+            title: (speakers.find((s) => s.userId === null && s.email.toLowerCase() === user.email.toLowerCase())?.title ?? null) as string | null,
             firstName: user.firstName,
             lastName: user.lastName,
             email: user.email,

@@ -44,6 +44,7 @@ import { ASSIGNMENT_CLAIM_TTL_MS, notifyReviewerPoolAdded, sendPendingAssignment
 import { sendableAssignmentWhere } from "@/lib/abstract-reviewer-access";
 import { getDefaultTemplate, getEventTemplate, renderAndWrap } from "@/lib/email";
 import { DEFAULT_TEMPLATE_BODIES } from "@/lib/email-template-defaults";
+import { EMAIL_TEMPLATE_SPECS } from "@/lib/email-template-registry";
 import { findUnresolvedTokens } from "@/lib/template-tokens";
 
 const JANE = { id: "u1", firstName: "Jane", lastName: "Doe", email: "jane@x.com", emailVerified: new Date() };
@@ -398,7 +399,7 @@ describe("sendReviewerSetupInvitation: the editable account invitation", () => {
   const useRealDefault = () =>
     vi.mocked(getEventTemplate).mockResolvedValueOnce({ ...DEFAULT_TEMPLATE_BODIES["reviewer-invitation"], branding } as never);
 
-  it("the REAL default greets by title, carries the personal link, and leaves no token", async () => {
+  it("the REAL default greets by title, carries both links, and leaves no token", async () => {
     speakerFindMany.mockResolvedValue([{ userId: "u1", email: "jane@x.com", title: "DR", additionalEmail: null }]);
     useRealDefault();
     expect(await sendReviewerSetupInvitation(args)).toEqual({ ok: true });
@@ -406,13 +407,42 @@ describe("sendReviewerSetupInvitation: the editable account invitation", () => {
     expect(sent.subject).toBe("Invitation to review abstracts | MedCon");
     expect(sent.textContent).toContain("Dear Dr. Doe,");
     expect(sent.textContent).toContain("Thank you for agreeing to serve as an abstract reviewer for MedCon.");
-    expect(sent.textContent).toContain(`REVIEWER PORTAL: ${args.setupLink}`);
-    expect(sent.textContent).toContain("This link works for 7 days. Your account is on jane@x.com.");
+    // The setup link works once; the portal link is the way in every time after.
+    expect(sent.textContent).toContain("This link works once, within 7 days.");
+    expect(sent.textContent).toContain(`SET YOUR PASSWORD: ${args.setupLink}`);
+    expect(sent.textContent).toContain("signing in with jane@x.com:");
+    expect(sent.textContent).toMatch(/REVIEWER PORTAL: \S+\/login\?callbackUrl=%2Fmy-reviews/);
     expect(sent.htmlContent).toContain("token=abc&amp;email=jane%40x.com");
-    // A default serves every event: it never promises a sign-in the link does not give.
-    expect(sent.textContent).not.toMatch(/automatically/i);
+    // A default serves every event and must be true of this portal: the link
+    // signs nobody in, and a review with no scores cannot be submitted.
+    expect(sent.textContent).not.toMatch(/automatically|leave the scores blank/i);
+    expect(sent.textContent).toContain("conflict of interest with any abstract, please let the event organizer know.");
     expect(findUnresolvedTokens(sent.subject + sent.htmlContent + sent.textContent)).toEqual([]);
     expect(sent.logContext).toMatchObject({ templateSlug: "reviewer-invitation", entityId: "u1", triggeredByUserId: "admin1" });
+  });
+
+  it("fills every token the template offers, so an organiser who uses one is not refused", async () => {
+    useRealDefault();
+    await sendReviewerSetupInvitation(args);
+    const vars = vi.mocked(renderAndWrap).mock.calls[0][1] as Record<string, string>;
+    const offered = EMAIL_TEMPLATE_SPECS.find((t) => t.slug === "reviewer-invitation")!.variables.map((v) => v.key);
+    expect(offered.filter((key) => !(key in vars))).toEqual([]);
+    expect(vars).toMatchObject({ inviterName: "Sam Admin", organizationName: "Meeting Minds Experts", email: "jane@x.com", expiresIn: "7 days" });
+  });
+
+  it("is signed by whoever pressed Send, as Preview shows it", async () => {
+    userFindUnique.mockResolvedValue({ emailSignature: "<p>Sam Admin<br>Secretariat</p>" });
+    useRealDefault();
+    await sendReviewerSetupInvitation(args);
+    expect(userFindUnique).toHaveBeenCalledWith({ where: { id: "admin1" }, select: { emailSignature: true } });
+    expect(sendEmailSpy.mock.calls[0][0].htmlContent).toContain("Sam Admin<br>Secretariat");
+  });
+
+  it("a failed signature lookup never costs the reviewer their invitation", async () => {
+    userFindUnique.mockRejectedValue(new Error("pool timeout"));
+    useRealDefault();
+    expect(await sendReviewerSetupInvitation(args)).toEqual({ ok: true });
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-email:signature-lookup-failed" }));
   });
 
   it("goes to the account's main address; the additional email and the event's Auto-CC are copied", async () => {

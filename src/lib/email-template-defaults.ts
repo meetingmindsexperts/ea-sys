@@ -531,8 +531,10 @@ If you have any questions, please contact the event organizer.
   },
   // The owner's wording (Nov 10, 2026), with what is one event's own (how many
   // abstracts, the deadline, the secretariat's sign-off) left for that event's
-  // copy, and the steps worded for THIS portal: the link sets a password, it
-  // does not sign anyone in.
+  // copy, and the steps worded for THIS portal: the setup link sets a password
+  // once and signs nobody in, so the email also carries the link that works
+  // every time after. A conflict of interest goes to the organiser: the portal
+  // refuses a review with no scores, and its notes can be read by the author.
   "reviewer-invitation": {
     subject: "Invitation to review abstracts | {{eventName}}",
     htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
@@ -542,19 +544,22 @@ If you have any questions, please contact the event organizer.
     <p>Please find information below regarding the review process.</p>
     <p><strong>To review the abstracts:</strong></p>
     <ul>
-      <li>Click on the link below to set your password and open your review portal</li>
+      <li>Set your password with the first button below (once), then sign in to your review portal</li>
       <li>In the portal you can access all abstracts you have been asked to review</li>
       <li>Reviewed abstracts are marked &quot;Submitted&quot;.</li>
       <li>Click &quot;Review&quot; to open the selected abstract. You will then be taken to a new page that shows the abstract and its details.</li>
       <li>Based on the review criteria shown, award a score for each abstract and enter any comments you wish to make about the abstract</li>
-      <li>If you are allocated an abstract and have a conflict of interest, please leave the scores blank and make a note in the comment field.</li>
+      <li>If you believe you have a conflict of interest with any abstract, please let the event organizer know.</li>
     </ul>
     <p><strong>Viewing Abstracts</strong></p>
-    <p>To enter the Reviewer Portal, click on the link provided below. The first time, you will be asked to set your password.</p>
-    <div style="text-align: center; margin: 30px 0;">
-      <a href="{{setupLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">REVIEWER PORTAL</a>
+    <p>First, set your password. This link works once, within {{expiresIn}}.</p>
+    <div style="text-align: center; margin: 20px 0;">
+      <a href="{{setupLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">SET YOUR PASSWORD</a>
     </div>
-    <p style="color: #6b7280; font-size: 14px;">This link works for {{expiresIn}}. Your account is on {{email}}.</p>
+    <p>After that, enter the Reviewer Portal at any time by signing in with {{email}}:</p>
+    <div style="text-align: center; margin: 20px 0;">
+      <a href="{{reviewLink}}" style="display: inline-block; background: #ffffff; color: #00aade; padding: 13px 27px; text-decoration: none; border-radius: 8px; font-weight: 500; border: 1px solid #00aade;">REVIEWER PORTAL</a>
+    </div>
     <p>Please let us know if you need any additional information or have any questions.</p>
     <p>Thank you again for your support.</p>
     {{organizerSignature}}
@@ -569,20 +574,22 @@ Please find information below regarding the review process.
 
 To review the abstracts:
 
-- Click on the link below to set your password and open your review portal
+- Set your password with the first link below (once), then sign in to your review portal
 - In the portal you can access all abstracts you have been asked to review
 - Reviewed abstracts are marked "Submitted".
 - Click "Review" to open the selected abstract. You will then be taken to a new page that shows the abstract and its details.
 - Based on the review criteria shown, award a score for each abstract and enter any comments you wish to make about the abstract
-- If you are allocated an abstract and have a conflict of interest, please leave the scores blank and make a note in the comment field.
+- If you believe you have a conflict of interest with any abstract, please let the event organizer know.
 
 Viewing Abstracts
 
-To enter the Reviewer Portal, click on the link provided below. The first time, you will be asked to set your password.
+First, set your password. This link works once, within {{expiresIn}}.
 
-REVIEWER PORTAL: {{setupLink}}
+SET YOUR PASSWORD: {{setupLink}}
 
-This link works for {{expiresIn}}. Your account is on {{email}}.
+After that, enter the Reviewer Portal at any time by signing in with {{email}}:
+
+REVIEWER PORTAL: {{reviewLink}}
 
 Please let us know if you need any additional information or have any questions.
 
