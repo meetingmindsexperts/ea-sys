@@ -45,6 +45,13 @@ import {
 } from "@/hooks/use-api";
 import { ABSTRACT_REVIEWER_ROLE_OPTIONS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 import { useCan } from "@/hooks/use-can";
+import { toast } from "sonner";
+
+/**
+ * A refused action says why (review of 428991e8, Nov 10, 2026): assigning an
+ * abstract to its own author is refused, and the button used to do nothing.
+ */
+const showError = (error: Error) => toast.error(error.message || "Could not update the reviewer");
 
 interface PoolReviewer {
   userId: string | null;
@@ -200,7 +207,7 @@ export function AbstractReviewersCard({
                       <Select
                         value={a.role}
                         onValueChange={(role) =>
-                          assign.mutate({ userId: e.userId, role: role as AbstractReviewerRole })
+                          assign.mutate({ userId: e.userId, role: role as AbstractReviewerRole }, { onError: showError })
                         }
                         disabled={busy}
                       >
@@ -218,7 +225,7 @@ export function AbstractReviewersCard({
                         size="sm"
                         className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                         disabled={busy}
-                        onClick={() => unassign.mutate(e.userId)}
+                        onClick={() => unassign.mutate(e.userId, { onError: showError })}
                         aria-label="Remove reviewer"
                       >
                         <X className="h-3.5 w-3.5" />
@@ -230,7 +237,7 @@ export function AbstractReviewersCard({
                       size="sm"
                       className="h-7 shrink-0 text-xs"
                       disabled={busy}
-                      onClick={() => assign.mutate({ userId: e.userId, role: "SECONDARY" })}
+                      onClick={() => assign.mutate({ userId: e.userId, role: "SECONDARY" }, { onError: showError })}
                     >
                       <UserPlus className="h-3 w-3 mr-1" /> Assign
                     </Button>
@@ -242,7 +249,7 @@ export function AbstractReviewersCard({
                     <Switch
                       checked={a.conflictFlag}
                       onCheckedChange={(checked) =>
-                        assign.mutate({ userId: e.userId, conflictFlag: checked })
+                        assign.mutate({ userId: e.userId, conflictFlag: checked }, { onError: showError })
                       }
                       disabled={busy}
                       className="scale-75"

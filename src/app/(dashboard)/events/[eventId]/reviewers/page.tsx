@@ -43,6 +43,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { plural, sendAssignmentsReport, type SendReportLevel } from "./send-report";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
@@ -116,29 +117,17 @@ function assignmentSummary(a: { assigned: number; unsent: number } | undefined, 
   return accountActive ? `${assigned}, ${a.unsent} not emailed yet` : `${assigned}, ${a.unsent} not emailed yet: send the invitation first`;
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/** A failure stays until closed; a warning long enough to read; a success the usual few seconds. */
+const SEND_REPORT_DURATION: Record<SendReportLevel, number | undefined> = { error: Infinity, warning: 15000, info: undefined, success: undefined };
 
-/** Every outcome of a Send assignments press, in plain words. */
+/** Every outcome of a Send assignments press in ONE toast, the worst first (see send-report.ts). */
 function reportSendAssignments(res: SendAssignmentsOutcome): void {
-  if (res.emailed > 0) toast.success(`Assignments emailed to ${plural(res.emailed, "reviewer", "reviewers")}`);
-  if (res.failed > 0) toast.error(`${res.failed} could not be sent: ${res.firstFailure ?? "the send failed"}`);
-  if (res.notRecorded > 0) {
-    toast.error(`${plural(res.notRecorded, "reviewer was", "reviewers were")} emailed but it could not be recorded, so they still show as not emailed. Do not send to them again.`);
-  }
-  if (res.notSetUp > 0) {
-    toast.warning(`${plural(res.notSetUp, "reviewer has", "reviewers have")} not set up their account. Send their invitation first.`);
-  }
-  if (res.busy > 0) {
-    toast.info(`${plural(res.busy, "reviewer is", "reviewers are")} being emailed by another send, or a send to them was interrupted in the last 10 minutes. Try again after that.`);
-  }
-  if (res.reclaimed > 0) {
-    toast.warning(`${plural(res.reclaimed, "reviewer", "reviewers")} had an interrupted send earlier and may receive this email twice.`);
-  }
-  if (res.interrupted) {
-    toast.error(`The send stopped before the end (${res.interrupted}). The list shows who is still waiting; pressing Send again is safe.`);
-  }
-  const nothing = res.emailed + res.failed + res.notRecorded + res.notSetUp + res.busy === 0 && !res.interrupted;
-  if (nothing) toast.info("Nothing new to send");
+  const { level, lines } = sendAssignmentsReport(res);
+  const [title, ...rest] = lines;
+  toast[level](title, {
+    duration: SEND_REPORT_DURATION[level],
+    description: rest.length > 0 ? <div className="space-y-1">{rest.map((line) => <p key={line}>{line}</p>)}</div> : undefined,
+  });
 }
 
 function removeDescription(assigned: number): string {
