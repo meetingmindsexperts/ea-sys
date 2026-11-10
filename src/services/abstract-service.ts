@@ -420,6 +420,26 @@ function submissionLogMessage(wasCreate: boolean, onBehalf: boolean): string {
 }
 
 /**
+ * What this event offers (Content, Abstracts), or the value already on the
+ * review: an organiser narrowing the types must not block re-saving a score.
+ * The stored value is read only when the event does not offer the format.
+ */
+async function isFormatAccepted(
+  settings: unknown,
+  format: string,
+  abstractId: string,
+  reviewerUserId: string,
+): Promise<boolean> {
+  const offered: string[] = recommendableFormats(settings);
+  if (offered.includes(format)) return true;
+  const existing = await db.abstractReviewSubmission.findUnique({
+    where: { abstractId_reviewerUserId: { abstractId, reviewerUserId } },
+    select: { recommendedFormat: true },
+  });
+  return existing?.recommendedFormat === format;
+}
+
+/**
  * Create or update one reviewer's submission for an abstract.
  *
  * Authorization (domain rule, owned here):
@@ -571,22 +591,13 @@ export async function submitAbstractReview(
     if (confidence !== undefined && (!Number.isInteger(confidence) || confidence < 1 || confidence > 5)) {
       return { ok: false, code: "INVALID_CONFIDENCE", message: "confidence must be an integer between 1 and 5" };
     }
-    // What this event offers (Content, Abstracts), or the value already on the
-    // review: an organiser narrowing the types must not block re-saving a score.
-    if (recommendedFormat !== undefined) {
-      const allowed: string[] = recommendableFormats(event.settings);
-      const existing = await db.abstractReviewSubmission.findUnique({
-        where: { abstractId_reviewerUserId: { abstractId, reviewerUserId } },
-        select: { recommendedFormat: true },
-      });
-      if (!allowed.includes(recommendedFormat) && existing?.recommendedFormat !== recommendedFormat) {
-        apiLogger.warn({ msg: "abstract-submission:format-not-offered", eventId, abstractId, recommendedFormat, source });
-        return {
-          ok: false,
-          code: "INVALID_RECOMMENDED_FORMAT",
-          message: `This event does not offer that format. Choose one of: ${allowed.join(", ")}`,
-        };
-      }
+    if (recommendedFormat !== undefined && !(await isFormatAccepted(event.settings, recommendedFormat, abstractId, reviewerUserId))) {
+      apiLogger.warn({ msg: "abstract-submission:format-not-offered", eventId, abstractId, recommendedFormat, source });
+      return {
+        ok: false,
+        code: "INVALID_RECOMMENDED_FORMAT",
+        message: `This event does not offer that format. Choose one of: ${recommendableFormats(event.settings).join(", ")}`,
+      };
     }
     if (reviewNotes !== undefined && reviewNotes.length > 5000) {
       return { ok: false, code: "INVALID_REVIEW_NOTES", message: "reviewNotes must be at most 5000 characters" };

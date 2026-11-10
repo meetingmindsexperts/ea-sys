@@ -3,7 +3,7 @@
 import { ALL_FORM_FIELDS_SHOWN, showsField, type FormFieldVisibility, type OptionalFormField } from "@/lib/registration-form-fields";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { isTeamRole } from "@/lib/team-roles";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -244,11 +244,18 @@ const PROFILE_FIELDS = [
   "city", "state", "zipCode", "country", "specialty", "customSpecialty", "dietaryReqs",
 ] as const satisfies readonly (keyof RegistrationForm)[];
 type ProfileField = (typeof PROFILE_FIELDS)[number];
+/** Everything else on the form that describes the person being registered. */
+const OTHER_PERSON_FIELDS = [
+  "additionalEmail", "associationName", "memberId", "studentId", "studentIdExpiry", "taxNumber",
+  "billingFirstName", "billingLastName", "billingEmail", "billingPhone", "billingAddress",
+  "billingCity", "billingState", "billingZipCode", "billingCountry",
+] as const satisfies readonly (keyof RegistrationForm)[];
 const isOptionalFormField = (key: ProfileField): key is ProfileField & OptionalFormField => key in ALL_FORM_FIELDS_SHOWN;
 
 function CategoryRegistrationContent() {
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname();
   const slug = params.slug as string;
   const categorySlug = params.category as string;
   // `isPresenterTierName` slugifies its input, so the URL segment
@@ -536,18 +543,6 @@ function CategoryRegistrationContent() {
   }, [signedInEmail, regTypeOptions.length, form]);
 
   const prefillRequested = useRef(false);
-  // A staff member switching to "Register myself" starts from their own
-  // details: whatever was on the form (a draft restored on this browser, or
-  // someone they were registering) is somebody else's, as "Not you?" assumes.
-  const wasStaffSelf = useRef(false);
-  useEffect(() => {
-    const nowSelf = staffSession && staffSelf;
-    if (nowSelf && !wasStaffSelf.current) {
-      for (const key of PROFILE_FIELDS) form.setValue(key, "");
-      prefillRequested.current = false;
-    }
-    wasStaffSelf.current = nowSelf;
-  }, [staffSession, staffSelf, form]);
   const signedInRef = useRef(signedInEmail);
   signedInRef.current = signedInEmail;
   useEffect(() => {
@@ -580,17 +575,40 @@ function CategoryRegistrationContent() {
   }, [signedInEmail, regTypeOptions.length, form, event?.formFields]);
 
   // Every personal field is cleared, not only what the prefill wrote: a draft
-  // restored on this browser is someone's details too.
+  // restored on this browser is someone's details too, and so is a document
+  // they uploaded. Only on a click: a reload with ?self=1 keeps its draft,
+  // which was saved in that mode (an effect watching the session raced the
+  // draft restore, Nov 10 review).
+  function clearPersonalDetails() {
+    for (const key of PROFILE_FIELDS) form.setValue(key, "");
+    for (const key of OTHER_PERSON_FIELDS) form.setValue(key, "");
+    setSupportingDoc(null);
+  }
+
+  /** `self` in the address too, so a reload keeps the choice. */
+  function setSelfInAddress(on: boolean) {
+    const query = new URLSearchParams(searchParams.toString());
+    if (on) query.set("self", "1");
+    else query.delete("self");
+    router.replace(query.size ? `${pathname}?${query.toString()}` : pathname, { scroll: false });
+  }
+
+  function registerMyself() {
+    setNotYou(false);
+    setStaffSelf(true);
+    setSelfInAddress(true);
+    clearPersonalDetails();
+    prefillRequested.current = false;
+  }
+
   function registerSomeoneElse() {
     setNotYou(true);
     if (staffSelf) {
       setStaffSelf(false);
-      const query = new URLSearchParams(searchParams.toString());
-      query.delete("self");
-      router.replace(query.size ? `?${query.toString()}` : "?", { scroll: false });
+      setSelfInAddress(false);
     }
     form.setValue("email", "");
-    for (const key of PROFILE_FIELDS) form.setValue(key, "");
+    clearPersonalDetails();
     setEmailCheck({ state: "idle" });
   }
 
@@ -1099,14 +1117,7 @@ function CategoryRegistrationContent() {
                             type="button"
                             variant="outline"
                             className="mt-3 w-full"
-                            onClick={() => {
-                              setNotYou(false);
-                              setStaffSelf(true);
-                              // In the address too, so a reload keeps the choice.
-                              const query = new URLSearchParams(searchParams.toString());
-                              query.set("self", "1");
-                              router.replace(`?${query.toString()}`, { scroll: false });
-                            }}
+                            onClick={registerMyself}
                           >
                             Register myself
                           </Button>

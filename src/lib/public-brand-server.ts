@@ -24,13 +24,22 @@ export const loadPublicBrandForHost = cache(async (host: string | null): Promise
 const BRAND_TTL_MS = 60_000;
 const brandCache = new Map<string, { brand: PublicBrand; at: number }>();
 
+/**
+ * Never throws: the brand is wording, and a failed lookup must not cancel the
+ * email or the reviewer invitation it decorates. A failure is not cached.
+ */
 export async function loadPublicBrandForOrg(orgId: string): Promise<PublicBrand> {
   const hit = brandCache.get(orgId);
   if (hit && Date.now() - hit.at < BRAND_TTL_MS) return hit.brand;
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { name: true, logo: true, settings: true } });
-  const brand = org ? readPublicBrand(org.settings, org) : NO_ORGANISATION_BRAND;
-  brandCache.set(orgId, { brand, at: Date.now() });
-  return brand;
+  try {
+    const org = await db.organization.findUnique({ where: { id: orgId }, select: { name: true, logo: true, settings: true } });
+    const brand = org ? readPublicBrand(org.settings, org) : NO_ORGANISATION_BRAND;
+    brandCache.set(orgId, { brand, at: Date.now() });
+    return brand;
+  } catch (err) {
+    apiLogger.warn({ err, msg: "public-brand:org-load-failed", orgId });
+    return NO_ORGANISATION_BRAND;
+  }
 }
 
 /** The organisation's own name and logo: what staff see (the dashboard's tab title). */

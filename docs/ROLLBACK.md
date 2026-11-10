@@ -172,6 +172,18 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   `SELECT id, "eventId" FROM "Registration" WHERE "createdSource" = 'ONSITE_DESK';`.
   Never delete the enum value.
 
+- **Recommended format Video and Workshop (`VIDEO`, `WORKSHOP`, Nov 10, 2026; migration
+  `20261110120000_recommended_format_video_workshop`).** Once a reviewer has recommended
+  either, an image older than this release cannot read that review: its Prisma client throws
+  on the unknown enum value. The reviewer's own review page, the organiser's reviews panel,
+  accepting or rejecting that abstract (REST and MCP) and the MCP `get_abstract_scores` tool
+  fail for it. (The migration's comment says the old container never meets the values; that
+  holds only until the first save, and also applies to an old container still draining
+  during a blue/green deploy.) Before rolling back past it, note those rows and set them to
+  NULL, then set them back after rolling forward. Read-only check:
+  `SELECT id, "abstractId", "recommendedFormat" FROM "AbstractReviewSubmission" WHERE "recommendedFormat" IN ('VIDEO','WORKSHOP');`.
+  Never delete the enum values.
+
 - **Bind mounts are untouched**: `public/uploads/`, `logs/`, and `.env` live on the host
   and survive any image swap. (The DB is untouched too — a code rollback never touches data.)
 
