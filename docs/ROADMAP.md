@@ -7,6 +7,44 @@
 
 ---
 
+## Reviewer emails and the portal: what the Nov 10 reviews left (recorded Nov 10, 2026): not started
+
+Two reviews on Nov 10, 2026 (of the portal fixes `ed074639` / `2be7c0d7` and of the reviewer email
+commits `2d5986b1` / `0f77a7ee` / `ad88374f`). Their HIGH and most MED findings were fixed the same
+day. These were recorded instead:
+
+- **Owner decision: the setup link is copied to the reviewer's additional email, and accepting it
+  counts as proof of the address.** Whoever opens the link first sets the account's password; the
+  accept route then marks the address confirmed and claims every unlinked registration and speaker
+  record on it. That proof assumed the link reached only the main inbox. The owner chose to copy it
+  (Nov 10: "setup invitation can also have additional email but main email gets the account"). The
+  speaker's additional-email rule already leaves two sensitive links to the primary address only
+  (reimbursement, profile form). Options if this is revisited: send the second inbox a copy without
+  the link, or stop treating acceptance as mailbox proof when the invitation was copied.
+- **Saved copies keep the old greeting.** The built-in reviewer templates now greet with the title,
+  but about 32 events hold their own saved copy of `reviewer-assignment` and
+  `reviewer-pool-invitation` with "Dear {{firstName}} {{lastName}}". Only MEHF2027 has a reviewer
+  pool, and its copies were edited by hand. Fix when a second event starts reviewing: an idempotent
+  REPLACE of the exact old sentence in unedited copies, as `20261110140000` did, or Reset to Default
+  on that event. Not done now: a production data change for templates nobody is sending.
+- **Older, MED: `emailVerified` is read as "has a password".** A REGISTRANT account has a real
+  password and no `emailVerified`. Added as a reviewer it shows "Pending Invitation", Send
+  assignments skips it, and Send invitation mails a link that OVERWRITES its existing password. The
+  fix is a real "has a usable password" test (the placeholder hash, or a column), used by the
+  Reviewers page, `sendPendingAssignments` and the resend route.
+- **Older: about 30 other case-insensitive `equals` on addresses** (`grep 'equals: .*mode: "insensitive"'`).
+  The eight that decide whose a record is were fixed (`equalsIgnoringCase`). The rest find or
+  de-duplicate people (imports, contact matching, sign-up checks): an underscore there can match a
+  look-alike address and skip or merge the wrong row. Sweep them onto the helper.
+- **LOW, listed only.** A refused invitation still cancels the reviewer's previous link (the token
+  is minted before the send); nothing stops an organiser saving the invitation template without
+  `{{setupLink}}`; Preview fills `{{organizationName}}` with the organisation's name while the real
+  send uses the attendee-facing brand; disabling a system template silently sends the built-in
+  default; `certificateCount` on My events is per event, not per registration; the confirm-email
+  notice can linger for a session whose token version is behind; a signed-out portal redirect goes
+  to the `NEXTAUTH_URL` host (matters once a second hostname serves the portal); the reviewers bulk
+  email's additional-email line has no test.
+
 ## Webinar streaming: what the Nov 5 security review left for later (recorded Nov 5, 2026): not started
 
 Owner: "will do later". Everything else from that review shipped (publish auth, the viewer rule,
