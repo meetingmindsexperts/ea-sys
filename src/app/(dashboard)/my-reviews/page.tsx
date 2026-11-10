@@ -169,7 +169,7 @@ export default function MyReviewsPage() {
       {!isLoading && !error && rows.length === 0 && !data?.needsEmailConfirmation && (
         <Card>
           <CardContent className="pt-10 pb-10 text-center text-sm text-muted-foreground">
-            No abstracts are assigned to you yet. When an organizer adds you as a reviewer, abstracts will
+            No abstracts are assigned to you yet. When an organizer assigns abstracts to you, they will
             appear here.
           </CardContent>
         </Card>

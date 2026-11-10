@@ -100,4 +100,8 @@ describe("linkedRoleAbstractFilter", () => {
     expect(linkedRoleAbstractFilter({ id: "u1", role: "SUBMITTER" })).toEqual({ speaker: { userId: "u1" } });
     expect(linkedRoleAbstractFilter({ id: "u1", role: "ORGANIZER" })).toEqual({});
   });
+
+  it("a REGISTRANT reaches nothing: fails closed if a route ever lets one in", () => {
+    expect(linkedRoleAbstractFilter({ id: "u1", role: "REGISTRANT" })).toEqual({ id: { in: [] } });
+  });
 });

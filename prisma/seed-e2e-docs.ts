@@ -217,6 +217,16 @@ async function seedExtras(createdUsers: Record<string, string>) {
       presentationType: "ORAL",
     },
   });
+  // A reviewer sees only what is assigned to them (Nov 10, 2026), so the
+  // reviewer portal screenshot needs an assignment to show anything.
+  await db.abstractReviewer.create({
+    data: {
+      abstractId: DOCS_ABSTRACT_ID,
+      userId: createdUsers.REVIEWER,
+      assignedById: createdUsers.ADMIN,
+      role: "PRIMARY",
+    },
+  });
 
   // ── Promo codes ──────────────────────────────────────────────────────────
   await db.promoCode.create({

@@ -9,10 +9,10 @@
  *   GET/POST  /api/events/[id]/abstracts/[aid]/reviewers
  *   DELETE    /api/events/[id]/abstracts/[aid]/reviewers/[userId]
  *
- * Per-abstract assignment is additive to the event-wide reviewer pool
- * (pool reviewers can review every abstract); explicit assignment is for
- * workload distribution + COI tracking, and grants review access even to a
- * reviewer who isn't in the pool.
+ * The assignment IS the review right (Nov 10, 2026): a reviewer sees and
+ * scores only the abstracts assigned to them; the event's reviewer pool is the
+ * list to assign from. It also carries the role and the conflict flag, and
+ * works for someone who isn't in the pool.
  */
 
 import { useMemo } from "react";
@@ -138,8 +138,8 @@ export function AbstractReviewersCard({
           )}
         </CardTitle>
         <CardDescription className="text-xs">
-          Assign specific reviewers to this abstract with a role and conflict flag. Pool reviewers
-          can review every abstract; explicit assignment is for workload + COI tracking.
+          Assign reviewers to this abstract with a role and conflict flag. A reviewer sees and
+          scores only the abstracts assigned to them: nobody can review this one until it is assigned.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">

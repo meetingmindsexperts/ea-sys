@@ -193,7 +193,7 @@ export default function EventReadinessPage() {
           <Check>Turn <strong>&ldquo;Allow Abstract Submissions&rdquo; ON</strong> — it defaults OFF, and until it&rsquo;s on, authors see &ldquo;submissions are not open.&rdquo;</Check>
           <Check>Set the <strong>submission deadline</strong> (optional) and the <strong>abstract welcome</strong> text.</Check>
           <Check>Create <strong>abstract themes</strong> and <strong>review criteria</strong> (weights) before reviewers start scoring.</Check>
-          <Check>Invite <strong>reviewers</strong> into the pool (Reviewers page) and optionally assign per-abstract with a role / conflict-of-interest flag.</Check>
+          <Check>Add <strong>reviewers</strong> to the pool (Reviewers page), send them their email from there, and <strong>assign each abstract</strong> with a role / conflict-of-interest flag: a reviewer sees only the abstracts assigned to them.</Check>
           <Check>Choose how many reviews an abstract needs before it can be accepted/rejected (<strong>required review count</strong>, default 1).</Check>
           <Check>Share the <strong>Abstract Submission link</strong> — the copyable card at the top of the Abstracts page.</Check>
         </ul>

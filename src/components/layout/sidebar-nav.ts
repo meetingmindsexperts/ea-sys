@@ -246,8 +246,8 @@ export interface SidebarNavInput {
   /** The SUBMITTER's surface context, `undefined` while loading. */
   submitterCtx: Parameters<typeof submitterSeesAbstracts>[0] | null | undefined;
   /**
-   * On a reviewer pool or assigned an abstract. Review work follows that, not
-   * the role, so any account can hold it; a REVIEWER always has the link.
+   * Assigned an abstract to review. Review work follows that, not the role, so
+   * any account can hold it; a REVIEWER always has the link.
    */
   hasReviewWork?: boolean;
   /** Has an abstract of their own: a REVIEWER can, on another event. */

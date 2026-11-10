@@ -85,6 +85,13 @@ function presentationTypeLabel(type: string): string {
 }
 
 /** Strip HTML tags for display (handles legacy HTML content) */
+/** The list's heading and empty text: a reviewer sees only what is assigned to them (Nov 10, 2026). */
+function listWording(isSubmitter: boolean, isReviewer: boolean): { heading: string; empty: string } {
+  if (isSubmitter) return { heading: "Your Abstracts", empty: "You haven't submitted any abstracts yet. Click \"Submit Abstract\" to get started." };
+  if (isReviewer) return { heading: "Assigned to you", empty: "No abstracts are assigned to you on this event yet." };
+  return { heading: "All Abstracts", empty: "No abstracts yet. Click \"Add Abstract\" to get started." };
+}
+
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
@@ -964,15 +971,13 @@ export default function AbstractsPage() {
       {/* Abstracts List */}
       <div>
         <h2 className="text-lg font-semibold mb-4">
-          {isSubmitter ? "Your Abstracts" : "All Abstracts"}
+          {listWording(isSubmitter, isReviewer).heading}
         </h2>
         {abstracts.length === 0 ? (
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground text-center py-8">
-                {isSubmitter
-                  ? "You haven't submitted any abstracts yet. Click \"Submit Abstract\" to get started."
-                  : "No abstracts yet. Click \"Add Abstract\" to get started."}
+                {listWording(isSubmitter, isReviewer).empty}
               </p>
             </CardContent>
           </Card>

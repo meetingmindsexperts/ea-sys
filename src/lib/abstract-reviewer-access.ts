@@ -86,6 +86,9 @@ export function assignedToReviewWhere(userId: string): Prisma.AbstractWhereInput
 export function linkedRoleAbstractFilter(user: { id: string; role?: string | null }): Prisma.AbstractWhereInput {
   if (user.role === "SUBMITTER") return { speaker: { userId: user.id } };
   if (user.role === "REVIEWER") return assignedToReviewWhere(user.id);
+  // Any other outside account (a REGISTRANT, should a route ever let one in)
+  // reaches nothing: fail closed rather than see the whole event.
+  if (user.role === "REGISTRANT") return { id: { in: [] } };
   return {};
 }
 
