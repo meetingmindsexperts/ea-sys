@@ -65,6 +65,8 @@ const EVENT_FIELDS = {
   city: true,
   country: true,
   eventType: true,
+  // The payment step goes by it: the checkout serves PUBLISHED and LIVE events.
+  status: true,
   surveyConfig: true,
   bannerImage: true,
   bannerImageMobile: true,

@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
+import { CHECKOUT_EVENT_STATUSES } from "@/lib/public-event";
 import { isDailyMode, responseDedupKey } from "@/lib/survey/response-mode";
 import { DEFAULT_CERTIFICATE_SURVEY_NAME, isLiveConfig, surveyLinkIdentifiers } from "@/services/survey-service";
 
@@ -86,6 +87,19 @@ export function paymentStep(reg: Omit<JourneyRegistration, "id" | "status" | "at
   return { key: "payment", label: "Payment due", state: "action" };
 }
 
+/**
+ * An unpaid fee is a to-do only while the checkout would take it (review of
+ * the portal, Nov 10, 2026): "Complete your payment" stayed on My events for
+ * ever, and its Pay now ended in "Registration not found". The checkout goes
+ * by the event's STATUS, never its dates, so this does too: an event that has
+ * ended but is still published can still be paid for.
+ */
+function closedPaymentStep(payment: JourneyStep, eventStatus: string, over: boolean): JourneyStep {
+  if (payment.state !== "action") return payment;
+  if ((CHECKOUT_EVENT_STATUSES as string[]).includes(eventStatus)) return payment;
+  return over ? { key: "payment", label: "Not paid", state: "missed" } : { key: "payment", label: "Payment not open", state: "waiting" };
+}
+
 function checkInStep(status: string, endDate: Date, now: Date): JourneyStep {
   if (status === "CHECKED_IN") return { key: "checkin", label: "Checked in", state: "done" };
   if (now.getTime() <= endDate.getTime()) return { key: "checkin", label: "Check in at the event", state: "waiting" };
@@ -101,7 +115,7 @@ function surveyStep(lines: readonly SurveyLine[]): JourneyStep {
 
 export function buildJourney(input: {
   registration: JourneyRegistration;
-  event: { endDate: Date; eventType: string | null };
+  event: { endDate: Date; eventType: string | null; status: string };
   surveys: readonly SurveyLine[];
   certificateCount: number;
   /** This registration may watch the webinar's replay now (registrant-replays.ts). */
@@ -110,13 +124,7 @@ export function buildJourney(input: {
 }): JourneyStep[] {
   const { registration: reg, event, surveys, certificateCount, now } = input;
   const over = now.getTime() > event.endDate.getTime();
-  const payment = paymentStep(reg);
-  // Once the event is over the fee is a fact, not a to-do (review of the
-  // portal, Nov 10, 2026): "Complete your payment" stayed on My events for
-  // ever, and its Pay now ended in "Registration not found" because the
-  // checkout only serves an event that is still open.
-  const unpaidAndOver = over && payment.state === "action";
-  const steps: JourneyStep[] = [registeredStep(reg.status), unpaidAndOver ? { key: "payment", label: "Not paid", state: "missed" } : payment];
+  const steps: JourneyStep[] = [registeredStep(reg.status), closedPaymentStep(paymentStep(reg), event.status, over)];
   // A webinar and an online attendee never pass the desk.
   const atVenue = event.eventType !== "WEBINAR" && reg.attendanceMode !== "VIRTUAL";
   if (atVenue && ATTENDING.has(reg.status)) {

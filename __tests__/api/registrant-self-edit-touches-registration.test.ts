@@ -35,6 +35,7 @@ vi.mock("@/lib/tenant-lane", () => ({ runWithTenantLane: (_o: unknown, _c: unkno
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn() }));
 
 import { PUT } from "@/app/api/registrant/registrations/route";
+import { apiLogger } from "@/lib/logger";
 
 const put = (body: unknown) =>
   PUT(new Request("http://x/api/registrant/registrations", { method: "PUT", body: JSON.stringify(body), headers: { "content-type": "application/json" } }));
@@ -64,13 +65,20 @@ describe("registrant self-edit", () => {
   });
 
   it("a speaker's Faculty registration keeps its name (it follows the speaker record); the other fields save", async () => {
-    mockDb.registration.findFirst.mockResolvedValue({ id: "reg1", attendeeId: "att1", eventId: "ev1", createdSource: "SPEAKER_COMPANION" });
+    const faculty = { id: "reg1", attendeeId: "att1", eventId: "ev1", createdSource: "SPEAKER_COMPANION", attendee: { firstName: "Sam", lastName: "Speaker" } };
+    mockDb.registration.findFirst.mockResolvedValue(faculty);
     const res = await put({ registrationId: "reg1", attendee: { firstName: "Renamed", lastName: "Person", phone: "+971500000000" } });
     expect(res.status).toBe(200);
     const written = tx.attendee.update.mock.calls[0][0].data;
     expect(written).toMatchObject({ phone: "+971500000000" });
     expect(written).not.toHaveProperty("firstName");
     expect(written).not.toHaveProperty("lastName");
+    expect(apiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "registrant-self-edit:faculty-name-not-changed" }));
+
+    // The page sends the current name with every save: that is not a refusal, so no warning.
+    vi.mocked(apiLogger.warn).mockClear();
+    await put({ registrationId: "reg1", attendee: { firstName: "Sam", lastName: "Speaker", phone: "+971511111111" } });
+    expect(apiLogger.warn).not.toHaveBeenCalled();
   });
 
   it("someone else's registration is a 404 and nothing is written", async () => {
@@ -78,5 +86,19 @@ describe("registrant self-edit", () => {
     const res = await put({ registrationId: "reg9", attendee: { firstName: "New" } });
     expect(res.status).toBe(404);
     expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("registrant self-edit rate limit", () => {
+  // Last in the file on purpose: it spends this user's hourly allowance.
+  it("the 31st save in an hour is a logged 429 that says when to come back, and writes nothing", async () => {
+    let last = await put({ registrationId: "reg1", attendee: { phone: "1" } });
+    for (let i = 0; i < 40 && last.status !== 429; i++) last = await put({ registrationId: "reg1", attendee: { phone: String(i) } });
+    expect(last.status).toBe(429);
+    expect(await last.json()).toMatchObject({ limit: 30, windowSeconds: 3600, retryAfterSeconds: expect.any(Number) });
+    expect(apiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "registrant-self-edit:rate-limited" }));
+    const writes = tx.attendee.update.mock.calls.length;
+    await put({ registrationId: "reg1", attendee: { phone: "again" } });
+    expect(tx.attendee.update.mock.calls.length).toBe(writes);
   });
 });

@@ -50,8 +50,8 @@ describe("paymentStep", () => {
 });
 
 describe("buildJourney", () => {
-  const past = { endDate: new Date("2026-10-31T18:00:00Z"), eventType: "CONFERENCE" };
-  const upcoming = { endDate: new Date("2027-01-17T18:00:00Z"), eventType: "CONFERENCE" };
+  const past = { endDate: new Date("2026-10-31T18:00:00Z"), eventType: "CONFERENCE", status: "COMPLETED" };
+  const upcoming = { endDate: new Date("2027-01-17T18:00:00Z"), eventType: "CONFERENCE", status: "PUBLISHED" };
 
   it("an upcoming conference: registered, paid, check in at the event, nothing about certificates", () => {
     expect(labels(buildJourney({ registration: reg({ paymentStatus: "PAID" }), event: upcoming, surveys: [], certificateCount: 0, now: NOW }))).toEqual([
@@ -72,13 +72,19 @@ describe("buildJourney", () => {
     expect(labels(steps)).toEqual(["Registered:done", "Free:done", "Checked in:done", "Survey to answer:action", "2 certificates ready:done"]);
   });
 
-  it("an unpaid fee is a to-do while the event is ahead, and a fact once it is over", () => {
+  it("an unpaid fee is a to-do exactly while the checkout would take it: by the event's status, never its dates", () => {
     const owing = reg({ ticketType: { name: "Physician", price: 250 } });
     const journey = (event: typeof past) => labels(buildJourney({ registration: owing, event, surveys: [], certificateCount: 0, now: NOW }));
     expect(journey(upcoming)).toContain("Payment due:action");
-    // Over: nothing waits for them (the checkout no longer serves this event).
+    // Ended, but still published (nothing completes an event by itself): the checkout still works.
+    expect(journey({ ...past, status: "PUBLISHED" })).toContain("Payment due:action");
+    expect(journey({ ...past, status: "LIVE" })).toContain("Payment due:action");
+    // Closed and over: a fact, and nothing waits for them.
     expect(journey(past)).toContain("Not paid:missed");
     expect(journey(past).some((step) => step.endsWith(":action"))).toBe(false);
+    // Closed before it happened (cancelled, or back to draft): no Pay now that dead-ends.
+    expect(journey({ ...upcoming, status: "CANCELLED" })).toContain("Payment not open:waiting");
+    expect(journey({ ...upcoming, status: "DRAFT" })).toContain("Payment not open:waiting");
   });
 
   it("a settled or free registration reads the same after the event", () => {

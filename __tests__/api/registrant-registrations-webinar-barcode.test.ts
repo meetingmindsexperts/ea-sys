@@ -72,5 +72,25 @@ describe("GET /api/registrant/registrations", () => {
     for (const hidden of ["tags", "customFields", "externalId"]) {
       expect(select.attendee.select).not.toHaveProperty(hidden);
     }
+    // "Private until added here" as a test, not only a comment: a new column in
+    // either list has to be added to these on purpose.
+    expect(Object.keys(select).sort()).toEqual([
+      "attendee", "createdAt", "createdSource", "discountAmount", "event", "group", "groupId", "id", "originalPrice",
+      "paymentStatus", "payments", "pricingTier", "promoCode", "qrCode", "serialId", "status", "ticketType",
+    ]);
+    expect(Object.keys(select.attendee.select).sort()).toEqual([
+      "additionalEmail", "associationName", "city", "country", "dietaryReqs", "email", "firstName", "jobTitle", "lastName",
+      "memberId", "organization", "phone", "registrationType", "role", "specialty", "studentId", "studentIdExpiry", "title",
+    ]);
+  });
+
+  it("says when a registration's name is locked (a speaker's Faculty one) and never sends how it was created", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      { id: "f", qrCode: "F-1", createdSource: "SPEAKER_COMPANION", event: { eventType: "CONFERENCE" } },
+      { id: "p", qrCode: "P-1", createdSource: "PUBLIC_REGISTER", event: { eventType: "CONFERENCE" } },
+    ]);
+    const body = (await (await GET(new Request("http://x"))).json()) as { id: string; nameLocked: boolean }[];
+    expect(body.map((r) => [r.id, r.nameLocked])).toEqual([["f", true], ["p", false]]);
+    expect(body.every((r) => !("createdSource" in r))).toBe(true);
   });
 });

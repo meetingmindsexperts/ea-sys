@@ -285,7 +285,7 @@ describe("buildJourney: the replay step", () => {
     id: "r1", status: "CONFIRMED", paymentStatus: "COMPLIMENTARY", groupId: null, attendanceMode: "VIRTUAL",
     originalPrice: null, discountAmount: null, surveyCompletedAt: null, pricingTier: null, ticketType: { name: "Delegate", price: 0 },
   } as unknown as Parameters<typeof buildJourney>[0]["registration"];
-  const event = { endDate: ENDED, eventType: "WEBINAR" };
+  const event = { endDate: ENDED, eventType: "WEBINAR", status: "COMPLETED" };
   const labels = (replay?: boolean) =>
     buildJourney({ registration, event, surveys: [], certificateCount: 1, replay, now: NOW }).map((s) => `${s.key}:${s.label}:${s.state}`);
 

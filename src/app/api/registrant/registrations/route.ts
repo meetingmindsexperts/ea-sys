@@ -30,6 +30,8 @@ const OWN_REGISTRATION_SELECT = {
   qrCode: true,
   groupId: true,
   createdAt: true,
+  // Read for `nameLocked` only; the column itself is not sent (see the GET).
+  createdSource: true,
   originalPrice: true,
   discountAmount: true,
   event: {
@@ -123,7 +125,12 @@ export async function GET(req: Request) {
     // A webinar has no entry barcode (owner, Oct 6, 2026): the portal shows one
     // only when qrCode is present, so it is left out for webinars here.
     return NextResponse.json(
-      registrations.map((r) => (eventUsesEntryBarcode(r.event.eventType) ? r : { ...r, qrCode: null })),
+      registrations.map(({ createdSource, ...r }) => ({
+        ...r,
+        qrCode: eventUsesEntryBarcode(r.event.eventType) ? r.qrCode : null,
+        // A speaker's Faculty registration: its name follows the speaker record.
+        nameLocked: createdSource === "SPEAKER_COMPANION",
+      })),
     );
     });
   } catch (error) {
@@ -204,7 +211,7 @@ export async function PUT(req: Request) {
     // Verify ownership
     const registration = await db.registration.findFirst({
       where: { id: registrationId, userId: session.user.id },
-      select: { id: true, attendeeId: true, eventId: true, createdSource: true },
+      select: { id: true, attendeeId: true, eventId: true, createdSource: true, attendee: { select: { firstName: true, lastName: true } } },
     });
 
     if (!registration) {
@@ -216,7 +223,12 @@ export async function PUT(req: Request) {
     // never the other way (the name lock, owner, Aug 5, 2026; My Details skips
     // these rows for the same reason). The other fields are theirs to edit.
     const nameLocked = registration.createdSource === "SPEAKER_COMPANION";
-    if (nameLocked && (attendee.firstName || attendee.lastName)) {
+    // The page always sends the name back, so only a DIFFERENT name is a
+    // refusal worth a log line (the page locks the two fields).
+    const renamed =
+      (!!attendee.firstName && attendee.firstName !== registration.attendee?.firstName) ||
+      (!!attendee.lastName && attendee.lastName !== registration.attendee?.lastName);
+    if (nameLocked && renamed) {
       apiLogger.warn({ msg: "registrant-self-edit:faculty-name-not-changed", userId: session.user.id, registrationId });
     }
 

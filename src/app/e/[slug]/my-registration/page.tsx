@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
-import { formatCurrency, formatPersonName } from "@/lib/utils";
+import { cn, formatCurrency, formatPersonName } from "@/lib/utils";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatSerialId } from "@/lib/registration-serial";
 import { CertificateList, type CertificateListItem } from "@/components/registrant/certificate-list";
@@ -67,6 +67,8 @@ interface Registration {
   status: string;
   paymentStatus: string;
   qrCode: string | null;
+  /** A speaker's Faculty registration: the name follows the speaker record, so it is not edited here. */
+  nameLocked?: boolean;
   /** Group-registration membership: the company payer covers the fee. */
   groupId?: string | null;
   group?: { billingAccount: { name: string } } | null;
@@ -564,7 +566,13 @@ export default function EventMyRegistrationPage() {
                           </div>
                         </div>
                       </div>
-                      <Button className="btn-gradient h-11 w-full sm:h-9 sm:w-auto" disabled={checkoutLoading === reg.id} onClick={async () => {
+                      {/* `event` is null when the public API refused the slug (the event
+                          is over or not published): its checkout refuses too, and Pay
+                          Now ended in "Registration not found". */}
+                      {!eventLoading && !event && (
+                        <p className="text-sm text-amber-900">Online payment for this event is closed. Please contact the organiser.</p>
+                      )}
+                      <Button className={cn("btn-gradient h-11 w-full sm:h-9 sm:w-auto", !eventLoading && !event && "hidden")} disabled={checkoutLoading === reg.id} onClick={async () => {
                         setCheckoutLoading(reg.id);
                         try {
                           const res = await fetch(`/api/public/events/${reg.event.slug}/checkout`, {
@@ -749,9 +757,12 @@ export default function EventMyRegistrationPage() {
                     <div className="grid gap-4">
                       <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-3">
                         <div className="space-y-1"><Label className="text-xs">Title</Label><TitleSelect value={editData.title || ""} onChange={(v) => setEditData({ ...editData, title: v })} /></div>
-                        <div className="space-y-1"><Label className="text-xs">First Name</Label><Input value={editData.firstName || ""} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} /></div>
-                        <div className="space-y-1"><Label className="text-xs">Last Name</Label><Input value={editData.lastName || ""} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} /></div>
+                        <div className="space-y-1"><Label className="text-xs">First Name</Label><Input value={editData.firstName || ""} disabled={reg.nameLocked} className={reg.nameLocked ? "bg-muted" : undefined} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} /></div>
+                        <div className="space-y-1"><Label className="text-xs">Last Name</Label><Input value={editData.lastName || ""} disabled={reg.nameLocked} className={reg.nameLocked ? "bg-muted" : undefined} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} /></div>
                       </div>
+                      {reg.nameLocked && (
+                        <p className="text-[11px] text-muted-foreground">Your name here follows your speaker record. To change it, contact the event organiser.</p>
+                      )}
                       <div className="space-y-1"><Label className="text-xs">Email</Label><Input value={reg.attendee.email} disabled className="bg-muted" /></div>
                       <div className="space-y-1">
                         <Label className="text-xs">Additional Email</Label>

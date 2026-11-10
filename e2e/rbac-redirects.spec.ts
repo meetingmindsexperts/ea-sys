@@ -20,6 +20,18 @@ test.describe("RBAC middleware redirects", () => {
     await context.close();
   });
 
+  test("a signed-out visit to a portal page goes to sign-in and keeps the page to return to", async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    // An emailed link (a replay, a certificate) opened signed out: the
+    // dashboard layout's bare /login used to win and the destination was lost.
+    await page.goto("/my-account/certificates");
+    await expect(page).toHaveURL(/\/login\?callbackUrl=%2Fmy-account%2Fcertificates$/);
+
+    await context.close();
+  });
+
   test("REVIEWER is kept out of dashboard and non-abstract event routes", async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { CHECKOUT_EVENT_STATUSES, publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { getStripe, isZeroDecimalCurrency, StripeCredentialsMissingError } from "@/lib/stripe";
@@ -73,7 +73,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         id: registrationId,
         event: await publicEventWhere(req, slug, {
           allowIdFallback: true,
-          statuses: ["PUBLISHED", "LIVE"],
+          statuses: CHECKOUT_EVENT_STATUSES,
         }),
         status: { not: "CANCELLED" },
       },

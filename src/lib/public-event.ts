@@ -32,6 +32,15 @@ import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
  */
 export const UNRESOLVED_TENANT_SENTINEL = "__tenant_unresolved__";
 
+/**
+ * The statuses in which an event's public checkout takes a payment. The
+ * checkout route filters on it, and the portal reads it to decide whether an
+ * unpaid fee is still something the person can act on (review of ed074639,
+ * Nov 10, 2026: the portal had gone by the end date, and an event stays
+ * PUBLISHED after it ends, so the two disagreed the evening it finished).
+ */
+export const CHECKOUT_EVENT_STATUSES: EventStatus[] = ["PUBLISHED", "LIVE"];
+
 export interface PublicEventScopeOptions {
   /** Status gate, e.g. ["PUBLISHED", "LIVE"]. Omit for no status filter. */
   statuses?: EventStatus[];
