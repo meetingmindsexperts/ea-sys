@@ -27,11 +27,13 @@ day. These were recorded instead:
   pool, and its copies were edited by hand. Fix when a second event starts reviewing: an idempotent
   REPLACE of the exact old sentence in unedited copies, as `20261110140000` did, or Reset to Default
   on that event. Not done now: a production data change for templates nobody is sending.
-- **Older, MED: `emailVerified` is read as "has a password".** A REGISTRANT account has a real
-  password and no `emailVerified`. Added as a reviewer it shows "Pending Invitation", Send
-  assignments skips it, and Send invitation mails a link that OVERWRITES its existing password. The
-  fix is a real "has a usable password" test (the placeholder hash, or a column), used by the
-  Reviewers page, `sendPendingAssignments` and the resend route.
+- **Older, MED: `emailVerified` was read as "has a password": FIXED Nov 10, 2026.** A registrant
+  added as a reviewer showed "Pending Invitation", was skipped by Send assignments, and Send
+  invitation mailed a link that replaced their password. One rule now, `reviewerAccountIsSetUp()`
+  in `abstract-reviewer-access.ts`, asked by the Reviewers page, the assignment email and the
+  invitation route. It reads the role (only an invited REVIEWER account starts without a
+  password); a real "password set at" column would say it directly if a third kind of account
+  ever appears.
 - **Older: about 30 other case-insensitive `equals` on addresses** (`grep 'equals: .*mode: "insensitive"'`).
   The eight that decide whose a record is were fixed (`equalsIgnoringCase`). The rest find or
   de-duplicate people (imports, contact matching, sign-up checks): an underscore there can match a

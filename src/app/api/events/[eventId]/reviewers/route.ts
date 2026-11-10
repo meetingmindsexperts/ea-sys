@@ -1,4 +1,4 @@
-import { mustConfirmEmailToReview, sendableAssignmentWhere } from "@/lib/abstract-reviewer-access";
+import { mustConfirmEmailToReview, sendableAssignmentWhere, reviewerAccountIsSetUp } from "@/lib/abstract-reviewer-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -131,7 +131,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           organization: s.organization,
           jobTitle: s.jobTitle,
           speakerStatus: s.status as string | null,
-          accountActive: !!user?.emailVerified,
+          accountActive: reviewerAccountIsSetUp(user),
           needsEmailConfirmation: !!user && mustConfirmEmailToReview(user),
           assignments: countsFor(s.userId!),
         };
@@ -156,7 +156,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             organization: null,
             jobTitle: null,
             speakerStatus: null,
-            accountActive: !!user.emailVerified,
+            accountActive: reviewerAccountIsSetUp(user),
             needsEmailConfirmation: mustConfirmEmailToReview(user),
             assignments: countsFor(userId),
           });

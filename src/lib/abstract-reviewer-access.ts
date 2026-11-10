@@ -141,6 +141,28 @@ export function isOwnAbstract(
  * `NOT (userId = $1 OR email ILIKE $2)`, which is NULL for a speaker with no
  * linked account, so it silently dropped every such abstract from every feed.
  */
+/**
+ * Whether a reviewer's account can already sign in, so it needs no setup
+ * invitation (owner, Nov 10, 2026).
+ *
+ * Only an account made BY INVITATION starts without a usable password, and it
+ * gets `emailVerified` when the invitation is accepted. On a reviewer pool that
+ * is a REVIEWER account (staff accounts are refused as reviewers). A REGISTRANT
+ * or SUBMITTER account was made by its owner, with a password, and a registrant
+ * usually has no `emailVerified` at all.
+ *
+ * Until this, `emailVerified` alone stood for "has a password": a registrant
+ * added as a reviewer showed "Pending Invitation", Send assignments skipped
+ * them, and Send invitation mailed a link that REPLACED their password. They
+ * already see My Reviews in their portal once abstracts are assigned.
+ * The Reviewers page, the assignment email and the invitation route all ask this.
+ */
+export function reviewerAccountIsSetUp(user: { role?: string | null; emailVerified?: Date | null } | null | undefined): boolean {
+  if (!user) return false;
+  if (user.emailVerified) return true;
+  return user.role === "REGISTRANT" || user.role === "SUBMITTER";
+}
+
 export function excludeOwnAbstracts(user: ReviewerIdentity): Prisma.AbstractWhereInput {
   const notMine: Prisma.SpeakerWhereInput[] = [{ OR: [{ userId: null }, { userId: { not: user.id } }] }];
   if (user.email) notMine.push({ NOT: { email: equalsIgnoringCase(user.email.trim()) } });

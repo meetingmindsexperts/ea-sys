@@ -157,6 +157,12 @@ describe("sendPendingAssignments: one email per reviewer", () => {
     expect(assignmentUpdateMany).not.toHaveBeenCalled();
   });
 
+  it("a registrant added as a reviewer gets the digest: their own account has a password, verified or not", async () => {
+    userFindUnique.mockResolvedValue({ ...JANE, emailVerified: null, role: "REGISTRANT" });
+    expect(await sendPendingAssignments(sendArgs)).toMatchObject({ ok: true, sent: 2 });
+    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("an account that never accepted its invitation gets no digest: it has no password to log in with", async () => {
     userFindUnique.mockResolvedValue({ ...JANE, emailVerified: null });
     expect(await sendPendingAssignments(sendArgs)).toMatchObject({ ok: false, code: "ACCOUNT_NOT_SET_UP" });

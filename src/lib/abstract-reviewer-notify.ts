@@ -1,5 +1,5 @@
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
-import { sendableAssignmentWhere } from "@/lib/abstract-reviewer-access";
+import { reviewerAccountIsSetUp, sendableAssignmentWhere } from "@/lib/abstract-reviewer-access";
 import { escapeHtml } from "@/lib/html";
 import { UNRESOLVED_TOKENS_CODE, untokened } from "@/lib/template-tokens";
 import { apiLogger } from "@/lib/logger";
@@ -296,7 +296,7 @@ async function leaseAndSend(
     const [reviewer, pending] = await Promise.all([
       db.user.findUnique({
         where: { id: reviewerUserId },
-        select: { id: true, firstName: true, lastName: true, email: true, emailVerified: true },
+        select: { id: true, firstName: true, lastName: true, email: true, emailVerified: true, role: true },
       }),
       db.abstractReviewer.findMany({
         where: { ...sendableAssignmentWhere(eventId), userId: reviewerUserId },
@@ -313,7 +313,8 @@ async function leaseAndSend(
     }
     // The email says "log in": an account that never accepted its invitation
     // has no password, so it gets the invitation first (the row's own button).
-    if (!reviewer.emailVerified) {
+    // A registrant's or submitter's own account already has one.
+    if (!reviewerAccountIsSetUp(reviewer)) {
       apiLogger.warn({ msg: "reviewer-assignment:account-not-set-up", eventId, reviewerUserId });
       return refuse("ACCOUNT_NOT_SET_UP", "This reviewer has not set up their account yet. Send their invitation first.");
     }

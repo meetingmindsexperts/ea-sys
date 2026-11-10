@@ -87,6 +87,16 @@ describe("GET reviewers", () => {
     expect(body.reviewers.find((r: { userId: string }) => r.userId === "r2").title).toBe("PROF");
   });
 
+  it("only an invited account that has not accepted is pending; a registrant on the pool can already sign in", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", settings: { reviewerUserIds: ["r1", "r2", "g1"] } });
+    mockDb.user.findMany.mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
+      Promise.resolve([...USERS, { id: "g1", email: "reg@x.com", firstName: "Reg", lastName: "Istrant", emailVerified: null, role: "REGISTRANT", emailConfirmedAt: new Date() }].filter((u) => where.id.in.includes(u.id))),
+    );
+    const body = await (await get()).json();
+    const active = Object.fromEntries(body.reviewers.map((r: { userId: string; accountActive: boolean }) => [r.userId, r.accountActive]));
+    expect(active).toEqual({ r1: true, r2: false, g1: true });
+  });
+
   it("names the people holding assignments who are not on the pool", async () => {
     const body = await (await get()).json();
     expect(body.assignedOffPool).toEqual([{ userId: "x9", firstName: "Gone", lastName: "Reviewer", email: "gone@x.com", assigned: 1 }]);

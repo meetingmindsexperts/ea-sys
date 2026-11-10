@@ -8,6 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/security";
 import { notifyReviewerPoolAdded, sendReviewerSetupInvitation } from "@/lib/abstract-reviewer-notify";
+import { reviewerAccountIsSetUp } from "@/lib/abstract-reviewer-access";
 import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 
 /**
@@ -65,7 +66,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const user = await db.user.findUnique({
       where: { id: reviewerId },
-      select: { id: true, email: true, firstName: true, lastName: true, emailVerified: true },
+      select: { id: true, email: true, firstName: true, lastName: true, emailVerified: true, role: true },
     });
     if (!user) {
       apiLogger.warn({ msg: "reviewer-invite-resend:account-not-found", eventId, reviewerUserId: reviewerId, userId: session.user.id });
@@ -75,7 +76,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     // An account that can already sign in gets the "added as a reviewer"
     // email. A refused send surfaces (502), as the setup invite's does below:
     // until Nov 10, 2026 this answered "sent" whatever happened.
-    if (user.emailVerified) {
+    // "Can already sign in" is reviewerAccountIsSetUp, never emailVerified alone:
+    // a registrant has a password and no emailVerified, and the setup link
+    // below would have REPLACED that password.
+    if (reviewerAccountIsSetUp(user)) {
       const sent = await notifyReviewerPoolAdded({
         eventId,
         organizationId: session.user.organizationId ?? null,

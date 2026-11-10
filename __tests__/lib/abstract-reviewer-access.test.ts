@@ -3,7 +3,7 @@
  * alone (Nov 10, 2026), and never your own abstract (Nov 9, 2026).
  */
 import { describe, it, expect } from "vitest";
-import { assignedToReviewWhere, becomesSubmitterToAuthor, excludeOwnAbstracts, isOnReviewerPool, isOwnAbstract, linkedRoleAbstractFilter, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
+import { assignedToReviewWhere, becomesSubmitterToAuthor, excludeOwnAbstracts, isOnReviewerPool, isOwnAbstract, linkedRoleAbstractFilter, mustConfirmEmailToReview, reviewerAccountIsSetUp } from "@/lib/abstract-reviewer-access";
 import { computeWeightedOverallScore } from "@/lib/abstract-score";
 
 describe("isOnReviewerPool", () => {
@@ -103,5 +103,23 @@ describe("linkedRoleAbstractFilter", () => {
 
   it("a REGISTRANT reaches nothing: fails closed if a route ever lets one in", () => {
     expect(linkedRoleAbstractFilter({ id: "u1", role: "REGISTRANT" })).toEqual({ id: { in: [] } });
+  });
+});
+
+describe("reviewerAccountIsSetUp: who needs the setup invitation", () => {
+  it("an invited reviewer account is waiting until the invitation is accepted", () => {
+    expect(reviewerAccountIsSetUp({ role: "REVIEWER", emailVerified: null })).toBe(false);
+    expect(reviewerAccountIsSetUp({ role: "REVIEWER", emailVerified: new Date() })).toBe(true);
+  });
+
+  it("a registrant or submitter made their own account, with a password: never the setup link, which would replace it", () => {
+    // A registrant usually has no emailVerified at all (owner, Nov 10, 2026).
+    expect(reviewerAccountIsSetUp({ role: "REGISTRANT", emailVerified: null })).toBe(true);
+    expect(reviewerAccountIsSetUp({ role: "SUBMITTER", emailVerified: null })).toBe(true);
+  });
+
+  it("no account, or one whose role is unknown, is not treated as able to sign in", () => {
+    expect(reviewerAccountIsSetUp(null)).toBe(false);
+    expect(reviewerAccountIsSetUp({ emailVerified: null })).toBe(false);
   });
 });
