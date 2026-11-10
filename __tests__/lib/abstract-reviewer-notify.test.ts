@@ -17,17 +17,13 @@ const { sendEmailSpy, speakerFindMany, userFindUnique, tokenDeleteMany, tokenCre
   tokenCreate: vi.fn(),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("@/lib/db", () => {
-  const verificationToken = { deleteMany: tokenDeleteMany, create: tokenCreate };
-  return {
-    db: {
-      speaker: { findMany: speakerFindMany },
-      user: { findUnique: userFindUnique },
-      verificationToken,
-      $transaction: (cb: (tx: unknown) => unknown) => cb({ verificationToken }),
-    },
-  };
-});
+vi.mock("@/lib/db", () => ({
+  db: {
+    speaker: { findMany: speakerFindMany },
+    user: { findUnique: userFindUnique },
+    verificationToken: { deleteMany: tokenDeleteMany, create: tokenCreate },
+  },
+}));
 
 vi.mock("@/lib/email", async () => {
   const actual = await vi.importActual<typeof import("@/lib/email")>("@/lib/email");
@@ -78,12 +74,19 @@ beforeEach(() => {
 });
 
 describe("sendReviewerInvitation: a reviewer with no password yet", () => {
-  it("mints a fresh set-password link, replacing any earlier one, and sends both buttons", async () => {
+  it("mints a fresh set-password link, sends both buttons, and withdraws the earlier link only AFTER the email is out", async () => {
+    const order: string[] = [];
+    tokenCreate.mockImplementation(async () => { order.push("create"); });
+    sendEmailSpy.mockImplementation(async () => { order.push("send"); return { success: true }; });
+    tokenDeleteMany.mockImplementation(async () => { order.push("withdraw-older"); });
+
     expect(await sendReviewerInvitation(args(NEW_REVIEWER))).toEqual({ ok: true, kind: "setup" });
 
-    // One address holds one invitation: the old token goes, a hashed one is stored.
-    expect(tokenDeleteMany).toHaveBeenCalledWith({ where: { identifier: "new@x.com" } });
     const stored = tokenCreate.mock.calls[0][0].data;
+    // One address holds one invitation, the one just sent: every OTHER token goes, and only now.
+    expect(order).toEqual(["create", "send", "withdraw-older"]);
+    expect(tokenDeleteMany).toHaveBeenCalledTimes(1);
+    expect(tokenDeleteMany).toHaveBeenCalledWith({ where: { identifier: "new@x.com", token: { not: stored.token } } });
     expect(stored.identifier).toBe("new@x.com");
     expect(stored.token).toMatch(/^hash:[0-9a-f]{64}$/);
     // The link lasts exactly as long as the email says it does.
@@ -111,6 +114,16 @@ describe("sendReviewerInvitation: a reviewer with no password yet", () => {
     expect(findUnresolvedTokens(sent().subject, sent().htmlContent, sent().textContent)).toEqual([]);
     expect(sent().subject).toBe("Invitation to review abstracts | MedCon");
     expect(sent().htmlContent).toContain("Sarah, Secretariat");
+  });
+});
+
+describe("sendReviewerInvitation: a staff account that reached a pool", () => {
+  it("is never mailed a set-password link: it would replace its staff invitation and activate the account", async () => {
+    const staff = { ...NEW_REVIEWER, id: "u3", email: "admin@x.com", role: "ADMIN", emailVerified: null };
+    expect(await sendReviewerInvitation(args(staff))).toEqual({ ok: true, kind: "portal" });
+    expect(tokenCreate).not.toHaveBeenCalled();
+    expect(tokenDeleteMany).not.toHaveBeenCalled();
+    expect(sent().htmlContent).not.toContain("accept-invitation");
   });
 });
 
@@ -163,10 +176,26 @@ describe("sendReviewerInvitation: title, additional email and failures", () => {
     expect(getDefaultTemplate).toHaveBeenCalledWith("reviewer-invitation");
   });
 
+  it("a refused send leaves the link the reviewer already holds, and withdraws only the one nobody received", async () => {
+    // The MEHF incident's class: a token in the event's template that nothing fills.
+    sendEmailSpy.mockResolvedValueOnce({ success: false, code: UNRESOLVED_TOKENS_CODE, error: "The template has an unknown token: {{deadline}}" });
+    expect(await sendReviewerInvitation(args(NEW_REVIEWER))).toMatchObject({ ok: false, code: "SEND_FAILED" });
+    const stored = tokenCreate.mock.calls[0][0].data;
+    expect(tokenDeleteMany).toHaveBeenCalledTimes(1);
+    expect(tokenDeleteMany).toHaveBeenCalledWith({ where: { identifier: "new@x.com", token: stored.token } });
+  });
+
+  it("a send that throws does the same", async () => {
+    sendEmailSpy.mockRejectedValueOnce(new Error("socket hang up"));
+    expect(await sendReviewerInvitation(args(NEW_REVIEWER))).toMatchObject({ ok: false, code: "SEND_FAILED" });
+    expect(tokenDeleteMany).toHaveBeenCalledWith({ where: { identifier: "new@x.com", token: tokenCreate.mock.calls[0][0].data.token } });
+  });
+
   it("no template at all: refused BEFORE a link is minted, so the link they hold keeps working", async () => {
     vi.mocked(getEventTemplate).mockResolvedValue(null);
     vi.mocked(getDefaultTemplate).mockReturnValue(undefined);
     expect(await sendReviewerInvitation(args(NEW_REVIEWER))).toMatchObject({ ok: false, code: "NO_TEMPLATE" });
+    expect(tokenCreate).not.toHaveBeenCalled();
     expect(tokenDeleteMany).not.toHaveBeenCalled();
     expect(sendEmailSpy).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-invitation:no-template" }));

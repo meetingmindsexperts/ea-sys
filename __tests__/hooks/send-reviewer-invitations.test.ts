@@ -56,7 +56,10 @@ afterEach(() => vi.unstubAllGlobals());
 describe("useSendReviewerInvitations", () => {
   it("carries on from where the last request stopped, and adds the rounds up", async () => {
     fetchMock
-      .mockReturnValueOnce(answer(round({ emailed: 2, nextAfter: "r2", remaining: 2 })))
+      .mockReturnValueOnce(answer(round({ emailed: 2, nextAfter: "r2", remaining: 2, results: [
+        { reviewerId: "r1", ok: true, kind: "setup" },
+        { reviewerId: "r2", ok: true, kind: "portal" },
+      ] })))
       .mockReturnValueOnce(answer(round({ emailed: 1, failed: 1, results: [
         { reviewerId: "r3", ok: true, kind: "portal" },
         { reviewerId: "r4", ok: false, message: "The template has an unknown token" },
@@ -66,7 +69,11 @@ describe("useSendReviewerInvitations", () => {
 
     expect(fetchMock.mock.calls[0][0]).toBe("/api/events/ev1/reviewers/send-invitations");
     expect(bodies()).toEqual([{}, { after: "r2" }]);
-    expect(total).toEqual({ emailed: 3, failed: 1, firstFailure: "The template has an unknown token", interrupted: null });
+    expect(total).toEqual({
+      emailed: 3, failed: 1, firstFailure: "The template has an unknown token", interrupted: null,
+      // Who was emailed and who was refused, so the page can name the rest.
+      emailedIds: ["r1", "r2", "r3"], failedIds: ["r4"],
+    });
   });
 
   it("a refused first request throws, so the page shows the refusal", async () => {
@@ -97,7 +104,8 @@ describe("useSendReviewerInvitations", () => {
 });
 
 describe("sendInvitationsReport", () => {
-  const outcome = (over: Partial<SendInvitationsOutcome>): SendInvitationsOutcome => ({ emailed: 0, failed: 0, firstFailure: null, interrupted: null, ...over });
+  const outcome = (over: Partial<SendInvitationsOutcome>): SendInvitationsOutcome => ({ emailed: 0, failed: 0, firstFailure: null, interrupted: null, emailedIds: [], failedIds: [], ...over });
+  const onPage = ["r1", "r2", "r3", "r4"].map((id) => ({ userId: id, name: `Dr. ${id.toUpperCase()}` }));
 
   it("a failure leads, with its reason, whatever else happened", () => {
     const report = sendInvitationsReport(outcome({ emailed: 5, failed: 10, firstFailure: "The template has an unknown token" }));
@@ -105,11 +113,24 @@ describe("sendInvitationsReport", () => {
     expect(report.lines).toEqual(["10 could not be sent: The template has an unknown token", "Invitation emailed to 5 reviewers"]);
   });
 
-  it("an interrupted send is an error that says how to finish it", () => {
-    const report = sendInvitationsReport(outcome({ emailed: 3, interrupted: "Bad gateway" }));
+  it("names whose email was refused", () => {
+    const report = sendInvitationsReport(outcome({ emailed: 2, failed: 2, firstFailure: "Provider error", emailedIds: ["r1", "r3"], failedIds: ["r2", "r4"] }), onPage);
+    expect(report.lines[0]).toBe("2 could not be sent (Dr. R2, Dr. R4): Provider error");
+  });
+
+  it("an interrupted send names who it did not reach, and warns off a second Send to all", () => {
+    const report = sendInvitationsReport(outcome({ emailed: 1, failed: 1, firstFailure: "x", interrupted: "Bad gateway", emailedIds: ["r1"], failedIds: ["r2"] }), onPage);
     expect(report.level).toBe("error");
-    expect(report.lines[0]).toContain("Bad gateway");
-    expect(report.lines[0]).toContain("use the Send button on the rows it did not reach");
+    const line = report.lines.find((l) => l.includes("Bad gateway"))!;
+    // r1 was emailed and r2 was reached (and refused): only r3 and r4 are left.
+    expect(line).toContain("Not reached: Dr. R3, Dr. R4.");
+    expect(line).toContain("Send to all would email everyone again");
+  });
+
+  it("a long list of names is cut, with the count of the rest", () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ userId: `u${i}`, name: `N${i}` }));
+    const line = sendInvitationsReport(outcome({ interrupted: "x" }), many).lines[0];
+    expect(line).toContain("N0, N1, N2, N3, N4, N5, N6, N7 and 4 more.");
   });
 
   it("a clean send is one success line, and an empty list says so", () => {

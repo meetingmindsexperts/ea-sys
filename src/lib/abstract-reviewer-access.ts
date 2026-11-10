@@ -143,7 +143,12 @@ export function isOwnAbstract(
 export function reviewerAccountIsSetUp(user: { role?: string | null; emailVerified?: Date | null } | null | undefined): boolean {
   if (!user) return false;
   if (user.emailVerified) return true;
-  return user.role === "REGISTRANT" || user.role === "SUBMITTER";
+  // Only an invited REVIEWER account starts without a password. Every other
+  // kind was made by its owner or holds its own invitation: a staff account
+  // that reached a pool (added from its speaker record, or promoted later)
+  // must never be mailed a reviewer link, which would also replace its staff
+  // invitation (review of 94a2aee5). An unknown role is treated as not set up.
+  return !!user.role && user.role !== "REVIEWER";
 }
 
 export function excludeOwnAbstracts(user: ReviewerIdentity): Prisma.AbstractWhereInput {

@@ -107,8 +107,8 @@ function assignmentSummary(a: { assigned: number } | undefined): string {
 const SEND_REPORT_DURATION: Record<SendReportLevel, number | undefined> = { error: Infinity, warning: 15000, info: undefined, success: undefined };
 
 /** Every outcome of a Send to all press in ONE toast, the worst first (see send-report.ts). */
-function reportSendInvitations(res: SendInvitationsOutcome): void {
-  const { level, lines } = sendInvitationsReport(res);
+function reportSendInvitations(res: SendInvitationsOutcome, onPage: { userId: string; name: string }[]): void {
+  const { level, lines } = sendInvitationsReport(res, onPage);
   const [title, ...rest] = lines;
   toast[level](title, {
     duration: SEND_REPORT_DURATION[level],
@@ -235,7 +235,8 @@ function Reviewers({ eventId }: { eventId: string }) {
   // on the list. Nothing records who was already emailed, so it asks first.
   const handleSendToAll = async () => {
     try {
-      reportSendInvitations(await sendInvitations.mutateAsync());
+      const res = await sendInvitations.mutateAsync();
+      reportSendInvitations(res, reviewers.map((r) => ({ userId: r.userId, name: formatPersonName(r.title, r.firstName, r.lastName) })));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send the invitations");
     }

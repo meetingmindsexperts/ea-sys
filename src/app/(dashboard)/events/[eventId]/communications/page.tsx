@@ -1063,7 +1063,7 @@ export default function CommunicationsPage() {
               Reviewers
             </CardTitle>
             <CardDescription>
-              Send review invitations or custom messages to assigned reviewers.
+              Send a custom message to the event&apos;s reviewers. Their invitation is sent from the Reviewers page.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

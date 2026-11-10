@@ -31,6 +31,29 @@ day. These were recorded instead:
   For the other five, press Reset to Default when they start reviewing, or delete the
   unedited rows by content hash in a migration. Not done now: a production data change for
   templates nobody is sending (the same call as before).
+- **MED, recorded (review of `94a2aee5`): a reviewer who set their password through Forgot
+  password still counts as "no password yet".** `reviewerAccountIsSetUp` reads `emailVerified`
+  and the role; the reset flow sets a password and leaves `emailVerified` empty, so such a
+  REVIEWER account shows "Pending Invitation" for good, and every Send mails them "this is
+  your first visit, set your password" with a live link that would replace the password they
+  chose. Nothing breaks unless they press it. Not fixed with the review: the honest fix is a
+  "password set at" marker on the account (a column, written by accept-invitation, reset and
+  change password), and making the reset flow set `emailVerified` instead would change what
+  that field means for sign-in. The staff half of the same finding IS fixed (a team account
+  on a pool is never mailed a reviewer link). Related, and the owner's earlier decision: the
+  set-password link is copied to the event's Auto-CC and the reviewer's additional email, and
+  Send invitation to all now does that for every pending reviewer in one press.
+- **LOW, listed only (review of `94a2aee5`):** a withdrawn template's saved row can still be
+  sent by naming its slug as a saved template in a bulk send (API, agent or schedule;
+  `reviewer-pool-invitation` has every token filled); if the gateway cuts the FIRST request of
+  Send to all after the server has sent, the page says "failed" and a second press emails
+  twice; two organisers pressing at once both email everyone (the lease went with Send
+  assignments); a pool id with no account is skipped without a log line; `templateDisplayName`
+  is applied to the list and detail reads only (the save response, the agent's list and a
+  copy's name still use the stored name); a withdrawn row opened by direct link shows as a
+  built-in template whose Reset answers 404, the agent's update can create a hidden row under
+  a withdrawn slug, and the event clone copies withdrawn rows forward; the row route passes
+  the session's organisation to the sender and Send to all the guard's.
 - **Left in place by the one-email change:** the saved `reviewer-assignment` and
   `reviewer-pool-invitation` rows on about 36 events (hidden, `RETIRED_SYSTEM_TEMPLATE_SLUGS`),
   and the unread `AbstractReviewer.notifiedAt` / `notifyClaimedAt` / `notifyClaimToken`

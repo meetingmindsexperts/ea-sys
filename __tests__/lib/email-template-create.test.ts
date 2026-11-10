@@ -63,6 +63,17 @@ describe("createCustomEmailTemplate", () => {
     expect(mockDb.emailTemplate.create).not.toHaveBeenCalled();
   });
 
+  it("refuses a built-in template's slug, current or withdrawn, before touching the database", async () => {
+    // A row under a withdrawn slug is hidden from every list and cannot be
+    // deleted: the template would vanish the moment it was created.
+    for (const slug of ["reviewer-assignment", "reviewer-pool-invitation", "reviewer-invitation", "speaker-invitation"]) {
+      const res = await createCustomEmailTemplate({ ...base, slug });
+      expect(res, slug).toMatchObject({ ok: false, code: "SLUG_RESERVED" });
+    }
+    expect(mockDb.emailTemplate.findUnique).not.toHaveBeenCalled();
+    expect(mockDb.emailTemplate.create).not.toHaveBeenCalled();
+  });
+
   it("answers a taken slug without writing", async () => {
     mockDb.emailTemplate.findUnique.mockResolvedValue({ id: "tpl-old" });
     const res = await createCustomEmailTemplate({ ...base, slug: "faculty-welcome" });

@@ -118,6 +118,14 @@ describe("reviewerAccountIsSetUp: who needs the setup invitation", () => {
     expect(reviewerAccountIsSetUp({ role: "SUBMITTER", emailVerified: null })).toBe(true);
   });
 
+  it("a staff account on a pool is never mailed a reviewer link, pending or not (review of 94a2aee5)", () => {
+    // Added from its speaker record, or promoted after being added: the link
+    // would replace its staff invitation and activate the account.
+    for (const role of ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "CRM_USER", "HR_USER", "BASE"]) {
+      expect(reviewerAccountIsSetUp({ role, emailVerified: null }), role).toBe(true);
+    }
+  });
+
   it("no account, or one whose role is unknown, is not treated as able to sign in", () => {
     expect(reviewerAccountIsSetUp(null)).toBe(false);
     expect(reviewerAccountIsSetUp({ emailVerified: null })).toBe(false);

@@ -91,19 +91,48 @@ function myReviewsLink(): string {
   return `${appUrl()}/login?callbackUrl=${encodeURIComponent("/my-reviews")}`;
 }
 
+interface SetupLink {
+  link: string;
+  identifier: string;
+  tokenHash: string;
+}
+
 /**
- * A fresh set-password link for an account that has none yet. The earlier
- * link, if any, stops working: one address holds one invitation at a time.
+ * A fresh set-password link for an account that has none yet, stored BESIDE
+ * any link the reviewer already holds. The earlier one is withdrawn only once
+ * this email is out (keepOnlySetupLink): a refused send (a token left in the
+ * event's template, the provider throttling) used to delete the working link
+ * first and deliver nothing, and Send to all would have done that to a whole
+ * committee in one press (review of 94a2aee5, Nov 10, 2026).
  */
-async function mintSetupLink(email: string, eventSlug: string): Promise<string> {
+async function mintSetupLink(email: string, eventSlug: string): Promise<SetupLink> {
   const token = crypto.randomBytes(32).toString("hex");
   const identifier = email.toLowerCase();
+  const tokenHash = hashVerificationToken(token);
   const expires = new Date(Date.now() + REVIEWER_SETUP_LINK_DAYS * 24 * 60 * 60 * 1000);
-  await db.$transaction(async (tx) => {
-    await tx.verificationToken.deleteMany({ where: { identifier } });
-    await tx.verificationToken.create({ data: { identifier, token: hashVerificationToken(token), expires } });
-  });
-  return `${appUrl()}/accept-invitation?token=${token}&email=${encodeURIComponent(identifier)}&eventSlug=${encodeURIComponent(eventSlug)}`;
+  await db.verificationToken.create({ data: { identifier, token: tokenHash, expires } });
+  const link = `${appUrl()}/accept-invitation?token=${token}&email=${encodeURIComponent(identifier)}&eventSlug=${encodeURIComponent(eventSlug)}`;
+  return { link, identifier, tokenHash };
+}
+
+/** The email is out: one address holds one invitation, the one just sent. */
+async function keepOnlySetupLink(minted: SetupLink, ctx: { eventId: string; reviewerUserId: string }): Promise<void> {
+  try {
+    await db.verificationToken.deleteMany({ where: { identifier: minted.identifier, token: { not: minted.tokenHash } } });
+  } catch (err) {
+    // The new link works; an older one keeps working until it expires.
+    apiLogger.warn({ err, msg: "reviewer-invitation:older-links-not-withdrawn", ...ctx });
+  }
+}
+
+/** The email did not go: the link nobody received is withdrawn, the one they hold stays. */
+async function discardSetupLink(minted: SetupLink, ctx: { eventId: string; reviewerUserId: string }): Promise<void> {
+  try {
+    await db.verificationToken.deleteMany({ where: { identifier: minted.identifier, token: minted.tokenHash } });
+  } catch (err) {
+    // Unreachable in practice: nobody was sent it, and it expires by itself.
+    apiLogger.warn({ err, msg: "reviewer-invitation:unsent-link-not-withdrawn", ...ctx });
+  }
 }
 
 export type ReviewerEmailResult =
@@ -142,8 +171,9 @@ export interface ReviewerInvitationArgs {
  * with its own wording to keep in step.
  *
  * What differs per reviewer is `{{portalAccess}}` (reviewer-portal-access.ts):
- * an account with no password yet gets a freshly minted set-password link,
- * one that can sign in gets the portal button. "Can sign in" is
+ * an account with no password yet gets a freshly minted set-password link
+ * (the one it held is withdrawn only after this email is out), one that can
+ * sign in gets the portal button. "Can sign in" is
  * reviewerAccountIsSetUp, never emailVerified alone: a registrant has a
  * password and no emailVerified, and a setup link would REPLACE it.
  *
@@ -156,9 +186,9 @@ export interface ReviewerInvitationArgs {
  */
 export async function sendReviewerInvitation(args: ReviewerInvitationArgs): Promise<ReviewerEmailResult> {
   const { eventId, reviewer } = args;
+  const ctx = { eventId, reviewerUserId: reviewer.id };
+  let minted: SetupLink | null = null;
   try {
-    // Read before a link is minted: a missing template must not cost the
-    // reviewer the link they already hold.
     const tpl = (await getEventTemplate(eventId, "reviewer-invitation")) || getDefaultTemplate("reviewer-invitation");
     if (!tpl) {
       apiLogger.warn({ msg: "reviewer-invitation:no-template", eventId });
@@ -169,7 +199,8 @@ export async function sendReviewerInvitation(args: ReviewerInvitationArgs): Prom
       senderSignature(args.triggeredByUserId),
     ]);
     const kind = reviewerAccountIsSetUp(reviewer) ? "portal" : "setup";
-    const setupLink = kind === "setup" ? await mintSetupLink(reviewer.email, args.eventSlug) : null;
+    if (kind === "setup") minted = await mintSetupLink(reviewer.email, args.eventSlug);
+    const setupLink = minted?.link ?? null;
     const reviewLink = myReviewsLink();
     const access = reviewerPortalAccess({ email: reviewer.email, reviewLink, setupLink });
 
@@ -211,15 +242,18 @@ export async function sendReviewerInvitation(args: ReviewerInvitationArgs): Prom
     });
     if (!result.success) {
       apiLogger.error({ msg: "reviewer-invitation:send-failed", eventId, reviewerUserId: reviewer.id, kind, code: result.code, error: result.error });
+      if (minted) await discardSetupLink(minted, ctx);
       // A template fault is the organiser's to fix, so they get its wording;
       // a provider error's raw text is logged above, not shown.
       const message = result.code === UNRESOLVED_TOKENS_CODE && result.error ? result.error : "The email could not be sent";
       return { ok: false, code: "SEND_FAILED", message };
     }
+    if (minted) await keepOnlySetupLink(minted, ctx);
     apiLogger.info({ msg: "reviewer-invitation:sent", eventId, reviewerUserId: reviewer.id, kind });
     return { ok: true, kind };
   } catch (err) {
     apiLogger.error({ err, msg: "reviewer-invitation:send-error", eventId, reviewerUserId: reviewer.id });
+    if (minted) await discardSetupLink(minted, ctx);
     return { ok: false, code: "SEND_FAILED", message: "The email could not be sent" };
   }
 }

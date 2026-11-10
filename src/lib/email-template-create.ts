@@ -71,7 +71,7 @@ export type CreateEmailTemplateResult =
        */
       unknownTokens: string[];
     }
-  | { ok: false; code: "INVALID_SLUG" | "SLUG_TAKEN"; message: string }
+  | { ok: false; code: "INVALID_SLUG" | "SLUG_TAKEN" | "SLUG_RESERVED"; message: string }
   | {
       ok: false;
       code: "UNKNOWN_TOKENS";
@@ -107,6 +107,19 @@ export async function createCustomEmailTemplate(args: {
       ok: false,
       code: "INVALID_SLUG",
       message: "Slug may contain only lowercase letters, numbers and hyphens (at most 100 characters).",
+    };
+  }
+
+  // A built-in template's slug, current or withdrawn, is not the organiser's
+  // to take: a row under a withdrawn one is hidden from every list and cannot
+  // be deleted, so the template would vanish the moment it was created
+  // (review of 94a2aee5, Nov 10, 2026).
+  if (!isCustomTemplateSlug(slug)) {
+    apiLogger.warn({ msg: "email-template-create:reserved-slug", eventId, slug });
+    return {
+      ok: false,
+      code: "SLUG_RESERVED",
+      message: "That name belongs to a built-in template. Please choose a different name.",
     };
   }
 

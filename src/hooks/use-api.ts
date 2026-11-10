@@ -790,7 +790,7 @@ export function useResendReviewerInvitation(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (reviewerId: string) =>
-      fetchApi<{ success: boolean; sent: boolean; type: "setup" | "pool" }>(
+      fetchApi<{ success: boolean; sent: boolean; type: "setup" | "portal" }>(
         `/api/events/${eventId}/reviewers/${reviewerId}/resend-invitation`,
         { method: "POST" },
       ),
@@ -816,6 +816,9 @@ export interface SendInvitationsOutcome {
   firstFailure: string | null;
   /** A later request failed: what went is counted above, the rest were not emailed. */
   interrupted: string | null;
+  /** Who was emailed and whose email was refused, so the page can NAME the rest. */
+  emailedIds: string[];
+  failedIds: string[];
 }
 
 /** Far more than any committee needs; a guard against a loop that never ends. */
@@ -827,7 +830,7 @@ const MAX_SEND_ROUNDS = 40;
  * several requests behind one press.
  */
 async function sendInvitationsInRounds(eventId: string): Promise<SendInvitationsOutcome> {
-  const total: SendInvitationsOutcome = { emailed: 0, failed: 0, firstFailure: null, interrupted: null };
+  const total: SendInvitationsOutcome = { emailed: 0, failed: 0, firstFailure: null, interrupted: null, emailedIds: [], failedIds: [] };
   let after: string | null = null;
   for (let round = 0; round < MAX_SEND_ROUNDS; round++) {
     let page: SendInvitationsRound;
@@ -846,6 +849,7 @@ async function sendInvitationsInRounds(eventId: string): Promise<SendInvitations
     total.emailed += page.emailed;
     total.failed += page.failed;
     total.firstFailure ??= page.results.find((r) => !r.ok)?.message ?? null;
+    for (const r of page.results) (r.ok ? total.emailedIds : total.failedIds).push(r.reviewerId);
     if (!page.nextAfter) return total;
     after = page.nextAfter;
   }

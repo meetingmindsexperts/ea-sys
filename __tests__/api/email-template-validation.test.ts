@@ -63,7 +63,10 @@ vi.mock("@/lib/email", () => ({
   DEFAULT_TEMPLATES: [],
   allTemplateVariables: () => ({}),
 }));
-vi.mock("@/lib/email-template-slugs", () => ({
+// The real rules, with only the webinar test stubbed: creating a template asks
+// whether its slug belongs to a built-in (Nov 10, 2026).
+vi.mock("@/lib/email-template-slugs", async (orig) => ({
+  ...(await orig<typeof import("@/lib/email-template-slugs")>()),
   isWebinarTemplateSlug: () => false,
 }));
 
