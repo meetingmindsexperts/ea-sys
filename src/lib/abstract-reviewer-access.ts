@@ -31,6 +31,7 @@
  * Client-safe: no database import.
  */
 import type { Prisma } from "@prisma/client";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 
 /**
  * The accounts that become a SUBMITTER when they author an abstract, after
@@ -142,6 +143,6 @@ export function isOwnAbstract(
  */
 export function excludeOwnAbstracts(user: ReviewerIdentity): Prisma.AbstractWhereInput {
   const notMine: Prisma.SpeakerWhereInput[] = [{ OR: [{ userId: null }, { userId: { not: user.id } }] }];
-  if (user.email) notMine.push({ NOT: { email: { equals: user.email.trim(), mode: "insensitive" } } });
+  if (user.email) notMine.push({ NOT: { email: equalsIgnoringCase(user.email.trim()) } });
   return { speaker: { AND: notMine } };
 }

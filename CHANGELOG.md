@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security: an underscore in an address is not a wildcard (November 10)
+
+- **Whose a record is no longer matches a look-alike address** (review of `ed074639`) - Prisma compiles a case-insensitive `equals` to ILIKE, where `_` matches any one character. The rule for which registrations, speaker records and certificates belong to a confirmed account compared addresses that way, so an account on `john_smith@...` matched `john.smith@...` and the link was then written for good. Fixed with one helper, `equalsIgnoringCase` (`src/lib/like-escape.ts`), at the eight places an address decides ownership: `registrant-access.ts` (5), `registrant-certificates.ts`, the reviewer's own-abstract rule and the reviewer's speaker-record lookup. That lookup also no longer takes a record on the reviewer's address that ANOTHER account has claimed (its additional email is copied on reviewer emails). Production was checked read-only before the fix: 19 accounts have an underscore, none is confirmed, and no registration or speaker record is linked to the wrong account or at risk. Proven on Postgres in `tests/integration-db/email-equals-wildcard.db.test.ts`. The same pattern exists at about 30 other places that do not decide ownership; they are listed for a separate sweep
+
 ### Production warnings audit: the small fixes (November 10)
 
 From a read of ten days of production warnings (Oct 31 to Nov 10).

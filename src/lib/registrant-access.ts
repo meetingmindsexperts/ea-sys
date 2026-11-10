@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 
 /**
  * Which registrations belong to a signed-in person (Nov 5, 2026;
@@ -55,7 +56,7 @@ export async function loadRegistrantScope(userId: string, proof: ScopeProof): Pr
  */
 export function ownRegistrationWhere(scope: RegistrantScope): Prisma.RegistrationWhereInput {
   if (!scope.confirmed || !scope.email) return { userId: scope.userId };
-  return { OR: [{ userId: scope.userId }, { userId: null, attendee: { email: { equals: scope.email, mode: "insensitive" } } }] };
+  return { OR: [{ userId: scope.userId }, { userId: null, attendee: { email: equalsIgnoringCase(scope.email) } }] };
 }
 
 /**
@@ -65,7 +66,7 @@ export function ownRegistrationWhere(scope: RegistrantScope): Prisma.Registratio
 export async function linkConfirmedRegistrations(scope: RegistrantScope): Promise<number> {
   if (!scope.confirmed || !scope.email) return 0;
   const { count } = await db.registration.updateMany({
-    where: { userId: null, attendee: { email: { equals: scope.email, mode: "insensitive" } } },
+    where: { userId: null, attendee: { email: equalsIgnoringCase(scope.email) } },
     data: { userId: scope.userId },
   });
   return count;
@@ -81,7 +82,7 @@ export async function linkConfirmedRegistrations(scope: RegistrantScope): Promis
 export async function speakerClaimPending(eventId: string, email: string, accountConfirmed: boolean): Promise<boolean> {
   if (accountConfirmed) return false;
   const speaker = await db.speaker.findFirst({
-    where: { eventId, userId: null, email: { equals: email, mode: "insensitive" } },
+    where: { eventId, userId: null, email: equalsIgnoringCase(email) },
     select: { id: true },
   });
   return !!speaker;
@@ -96,7 +97,7 @@ export async function linkConfirmedSpeakers(scope: RegistrantScope, organization
   if (!scope.confirmed || !scope.email) return 0;
   const { count } = await db.speaker.updateMany({
     // The host's organisation when there is one, on top of the tenant lane.
-    where: { userId: null, email: { equals: scope.email, mode: "insensitive" }, ...(organizationId && { organizationId }) },
+    where: { userId: null, email: equalsIgnoringCase(scope.email), ...(organizationId && { organizationId }) },
     data: { userId: scope.userId },
   });
   return count;
@@ -114,7 +115,7 @@ export async function hasUnclaimedRegistrations(scope: RegistrantScope): Promise
     // Spelled out with userId: null: `NOT { userId }` is SQL `<>`, which never matches a NULL.
     where: {
       OR: [{ userId: null }, { userId: { not: scope.userId } }],
-      attendee: { email: { equals: scope.email, mode: "insensitive" } },
+      attendee: { email: equalsIgnoringCase(scope.email) },
     },
     select: { id: true },
   });

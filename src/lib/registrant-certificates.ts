@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
 import { formatDate } from "@/lib/utils";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 import { localDateInTz } from "@/lib/event-time";
 
 /**
@@ -62,7 +63,7 @@ export type PortalCertificate = Prisma.IssuedCertificateGetPayload<{ select: typ
  */
 function ownedWhere(scope: RegistrantScope): Prisma.IssuedCertificateWhereInput {
   const speaker: Prisma.SpeakerWhereInput[] = [{ userId: scope.userId }];
-  if (scope.confirmed && scope.email) speaker.push({ userId: null, email: { equals: scope.email, mode: "insensitive" } });
+  if (scope.confirmed && scope.email) speaker.push({ userId: null, email: equalsIgnoringCase(scope.email) });
   return {
     revokedAt: null,
     pdfUrl: { not: null },

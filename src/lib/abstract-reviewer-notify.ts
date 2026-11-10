@@ -5,6 +5,7 @@ import { UNRESOLVED_TOKENS_CODE, untokened } from "@/lib/template-tokens";
 import { apiLogger } from "@/lib/logger";
 import { db } from "@/lib/db";
 import { getTitleLabel } from "@/lib/utils";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 
 /** What a reviewer's speaker record on the event adds to their emails. */
 export interface ReviewerSpeakerRecord {
@@ -41,7 +42,7 @@ export async function reviewerSpeakerRecords(
         eventId,
         OR: [
           { userId: { in: reviewers.map((r) => r.id) } },
-          ...reviewers.map((r) => ({ email: { equals: r.email, mode: "insensitive" as const } })),
+          ...reviewers.map((r) => ({ email: equalsIgnoringCase(r.email) })),
         ],
       },
       select: { userId: true, email: true, title: true, additionalEmail: true },
@@ -49,7 +50,9 @@ export async function reviewerSpeakerRecords(
     });
     for (const r of reviewers) {
       const linked = speakers.find((s) => s.userId === r.id);
-      const byAddress = speakers.find((s) => s.email.toLowerCase() === r.email.toLowerCase());
+      // A record on their address that ANOTHER account has claimed is not
+      // theirs: its additional email must never get this reviewer's emails.
+      const byAddress = speakers.find((s) => s.email.toLowerCase() === r.email.toLowerCase() && (s.userId === null || s.userId === r.id));
       const speaker = linked ?? byAddress;
       if (speaker) records.set(r.id, { title: speaker.title ?? null, additionalEmail: speaker.additionalEmail ?? null });
     }

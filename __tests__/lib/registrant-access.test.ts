@@ -100,3 +100,25 @@ describe("linkConfirmedSpeakers", () => {
     });
   });
 });
+
+describe("an underscore in the address is not a wildcard", () => {
+  // Prisma compiles an insensitive `equals` to ILIKE, where `_` matches any
+  // character: john_smith@ matched john.smith@ and took their registrations
+  // (review of ed074639, Nov 10, 2026; the database half is in
+  // tests/integration-db/email-equals-wildcard.db.test.ts).
+  const scope = { userId: "u1", email: "john_smith@example.com", confirmed: true };
+  const escaped = { equals: "john\\_smith@example.com", mode: "insensitive" };
+
+  it("every rule that matches by address escapes it", async () => {
+    expect(ownRegistrationWhere(scope)).toEqual({ OR: [{ userId: "u1" }, { userId: null, attendee: { email: escaped } }] });
+    mockDb.registration.updateMany.mockResolvedValue({ count: 0 });
+    await linkConfirmedRegistrations(scope);
+    expect(mockDb.registration.updateMany.mock.calls[0][0].where).toEqual({ userId: null, attendee: { email: escaped } });
+    mockDb.speaker.updateMany.mockResolvedValue({ count: 0 });
+    await linkConfirmedSpeakers(scope);
+    expect(mockDb.speaker.updateMany.mock.calls[0][0].where).toEqual({ userId: null, email: escaped });
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    await hasUnclaimedRegistrations({ ...scope, confirmed: false });
+    expect(mockDb.registration.findFirst.mock.calls[0][0].where.attendee).toEqual({ email: escaped });
+  });
+});
