@@ -184,8 +184,8 @@ details[open] summary { border-bottom: 1px solid var(--line); }
 .tag-urgent { display: inline-flex; align-items: center; gap: 6px; width: fit-content; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--decide); background: var(--decide-bg); border-radius: 6px; padding: 3px 8px; }
 
 /* Key dates */
-.dates { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: relative; }
-.dates::before { content: ""; position: absolute; left: 10px; right: 10px; top: 11px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--use) 0 34%, var(--line) 34% 100%); }
+.dates { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); position: relative; }
+.dates::before { content: ""; position: absolute; left: 10px; right: 10px; top: 11px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--use) 0 44%, var(--line) 44% 100%); }
 .dates li { position: relative; display: grid; gap: 4px; padding: 36px 14px 0 0; }
 .dates .mark { position: absolute; top: 0; left: 0; width: 25px; height: 25px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); border: 3px solid var(--plan-line); color: var(--plan); }
 .dates .mark svg { width: 13px; height: 13px; }
@@ -243,14 +243,14 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
 
 <header class="hero gutter">
   <div class="inner">
-    <p class="asof">As of 6 November 2026</p>
+    <p class="asof">As of 11 November 2026</p>
     <h1>EA-SYS roadmap: <em>where we are</em> and what needs a decision</h1>
     <p class="lead">EA-SYS runs our events end to end, from the first budget to the certificate. This page shows where every part stands in production today, what ships next, and the few decisions that hold work back.</p>
     <div class="stats" aria-label="Status summary">
-      <div class="stat use"><div class="n"><svg aria-hidden="true"><use href="#s-use"/></svg>6</div><div class="l">Live and in use</div></div>
+      <div class="stat use"><div class="n"><svg aria-hidden="true"><use href="#s-use"/></svg>9</div><div class="l">Live and in use</div></div>
       <div class="stat idle"><div class="n"><svg aria-hidden="true"><use href="#s-idle"/></svg>3</div><div class="l">Live, not used yet</div></div>
       <div class="stat build"><div class="n"><svg aria-hidden="true"><use href="#s-build"/></svg>2</div><div class="l">In build</div></div>
-      <div class="stat decide"><div class="n"><svg aria-hidden="true"><use href="#s-decide"/></svg>4</div><div class="l">Needs a decision</div></div>
+      <div class="stat decide"><div class="n"><svg aria-hidden="true"><use href="#s-decide"/></svg>3</div><div class="l">Needs a decision</div></div>
       <div class="stat plan"><div class="n"><svg aria-hidden="true"><use href="#s-plan"/></svg>1</div><div class="l">Planned</div></div>
     </div>
   </div>
@@ -269,18 +269,20 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
         <div class="lane now">
           <div class="lane-head"><h3>Now</h3><small>November</small></div>
           <ul>
-            <li><strong>Webinar attendee chat</strong><span>Released today, tested with 500 viewers</span></li>
-            <li><strong>CRM data privacy</strong><span>Export or erase a person's data, retention rules</span></li>
+            <li><strong>Attendee portal and sign-up</strong><span>Released 9 November: My events, certificates, replays</span></li>
+            <li><strong>Abstract review for MEHF 2027</strong><span>Review page and one invitation email, released 10 November</span></li>
+            <li><strong>Onsite desk</strong><span>First used 7 November; 13 walk-ins so far</span></li>
+            <li><strong>Webinar attendee chat</strong><span>Released 6 November, tested with 500 viewers; not used yet</span></li>
             <li><strong>Exhibitor floor plan</strong><span>Stand link per event, Conrad demo</span></li>
-            <li><strong>Event catalogue</strong><span>Live with 9 events; sign-up paused for approval</span></li>
             <li><strong>E-invoicing kick-off</strong><span>Call with Averyx requested for 9 November</span></li>
           </ul>
         </div>
         <div class="lane next">
           <div class="lane-head"><h3>Next</h3><small>once decided</small></div>
           <ul>
-            <li><strong>Account sign-up</strong><span>Built and paused; waits on Medhat's approval</span></li>
-            <li><strong>"Interested" button</strong><span>After sign-up; about 2 days</span></li>
+            <li><strong>ID check at sign-up</strong><span>Needs a decision on what the ID should prove</span></li>
+            <li><strong>"Interested" button</strong><span>Sign-up is live, so it can start; about 2 days</span></li>
+            <li><strong>Catalogue branding</strong><span>Its own name and logo on the catalogue and sign-in pages</span></li>
             <li><strong>First Blueprint approved</strong><span>One brief is waiting for approval</span></li>
             <li><strong>Start using Budgets</strong><span>Live, but no budget entered yet</span></li>
             <li><strong>DTCM codes on a live event</strong><span>Then retire the old barcodes app</span></li>
@@ -314,7 +316,7 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
         <span class="pill plan"><svg class="i" aria-hidden="true"><use href="#s-plan"/></svg>Planned</span>
       </div>
       <div class="filters" role="group" aria-label="Show modules by status">
-        <button type="button" id="f-all" data-filter="all" aria-pressed="true">All 16</button>
+        <button type="button" id="f-all" data-filter="all" aria-pressed="true">All 18</button>
         <button type="button" id="f-use" data-filter="use" aria-pressed="false"><svg aria-hidden="true"><use href="#s-use"/></svg>In use</button>
         <button type="button" id="f-idle" data-filter="idle" aria-pressed="false"><svg aria-hidden="true"><use href="#s-idle"/></svg>Not used yet</button>
         <button type="button" id="f-build" data-filter="build" aria-pressed="false"><svg aria-hidden="true"><use href="#s-build"/></svg>In build</button>
@@ -323,7 +325,7 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
       </div>
 
       <div class="area plan">
-        <div class="area-head"><span class="area-icon"><svg aria-hidden="true"><use href="#a-plan"/></svg></span><div><h3>Plan the event</h3><span>Brief, venue and budget</span></div></div>
+        <div class="area-head"><span class="area-icon"><svg aria-hidden="true"><use href="#a-plan"/></svg></span><div><h3>Plan the event</h3><span>Brief, venue, budget and programme</span></div></div>
         <div class="cards">
           <article class="card" data-status="use">
             <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use, in trial</span><h4>Event Blueprint</h4></div>
@@ -343,6 +345,12 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
             <dl><div><dt>Done</dt><dd>Released 14 September. A budget can start from finance's costing sheet, a past budget or a CSV. A PO is issued the moment it is approved.</dd></div><div><dt>Next</dt><dd>A first pilot event with finance. Comparing past budgets comes after.</dd></div></dl>
             <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 0 budgets, 0 spend requests, 0 suppliers.</span></p>
           </article>
+          <article class="card" data-status="use">
+            <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use</span><h4>Abstracts and review</h4></div>
+            <p class="what">Authors submit abstracts online. The scientific committee scores the ones assigned to them on their own review page.</p>
+            <dl><div><dt>Done</dt><dd>Since 10 November a reviewer sees only the abstracts assigned to them, and gets one invitation email that works whether or not they already have an account. An author no longer retypes details they gave before.</dd></div><div><dt>Next</dt><dd>Invite the MEHF 2027 committee and start scoring.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> MEHF 2027 has 173 abstracts; 1 reviewer added and 2 abstracts assigned so far.</span></p>
+          </article>
         </div>
       </div>
 
@@ -352,19 +360,26 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
           <article class="card" data-status="use">
             <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use since 4 Nov</span><h4>Event catalogue</h4></div>
             <p class="what">A public list of our events, with pages per specialty and country. Google and AI assistants can read it.</p>
-            <dl><div><dt>Done</dt><dd>Each event has its own page instead of opening straight onto the form.</dd></div><div><dt>Next</dt><dd>Account sign-up is built and paused until it is approved.</dd></div></dl>
-            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 9 events listed, 5 of them upcoming.</span></p>
+            <dl><div><dt>Done</dt><dd>Each event has its own page instead of opening straight onto the form.</dd></div><div><dt>Next</dt><dd>Its own name and logo on the catalogue pages.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 9 events listed, 4 of them upcoming.</span></p>
           </article>
           <article class="card" data-status="use">
             <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use</span><h4>CRM for sponsorship</h4></div>
             <p class="what">Deals, accounts and contacts for sponsor sales, with the partnerships@ mailbox as a shared inbox.</p>
-            <dl><div><dt>Done</dt><dd>Replies thread in the sponsor's mail client. Data privacy controls added this week.</dd></div><div><dt>Next</dt><dd>Sending quotes to QuickBooks, once QuickBooks is connected.</dd></div></dl>
-            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 14 deals, 35 inbox emails, latest on 5 November.</span></p>
+            <dl><div><dt>Done</dt><dd>Replies thread in the sponsor's mail client. A person's data can be exported or erased on request, since 6 November.</dd></div><div><dt>Next</dt><dd>Sending quotes to QuickBooks, once QuickBooks is connected.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 14 deals, 67 emails received in the shared inbox, latest on 10 November.</span></p>
           </article>
-          <article class="card" data-status="decide">
-            <div class="card-top"><span class="pill decide"><svg class="i" aria-hidden="true"><use href="#s-decide"/></svg>Waiting on approval</span><h4>Account sign-up</h4></div>
+          <article class="card" data-status="idle">
+            <div class="card-top"><span class="pill idle"><svg class="i" aria-hidden="true"><use href="#s-idle"/></svg>Live, not used yet</span><h4>Account sign-up</h4></div>
             <p class="what">People create an account from the catalogue without registering for an event first.</p>
-            <dl><div><dt>Done</dt><dd>Built, with email confirmation, then paused for approval.</dd></div><div><dt>Next</dt><dd>Decide: inside EA-SYS, or a separate app on our API.</dd></div></dl>
+            <dl><div><dt>Done</dt><dd>Released 9 November, inside EA-SYS. It asks the same questions as the registration form, offers a marketing opt-in, and confirms the address by email before the first sign-in.</dd></div><div><dt>Next</dt><dd>Decide whether to ask for an ID or licence, and what it should prove.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 1 account created through sign-up so far.</span></p>
+          </article>
+          <article class="card" data-status="use">
+            <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use since 9 Nov</span><h4>Attendee portal</h4></div>
+            <p class="what">After signing in, an attendee sees every event they registered for and what is left to do: pay, take the survey, download the certificate, watch the replay.</p>
+            <dl><div><dt>Done</dt><dd>My events, My certificates, My abstracts and My details, usable on a phone. Attendees see our attendee-facing brand; staff see MM Group.</dd></div><div><dt>Next</dt><dd>A separate web address for attendees, later.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 618 attendee accounts can sign in to it.</span></p>
           </article>
           <article class="card" data-status="decide">
             <div class="card-top"><span class="pill decide"><svg class="i" aria-hidden="true"><use href="#s-decide"/></svg>Needs a decision</span><h4>Partner event listings</h4></div>
@@ -377,16 +392,17 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
       <div class="area run">
         <div class="area-head"><span class="area-icon"><svg aria-hidden="true"><use href="#a-run"/></svg></span><div><h3>Run the event</h3><span>On the day, in person and online</span></div></div>
         <div class="cards">
-          <article class="card" data-status="idle">
-            <div class="card-top"><span class="pill idle"><svg class="i" aria-hidden="true"><use href="#s-idle"/></svg>Live, not used yet</span><h4>Onsite desk</h4></div>
+          <article class="card" data-status="use">
+            <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use since 7 Nov</span><h4>Onsite desk</h4></div>
             <p class="what">Register a walk-in, take payment, print the badge and check them in from one screen.</p>
-            <dl><div><dt>Done</dt><dd>Released 29 October. About 30 to 40 seconds per walk-in. People complete their details by QR code or a desk tablet.</dd></div><div><dt>Next</dt><dd>Use it at the next in-person event.</dd></div></dl>
-            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> no walk-in registered through it yet.</span></p>
+            <dl><div><dt>Done</dt><dd>Released 29 October. About 30 to 40 seconds per walk-in. People complete their details by QR code or a desk tablet.</dd></div><div><dt>Next</dt><dd>Use it at a full in-person conference.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 13 people registered at the desk, across 3 events.</span></p>
           </article>
           <article class="card" data-status="use">
             <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use</span><h4>Webinars</h4></div>
             <p class="what">Zoom webinars, our own live stream for large audiences, Q&amp;A, polls, surveys and certificates.</p>
-            <dl><div><dt>Done</dt><dd>A dropped stream restarts on its own. Reminder with the join link 15 minutes before.</dd></div><div><dt>Next</dt><dd>Attendee chat beside the stream: released today, first use at the next webinar.</dd></div></dl>
+            <dl><div><dt>Done</dt><dd>A dropped stream restarts on its own. Since 9 November the live stream reaches viewers through a delivery network, so more people can watch at once. A replay can be uploaded and watched in the attendee portal.</dd></div><div><dt>Next</dt><dd>First use of attendee chat (released 6 November) and of an uploaded replay.</dd></div></dl>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 10 webinars completed; attendee chat and uploaded replays not used yet.</span></p>
           </article>
           <article class="card" data-status="build">
             <div class="card-top"><span class="pill build"><svg class="i" aria-hidden="true"><use href="#s-build"/></svg>Built, testing</span><h4>Dubai DTCM codes</h4></div>
@@ -425,7 +441,7 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
           <article class="card" data-status="use">
             <div class="card-top"><span class="pill use"><svg class="i" aria-hidden="true"><use href="#s-use"/></svg>In use since 7 Oct</span><h4>Custom roles</h4></div>
             <p class="what">Staff access set by role in Settings. A Marketing role, for example, sees registrations but not money.</p>
-            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 8 custom roles, held by 5 people.</span></p>
+            <p class="fact"><svg aria-hidden="true"><use href="#s-chart"/></svg><span><b>In production:</b> 8 custom roles, held by 4 people.</span></p>
           </article>
           <article class="card" data-status="decide">
             <div class="card-top"><span class="pill decide"><svg class="i" aria-hidden="true"><use href="#s-decide"/></svg>Needs a decision</span><h4>EA-SYS for other organisations</h4></div>
@@ -444,12 +460,12 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
       </div>
       <div class="decisions">
         <details class="urgent" open>
-          <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">Account sign-up: inside EA-SYS, or a separate app?</span><span class="who medhat"><i>M</i>Medhat</span><span class="short">Built and paused for approval. About a day to finish if we keep it in EA-SYS.</span></summary>
-          <div class="detail"><p class="tag-urgent"><svg class="i" aria-hidden="true"><use href="#s-flag"/></svg>Most urgent</p><p>Keeping it in EA-SYS reuses the security we already have (confirmation emails, login limits). A separate app on our API gives more freedom in design, but it is a second system to build and look after.</p></div>
+          <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">Ask for an ID or licence when someone creates an account?</span><span class="who medhat"><i>M</i>Medhat</span><span class="short">Sign-up is live without it. We need to know what the ID should prove before building the check.</span></summary>
+          <div class="detail"><p class="tag-urgent">Most urgent</p><p>Two things to settle. First, whether the document proves who the person is (a passport or national ID) or that they are a healthcare professional (a licence, which suits medical events better). Second, what an account that has not been checked may not do. A first version would have staff review each upload, with an automatic pre-check to save their time.</p></div>
         </details>
         <details>
-          <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">Add an "Interested" button to events?</span><span class="who medhat"><i>M</i>Medhat</span><span class="short">Signed-in people save events and opt in to reminders. Needs account sign-up first.</span></summary>
-          <div class="detail"><p>About two days of work after sign-up. Reminders need their own opt-in. The count of interested people stays internal.</p></div>
+          <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">Add an "Interested" button to events?</span><span class="who medhat"><i>M</i>Medhat</span><span class="short">Signed-in people save events and opt in to reminders. Sign-up is live, so this can start.</span></summary>
+          <div class="detail"><p>About two days of work. Reminders need their own opt-in. The count of interested people stays internal.</p></div>
         </details>
         <details>
           <summary><span class="qmark"><svg aria-hidden="true"><use href="#s-decide"/></svg></span><span class="q">List partner events that register elsewhere?</span><span class="who medhat"><i>M</i>Medhat</span><span class="short">An event page with a button to the organiser's own registration.</span></summary>
@@ -483,6 +499,7 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
       <ol class="dates">
         <li class="done"><span class="mark"><svg aria-hidden="true"><use href="#s-use"/></svg></span><time datetime="2026-11-04">4 Nov 2026</time><strong>Catalogue live</strong><span>Done</span></li>
         <li class="done"><span class="mark"><svg aria-hidden="true"><use href="#s-use"/></svg></span><time datetime="2026-11-06">6 Nov 2026</time><strong>Webinar chat released</strong><span>Done</span></li>
+        <li class="done"><span class="mark"><svg aria-hidden="true"><use href="#s-use"/></svg></span><time datetime="2026-11-09">9 Nov 2026</time><strong>Attendee portal and sign-up</strong><span>Done</span></li>
         <li class="soon"><span class="mark"></span><time datetime="2026-11-09">9 Nov 2026</time><strong>E-invoicing kick-off</strong><span>Call with Averyx, requested</span></li>
         <li class="legal"><span class="mark"><svg aria-hidden="true"><use href="#s-flag"/></svg></span><time datetime="2027-03-31">31 Mar 2027</time><strong>Provider chosen</strong><span>Legal deadline</span></li>
         <li class="legal"><span class="mark"><svg aria-hidden="true"><use href="#s-flag"/></svg></span><time datetime="2027-07-01">1 Jul 2027</time><strong>E-invoicing live</strong><span>Legal deadline</span></li>
@@ -492,7 +509,7 @@ footer { border-top: 1px solid var(--line); padding-block: 20px 32px; color: var
   </div>
 </main>
 
-<footer class="gutter"><div class="inner">Prepared by Krishna, 6 November 2026. Every "In production" figure was read from the live system on 6 November 2026.</div></footer>
+<footer class="gutter"><div class="inner">Prepared by Krishna, 11 November 2026. Every "In production" figure was read from the live system on 11 November 2026.</div></footer>
 
 <script>
 (function () {
