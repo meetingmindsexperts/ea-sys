@@ -308,6 +308,97 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
       expect(second).toContain("Structural Heart Panel");
       expect(second).toContain("TAVR Outcomes");
     });
+
+    // The four below came out of the review of 69c84961: each one names a
+    // mutation that the tests above let through.
+
+    it("takes the room of ITS OWN session, never another row's (a later row with a different room)", async () => {
+      const row = moderatorWhoPresents();
+      // A second, later speaking session in another room, listed LAST.
+      row.sessions.push({
+        role: "SPEAKER",
+        session: {
+          name: "Closing Plenary",
+          startTime: new Date("2026-03-05T19:00:00Z"), // 2:00 PM EST
+          endTime: new Date("2026-03-05T20:00:00Z"),
+          location: "Hall Z",
+          track: null,
+          topics: [],
+        },
+      });
+      mockDb.speaker.findFirst.mockResolvedValue(row);
+      const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+      const [first, second] = (ctx?.presentationDetails ?? "").split("</table>");
+      expect(first).toContain("Structural Heart Panel · Hall B");
+      expect(first).not.toContain("Hall Z");
+      expect(second).toContain("Closing Plenary · Hall Z");
+    });
+
+    it("a moderated session with no room renders the bare session name", async () => {
+      const row = moderatorWhoPresents();
+      row.sessions[0].session.location = null;
+      mockDb.speaker.findFirst.mockResolvedValue(row);
+      const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+      expect(ctx?.presentationDetails).toContain("Structural Heart Panel</td>");
+      expect(ctx?.presentationDetailsText).toContain("Session: Structural Heart Panel\n");
+    });
+
+    it("several own topics in one moderated session: each timed one carries its own slot, an untimed one its title only", async () => {
+      const row = moderatorWhoPresents();
+      const [own] = row.topicSpeakers as unknown as Array<{ topic: { session: Record<string, unknown> } }>;
+      const session = own.topic.session;
+      // Order on the session: own 25m, other 45m, own 20m, own untimed.
+      const siblings = [
+        { id: "own-a", duration: 25 },
+        { id: "other", duration: 45 },
+        { id: "own-b", duration: 20 },
+        { id: "own-c", duration: null },
+      ];
+      const ownTopic = (id: string, title: string, duration: number | null) => ({
+        topic: { id, title, duration, session: { ...session, topics: siblings } },
+      });
+      row.topicSpeakers = [
+        ownTopic("own-a", "Welcome and Introduction", 25),
+        ownTopic("own-b", "Updates in AML Management", 20),
+        ownTopic("own-c", "Open Discussion", null),
+      ] as unknown as ReturnType<typeof speakerRow>["topicSpeakers"];
+      mockDb.speaker.findFirst.mockResolvedValue(row);
+      const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+      const html = ctx?.presentationDetails ?? "";
+      // 11:00 start: 25m, then 45m of someone else, then 20m.
+      expect(html).toContain("Welcome and Introduction<br/>11:00 AM – 11:25 AM (EST)");
+      expect(html).toContain("Updates in AML Management<br/>12:10 PM – 12:30 PM (EST)");
+      expect(html).toContain("Open Discussion");
+      expect(html).not.toContain("Open Discussion<br/>");
+      // All three under ONE session table.
+      expect(html.match(/<table/g)?.length).toBe(1);
+      expect(ctx?.presentationDetailsText).toContain(
+        "Topic: Welcome and Introduction, 11:00 AM – 11:25 AM (EST); Updates in AML Management, 12:10 PM – 12:30 PM (EST); Open Discussion",
+      );
+    });
+
+    it("sorts by start time when the moderated session comes BEFORE the speaking one", async () => {
+      const row = moderatorWhoPresents();
+      // Speaking row listed FIRST but starting later (2:00 PM EST): groups are
+      // created speaking-rows-first, so only the sort can put the panel on top.
+      row.sessions.unshift({
+        role: "SPEAKER",
+        session: {
+          name: "Closing Plenary",
+          startTime: new Date("2026-03-05T19:00:00Z"),
+          endTime: new Date("2026-03-05T20:00:00Z"),
+          location: null,
+          track: null,
+          topics: [],
+        },
+      });
+      mockDb.speaker.findFirst.mockResolvedValue(row);
+      const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+      const [first, second] = (ctx?.presentationDetails ?? "").split("</table>");
+      expect(first).toContain("Structural Heart Panel");
+      expect(first).toContain("TAVR Outcomes");
+      expect(second).toContain("Closing Plenary");
+    });
   });
 });
 
