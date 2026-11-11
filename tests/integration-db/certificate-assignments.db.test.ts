@@ -673,7 +673,7 @@ describe("the readers", () => {
     const companion = await registration("comp@x.com", { answered: true, swept: true });
     const prof = await speaker("prof@x.com", { sourceRegistrationId: companion });
     const guest = await speaker("guest@x.com");
-    await db.registration.update({ where: { id: adam }, data: { status: "CHECKED_IN" } });
+    await db.registration.update({ where: { id: adam }, data: { status: "CHECKED_IN", serialId: 7 } });
     await assign(day1, { registrationIds: [adam, gone] });
     await db.certificateAssignment.create({
       data: { eventId, organizationId: seed.orgId, certificateTemplateId: day1, registrationId: zara, source: "TAG_BACKFILL" },
@@ -695,7 +695,7 @@ describe("the readers", () => {
       "zara@x.com",
     ]);
     const reg = Object.fromEntries(people.registrations.map((p) => [p.email, p]));
-    expect(reg["adam@x.com"]).toMatchObject({ id: adam, checkedIn: true, cancelled: false, surveyAnsweredAt: null, noList: false, registrationType: "Physician" });
+    expect(reg["adam@x.com"]).toMatchObject({ id: adam, serialId: 7, checkedIn: true, cancelled: false, surveyAnsweredAt: null, noList: false, registrationType: "Physician" });
     expect(Object.keys(reg["adam@x.com"].cells)).toEqual([day1]);
     expect(reg["adam@x.com"].cells[day1]).toMatchObject({ state: "WAITING_FOR_SURVEY", source: "MANUAL", cmeHours: "6", certificate: null });
     // One person, two certificates, two different states.
@@ -711,7 +711,8 @@ describe("the readers", () => {
     // Speakers: their survey is read through their registration at the event.
     expect(people.speakers.map((p) => p.email)).toEqual(["guest@x.com", "prof@x.com"]);
     const spk = Object.fromEntries(people.speakers.map((p) => [p.email, p]));
-    expect(spk["prof@x.com"]).toMatchObject({ id: prof, registrationType: null, surveyAnsweredAt: ANSWERED });
+    // A speaker has no registration number: "Select by IDs" finds them by email or id.
+    expect(spk["prof@x.com"]).toMatchObject({ id: prof, serialId: null, registrationType: null, surveyAnsweredAt: ANSWERED });
     expect(spk["prof@x.com"].cells[faculty].state).toBe("READY");
     expect(spk["guest@x.com"]).toMatchObject({ id: guest, surveyAnsweredAt: null, cells: {} });
 

@@ -20,7 +20,7 @@
  */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Download, ListPlus, Loader2, Plus, Search, UserPlus, X, Zap } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ListChecks, ListPlus, Loader2, Plus, Search, UserPlus, X, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +40,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { downloadExport } from "@/lib/export-download";
+import { formatSerialId } from "@/lib/registration-serial";
+import { resolvePastedIds } from "@/lib/resolve-pasted-ids";
 import { assignmentSourceLabel, MAX_ASSIGNMENT_BATCH } from "@/lib/certificates/assignments";
 import {
   EMPTY_PEOPLE_FILTER,
@@ -152,6 +154,7 @@ export function CertificateRecipientsPanel({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [emailsOpen, setEmailsOpen] = useState(false);
+  const [idsOpen, setIdsOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
 
@@ -391,6 +394,12 @@ export function CertificateRecipientsPanel({
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
               {canManage && (
+                <Button variant="outline" size="sm" onClick={() => setIdsOpen(true)}>
+                  <ListChecks className="mr-2 h-4 w-4" />
+                  Select by IDs
+                </Button>
+              )}
+              {canManage && (
                 <Button variant="outline" size="sm" onClick={() => setEmailsOpen(true)}>
                   <ListPlus className="mr-2 h-4 w-4" />
                   Add from a list of emails
@@ -424,7 +433,7 @@ export function CertificateRecipientsPanel({
               <Input
                 value={filters.search}
                 onChange={(e) => setFilter({ search: e.target.value })}
-                placeholder="Search name or email"
+                placeholder={kind === "registration" ? "Search name, email or ID" : "Search name or email"}
                 className="h-9 w-60 pl-8"
                 aria-label="Search people"
               />
@@ -646,6 +655,14 @@ export function CertificateRecipientsPanel({
         </DialogContent>
       </Dialog>
 
+      <SelectByIdsDialog
+        open={idsOpen}
+        onOpenChange={setIdsOpen}
+        kind={kind}
+        people={everyone}
+        onSelect={(ids) => setSelected((prev) => new Set([...prev, ...ids]))}
+      />
+
       <AssignFromEmailsDialog
         eventId={eventId}
         open={emailsOpen}
@@ -773,6 +790,7 @@ function PeopleTable({
                   />
                 </TableHead>
               )}
+              {kind === "registration" && <TableHead className="w-16">ID</TableHead>}
               <TableHead>Person</TableHead>
               {kind === "registration" && <TableHead>Checked in</TableHead>}
               <TableHead>Survey</TableHead>
@@ -798,6 +816,11 @@ function PeopleTable({
                       onCheckedChange={(c) => onToggle(p.id, c === true)}
                       aria-label={`Select ${p.name}`}
                     />
+                  </TableCell>
+                )}
+                {kind === "registration" && (
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {p.serialId != null ? formatSerialId(p.serialId) : ""}
                   </TableCell>
                 )}
                 <TableCell>
@@ -924,6 +947,122 @@ function CertificateCell({
         </Tooltip>
       )}
     </div>
+  );
+}
+
+/**
+ * Select by IDs: paste a column of registration numbers, full ids or emails
+ * and have those people ticked, as on the Registrations page (the same
+ * matcher). It only ticks: assigning is the bar's own button, with its count
+ * and its send-now question. It matches against everyone listed for this
+ * kind, whatever the search and filters show, and ADDS to the ticks already
+ * made.
+ */
+function SelectByIdsDialog({
+  open,
+  onOpenChange,
+  kind,
+  people,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  kind: Kind;
+  people: CertificatePerson[];
+  onSelect: (ids: string[]) => void;
+}) {
+  const [text, setText] = useState("");
+  const [checked, setChecked] = useState<{ matched: string[]; unmatched: string[] } | null>(null);
+
+  const resolve = () =>
+    resolvePastedIds(
+      text,
+      people.map((p) => ({ id: p.id, serialId: p.serialId, attendee: { email: p.email } })),
+    );
+
+  function close(next: boolean) {
+    if (!next) {
+      setText("");
+      setChecked(null);
+    }
+    onOpenChange(next);
+  }
+
+  function select() {
+    const result = checked ?? resolve();
+    if (result.matched.length === 0) {
+      setChecked(result);
+      toast.error(kind === "registration" ? "No registration matches those IDs." : "No speaker matches those.");
+      return;
+    }
+    onSelect(result.matched);
+    const missing = result.unmatched.length > 0 ? ` ${result.unmatched.length} not found.` : "";
+    toast.success(`Selected ${plural(result.matched.length, "person", "people")}.${missing} Now assign or remove a certificate.`);
+    close(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ListChecks className="h-4 w-4" />
+            Select by IDs
+          </DialogTitle>
+          <DialogDescription>
+            {kind === "registration"
+              ? "Paste registration numbers, full IDs or emails, one per line or separated by commas. The matching people are ticked, so you can assign or remove a certificate for exactly them."
+              : "Paste speaker emails or full IDs, one per line or separated by commas. The matching speakers are ticked, so you can assign or remove a certificate for exactly them."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="cert-select-ids">{kind === "registration" ? "IDs or emails" : "Emails or IDs"}</Label>
+            <Textarea
+              id="cert-select-ids"
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                setChecked(null);
+              }}
+              rows={7}
+              placeholder={kind === "registration" ? "002\n005\njane@example.com" : "jane@example.com\nsam@example.com"}
+              // The shared Textarea grows with its content: cap it and scroll inside, or a long column pushes the buttons off the screen.
+              className="max-h-60 overflow-y-auto font-mono text-xs"
+            />
+            <p className="text-xs text-muted-foreground">
+              Matched against everyone {kind === "registration" ? "at this event" : "on the speakers list"}, whatever the
+              search and filters are showing. People already ticked stay ticked.
+            </p>
+          </div>
+          {checked && (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm">
+              <p className="font-medium">
+                {checked.matched.length} matched
+                {checked.unmatched.length > 0 ? `, ${checked.unmatched.length} not found` : ""}
+              </p>
+              {checked.unmatched.length > 0 && (
+                <p className="mt-1 break-words text-xs text-muted-foreground">
+                  Not found: {checked.unmatched.slice(0, 30).join(", ")}
+                  {checked.unmatched.length > 30 ? ` (and ${checked.unmatched.length - 30} more)` : ""}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => close(false)}>
+            Cancel
+          </Button>
+          <Button variant="secondary" onClick={() => setChecked(resolve())} disabled={!text.trim()}>
+            Match
+          </Button>
+          <Button onClick={select} disabled={!text.trim()}>
+            Select{checked ? ` ${checked.matched.length}` : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

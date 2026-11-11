@@ -117,7 +117,7 @@ import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payme
 const SPONSOR_FILTER_ALL = "__all__";
 import { BadgeDialog } from "./badge-dialog";
 import { SharedViewsDialog } from "@/components/registrations/shared-views-dialog";
-import { resolvePastedIds } from "./resolve-pasted-ids";
+import { resolvePastedIds } from "@/lib/resolve-pasted-ids";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;

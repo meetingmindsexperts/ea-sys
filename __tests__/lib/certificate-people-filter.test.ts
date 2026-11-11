@@ -46,6 +46,19 @@ describe("matchesPeopleFilter", () => {
     expect(keep(person({ email: null }), { search: "demo.invalid" })).toBe(false);
   });
 
+  it("search also finds a registration by its number, padded or not, and never a speaker by one", () => {
+    const twelve = person({ serialId: 12 });
+    expect(keep(twelve, { search: "012" })).toBe(true);
+    expect(keep(twelve, { search: "12" })).toBe(true);
+    expect(keep(twelve, { search: " 12 " })).toBe(true);
+    expect(keep(twelve, { search: "13" })).toBe(false);
+    // Digits inside an email still match as text.
+    expect(keep(person({ serialId: 3, email: "doc77@demo.invalid" }), { search: "77" })).toBe(true);
+    // No number at all (a speaker, or a registration that never got one).
+    expect(keep(person({ serialId: null }), { search: "012" })).toBe(false);
+    expect(keep(person({}), { search: "012" })).toBe(false);
+  });
+
   it("registration type, checked in and survey each narrow the list", () => {
     expect(keep(person(), { registrationType: "Physician" })).toBe(true);
     expect(keep(person(), { registrationType: "Nurse" })).toBe(false);

@@ -4,7 +4,7 @@
  * id, the padded serial ("002"), the raw serial ("2"), or the attendee email.
  */
 import { describe, it, expect } from "vitest";
-import { resolvePastedIds } from "@/app/(dashboard)/events/[eventId]/registrations/resolve-pasted-ids";
+import { resolvePastedIds } from "@/lib/resolve-pasted-ids";
 
 const rows = [
   { id: "cuid_aaa", serialId: 2, attendee: { email: "Jane@Example.com" } },

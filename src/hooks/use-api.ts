@@ -4310,6 +4310,8 @@ export interface CertificatePersonCell {
 /** One person at the event: a registration, or a speaker. */
 export interface CertificatePerson {
   id: string;
+  /** The registration number ("003" on screen); null for a speaker. */
+  serialId: number | null;
   name: string;
   email: string | null;
   registrationType: string | null;

@@ -53,7 +53,7 @@ import {
   Award,
   type LucideIcon,
 } from "lucide-react";
-import { resolvePastedIds } from "@/app/(dashboard)/events/[eventId]/registrations/resolve-pasted-ids";
+import { resolvePastedIds } from "@/lib/resolve-pasted-ids";
 import {
   useRegistrations,
   useSpeakers,

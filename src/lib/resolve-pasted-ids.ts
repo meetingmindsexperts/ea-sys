@@ -10,6 +10,8 @@ export interface ResolvableRegistration {
 /**
  * Resolve a pasted blob of identifiers → registration ids, for the
  * "Select by IDs" bulk workflow (paste a CSV column, act on those rows).
+ * Shared by the Registrations page, Communications and the certificate
+ * Recipients tab (which also resolves speakers: no serial, so id or email).
  *
  * A token matches any of: the full id (cuid), the padded serial ("002"), the
  * raw serial ("2"), or the attendee email (case-insensitive). Tokens are split

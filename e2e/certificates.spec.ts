@@ -147,7 +147,7 @@ test.describe("Recipients tab: one place to see, find and assign", () => {
     expect(createRes.status()).toBe(201);
     const { template } = (await createRes.json()) as { template: { id: string } };
 
-    type Person = { id: string; name: string; email: string | null; cells: Record<string, { state: string }> };
+    type Person = { id: string; serialId: number | null; name: string; email: string | null; cells: Record<string, { state: string }> };
     const peopleNow = async () => {
       const res = await page.request.get(`/api/events/${EVENT_ID}/certificates/recipients?view=people`);
       expect(res.ok()).toBeTruthy();
@@ -193,6 +193,18 @@ test.describe("Recipients tab: one place to see, find and assign", () => {
     await page.getByRole("button", { name: "Assign to 1" }).click();
     await expect(page.getByText(/Assigned "E2E Recipients CME" to 1 person/)).toBeVisible();
     expect((await peopleNow()).registrations.find((p) => p.id === person.id)?.cells[template.id]?.state).toBe("READY");
+
+    // Select by IDs: paste a registration number (or an email) and an unknown one. The match is ticked, the stranger named.
+    await page.getByRole("button", { name: "Clear filters" }).click();
+    const known = person.serialId != null ? String(person.serialId).padStart(3, "0") : "registrant@test.local";
+    await page.getByRole("button", { name: "Select by IDs" }).click();
+    await page.locator("#cert-select-ids").fill(`${known}\nzzz-not-a-registration`);
+    await page.getByRole("button", { name: "Match" }).click();
+    await expect(page.getByText("1 matched, 1 not found")).toBeVisible();
+    await expect(page.getByText("Not found: zzz-not-a-registration")).toBeVisible();
+    await page.getByRole("button", { name: "Select 1" }).click();
+    await expect(page.getByText("1 person selected")).toBeVisible();
+    await expect(page.getByLabel(`Select ${person.name}`)).toBeChecked();
 
     // Cleanup: off the list, then the template.
     const off = await page.request.delete(`/api/events/${EVENT_ID}/certificates/assignments`, {

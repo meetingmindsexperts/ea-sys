@@ -395,6 +395,8 @@ export interface CertificatePersonCell {
 export interface CertificatePerson {
   /** The registration id, or the speaker id. */
   id: string;
+  /** The registration number staff know the person by ("003" on screen); null for a speaker. */
+  serialId: number | null;
   name: string;
   email: string | null;
   /** The registration type; null for a speaker. */
@@ -488,6 +490,7 @@ export async function loadCertificatePeople(
       where: { eventId, OR: [{ status: { not: "CANCELLED" } }, { certificateAssignments: { some: {} } }] },
       select: {
         id: true,
+        serialId: true,
         status: true,
         surveyCompletedAt: true,
         ticketType: { select: { name: true } },
@@ -536,6 +539,7 @@ export async function loadCertificatePeople(
       sort: sortKey(r.attendee),
       person: {
         id: r.id,
+        serialId: r.serialId,
         name: personName(r.attendee),
         email: r.attendee.email ?? null,
         registrationType: r.ticketType?.name ?? null,
@@ -556,6 +560,7 @@ export async function loadCertificatePeople(
       sort: sortKey(s),
       person: {
         id: s.id,
+        serialId: null,
         name: personName(s),
         email: s.email ?? null,
         registrationType: null,

@@ -25,6 +25,7 @@
  * choice away.
  */
 
+import { formatSerialId } from "@/lib/registration-serial";
 import type { RecipientState } from "./recipient-states";
 
 export const PEOPLE_FILTER_ALL = "all";
@@ -55,7 +56,7 @@ export function speakerBucketOf(status: string, kind: "invited" | "submitters" |
 }
 
 export interface PeopleFilter {
-  /** Matched against the name and the email, whatever the case. */
+  /** Matched against the name and the email, whatever the case, and the registration number. */
   search: string;
   /** Speakers only: which group. Ignored for a registration. */
   speakers: SpeakerBucketFilter;
@@ -79,6 +80,8 @@ export const EMPTY_PEOPLE_FILTER: PeopleFilter = {
 };
 
 export interface FilterablePerson {
+  /** The registration number; absent or null for a speaker. */
+  serialId?: number | null;
   name: string;
   email: string | null;
   registrationType: string | null;
@@ -88,6 +91,13 @@ export interface FilterablePerson {
   /** A speaker's group; null or absent for a registration. */
   speakerBucket?: SpeakerBucket | null;
   cells: Record<string, { state: RecipientState }>;
+}
+
+/** A search finds a person by name, by email, or by registration number ("12" and "012" both find #012). */
+function matchesSearch(person: FilterablePerson, needle: string): boolean {
+  if (person.name.toLowerCase().includes(needle)) return true;
+  if ((person.email ?? "").toLowerCase().includes(needle)) return true;
+  return person.serialId != null && /^\d+$/.test(needle) && formatSerialId(person.serialId).includes(needle);
 }
 
 /** The speakers a group choice keeps. The default also keeps anyone already on a list shown. */
@@ -115,9 +125,7 @@ function matchesStatus(person: FilterablePerson, filter: PeopleFilter, columnIds
  */
 export function matchesPeopleFilter(person: FilterablePerson, filter: PeopleFilter, columnIds: readonly string[]): boolean {
   const needle = filter.search.trim().toLowerCase();
-  if (needle !== "" && !person.name.toLowerCase().includes(needle) && !(person.email ?? "").toLowerCase().includes(needle)) {
-    return false;
-  }
+  if (needle !== "" && !matchesSearch(person, needle)) return false;
   if (!matchesSpeakers(person, filter, columnIds)) return false;
   if (filter.registrationType !== PEOPLE_FILTER_ALL && person.registrationType !== filter.registrationType) return false;
   if (filter.attendance === "checked-in" && !person.checkedIn) return false;
