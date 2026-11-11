@@ -1,9 +1,11 @@
 // The desk QR token (docs/ONSITE_DESK_PLAN.md §8.4). The desk shows a QR for
-// one of two free forms, exhibitors or complimentary, and the link carries
-// this token. While it is valid the public register route relaxes four things
-// for that event and that form only (§8.5); without it, or once it expires,
-// the link is the ordinary public form. Signed, never stored. The desk shows
-// ONE QR per event and kind, valid to the end of the event and printable
+// one of three free forms, exhibitors, complimentary or, on a free event, the
+// rate on sale (§10), and the link carries this token. While it is valid the
+// public register route relaxes four things for that event and that form only
+// (§8.5; three for the free kind, which never reopens a closed rate); without
+// it, or once it expires, the link is the ordinary public form. Signed, never
+// stored. The desk shows ONE QR per event and kind, valid to the end of the
+// event and printable
 // (owner, Oct 29): minted with `until`, it is the same token every time it is
 // shown, so a printed sheet and the screen match. Without `until` a token
 // lives 30 minutes (DESK_QR_TTL_SECONDS). Same HMAC shape as the agent's approval
@@ -13,10 +15,11 @@
 // Server only (node:crypto).
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { isDeskQrKind, type DeskQrKind } from "@/lib/desk-qr-rules";
 
 export const DESK_QR_TTL_SECONDS = 30 * 60;
 
-export type DeskQrKind = "exhibitor" | "complimentary";
+export type { DeskQrKind };
 
 export interface DeskQrSubject {
   eventId: string;
@@ -71,15 +74,11 @@ export type DeskQrVerdict =
   | { ok: true; payload: DeskQrPayload }
   | { ok: false; reason: "malformed" | "signature" | "expired" };
 
-function isKind(value: unknown): value is DeskQrKind {
-  return value === "exhibitor" || value === "complimentary";
-}
-
 function readPayload(body: string): DeskQrPayload | null {
   try {
     const p = JSON.parse(Buffer.from(body, "base64url").toString()) as Partial<DeskQrPayload>;
     if (p.v !== 1 || typeof p.exp !== "number" || typeof p.eventId !== "string") return null;
-    if (!isKind(p.kind) || typeof p.rate !== "string" || typeof p.jti !== "string" || typeof p.issuedBy !== "string") return null;
+    if (!isDeskQrKind(p.kind) || typeof p.rate !== "string" || typeof p.jti !== "string" || typeof p.issuedBy !== "string") return null;
     return p as DeskQrPayload;
   } catch {
     return null;

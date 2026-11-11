@@ -480,3 +480,61 @@ As built: `src/lib/desk-day-summary.ts` (pure counting and the day bounds),
 `check-in/desk-day-summary-dialog.tsx`. Known limit: the walk-in's creator
 comes from its CREATE audit row, so a walk-in whose audit write failed is
 missing from that desk user's own view (managers still see it).
+
+
+## 10. Step 6: The free-registration QR (BUILT, Nov 11, 2026)
+
+Asked for by the desk team: "show the QR when Standard is 0 or Early Bird is
+0". The Complimentary tab needs a rate literally named Complimentary, and
+free events do not have one: of the last eight in-person events in
+production, seven priced Standard at 0 for every type with no Complimentary
+rate, so their desks saw "This event has no Complimentary rate" and no QR.
+
+**What it is.** A third QR, **Free registration**: the public Register link
+without the password step. It is for the rate that link lands on now, asked
+of the same rule (`mainRegisterTarget` in `src/lib/public-availability.ts`),
+so it gives nothing the public form does not already give.
+
+**Owner decision, Nov 11.** Offered only when that rate costs nothing for
+**every** registration type. On an event where it is free for some types
+only (MEHF 2027: Early Bird at 0 for Residents and Students, paid for the
+rest) there is no QR, because a sheet that refuses most of the people who
+scan it slows the queue; the tab says which types pay and points to New
+walk-in.
+
+**Rules** (`freeDeskRate` in `src/lib/desk-qr-rules.ts`):
+
+- The rate on sale is the one the public link lands on. Production never
+  sets sales dates; organisers switch rates on and off, and the rule reads
+  both. A rate switched off or past its sales end is never picked, so a free
+  Early Bird that gave way to a paid Standard does not come back.
+- Never the Complimentary rate (it has its own tab), a sponsor-code rate or a
+  presenter rate. The Exhibitor type is never on this form, and its price
+  does not count towards "every type".
+- No QR while registration is switched off or the event's attendee cap is
+  reached (hybrid events too: the desk registers people in person).
+- A free rate that needs approval, or has no seats, for every type gives no
+  QR and no tab.
+
+**On the register route** the token's kind is `free`. It keeps three of the
+four relaxations of §8.5 (no password, the desk rate limits, in person) and
+drops the fourth: **a closed rate is never reopened** (`deskQrReopensClosedRate`).
+It takes no code (`deskQrTakesCode`), and the "nothing may be left to pay"
+check is unchanged, so a sheet printed before the organiser put a price on
+the rate is refused for whoever would now owe money (`DESK_QR_NOT_FREE`).
+
+**At the desk.** The Walk-in QR dialog gains a **Free** tab, shown only where
+the rate on sale is free for at least one type; a paid event keeps its two
+tabs. One QR per event, valid to the end of its last day, printable, like the
+other two.
+
+**Rollback.** An image from before this change reads a `free` token as
+malformed and answers "This desk QR is not valid. Please scan the QR at the
+desk again." Nothing is registered wrongly; a printed free sheet simply stops
+working until the newer image is back. No migration.
+
+**Not done.** A QR on a partly free event (declined above). The registration
+is saved as `COMPLIMENTARY` with `originalPrice` 0 and `PUBLIC_REGISTER`,
+exactly as a free sign-up on the public form is, so the desk day summary
+(which counts `ONSITE_DESK` walk-ins) does not include it, as for the other
+two QRs.

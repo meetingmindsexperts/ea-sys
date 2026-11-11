@@ -14,14 +14,16 @@ import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { registerTierSlug } from "@/lib/main-register-tiers";
 import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { mintDeskQrToken } from "@/lib/desk-qr-token";
+import { DESK_QR_KINDS, freeDeskRate, type DeskQrKind, type FreeDeskRate } from "@/lib/desk-qr-rules";
 import { isComplimentaryRate } from "@/lib/desk-walkin-payment";
 import { DEFAULT_EVENT_TIMEZONE, knownTimezone, localDateInTz, wallTimeInTzToDate } from "@/lib/event-time";
 
 /**
- * The desk's Walk-in QR (docs/ONSITE_DESK_PLAN.md §8.1).
+ * The desk's Walk-in QR (docs/ONSITE_DESK_PLAN.md §8.1, §10).
  *
  * GET  .../registrations/desk-qr  what the panel can offer: the Exhibitor
- *      type's rate and the Complimentary rate.
+ *      type's rate, the Complimentary rate and, while the rate on sale costs
+ *      nothing, that rate (`free`).
  * POST .../registrations/desk-qr  { kind } → a link to that rate's form in
  *      desk mode, and its QR: ONE QR per event and kind, valid to the end of
  *      the event's last day, the same every time, printable (owner, Oct 29).
@@ -37,7 +39,7 @@ interface RouteParams {
 
 const ROUTE = "events/[eventId]/registrations/desk-qr";
 
-const postSchema = z.object({ kind: z.enum(["exhibitor", "complimentary"]) });
+const postSchema = z.object({ kind: z.enum(DESK_QR_KINDS) });
 
 /** The event's timezone, or the default when the stored one is not a real zone (it would throw). */
 function eventTimezone(timezone: string | null): string {
@@ -83,6 +85,8 @@ interface TypeRow {
   pricingTiers: TierRow[];
 }
 
+type LoadedEvent = NonNullable<Awaited<ReturnType<typeof loadEvent>>>;
+
 /** A rate a desk QR may use: on, not a presenter rate, and needing no approval (owner, Oct 29). */
 function deskUsable(tier: TierRow): boolean {
   return tier.isActive && !tier.requiresApproval && !isPresenterTierName(tier.name);
@@ -118,6 +122,64 @@ function registrationClosed(settings: unknown): boolean {
   return !!settings && typeof settings === "object" && (settings as Record<string, unknown>).registrationOpen === false;
 }
 
+/**
+ * The rate a free-registration QR is for (§10): the one the public Register
+ * link lands on now, with the registration types that charge on it. The rule
+ * is `freeDeskRate`; this only hands it the event as the public form sees it.
+ */
+function freeRate(event: LoadedEvent, now: Date): FreeDeskRate | null {
+  const settings = event.settings && typeof event.settings === "object" ? (event.settings as Record<string, unknown>) : {};
+  return freeDeskRate(
+    {
+      eventType: event.eventType,
+      registrationOpen: !registrationClosed(event.settings),
+      maxAttendees: event.maxAttendees,
+      seatCount: event.seatCount,
+      mainRegisterTiers: settings.mainRegisterTiers,
+      codeRequiredTiers: readCodeRequiredTiers(event.settings),
+      ticketTypes: event.ticketTypes.map((type) => ({
+        ...type,
+        pricingTiers: type.pricingTiers.map((tier) => ({ ...tier, price: Number(tier.price) })),
+      })),
+    },
+    now,
+  );
+}
+
+/** What the panel shows for the free QR: the rate, and who it charges (any at all means no QR). */
+function freeOption(free: FreeDeskRate | null): { rateName: string; paidTypes: string[] } | null {
+  return free ? { rateName: free.rateName, paidTypes: free.paidTypes } : null;
+}
+
+/** The rate's slug a QR of this kind is for, or why the event has none (with the line to log). */
+function rateFor(kind: DeskQrKind, event: LoadedEvent): { rate: string } | { error: string; code: string; msg: string } {
+  if (kind === "exhibitor") {
+    const exhibitor = exhibitorRate(event.ticketTypes, readCodeRequiredTiers(event.settings));
+    if (exhibitor) return { rate: registerTierSlug(exhibitor.tier.name) };
+    return {
+      error: "This event has no Exhibitor registration type with a rate that needs no approval.",
+      code: "NO_EXHIBITOR_RATE",
+      msg: "desk-qr:no-exhibitor-rate",
+    };
+  }
+  if (kind === "complimentary") {
+    const complimentary = complimentaryRate(event.ticketTypes);
+    if (complimentary) return { rate: registerTierSlug(complimentary.name) };
+    return { error: "This event has no Complimentary rate that needs no approval.", code: "NO_COMPLIMENTARY_RATE", msg: "desk-qr:no-complimentary-rate" };
+  }
+  const free = freeRate(event, new Date());
+  if (free && free.paidTypes.length === 0) return { rate: free.slug };
+  // Refused here as well as hidden on the panel: the rate may have gained a
+  // price between the panel opening and the tab being pressed.
+  return {
+    error: free
+      ? `${free.rateName} is not free for ${free.paidTypes.join(", ")}, so it has no walk-in QR.`
+      : "The rate on sale is not free, so this event has no free-registration QR.",
+    code: "NO_FREE_RATE",
+    msg: "desk-qr:no-free-rate",
+  };
+}
+
 async function loadEvent(eventWhere: object) {
   return db.event.findFirst({
     where: eventWhere,
@@ -128,13 +190,33 @@ async function loadEvent(eventWhere: object) {
       settings: true,
       endDate: true,
       timezone: true,
+      // The event-wide cap and each rate's price, seats and sales window: what
+      // the free QR's rule reads (the public form's own numbers).
+      maxAttendees: true,
+      seatCount: true,
       ticketTypes: {
         where: { isActive: true, isFaculty: false },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
         select: {
           id: true,
           name: true,
-          pricingTiers: { orderBy: { sortOrder: "asc" }, select: { id: true, name: true, isActive: true, requiresApproval: true } },
+          quantity: true,
+          soldCount: true,
+          pricingTiers: {
+            orderBy: { sortOrder: "asc" },
+            select: {
+              id: true,
+              name: true,
+              isActive: true,
+              requiresApproval: true,
+              price: true,
+              quantity: true,
+              soldCount: true,
+              salesStart: true,
+              salesEnd: true,
+              sortOrder: true,
+            },
+          },
         },
       },
     },
@@ -184,6 +266,7 @@ export async function GET(_req: Request, { params }: RouteParams): Promise<NextR
             }
           : null,
         complimentary: complimentary ? { rateName: complimentary.name } : null,
+        free: freeOption(freeRate(event, new Date())),
       });
     });
   } catch (err) {
@@ -237,28 +320,12 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
         return NextResponse.json({ error: "This event has ended.", code: "EVENT_ENDED" }, { status: 400 });
       }
 
-      let rate: string;
-      if (input.kind === "exhibitor") {
-        const exhibitor = exhibitorRate(event.ticketTypes, readCodeRequiredTiers(event.settings));
-        if (!exhibitor) {
-          apiLogger.warn({ msg: "desk-qr:no-exhibitor-rate", eventId, userId });
-          return NextResponse.json(
-            { error: "This event has no Exhibitor registration type with a rate that needs no approval.", code: "NO_EXHIBITOR_RATE" },
-            { status: 400 },
-          );
-        }
-        rate = registerTierSlug(exhibitor.tier.name);
-      } else {
-        const complimentary = complimentaryRate(event.ticketTypes);
-        if (!complimentary) {
-          apiLogger.warn({ msg: "desk-qr:no-complimentary-rate", eventId, userId });
-          return NextResponse.json(
-            { error: "This event has no Complimentary rate that needs no approval.", code: "NO_COMPLIMENTARY_RATE" },
-            { status: 400 },
-          );
-        }
-        rate = registerTierSlug(complimentary.name);
+      const chosen = rateFor(input.kind, event);
+      if ("error" in chosen) {
+        apiLogger.warn({ msg: chosen.msg, eventId, userId, kind: input.kind, code: chosen.code });
+        return NextResponse.json({ error: chosen.error, code: chosen.code }, { status: 400 });
       }
+      const rate = chosen.rate;
 
       // One QR per event and kind, the same every time it is shown (a printed
       // sheet matches the screen), so it names no staff member; the audit

@@ -54,7 +54,7 @@ import { cn } from "@/lib/utils";
 import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { isExhibitorBadge } from "@/lib/badge-layout";
-import { readDeskQrClaims } from "@/lib/desk-qr-rules";
+import { deskQrReopensClosedRate, deskQrTakesCode, readDeskQrClaims } from "@/lib/desk-qr-rules";
 
 function toSlug(name: string): string {
   return name
@@ -407,8 +407,9 @@ function CategoryRegistrationContent() {
                 currency: tier.currency,
                 available: tier.available,
                 // A rate that closed online stays open at the desk while it has
-                // seats (§8.5); one not yet on sale stays closed.
-                canPurchase: tier.canPurchase || (!!deskQr && tier.salesEnded && tier.salesStarted && !tier.soldOut),
+                // seats (§8.5); one not yet on sale stays closed, and so does
+                // any closed rate on the free QR (§10).
+                canPurchase: tier.canPurchase || (!!deskQr && deskQrReopensClosedRate(deskQr.kind) && tier.salesEnded && tier.salesStarted && !tier.soldOut),
                 hasSeatLimit: tier.seatLimited ?? tier.quantity < UNLIMITED_SENTINEL,
                 requiresDocument: tt.requiresDocument === true,
                 documentRequired: tt.documentRequired === true,
@@ -422,7 +423,7 @@ function CategoryRegistrationContent() {
           }
 
           // Desk mode: an exhibitor QR offers only the Exhibitor type, a
-          // complimentary one never offers it (§8.2).
+          // complimentary or free one never offers it (§8.2).
           if (deskQr) {
             const deskOptions = options.filter((o) => (deskQr.kind === "exhibitor") === isExhibitorBadge(o.regTypeName));
             options.splice(0, options.length, ...deskOptions);
@@ -1623,7 +1624,7 @@ function CategoryRegistrationContent() {
                     )}
 
                     {/* Promo Code */}
-                    {selectedTicketId && deskQr?.kind !== "complimentary" && (event?.hasPromoCodes || sponsorCodeRequired) && (
+                    {selectedTicketId && (!deskQr || deskQrTakesCode(deskQr.kind)) && (event?.hasPromoCodes || sponsorCodeRequired) && (
                       <div className="mt-2">
                         {!showPromoInput && !sponsorCodeRequired ? (
                           <button type="button" onClick={() => setShowPromoInput(true)} className="text-sm text-primary hover:underline font-medium">

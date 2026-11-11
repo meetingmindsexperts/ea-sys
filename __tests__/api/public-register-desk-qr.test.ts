@@ -85,6 +85,11 @@ const STANDARD = { ...COMP, id: "tier-std", name: "Standard", price: 350 };
 function compToken(over: Partial<Parameters<typeof mintDeskQrToken>[0]> = {}, now = Date.now()) {
   return mintDeskQrToken({ eventId: EVENT_ID, kind: "complimentary", rate: "complimentary", promoCodeId: null, issuedBy: "staff-1", ...over }, now).token;
 }
+// The free QR (§10): the rate on sale at 0, minted to the end of the event like the printed sheet.
+const FREE_STANDARD: Tier = { ...COMP, id: "tier-std-free", name: "Standard" };
+function freeToken(rate = "standard") {
+  return mintDeskQrToken({ eventId: EVENT_ID, kind: "free", rate, promoCodeId: null, issuedBy: "desk" }, Date.now(), new Date(Date.now() + 86_400_000)).token;
+}
 function exhibitorToken() {
   return mintDeskQrToken({ eventId: EVENT_ID, kind: "exhibitor", rate: "inclusive", promoCodeId: null, issuedBy: "desk" }, Date.now(), new Date(Date.now() + 86_400_000)).token;
 }
@@ -204,6 +209,51 @@ describe("a valid complimentary desk QR", () => {
     expect((await post({ deskToken: compToken(), promoCode: "X" })).json.code).toBe("DESK_QR_WRONG_CODE");
     on(PHYSICIAN, { ...COMP, price: 100 });
     expect((await post({ deskToken: compToken() })).json.code).toBe("DESK_QR_NOT_FREE");
+  });
+});
+
+describe("a free-registration desk QR", () => {
+  beforeEach(() => on(PHYSICIAN, FREE_STANDARD));
+  const send = (extra: Record<string, unknown> = {}) => post({ deskToken: freeToken(), pricingTierId: "tier-std-free", ...extra });
+
+  it("registers on the free rate with no password, in person, and names the QR in the audit row", async () => {
+    const r = await send();
+    expect(r.status).toBe(201);
+    expect(tx.registration.create.mock.calls[0][0].data).toMatchObject({ paymentStatus: "COMPLIMENTARY", originalPrice: 0, attendanceMode: "IN_PERSON" });
+    expect(ensureAccount).toHaveBeenCalledWith(expect.objectContaining({ password: undefined, withoutPassword: true }));
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ deskQr: { kind: "free", issuedBy: "desk" } });
+    // The venue's shared address: the desk limits, not the public per-IP ones.
+    expect(rateKeys.some((k) => k.startsWith("public-register:desk-ip:"))).toBe(true);
+    expect(rateKeys.some((k) => k.startsWith("public-register:burst:"))).toBe(false);
+  });
+
+  it("never reopens a rate that has closed: unlike the other desk QRs, its sales end holds", async () => {
+    on(PHYSICIAN, { ...FREE_STANDARD, salesEnd: new Date(Date.now() - 86_400_000) });
+    const r = await send();
+    expect(r).toMatchObject({ status: 400, json: { error: "Registration sales have ended" } });
+    expect(tx.registration.create).not.toHaveBeenCalled();
+    on(PHYSICIAN, { ...FREE_STANDARD, salesStart: new Date(Date.now() + 86_400_000) });
+    expect((await send()).status).toBe(400);
+  });
+
+  it("refuses a rate that gained a price after the sheet was printed, or a type that charges on it, before anything is written", async () => {
+    on(PHYSICIAN, { ...FREE_STANDARD, price: 350 });
+    expect((await send()).json.code).toBe("DESK_QR_NOT_FREE");
+    expect(tx.registration.create).not.toHaveBeenCalled();
+    expect(ensureAccount).not.toHaveBeenCalled();
+    expect(sendConfirmation).not.toHaveBeenCalled();
+  });
+
+  it("refuses another rate, the Exhibitor type, a code and a rate that needs approval", async () => {
+    on(PHYSICIAN, COMP);
+    expect((await send({ pricingTierId: "tier-comp" })).json.code).toBe("DESK_QR_WRONG_RATE");
+    on(EXHIBITOR, FREE_STANDARD);
+    expect((await send({ ticketTypeId: "tt-exh" })).json.code).toBe("DESK_QR_WRONG_TYPE");
+    on(PHYSICIAN, { ...FREE_STANDARD, requiresApproval: true });
+    expect((await send()).json.code).toBe("DESK_QR_NEEDS_APPROVAL");
+    on(PHYSICIAN, FREE_STANDARD);
+    claimPromo.mockResolvedValueOnce({ ok: true, claim: { promo: { id: "promo-csl", code: "CSL", sponsorId: "sp-csl", sponsor: { name: "CSL" } }, discountAmount: 0, sponsorCovered: true } });
+    expect((await send({ promoCode: "CSL" })).json.code).toBe("DESK_QR_WRONG_CODE");
   });
 });
 

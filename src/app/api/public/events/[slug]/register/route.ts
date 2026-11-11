@@ -22,7 +22,7 @@ import { ensureRegistrantAccount } from "@/lib/registrant-account";
 import { auth } from "@/lib/auth";
 import { claimEventSeats, claimSeats } from "@/lib/registration-seat-db";
 import { verifyDeskQrToken, type DeskQrPayload } from "@/lib/desk-qr-token";
-import { deskQrPriceRefusal, deskQrTypeRefusal, DESK_QR_REFUSAL_MESSAGE, type DeskQrRefusal } from "@/lib/desk-qr-rules";
+import { deskQrPriceRefusal, deskQrReopensClosedRate, deskQrTypeRefusal, DESK_QR_REFUSAL_MESSAGE, type DeskQrRefusal } from "@/lib/desk-qr-rules";
 import type { SeatCounter } from "@/lib/registration-seat";
 import { claimSpareDtcmCode } from "@/lib/dtcm-pool";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
@@ -472,8 +472,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 }
       );
     }
-    // A rate that closed online still works at the desk; its seat limit does not move (§8.5).
-    if (!desk && capacitySource.salesEnd && new Date(capacitySource.salesEnd) < now) {
+    // A rate that closed online still works at the desk; its seat limit does
+    // not move (§8.5). Never on the free QR: it is the public link without the
+    // password step, so a free rate that has closed stays closed (§10).
+    const reopensAtDesk = !!desk && deskQrReopensClosedRate(desk.kind);
+    if (!reopensAtDesk && capacitySource.salesEnd && new Date(capacitySource.salesEnd) < now) {
       apiLogger.warn({ msg: "public/register:sales-ended", eventId: event.id, ticketTypeId, pricingTierId });
       return NextResponse.json(
         { error: "Registration sales have ended" },

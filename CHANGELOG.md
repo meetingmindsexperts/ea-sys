@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Walk-in QR on a free event (November 11)
+
+Asked for by the desk team: "show the QR when Standard is 0 or Early Bird is 0".
+
+- **A third Walk-in QR, Free registration** - The desk's Complimentary QR needs a rate named Complimentary, and free events do not have one: seven of the last eight in-person events priced Standard at 0 with no Complimentary rate, so the desk got "This event has no Complimentary rate" and no QR. The dialog now has a **Free** tab for the rate the public Register link lands on, while that rate costs nothing for every registration type. It is the public form without the password step: same rate, same types (never Exhibitor), no promo code
+- **Fully free only** (owner) - Where the rate is free for some types and paid for others, there is no QR; the tab names the types that pay and points to New walk-in. A paid event keeps its two tabs
+- **Never reopens a closed rate** - The Exhibitor and Complimentary QRs ignore a rate's sales end; the free one does not, and never picks a rate that is switched off, so a free Early Bird that gave way to a paid Standard stays closed. A sheet printed before the rate got a price is refused for anyone who would now owe money
+- **One rule for "the rate on sale"** - `freeDeskRate` in `src/lib/desk-qr-rules.ts` asks `mainRegisterTarget`, the rule the public link uses, so registration switched off, the attendee cap, unticked rates and sponsor-code rates are all honoured without a second copy
+- **Rollback** - No migration. An older image refuses a `free` token as not valid ("scan again"); nothing registers wrongly. docs/ONSITE_DESK_PLAN.md §10
+
 ### One reviewer email (November 10)
 
 Asked for by the MEHF organiser through the owner: "just one template that can handle new invitations, and if existing go directly to My Reviews; no need for send assignments because My Reviews shows what is to be reviewed."

@@ -677,7 +677,7 @@ export function DeskPanel({
                 <p className="flex items-center gap-2 text-sm font-semibold">
                   <QrCode className="h-4 w-4 text-primary" /> Walk-in QR
                 </p>
-                <p className="text-xs text-muted-foreground">Exhibitors and complimentary guests register themselves on their phone.</p>
+                <p className="text-xs text-muted-foreground">Exhibitors and complimentary guests register themselves on their phone. On a free event, so can any walk-in.</p>
               </div>
               <Button type="button" variant="outline" onClick={() => setQrOpen(true)}>Show QR</Button>
             </CardContent>

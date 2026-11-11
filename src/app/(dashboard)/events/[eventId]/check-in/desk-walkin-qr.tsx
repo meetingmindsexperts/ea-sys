@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Building2, Download, Gift, Loader2, Printer, QrCode } from "lucide-react";
+import { Building2, Download, Gift, Loader2, Printer, QrCode, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { DeskQrKind } from "@/lib/desk-qr-rules";
 
 /**
  * The desk's Walk-in QR (docs/ONSITE_DESK_PLAN.md §8.1): exhibitors and
@@ -12,9 +13,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
  * QR per event and kind, valid to the end of the event's last day and the
  * same every time it is shown, so it can be printed and put up (owner, Oct
  * 29). Exhibitors type their own sponsor's code on the form.
+ *
+ * A third QR, Free registration (§10, Nov 11 2026), on an event whose rate on
+ * sale costs nothing for every registration type: any walk-in registers on
+ * that rate. Its tab shows only where the rate is free for someone, and says
+ * who it charges when that is why there is no QR.
  */
 
-type Kind = "exhibitor" | "complimentary";
+type Kind = DeskQrKind;
 
 interface Options {
   webinar: boolean;
@@ -24,6 +30,8 @@ interface Options {
   timezone: string;
   exhibitor: { rateName: string; validUntil: string; hasSponsorCodes: boolean } | null;
   complimentary: { rateName: string } | null;
+  /** The rate on sale, where it is free for someone; `paidTypes` are the types it charges (any means no QR). */
+  free?: { rateName: string; paidTypes: string[] } | null;
 }
 
 interface ShownQr {
@@ -35,12 +43,35 @@ interface ShownQr {
 const TITLE: Record<Kind, string> = {
   exhibitor: "Exhibitor registration",
   complimentary: "Complimentary registration",
+  free: "Free registration",
 };
 
 const INSTRUCTION: Record<Kind, string> = {
   exhibitor: "Scan with your phone camera, fill in your details and enter the code your sponsor gave you. Show the barcode you receive at the registration desk.",
   complimentary: "Scan with your phone camera and fill in your details. Show the barcode you receive at the registration desk.",
+  free: "Scan with your phone camera and fill in your details. Show the barcode you receive at the registration desk.",
 };
+
+/** Whether the event has a QR of this kind. The free one needs its rate free for every type. */
+function hasQr(kind: Kind, options: Options): boolean {
+  if (kind === "free") return !!options.free && options.free.paidTypes.length === 0;
+  return !!options[kind];
+}
+
+/** The tab the panel opens on: the first kind the event has a QR for (Complimentary when it has none, as before). */
+function firstTab(options: Options): Kind {
+  if (options.exhibitor) return "exhibitor";
+  if (options.complimentary) return "complimentary";
+  return hasQr("free", options) ? "free" : "complimentary";
+}
+
+/** Why a tab has no QR, and where to put it right. */
+function unavailableReason(kind: Kind, options: Options): string {
+  if (kind === "exhibitor") return "This event has no Exhibitor registration type with a rate that needs no approval. Check Registration Types.";
+  if (kind === "complimentary") return "This event has no Complimentary rate that needs no approval. Check Registration Types.";
+  if (!options.free) return "The rate on sale is not free, so this event has no free-registration QR.";
+  return `${options.free.rateName} is free for some registration types but not for ${options.free.paidTypes.join(", ")}. This QR is offered only when the rate on sale is free for everyone, so nobody who scans it is turned away. Register walk-ins with New walk-in.`;
+}
 
 /** "the end of 1 Dec 2026": the QR runs to the end of the event's last day, in its timezone. */
 function validUntilLabel(iso: string, timeZone: string): string {
@@ -129,7 +160,7 @@ export function WalkInQrDialog({
 
   /** Loads the QR for a tab, when the event offers it. */
   const showQr = useCallback((which: Kind, opts: Options) => {
-    if (opts.registrationClosed || opts.eventEnded || !opts[which]) return;
+    if (opts.registrationClosed || opts.eventEnded || !hasQr(which, opts)) return;
     const requestId = ++requestRef.current;
     setShown(null);
     setLoading(true);
@@ -172,7 +203,7 @@ export function WalkInQrDialog({
           toast.error(data.error || "Could not load the walk-in QR options");
           return;
         }
-        const first: Kind = data.exhibitor ? "exhibitor" : "complimentary";
+        const first = firstTab(data);
         setOptions(data);
         setKind(first);
         showQr(first, data);
@@ -194,7 +225,7 @@ export function WalkInQrDialog({
     onClose();
   };
 
-  const unavailable = options && !options[kind];
+  const unavailable = options && !hasQr(kind, options);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
@@ -223,13 +254,19 @@ export function WalkInQrDialog({
         )}
         {options && !options.registrationClosed && !options.eventEnded && (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-1 rounded-lg border p-1">
-              <Button type="button" variant={kind === "exhibitor" ? "default" : "ghost"} className="gap-1.5" onClick={() => chooseTab("exhibitor")}>
-                <Building2 className="h-4 w-4" /> Exhibitors
+            <div className={`grid gap-1 rounded-lg border p-1 ${options.free ? "grid-cols-3" : "grid-cols-2"}`}>
+              <Button type="button" variant={kind === "exhibitor" ? "default" : "ghost"} className="gap-1.5 px-2" onClick={() => chooseTab("exhibitor")}>
+                <Building2 className="h-4 w-4 shrink-0" /> Exhibitors
               </Button>
-              <Button type="button" variant={kind === "complimentary" ? "default" : "ghost"} className="gap-1.5" onClick={() => chooseTab("complimentary")}>
-                <Gift className="h-4 w-4" /> Complimentary
+              <Button type="button" variant={kind === "complimentary" ? "default" : "ghost"} className="gap-1.5 px-2" onClick={() => chooseTab("complimentary")}>
+                <Gift className="h-4 w-4 shrink-0" /> Complimentary
               </Button>
+              {/* Only where the rate on sale is free for someone: a paid event keeps its two tabs. */}
+              {options.free && (
+                <Button type="button" variant={kind === "free" ? "default" : "ghost"} className="gap-1.5 px-2" onClick={() => chooseTab("free")}>
+                  <Ticket className="h-4 w-4 shrink-0" /> Free
+                </Button>
+              )}
             </div>
 
             {kind === "exhibitor" && options.exhibitor && !options.exhibitor.hasSponsorCodes && (
@@ -239,9 +276,7 @@ export function WalkInQrDialog({
             )}
             {unavailable && (
               <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                {kind === "exhibitor"
-                  ? "This event has no Exhibitor registration type with a rate that needs no approval. Check Registration Types."
-                  : "This event has no Complimentary rate that needs no approval. Check Registration Types."}
+                {unavailableReason(kind, options)}
               </p>
             )}
 
@@ -251,6 +286,9 @@ export function WalkInQrDialog({
             {shown && !unavailable && (
               <div className="flex flex-col items-center gap-3 rounded-xl border bg-white p-6 text-center">
                 <p className="text-xl font-semibold">{TITLE[kind]}</p>
+                {kind === "free" && options.free && (
+                  <p className="text-sm text-muted-foreground">On the {options.free.rateName} rate, free for every registration type.</p>
+                )}
                 {/* eslint-disable-next-line @next/next/no-img-element -- a data URL from the API */}
                 <img src={shown.qr} alt={`Scan to register: ${TITLE[kind]}`} className="h-64 w-64 max-w-full sm:h-72 sm:w-72" />
                 <p className="max-w-md text-sm">{INSTRUCTION[kind]}</p>

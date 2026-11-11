@@ -33,7 +33,12 @@ const params = { params: Promise.resolve({ eventId: "evt-1" }) };
 const get = () => GET(new Request("http://x/desk-qr"), params);
 const post = (body: unknown) => POST(new Request("http://x/desk-qr", { method: "POST", body: JSON.stringify(body) }), params);
 
-const tier = (id: string, name: string, isActive = true, requiresApproval = false) => ({ id, name, isActive, requiresApproval });
+// Priced, unlimited and with no sales dates unless a test says otherwise. The
+// price is a Decimal on the real row; the route reads it with Number().
+const tier = (id: string, name: string, isActive = true, requiresApproval = false, price = 350) => ({
+  id, name, isActive, requiresApproval, price, quantity: 999999, soldCount: 0, salesStart: null as Date | null, salesEnd: null as Date | null, sortOrder: 0,
+});
+const type = (id: string, name: string, pricingTiers: ReturnType<typeof tier>[]) => ({ id, name, quantity: 999999, soldCount: 0, pricingTiers });
 const END = new Date(Date.now() + 2 * 86_400_000);
 const EVENT = {
   id: "evt-1",
@@ -42,10 +47,20 @@ const EVENT = {
   settings: { codeRequiredTiers: ["inclusive"] },
   endDate: END,
   timezone: "Asia/Dubai",
+  maxAttendees: null as number | null,
+  seatCount: 0,
   ticketTypes: [
-    { id: "tt-phys", name: "Physician", pricingTiers: [tier("t1", "Standard"), tier("t2", "Inclusive"), tier("t3", "Complimentary")] },
-    { id: "tt-exh", name: "Exhibitor", pricingTiers: [tier("t4", "Inclusive")] },
+    type("tt-phys", "Physician", [tier("t1", "Standard"), tier("t2", "Inclusive"), tier("t3", "Complimentary")]),
+    type("tt-exh", "Exhibitor", [tier("t4", "Inclusive")]),
   ],
+};
+
+// A free event as production has them: Standard at 0 for every type, no Complimentary rate.
+const free = (id: string, name: string, price = 0) => tier(id, name, true, false, price);
+const FREE_EVENT = {
+  ...EVENT,
+  settings: {},
+  ticketTypes: [type("tt-phys", "Physician", [free("f1", "Standard")]), type("tt-nurse", "Nurse", [free("f2", "Standard")])],
 };
 
 function tokenFrom(url: string) {
@@ -71,6 +86,8 @@ describe("GET the options", () => {
       timezone: "Asia/Dubai",
       exhibitor: { rateName: "Inclusive", hasSponsorCodes: true },
       complimentary: { rateName: "Complimentary" },
+      // Standard is on sale and paid: no free-registration tab.
+      free: null,
     });
     // The end of the event's last day in Dubai: 23:59:59 local is 19:59:59Z.
     expect(json.exhibitor.validUntil).toMatch(/T19:59:59\.000Z$/);
@@ -91,8 +108,29 @@ describe("GET the options", () => {
   });
 
   it("nothing to offer when the event has neither", async () => {
-    mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, ticketTypes: [{ id: "tt-phys", name: "Physician", pricingTiers: [tier("t1", "Standard")] }] });
-    expect(await (await get()).json()).toMatchObject({ exhibitor: null, complimentary: null });
+    mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, ticketTypes: [type("tt-phys", "Physician", [tier("t1", "Standard")])] });
+    expect(await (await get()).json()).toMatchObject({ exhibitor: null, complimentary: null, free: null });
+  });
+
+  it("a free event with no Complimentary rate: the rate on sale, free for everyone", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce(FREE_EVENT);
+    expect(await (await get()).json()).toMatchObject({ exhibitor: null, complimentary: null, free: { rateName: "Standard", paidTypes: [] } });
+  });
+
+  it("free for some types only: names the types that pay, so the panel can say why there is no QR", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce({
+      ...FREE_EVENT,
+      ticketTypes: [type("tt-phys", "Physician", [free("f1", "Early Bird", 400)]), type("tt-res", "Resident", [free("f2", "Early Bird")])],
+    });
+    expect(await (await get()).json()).toMatchObject({ free: { rateName: "Early Bird", paidTypes: ["Physician"] } });
+  });
+
+  it("reads each rate's price, seats and sales window, and the event's cap", async () => {
+    await get();
+    const select = mockDb.event.findFirst.mock.calls[0][0].select;
+    expect(select).toMatchObject({ maxAttendees: true, seatCount: true });
+    expect(select.ticketTypes.select).toMatchObject({ quantity: true, soldCount: true });
+    expect(select.ticketTypes.select.pricingTiers.select).toMatchObject({ price: true, quantity: true, soldCount: true, salesStart: true, salesEnd: true, sortOrder: true });
   });
 
   it("needs a sign-in and the event inside the caller's grant", async () => {
@@ -123,6 +161,40 @@ describe("POST a QR", () => {
     expect(verifyDeskQrToken(tokenFrom(json.url))).toMatchObject({ ok: true, payload: { kind: "exhibitor", rate: "inclusive", promoCodeId: null } });
   });
 
+  it("free: the form of the rate on sale, one QR to the end of the event, taking no code", async () => {
+    mockDb.event.findFirst.mockResolvedValue(FREE_EVENT);
+    const first = await (await post({ kind: "free" })).json();
+    const again = await (await post({ kind: "free" })).json();
+    expect(first.url).toBe(again.url);
+    expect(first.url).toMatch(/\/e\/BHS2026\/register\/standard\?desk=[^&]+$/);
+    expect(first.expiresAt).toMatch(/T19:59:59\.000Z$/);
+    expect(verifyDeskQrToken(tokenFrom(first.url))).toMatchObject({ ok: true, payload: { eventId: "evt-1", kind: "free", rate: "standard", promoCodeId: null } });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: "DESK_QR_SHOWN", changes: { kind: "free" } });
+  });
+
+  it("free: refused unless the rate on sale is free for every type", async () => {
+    // Paid for everyone.
+    expect(await (await post({ kind: "free" })).json()).toMatchObject({ code: "NO_FREE_RATE" });
+    // Free for residents, paid for physicians: no QR, and the answer names who pays.
+    mockDb.event.findFirst.mockResolvedValueOnce({
+      ...FREE_EVENT,
+      ticketTypes: [type("tt-phys", "Physician", [free("f1", "Early Bird", 400)]), type("tt-res", "Resident", [free("f2", "Early Bird")])],
+    });
+    const mixed = await post({ kind: "free" });
+    expect(mixed.status).toBe(400);
+    expect(await mixed.json()).toMatchObject({ code: "NO_FREE_RATE", error: expect.stringContaining("Physician") });
+    // A free Early Bird that is switched off, with a paid Standard on: never reopened.
+    mockDb.event.findFirst.mockResolvedValueOnce({
+      ...FREE_EVENT,
+      ticketTypes: [type("tt-phys", "Physician", [tier("f1", "Early Bird", false, false, 0), free("f2", "Standard", 350)])],
+    });
+    expect(await (await post({ kind: "free" })).json()).toMatchObject({ code: "NO_FREE_RATE" });
+    // The event's cap is reached.
+    mockDb.event.findFirst.mockResolvedValueOnce({ ...FREE_EVENT, maxAttendees: 50, seatCount: 50 });
+    expect(await (await post({ kind: "free" })).json()).toMatchObject({ code: "NO_FREE_RATE" });
+    expect(mockQr).not.toHaveBeenCalled();
+  });
+
   it("refuses a finished event, and an event without the rate", async () => {
     mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, endDate: new Date(Date.now() - 2 * 86_400_000) });
     expect(await (await post({ kind: "exhibitor" })).json()).toMatchObject({ code: "EVENT_ENDED" });
@@ -137,17 +209,17 @@ describe("POST a QR", () => {
     mockDb.event.findFirst.mockResolvedValueOnce({
       ...EVENT,
       ticketTypes: [
-        { id: "tt-phys", name: "Physician", pricingTiers: [tier("t3", "Complimentary", true, true)] },
-        { id: "tt-exh", name: "Exhibitor", pricingTiers: [tier("t4", "Inclusive", true, true)] },
+        type("tt-phys", "Physician", [tier("t3", "Complimentary", true, true), tier("t5", "Standard", true, true, 0)]),
+        type("tt-exh", "Exhibitor", [tier("t4", "Inclusive", true, true)]),
       ],
     });
-    expect(await (await get()).json()).toMatchObject({ exhibitor: null, complimentary: null });
+    expect(await (await get()).json()).toMatchObject({ exhibitor: null, complimentary: null, free: null });
   });
 
   it("an Exhibitor sponsor-code rate that needs approval means no QR, not another of the type's rates", async () => {
     mockDb.event.findFirst.mockResolvedValueOnce({
       ...EVENT,
-      ticketTypes: [{ id: "tt-exh", name: "Exhibitor", pricingTiers: [tier("t4", "Inclusive", true, true), tier("t5", "Standard")] }],
+      ticketTypes: [type("tt-exh", "Exhibitor", [tier("t4", "Inclusive", true, true), tier("t5", "Standard")])],
     });
     expect(await (await get()).json()).toMatchObject({ exhibitor: null });
   });
