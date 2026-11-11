@@ -36,6 +36,6 @@ export function buildMcpServer(
 ): McpServer {
   const server = new McpServer({ name: "ea-sys", version: MCP_SERVER_VERSION });
   const target = keyPrincipal ? gateMcpServerForKey(server, keyPrincipal, organizationId) : server;
-  registerAllMcpTools(target, organizationId, actor ? { actor } : undefined);
+  registerAllMcpTools(target, organizationId, actor ? { actor, keyPrincipal } : { keyPrincipal });
   return server;
 }

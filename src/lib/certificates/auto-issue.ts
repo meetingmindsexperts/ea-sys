@@ -31,7 +31,9 @@
  * (certificate-assignment-service), so the next tick looks at them. Before
  * assignments a person tagged after answering was never looked at again.
  * The stamp and those two writers share one per-event lock
- * (lockCertificateAssignments), taken first, with every read after it.
+ * (lockCertificateAssignments), taken first; the sweep then locks and re-reads
+ * its own row, and decides what to send with planSurveyReleases, the function
+ * the confirmation counts with.
  *
  * Idempotency: per-template IssuedCertificate uniqueness + a pre-create
  * guard (skip if a cert OR an existing run item already covers the
@@ -49,11 +51,8 @@
 import { db, dbOperator, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import {
-  loadAssignedTemplateIds,
-  lockCertificateAssignments,
-  selectAssignedTargets,
-} from "./assignments";
+import { lockCertificateAssignments } from "./assignments";
+import { planSurveyReleases } from "./survey-release";
 
 // Process up to this many candidate registrations per sweep tick. The
 // cert-issue job runs every 3 min and shares the worker connection pool,
@@ -104,6 +103,9 @@ export interface AutoIssueSweepResult {
   deferred: number; // registrations that hit a transient error → backoff
   gaveUp: number; // registrations that exhausted retries this tick
   skippedNoTemplates: number; // events with no auto-issue templates configured
+  // Candidates that changed between the scan and their turn (cancelled, survey
+  // reset, already handled): left exactly as they are, not stamped.
+  skippedChanged: number;
 }
 
 /**
@@ -157,6 +159,7 @@ export async function runAutoIssueSweep(
     deferred: 0,
     gaveUp: 0,
     skippedNoTemplates: 0,
+    skippedChanged: 0,
   };
   if (candidates.length === 0) return result;
 
@@ -175,6 +178,10 @@ export async function runAutoIssueSweep(
     const processRow = async () => {
     try {
       const outcome = await processRegistration(reg, now);
+      if (outcome.changed) {
+        result.skippedChanged++;
+        return;
+      }
       result.runsCreated += outcome.created;
       result.resolved++;
       if (outcome.noTemplates) result.skippedNoTemplates++;
@@ -182,10 +189,14 @@ export async function runAutoIssueSweep(
       const message = err instanceof Error ? err.message : String(err);
       const nextAttempt = reg.certAutoIssueAttempts + 1;
       const giveUp = nextAttempt >= MAX_AUTO_ISSUE_ATTEMPTS;
-      // Defer (or give up) — never block the queue on a poison row.
+      // Defer (or give up): never block the queue on a poison row. Only
+      // while the row still holds the attempt count we read and is not
+      // stamped: assigning or switching a template on can re-open it (attempts
+      // back to 0) while this attempt waited, and a stale write here would
+      // put the give-up stamp back over a send staff just confirmed.
       await db.registration
-        .update({
-          where: { id: reg.id },
+        .updateMany({
+          where: { id: reg.id, certAutoIssueCheckedAt: null, certAutoIssueAttempts: reg.certAutoIssueAttempts },
           data: {
             certAutoIssueAttempts: nextAttempt,
             certAutoIssueError: message.slice(0, 1000),
@@ -193,6 +204,11 @@ export async function runAutoIssueSweep(
               ? { certAutoIssueCheckedAt: now, certAutoIssueNextAttemptAt: null }
               : { certAutoIssueNextAttemptAt: new Date(now.getTime() + backoffMs(nextAttempt)) }),
           },
+        })
+        .then((res) => {
+          if (res.count === 0) {
+            apiLogger.warn({ msg: "cert-auto-issue:defer-skipped-row-changed", registrationId: reg.id, eventId: reg.eventId });
+          }
         })
         .catch((e) =>
           apiLogger.error({ err: e, msg: "cert-auto-issue:defer-update-failed", registrationId: reg.id }),
@@ -236,11 +252,18 @@ export async function runAutoIssueSweep(
  * back cleanly and the row retries from scratch). Returns the count of
  * certificates queued. Throws on failure so the caller applies backoff.
  *
- * The transaction's FIRST statement is the per-event lock, and everything it
- * decides on (which templates auto-issue, what this person is assigned) is
- * read after it. Assigning a certificate and turning a template's switch on
- * take the same lock and then clear this registration's stamp, so whichever
- * of us goes second sees the other's work; see lockCertificateAssignments.
+ * The transaction's FIRST statement is the per-event lock. Assigning a
+ * certificate and turning a template's switch on take the same lock and then
+ * clear this registration's stamp, so whichever of us goes second sees the
+ * other's work; see lockCertificateAssignments.
+ *
+ * Then the row itself, locked (FOR UPDATE) and read again: the candidate
+ * facts were read before the lock, and waiting for it can take seconds. A
+ * registration cancelled, whose survey was reset, or that another worker
+ * already handled in that time is left alone, unstamped (review of 631e95bd).
+ *
+ * What to send is planSurveyReleases, the same function that counts what a
+ * confirmation promises, so the two can never disagree.
  */
 async function processRegistration(
   reg: {
@@ -257,94 +280,44 @@ async function processRegistration(
     } | null;
   },
   now: Date,
-): Promise<{ created: number; noTemplates: boolean }> {
+): Promise<{ created: number; noTemplates: boolean; changed: boolean }> {
   return tenantTransaction(async (tx) => {
     await lockCertificateAssignments(tx, reg.eventId);
 
-    const templates = await tx.certificateTemplate.findMany({
-      where: { eventId: reg.eventId, autoIssueOnSurvey: true },
-      select: { id: true, category: true },
-    });
-    if (templates.length === 0) {
+    const [current] = await tx.$queryRaw<Array<{ status: string; answered: boolean; checked: boolean }>>`
+      SELECT "status"::text AS status,
+             "surveyCompletedAt" IS NOT NULL AS answered,
+             "certAutoIssueCheckedAt" IS NOT NULL AS checked
+        FROM "Registration" WHERE "id" = ${reg.id} FOR UPDATE`;
+    if (!current || current.status === "CANCELLED" || !current.answered || current.checked) {
+      apiLogger.info({
+        msg: "cert-auto-issue:candidate-changed",
+        registrationId: reg.id,
+        eventId: reg.eventId,
+        found: !!current,
+        status: current?.status,
+        answered: current?.answered,
+        checked: current?.checked,
+      });
+      return { created: 0, noTemplates: false, changed: true };
+    }
+
+    const plan = await planSurveyReleases(tx, reg.eventId, [reg.id]);
+    if (plan.autoIssueTemplates.length === 0) {
       // No auto-issue templates for this event: resolve the row so it isn't
       // re-scanned every tick. Turning a template's switch on later clears
-      // the stamp for everyone assigned it.
+      // the stamp for everyone assigned it who is owed something.
       await tx.registration.update({
         where: { id: reg.id },
         data: { certAutoIssueCheckedAt: now, certAutoIssueError: null },
       });
-      return { created: 0, noTemplates: true };
+      return { created: 0, noTemplates: true, changed: false };
     }
-
-    // Resolve the linked speaker for APPRECIATION routing: the companion
-    // case (Speaker.sourceRegistrationId == this reg) first, else a
-    // read-time email match (a speaker who registered separately).
-    let speaker = await tx.speaker.findFirst({
-      where: { sourceRegistrationId: reg.id },
-      select: { id: true, title: true, firstName: true, lastName: true, email: true },
-    });
-    if (!speaker && reg.attendee?.email) {
-      speaker = await tx.speaker.findFirst({
-        where: { eventId: reg.eventId, email: reg.attendee.email },
-        select: { id: true, title: true, firstName: true, lastName: true, email: true },
-      });
-    }
-
-    // Who receives what: the templates this person is ASSIGNED, per facet.
-    const assigned = await loadAssignedTemplateIds(tx, {
-      templateIds: templates.map((t) => t.id),
-      registrationId: reg.id,
-      speakerId: speaker?.id ?? null,
-    });
-    const targets = selectAssignedTargets(templates, assigned.registration, assigned.speaker);
-    const templateMap = new Map(templates.map((t) => [t.id, t]));
+    const release = plan.byRegistration.get(reg.id);
+    const speaker = release?.speaker ?? null;
+    const surviving = release?.targets ?? [];
 
     let created = 0;
-    // Idempotency guards run per target FIRST — a target is dropped when a
-    // cert already exists OR an auto-run item already covers this
-    // (event, template, recipient). The bundle-aware item check matches
-    // both legacy 1-template runs (certificateTemplateId) and bundle runs
-    // (templateIds has).
-    const surviving: typeof targets = [];
-    for (const target of targets) {
-      if (!templateMap.has(target.templateId)) continue;
-      const isSpeakerRecipient = target.recipient === "speaker";
-      const recipientWhere = isSpeakerRecipient
-        ? { speakerId: speaker!.id }
-        : { registrationId: reg.id };
-      const existingCert = await tx.issuedCertificate.findFirst({
-        where: { eventId: reg.eventId, certificateTemplateId: target.templateId, ...recipientWhere },
-        select: { id: true },
-      });
-      if (existingCert) continue;
-      const existingItem = await tx.certificateIssueRunItem.findFirst({
-        where: {
-          // Any NON-TERMINAL run — manual OR auto — that already covers this
-          // (template, recipient) will email the cert, so suppress the auto
-          // item to avoid a double-send (H3). The old filter matched only
-          // `autoIssue: true` runs, so a manual run started seconds earlier
-          // never suppressed the auto-sweep and BOTH runs emailed the same
-          // cert. Terminal runs are excluded on purpose: FAILED/CANCELLED
-          // won't email (auto must still proceed so nobody is stranded), and
-          // a COMPLETED run's cert is already caught by existingCert above.
-          // A render-failed item (errorPhase set) likewise won't email.
-          run: {
-            eventId: reg.eventId,
-            status: { in: ["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"] },
-            OR: [
-              { certificateTemplateId: target.templateId },
-              { templateIds: { has: target.templateId } },
-            ],
-          },
-          errorPhase: null,
-          ...recipientWhere,
-        },
-        select: { id: true },
-      });
-      if (existingItem) continue;
-      surviving.push(target);
-    }
-
     if (surviving.length > 0) {
       // ONE run + ONE person-keyed item covering the person's whole
       // surviving target set → ONE email with every earned PDF attached
@@ -410,6 +383,6 @@ async function processRegistration(
       where: { id: reg.id },
       data: { certAutoIssueCheckedAt: now, certAutoIssueError: null },
     });
-    return { created, noTemplates: false };
+    return { created, noTemplates: false, changed: false };
   }, SWEEP_TX_OPTIONS);
 }

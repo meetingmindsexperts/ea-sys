@@ -17,8 +17,12 @@
  *          nobody has come back in `unmatched`.
  *          409 CONFIRM_SEND_NOW when some of them have already answered the
  *          survey and the template sends automatically: the body carries
- *          `sendNow`, and the same request with `confirmSendNow: true` goes
- *          through. `dryRun: true` works everything out and writes nothing.
+ *          `sendNow` (every certificate re-opening them sends, other templates
+ *          they were owed included) and the same request with
+ *          `confirmSendNow: <that number>` goes through; a number that has
+ *          grown since is asked again. 403 SEND_NOW_NOT_PERMITTED when the
+ *          caller lacks certificates.issue, which sending needs.
+ *          `dryRun: true` works everything out and writes nothing.
  *
  *   DELETE { templateId, registrationIds? | speakerIds? }
  *          Take people off the list. Someone who holds the certificate stays
@@ -40,6 +44,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { loadAssignedTemplateIds } from "@/lib/certificates/assignments";
+import { mayReleaseCertificates } from "@/lib/certificates/release-permission";
 import {
   assignCertificate,
   unassignCertificate,
@@ -59,7 +64,8 @@ const assignSchema = z
     registrationIds: idList.optional(),
     speakerIds: idList.optional(),
     emails: z.array(z.string().max(320)).max(MAX_ASSIGNMENT_BATCH).optional(),
-    confirmSendNow: z.boolean().optional(),
+    // The number of certificates the person was shown would go out now, and agreed to.
+    confirmSendNow: z.number().int().min(0).max(1_000_000).optional(),
     dryRun: z.boolean().optional(),
   })
   .refine((d) => [d.registrationIds, d.speakerIds, d.emails].filter((l) => l && l.length > 0).length === 1, {
@@ -84,6 +90,7 @@ const ASSIGN_STATUS: Record<string, number> = {
   NO_RECIPIENTS: 400,
   TOO_MANY: 400,
   CONFIRM_SEND_NOW: 409,
+  SEND_NOW_NOT_PERMITTED: 403,
 };
 
 function rateLimited(userId: string, eventId: string) {
@@ -186,6 +193,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const userId = session.user.id;
+    const mayReleaseNow = await mayReleaseCertificates(gate.principal, event.id, orgGuard.orgId);
     // tenancy: the swept reads and the service's transaction run inside the session org.
     const outcome = await runWithTenant(orgGuard.orgId, async () => {
       let registrationIds = body.registrationIds;
@@ -211,7 +219,18 @@ export async function POST(req: Request, { params }: RouteParams) {
         if (registrationIds.length + speakerIds.length === 0) {
           // Nobody matched: an answer, not an error, so the page can show the list.
           return {
-            result: { ok: true as const, templateName: "", assigned: 0, alreadyAssigned: 0, skipped: 0, sendNow: 0, dryRun: body.dryRun === true },
+            result: {
+              ok: true as const,
+              templateName: "",
+              assigned: 0,
+              alreadyAssigned: 0,
+              skipped: 0,
+              sendNow: 0,
+              sendNowPeople: 0,
+              sendNowByTemplate: [],
+              sendNowAllowed: mayReleaseNow,
+              dryRun: body.dryRun === true,
+            },
             unmatched,
             cancelled,
           };
@@ -226,7 +245,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         userId,
         source: "rest",
         assignmentSource: body.emails?.length ? "EMAIL_LIST" : "MANUAL",
-        confirmSendNow: body.confirmSendNow === true,
+        confirmedSendNow: body.confirmSendNow,
+        mayReleaseNow,
         dryRun: body.dryRun === true,
       });
       return { result, unmatched, cancelled };

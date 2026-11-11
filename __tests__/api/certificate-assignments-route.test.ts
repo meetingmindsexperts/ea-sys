@@ -6,7 +6,10 @@
  *
  * The one thing no client may get wrong: CONFIRM_SEND_NOW is a 409 that
  * carries the number of certificates about to go out, and nothing is assigned
- * (or switched on) until the same request comes back with confirmSendNow.
+ * (or switched on) until the same request comes back with confirmSendNow set
+ * to that NUMBER. And sending now is certificates.issue: the route tells the
+ * service whether the caller holds it (mayReleaseNow), read from the real
+ * permission tables here, not mocked.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -66,12 +69,24 @@ const req = (method: string, body?: unknown, query = "") =>
     ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }),
   });
 
-const OK = { ok: true, templateName: "CME", assigned: 2, alreadyAssigned: 0, skipped: 0, sendNow: 0, dryRun: false };
+const OK = {
+  ok: true,
+  templateName: "CME",
+  assigned: 2,
+  alreadyAssigned: 0,
+  skipped: 0,
+  sendNow: 0,
+  sendNowPeople: 0,
+  sendNowByTemplate: [],
+  sendNowAllowed: true,
+  dryRun: false,
+};
 
 beforeEach(() => {
   Object.values(h).forEach((m) => m.mockReset());
   h.auth.mockResolvedValue(session("ADMIN"));
-  h.eventFindFirst.mockResolvedValue({ id: "evt-1", organizationId: "org-1" });
+  // Also answers the event-facts read behind the certificates.issue check.
+  h.eventFindFirst.mockResolvedValue({ id: "evt-1", organizationId: "org-1", eventType: "CONFERENCE", staffAssignments: [] });
   h.rateLimit.mockReturnValue({ allowed: true, remaining: 10, retryAfterSeconds: 0 });
   h.assign.mockResolvedValue(OK);
   h.unassign.mockResolvedValue({ ok: true, templateName: "CME", removed: 1, keptIssued: 0 });
@@ -107,7 +122,9 @@ describe("POST assign", () => {
       userId: "user-1",
       source: "rest",
       assignmentSource: "MANUAL",
-      confirmSendNow: false,
+      confirmedSendNow: undefined,
+      // An organiser holds certificates.issue.
+      mayReleaseNow: true,
       dryRun: false,
     });
   });
@@ -131,13 +148,27 @@ describe("POST assign", () => {
     expect(await res.json()).toMatchObject({ code: "CONFIRM_SEND_NOW", sendNow: 3, assigned: 5, error: expect.stringContaining("already answered") });
   });
 
-  it("confirmSendNow and dryRun reach the service only when they are literally true", async () => {
-    await POST(req("POST", { templateId: "tpl", registrationIds: ["r1"], confirmSendNow: true, dryRun: true }), params);
-    expect(h.assign.mock.calls[0][0]).toMatchObject({ confirmSendNow: true, dryRun: true });
-    // A string "true" is not a boolean: the request is invalid, not confirmed.
-    const res = await POST(req("POST", { templateId: "tpl", registrationIds: ["r1"], confirmSendNow: "true" }), params);
-    expect(res.status).toBe(400);
+  it("confirmSendNow is the NUMBER the person agreed to; a bare yes is not a confirmation", async () => {
+    await POST(req("POST", { templateId: "tpl", registrationIds: ["r1"], confirmSendNow: 3, dryRun: true }), params);
+    expect(h.assign.mock.calls[0][0]).toMatchObject({ confirmedSendNow: 3, dryRun: true });
+    // `true` (what the first version sent) agrees to no particular count: invalid, never "confirmed".
+    for (const bad of [true, "3", -1, 2.5]) {
+      const res = await POST(req("POST", { templateId: "tpl", registrationIds: ["r1"], confirmSendNow: bad }), params);
+      expect(res.status).toBe(400);
+    }
     expect(h.assign).toHaveBeenCalledTimes(1);
+  });
+
+  it("SEND_NOW_NOT_PERMITTED is a 403 carrying the count", async () => {
+    h.assign.mockResolvedValue({
+      ok: false,
+      code: "SEND_NOW_NOT_PERMITTED",
+      message: "1 person has already answered the survey, so 1 certificate will be emailed now. Sending certificates needs the Issue certificates permission: ask someone who has it to do this.",
+      meta: { sendNow: 1, sendNowPeople: 1 },
+    });
+    const res = await POST(req("POST", { templateId: "tpl", registrationIds: ["r1"] }), params);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "SEND_NOW_NOT_PERMITTED", sendNow: 1 });
   });
 
   it.each([
@@ -272,7 +303,8 @@ describe("the auto-issue switch on the template PATCH", () => {
     const res = await patch({ autoIssueOnSurvey: true });
     expect(res.status).toBe(200);
     expect(h.setAuto).toHaveBeenCalledWith({
-      eventId: "evt-1", templateId: "tpl", enabled: true, userId: "user-1", source: "rest", confirmSendNow: false,
+      eventId: "evt-1", templateId: "tpl", enabled: true, userId: "user-1", source: "rest",
+      confirmedSendNow: undefined, mayReleaseNow: true,
     });
     expect(h.templateUpdate.mock.calls[0][0].data).not.toHaveProperty("autoIssueOnSurvey");
   });
@@ -285,10 +317,28 @@ describe("the auto-issue switch on the template PATCH", () => {
     expect(h.templateUpdate).not.toHaveBeenCalled();
   });
 
-  it("confirmSendNow reaches the service, and the rest of the request is then applied", async () => {
-    await patch({ autoIssueOnSurvey: true, confirmSendNow: true, name: "Renamed" });
-    expect(h.setAuto.mock.calls[0][0]).toMatchObject({ enabled: true, confirmSendNow: true });
+  it("the confirmed count reaches the service, and the rest of the request is then applied", async () => {
+    await patch({ autoIssueOnSurvey: true, confirmSendNow: 2, name: "Renamed" });
+    expect(h.setAuto.mock.calls[0][0]).toMatchObject({ enabled: true, confirmedSendNow: 2 });
     expect(h.templateUpdate.mock.calls[0][0].data).toEqual({ name: "Renamed" });
+  });
+
+  it("a bare `confirmSendNow: true` is invalid, and the switch is not touched", async () => {
+    expect((await patch({ autoIssueOnSurvey: true, confirmSendNow: true })).status).toBe(400);
+    expect(h.setAuto).not.toHaveBeenCalled();
+  });
+
+  it("SEND_NOW_NOT_PERMITTED is a 403, and nothing else in the request is applied", async () => {
+    h.setAuto.mockResolvedValue({ ok: false, code: "SEND_NOW_NOT_PERMITTED", message: "no", meta: { sendNow: 4 } });
+    const res = await patch({ autoIssueOnSurvey: true, name: "Renamed" });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "SEND_NOW_NOT_PERMITTED", sendNow: 4 });
+    expect(h.templateUpdate).not.toHaveBeenCalled();
+  });
+
+  it("turning the switch OFF never asks whether the caller may send", async () => {
+    await patch({ autoIssueOnSurvey: false });
+    expect(h.setAuto.mock.calls[0][0]).toMatchObject({ enabled: false, mayReleaseNow: false });
   });
 
   it("a request that does not mention the switch never calls the service", async () => {
@@ -299,5 +349,31 @@ describe("the auto-issue switch on the template PATCH", () => {
   it("the retired tag is ignored if an old page still sends it", async () => {
     await patch({ name: "Renamed", autoIssueTag: "Cme" });
     expect(h.templateUpdate.mock.calls[0][0].data).toEqual({ name: "Renamed" });
+  });
+});
+
+describe("mayReleaseCertificates: sending now is certificates.issue", () => {
+  it("an organisation API key assigns but may not send: it holds the template key, not the issue key", async () => {
+    const { mayReleaseCertificates } = await import("@/lib/certificates/release-permission");
+    const { principalFromApiKey } = await import("@/lib/permissions/require-permission");
+    const { can } = await import("@/lib/permissions/can");
+    const key = principalFromApiKey("org-1");
+    expect(can(key, "certificates.templates.manage")).toBe(true);
+    expect(await mayReleaseCertificates(key, "evt-1", "org-1")).toBe(false);
+  });
+
+  it("an admin may; nobody at all (a door that cannot say who is calling) may not", async () => {
+    const { mayReleaseCertificates } = await import("@/lib/certificates/release-permission");
+    const { principalFromUser } = await import("@/lib/permissions/can");
+    expect(await mayReleaseCertificates(principalFromUser({ id: "u", role: "ADMIN", organizationId: "org-1" }), "evt-1", "org-1")).toBe(true);
+    expect(await mayReleaseCertificates(undefined, "evt-1", "org-1")).toBe(false);
+    expect(await mayReleaseCertificates(null, "evt-1", "org-1")).toBe(false);
+  });
+
+  it("an event the caller's organisation does not have is a no", async () => {
+    const { mayReleaseCertificates } = await import("@/lib/certificates/release-permission");
+    const { principalFromUser } = await import("@/lib/permissions/can");
+    h.eventFindFirst.mockResolvedValue(null);
+    expect(await mayReleaseCertificates(principalFromUser({ id: "u", role: "ADMIN", organizationId: "org-1" }), "evt-x", "org-1")).toBe(false);
   });
 });

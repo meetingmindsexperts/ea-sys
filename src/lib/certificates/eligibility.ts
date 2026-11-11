@@ -9,10 +9,12 @@
  * Rules:
  *
  *   ATTENDANCE    Registrations assigned the template, not CANCELLED, with no
- *                 IssuedCertificate from this template yet.
+ *                 IssuedCertificate from this template yet, and none on its
+ *                 way in a run that has not finished (survey auto-issue
+ *                 included: liveRunItemFor).
  *
  *   APPRECIATION  Speakers assigned the template, with no IssuedCertificate
- *                 from this template yet.
+ *                 from this template yet and none on its way.
  *
  * Dedup is per TEMPLATE: one person can hold several role-specific
  * certificates, each from its own template (the per-template unique index).
@@ -21,6 +23,7 @@
 import { db } from "@/lib/db";
 import type { CertificateType } from "@prisma/client";
 import { assignedRegistrationWhere, assignedSpeakerWhere, countAssignmentsByTemplate } from "./assignments";
+import { liveRunItemFor } from "./survey-release";
 
 /**
  * Identifies a recipient via XOR of registrationId / speakerId.
@@ -64,6 +67,7 @@ export async function eligibleForAttendance(eventId: string, templateId: string)
       eventId,
       ...assignedRegistrationWhere(templateId),
       issuedCertificates: { none: { certificateTemplateId: templateId } },
+      certificateIssueRunItems: { none: liveRunItemFor(templateId) },
     },
     select: {
       id: true,
@@ -96,6 +100,7 @@ export async function eligibleForAppreciation(eventId: string, templateId: strin
       eventId,
       ...assignedSpeakerWhere(templateId),
       issuedCertificates: { none: { certificateTemplateId: templateId } },
+      certificateIssueRunItems: { none: liveRunItemFor(templateId) },
     },
     select: { id: true, title: true, firstName: true, lastName: true, email: true },
     orderBy: { lastName: "asc" },

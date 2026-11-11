@@ -32,6 +32,7 @@ import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 import { CERTIFICATE_FONT_NAMES } from "@/lib/certificates/template-box-schema";
 import { LIVE_ASSIGNMENT_WHERE } from "@/lib/certificates/assignments";
 import { loadRecipientReport } from "@/lib/certificates/recipients-report";
+import { mayReleaseCertificates } from "@/lib/certificates/release-permission";
 import {
   assignCertificate,
   resolveAssignmentEmails,
@@ -50,6 +51,15 @@ const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 // than throwing, so it can't reuse the REST Zod schema) but the font list is
 // shared, so the twelve names can't drift between the REST and MCP doors.
 const FONT_NAMES = new Set<string>(CERTIFICATE_FONT_NAMES);
+
+/**
+ * `confirmSendNow` is the NUMBER of certificates the user agreed to send now
+ * (the sendNow of the refusal). A boolean, which a client holding the old tool
+ * list sends, is no number: the call is asked again, with the count.
+ */
+function readConfirmedCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
 
 interface TextBox {
   id: string;
@@ -389,7 +399,9 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
   }
   // Survey-gated auto-issue. Turning it ON can send certificates at once, so
   // it goes through setTemplateAutoIssue (the one writer of the switch),
-  // which refuses with CONFIRM_SEND_NOW until confirmSendNow is passed.
+  // which refuses with CONFIRM_SEND_NOW until confirmSendNow carries the
+  // count the user agreed to, and with SEND_NOW_NOT_PERMITTED without
+  // certificates.issue.
   let switchTo: boolean | undefined;
   if (input.autoIssueOnSurvey !== undefined) {
     if (typeof input.autoIssueOnSurvey !== "boolean") {
@@ -409,14 +421,15 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
   // The switch first: if it is refused, nothing else in this call is applied.
   if (switchTo !== undefined) {
     const enabled = switchTo;
-    const switched = await runWithTenant(ctx.organizationId, () =>
+    const switched = await runWithTenant(ctx.organizationId, async () =>
       setTemplateAutoIssue({
         eventId: ctx.eventId,
         templateId,
         enabled,
         userId: ctx.userId,
         source: ctx.source,
-        confirmSendNow: input.confirmSendNow === true,
+        confirmedSendNow: readConfirmedCount(input.confirmSendNow),
+        mayReleaseNow: enabled && (await mayReleaseCertificates(ctx.principal, ctx.eventId, ctx.organizationId)),
       }),
     );
     if (!switched.ok) {
@@ -424,7 +437,7 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
       return {
         error:
           switched.code === "CONFIRM_SEND_NOW"
-            ? `${switched.message} Tell the user that number, and call again with confirmSendNow: true only once they agree.`
+            ? `${switched.message} Tell the user that number, and call again with confirmSendNow set to that number only once they agree.`
             : switched.message,
         code: switched.code,
         ...(switched.meta ?? {}),
@@ -682,14 +695,15 @@ async function assignCertificateTool(input: Record<string, unknown>, ctx: AgentC
       userId: ctx.userId,
       source: ctx.source,
       assignmentSource: "AGENT",
-      confirmSendNow: input.confirmSendNow === true,
+      confirmedSendNow: readConfirmedCount(input.confirmSendNow),
+      mayReleaseNow: await mayReleaseCertificates(ctx.principal, event.id, ctx.organizationId),
     });
     if (!result.ok) {
       // Logged with its code by the service.
       return {
         error:
           result.code === "CONFIRM_SEND_NOW"
-            ? `${result.message} Tell the user that number, and call again with confirmSendNow: true only once they agree.`
+            ? `${result.message} Tell the user that number, and call again with confirmSendNow set to that number only once they agree.`
             : result.message,
         code: result.code,
         ...(result.meta ?? {}),

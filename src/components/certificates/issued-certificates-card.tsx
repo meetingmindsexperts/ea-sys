@@ -47,8 +47,8 @@ import {
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus } from "lucide-react";
-import { ApiError } from "@/lib/api-fetch";
 import {
+  sendNowRefusalOf,
   useIssuedCertificates,
   useReissueCertificate,
   useResendCertificateBundle,
@@ -154,9 +154,12 @@ function IssuedCertificatesCardBody({
   const canAssign = useCan("certificates.templates.manage", eventId) === "allowed";
   const assignMutation = useAssignCertificate(eventId);
   /** A template whose assignment would send at once: asked before it is made. */
-  const [confirmAssign, setConfirmAssign] = useState<{ templateId: string; name: string } | null>(null);
+  const [confirmAssign, setConfirmAssign] = useState<
+    { templateId: string; name: string; count: number; message: string } | null
+  >(null);
 
-  async function handleAssign(templateId: string, name: string, confirmed: boolean) {
+  /** `confirmed`: the count the person agreed to send now; the server asks again if it has grown. */
+  async function handleAssign(templateId: string, name: string, confirmed?: number) {
     try {
       await assignMutation.mutateAsync({
         templateId,
@@ -167,8 +170,9 @@ function IssuedCertificatesCardBody({
       setSelectedTemplateIds((prev) => (prev.includes(templateId) ? prev : [...prev, templateId]));
       toast.success(`"${name}" is now assigned to this person`);
     } catch (err) {
-      if (err instanceof ApiError && err.code === "CONFIRM_SEND_NOW") {
-        setConfirmAssign({ templateId, name });
+      const refusal = sendNowRefusalOf(err);
+      if (refusal) {
+        setConfirmAssign({ templateId, name, ...refusal });
         return;
       }
       toast.error(err instanceof Error ? err.message : "Could not assign the certificate");
@@ -552,7 +556,7 @@ function IssuedCertificatesCardBody({
                         size="sm"
                         className="h-7 shrink-0 text-xs"
                         disabled={assignMutation.isPending}
-                        onClick={() => handleAssign(t.id, t.name, false)}
+                        onClick={() => handleAssign(t.id, t.name)}
                       >
                         Assign
                       </Button>
@@ -565,8 +569,8 @@ function IssuedCertificatesCardBody({
             {confirmAssign && (
               <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
                 <p>
-                  <strong>This person has already answered the survey</strong>, and &ldquo;{confirmAssign.name}&rdquo; is
-                  sent automatically. Assigning it emails their certificate within a few minutes, with no review step.
+                  &ldquo;{confirmAssign.name}&rdquo; is sent automatically. <strong>{confirmAssign.message}</strong> They
+                  go out within a few minutes, with no review step.
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -574,7 +578,7 @@ function IssuedCertificatesCardBody({
                     size="sm"
                     className="h-7 text-xs"
                     disabled={assignMutation.isPending}
-                    onClick={() => handleAssign(confirmAssign.templateId, confirmAssign.name, true)}
+                    onClick={() => handleAssign(confirmAssign.templateId, confirmAssign.name, confirmAssign.count)}
                   >
                     Assign and send
                   </Button>

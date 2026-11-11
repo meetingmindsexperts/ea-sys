@@ -9,7 +9,11 @@
  *   - re-opening a registration the sweep already looked at makes the next
  *     tick issue to it;
  *   - the relation-filtered counts and pool queries are valid SQL;
- *   - the migration's backfill turns today's tags into exactly the same people.
+ *   - the migration's backfill turns today's tags into exactly the same people;
+ *   - the number a confirmation shows is the number the sweep then sends
+ *     (review of 631e95bd: it counted one template and sent every one owed);
+ *   - the sweep locks and re-reads its own row, so a cancellation or a survey
+ *     reset landing while it waits for the lock is honoured.
  *
  * Nothing here renders a PDF or sends an email: the sweep only QUEUES a run
  * (CertificateIssueRun + item), and the tests read that queue.
@@ -31,6 +35,7 @@ import {
   setTemplateAutoIssue,
   unassignCertificate,
 } from "@/services/certificate-assignment-service";
+import { applyBackfill } from "../../scripts/backfill-certificate-assignments";
 import { resetCrm, type CrmSeed } from "./helper";
 
 let seed: CrmSeed;
@@ -104,7 +109,13 @@ async function template(
   return row.id;
 }
 
-const assign = (templateId: string, ids: { registrationIds?: string[]; speakerIds?: string[] }, confirmSendNow = false) =>
+/** `confirmed`: the number of certificates the caller agreed to send now. */
+const assign = (
+  templateId: string,
+  ids: { registrationIds?: string[]; speakerIds?: string[] },
+  confirmed?: number,
+  mayReleaseNow = true,
+) =>
   assignCertificate({
     eventId,
     organizationId: seed.orgId,
@@ -113,8 +124,29 @@ const assign = (templateId: string, ids: { registrationIds?: string[]; speakerId
     userId: seed.userId,
     source: "rest",
     assignmentSource: "MANUAL",
-    confirmSendNow,
+    confirmedSendNow: confirmed,
+    mayReleaseNow,
   });
+
+const setSwitch = (templateId: string, enabled: boolean, confirmed?: number, mayReleaseNow = true) =>
+  setTemplateAutoIssue({
+    eventId,
+    templateId,
+    enabled,
+    userId: seed.userId,
+    source: "rest",
+    confirmedSendNow: confirmed,
+    mayReleaseNow,
+  });
+
+/** An unassign writes its audit row without waiting: wait for it, as the backfill reads it. */
+async function auditLanded(action: string, count = 1): Promise<void> {
+  for (let i = 0; i < 50; i++) {
+    if ((await db.auditLog.count({ where: { action } })) >= count) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`audit row ${action} never landed`);
+}
 
 const checkedAt = async (registrationId: string) =>
   (await db.registration.findUniqueOrThrow({ where: { id: registrationId }, select: { certAutoIssueCheckedAt: true } }))
@@ -184,7 +216,7 @@ describe("assignCertificate", () => {
     const spk = await speaker("s@x.com");
     const other = await event("Other");
 
-    expect(await assignCertificate({ eventId: other, organizationId: seed.orgId, templateId: tpl, registrationIds: [reg], userId: seed.userId, source: "rest", assignmentSource: "MANUAL", confirmSendNow: false }))
+    expect(await assignCertificate({ eventId: other, organizationId: seed.orgId, templateId: tpl, registrationIds: [reg], userId: seed.userId, source: "rest", assignmentSource: "MANUAL", mayReleaseNow: true }))
       .toMatchObject({ ok: false, code: "TEMPLATE_NOT_FOUND" });
     expect(await assign(tpl, { speakerIds: [spk] })).toMatchObject({ ok: false, code: "WRONG_RECIPIENT_TYPE" });
     expect(await assign(appreciation, { registrationIds: [reg] })).toMatchObject({ ok: false, code: "WRONG_RECIPIENT_TYPE" });
@@ -196,9 +228,9 @@ describe("assignCertificate", () => {
     const answered = await registration("done@x.com", { answered: true, swept: true });
     const res = await assignCertificate({
       eventId, organizationId: seed.orgId, templateId: tpl, registrationIds: [answered],
-      userId: seed.userId, source: "rest", assignmentSource: "MANUAL", confirmSendNow: false, dryRun: true,
+      userId: seed.userId, source: "rest", assignmentSource: "MANUAL", mayReleaseNow: true, dryRun: true,
     });
-    expect(res).toMatchObject({ ok: true, dryRun: true, assigned: 1, sendNow: 1 });
+    expect(res).toMatchObject({ ok: true, dryRun: true, assigned: 1, sendNow: 1, sendNowPeople: 1, sendNowAllowed: true });
     expect(await db.certificateAssignment.count()).toBe(0);
     expect(await checkedAt(answered)).not.toBeNull();
   });
@@ -215,7 +247,7 @@ describe("the send-now confirmation", () => {
     expect(await db.certificateAssignment.count()).toBe(0);
     expect(await checkedAt(answered)).not.toBeNull();
 
-    const confirmed = await assign(tpl, { registrationIds: [answered, waiting] }, true);
+    const confirmed = await assign(tpl, { registrationIds: [answered, waiting] }, 1);
     expect(confirmed).toMatchObject({ ok: true, assigned: 2, sendNow: 1 });
     // Handed back to the sweep: the stamp is cleared for the one who answered.
     expect(await checkedAt(answered)).toBeNull();
@@ -241,28 +273,106 @@ describe("the send-now confirmation", () => {
     const waiting = await registration("later@x.com");
     await assign(tpl, { registrationIds: [answered, waiting] });
 
-    const refused = await setTemplateAutoIssue({ eventId, templateId: tpl, enabled: true, userId: seed.userId, source: "rest", confirmSendNow: false });
+    const refused = await setSwitch(tpl, true);
     expect(refused).toMatchObject({ ok: false, code: "CONFIRM_SEND_NOW", meta: { sendNow: 1 } });
     expect((await db.certificateTemplate.findUniqueOrThrow({ where: { id: tpl } })).autoIssueOnSurvey).toBe(false);
     expect(await checkedAt(answered)).not.toBeNull();
 
-    const confirmed = await setTemplateAutoIssue({ eventId, templateId: tpl, enabled: true, userId: seed.userId, source: "rest", confirmSendNow: true });
+    const confirmed = await setSwitch(tpl, true, 1);
     expect(confirmed).toEqual({ ok: true, changed: true, sendNow: 1 });
     expect((await db.certificateTemplate.findUniqueOrThrow({ where: { id: tpl } })).autoIssueOnSurvey).toBe(true);
     expect(await checkedAt(answered)).toBeNull();
 
     // Turning it off, or on again, asks nothing and changes nothing more.
-    expect(await setTemplateAutoIssue({ eventId, templateId: tpl, enabled: true, userId: seed.userId, source: "rest", confirmSendNow: false }))
-      .toEqual({ ok: true, changed: false, sendNow: 0 });
-    expect(await setTemplateAutoIssue({ eventId, templateId: tpl, enabled: false, userId: seed.userId, source: "rest", confirmSendNow: false }))
-      .toEqual({ ok: true, changed: true, sendNow: 0 });
+    expect(await setSwitch(tpl, true)).toEqual({ ok: true, changed: false, sendNow: 0 });
+    expect(await setSwitch(tpl, false)).toEqual({ ok: true, changed: true, sendNow: 0 });
   });
 
   it("the switch turns on without a question when nobody assigned has answered", async () => {
     const tpl = await template("CME");
     await assign(tpl, { registrationIds: [await registration("later@x.com")] });
-    expect(await setTemplateAutoIssue({ eventId, templateId: tpl, enabled: true, userId: seed.userId, source: "rest", confirmSendNow: false }))
-      .toEqual({ ok: true, changed: true, sendNow: 0 });
+    expect(await setSwitch(tpl, true)).toEqual({ ok: true, changed: true, sendNow: 0 });
+  });
+
+  it("H1: the count is EVERYTHING re-opening sends, a certificate the person was already owed included", async () => {
+    // Dr Y answered, and the old sweep passed her over. The deploy carried her
+    // tag over onto "Day 1" (auto-issue): on the list, owed, deliberately not sent.
+    const day1 = await template("CME Day 1", { auto: true });
+    const day2 = await template("CME Day 2", { auto: true });
+    const drY = await registration("y@x.com", { answered: true, swept: true });
+    await db.certificateAssignment.create({
+      data: { eventId, organizationId: seed.orgId, certificateTemplateId: day1, registrationId: drY, source: "TAG_BACKFILL" },
+    });
+
+    // Staff assign Day 2. Re-opening her sends BOTH, so both are counted and named.
+    const refused = await assign(day2, { registrationIds: [drY] });
+    expect(refused).toMatchObject({ ok: false, code: "CONFIRM_SEND_NOW", meta: { sendNow: 2, sendNowPeople: 1 } });
+    if (refused.ok) throw new Error("expected a refusal");
+    expect(refused.message).toContain("CME Day 1 (1)");
+    expect(refused.message).toContain("CME Day 2 (1)");
+    // Rolled back: no Day 2 row, and she is still stamped.
+    expect(await db.certificateAssignment.count({ where: { certificateTemplateId: day2 } })).toBe(0);
+    expect(await checkedAt(drY)).not.toBeNull();
+
+    // Agreeing to one certificate is not agreeing to two.
+    expect(await assign(day2, { registrationIds: [drY] }, 1)).toMatchObject({ ok: false, code: "CONFIRM_SEND_NOW", meta: { sendNow: 2 } });
+    expect(await db.certificateAssignment.count({ where: { certificateTemplateId: day2 } })).toBe(0);
+
+    expect(await assign(day2, { registrationIds: [drY] }, 2)).toMatchObject({ ok: true, assigned: 1, sendNow: 2 });
+    // And the sweep sends exactly what was counted, in one email.
+    expect(await runAutoIssueSweep()).toMatchObject({ scanned: 1, runsCreated: 2 });
+    expect(await queued()).toEqual([`${day1}:${drY}`, `${day2}:${drY}`].sort());
+    expect(await db.certificateIssueRun.count({ where: { eventId } })).toBe(1);
+  });
+
+  it("H1: the switch counts the same way, and a refusal leaves it off", async () => {
+    const day1 = await template("CME Day 1", { auto: true });
+    const day2 = await template("CME Day 2");
+    const drY = await registration("y@x.com", { answered: true, swept: true });
+    await db.certificateAssignment.createMany({
+      data: [day1, day2].map((certificateTemplateId) => ({
+        eventId, organizationId: seed.orgId, certificateTemplateId, registrationId: drY, source: "TAG_BACKFILL",
+      })),
+    });
+
+    expect(await setSwitch(day2, true)).toMatchObject({ ok: false, code: "CONFIRM_SEND_NOW", meta: { sendNow: 2 } });
+    expect((await db.certificateTemplate.findUniqueOrThrow({ where: { id: day2 } })).autoIssueOnSurvey).toBe(false);
+    expect(await setSwitch(day2, true, 2)).toEqual({ ok: true, changed: true, sendNow: 2 });
+  });
+
+  it("H2: without the Issue permission a send-now is refused and nothing is written; assigning people who have not answered still works", async () => {
+    const tpl = await template("CME", { auto: true });
+    const answered = await registration("done@x.com", { answered: true, swept: true });
+    const waiting = await registration("later@x.com");
+
+    const refused = await assign(tpl, { registrationIds: [answered, waiting] }, 99, false);
+    expect(refused).toMatchObject({ ok: false, code: "SEND_NOW_NOT_PERMITTED", meta: { sendNow: 1 } });
+    expect(await db.certificateAssignment.count()).toBe(0);
+    expect(await checkedAt(answered)).not.toBeNull();
+
+    expect(await assign(tpl, { registrationIds: [waiting] }, undefined, false)).toMatchObject({ ok: true, assigned: 1, sendNow: 0 });
+
+    // The switch, the same: on a template whose people answered, it stays off.
+    const other = await template("Other");
+    await assign(other, { registrationIds: [answered] });
+    expect(await setSwitch(other, true, 99, false)).toMatchObject({ ok: false, code: "SEND_NOW_NOT_PERMITTED" });
+    expect((await db.certificateTemplate.findUniqueOrThrow({ where: { id: other } })).autoIssueOnSurvey).toBe(false);
+  });
+
+  it("a certificate already on its way is not counted and the person is not re-opened", async () => {
+    const tpl = await template("CME", { auto: true });
+    const reg = await registration("flying@x.com", { answered: true, swept: true });
+    // A manual run in review already covers this template for this person.
+    const run = await db.certificateIssueRun.create({
+      data: { eventId, organizationId: seed.orgId, type: "ATTENDANCE", certificateTemplateId: tpl, templateIds: [tpl], status: "AWAITING_REVIEW", totalCount: 1 },
+      select: { id: true },
+    });
+    await db.certificateIssueRunItem.create({
+      data: { runId: run.id, organizationId: seed.orgId, registrationId: reg, recipientName: "Reg flying", recipientEmail: "flying@x.com", templateIds: [tpl] },
+    });
+
+    expect(await assign(tpl, { registrationIds: [reg] })).toMatchObject({ ok: true, assigned: 1, sendNow: 0 });
+    expect(await checkedAt(reg)).not.toBeNull();
   });
 });
 
@@ -290,7 +400,7 @@ describe("the survey sweep reads assignments, in either order", () => {
     // Under the tag this replaced, that person was never looked at again.
     expect(await runAutoIssueSweep()).toMatchObject({ scanned: 0 });
 
-    expect(await assign(tpl, { registrationIds: [reg] }, true)).toMatchObject({ ok: true, sendNow: 1 });
+    expect(await assign(tpl, { registrationIds: [reg] }, 1)).toMatchObject({ ok: true, sendNow: 1 });
     expect(await runAutoIssueSweep()).toMatchObject({ scanned: 1, runsCreated: 1 });
     expect(await queued()).toEqual([`${tpl}:${reg}`]);
     // And once queued, never twice.
@@ -315,7 +425,7 @@ describe("the survey sweep reads assignments, in either order", () => {
 
     const refused = await assign(tpl, { speakerIds: [byPointer, byEmail, neverRegistered] });
     expect(refused).toMatchObject({ ok: false, code: "CONFIRM_SEND_NOW", meta: { sendNow: 2, assigned: 3 } });
-    expect(await assign(tpl, { speakerIds: [byPointer, byEmail, neverRegistered] }, true)).toMatchObject({ ok: true, assigned: 3, sendNow: 2 });
+    expect(await assign(tpl, { speakerIds: [byPointer, byEmail, neverRegistered] }, 2)).toMatchObject({ ok: true, assigned: 3, sendNow: 2 });
     expect(await checkedAt(companion)).toBeNull();
     expect(await checkedAt(sameAddress)).toBeNull();
 
@@ -365,10 +475,53 @@ describe("the survey sweep reads assignments, in either order", () => {
 
     // Sweep and assignment at once, a few times over: whichever takes the
     // lock first, the person ends up queued exactly once.
-    const [, assigned] = await Promise.all([runAutoIssueSweep(), assign(tpl, { registrationIds: [reg] }, true)]);
+    const [, assigned] = await Promise.all([runAutoIssueSweep(), assign(tpl, { registrationIds: [reg] }, 1)]);
     expect(assigned.ok).toBe(true);
     await runAutoIssueSweep();
     expect(await queued()).toEqual([`${tpl}:${reg}`]);
+  });
+
+  it("M1: a registration cancelled, or whose survey is reset, while the sweep waits for the lock is not sent to and not stamped", async () => {
+    const tpl = await template("CME", { auto: true });
+    const cancelled = await registration("cancelled@x.com", { answered: true });
+    const reset = await registration("reset@x.com", { answered: true });
+    await db.certificateAssignment.createMany({
+      data: [cancelled, reset].map((registrationId) => ({
+        eventId, organizationId: seed.orgId, certificateTemplateId: tpl, registrationId, source: "MANUAL",
+      })),
+    });
+
+    let release!: () => void;
+    const hold = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => (locked = r));
+    // Something holds the event's lock (a large assignment): the sweep has
+    // already read both people as candidates and now waits.
+    const holder = db.$transaction(
+      async (tx) => {
+        await lockCertificateAssignments(tx, eventId);
+        locked();
+        await hold;
+      },
+      { timeout: 15_000 },
+    );
+    await isLocked;
+    const sweep = runAutoIssueSweep();
+    await new Promise((r) => setTimeout(r, 400));
+
+    // Meanwhile: a refund cancels one, an organiser resets the other's survey.
+    await db.registration.update({ where: { id: cancelled }, data: { status: "CANCELLED" } });
+    await db.registration.update({ where: { id: reset }, data: { surveyCompletedAt: null, certAutoIssueCheckedAt: null } });
+
+    release();
+    await holder;
+    expect(await sweep).toMatchObject({ scanned: 2, skippedChanged: 2, resolved: 0, runsCreated: 0 });
+    expect(await queued()).toEqual([]);
+    // Not stamped: when the survey is answered again, the sweep looks again and sends.
+    expect(await checkedAt(reset)).toBeNull();
+    await db.registration.update({ where: { id: reset }, data: { surveyCompletedAt: ANSWERED } });
+    expect(await runAutoIssueSweep()).toMatchObject({ scanned: 1, runsCreated: 1 });
+    expect(await queued()).toEqual([`${tpl}:${reset}`]);
   });
 });
 
@@ -455,6 +608,48 @@ describe("the readers", () => {
     expect(report.rows.find((r) => r.email === "sent@x.com")?.certificate?.serial).toBe("S-7");
   });
 
+  it("M4: the Issue pool leaves out a person whose certificate is already on its way, and offers them again if that run dies", async () => {
+    const tpl = await template("CME", { auto: true });
+    const flying = await registration("flying@x.com", { answered: true, swept: true });
+    const waiting = await registration("waiting@x.com");
+    expect(await assign(tpl, { registrationIds: [flying, waiting] }, 1)).toMatchObject({ ok: true, sendNow: 1 });
+    expect(await runAutoIssueSweep()).toMatchObject({ scanned: 1, runsCreated: 1 });
+
+    // Staff open the Issue tab while the sweep's run is still PENDING: pressing
+    // Issue must not email the same certificate a second time.
+    const pool = async () =>
+      (await eligibleForTemplates(eventId, [{ id: tpl, name: "CME", category: "ATTENDANCE" }])).people.map((p) => p.registrationId);
+    expect(await pool()).toEqual([waiting]);
+
+    // The auto run fails: nothing will send it, so the Issue tab offers them again.
+    await db.certificateIssueRun.updateMany({ where: { eventId, autoIssue: true }, data: { status: "FAILED" } });
+    expect((await pool()).sort()).toEqual([flying, waiting].sort());
+  });
+
+  it("answered-but-not-assigned leaves out faculty whose SPEAKER record holds a certificate (pointer or same address)", async () => {
+    const appreciation = await template("Faculty", { category: "APPRECIATION", auto: true });
+    const companion = await registration("comp@x.com", { answered: true, swept: true });
+    const byPointer = await speaker("faculty@x.com", { sourceRegistrationId: companion });
+    await registration("self@x.com", { answered: true, swept: true });
+    const byEmail = await speaker("self@x.com");
+    // A speaker nobody assigned: their registration IS on no list.
+    await registration("unassigned-speaker@x.com", { answered: true, swept: true });
+    await speaker("unassigned-speaker@x.com");
+    await registration("forgotten@x.com", { answered: true, swept: true });
+    await db.certificateAssignment.createMany({
+      data: [byPointer, byEmail].map((speakerId) => ({
+        eventId, organizationId: seed.orgId, certificateTemplateId: appreciation, speakerId, source: "MANUAL",
+      })),
+    });
+
+    const report = await loadRecipientReport({ id: eventId, timezone: "Asia/Dubai", cmeHours: null });
+    expect(report.answeredNotAssigned.map((r) => r.email).sort()).toEqual(["forgotten@x.com", "unassigned-speaker@x.com"]);
+    // The same list when the report is narrowed to another template.
+    const attendance = await template("CME");
+    const narrowed = await loadRecipientReport({ id: eventId, timezone: "Asia/Dubai", cmeHours: null }, { templateId: attendance });
+    expect(narrowed.answeredNotAssigned.map((r) => r.email).sort()).toEqual(["forgotten@x.com", "unassigned-speaker@x.com"]);
+  });
+
   it("a pasted list of emails resolves whatever the case, and says who it could not find", async () => {
     const live = await registration("Mixed.Case@X.com");
     await registration("cancelled@x.com", { status: "CANCELLED" });
@@ -537,6 +732,32 @@ describe("the migration's backfill", () => {
     await backfill();
     expect(await db.certificateAssignment.count({ where: { registrationId: late, certificateTemplateId: cme } })).toBe(1);
     expect(await db.certificateAssignment.count()).toBe(4);
+  });
+
+  it("M3: re-running the catch-up never puts back someone staff removed after the deploy", async () => {
+    const cme = await template("CME", { tag: "Cme" });
+    const kept = await registration("kept@x.com", { tags: ["Cme"] });
+    const removed = await registration("removed@x.com", { tags: ["Cme"] });
+    expect(await applyBackfill(statements, { write: true })).toEqual({ inserted: 2, heldBack: 0 });
+
+    // Staff look at the list and take one person off. Their tag is still there.
+    expect(await unassignCertificate({ eventId, templateId: cme, registrationIds: [removed], userId: seed.userId, source: "rest" }))
+      .toMatchObject({ ok: true, removed: 1 });
+    await auditLanded("CERTIFICATE_UNASSIGNED");
+    // And a tag is added mid-deploy: the reason the catch-up exists.
+    const late = await registration("late@x.com", { tags: ["Cme"] });
+
+    // The dry run says what would happen and changes nothing.
+    expect(await applyBackfill(statements, { write: false })).toEqual({ inserted: 1, heldBack: 1 });
+    expect(await db.certificateAssignment.count()).toBe(1);
+
+    expect(await applyBackfill(statements, { write: true })).toEqual({ inserted: 1, heldBack: 1 });
+    const onList = await db.certificateAssignment.findMany({ where: { certificateTemplateId: cme }, select: { registrationId: true } });
+    expect(onList.map((r) => r.registrationId).sort()).toEqual([kept, late].sort());
+    // Staff put the person back by hand: that row is theirs, and stays.
+    await assign(cme, { registrationIds: [removed] });
+    expect(await applyBackfill(statements, { write: true })).toEqual({ inserted: 0, heldBack: 0 });
+    expect(await db.certificateAssignment.count({ where: { certificateTemplateId: cme } })).toBe(3);
   });
 
   it("a backfilled person who answered before the migration is NOT sent a certificate by the deploy", async () => {

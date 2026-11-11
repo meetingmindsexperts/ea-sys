@@ -952,15 +952,49 @@ decide on after it. Proven on a real Postgres in
 `tests/integration-db/certificate-assignments.db.test.ts` ("the sweep WAITS for an assignment
 that is being written, then sees it").
 
+The sweep finds its candidates before it has the lock, and waiting for the lock can take
+seconds. So once it has it, it locks its own row (`FOR UPDATE`) and reads it again: a
+registration cancelled, whose survey was reset, or that was already handled in that time is
+left exactly as it is, not stamped and not sent (`skippedChanged` in the sweep's log line).
+Its failure path writes only while the row still holds the attempt count it read, so a
+re-open made meanwhile is never overwritten by a stale "gave up" stamp.
+
+What the sweep sends one registration is decided in ONE place,
+`planSurveyReleases` (`src/lib/certificates/survey-release.ts`): the auto-issue templates
+assigned to the registration and to its linked speaker, minus any it holds (revoked counts)
+and any a run that has not finished is already sending. The confirmation below counts with
+the same function.
+
 ### The send-now confirmation (owner, Nov 11, 2026)
 
 Survey auto-issue sends with no review step, so two actions can release a batch at once:
 assigning people who have already answered to a template that sends automatically, and
 turning the switch on for a template whose people have already answered. Both are refused
 with `CONFIRM_SEND_NOW` and a `sendNow` count (HTTP 409 on REST) until the caller repeats the
-request with `confirmSendNow: true`. It is enforced in the service, so the dashboard, the
-email list and the agent cannot skip it. `setTemplateAutoIssue` is the one writer of
-`autoIssueOnSurvey` on an existing template.
+request with `confirmSendNow` set to THAT NUMBER. It is enforced in the service, so the
+dashboard, the email list and the agent cannot skip it. `setTemplateAutoIssue` is the one
+writer of `autoIssueOnSurvey` on an existing template.
+
+Three rules, from the review of the first version (`631e95bd`):
+
+- **The count is everything that goes out.** Re-opening a person hands them back to the sweep,
+  which sends EVERY auto-issue certificate they are owed, not only the template being
+  assigned. A person the migration carried onto "CME Day 1" who had already answered is owed
+  Day 1 and was deliberately not sent it; assigning them "CME Day 2" sends both. So the
+  service writes the change, asks `planSurveyReleases` what re-opening sends, and rolls the
+  transaction back unless the caller agreed to that number. The refusal names the templates
+  (`sendNowByTemplate`) and the sentence says so when other templates are included. Only
+  registrations with something to send are re-opened.
+- **The confirmation is a number, not a yes.** `confirmSendNow: 5` agrees to five. If more
+  people have answered since the number was shown, the call is refused again with the new
+  count. A bare `true` is invalid input.
+- **Sending needs `certificates.issue`.** Assigning and the switch are template setup
+  (`certificates.templates.manage`, which an organisation API key holds). When either would
+  send now, the caller must also hold `certificates.issue` on the event
+  (`mayReleaseCertificates`), or the call is refused with `SEND_NOW_NOT_PERMITTED` (HTTP 403)
+  and nothing changes. So an API key can assign people who have not answered yet, and cannot
+  email certificates to people who have. Assigning people who have not answered needs only
+  the template key.
 
 ### Doors
 
@@ -975,8 +1009,9 @@ REST: `GET/POST/DELETE /api/events/[eventId]/certificates/assignments` and
 `GET /api/events/[eventId]/certificates/recipients` (`?format=csv` for the export, recorded by
 `recordExport`). Assigning and removing ask `certificates.templates.manage`: who receives a
 template is part of its setup, the key that set the tag and that turns the switch on. It is
-also a key the API key already holds, so the key's reach did not change. Reading asks
-`certificates.read`.
+also a key the API key already holds. What that key cannot do is SEND: an assignment or a
+switch that would email certificates now also needs `certificates.issue` (the confirmation
+section above). Reading asks `certificates.read`.
 
 Someone who HOLDS the certificate cannot be unassigned (`keptIssued`): the row is what
 explains the certificate on the report, and taking a certificate back is revoking it.
@@ -1001,7 +1036,13 @@ of people than a stale page showed.
 | Could not send | auto-issue gave up after its retries |
 | Revoked / Registration cancelled | as named |
 
-Plus `answeredNotAssigned`: answered the certificate survey, not cancelled, assigned nothing.
+Plus `answeredNotAssigned`: answered the certificate survey, not cancelled, assigned nothing,
+on the registration or on its linked speaker (a faculty member whose speaker record holds an
+appreciation certificate is not "on no list").
+
+The Issue tab's pool (`eligibility.ts`) leaves out a person whose certificate is already on
+its way in a run that has not finished (`liveRunItemFor`), survey auto-issue included, so an
+Issue pressed while the sweep's run is in flight does not email the same certificate twice.
 
 ### The migration and what it does not do
 
@@ -1021,6 +1062,17 @@ docker exec ea-sys-worker npx tsx scripts/backfill-certificate-assignments.ts --
 
 The script reads the statements out of the migration file (between the BACKFILL markers), so
 there is one copy. Rollback: `docs/ROLLBACK.md`.
+
+Being on a list and never sent is not harmless for ever: the next time such a person is
+re-opened (another auto-issue certificate assigned to them, a switch turned on), the
+certificate they were already owed goes out with it. The confirmation counts and names it, so
+staff see it first; to keep someone from ever receiving it, take them off that list.
+
+The script never puts back a person staff REMOVED after the deploy. Tags are never cleared,
+so the statements alone would re-add them; each removal is an audit row
+(`CERTIFICATE_UNASSIGNED`), and a new row for a removed person is taken out again before the
+transaction commits (`heldBack` in the output). A removal of more than 200 people names only
+the first 200, so every new row for that template is held back.
 
 ### Not built
 

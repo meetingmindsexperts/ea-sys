@@ -290,6 +290,8 @@ export default function CertificatesPage() {
     templateId: string;
     name: string;
     sendNow: number;
+    /** The server's sentence: how many, to how many people, which certificates. */
+    message: string;
   } | null>(null);
 
   // ── Settings (CME) ────────────────────────────────────────────────────────
@@ -421,6 +423,8 @@ export default function CertificatesPage() {
     },
     onSuccess: (template) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
+      // The Assign dialog and the person card read the list under this key.
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates", "templates"] });
       setEditingTemplateId(template.id);
       toast.success(`Created "${template.name}"`);
     },
@@ -502,6 +506,8 @@ export default function CertificatesPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
+      // The Assign dialog and the person card read the list under this key.
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates", "templates"] });
       // The clone deliberately starts with survey auto-issue OFF and with
       // nobody assigned. Surface that so the operator knows to assign people
       // and re-enable it, rather than discovering the copy silently never
@@ -542,6 +548,8 @@ export default function CertificatesPage() {
     },
     onSuccess: ({ template, omittedSections }) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
+      // The Assign dialog and the person card read the list under this key.
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates", "templates"] });
       setEditingTemplateId(template.id);
       // The starter adapts to the event's configuration, so say what it left
       // out rather than letting the organizer wonder where the CME lines went.
@@ -585,6 +593,8 @@ export default function CertificatesPage() {
     },
     onSuccess: (templateId) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
+      // The Assign dialog and the person card read the list under this key.
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates", "templates"] });
       if (editingTemplateId === templateId) setEditingTemplateId(null);
       setIssueTemplateIds((cur) => cur.filter((id) => id !== templateId));
       toast.success("Template deleted");
@@ -911,7 +921,8 @@ export default function CertificatesPage() {
   // a question (409 CONFIRM_SEND_NOW with the number of certificates that
   // would go out at once), answered in the dialog further down.
   const autoIssueMutation = useMutation({
-    mutationFn: async (vars: { templateId: string; name: string; enabled: boolean; confirmSendNow: boolean }) => {
+    // confirmSendNow: the count the person agreed to; the server asks again if it has grown.
+    mutationFn: async (vars: { templateId: string; name: string; enabled: boolean; confirmSendNow?: number }) => {
       const res = await fetch(`/api/events/${eventId}/certificates/templates/${vars.templateId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -924,14 +935,19 @@ export default function CertificatesPage() {
         sendNow?: number;
       };
       if (res.status === 409 && json.code === "CONFIRM_SEND_NOW") {
-        return { kind: "confirm" as const, sendNow: json.sendNow ?? 0, vars };
+        return { kind: "confirm" as const, sendNow: json.sendNow ?? 0, message: json.error ?? "", vars };
       }
       if (!res.ok || !json.template) throw new Error(json.error ?? `Update failed (${res.status})`);
       return { kind: "saved" as const, template: json.template, vars };
     },
     onSuccess: (result) => {
       if (result.kind === "confirm") {
-        setAutoIssueConfirm({ templateId: result.vars.templateId, name: result.vars.name, sendNow: result.sendNow });
+        setAutoIssueConfirm({
+          templateId: result.vars.templateId,
+          name: result.vars.name,
+          sendNow: result.sendNow,
+          message: result.message,
+        });
         return;
       }
       setAutoIssueConfirm(null);
@@ -940,7 +956,7 @@ export default function CertificatesPage() {
           ? { templates: cur.templates.map((t) => (t.id === result.template.id ? { ...t, ...result.template } : t)) }
           : cur,
       );
-      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates", "recipients"] });
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates"] });
       queryClient.invalidateQueries({ queryKey: ["cert-auto-issue-analytics", eventId] });
       if (result.vars.enabled && result.vars.confirmSendNow) {
         toast.success(`"${result.vars.name}" now sends automatically. The certificates owed are on their way.`);
@@ -1201,7 +1217,6 @@ export default function CertificatesPage() {
                               templateId: editingTemplate.id,
                               name: editingTemplate.name,
                               enabled: checked,
-                              confirmSendNow: false,
                             })
                           }
                         />
@@ -2367,11 +2382,8 @@ export default function CertificatesPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-            <strong>
-              {autoIssueConfirm?.sendNow} {autoIssueConfirm?.sendNow === 1 ? "person has" : "people have"} already answered.
-            </strong>{" "}
-            {autoIssueConfirm?.sendNow === 1 ? "Their certificate" : "Their certificates"} will be emailed within a few
-            minutes, with no review step. Everyone else assigned receives theirs when they answer.
+            <strong>{autoIssueConfirm?.message}</strong> They go out within a few minutes, with no review step. Everyone
+            else assigned receives theirs when they answer.
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAutoIssueConfirm(null)} disabled={autoIssueMutation.isPending}>
@@ -2385,7 +2397,7 @@ export default function CertificatesPage() {
                   templateId: autoIssueConfirm.templateId,
                   name: autoIssueConfirm.name,
                   enabled: true,
-                  confirmSendNow: true,
+                  confirmSendNow: autoIssueConfirm.sendNow,
                 })
               }
             >

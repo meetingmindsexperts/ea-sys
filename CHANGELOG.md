@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Certificate assignments: the review of the first version (November 11)
+
+Two reviewers read `631e95bd` adversarially. 2 HIGH and 9 MED, all fixed here; the LOWs are listed in the commit.
+
+- **The number confirmed is now the number sent (HIGH)** - assigning a person who had already answered re-opens them for the survey sweep, and the sweep sends every auto-issue certificate they are owed. The confirmation counted only the template being assigned. A person carried onto "CME Day 1" by the migration, who had answered, was owed Day 1 and deliberately not sent it; assigning them "CME Day 2" and confirming "1 certificate" emailed both. The sweep and the confirmation now decide with one function (`planSurveyReleases`): the change is written, the plan read, and the transaction rolled back unless the caller agreed to that number. The refusal names every template. Proven on Postgres
+- **Sending now needs the Issue permission (HIGH)** - assigning and the template's switch ask `certificates.templates.manage`, which an organisation API key holds. Either could email certificates to everyone who had already answered, with no `certificates.issue` involved, and the "confirmation" was a flag the caller set itself. A send-now is now refused with `SEND_NOW_NOT_PERMITTED` (403) unless the caller also holds `certificates.issue` on the event. Assigning people who have not answered is unchanged
+- **The confirmation is a count, not a yes** - `confirmSendNow` is the number the person was shown. The email-list dialog sent a blanket `true` after its check step, so people who answered between the check and the click were emailed with no number ever shown. If the count has grown the server asks again; a bare `true` is invalid
+- **The sweep re-reads its own row** - it read its candidates before taking the lock and then waited for it, up to 20 seconds each. A registration cancelled in that time was still sent a certificate; one whose survey was reset was stamped and never looked at again. It now locks the row and reads it again, and leaves a changed one alone. Its failure path no longer overwrites a re-open with a stale "gave up" stamp
+- **The Issue tab leaves out a certificate already on its way** - confirming a send-now and then pressing Issue inside the three-minute tick emailed the same certificate twice
+- **Re-running the catch-up script never puts back someone staff removed** - the tags are never cleared, so a second run re-added them. It now reads the removals from the audit trail and holds those rows back
+- **"Answered the survey, not assigned"** no longer lists faculty whose speaker record holds an appreciation certificate
+- **Assign certificate, right after creating a template** - the dialog read the template list from a cache the Certificates page did not refresh, and said "no certificate yet" for up to five minutes
+- **The guide said "select all"** - the box at the top of the Registrations list selects one page (20 rows, at most 100). The worked example for 300 attendees would have assigned 20. Corrected, with the email list as the way for a long list
+- **The tag guard test** scanned one folder and missed the Prisma form of a tag match (`tags: { has }`); it now covers the services, the agent tools and the certificate routes
+- **Agent** - `confirmSendNow` on `assign_certificate` and `update_certificate_template` is a number. Package 0.4.55 to 0.4.56: connected clients reconnect
+- **Tests** - 30 on a real Postgres (was 22): the two-template count, the permission, a cancellation and a survey reset landing while the sweep waits, the Issue pool, the catch-up hold-back
+
 ### Certificates go to the people assigned them, not to a tag (November 11)
 
 Owner: "we need to figure out a better way than using tags because reporting is nightmare". A certificate template carried a free-text tag, and whoever held the same word on their attendee or speaker row received it. On production that day: 804 registrations at finished events carried the certificate tag with no certificate and nothing said whether they were owed one, 743 of 859 certificates had gone to people with no survey answer, and no event-wide list of issued certificates existed.

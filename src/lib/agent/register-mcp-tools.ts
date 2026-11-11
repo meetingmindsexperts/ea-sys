@@ -18,6 +18,8 @@ import { TOOL_EXECUTOR_MAP, type AgentContext } from "@/lib/agent/event-tools";
 import type { AgentSource } from "@/lib/agent/tools/_shared";
 import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE, requiresApproval } from "@/lib/agent/approvals";
 import { apiLogger } from "@/lib/logger";
+import { systemPrincipal, type Principal } from "@/lib/permissions/can";
+import { principalFromApiKey } from "@/lib/permissions/require-permission";
 import { dashboardPathForTool, dashboardUrl } from "@/lib/agent/dashboard-links";
 import { MANUAL_PAYMENT_STATUSES } from "@/lib/registration-payment-policy";
 import { RECOMMENDED_FORMAT_VALUES } from "@/lib/recommended-formats";
@@ -90,7 +92,13 @@ async function getOrgIdSecure(eventId: string, authenticatedOrgId: string): Prom
 export function registerAllMcpTools(
   server: McpServer,
   organizationId: string,
-  options?: { systemUserId?: string; actor?: CrmMcpActor; source?: AgentSource },
+  options?: {
+    systemUserId?: string;
+    actor?: CrmMcpActor;
+    source?: AgentSource;
+    /** An API key that acts with a role: the principal its tools are gated by. */
+    keyPrincipal?: Principal | null;
+  },
 ): void {
   const SYSTEM_USER_ID = options?.systemUserId ?? DEFAULT_SYSTEM_USER_ID;
   // Which door these registrations serve. The MCP transports never pass it;
@@ -100,6 +108,15 @@ export function registerAllMcpTools(
   // Defaults to admin-equivalent so the API-key path (an admin-minted org key)
   // is byte-identical to before. Only the OAuth path passes a real role.
   const actor: CrmMcpActor = options?.actor ?? { role: null, fromApiKey: true };
+  // Handed to the event tools for the few that ask a second key (AgentContext.principal).
+  // The in-app agent carries the person; a key is its role, else the full
+  // API key row; an OAuth grant without one is judged by its base role.
+  const toolPrincipal: Principal =
+    actor.principal ??
+    options?.keyPrincipal ??
+    (actor.fromApiKey
+      ? principalFromApiKey(organizationId)
+      : systemPrincipal({ role: actor.role, organizationId }));
 
   // Wraps every tool callback so thrown errors become MCP-protocol `isError`
   // responses with the real message instead of the SDK's generic
@@ -640,7 +657,7 @@ export function registerAllMcpTools(
       // template, so nothing is sent until people are.
       autoIssueOnSurvey: z.boolean().optional(),
     }},
-    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, sortOrder, role, cmeHours, or survey auto-issue (autoIssueOnSurvey). WHO receives the template is the people assigned it (assign_certificate), never a tag. Turning autoIssueOnSurvey ON sends the certificate at once to everyone assigned who has already answered the certificate survey: the call is refused with code CONFIRM_SEND_NOW and a sendNow count until you tell the user that number and they agree, then call again with confirmSendNow: true. Pass null on role/cmeHours to clear. The cover email is not on the template: edit the event's Certificate Delivery email template with update_email_template. Partial: only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
+    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, sortOrder, role, cmeHours, or survey auto-issue (autoIssueOnSurvey). WHO receives the template is the people assigned it (assign_certificate), never a tag. Turning autoIssueOnSurvey ON sends the certificate at once to everyone assigned who has already answered the certificate survey: the call is refused with code CONFIRM_SEND_NOW and a sendNow count (every certificate those people are then sent, other templates they were already owed included) until you tell the user that number and they agree, then call again with confirmSendNow set to that number. Sending needs the Issue certificates permission; without it the call is refused with SEND_NOW_NOT_PERMITTED and nothing changes. Pass null on role/cmeHours to clear. The cover email is not on the template: edit the event's Certificate Delivery email template with update_email_template. Partial: only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
       templateId: z.string().min(1),
       name: z.string().min(1).max(120).optional(),
       backgroundPdfUrl: z.string().nullable().optional(),
@@ -665,14 +682,14 @@ export function registerAllMcpTools(
       cmeHours: z.number().min(0).max(999).nullable().optional(),
       autoIssueOnSurvey: z.boolean().optional(),
       // Only after the user agreed to the sendNow count a CONFIRM_SEND_NOW refusal reported.
-      confirmSendNow: z.boolean().optional(),
+      confirmSendNow: z.number().int().min(0).optional().describe("The number of certificates (the sendNow of a CONFIRM_SEND_NOW refusal) the user agreed to send now."),
     }},
-    { name: "assign_certificate", description: "Assign a certificate template to people: the assignment is what decides who receives it, on every path (the Issue run, the bulk certificate email, the person's own card and survey auto-issue). An ATTENDANCE template takes registrationIds, an APPRECIATION template takes speakerIds; or pass emails (for example an attendance export from the webinar platform) and they are matched to this event's registrations (or speakers, for an appreciation template), with the addresses nobody has returned in unmatched. Pass exactly one of the three. Already-assigned people are left as they are; a cancelled registration is skipped. If the template auto-issues on the survey and some of these people have ALREADY answered it, their certificates would be emailed at once: the call is then refused with code CONFIRM_SEND_NOW and a sendNow count. Tell the user that number and call again with confirmSendNow: true only once they agree. Assigning alone sends nothing otherwise. Find templateIds via list_certificate_templates and people via list_registrations / list_speakers.", params: {
+    { name: "assign_certificate", description: "Assign a certificate template to people: the assignment is what decides who receives it, on every path (the Issue run, the bulk certificate email, the person's own card and survey auto-issue). An ATTENDANCE template takes registrationIds, an APPRECIATION template takes speakerIds; or pass emails (for example an attendance export from the webinar platform) and they are matched to this event's registrations (or speakers, for an appreciation template), with the addresses nobody has returned in unmatched. Pass exactly one of the three. Already-assigned people are left as they are; a cancelled registration is skipped. If the template auto-issues on the survey and some of these people have ALREADY answered it, their certificates would be emailed at once: the call is then refused with code CONFIRM_SEND_NOW and a sendNow count (every certificate those people are then sent, other templates they were already owed included). Tell the user that number and call again with confirmSendNow set to that number only once they agree. Sending needs the Issue certificates permission; without it the call is refused with SEND_NOW_NOT_PERMITTED and nothing changes. Assigning alone sends nothing otherwise. Find templateIds via list_certificate_templates and people via list_registrations / list_speakers.", params: {
       templateId: z.string().min(1),
       registrationIds: z.array(z.string().min(1)).max(500).optional(),
       speakerIds: z.array(z.string().min(1)).max(500).optional(),
       emails: z.array(z.string().max(320)).max(500).optional(),
-      confirmSendNow: z.boolean().optional(),
+      confirmSendNow: z.number().int().min(0).optional().describe("The number of certificates (the sendNow of a CONFIRM_SEND_NOW refusal) the user agreed to send now."),
     }},
     { name: "unassign_certificate", description: "Take people off a certificate template's list so they no longer receive it. Pass registrationIds (ATTENDANCE template) or speakerIds (APPRECIATION template). Someone who already HOLDS the certificate stays on the list and is counted in keptIssued: taking a certificate back is revoking it, which is done in the dashboard. A certificate already being rendered or sent still goes out.", params: {
       templateId: z.string().min(1),
@@ -836,7 +853,7 @@ export function registerAllMcpTools(
           }, null, 2);
         }
         const orgId = await getOrgIdSecure(eventId as string, organizationId);
-        return runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID, source: SOURCE, counters: { creates: 0, emailsSent: 0 } });
+        return runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID, source: SOURCE, counters: { creates: 0, emailsSent: 0 }, principal: toolPrincipal });
       }),
     );
   }

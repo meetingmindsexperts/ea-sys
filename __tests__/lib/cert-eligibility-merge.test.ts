@@ -150,20 +150,33 @@ describe("eligibleForTemplates", () => {
     expect(res.perTemplate[0]).toMatchObject({ templateId: "tpl-other", count: 0, assigned: 0 });
   });
 
-  it("asks each pool for ITS template's assignments, leaves out cancelled registrations and people who already hold it", async () => {
+  it("asks each pool for ITS template's assignments, leaves out cancelled registrations, people who already hold it, and people it is already on its way to", async () => {
     wire({ registrations: [regRow("reg-1", "jane@x.com", ["tpl-att"])], links: [] });
     await eligibleForTemplates("evt-1", [ATT_TPL, APP_TPL]);
+    // A run that has not finished (survey auto-issue included) is still going
+    // to email this template: issuing again would send it twice (review of 631e95bd, M4).
+    const onItsWay = (templateId: string) => ({
+      none: {
+        errorPhase: null,
+        run: {
+          status: { in: ["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"] },
+          OR: [{ certificateTemplateId: templateId }, { templateIds: { has: templateId } }],
+        },
+      },
+    });
     expect(mockDb.registration.findMany.mock.calls[0][0].where).toEqual({
       eventId: "evt-1",
       status: { not: "CANCELLED" },
       certificateAssignments: { some: { certificateTemplateId: "tpl-att" } },
       issuedCertificates: { none: { certificateTemplateId: "tpl-att" } },
+      certificateIssueRunItems: onItsWay("tpl-att"),
     });
     const speakerPool = mockDb.speaker.findMany.mock.calls.find((c) => !c[0].select?.sourceRegistrationId)![0];
     expect(speakerPool.where).toEqual({
       eventId: "evt-1",
       certificateAssignments: { some: { certificateTemplateId: "tpl-app" } },
       issuedCertificates: { none: { certificateTemplateId: "tpl-app" } },
+      certificateIssueRunItems: onItsWay("tpl-app"),
     });
   });
 

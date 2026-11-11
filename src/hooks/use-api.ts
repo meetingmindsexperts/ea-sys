@@ -4171,10 +4171,20 @@ export interface AssignCertificateBody {
   speakerIds?: string[];
   /** A pasted list, matched to the event's registrations (or speakers). */
   emails?: string[];
-  /** Set once the person has agreed to the number of certificates sent at once. */
-  confirmSendNow?: boolean;
+  /**
+   * The number of certificates sent at once that the person agreed to (the
+   * `sendNow` the server reported). A larger number now is asked again.
+   */
+  confirmSendNow?: number;
   /** Work it out and write nothing. */
   dryRun?: boolean;
+}
+
+/** A template's share of what is sent at once. */
+export interface SendNowByTemplate {
+  templateId: string;
+  templateName: string;
+  count: number;
 }
 
 export interface AssignCertificateResponse {
@@ -4183,8 +4193,16 @@ export interface AssignCertificateResponse {
   assigned: number;
   alreadyAssigned: number;
   skipped: number;
-  /** Certificates the survey auto-issue sends straight away. */
+  /**
+   * Certificates the survey auto-issue sends straight away: this template's,
+   * and any other auto-issue certificate the same people were already owed.
+   */
   sendNow: number;
+  /** The people those go to. */
+  sendNowPeople: number;
+  sendNowByTemplate: SendNowByTemplate[];
+  /** Whether you may send them (Issue certificates permission). */
+  sendNowAllowed: boolean;
   dryRun: boolean;
   /** From a pasted list: addresses nobody at the event has. */
   unmatched: string[];
@@ -4201,10 +4219,21 @@ function invalidateCertificateAssignments(queryClient: ReturnType<typeof useQuer
 }
 
 /**
+ * The server's "this would email certificates now" refusal (409
+ * CONFIRM_SEND_NOW): the count to show and to send back as `confirmSendNow`,
+ * and its sentence, which names the templates. Null for any other error.
+ */
+export function sendNowRefusalOf(err: unknown): { count: number; message: string } | null {
+  if (!(err instanceof ApiError) || err.code !== "CONFIRM_SEND_NOW") return null;
+  return { count: Number(err.data?.sendNow ?? 0), message: err.message };
+}
+
+/**
  * Assign a certificate template to people. The server refuses with 409
- * CONFIRM_SEND_NOW (an ApiError whose `data.sendNow` is the count) when some
- * of them have already answered the survey and the template sends
- * automatically; send the same body again with `confirmSendNow: true`.
+ * CONFIRM_SEND_NOW (read it with sendNowRefusalOf) when some of them have
+ * already answered the survey and the template sends automatically; send the
+ * same body again with `confirmSendNow` set to that count. 403
+ * SEND_NOW_NOT_PERMITTED when you lack the Issue certificates permission.
  */
 export function useAssignCertificate(eventId: string) {
   const queryClient = useQueryClient();

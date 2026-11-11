@@ -12,6 +12,14 @@
  * two cannot drift. Each statement is ON CONFLICT DO NOTHING with a derived
  * id, so a re-run inserts only what is missing and changes nothing else.
  *
+ * It never puts back someone staff REMOVED after the deploy (review of
+ * 631e95bd, M3). The tags are never cleared, so the statements alone cannot
+ * tell "never copied" from "copied, then removed on purpose". Each removal is
+ * an audit row (CERTIFICATE_UNASSIGNED, naming the people up to 200); a new
+ * row for a removed (template, person) is taken out again before commit, and
+ * for a removal too large to name everyone, every new row for that template
+ * is. The output lists what was held back.
+ *
  * It writes rows only. It does NOT hand anyone back to the survey auto-issue
  * sweep, so running it never sends a certificate: a person it adds who has
  * already answered the survey shows on the Recipients report as "Ready to
@@ -27,6 +35,7 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import type { Prisma } from "@prisma/client";
 import { db } from "../src/lib/db";
 
 export const BACKFILL_MIGRATION = "prisma/migrations/20261111120000_certificate_assignment/migration.sql";
@@ -50,32 +59,96 @@ export function readBackfillStatements(sql: string): string[] {
 
 class Rollback extends Error {}
 
-async function main() {
-  const write = process.argv.includes("--write");
-  const statements = readBackfillStatements(readFileSync(path.resolve(process.cwd(), BACKFILL_MIGRATION), "utf8"));
+type Tx = Prisma.TransactionClient;
+
+/**
+ * (template, person) pairs staff took off a list, from the unassign audit
+ * rows; and the templates whose removal named fewer people than it removed
+ * (the audit keeps at most 200 ids), where nobody can be put back safely.
+ */
+export function removedPairsFrom(
+  audits: ReadonlyArray<{ entityId: string | null; changes: unknown }>,
+): { pairs: Set<string>; unnamed: Set<string> } {
+  const pairs = new Set<string>();
+  const unnamed = new Set<string>();
+  for (const audit of audits) {
+    if (!audit.entityId) continue;
+    const changes = (audit.changes ?? {}) as { registrationIds?: unknown; speakerIds?: unknown; removed?: unknown };
+    const ids = [changes.registrationIds, changes.speakerIds]
+      .flatMap((list) => (Array.isArray(list) ? list : []))
+      .filter((id): id is string => typeof id === "string");
+    if (typeof changes.removed === "number" && changes.removed > ids.length) unnamed.add(audit.entityId);
+    for (const id of ids) pairs.add(`${audit.entityId}|${id}`);
+  }
+  return { pairs, unnamed };
+}
+
+/** Take back the rows this run added for people staff removed. Returns how many. */
+async function holdBackRemoved(tx: Tx, existingIds: ReadonlySet<string>): Promise<number> {
+  const audits = await tx.auditLog.findMany({
+    where: { action: "CERTIFICATE_UNASSIGNED", entityType: "CertificateTemplate" },
+    select: { entityId: true, changes: true },
+  });
+  if (audits.length === 0) return 0;
+  const { pairs, unnamed } = removedPairsFrom(audits);
+  const rows = await tx.certificateAssignment.findMany({
+    select: { id: true, certificateTemplateId: true, registrationId: true, speakerId: true },
+  });
+  const heldBack = rows.filter((r) => {
+    if (existingIds.has(r.id)) return false;
+    const person = r.registrationId ?? r.speakerId ?? "";
+    return unnamed.has(r.certificateTemplateId) || pairs.has(`${r.certificateTemplateId}|${person}`);
+  });
+  if (heldBack.length === 0) return 0;
+  await tx.certificateAssignment.deleteMany({ where: { id: { in: heldBack.map((r) => r.id) } } });
+  return heldBack.length;
+}
+
+/**
+ * Run the backfill statements in one transaction and take back what staff
+ * removed. `write: false` rolls everything back, so the counts are exact and
+ * nothing changes. Exported for the real-Postgres test.
+ */
+export async function applyBackfill(
+  statements: readonly string[],
+  opts: { write: boolean },
+): Promise<{ inserted: number; heldBack: number }> {
   if (statements.some((s) => !s.startsWith('INSERT INTO "CertificateAssignment"') || !s.endsWith("ON CONFLICT DO NOTHING"))) {
     throw new Error("Refusing: the backfill block holds something other than its idempotent inserts");
   }
+  let inserted = 0;
+  let heldBack = 0;
+  try {
+    await db.$transaction(async (tx) => {
+      const existing = await tx.certificateAssignment.findMany({ select: { id: true } });
+      const existingIds = new Set(existing.map((r) => r.id));
+      for (const statement of statements) inserted += await tx.$executeRawUnsafe(statement);
+      heldBack = await holdBackRemoved(tx, existingIds);
+      inserted -= heldBack;
+      if (!opts.write) throw new Rollback();
+    });
+  } catch (err) {
+    if (!(err instanceof Rollback)) throw err;
+  }
+  return { inserted, heldBack };
+}
+
+async function main() {
+  const write = process.argv.includes("--write");
+  const statements = readBackfillStatements(readFileSync(path.resolve(process.cwd(), BACKFILL_MIGRATION), "utf8"));
 
   // The plain client, as the other one-off backfills use: this is a catch-up
   // for the master database, where row-level security is not enforced (the
   // platform instance is built from the migration chain and has no tags to copy).
   const before = await db.certificateAssignment.count();
-  let inserted = 0;
-  try {
-    await db.$transaction(async (tx) => {
-      for (const statement of statements) inserted += await tx.$executeRawUnsafe(statement);
-      if (!write) throw new Rollback();
-    });
-  } catch (err) {
-    if (!(err instanceof Rollback)) throw err;
-  }
+  const { inserted, heldBack } = await applyBackfill(statements, { write });
   const after = await db.certificateAssignment.count();
 
   console.log(
-    JSON.stringify({ mode: write ? "write" : "dry-run", statements: statements.length, before, inserted, after }, null, 2),
+    JSON.stringify({ mode: write ? "write" : "dry-run", statements: statements.length, before, inserted, heldBack, after }, null, 2),
   );
   if (!write && inserted > 0) console.log(`\n${inserted} row(s) would be added. Re-run with --write to add them.`);
+  if (heldBack > 0) console.log(`\n${heldBack} row(s) held back: staff removed those people after the deploy.`);
   if (inserted === 0) console.log("\nNothing to add: every tag already has its assignment.");
 }
 

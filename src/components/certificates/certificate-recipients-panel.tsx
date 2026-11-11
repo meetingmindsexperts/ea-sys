@@ -32,7 +32,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ApiError } from "@/lib/api-fetch";
 import { downloadExport } from "@/lib/export-download";
 import { assignmentSourceLabel } from "@/lib/certificates/assignments";
 import {
@@ -42,6 +41,7 @@ import {
   type RecipientState,
 } from "@/lib/certificates/recipient-states";
 import {
+  sendNowRefusalOf,
   useAssignCertificate,
   useCertificateRecipients,
   useUnassignCertificate,
@@ -623,15 +623,16 @@ function AssignFromEmailsDialog({
   async function confirm() {
     if (!chosen || !preview) return;
     try {
-      // The preview showed how many certificates go out at once: that is the agreement.
-      const res = await assign.mutateAsync({ templateId: chosen.id, emails, confirmSendNow: true });
+      // The preview showed how many certificates go out at once: that number
+      // is the agreement. If more have answered since, the server asks again.
+      const res = await assign.mutateAsync({ templateId: chosen.id, emails, confirmSendNow: preview.sendNow });
       const sending = res.sendNow > 0 ? ` ${plural(res.sendNow, "certificate is", "certificates are")} being sent now.` : "";
       toast.success(`Assigned "${res.templateName}" to ${plural(res.assigned, "person", "people")}.${sending}`);
       close(false);
     } catch (err) {
-      if (err instanceof ApiError && err.code === "CONFIRM_SEND_NOW") {
-        toast.error("The list changed since it was checked. Check it again.");
-        setPreview(null);
+      if (sendNowRefusalOf(err)) {
+        toast.warning("More of these people have answered the survey since the list was checked. Here is the new count.");
+        await check();
         return;
       }
       toast.error(err instanceof Error ? err.message : "Could not assign the certificate");
@@ -692,7 +693,10 @@ function AssignFromEmailsDialog({
               <Button variant="outline" onClick={() => setPreview(null)} disabled={assign.isPending}>
                 Back
               </Button>
-              <Button onClick={confirm} disabled={assign.isPending || preview.assigned === 0}>
+              <Button
+                onClick={confirm}
+                disabled={assign.isPending || preview.assigned === 0 || (preview.sendNow > 0 && !preview.sendNowAllowed)}
+              >
                 {assign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Assign {plural(preview.assigned, "person", "people")}
               </Button>
@@ -727,15 +731,36 @@ function EmailListPreview({ preview, total }: { preview: AssignCertificateRespon
           {matched} of {plural(total, "address", "addresses")} matched someone at this event.
         </li>
       </ul>
-      {preview.sendNow > 0 && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
-          <strong>{plural(preview.sendNow, "of them has", "of them have")} already answered the survey.</strong>{" "}
-          {preview.sendNow === 1 ? "Their certificate" : "Their certificates"} will be emailed within a few minutes,
-          with no review step.
-        </div>
-      )}
+      {preview.sendNow > 0 && <SendNowNotice preview={preview} />}
       <UnmatchedList title="Not found at this event" emails={preview.unmatched} />
       <UnmatchedList title="Registration cancelled" emails={preview.cancelled} />
+    </div>
+  );
+}
+
+/** What assigning this list sends at once, and whether you may. */
+function SendNowNotice({ preview }: { preview: AssignCertificateResponse }) {
+  const others = preview.sendNowByTemplate.some((t) => t.templateName !== preview.templateName);
+  return (
+    <div className="space-y-1 rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+      <p>
+        <strong>
+          {plural(preview.sendNowPeople, "of them has", "of them have")} already answered the survey, so{" "}
+          {plural(preview.sendNow, "certificate", "certificates")} will be emailed
+        </strong>{" "}
+        within a few minutes of assigning, with no review step.
+      </p>
+      {others && (
+        <p className="text-xs">
+          {preview.sendNowByTemplate.map((t) => `${t.templateName} (${t.count})`).join(", ")}. That includes certificates
+          from other templates they were already owed.
+        </p>
+      )}
+      {!preview.sendNowAllowed && (
+        <p className="text-xs font-medium">
+          Sending certificates needs the Issue certificates permission. Ask someone who has it to assign this list.
+        </p>
+      )}
     </div>
   );
 }

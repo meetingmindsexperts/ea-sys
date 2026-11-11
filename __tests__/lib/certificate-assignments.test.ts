@@ -170,7 +170,7 @@ describe("the small things", () => {
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { BACKFILL_MIGRATION, readBackfillStatements } from "../../scripts/backfill-certificate-assignments";
+import { BACKFILL_MIGRATION, readBackfillStatements, removedPairsFrom } from "../../scripts/backfill-certificate-assignments";
 
 describe("the backfill", () => {
   const sql = readFileSync(path.resolve(process.cwd(), BACKFILL_MIGRATION), "utf8");
@@ -201,6 +201,19 @@ describe("the backfill", () => {
   it("refuses a file without the markers", () => {
     expect(() => readBackfillStatements("CREATE TABLE x ();")).toThrow(/BACKFILL markers/);
   });
+
+  it("reads who staff removed from the unassign audit rows, so a re-run never puts them back", () => {
+    const { pairs, unnamed } = removedPairsFrom([
+      { entityId: "tpl-1", changes: { removed: 2, registrationIds: ["r1", "r2"] } },
+      { entityId: "tpl-2", changes: { removed: 1, speakerIds: ["s1"] } },
+      // 350 removed, 200 named (the audit's cap): nobody on this template can be put back safely.
+      { entityId: "tpl-big", changes: { removed: 350, registrationIds: Array.from({ length: 200 }, (_, i) => `b${i}`) } },
+      { entityId: null, changes: { removed: 1, registrationIds: ["x"] } },
+      { entityId: "tpl-odd", changes: null },
+    ]);
+    expect([...pairs].filter((p) => !p.startsWith("tpl-big"))).toEqual(["tpl-1|r1", "tpl-1|r2", "tpl-2|s1"]);
+    expect([...unnamed]).toEqual(["tpl-big"]);
+  });
 });
 
 describe("the tag is retired", () => {
@@ -230,11 +243,28 @@ describe("the tag is retired", () => {
   });
 
   it("no certificate code decides recipients from a person's tags", () => {
-    const certDir = path.join(SRC, "lib", "certificates");
-    const offenders = files
-      .filter((f) => f.startsWith(certDir))
-      .filter((f) => /\b(attendeeTags|speakerTags|tags\.includes|tags:\s*true)\b/.test(code(f)))
-      .map((f) => path.relative(process.cwd(), f));
+    // Every place that decides who receives a certificate: the library, the
+    // services, the agent's tools and the certificate routes.
+    const certificateCode = [
+      path.join(SRC, "lib", "certificates") + path.sep,
+      path.join(SRC, "services", "certificate-"),
+      path.join(SRC, "lib", "agent", "tools", "certificates.ts"),
+      path.join(SRC, "app", "api", "events", "[eventId]", "certificates") + path.sep,
+    ];
+    // Re-issuing narrows the people who ALREADY hold a certificate; it gives
+    // nobody a new one, so its optional tag filter decides no recipient.
+    const allowed = new Set([path.join(SRC, "app", "api", "events", "[eventId]", "certificates", "bulk-reissue", "route.ts")]);
+    // The Prisma form a tag match takes (`tags: { has: ... }`) as well as the in-memory ones.
+    const tagMatch = /\b(attendeeTags|speakerTags|tags\.includes|tags:\s*true|tags:\s*\{\s*has)\b/;
+    const scanned = files.filter((f) => certificateCode.some((prefix) => f.startsWith(prefix)) && !allowed.has(f));
+    expect(scanned.length, "the scan must reach the certificate code").toBeGreaterThan(20);
+    const offenders = scanned.filter((f) => tagMatch.test(code(f))).map((f) => path.relative(process.cwd(), f));
     expect(offenders).toEqual([]);
+  });
+
+  it("the tag guard's pattern catches the Prisma form of a tag match", () => {
+    const tagMatch = /\b(attendeeTags|speakerTags|tags\.includes|tags:\s*true|tags:\s*\{\s*has)\b/;
+    expect(tagMatch.test('where: { registration: { attendee: { tags: { has: "Cme" } } } }')).toBe(true);
+    expect(tagMatch.test("const tags = row.tags;")).toBe(false);
   });
 });

@@ -84,7 +84,9 @@ export interface RecipientReport {
   templates: RecipientReportTemplate[];
   rows: RecipientReportRow[];
   /** Answered the certificate survey, not cancelled, and assigned no
-   *  certificate at all: the people a tag used to lose silently. */
+   *  certificate at all, on the registration or on its linked speaker (the
+   *  companion pointer or the same address, the sweep's two links): the
+   *  people a tag used to lose silently. */
   answeredNotAssigned: AnsweredNotAssigned[];
 }
 
@@ -138,7 +140,7 @@ export async function loadRecipientReport(
   const eventId = event.id;
   const templateFilter = opts.templateId ? { certificateTemplateId: opts.templateId } : {};
 
-  const [templates, assignments, certificates, emailedItems, flightItems, answeredNotAssigned] = await Promise.all([
+  const [templates, assignments, certificates, emailedItems, flightItems, answeredUnassigned, assignedSpeakers] = await Promise.all([
     db.certificateTemplate.findMany({
       where: { eventId, ...(opts.templateId ? { id: opts.templateId } : {}) },
       orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
@@ -215,7 +217,18 @@ export async function loadRecipientReport(
         attendee: { select: { title: true, firstName: true, lastName: true, email: true } },
       },
     }),
+    // Speakers assigned any certificate: their registration is not "on no
+    // list", the sweep reaches them through it (review of 631e95bd).
+    db.speaker.findMany({
+      where: { eventId, certificateAssignments: { some: {} } },
+      select: { email: true, sourceRegistrationId: true },
+    }),
   ]);
+  const speakerRegistrationIds = new Set(assignedSpeakers.flatMap((s) => (s.sourceRegistrationId ? [s.sourceRegistrationId] : [])));
+  const speakerEmails = new Set(assignedSpeakers.flatMap((s) => (s.email ? [s.email] : [])));
+  const answeredNotAssigned = answeredUnassigned.filter(
+    (r) => !speakerRegistrationIds.has(r.id) && !(r.attendee.email && speakerEmails.has(r.attendee.email)),
+  );
 
   // A speaker's survey facts, through their registration at the event.
   const speakerRows = assignments.flatMap((a) => (a.speaker && a.speakerId ? [{ id: a.speakerId, ...a.speaker }] : []));

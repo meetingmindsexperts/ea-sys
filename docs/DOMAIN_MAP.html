@@ -438,9 +438,10 @@
 </div></details>
 <details class="sec"><summary><span class="ico">⚙️</span>Core logic (all under <code>lib/certificates/</code>)</summary><div class="kids">
 <div class="leaf"><code>issue-worker.ts</code> — run lifecycle, <code>transitionRunStatus</code> conditional claims (never resurrects a cancelled run)</div>
-<div class="leaf"><code>assignments.ts</code> — <b>THE rule for who receives a certificate</b> (the people assigned it) + the per-event lock; writes in <code>services/certificate-assignment-service.ts</code> (assign, unassign, the auto-issue switch, the send-now confirmation)</div>
-<div class="leaf"><code>auto-issue.ts</code> — survey sweep, backoff, routing by assignment (registration → ATTENDANCE, linked speaker → APPRECIATION); re-opened when a person is assigned or a switch turned on</div>
-<div class="leaf"><code>recipients-report.ts</code> + <code>recipient-states.ts</code> — one row per person per certificate: assigned, survey answered, certificate, one state</div>
+<div class="leaf"><code>assignments.ts</code>: <b>THE rule for who receives a certificate</b> (the people assigned it) + the per-event lock; writes in <code>services/certificate-assignment-service.ts</code> (assign, unassign, the auto-issue switch, the send-now confirmation)</div>
+<div class="leaf"><code>auto-issue.ts</code>: survey sweep, backoff, routing by assignment (registration → ATTENDANCE, linked speaker → APPRECIATION); re-opened when a person is assigned or a switch turned on</div>
+<div class="leaf"><code>survey-release.ts</code>: <code>planSurveyReleases</code>, what the sweep sends one registration, decided once; the sweep queues from it and the send-now confirmation counts with it. <code>release-permission.ts</code>: sending now needs <code>certificates.issue</code></div>
+<div class="leaf"><code>recipients-report.ts</code> + <code>recipient-states.ts</code>: one row per person per certificate: assigned, survey answered, certificate, one state</div>
 <div class="leaf"><code>render.ts</code> (pdf-lib overlay; placeholder THROWS on real issue paths) · <code>pdf-loader.ts</code> (<code>validateBackgroundPdfUrl</code> — the B1 SSRF/traversal guard) · <code>bulk-issue.ts</code> · <code>bundle.ts</code> (cover-email resolution) · <code>deliver.ts</code> (single/bundle issue + resend) · <code>eligibility.ts</code> ("no tag, no cert") · <code>email-tokens-resolver.ts</code></div>
 </div></details>
 <details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
@@ -448,7 +449,7 @@
 </div></details>
 <details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
 <div class="gotcha">Being ASSIGNED is the only issuance gate (never a tag, since Nov 11, 2026) — check-in does NOT gate certificates; CANCELLED regs never receive one.</div>
-<div class="gotcha">Assigning people who already answered the survey, or turning a template's switch on, can send at once: the service refuses with CONFIRM_SEND_NOW until confirmed. Never write <code>autoIssueOnSurvey</code> on an existing template except through <code>setTemplateAutoIssue</code>.</div>
+<div class="gotcha">Assigning people who already answered the survey, or turning a template's switch on, can send at once: the service refuses with CONFIRM_SEND_NOW until the caller sends back the count shown (counted by <code>planSurveyReleases</code>, the function the sweep decides with), and with SEND_NOW_NOT_PERMITTED without <code>certificates.issue</code>. Never write <code>autoIssueOnSurvey</code> on an existing template except through <code>setTemplateAutoIssue</code>.</div>
 <div class="gotcha">A person can hold several role-specific certs (per-template uniqueness, not per-category).</div>
 <div class="gotcha">Auto-issue runs skip the AWAITING_REVIEW gate (no operator); a reg is stamped once the sweep has looked at it, and assigning (or the switch) clears the stamp, so order no longer matters.</div>
 </div></details>

@@ -3,6 +3,7 @@
 // (Importing the generated Prisma enum is fine — it's not a sibling tool.)
 
 import { PaymentStatus } from "@prisma/client";
+import type { Principal } from "@/lib/permissions/can";
 
 /**
  * Which door reached the executor. Stamped onto every audit row a tool
@@ -20,6 +21,13 @@ export interface AgentContext {
   source: AgentSource;
   /** `creates` counts every write tool call in the request (see isWriteTool). */
   counters: { creates: number; emailsSent: number };
+  /**
+   * Who is calling, as the routes would judge them: the signed-in person on
+   * the in-app agent, the key on MCP. For the rare tool that must ask a
+   * SECOND key beyond the one that admitted it (sending certificates now,
+   * certificates.issue). Absent means "cannot tell": such a check fails closed.
+   */
+  principal?: Principal;
 }
 
 export type ToolExecutor = (

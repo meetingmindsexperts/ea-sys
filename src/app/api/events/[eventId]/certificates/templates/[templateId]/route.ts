@@ -23,6 +23,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { setTemplateAutoIssue } from "@/services/certificate-assignment-service";
+import { mayReleaseCertificates } from "@/lib/certificates/release-permission";
 import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 import { certificateTextBoxesSchema } from "@/lib/certificates/template-box-schema";
 import { Prisma } from "@prisma/client";
@@ -53,10 +54,14 @@ const patchSchema = z.object({
   // Survey-gated auto-issue. Turning it ON can send certificates at once (to
   // everyone assigned who has already answered), so it goes through
   // setTemplateAutoIssue, which refuses with CONFIRM_SEND_NOW until the
-  // caller passes confirmSendNow. (A retired autoIssueTag is stripped by Zod.)
+  // caller passes back the count it was shown as confirmSendNow, and with
+  // SEND_NOW_NOT_PERMITTED without certificates.issue. (A retired
+  // autoIssueTag is stripped by Zod.)
   autoIssueOnSurvey: z.boolean().optional(),
-  confirmSendNow: z.boolean().optional(),
+  confirmSendNow: z.number().int().min(0).max(1_000_000).optional(),
 });
+
+const SWITCH_STATUS = { TEMPLATE_NOT_FOUND: 404, CONFIRM_SEND_NOW: 409, SEND_NOW_NOT_PERMITTED: 403 } as const;
 
 export async function PATCH(req: Request, { params }: RouteParams) {
   let eventId: string | undefined;
@@ -112,6 +117,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       const enabled = parsed.data.autoIssueOnSurvey;
       const lockedEventId = eventId;
       const lockedTemplateId = template.id;
+      const mayReleaseNow = enabled && (await mayReleaseCertificates(gate.principal, lockedEventId, orgGuard.orgId));
       const switched = await runWithTenant(orgGuard.orgId, () =>
         setTemplateAutoIssue({
           eventId: lockedEventId,
@@ -119,14 +125,15 @@ export async function PATCH(req: Request, { params }: RouteParams) {
           enabled,
           userId: session.user.id,
           source: "rest",
-          confirmSendNow: parsed.data.confirmSendNow === true,
+          confirmedSendNow: parsed.data.confirmSendNow,
+          mayReleaseNow,
         }),
       );
       if (!switched.ok) {
         // Logged with its code by the service.
         return NextResponse.json(
           { error: switched.message, code: switched.code, ...(switched.meta ?? {}) },
-          { status: switched.code === "CONFIRM_SEND_NOW" ? 409 : 404 },
+          { status: SWITCH_STATUS[switched.code] },
         );
       }
     }

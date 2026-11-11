@@ -23,9 +23,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ApiError } from "@/lib/api-fetch";
 import {
   assignedCountOf,
+  sendNowRefusalOf,
   useAssignCertificate,
   useCertificateTemplates,
   useUnassignCertificate,
@@ -67,8 +67,8 @@ export function AssignCertificateDialog({ eventId, open, onOpenChange, kind, ids
 
   const [mode, setMode] = useState<Mode>("assign");
   const [templateId, setTemplateId] = useState<string | null>(null);
-  /** Set when the server asked for the send-now confirmation: how many go out. */
-  const [confirmSendNow, setConfirmSendNow] = useState<number | null>(null);
+  /** Set when the server asked for the send-now confirmation: how many go out, and its sentence. */
+  const [confirmSendNow, setConfirmSendNow] = useState<{ count: number; message: string } | null>(null);
 
   const templates = (templatesQuery.data?.templates ?? []).filter((t) => t.category === category);
   const selected = templates.find((t) => t.id === templateId) ?? null;
@@ -86,7 +86,8 @@ export function AssignCertificateDialog({ eventId, open, onOpenChange, kind, ids
 
   const idsBody = kind === "registration" ? { registrationIds: ids } : { speakerIds: ids };
 
-  async function submitAssign(confirmed: boolean) {
+  /** `confirmed`: the count the person agreed to; the server asks again if it has grown. */
+  async function submitAssign(confirmed?: number) {
     if (!selected) return;
     try {
       const res = await assign.mutateAsync({ templateId: selected.id, ...idsBody, confirmSendNow: confirmed });
@@ -94,8 +95,9 @@ export function AssignCertificateDialog({ eventId, open, onOpenChange, kind, ids
       onDone?.();
       close(false);
     } catch (err) {
-      if (err instanceof ApiError && err.code === "CONFIRM_SEND_NOW") {
-        setConfirmSendNow(Number(err.data?.sendNow ?? 0));
+      const refusal = sendNowRefusalOf(err);
+      if (refusal) {
+        setConfirmSendNow(refusal);
         return;
       }
       toast.error(err instanceof Error ? err.message : "Could not assign the certificate");
@@ -132,9 +134,8 @@ export function AssignCertificateDialog({ eventId, open, onOpenChange, kind, ids
 
         {confirmSendNow !== null ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-            <strong>{plural(confirmSendNow, "person has", "people have")} already answered the survey.</strong>{" "}
-            {confirmSendNow === 1 ? "Their certificate" : "Their certificates"} will be emailed within a few minutes,
-            with no review step. Everyone else receives theirs when they answer.
+            <strong>{confirmSendNow.message}</strong> They go out within a few minutes, with no review step.
+            Everyone else receives theirs when they answer.
           </div>
         ) : (
           <div className="space-y-3">
@@ -175,9 +176,9 @@ export function AssignCertificateDialog({ eventId, open, onOpenChange, kind, ids
               <Button variant="outline" onClick={() => setConfirmSendNow(null)} disabled={busy}>
                 Back
               </Button>
-              <Button onClick={() => submitAssign(true)} disabled={busy}>
+              <Button onClick={() => submitAssign(confirmSendNow.count)} disabled={busy}>
                 {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Assign and send {plural(confirmSendNow, "certificate", "certificates")}
+                Assign and send {plural(confirmSendNow.count, "certificate", "certificates")}
               </Button>
             </>
           ) : (
@@ -186,7 +187,7 @@ export function AssignCertificateDialog({ eventId, open, onOpenChange, kind, ids
                 Cancel
               </Button>
               <Button
-                onClick={() => (mode === "assign" ? submitAssign(false) : submitRemove())}
+                onClick={() => (mode === "assign" ? submitAssign() : submitRemove())}
                 disabled={busy || !selected || ids.length === 0}
                 variant={mode === "remove" ? "destructive" : "default"}
               >
