@@ -53,6 +53,8 @@ import {
   isPeopleFilterActive,
   liveSelection,
   matchesPeopleFilter,
+  pastedIdRows,
+  sharedPastedEmails,
   type PeopleFilter,
   type PeopleStatusFilter,
   type SpeakerBucket,
@@ -660,6 +662,8 @@ export function CertificateRecipientsPanel({
         onOpenChange={setIdsOpen}
         kind={kind}
         people={everyone}
+        listsEveryone={listsEveryone}
+        alreadyTicked={selectedIds.length}
         onSelect={(ids) => setSelected((prev) => new Set([...prev, ...ids]))}
       />
 
@@ -950,35 +954,58 @@ function CertificateCell({
   );
 }
 
+/** What a pasted list resolved to, with what the person should know before assigning. */
+interface PastedMatch {
+  matched: string[];
+  unmatched: string[];
+  /** Matched speakers who are not in the default "Invited speakers" list. */
+  outsideInvited: number;
+  /** Pasted addresses more than one registration shares: one of them was ticked. */
+  sharedEmails: string[];
+}
+
 /**
  * Select by IDs: paste a column of registration numbers, full ids or emails
- * and have those people ticked, as on the Registrations page (the same
- * matcher). It only ticks: assigning is the bar's own button, with its count
- * and its send-now question. It matches against everyone listed for this
- * kind, whatever the search and filters show, and ADDS to the ticks already
- * made.
+ * and have those people ticked, with the matcher the Registrations page uses.
+ * It only ticks: assigning is the bar's own button, with its count and its
+ * send-now question. Unlike that page it ADDS to the ticks already made, and
+ * it matches against everyone this caller is listed for the kind, whatever
+ * the search and filters show. So it says what the list would not: a matched
+ * speaker the default view hides, and an address two registrations share.
  */
 function SelectByIdsDialog({
   open,
   onOpenChange,
   kind,
   people,
+  listsEveryone,
+  alreadyTicked,
   onSelect,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   kind: Kind;
   people: CertificatePerson[];
+  /** False when the caller sees only the people already on a list. */
+  listsEveryone: boolean;
+  alreadyTicked: number;
   onSelect: (ids: string[]) => void;
 }) {
   const [text, setText] = useState("");
-  const [checked, setChecked] = useState<{ matched: string[]; unmatched: string[] } | null>(null);
+  const [checked, setChecked] = useState<PastedMatch | null>(null);
 
-  const resolve = () =>
-    resolvePastedIds(
-      text,
-      people.map((p) => ({ id: p.id, serialId: p.serialId, attendee: { email: p.email } })),
-    );
+  function resolve(): PastedMatch {
+    const result = resolvePastedIds(text, pastedIdRows(people));
+    const byId = new Map(people.map((p) => [p.id, p]));
+    return {
+      ...result,
+      outsideInvited: result.matched.filter((id) => {
+        const bucket = byId.get(id)?.speakerBucket;
+        return bucket != null && bucket !== "invited";
+      }).length,
+      sharedEmails: sharedPastedEmails(text, people),
+    };
+  }
 
   function close(next: boolean) {
     if (!next) {
@@ -989,7 +1016,8 @@ function SelectByIdsDialog({
   }
 
   function select() {
-    const result = checked ?? resolve();
+    // Resolved again at the click: the list may have refreshed since Match.
+    const result = resolve();
     if (result.matched.length === 0) {
       setChecked(result);
       toast.error(kind === "registration" ? "No registration matches those IDs." : "No speaker matches those.");
@@ -997,10 +1025,12 @@ function SelectByIdsDialog({
     }
     onSelect(result.matched);
     const missing = result.unmatched.length > 0 ? ` ${result.unmatched.length} not found.` : "";
-    toast.success(`Selected ${plural(result.matched.length, "person", "people")}.${missing} Now assign or remove a certificate.`);
+    const added = alreadyTicked > 0 ? ` They are added to the ${alreadyTicked} already ticked.` : "";
+    toast.success(`Ticked ${plural(result.matched.length, "person", "people")}.${missing}${added} Now assign or remove a certificate.`);
     close(false);
   }
 
+  const who = kind === "registration" ? "people" : "speakers";
   return (
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
@@ -1011,8 +1041,9 @@ function SelectByIdsDialog({
           </DialogTitle>
           <DialogDescription>
             {kind === "registration"
-              ? "Paste registration numbers, full IDs or emails, one per line or separated by commas. The matching people are ticked, so you can assign or remove a certificate for exactly them."
-              : "Paste speaker emails or full IDs, one per line or separated by commas. The matching speakers are ticked, so you can assign or remove a certificate for exactly them."}
+              ? "Paste registration numbers, full IDs or emails, one per line or separated by commas."
+              : "Paste speaker emails or full IDs, one per line or separated by commas."}{" "}
+            The matching {who} are ticked, and you then assign or remove a certificate for everyone ticked.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -1031,20 +1062,34 @@ function SelectByIdsDialog({
               className="max-h-60 overflow-y-auto font-mono text-xs"
             />
             <p className="text-xs text-muted-foreground">
-              Matched against everyone {kind === "registration" ? "at this event" : "on the speakers list"}, whatever the
-              search and filters are showing. People already ticked stay ticked.
+              {listsEveryone
+                ? `Matched against everyone ${kind === "registration" ? "at this event" : "on the speakers list"}, whatever the search and filters are showing.`
+                : "Matched against the people you can see here: those already on a certificate's list."}
+              {alreadyTicked > 0 ? ` The ${plural(alreadyTicked, "person already ticked stays", "people already ticked stay")} ticked.` : ""}
             </p>
           </div>
           {checked && (
-            <div className="rounded-md border bg-muted/40 p-3 text-sm">
+            <div className="space-y-1 rounded-md border bg-muted/40 p-3 text-sm">
               <p className="font-medium">
                 {checked.matched.length} matched
                 {checked.unmatched.length > 0 ? `, ${checked.unmatched.length} not found` : ""}
               </p>
               {checked.unmatched.length > 0 && (
-                <p className="mt-1 break-words text-xs text-muted-foreground">
+                <p className="break-words text-xs text-muted-foreground">
                   Not found: {checked.unmatched.slice(0, 30).join(", ")}
                   {checked.unmatched.length > 30 ? ` (and ${checked.unmatched.length - 30} more)` : ""}
+                </p>
+              )}
+              {checked.outsideInvited > 0 && (
+                <p className="text-xs text-amber-800">
+                  {plural(checked.outsideInvited, "of them is", "of them are")} not among the invited speakers (an
+                  abstract submitter, a session proposer, or a speaker who declined). Check that before assigning.
+                </p>
+              )}
+              {checked.sharedEmails.length > 0 && (
+                <p className="break-words text-xs text-amber-800">
+                  More than one registration shares {checked.sharedEmails.slice(0, 10).join(", ")}: only the earliest
+                  one is ticked. Use the registration number for the others.
                 </p>
               )}
             </div>

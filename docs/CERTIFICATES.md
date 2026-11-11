@@ -1004,7 +1004,7 @@ can be at one place"). The others are shortcuts to the same two calls.
 | Door | Where |
 |---|---|
 | **Everyone at the event, a cell per certificate**: search, filter, tick people or "select all N that match", assign or remove; "Assign" in a cell for one person | Certificates, Recipients tab (`certificate-recipients-panel.tsx`) |
-| "Select by IDs": paste registration numbers, full ids or emails; the matches are ticked (added to the ticks already made) and assigned with the bar's own button. The Registrations page's matcher, `src/lib/resolve-pasted-ids.ts` | Certificates, Recipients tab |
+| "Select by IDs": paste registration numbers, full ids or emails; the matches are ticked (added to the ticks already made, where the Registrations page replaces them) and assigned with the bar's own button. The Registrations page's matcher, `src/lib/resolve-pasted-ids.ts`; a shared address goes to the earliest live registration (`pastedIdRows`), and the dialog names it and any matched speaker outside the invited group. The search box treats digits as one registration number, exactly (`parseSerialQuery`) | Certificates, Recipients tab |
 | "Add from a list of emails" (a webinar attendance export), with a check step that shows unmatched addresses first | Certificates, Recipients tab |
 | Shortcut: select people, "Assign certificate" (assign or remove) | Registrations and Speakers pages, `assign-certificate-dialog.tsx`. Kept for filters Recipients does not have (payment, country, documents); the header box there selects one page |
 | Shortcut: one person | their Certificates card: unassigned templates show "Assign" |

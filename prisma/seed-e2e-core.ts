@@ -167,7 +167,17 @@ export async function seedCore(db: PrismaClient): Promise<SeedCoreResult> {
       userId: createdUsers.REGISTRANT,
       status: "CONFIRMED",
       paymentStatus: "COMPLIMENTARY",
+      // A registration number, as every real registration has: the specs that
+      // look a person up by number (Select by IDs) need one to paste.
+      serialId: 1,
     },
+  });
+  // The counter the next registration's number comes from: it must already
+  // stand at 1, or the first registration a spec creates would take 1 again.
+  await db.registrationSerialCounter.upsert({
+    where: { eventId: EVENT_ID },
+    create: { eventId: EVENT_ID, organizationId: ORG_ID, lastSerial: 1 },
+    update: { lastSerial: 1 },
   });
 
   return { createdUsers, passwordHash };

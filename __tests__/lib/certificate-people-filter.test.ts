@@ -14,10 +14,13 @@ import {
   isPeopleFilterActive,
   liveSelection,
   matchesPeopleFilter,
+  pastedIdRows,
+  sharedPastedEmails,
   speakerBucketOf,
   type FilterablePerson,
   type PeopleFilter,
 } from "@/lib/certificates/people-filter";
+import { resolvePastedIds } from "@/lib/resolve-pasted-ids";
 
 const COLUMNS = ["day1", "day2"];
 
@@ -46,17 +49,22 @@ describe("matchesPeopleFilter", () => {
     expect(keep(person({ email: null }), { search: "demo.invalid" })).toBe(false);
   });
 
-  it("search also finds a registration by its number, padded or not, and never a speaker by one", () => {
+  it("digits alone are ONE registration number, exactly: never 'contains' (the Registrations page's rule)", () => {
     const twelve = person({ serialId: 12 });
-    expect(keep(twelve, { search: "012" })).toBe(true);
-    expect(keep(twelve, { search: "12" })).toBe(true);
-    expect(keep(twelve, { search: " 12 " })).toBe(true);
-    expect(keep(twelve, { search: "13" })).toBe(false);
-    // Digits inside an email still match as text.
-    expect(keep(person({ serialId: 3, email: "doc77@demo.invalid" }), { search: "77" })).toBe(true);
+    for (const typed of ["12", "012", "#012", "0012", " 12 "]) expect(keep(twelve, { search: typed })).toBe(true);
+    // "Contains 12" would list these too, and "select all that match" would then assign to them.
+    for (const serialId of [112, 120, 121, 212, 1012, 1, 2]) {
+      expect(keep(person({ serialId }), { search: "12" })).toBe(false);
+    }
+    expect(keep(person({ serialId: 2 }), { search: "2" })).toBe(true);
+    expect(keep(twelve, { search: "2" })).toBe(false);
+    // A number never falls back to the name or the email.
+    expect(keep(person({ serialId: 3, email: "doc77@demo.invalid" }), { search: "77" })).toBe(false);
     // No number at all (a speaker, or a registration that never got one).
     expect(keep(person({ serialId: null }), { search: "012" })).toBe(false);
     expect(keep(person({}), { search: "012" })).toBe(false);
+    // Anything that is not only digits is a name or an email search, as before.
+    expect(keep(person({ serialId: 3, email: "doc77@demo.invalid" }), { search: "doc77" })).toBe(true);
   });
 
   it("registration type, checked in and survey each narrow the list", () => {
@@ -240,5 +248,47 @@ describe("the selection", () => {
     expect(canRemoveFromList({ state: "SENT", certificate: cert })).toBe(false);
     expect(canRemoveFromList({ state: "ISSUED_NOT_SENT", certificate: cert })).toBe(false);
     expect(canRemoveFromList({ state: "REVOKED", certificate: cert })).toBe(true);
+  });
+});
+
+describe("Select by IDs on the Recipients tab", () => {
+  const people = [
+    { id: "late", serialId: 40, email: "pa@clinic.test", cancelled: false },
+    { id: "early", serialId: 7, email: "PA@clinic.test", cancelled: false },
+    { id: "gone", serialId: 3, email: "pa@clinic.test", cancelled: true },
+    { id: "solo", serialId: 12, email: "solo@x.test", cancelled: false },
+    { id: "cancelled-only", serialId: 20, email: "left@x.test", cancelled: true },
+    { id: "speaker", serialId: null, email: "prof@x.test", cancelled: false },
+  ];
+  const match = (text: string) => resolvePastedIds(text, pastedIdRows(people));
+
+  it("a shared address goes to the EARLIEST registration that is not cancelled, as the email list does", () => {
+    // A PA registered two doctors under her address; a third registration on it was cancelled.
+    expect(match("pa@clinic.test").matched).toEqual(["early"]);
+    // Whatever order the people arrive in.
+    expect(resolvePastedIds("pa@clinic.test", pastedIdRows([...people].reverse())).matched).toEqual(["early"]);
+  });
+
+  it("each registration is still found by its own number or id, cancelled or not", () => {
+    expect(match("040, 7, 003").matched).toEqual(["late", "early", "gone"]);
+    expect(match("late gone").matched).toEqual(["late", "gone"]);
+    // The only registration on an address is found even when cancelled (to take it off a list).
+    expect(match("left@x.test").matched).toEqual(["cancelled-only"]);
+  });
+
+  it("a speaker has no number: found by email or id, never by one", () => {
+    expect(match("prof@x.test").matched).toEqual(["speaker"]);
+    expect(match("speaker").matched).toEqual(["speaker"]);
+  });
+
+  it("names the pasted addresses that more than one live registration shares", () => {
+    expect(sharedPastedEmails("PA@Clinic.test, solo@x.test\n012", people)).toEqual(["pa@clinic.test"]);
+    // One live and one cancelled registration is not a shared address.
+    expect(sharedPastedEmails("left@x.test solo@x.test", people)).toEqual([]);
+    expect(sharedPastedEmails("", people)).toEqual([]);
+  });
+
+  it("unknown tokens come back as not found", () => {
+    expect(match("999 nobody@x.test 012")).toEqual({ matched: ["solo"], unmatched: ["999", "nobody@x.test"] });
   });
 });

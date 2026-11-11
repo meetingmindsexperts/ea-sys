@@ -11,7 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Owner: "why there is no bulk assign by id in certificates/recipients". The tab could take a pasted list of emails and nothing else, and did not show the registration number at all.
 
 - **Select by IDs** on the Recipients tab - paste registration numbers (002, 005), full IDs or emails; Match shows how many were found and which were not; Select ticks them, added to the ticks already made, and the certificate is then assigned or removed with the same button as any other selection. The same matcher as Select by IDs on the Registrations and Communications pages, moved to `src/lib/resolve-pasted-ids.ts`
-- **An ID column** for attendees, and the search box finds a registration by its number
+- **An ID column** for attendees, and the search box finds a registration by its number: digits alone are one number, exactly, as on the Registrations page (the first version matched "contains", so "12" also listed 112 and 120; fixed in the review)
+- **From the review of the first version** (1 HIGH, 5 MED): the number search above; a shared email address resolves to the earliest registration that is not cancelled, as the email list does, and the dialog says when that happened; the dialog says when a matched speaker is not among the invited speakers; the wording no longer claims "exactly those people" when others are already ticked, nor "everyone at the event" for someone who sees only the people on a list; the end-to-end test now really pastes a number (the seeded registration had none)
 
 ### The Recipients screen: the review of the first version (November 11)
 

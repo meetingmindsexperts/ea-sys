@@ -19,13 +19,16 @@ export interface ResolvableRegistration {
  * are returned de-duped + in first-seen order; tokens that matched nothing in
  * the supplied set come back in `unmatched`.
  */
+/** The pasted text as its distinct tokens: split on whitespace, commas and semicolons. */
+export function pastedTokens(text: string): string[] {
+  return Array.from(new Set(text.split(/[\s,;]+/).map((t) => t.trim()).filter(Boolean)));
+}
+
 export function resolvePastedIds(
   text: string,
   rows: ResolvableRegistration[],
 ): { matched: string[]; unmatched: string[] } {
-  const tokens = Array.from(
-    new Set(text.split(/[\s,;]+/).map((t) => t.trim()).filter(Boolean)),
-  );
+  const tokens = pastedTokens(text);
 
   const lookup = new Map<string, string>();
   for (const r of rows) {

@@ -194,9 +194,18 @@ test.describe("Recipients tab: one place to see, find and assign", () => {
     await expect(page.getByText(/Assigned "E2E Recipients CME" to 1 person/)).toBeVisible();
     expect((await peopleNow()).registrations.find((p) => p.id === person.id)?.cells[template.id]?.state).toBe("READY");
 
-    // Select by IDs: paste a registration number (or an email) and an unknown one. The match is ticked, the stranger named.
+    // Select by IDs: paste the registration NUMBER and an unknown one. The match is ticked, the stranger named.
     await page.getByRole("button", { name: "Clear filters" }).click();
-    const known = person.serialId != null ? String(person.serialId).padStart(3, "0") : "registrant@test.local";
+    expect(person.serialId, "the seeded registration has a number to paste").not.toBeNull();
+    const known = String(person.serialId).padStart(3, "0");
+    // Nobody is ticked before the paste (the bulk assign above cleared the ticks).
+    await expect(page.getByText(/\d+ (person|people) selected/)).toHaveCount(0);
+    await expect(page.getByLabel(`Select ${person.name}`)).not.toBeChecked();
+    // The number in the ID column, and the search box finding exactly that registration by it.
+    await expect(row.getByText(known, { exact: true })).toBeVisible();
+    await search.fill(`#${known}`);
+    await expect(page.getByRole("row").filter({ hasText: "@" })).toHaveCount(1);
+    await page.getByRole("button", { name: "Clear filters" }).click();
     await page.getByRole("button", { name: "Select by IDs" }).click();
     await page.locator("#cert-select-ids").fill(`${known}\nzzz-not-a-registration`);
     await page.getByRole("button", { name: "Match" }).click();

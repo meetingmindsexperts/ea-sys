@@ -1,7 +1,7 @@
 /**
  * The Recipients tab's filters (Nov 11, 2026): which people of an event a
- * search and a set of filters keep. Pure and client-safe, so the screen and
- * its tests share one rule.
+ * search and a set of filters keep. Pure and client-safe (its imports are
+ * too), so the screen and its tests share one rule.
  *
  * The tab lists EVERYONE at the event, one line per person with a cell per
  * certificate. A status therefore needs a certificate to be asked about:
@@ -25,7 +25,8 @@
  * choice away.
  */
 
-import { formatSerialId } from "@/lib/registration-serial";
+import { parseSerialQuery } from "@/lib/registration-search";
+import { pastedTokens, type ResolvableRegistration } from "@/lib/resolve-pasted-ids";
 import type { RecipientState } from "./recipient-states";
 
 export const PEOPLE_FILTER_ALL = "all";
@@ -93,11 +94,18 @@ export interface FilterablePerson {
   cells: Record<string, { state: RecipientState }>;
 }
 
-/** A search finds a person by name, by email, or by registration number ("12" and "012" both find #012). */
+/**
+ * A search finds a person by name or email, or by registration number.
+ * Digits alone are ONE number, exactly (owner, Oct 26, 2026, the Registrations
+ * page's own rule in registration-search.ts): "12", "012" and "#012" find
+ * registration 012 and nothing else. "Contains 12" would list 112, 120, 212
+ * too, and "select all that match" would then assign to the wrong people
+ * (review of e0ce9f1e).
+ */
 function matchesSearch(person: FilterablePerson, needle: string): boolean {
-  if (person.name.toLowerCase().includes(needle)) return true;
-  if ((person.email ?? "").toLowerCase().includes(needle)) return true;
-  return person.serialId != null && /^\d+$/.test(needle) && formatSerialId(person.serialId).includes(needle);
+  const serial = parseSerialQuery(needle);
+  if (serial !== null) return person.serialId === serial;
+  return person.name.toLowerCase().includes(needle) || (person.email ?? "").toLowerCase().includes(needle);
 }
 
 /** The speakers a group choice keeps. The default also keeps anyone already on a list shown. */
@@ -187,4 +195,45 @@ export function assignmentIdsBody(
  */
 export function canRemoveFromList(cell: { state: RecipientState; certificate: unknown | null }): boolean {
   return cell.certificate === null || cell.state === "REVOKED";
+}
+
+// ── Select by IDs ────────────────────────────────────────────────────────────
+
+interface PastablePerson {
+  id: string;
+  serialId: number | null;
+  email: string | null;
+  cancelled: boolean;
+}
+
+/**
+ * The people as rows for the Select-by-IDs matcher (resolvePastedIds), in the
+ * order that makes a SHARED address resolve as "Add from a list of emails"
+ * does: to the earliest registration that is not cancelled (review of
+ * e0ce9f1e). The matcher keeps the last row it sees for a key, so cancelled
+ * rows go first and the lowest registration number goes last. A number or a
+ * full id still finds its own row, cancelled or not.
+ */
+export function pastedIdRows(people: readonly PastablePerson[]): ResolvableRegistration[] {
+  const rank = (p: PastablePerson) => (p.cancelled ? 0 : 1);
+  const serial = (p: PastablePerson) => p.serialId ?? Number.POSITIVE_INFINITY;
+  return [...people]
+    .sort((a, b) => rank(a) - rank(b) || serial(b) - serial(a))
+    .map((p) => ({ id: p.id, serialId: p.serialId, attendee: { email: p.email } }));
+}
+
+/**
+ * The pasted addresses that more than one person (not cancelled) shares, so
+ * the dialog can say that only one of them was ticked.
+ */
+export function sharedPastedEmails(text: string, people: readonly PastablePerson[]): string[] {
+  const holders = new Map<string, number>();
+  for (const p of people) {
+    if (p.cancelled || !p.email) continue;
+    const key = p.email.toLowerCase();
+    holders.set(key, (holders.get(key) ?? 0) + 1);
+  }
+  return pastedTokens(text)
+    .map((t) => t.toLowerCase())
+    .filter((t) => (holders.get(t) ?? 0) > 1);
 }
