@@ -630,6 +630,28 @@ export function useDtcmPool(eventId: string, enabled = true) {
 }
 
 /**
+ * Hand the next spare code to a registration (POST on the pool route). The
+ * onsite desk's "Use a spare code"; the registration sheet has its own copy of
+ * this call. A refusal throws an ApiError whose `code` is the pool's outcome
+ * ("pool-empty", "not-applicable", "failed").
+ */
+export function useClaimSpareDtcmCode(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (registrationId: string) =>
+      fetchApi<{ status: "assigned" | "already-has-code"; code: string }>(`/api/events/${eventId}/dtcm-pool`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId }),
+      }),
+    // Claimed or not, the spare count may have moved (another desk took the last one).
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmPool(eventId) });
+    },
+  });
+}
+
+/**
  * Same shape as useEventTags but pulled from Speaker.tags. Feeds the
  * TagInput autocomplete on the speaker detail sheet + Add Speaker form
  * so operators pick from existing tags instead of typing duplicates

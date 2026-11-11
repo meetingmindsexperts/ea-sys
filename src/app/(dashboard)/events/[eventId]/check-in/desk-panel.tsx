@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Banknote, CheckCircle2, Clock, Loader2, Pencil, Printer, QrCode, Search, Smartphone, UserPlus } from "lucide-react";
+import { Banknote, Barcode, CheckCircle2, Clock, Loader2, Pencil, Printer, QrCode, Search, Smartphone, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,8 @@ import { formatPersonName } from "@/lib/utils";
 import { deskEnterAction, deskQueryIsSearchable, matchesDeskSearch } from "@/lib/desk-enter";
 import { CompleteOnsiteDialog, EditDetailsDialog, useWaitingList, type OnsiteLink, type OnsitePerson } from "./desk-onsite";
 import { WalkInQrDialog } from "./desk-walkin-qr";
+import { DeskDtcmPanel } from "./desk-dtcm";
+import { deskRowNeedsDtcmCode, walkInDtcmWarning, walkInLeftWithoutDtcmCode } from "@/lib/desk-dtcm";
 import { isComplimentaryRate, walkInPaymentChoices, walkInPaymentLabel, type WalkInPaymentChoice } from "@/lib/desk-walkin-payment";
 import { useCan } from "@/hooks/use-can";
 import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
@@ -57,6 +59,17 @@ interface DeskRegistration {
   /** Badges printed so far: the row offers Print badge, then Reprint badge. */
   badgePrintCount?: number;
   payments?: Array<{ amount: number | string; currency: string; status: string }>;
+  attendanceMode?: string | null;
+  /** The Dubai compliance code. Absent for a role that may not see door credentials. */
+  dtcmBarcode?: string | null;
+}
+
+/** What the walk-in form hands back about the registration it made. */
+interface WalkInCreated {
+  registrationId: string;
+  name: string;
+  /** The spare pool's answer for the new registration (the walk-in route's `dtcm`). */
+  dtcm: unknown;
 }
 
 /** The event's tax, so the desk shows what to collect rather than the pre-tax price. */
@@ -221,13 +234,15 @@ function isFormCompleted(r: DeskRegistration): boolean {
   return Boolean(r.completedAt || r.userId);
 }
 
-function StatusChips({ r }: { r: DeskRegistration }) {
+function StatusChips({ r, needsDtcm }: { r: DeskRegistration; needsDtcm: boolean }) {
   if (r.status === "CANCELLED") return <Badge variant="outline" className="text-red-700 border-red-200">Cancelled</Badge>;
   return (
     <>
       {r.status === "CHECKED_IN" && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Checked in</Badge>}
       {!isFormCompleted(r) && <Badge variant="outline" className="text-amber-700 border-amber-200">Form not completed</Badge>}
       {paymentDue(r) && <Badge variant="outline" className="text-red-700 border-red-200">Payment due</Badge>}
+      {/* Said on the row, where the badge is printed from: a missing code is otherwise found by a DTCM inspector. */}
+      {needsDtcm && <Badge variant="outline" className="text-amber-700 border-amber-200">No DTCM code</Badge>}
     </>
   );
 }
@@ -274,10 +289,13 @@ export function DeskPanel({
   eventName,
   codeRequiredTiers,
   tax,
+  requiresDtcm,
   registrations,
 }: {
   eventId: string;
   eventSlug: string;
+  /** A Dubai event (`Event.requiresDtcmBarcode`): every in-person badge carries a compliance code. */
+  requiresDtcm: boolean;
   /** The event's sponsor-link rates (slugs): a walk-in there is paid by a sponsor's code. */
   codeRequiredTiers: readonly string[];
   /** For the printed walk-in QR sheet. */
@@ -308,6 +326,23 @@ export function DeskPanel({
   // Showing the walk-in QR lets people register themselves: the walk-in's key.
   const canRegister = useCan("registrations.create", eventId) === "allowed";
   const [qrOpen, setQrOpen] = useState(false);
+  // DTCM codes at the desk (docs/DTCM_ETICKET_PLAN.md §5.4). The two keys the
+  // code routes ask: assigning one, and holding a door credential at all. A
+  // desk role without the second (MEMBER) has the codes stripped from its
+  // rows, so it is shown no flag and no button, only the walk-in warning.
+  const canSeeCodes = useCan("barcode.view") === "allowed";
+  const canAssignDtcm = useCan("dtcm.assign", eventId) === "allowed";
+  const canGetDtcm = requiresDtcm && canSeeCodes && canAssignDtcm;
+  const needsDtcm = (r: DeskRegistration) => deskRowNeedsDtcmCode({ requiresDtcm, canSeeCodes }, r);
+  // The row whose DTCM panel is open. One at a time, like the payment panel.
+  const [dtcmForId, setDtcmForId] = useState<string | null>(null);
+
+  /** After a walk-in: say so when it was left with no compliance code, and open its panel. */
+  const flagMissingDtcm = (created?: WalkInCreated) => {
+    if (!created || !walkInLeftWithoutDtcmCode(requiresDtcm, created.dtcm)) return;
+    toast.warning(walkInDtcmWarning(created.name, canGetDtcm), { duration: 15000 });
+    if (canGetDtcm) setDtcmForId(created.registrationId);
+  };
 
   // One payment panel at a time, and it starts clean: a second row must not
   // inherit the first row's card digits (review of 26c17807, LOW 8).
@@ -605,7 +640,7 @@ export function DeskPanel({
                       </p>
                       <div className="flex flex-wrap gap-1.5 mt-1.5">
                         {r.ticketType && <Badge variant="outline">{r.ticketType.name}</Badge>}
-                        <StatusChips r={r} />
+                        <StatusChips r={r} needsDtcm={needsDtcm(r)} />
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -617,7 +652,17 @@ export function DeskPanel({
                         onPrint={canPrint ? () => print(r) : undefined}
                       />
                       {r.status !== "CANCELLED" && (
-                        <div className="flex gap-1">
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {canGetDtcm && needsDtcm(r) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 gap-1 border-amber-200 text-xs text-amber-800"
+                              onClick={() => setDtcmForId(dtcmForId === r.id ? null : r.id)}
+                            >
+                              <Barcode className="h-3.5 w-3.5" /> Get DTCM code
+                            </Button>
+                          )}
                           {!isFormCompleted(r) && (
                             <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setOnsitePerson(personOf(r))}>
                               <Smartphone className="h-3.5 w-3.5" /> Complete onsite
@@ -632,6 +677,16 @@ export function DeskPanel({
                       )}
                     </div>
                   </div>
+                  {/* Only while the row still lacks a code: once the list is re-read with one, the panel goes. */}
+                  {dtcmForId === r.id && canGetDtcm && needsDtcm(r) && (
+                    <DeskDtcmPanel
+                      eventId={eventId}
+                      registrationId={r.id}
+                      updatedAt={r.updatedAt}
+                      onChanged={refresh}
+                      onClose={() => setDtcmForId(null)}
+                    />
+                  )}
                   {payingId === r.id && (
                     <div className="flex flex-wrap items-end gap-2 rounded-md bg-muted/50 p-2">
                       <div className="space-y-1">
@@ -690,16 +745,19 @@ export function DeskPanel({
         eventSlug={eventSlug}
         codeRequiredTiers={codeRequiredTiers}
         tax={tax}
-        onRegistered={(email) => {
+        onRegistered={(email, created) => {
           setQuery(email);
           refresh();
+          flagMissingDtcm(created);
         }}
-        onDone={async (email) => {
+        onDone={async (email, created) => {
           // Show the new row once the list has it: "Checked in", with Print
           // badge on it should they want one (not printed by default).
           await refresh();
           setQuery(email);
           searchRef.current?.focus();
+          // On a Dubai event, before that badge: the code it would print without.
+          flagMissingDtcm(created);
         }}
       />
 
@@ -862,8 +920,9 @@ function WalkInForm({
   codeRequiredTiers: readonly string[];
   tax: DeskTax;
   /** Registered, but a later step did not finish: show them in search. */
-  onRegistered: (email: string) => void;
-  onDone: (email: string) => Promise<void>;
+  /** Registered but not admitted, or already registered (then nothing was made, so no `created`). */
+  onRegistered: (email: string, created?: WalkInCreated) => void;
+  onDone: (email: string, created?: WalkInCreated) => Promise<void>;
 }) {
   const { data: ticketTypes = [] } = useTickets(eventId);
   const types = useMemo(
@@ -1030,13 +1089,14 @@ function WalkInForm({
       setSupportingDoc(null);
       setCodeInput("");
       clearPromo();
+      const created: WalkInCreated = { registrationId: data.registrationId, name: data.name, dtcm: data.dtcm };
       if (!data.checkedIn) {
         toast.warning(`${data.name} is registered but not checked in: ${data.error}`, { duration: 10000 });
-        onRegistered(email);
+        onRegistered(email, created);
         return;
       }
       toast.success(`${data.name} registered and checked in${data.paymentStatus === "INCLUSIVE" ? " (sponsor-paid)" : ""}`);
-      await onDone(email);
+      await onDone(email, created);
     } catch (err) {
       console.error("[desk] walk-in failed", err);
       toast.error("Network error. Search for them before trying again, in case it went through.");

@@ -1,6 +1,9 @@
 # DTCM eTicketing: generating Dubai compliance codes inside EA-SYS
 
-**Status: PLANNED, NOT BUILT (Nov 3, 2026).** Owner decisions in §2.
+**Status: steps 0 to 5 BUILT (Nov 3 and 4, 2026), all checked against DET's
+sandbox; the onsite desk's row since Nov 11, 2026 (§5.4). Step 6, retiring the
+Laravel app, waits on one live Dubai event.** Owner decisions in §2. (This
+line read "PLANNED, NOT BUILT" until Nov 11; §8 was always the truth.)
 
 ## 1. What exists today
 
@@ -224,6 +227,31 @@ A Generate DTCM button on the desk row and the detail sheet, and offered after a
 walk-in is created. Runs inline (one purchase, a few seconds). If DET fails, the
 desk falls back to `claimSpareDtcmCode()` so the attendee still leaves with a
 code, and the warning says which happened.
+
+**As built.** The detail sheet got its button in step 3 (Nov 3). The onsite
+desk (`/events/[id]/check-in/desk`) got its half on Nov 11, 2026, asked for by
+the desk team:
+
+- A row with no code carries a **No DTCM code** label (`deskRowNeedsDtcmCode`
+  in `src/lib/desk-dtcm.ts`) and a **Get DTCM code** button, which opens a
+  panel in the row (`check-in/desk-dtcm.tsx`). The panel is the sheet's own
+  `DtcmDetControls`, so the button, an uncertain sale, a sale with its barcode
+  unread and the pool fallback are one piece of code in both places.
+- **DET leads; a spare code is the alternative** (owner, Nov 11): "Use a spare
+  code" shows beside it while the pool has one, and is the only offer for a
+  type with no DET section. No route changed: the desk calls the two routes
+  the sheet calls, both already open to `dtcm.assign` with `barcode.view`.
+- **After a walk-in** the walk-in route's `dtcm` answer is read: left without
+  a code, the desk says so and opens that row's panel on Get code from DET.
+  Nothing is bought without a press (D1).
+- A desk role that cannot see codes (MEMBER) gets no label and no button,
+  since its rows carry no code to read; it gets the walk-in message, worded to
+  ask an organiser.
+- "Read barcode again" needs `dtcm.import`, so the shared controls now show it
+  only to someone who holds it; desk staff are told to ask an organiser.
+- Checked as an Onsite Staff account against DET's sandbox: one purchase from
+  the desk row (order 68225, reversed afterwards), the spare alternative, a
+  walk-in with an empty pool, and the two organiser-only states.
 
 ## 6. Reversing (D3)
 

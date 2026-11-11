@@ -140,10 +140,15 @@ function OpenOrder({
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-left text-xs text-amber-800">
         <p>
           DET sold this ticket (order {order.orderId}, {env}) but its barcode has not been read yet.
+          {/* The read goes through the organiser's key (`dtcm.import`), so desk
+              staff were shown a button that could only answer Forbidden. */}
+          {!canResolve && " Do not buy another: an organiser can read it from the registration."}
         </p>
-        <Button size="sm" variant="outline" className="mt-2" disabled={resolve.isPending} onClick={() => run({ action: "read-barcode" }, "Barcode read from DET.")}>
-          Read barcode again
-        </Button>
+        {canResolve && (
+          <Button size="sm" variant="outline" className="mt-2" disabled={resolve.isPending} onClick={() => run({ action: "read-barcode" }, "Barcode read from DET.")}>
+            Read barcode again
+          </Button>
+        )}
       </div>
     );
   }

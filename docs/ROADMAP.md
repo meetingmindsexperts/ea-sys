@@ -1363,19 +1363,20 @@ blocks a Dubai event**, and each is independently shippable.
 | D-5 | LOW | **The pool-empty warn is unlatched.** Every walk-up against an empty pool logs `dtcm-pool:empty` at warn, so a busy morning with no codes left writes one line per registration into `SystemLog` and feeds the SES alert path. Same class as the analytics no-secret alarm latched on Aug 20: the thousandth copy of a sentence adds nothing and buries `/logs`. Latch it per event per container. |
 | D-6 | LOW | **Nothing surfaces the pool outside the registrations page.** The check-in page and the kiosk both consume codes indirectly and show nothing; an organiser looking at the event dashboard cannot see the level at all. Low value while the desk lives on the registrations page, worth revisiting if the check-in page becomes the day-one home screen. |
 
-### DTCM code at the onsite desk (asked Nov 11, 2026; build before the Jan 15, 2027 Dubai event)
+### DTCM code at the onsite desk (asked and built Nov 11, 2026; before the Jan 15, 2027 Dubai event)
 
-The desk team asked to generate a DTCM code at the onsite desk. Owner, Nov 11:
-yes, before the first Dubai event (Middle East Heart Failure, Jan 15, 2027),
-not now. Buying one code from DET is built and sandbox-tested
-(`issueDtcmTicket`, `POST .../registrations/[id]/dtcm-eticket`, pool fallback),
-and desk staff hold `dtcm.assign`. What is missing is the desk page:
+The desk team asked to generate a DTCM code at the onsite desk. Built the same
+day (docs/DTCM_ETICKET_PLAN.md §5.4 "As built"): the desk row's **No DTCM
+code** label and **Get DTCM code** panel (DET first, a spare code as the
+alternative), and the message after a walk-in left without a code. What is
+left is not code:
 
 | # | Finding |
 |---|---------|
-| DD-1 | **The button is only on the registration sheet.** docs/DTCM_ETICKET_PLAN.md §5.4 puts "Get code from DET" on the desk row and offers it after a walk-in; `check-in/desk-panel.tsx` has neither. About a day, including what the desk sees for an UNCERTAIN order (it cannot resolve one: that needs `dtcm.import`). |
-| DD-2 | **A desk walk-in with no code says nothing.** `dtcmWalkupWarning` runs on the full-page add form only. The walk-in route returns `dtcm`, the desk panel ignores it, so on a Dubai event the badge prints without the compliance QR and nobody is told. Same class as the spare pool's D-6. |
 | DD-3 | **Production has never called DET.** On Nov 11, 2026: no event had DTCM switched on, no `DtcmOrder` row existed, the spare pool was empty, and the saved credentials pointed at staging. Before the Dubai event: confirm DET has the production box's IP on its list (plan Q2), and whether a production barcode is a UUID (Q7, which decides QR or Code 128 on the badge). The first production purchase should be the bulk run a day or two before, with the desk button for stragglers. |
+| DD-4 | **The desk does not stop a badge printing without a code.** The row's label is the warning; Print badge still prints. Decide whether printing for someone with no code on a Dubai event should ask first. Left out because a confirm on every such print slows a queue on a day DET is down, which is exactly when codes are missing. |
+| DD-5 | **Desk staff cannot press "Read barcode again".** A ticket DET sold whose barcode was not read needs `dtcm.import` (ADMIN, ORGANIZER) to read it; the desk is told to ask an organiser. The read buys nothing, so it could be opened to `dtcm.assign`. A permission decision, so not changed here. |
+| DD-6 | **Older, found Nov 11: the walk-in route answers with the spare code it assigned.** `POST .../registrations/walk-in` returns `dtcm: { status, code }` to whoever registered the walk-in, and a MEMBER may register walk-ins but may not hold a door credential (`barcode.view`). One code per walk-in they create, their own registrant's. The desk reads only `status`; trimming the answer to that for callers without `barcode.view` closes it. |
 
 ### Walk-in QR, the free kind: left by the review of cbb394ca (Nov 11, 2026)
 

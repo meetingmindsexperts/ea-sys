@@ -31,7 +31,7 @@ has to hold for all of them.
 | **CSV import** | Organizer | A day or two before the event, when DTCM issues the block |
 | **Spare pool** | The system, automatically | A walk-up registers at the desk and there is no code on the row |
 | **Typed by hand** | Organizer, on the registration detail sheet | Corrections, and anything the other two missed |
-| **Bought from DET** | Desk or organiser, "Get code from DET" on the sheet (Nov 3, 2026) | The event's DET sections are mapped; one `DtcmOrder` per attempt (`src/services/dtcm-eticket-service.ts`, [DTCM_ETICKET_PLAN.md](DTCM_ETICKET_PLAN.md)) |
+| **Bought from DET** | Desk or organiser, "Get code from DET" on the sheet (Nov 3, 2026) and on the onsite desk's row (Nov 11, 2026) | The event's DET sections are mapped; one `DtcmOrder` per attempt (`src/services/dtcm-eticket-service.ts`, [DTCM_ETICKET_PLAN.md](DTCM_ETICKET_PLAN.md)) |
 
 The **pool** is the leftovers: codes imported without an owner. Availability is
 **derived, never stored** — a code is spare when no registration on that event
@@ -131,6 +131,7 @@ door credential*.
 - [src/lib/dtcm-eticket/](../src/lib/dtcm-eticket/) - the DET client and the organisation's credentials (Settings → Integrations), step 1 of that plan; `sections.ts` is each event's registration type → DET section mapping (`Event.settings.dtcm`, step 2)
 - [src/lib/dtcm-performance-code.ts](../src/lib/dtcm-performance-code.ts) - the performance code rule
 - [src/lib/dtcm-pool.ts](../src/lib/dtcm-pool.ts) — the pool, the claim, the counts
-- [src/lib/dtcm-walkup.ts](../src/lib/dtcm-walkup.ts) — the desk warning
+- [src/lib/dtcm-walkup.ts](../src/lib/dtcm-walkup.ts) — the desk warning, and `lacksDtcmCode`, the one condition for "should carry a code and does not"
+- [src/lib/desk-dtcm.ts](../src/lib/desk-dtcm.ts) - the onsite desk's side (Nov 11, 2026): which rows it flags "No DTCM code", the walk-in message, and what it says when nothing can issue a code. At the desk DET leads and a spare code is the alternative (owner)
 - [src/lib/barcode-visibility.ts](../src/lib/barcode-visibility.ts) — who may see one
 - user-guide § Check-in and badges — the operator-facing version

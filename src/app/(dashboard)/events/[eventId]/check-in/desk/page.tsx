@@ -93,6 +93,7 @@ export default function DeskPage() {
             eventName={event.name}
             codeRequiredTiers={readCodeRequiredTiers(event.settings)}
             tax={{ taxRate: event.taxRate == null ? null : Number(event.taxRate), taxLabel: event.taxLabel ?? null }}
+            requiresDtcm={event.requiresDtcmBarcode === true}
             registrations={registrations}
           />
         )}

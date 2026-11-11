@@ -16,22 +16,34 @@
  * condition that drifts once.
  */
 
-/**
- * The message to show after a registration is created, or null when there is
- * nothing to say.
- *
- * Deliberately silent for VIRTUAL attendees: they get no badge at all, so they
- * need no code, and warning about one would be noise the desk learns to ignore.
- */
-export function dtcmWalkupWarning(args: {
+interface DtcmCodeFacts {
   /** `Event.requiresDtcmBarcode` — false on every non-Dubai event. */
   requiresDtcm: boolean | null | undefined;
   attendanceMode?: string | null;
   /** The code on the row the server just returned. */
   dtcmBarcode?: string | null;
-}): string | null {
-  if (!args.requiresDtcm) return null;
-  if (args.attendanceMode === "VIRTUAL") return null;
-  if (args.dtcmBarcode) return null;
+}
+
+/**
+ * A registration that should carry a compliance code and does not: a Dubai
+ * event, attending in person, no code on the row. The ONE condition, for the
+ * warning below and for the onsite desk's "No DTCM code" flag
+ * (src/lib/desk-dtcm.ts).
+ *
+ * Deliberately false for VIRTUAL attendees: they get no badge at all, so they
+ * need no code, and warning about one would be noise the desk learns to ignore.
+ */
+export function lacksDtcmCode(args: DtcmCodeFacts): boolean {
+  if (!args.requiresDtcm) return false;
+  if (args.attendanceMode === "VIRTUAL") return false;
+  return !args.dtcmBarcode;
+}
+
+/**
+ * The message to show after a registration is created, or null when there is
+ * nothing to say.
+ */
+export function dtcmWalkupWarning(args: DtcmCodeFacts): string | null {
+  if (!lacksDtcmCode(args)) return null;
   return "Registered, but no DTCM code was assigned — the spare pool is empty. Their badge will print without a compliance QR. Import more codes, or assign one from the registration.";
 }

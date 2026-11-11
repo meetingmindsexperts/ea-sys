@@ -9,7 +9,7 @@
  * because a condition written twice is a condition that drifts once.
  */
 import { describe, it, expect } from "vitest";
-import { dtcmWalkupWarning } from "@/lib/dtcm-walkup";
+import { dtcmWalkupWarning, lacksDtcmCode } from "@/lib/dtcm-walkup";
 
 describe("dtcmWalkupWarning", () => {
   it("warns when a Dubai walk-up got no code", () => {
@@ -65,5 +65,18 @@ describe("dtcmWalkupWarning", () => {
     expect(
       dtcmWalkupWarning({ requiresDtcm: true, attendanceMode: "IN_PERSON", dtcmBarcode: "" }),
     ).toBeTruthy();
+  });
+});
+
+describe("lacksDtcmCode", () => {
+  it("is the warning's condition: the warning speaks exactly when it is true", () => {
+    for (const requiresDtcm of [true, false, null, undefined]) {
+      for (const attendanceMode of ["IN_PERSON", "VIRTUAL", null, undefined]) {
+        for (const dtcmBarcode of ["DTCM-1", "", null, undefined]) {
+          const facts = { requiresDtcm, attendanceMode, dtcmBarcode };
+          expect(dtcmWalkupWarning(facts) !== null).toBe(lacksDtcmCode(facts));
+        }
+      }
+    }
   });
 });

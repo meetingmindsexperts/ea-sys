@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### DTCM codes on the onsite desk (November 11)
+
+Asked for by the desk team: get a DTCM code at the onsite desk. Buying one code from DET was built on November 3, but only on the registration sheet in the Registrations page; the desk page had no button, and a desk walk-in left without a code produced no message, so the badge printed without its compliance QR and nobody was told.
+
+- **The desk says who has no code** - On a Dubai event a row with no compliance code carries an amber **No DTCM code** label (`deskRowNeedsDtcmCode` in `src/lib/desk-dtcm.ts`): in person, not cancelled or waitlisted. It is the walk-up warning's own condition (`lacksDtcmCode`), so the two cannot drift
+- **Get DTCM code, on the row** - Opens a panel in the row (`check-in/desk-dtcm.tsx`). **Get code from DET** leads (owner: the desk issues from DET); **Use a spare code** sits beside it while the pool has one, and is the only offer for a registration type with no DET section. The panel is the sheet's own `DtcmDetControls`, so an uncertain sale, a sale with its barcode unread and the pool fallback are one piece of code in both places. Opening it reads the pool and the person's DET orders afresh rather than from the app's five-minute cache
+- **A walk-in left without a code is announced** - The desk reads the walk-in route's `dtcm` answer, says the person has no code and opens their row on Get code from DET. Nothing is bought without a press
+- **No route and no permission changed** - The desk calls the two routes the sheet calls, already open to `dtcm.assign` with `barcode.view` (Onsite Staff on their events, organisers, admins). A Member at the desk cannot see codes, so gets no label or button, only the walk-in message, worded to ask an organiser
+- **Read barcode again is the organiser's** - It needs `dtcm.import`, so desk staff were shown a button that could only answer Forbidden. It now shows only to someone who holds the key; others are told not to buy another and to ask an organiser
+- **Checked against DET's sandbox as an Onsite Staff account** - One purchase from the desk row (reversed afterwards), the spare alternative, a walk-in with an empty pool, and the two organiser-only states. Production has still never called DET: docs/ROADMAP.md lists what the January Dubai event needs first
+
 ### Walk-in QR on a free event (November 11)
 
 Asked for by the desk team: "show the QR when Standard is 0 or Early Bird is 0".

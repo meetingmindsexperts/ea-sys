@@ -551,3 +551,19 @@ is saved as `COMPLIMENTARY` with `originalPrice` 0 and `PUBLIC_REGISTER`,
 exactly as a free sign-up on the public form is, so the desk day summary
 (which counts `ONSITE_DESK` walk-ins) does not include it, as for the other
 two QRs.
+
+
+## 11. Step 7: DTCM codes at the desk (BUILT, Nov 11, 2026)
+
+Asked for by the desk team: get a DTCM code at the onsite desk. On a Dubai
+event a row with no compliance code is labelled **No DTCM code**, and **Get
+DTCM code** on the row opens a panel: **Get code from DET** first (owner, Nov
+11: the desk issues from DET), **Use a spare code** as the alternative while
+the pool has one. A walk-in left without a code is announced and its row
+opens on that panel. The design, the rules and what was checked are in
+[DTCM_ETICKET_PLAN.md](DTCM_ETICKET_PLAN.md) §5.4; the desk's own decisions
+are `src/lib/desk-dtcm.ts`, the panel is `check-in/desk-dtcm.tsx`.
+
+Not done here: the desk does not stop a badge being printed without a code
+(the label on the row is the warning), and nothing is bought automatically,
+walk-in or not.
