@@ -12,6 +12,7 @@ import {
   canRemoveFromList,
   hiddenSelectionCount,
   isPeopleFilterActive,
+  listFirst,
   liveSelection,
   matchesPeopleFilter,
   pastedIdRows,
@@ -234,6 +235,18 @@ describe("the selection", () => {
     expect(hiddenSelectionCount(selected, [{ id: "d" }])).toBe(3);
     expect(hiddenSelectionCount(selected, [{ id: "a" }, { id: "d" }])).toBe(2);
     expect(hiddenSelectionCount(new Set(), [{ id: "a" }])).toBe(0);
+  });
+
+  it("people brought forward are listed first, in list order, then the rest of the filtered list without them", () => {
+    const all = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }, { id: "e" }];
+    // Nothing brought forward: the filtered list as it is.
+    expect(listFirst(all, [{ id: "b" }, { id: "c" }], new Set()).map((p) => p.id)).toEqual(["b", "c"]);
+    // d and b were pasted into Select by IDs: page one starts with them, and they are not repeated below.
+    expect(listFirst(all, all, new Set(["d", "b"])).map((p) => p.id)).toEqual(["b", "d", "a", "c", "e"]);
+    // Chosen on purpose, so shown even when the search or the filters would hide them.
+    expect(listFirst(all, [{ id: "a" }], new Set(["e"])).map((p) => p.id)).toEqual(["e", "a"]);
+    // Someone who has left the event is simply not there.
+    expect(listFirst(all, all, new Set(["gone", "c"])).map((p) => p.id)).toEqual(["c", "a", "b", "d", "e"]);
   });
 
   it("attendance certificates take registration ids and appreciation ones speaker ids, never the other way", () => {

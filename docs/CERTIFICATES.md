@@ -1060,6 +1060,10 @@ Four rules from the review of the first version (`a5134945`):
 - **A link that says "N assigned" lands on those N.** A template's "N assigned" link and the
   summary cards open the list with Status = Assigned (`initialStatus`); a tab chosen by hand
   opens on everyone.
+- **Selected people can be listed first.** Select by IDs, and "Show them first" in the bar, put
+  the ticked people at the top of page one (`listFirst`), whatever the search and filters
+  show. It is a snapshot taken on request, never the live ticks: a row that jumped as its box
+  was ticked would put a different person under the cursor.
 - **The ticks survive a search.** Tick people, search for another, tick them too. The bar says
   how many ticked people the current list does not show, the dialog is handed only people
   still at the event (`liveSelection`), and a person dealt with in their own cell is unticked.

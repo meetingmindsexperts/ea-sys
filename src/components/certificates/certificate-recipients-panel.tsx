@@ -51,6 +51,7 @@ import {
   canRemoveFromList,
   hiddenSelectionCount,
   isPeopleFilterActive,
+  listFirst,
   liveSelection,
   matchesPeopleFilter,
   pastedIdRows,
@@ -119,6 +120,8 @@ interface CertificateRecipientsPanelProps {
   initialStatus?: PeopleStatusFilter;
 }
 
+const NOBODY: ReadonlySet<string> = new Set();
+
 const NO_COUNTS = Object.fromEntries(RECIPIENT_STATES.map((s) => [s, 0])) as Record<RecipientState, number>;
 
 /** What a speaker's line says about who they are, when they are not the organisers' own faculty. */
@@ -154,6 +157,9 @@ export function CertificateRecipientsPanel({
   });
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // People brought to the top of the list on request (Select by IDs, "Show
+  // them first"): a snapshot, so ticking a box never moves a row.
+  const [broughtFirst, setBroughtFirst] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [emailsOpen, setEmailsOpen] = useState(false);
   const [idsOpen, setIdsOpen] = useState(false);
@@ -188,11 +194,22 @@ export function CertificateRecipientsPanel({
   ].sort();
   // The ticked people who are still at the event: what the bar counts and the dialog is handed.
   const selectedIds = liveSelection(selected, everyone);
-  const hiddenSelected = hiddenSelectionCount(new Set(selectedIds), matching);
+  // Nobody ticked any more: nothing is held at the top.
+  const first = selectedIds.length === 0 ? NOBODY : broughtFirst;
+  const listed = listFirst(everyone, matching, first);
+  const hiddenSelected = hiddenSelectionCount(new Set(selectedIds), listed);
+  // Offered while some ticked person is not already held at the top (one hidden by a filter is one of those).
+  const canBringFirst = selectedIds.some((id) => !first.has(id));
 
-  const pageCount = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(listed.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
-  const visible = matching.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const visible = listed.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  /** List these people first, from page one. */
+  function bringFirst(ids: readonly string[]) {
+    setBroughtFirst(new Set(ids));
+    setPage(1);
+  }
 
   /**
    * A change of what is listed starts again from page one. The ticks STAY
@@ -526,11 +543,7 @@ export function CertificateRecipientsPanel({
                 Clear filters
               </Button>
             )}
-            <span className="ml-auto text-xs text-muted-foreground">
-              {matching.length === everyone.length
-                ? plural(everyone.length, kind === "registration" ? "person" : "speaker", peopleWord)
-                : `${matching.length} of ${everyone.length} ${peopleWord}`}
-            </span>
+            <PeopleCount shown={listed.length} total={everyone.length} noun={kind === "registration" ? "person" : "speaker"} nouns={peopleWord} />
           </div>
 
           {kind === "speaker" && filters.speakers === "invited" && listsEveryone && (
@@ -553,6 +566,15 @@ export function CertificateRecipientsPanel({
                 <span className="text-xs text-muted-foreground">
                   {hiddenSelected} of them not in the list below (hidden by the search or the filters)
                 </span>
+              )}
+              {canBringFirst && (
+                <button
+                  type="button"
+                  className="text-primary underline-offset-2 hover:underline"
+                  onClick={() => bringFirst(selectedIds)}
+                >
+                  Show them first
+                </button>
               )}
               {allOnPage && moreMatch && (
                 <button
@@ -602,7 +624,7 @@ export function CertificateRecipientsPanel({
               empty={everyone.length === 0 ? `No ${peopleWord} at this event yet.` : "Nobody matches these filters."}
             />
           )}
-          {matching.length > PAGE_SIZE && (
+          {listed.length > PAGE_SIZE && (
             <div className="mt-3 flex items-center justify-end gap-2 text-sm">
               <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>
                 <ChevronLeft className="h-4 w-4" />
@@ -664,7 +686,12 @@ export function CertificateRecipientsPanel({
         people={everyone}
         listsEveryone={listsEveryone}
         alreadyTicked={selectedIds.length}
-        onSelect={(ids) => setSelected((prev) => new Set([...prev, ...ids]))}
+        onSelect={(ids) => {
+          const all = [...new Set([...selectedIds, ...ids])];
+          setSelected(new Set(all));
+          // What was just pasted is what the person wants to look at: page one, ticked.
+          bringFirst(all);
+        }}
       />
 
       <AssignFromEmailsDialog
@@ -683,6 +710,26 @@ function noListNotice(n: number): string {
   return n === 1
     ? "1 person has answered the survey and is on no certificate's list"
     : `${n} people have answered the survey and are on no certificate's list`;
+}
+
+/**
+ * How many people the list shows. Plain when it is everyone; a coloured, bold
+ * figure once a search or a filter has narrowed it, so the number the filters
+ * produced is the thing the eye lands on (owner, Nov 11, 2026).
+ */
+function PeopleCount({ shown, total, noun, nouns }: { shown: number; total: number; noun: string; nouns: string }) {
+  if (shown === total) {
+    return (
+      <span className="ml-auto text-sm text-muted-foreground" data-testid="people-count">
+        <strong className="font-semibold text-foreground">{total}</strong> {total === 1 ? noun : nouns}
+      </span>
+    );
+  }
+  return (
+    <span className="ml-auto rounded-full bg-primary/10 px-3 py-1 text-sm text-primary" data-testid="people-count">
+      <strong className="text-base font-bold">{shown}</strong> of {total} {nouns}
+    </span>
+  );
 }
 
 /** The header checkbox: ticked when the whole page is, a dash when part of it is. */

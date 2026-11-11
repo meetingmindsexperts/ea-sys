@@ -180,6 +180,26 @@ export function hiddenSelectionCount(selected: ReadonlySet<string>, listed: Read
   return Math.max(0, selected.size - shown);
 }
 
+/**
+ * The list with the people brought forward listed FIRST (owner, Nov 11, 2026:
+ * "when people are selected, show them in page 1"). `first` is a snapshot
+ * taken when the person asks for it (Select by IDs, or "Show them first"),
+ * never the live ticks: a row that jumped to the top as its box was ticked
+ * would put a different person under the cursor for the next tick.
+ *
+ * The people brought forward are listed whatever the search and filters say
+ * (they were chosen on purpose), in the order they have in `everyone`; the
+ * rest of the filtered list follows, without them.
+ */
+export function listFirst<T extends { id: string }>(
+  everyone: readonly T[],
+  matching: readonly T[],
+  first: ReadonlySet<string>,
+): T[] {
+  if (first.size === 0) return [...matching];
+  return [...everyone.filter((p) => first.has(p.id)), ...matching.filter((p) => !first.has(p.id))];
+}
+
 /** The ids of one kind, as the assign and remove calls take them. */
 export function assignmentIdsBody(
   category: "ATTENDANCE" | "APPRECIATION",

@@ -205,6 +205,8 @@ test.describe("Recipients tab: one place to see, find and assign", () => {
     await expect(row.getByText(known, { exact: true })).toBeVisible();
     await search.fill(`#${known}`);
     await expect(page.getByRole("row").filter({ hasText: "@" })).toHaveCount(1);
+    // The count beside the filters says what they produced.
+    await expect(page.getByTestId("people-count")).toContainText(/^1 of \d+ people$/);
     await page.getByRole("button", { name: "Clear filters" }).click();
     await page.getByRole("button", { name: "Select by IDs" }).click();
     await page.locator("#cert-select-ids").fill(`${known}\nzzz-not-a-registration`);
@@ -214,6 +216,8 @@ test.describe("Recipients tab: one place to see, find and assign", () => {
     await page.getByRole("button", { name: "Select 1" }).click();
     await expect(page.getByText("1 person selected")).toBeVisible();
     await expect(page.getByLabel(`Select ${person.name}`)).toBeChecked();
+    // And listed first: the pasted person is the top row of page one, whoever else is at the event.
+    await expect(page.getByRole("row").filter({ hasText: "@" }).first()).toContainText("registrant@test.local");
 
     // Cleanup: off the list, then the template.
     const off = await page.request.delete(`/api/events/${EVENT_ID}/certificates/assignments`, {
