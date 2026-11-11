@@ -1,31 +1,41 @@
 /**
- * Phase 2 — survey-gated certificate auto-issue.
+ * Survey-gated certificate auto-issue.
  *
- * When a registrant completes the post-event survey, the cert worker
+ * When a registrant completes the certificate survey, the cert worker
  * automatically issues every certificate template that is flagged
- * `autoIssueOnSurvey` AND whose `autoIssueTag` the person holds. The
- * survey POST path is UNTOUCHED — it already sets `surveyCompletedAt`.
+ * `autoIssueOnSurvey` AND that the person is ASSIGNED (CertificateAssignment,
+ * the rule in ./assignments.ts; until Nov 11, 2026 a matching tag). The
+ * survey POST path is UNTOUCHED: it already sets `surveyCompletedAt`.
  * This module is the worker-side sweep that drives off that flag.
  *
- * Routing (the per-category split — see SPEAKER_AS_ATTENDEE_PLAN.md
+ * Routing (the per-category split, see SPEAKER_AS_ATTENDEE_PLAN.md
  * "Companion hardening" note C):
- *   - ATTENDANCE templates match the registration's ATTENDEE tags →
- *     cert issued to `registrationId`.
- *   - APPRECIATION templates match the linked SPEAKER's tags →
- *     cert issued to `speakerId`.
+ *   - ATTENDANCE templates are assigned to the REGISTRATION, and the cert is
+ *     issued to `registrationId`.
+ *   - APPRECIATION templates are assigned to the linked SPEAKER, and the cert
+ *     is issued to `speakerId`.
  * A speaker who completes the survey via their companion registration
  * therefore gets BOTH their attendance cert (on the companion reg) and
  * their role/appreciation cert (on the speaker).
  *
  * Delivery reuses the existing CertificateIssueRun machinery: each
- * (template, recipient) becomes a 1-item `autoIssue` run in PENDING.
- * The worker's render/email pipeline drains it; auto runs SKIP the
- * AWAITING_REVIEW gate (render → SENDING) so the cert lands in the
- * inbox without an operator click (confirmed product decision).
+ * person becomes a 1-item `autoIssue` run in PENDING. The worker's
+ * render/email pipeline drains it; auto runs SKIP the AWAITING_REVIEW gate
+ * (render then SENDING) so the cert lands in the inbox without an operator
+ * click (confirmed product decision).
+ *
+ * ORDER DOES NOT MATTER (Nov 11, 2026). A registration is stamped
+ * `certAutoIssueCheckedAt` once the sweep has looked at it, so it is not
+ * scanned every tick. Assigning a person who has already answered, or turning
+ * a template's switch on, clears that stamp again
+ * (certificate-assignment-service), so the next tick looks at them. Before
+ * assignments a person tagged after answering was never looked at again.
+ * The stamp and those two writers share one per-event lock
+ * (lockCertificateAssignments), taken first, with every read after it.
  *
  * Idempotency: per-template IssuedCertificate uniqueness + a pre-create
- * guard (skip if a cert OR an existing auto-run item already covers the
- * (event, template, recipient)) make re-sweeps and crash-retries safe —
+ * guard (skip if a cert OR an existing run item already covers the
+ * (event, template, recipient)) make re-sweeps and crash-retries safe:
  * no duplicate certs, no double emails.
  *
  * Retry + backoff: a per-registration transient failure increments
@@ -36,10 +46,14 @@
  * sweep emits a structured `cert-auto-issue:sweep` analytics line.
  */
 
-import type { CertificateType } from "@prisma/client";
 import { db, dbOperator, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import {
+  loadAssignedTemplateIds,
+  lockCertificateAssignments,
+  selectAssignedTargets,
+} from "./assignments";
 
 // Process up to this many candidate registrations per sweep tick. The
 // cert-issue job runs every 3 min and shares the worker connection pool,
@@ -48,6 +62,11 @@ const SWEEP_BATCH_SIZE = 50;
 
 // Give up after this many failed attempts (manual Issue is the backstop).
 const MAX_AUTO_ISSUE_ATTEMPTS = 5;
+
+// The per-registration transaction waits for the per-event lock, which an
+// assignment of a few thousand people can hold for a second or two. Give it
+// room: a timeout here would count as a failed attempt against the person.
+const SWEEP_TX_OPTIONS = { maxWait: 10_000, timeout: 20_000 };
 
 // Exponential backoff in minutes, indexed by attempt number (1-based):
 // 1m, 5m, 15m, 60m, 180m. Past the array length we clamp to the last.
@@ -74,50 +93,6 @@ function formatName(opts: {
   const tprefix = opts.title ? `${TITLE_MAP[opts.title] ?? ""} ` : "";
   const full = `${tprefix}${opts.firstName ?? ""} ${opts.lastName ?? ""}`.trim();
   return full || "(unnamed)";
-}
-
-// ── Pure target-selection (constraint C routing) — unit-tested ────────────────
-
-export interface AutoIssueTemplate {
-  id: string;
-  category: CertificateType; // ATTENDANCE | APPRECIATION
-  autoIssueTag: string | null;
-}
-
-export interface AutoIssueTarget {
-  templateId: string;
-  category: CertificateType;
-  recipient: "registration" | "speaker";
-}
-
-/**
- * Decide which templates fire for a survey-completer, routed per category.
- * Pure — no DB. ATTENDANCE matches the attendee's tags (→ registration);
- * APPRECIATION matches the linked speaker's tags (→ speaker), and only
- * when a speaker exists. A template with no `autoIssueTag` never matches
- * (we refuse to mass-issue to everyone who surveyed — a tag is required).
- */
-export function selectAutoIssueTargets(
-  templates: AutoIssueTemplate[],
-  attendeeTags: string[],
-  speakerTags: string[] | null,
-): AutoIssueTarget[] {
-  const targets: AutoIssueTarget[] = [];
-  for (const t of templates) {
-    const tag = t.autoIssueTag?.trim();
-    if (!tag) continue; // no tag → nothing to match against
-    if (t.category === "ATTENDANCE") {
-      if (attendeeTags.includes(tag)) {
-        targets.push({ templateId: t.id, category: t.category, recipient: "registration" });
-      }
-    } else {
-      // APPRECIATION
-      if (speakerTags && speakerTags.includes(tag)) {
-        targets.push({ templateId: t.id, category: t.category, recipient: "speaker" });
-      }
-    }
-  }
-  return targets;
 }
 
 // ── Sweep ─────────────────────────────────────────────────────────────────────
@@ -170,7 +145,7 @@ export async function runAutoIssueSweep(
       organizationId: true,
       certAutoIssueAttempts: true,
       attendee: {
-        select: { title: true, firstName: true, lastName: true, email: true, tags: true },
+        select: { title: true, firstName: true, lastName: true, email: true },
       },
     },
   });
@@ -185,65 +160,24 @@ export async function runAutoIssueSweep(
   };
   if (candidates.length === 0) return result;
 
-  // Load each event's auto-issue templates once (the batch may span events).
-  // Tenancy (Certificates-sweep review M2): CertificateTemplate is swept — an
-  // unwrapped load here fail-closes to [] under RLS, and processRow's
-  // "no templates" branch then TERMINALLY stamps certAutoIssueCheckedAt on
-  // every candidate (their certs silently lost; rows are swept once by
-  // design). A fail-closed read must never feed a terminal stamp, so the load
-  // runs in the event's org, resolved from its own candidate rows (null =
-  // pre-backfill row → unwrapped, master behavior, matching the per-row wrap).
-  const orgByEvent = new Map<string, string | null>();
-  for (const c of candidates) {
-    if (!orgByEvent.get(c.eventId)) orgByEvent.set(c.eventId, c.organizationId);
-  }
-  const templatesByEvent = new Map<string, AutoIssueTemplate[]>();
-  for (const eventId of new Set(candidates.map((c) => c.eventId))) {
-    const eventOrg = orgByEvent.get(eventId) ?? null;
-    const loadTemplates = () =>
-      db.certificateTemplate.findMany({
-        where: { eventId, autoIssueOnSurvey: true },
-        select: { id: true, category: true, autoIssueTag: true },
-      });
-    const templates = eventOrg ? await runWithTenant(eventOrg, loadTemplates) : await loadTemplates();
-    templatesByEvent.set(eventId, templates);
-    // Surface a misconfiguration: auto-issue ON but no tag → nothing matches.
-    const taglessCount = templates.filter((t) => !t.autoIssueTag?.trim()).length;
-    if (taglessCount > 0) {
-      apiLogger.warn({
-        msg: "cert-auto-issue:template-missing-tag",
-        eventId,
-        taglessCount,
-        hint: "autoIssueOnSurvey is enabled but autoIssueTag is empty — these templates will never match anyone.",
-      });
-    }
-  }
-
   for (const reg of candidates) {
     // Per-row tenant context (multi-tenancy sweep): org resolved from the row
-    // itself — the candidate sweep stays org-blind (worker precondition, see
+    // itself, the candidate sweep stays org-blind (worker precondition, see
     // MULTI_TENANCY.md §13). NULL org (pre-backfill blue-green row) runs
     // unwrapped, preserving master behavior. `continue` in the original loop
     // body becomes `return` inside the closure.
+    //
+    // The event's auto-issue templates are read INSIDE processRegistration,
+    // behind the per-event lock, never once per tick: a switch turned on
+    // between a per-tick read and this row's stamp would be missed for good.
+    // Tenancy (Certificates-sweep review M2) still holds: that read runs in
+    // the row's own org, so it cannot fail closed to [] and feed the stamp.
     const processRow = async () => {
-    const templates = templatesByEvent.get(reg.eventId) ?? [];
-    if (templates.length === 0) {
-      // No auto-issue templates for this event — terminally resolve so the
-      // row isn't re-scanned every tick. Manual Issue covers later configs.
-      await db.registration
-        .update({ where: { id: reg.id }, data: { certAutoIssueCheckedAt: now } })
-        .catch((err) =>
-          apiLogger.warn({ err, msg: "cert-auto-issue:stamp-failed", registrationId: reg.id }),
-        );
-      result.skippedNoTemplates++;
-      result.resolved++;
-      return;
-    }
-
     try {
-      const created = await processRegistration(reg, templates, now);
-      result.runsCreated += created;
+      const outcome = await processRegistration(reg, now);
+      result.runsCreated += outcome.created;
       result.resolved++;
+      if (outcome.noTemplates) result.skippedNoTemplates++;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const nextAttempt = reg.certAutoIssueAttempts + 1;
@@ -300,7 +234,13 @@ export async function runAutoIssueSweep(
  * Resolve + enqueue one registration's auto-issue certs in a single
  * transaction (atomic with the terminal stamp, so a crash mid-way rolls
  * back cleanly and the row retries from scratch). Returns the count of
- * auto-runs created. Throws on failure so the caller applies backoff.
+ * certificates queued. Throws on failure so the caller applies backoff.
+ *
+ * The transaction's FIRST statement is the per-event lock, and everything it
+ * decides on (which templates auto-issue, what this person is assigned) is
+ * read after it. Assigning a certificate and turning a template's switch on
+ * take the same lock and then clear this registration's stamp, so whichever
+ * of us goes second sees the other's work; see lockCertificateAssignments.
  */
 async function processRegistration(
   reg: {
@@ -314,33 +254,52 @@ async function processRegistration(
       firstName: string | null;
       lastName: string | null;
       email: string | null;
-      tags: string[];
     } | null;
   },
-  templates: AutoIssueTemplate[],
   now: Date,
-): Promise<number> {
-  const attendeeTags = reg.attendee?.tags ?? [];
+): Promise<{ created: number; noTemplates: boolean }> {
+  return tenantTransaction(async (tx) => {
+    await lockCertificateAssignments(tx, reg.eventId);
 
-  // Resolve the linked speaker for APPRECIATION routing: the companion
-  // case (Speaker.sourceRegistrationId == this reg) first, else a
-  // read-time email match (a speaker who registered separately).
-  let speaker = await db.speaker.findFirst({
-    where: { sourceRegistrationId: reg.id },
-    select: { id: true, title: true, firstName: true, lastName: true, email: true, tags: true },
-  });
-  if (!speaker && reg.attendee?.email) {
-    speaker = await db.speaker.findFirst({
-      where: { eventId: reg.eventId, email: reg.attendee.email },
-      select: { id: true, title: true, firstName: true, lastName: true, email: true, tags: true },
+    const templates = await tx.certificateTemplate.findMany({
+      where: { eventId: reg.eventId, autoIssueOnSurvey: true },
+      select: { id: true, category: true },
     });
-  }
+    if (templates.length === 0) {
+      // No auto-issue templates for this event: resolve the row so it isn't
+      // re-scanned every tick. Turning a template's switch on later clears
+      // the stamp for everyone assigned it.
+      await tx.registration.update({
+        where: { id: reg.id },
+        data: { certAutoIssueCheckedAt: now, certAutoIssueError: null },
+      });
+      return { created: 0, noTemplates: true };
+    }
 
-  const targets = selectAutoIssueTargets(templates, attendeeTags, speaker?.tags ?? null);
-  const templateMap = new Map(templates.map((t) => [t.id, t]));
+    // Resolve the linked speaker for APPRECIATION routing: the companion
+    // case (Speaker.sourceRegistrationId == this reg) first, else a
+    // read-time email match (a speaker who registered separately).
+    let speaker = await tx.speaker.findFirst({
+      where: { sourceRegistrationId: reg.id },
+      select: { id: true, title: true, firstName: true, lastName: true, email: true },
+    });
+    if (!speaker && reg.attendee?.email) {
+      speaker = await tx.speaker.findFirst({
+        where: { eventId: reg.eventId, email: reg.attendee.email },
+        select: { id: true, title: true, firstName: true, lastName: true, email: true },
+      });
+    }
 
-  let created = 0;
-  await tenantTransaction(async (tx) => {
+    // Who receives what: the templates this person is ASSIGNED, per facet.
+    const assigned = await loadAssignedTemplateIds(tx, {
+      templateIds: templates.map((t) => t.id),
+      registrationId: reg.id,
+      speakerId: speaker?.id ?? null,
+    });
+    const targets = selectAssignedTargets(templates, assigned.registration, assigned.speaker);
+    const templateMap = new Map(templates.map((t) => [t.id, t]));
+
+    let created = 0;
     // Idempotency guards run per target FIRST — a target is dropped when a
     // cert already exists OR an auto-run item already covers this
     // (event, template, recipient). The bundle-aware item check matches
@@ -446,13 +405,11 @@ async function processRegistration(
       created = surviving.length;
     }
 
-    // Terminal stamp — clears any prior error + attempts now that we've
-    // resolved cleanly.
+    // Terminal stamp: clears any prior error now that we've resolved cleanly.
     await tx.registration.update({
       where: { id: reg.id },
       data: { certAutoIssueCheckedAt: now, certAutoIssueError: null },
     });
-  });
-
-  return created;
+    return { created, noTemplates: false };
+  }, SWEEP_TX_OPTIONS);
 }

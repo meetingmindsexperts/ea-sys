@@ -1,20 +1,15 @@
 /**
- * GET /api/events/[eventId]/certificates/eligible
+ * GET /api/events/[eventId]/certificates/eligible?templateIds=a,b,c
  *
- * Two modes:
+ * The Issue tab's preview: who a manual Issue run of these templates (1..3)
+ * would send to. Each template's pool is the people ASSIGNED it
+ * (src/lib/certificates/assignments.ts) who do not hold its certificate yet,
+ * merged per PERSON. Returns { peopleCount, perTemplate, sample, truncated }.
  *
- *   ?templateIds=a,b,c   (bundle model, 2026-07-09) — per-template pools come
- *     from each template's STORED tag, merged per PERSON. Returns
- *     { people, peopleCount, perTemplate, sample, truncated }. The Issue tab
- *     multi-select preview.
+ * `?templateId=x` is accepted as one template (the pre-bundle spelling).
+ * `?tag=` is refused: tags stopped deciding recipients on Nov 11, 2026, and a
+ * page still sending one is showing a stale picker.
  *
- *   ?templateId={id}[&tag={tag}]   (legacy single-template) —
- *     - templateId only: the available-tag overview for the template's
- *       category pool (tag picker).
- *     - templateId + tag: also the filtered recipient list preview.
- *
- * Eligibility = category pool (ATTENDANCE → registrations; APPRECIATION
- * → speakers) MINUS recipients already holding a cert from that template.
  * No check-in / payment / session-role / poster gate.
  */
 
@@ -24,7 +19,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
-import { eligibleForType, eligibleForTemplates } from "@/lib/certificates/eligibility";
+import { eligibleForTemplates } from "@/lib/certificates/eligibility";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -47,105 +42,58 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgId = session.user.organizationId; // tenancy: session org
 
     const url = new URL(req.url);
-    const templateId = url.searchParams.get("templateId");
-    const tag = url.searchParams.get("tag");
-    const templateIdsParam = url.searchParams.get("templateIds");
-
-    // ── Bundle mode: merged multi-template preview ──
-    if (templateIdsParam) {
-      const templateIds = templateIdsParam
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .slice(0, 3);
-      if (templateIds.length === 0) {
-        apiLogger.warn({ msg: "cert-eligible:empty-template-ids", eventId, userId: session.user.id });
-        return NextResponse.json(
-          { error: "templateIds must contain at least one id", code: "MISSING_TEMPLATE_ID" },
-          { status: 400 },
-        );
-      }
-      // tenancy: swept CertificateTemplate read runs inside the session org.
-      const templates = await runWithTenant(orgId, () =>
-        db.certificateTemplate.findMany({
-          where: {
-            id: { in: templateIds },
-            eventId,
-            event: gate.eventWhere,
-          },
-          select: { id: true, name: true, category: true, autoIssueTag: true },
-        }),
-      );
-      if (templates.length !== new Set(templateIds).size) {
-        apiLogger.warn({
-          msg: "cert-eligible:template-not-found",
-          eventId,
-          userId: session.user.id,
-          templateIds,
-          foundCount: templates.length,
-        });
-        return NextResponse.json({ error: "Template not found" }, { status: 404 });
-      }
-      // tenancy: eligibility reads swept cert tables — run inside the session org.
-      const merged = await runWithTenant(orgId, () => eligibleForTemplates(eventId, templates));
-      return NextResponse.json({
-        peopleCount: merged.people.length,
-        perTemplate: merged.perTemplate,
-        sample: merged.people.slice(0, SAMPLE_CAP),
-        sampleCap: SAMPLE_CAP,
-        truncated: merged.people.length > SAMPLE_CAP,
-      });
-    }
-
-    if (!templateId) {
-      apiLogger.warn({
-        msg: "cert-eligible:missing-template-id",
-        eventId,
-        userId: session.user.id,
-      });
+    if (url.searchParams.get("tag")) {
+      apiLogger.warn({ msg: "cert-eligible:tag-refused", eventId, userId: session.user.id });
       return NextResponse.json(
-        { error: "templateId query parameter is required", code: "MISSING_TEMPLATE_ID" },
+        {
+          error: "Tags no longer decide who receives a certificate. Reload the page and assign the certificate to people instead.",
+          code: "TAGS_RETIRED",
+        },
+        { status: 400 },
+      );
+    }
+    const templateIds = (url.searchParams.get("templateIds") ?? url.searchParams.get("templateId") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    if (templateIds.length === 0) {
+      apiLogger.warn({ msg: "cert-eligible:missing-template-id", eventId, userId: session.user.id });
+      return NextResponse.json(
+        { error: "templateIds must contain at least one id", code: "MISSING_TEMPLATE_ID" },
         { status: 400 },
       );
     }
 
     // tenancy: swept CertificateTemplate read runs inside the session org.
-    const tmpl = await runWithTenant(orgId, () =>
-      db.certificateTemplate.findFirst({
+    const templates = await runWithTenant(orgId, () =>
+      db.certificateTemplate.findMany({
         where: {
-          id: templateId,
+          id: { in: templateIds },
+          eventId,
           event: gate.eventWhere,
         },
-        select: { eventId: true, category: true },
+        select: { id: true, name: true, category: true },
       }),
     );
-    if (!tmpl || tmpl.eventId !== eventId) {
+    if (templates.length !== new Set(templateIds).size) {
       apiLogger.warn({
         msg: "cert-eligible:template-not-found",
         eventId,
         userId: session.user.id,
-        templateId,
+        templateIds,
+        foundCount: templates.length,
       });
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
-
-    // tenancy: eligibility reads swept cert tables — run inside the session org.
-    const result = await runWithTenant(orgId, () =>
-      eligibleForType(tmpl.category, eventId, tag, templateId),
-    );
-
+    // tenancy: eligibility reads swept cert tables, run inside the session org.
+    const merged = await runWithTenant(orgId, () => eligibleForTemplates(eventId, templates));
     return NextResponse.json({
-      type: result.type,
-      tag: result.tag,
-      availableTags: result.availableTags,
-      untaggedCount: result.untaggedCount,
-      // When tag isn't supplied, the recipient list is intentionally
-      // empty — the UI uses availableTags to drive the picker first.
-      eligibleCount: result.eligible.length,
-      eligible: result.eligible.slice(0, SAMPLE_CAP),
+      peopleCount: merged.people.length,
+      perTemplate: merged.perTemplate,
+      sample: merged.people.slice(0, SAMPLE_CAP),
       sampleCap: SAMPLE_CAP,
-      truncated: result.eligible.length > SAMPLE_CAP,
-      exclusions: result.exclusions,
+      truncated: merged.people.length > SAMPLE_CAP,
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "cert-eligible:failed" });

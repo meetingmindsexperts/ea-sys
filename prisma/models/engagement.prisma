@@ -70,11 +70,15 @@ model CertificateTemplate {
   // Static per-template CME hours (organizer-entered). Snapshotted onto the
   // issued cert; overrides the event-level CME hours when set.
   cmeHours          Decimal?        @db.Decimal(4, 1)
-  // Phase-2 survey-gated auto-issue. When `autoIssueOnSurvey` is on, the
-  // cert worker auto-issues this template to anyone who completes the
-  // survey AND holds `autoIssueTag` (attendee tag for ATTENDANCE, speaker
-  // tag for APPRECIATION). Off by default — opt-in per template.
+  // Survey-gated auto-issue. When `autoIssueOnSurvey` is on, the cert worker
+  // issues this template to everyone ASSIGNED it (CertificateAssignment) once
+  // they have answered the certificate survey. Off by default, per template.
   autoIssueOnSurvey Boolean         @default(false)
+  // UNREAD since Nov 11, 2026. This held a free-text tag, and whoever carried
+  // the same word on their attendee or speaker row received the certificate.
+  // CertificateAssignment replaced it (the migration copied every match
+  // across). Kept because a column is never dropped (blue-green) and an older
+  // image still reads it; no code reads or writes it.
   autoIssueTag      String?
   backgroundPdfUrl  String?
   // CertificateTextBox[] — same shape as src/lib/certificates/types.ts
@@ -91,11 +95,59 @@ model CertificateTemplate {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
-  event              Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event              Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
   issuedCertificates IssuedCertificate[]
   issueRuns          CertificateIssueRun[]
+  assignments        CertificateAssignment[]
 
   @@index([eventId, category, sortOrder])
+  @@index([organizationId])
+}
+
+/// One person assigned one certificate (Nov 11, 2026). THE answer to "who
+/// receives this certificate" on every door: the Issue tab, the bulk email,
+/// the person's own card, the agent and the survey auto-issue all ask
+/// src/lib/certificates/assignments.ts, which reads this table.
+///
+/// It replaced a free-text tag that had to be spelled the same on the template
+/// and on the person. A row points at the template itself, so it cannot be
+/// mistyped, it belongs to one registration (or speaker) at one event, and it
+/// records who added it and how.
+///
+/// An ATTENDANCE template is assigned to a registration, an APPRECIATION one
+/// to a speaker: exactly one of the two ids is set (the service enforces it,
+/// and the two uniques rely on Postgres treating NULLs as distinct).
+///
+/// A row is a DECISION, not a delivery: whether the certificate exists and
+/// was sent is read from IssuedCertificate and the run items, never stored
+/// here. Deleting a row takes nobody's certificate away.
+model CertificateAssignment {
+  id                    String   @id @default(cuid())
+  eventId               String
+  // tenancy: denormalized org, no FK, stamped from the template's event.
+  organizationId        String?
+  certificateTemplateId String
+  registrationId        String?
+  speakerId             String?
+  /// How the row came to be (CERTIFICATE_ASSIGNMENT_SOURCES in
+  /// src/lib/certificates/assignments.ts). A plain string, not an enum, so a
+  /// new source never needs a migration and an older image can still read it.
+  source                String   @default("MANUAL")
+  /// Null for the migration's backfill and for rows the agent added by key.
+  assignedByUserId      String?
+  createdAt             DateTime @default(now())
+
+  event               Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  certificateTemplate CertificateTemplate @relation(fields: [certificateTemplateId], references: [id], onDelete: Cascade)
+  registration        Registration?       @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  speaker             Speaker?            @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  assignedBy          User?               @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([certificateTemplateId, registrationId])
+  @@unique([certificateTemplateId, speakerId])
+  @@index([eventId])
+  @@index([registrationId])
+  @@index([speakerId])
   @@index([organizationId])
 }
 

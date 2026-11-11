@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Certificates go to the people assigned them, not to a tag (November 11)
+
+Owner: "we need to figure out a better way than using tags because reporting is nightmare". A certificate template carried a free-text tag, and whoever held the same word on their attendee or speaker row received it. On production that day: 804 registrations at finished events carried the certificate tag with no certificate and nothing said whether they were owed one, 743 of 859 certificates had gone to people with no survey answer, and no event-wide list of issued certificates existed.
+
+- **Who receives a certificate is now a row** - `CertificateAssignment` (migration `20261111120000`, additive): one person assigned one template, with who added it and how. `src/lib/certificates/assignments.ts` is the one rule, asked by the Issue tab, the bulk certificate email, the person's own card, the survey auto-issue and the agent. `CertificateTemplate.autoIssueTag` stays as an unread column
+- **Assigning** - select people on the Registrations or Speakers page and choose Assign certificate; paste a list of emails on the new Recipients tab (it shows the addresses nobody has before assigning anything); or assign one person from their Certificates card
+- **The Recipients tab** - every assigned person and where they stand (Waiting for survey, Sending, Sent, Ready to issue), the survey date, the certificate number and hours, a CSV export, and the people who answered the survey and are assigned nothing
+- **Auto-issue on the survey no longer depends on order** - a certificate is owed once a person is assigned and has answered, whichever comes last. Before, a person tagged after answering was never looked at again. The sweep, assigning and the template's switch share one per-event lock so an assignment and a survey answer landing together cannot miss each other
+- **A batch never goes out unasked** - assigning people who have already answered, or turning a template's automatic sending on when its people have already answered, is refused with `CONFIRM_SEND_NOW` and the number of certificates until confirmed. Enforced in the service, for the dashboard, the email list and the agent alike
+- **Existing events** - the migration copied every tag match and every certificate holder onto the lists (locally: 399 matches became 399 rows, plus 10 holders with no tag). It sends nothing: a person who had answered before it shows as Ready to issue. `scripts/backfill-certificate-assignments.ts` re-runs the same block once after the deploy, for a tag added while it was going out
+- **Agent** - `autoIssueTag` is gone from the template tools; `assign_certificate`, `unassign_certificate` and `list_certificate_recipients` were added, on keys the API key already held. Package 0.4.54 to 0.4.55: connected clients reconnect
+- **Changed on purpose** - assigning needs `certificates.templates.manage` (tagging needed only `registrations.update`, so a desk role could decide who got a certificate); a request still carrying a tag is refused (`TAGS_RETIRED`) and never read as "everyone assigned"; someone who holds a certificate cannot be taken off its list
+- **Not built** - a Certificate column in the registrations CSV import (the email list does that job without touching an import that moves seats)
+- **Tests** - the service, the lock and the backfill on a real Postgres (`tests/integration-db/certificate-assignments.db.test.ts`, 22 tests, including the race the lock exists for); the routes, the rule and the report in the unit suite; `certificate-assignments.test.ts` fails if code reads the tag again
+
+
 ### CRM: three older defects the Sent review turned up (November 11)
 
 Found by the review of `2870ddb1`, in code older than it; the owner asked for them fixed.

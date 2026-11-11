@@ -155,6 +155,15 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   answers) or accept that their pages error until rolled forward. Read-only check:
   `SELECT id, "eventId" FROM "Survey" WHERE "responseMode" = 'ONCE_PER_DAY';`
 
+- **Certificate assignments (Nov 11, 2026; migration `20261111120000_certificate_assignment`).**
+  An image older than this migration decides who receives a certificate from the TAG again
+  (`CertificateTemplate.autoIssueTag`), and cannot see `CertificateAssignment`. Old templates
+  keep their tag and their people keep theirs, so they behave as before. What a rollback
+  loses: anyone assigned in the new screens without a tag receives nothing while the old
+  image runs, and a person among them who answers the survey in that window is stamped as
+  checked by the old sweep. Nothing wrong is ever sent. After rolling forward again, open
+  Certificates, Recipients: those people show as "Ready to issue", and the Issue tab sends
+  them. Never drop the table or the column.
 - **The "Base role" (`BASE`, Oct 23, 2026; migration `20261023120000_add_base_role`).** Once
   anyone holds it, an image older than this release cannot read their user row: its Prisma
   client throws on the unknown enum value wherever that person is loaded (sign-in, Settings,

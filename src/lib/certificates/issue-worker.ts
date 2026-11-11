@@ -508,7 +508,7 @@ async function renderAndStoreItem(args: {
 /**
  * Render phase for bundle-model runs (run.templateIds set): each person-keyed
  * item earns one cert per template in ITS `templateIds` subset (stamped at
- * issue time from the tag-matched eligibility merge). All issuing goes
+ * issue time from the assignment-based eligibility merge). All issuing goes
  * through the shared `findOrIssueCertificate` — already-issued certs are
  * reused (and re-pointed at this item so the send phase bundles them),
  * so retry-failed re-runs are idempotent.

@@ -16,6 +16,7 @@ const { mockDb, mockSend, mockRender, mockUpload, mockLoadRecipient, mockLoadEve
     issuedCertificate: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
     registration: { findUnique: vi.fn(), findFirst: vi.fn() },
     speaker: { findUnique: vi.fn() },
+    certificateAssignment: { findMany: vi.fn() },
     event: { findUnique: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
@@ -315,9 +316,9 @@ describe("reRenderAndResendCert", () => {
 // template, ONE bundle email with one PDF per cert.
 
 describe("issueCertificateBundle", () => {
-  const TPL_A = { id: "tpl-a", name: "Attendance", category: "ATTENDANCE", autoIssueTag: "delegate", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null };
-  const TPL_B = { id: "tpl-b", name: "Committee", category: "ATTENDANCE", autoIssueTag: "committee", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: "Committee", cmeHours: null };
-  const APP_TPL = { id: "tpl-s", name: "Speaker", category: "APPRECIATION", autoIssueTag: "speaker", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: "Speaker", cmeHours: null };
+  const TPL_A = { id: "tpl-a", name: "Attendance", category: "ATTENDANCE", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null };
+  const TPL_B = { id: "tpl-b", name: "Committee", category: "ATTENDANCE", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: "Committee", cmeHours: null };
+  const APP_TPL = { id: "tpl-s", name: "Speaker", category: "APPRECIATION", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: "Speaker", cmeHours: null };
 
   function primeTemplates(rows: Array<Record<string, unknown>>) {
     mockDb.certificateTemplate.findFirst.mockImplementation(
@@ -325,13 +326,30 @@ describe("issueCertificateBundle", () => {
     );
   }
 
+  /** The templates assigned to whichever facet the gate asks about. */
+  function primeAssigned(templateIds: string[]) {
+    mockDb.certificateAssignment.findMany.mockImplementation(
+      (args: { where: { certificateTemplateId: { in: string[] }; OR: Array<{ registrationId?: string; speakerId?: string }> } }) =>
+        Promise.resolve(
+          args.where.OR.flatMap((facet) =>
+            templateIds
+              .filter((id) => args.where.certificateTemplateId.in.includes(id))
+              .map((id) => ({
+                certificateTemplateId: id,
+                registrationId: facet.registrationId ?? null,
+                speakerId: facet.speakerId ?? null,
+              })),
+          ),
+        ),
+    );
+  }
+
   beforeEach(() => {
     primeTemplates([TPL_A, TPL_B, APP_TPL]);
-    // Recipient holds BOTH attendance tags — the tag gate ("no tag, no
-    // certificate") lets both templates through in the happy paths.
-    mockDb.registration.findUnique.mockResolvedValue({
-      attendee: { email: "jane@x.com", tags: ["delegate", "committee"] },
-    });
+    // The recipient is ASSIGNED both attendance templates: the assignment gate
+    // ("not assigned, no certificate") lets both through in the happy paths.
+    primeAssigned(["tpl-a", "tpl-b", "tpl-s"]);
+    mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com" } });
     mockDb.issuedCertificate.findFirst.mockResolvedValue(null);
     let n = 0;
     mockDb.issuedCertificate.create.mockImplementation(() => Promise.resolve({ id: `cert-${++n}` }));
@@ -437,46 +455,51 @@ describe("issueCertificateBundle", () => {
     expect(await issueCertificateBundle(CTX, { templateIds: ["tpl-a"] })).toMatchObject({ ok: false, code: "INVALID_RECIPIENT" });
   });
 
-  // ── Tag gate — "no tag, no certificate" (organizer decision 2026-07-10) ──
+  // ── Assignment gate: "not assigned, no certificate" (organizer decision
+  //    2026-07-10 for the tag this replaced on Nov 11, 2026) ──
 
-  it("tag gate: a template whose tag the person lacks is refused; matching ones still go out", async () => {
-    mockDb.registration.findUnique.mockResolvedValue({
-      attendee: { email: "jane@x.com", tags: ["delegate"] }, // no "committee"
-    });
+  it("assignment gate: a template the person is not assigned is refused; assigned ones still go out", async () => {
+    primeAssigned(["tpl-a"]); // not the Committee one
     const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-b"], registrationId: "reg-1" });
     if (!res.ok) throw new Error("expected ok");
     expect(res.certs).toHaveLength(1);
     expect(res.failures).toHaveLength(1);
     expect(res.failures[0]).toMatchObject({ templateId: "tpl-b", templateName: "Committee" });
-    expect(res.failures[0].error).toContain('doesn\'t hold this template\'s tag ("committee")');
+    expect(res.failures[0].error).toContain("not assigned this certificate");
     expect(mockSend).toHaveBeenCalledTimes(1);
     expect(mockSend.mock.calls[0][0].attachments).toHaveLength(1);
   });
 
-  it("NO_MATCHING_TAG blocks the whole issue for an untagged person (nothing issued, no email)", async () => {
-    mockDb.registration.findUnique.mockResolvedValue({
-      attendee: { email: "jane@x.com", tags: [] },
-    });
+  it("NOT_ASSIGNED blocks the whole issue for a person assigned nothing (nothing issued, no email)", async () => {
+    primeAssigned([]);
     const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-b"], registrationId: "reg-1" });
-    expect(res).toMatchObject({ ok: false, code: "NO_MATCHING_TAG", status: 422 });
+    expect(res).toMatchObject({ ok: false, code: "NOT_ASSIGNED", status: 422 });
     if (res.ok) throw new Error("unreachable");
-    expect(res.error).toContain("no tags");
+    expect(res.error).toContain("not assigned");
+    // It names where to assign, for the facet the card is on.
+    expect(res.error).toContain("Registrations page");
     expect(mockDb.issuedCertificate.create).not.toHaveBeenCalled();
     expect(mockSend).not.toHaveBeenCalled();
   });
 
-  it("a tagless template can never be issued (matches nobody)", async () => {
-    const TPL_NOTAG = { ...TPL_B, id: "tpl-n", name: "Tagless", autoIssueTag: null };
-    primeTemplates([TPL_A, TPL_NOTAG]);
-    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-n"], registrationId: "reg-1" });
-    if (!res.ok) throw new Error("expected ok");
-    expect(res.certs).toHaveLength(1);
-    expect(res.failures[0]).toMatchObject({ templateId: "tpl-n" });
-    expect(res.failures[0].error).toContain("has no tag");
+  it("asks for the assignments of the selected templates and this one person only", async () => {
+    await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-b"], registrationId: "reg-1" });
+    expect(mockDb.certificateAssignment.findMany.mock.calls[0][0].where).toEqual({
+      certificateTemplateId: { in: ["tpl-a", "tpl-b"] },
+      OR: [{ registrationId: "reg-1" }],
+    });
   });
 
-  it("speaker facet: appreciation template matched against SPEAKER tags", async () => {
-    mockDb.speaker.findUnique.mockResolvedValue({ email: "spk@x.com", tags: ["speaker"] });
+  it("an attendance template assigned to somebody else's registration does not count", async () => {
+    mockDb.certificateAssignment.findMany.mockResolvedValue([
+      { certificateTemplateId: "tpl-a", registrationId: "reg-OTHER", speakerId: null },
+    ]);
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a"], registrationId: "reg-1" });
+    expect(res).toMatchObject({ ok: false, code: "NOT_ASSIGNED" });
+  });
+
+  it("speaker facet: appreciation template matched against the SPEAKER's assignments", async () => {
+    mockDb.speaker.findUnique.mockResolvedValue({ email: "spk@x.com" });
     const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-s"], speakerId: "spk-1" });
     if (!res.ok) throw new Error(`expected ok, got ${JSON.stringify(res)}`);
     expect(res.certs).toHaveLength(1);
@@ -503,7 +526,7 @@ describe("issueCertificateBundle", () => {
 
   it("sendEmail:false works for a recipient with no email on file", async () => {
     mockDb.registration.findUnique.mockResolvedValue({
-      attendee: { email: null, tags: ["delegate"] },
+      attendee: { email: null },
     });
     const res = await issueCertificateBundle(CTX, {
       templateIds: ["tpl-a"],
@@ -518,7 +541,7 @@ describe("issueCertificateBundle", () => {
 
   it("email mode still 409s NO_RECIPIENT_EMAIL when no address is on file", async () => {
     mockDb.registration.findUnique.mockResolvedValue({
-      attendee: { email: null, tags: ["delegate"] },
+      attendee: { email: null },
     });
     const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a"], registrationId: "reg-1" });
     expect(res).toMatchObject({ ok: false, code: "NO_RECIPIENT_EMAIL", status: 409 });
@@ -531,16 +554,14 @@ describe("issueCertificateBundle", () => {
     expect(mockSend).toHaveBeenCalledTimes(1);
   });
 
-  it("sendEmail:false still enforces the tag gate (NO_MATCHING_TAG blocks)", async () => {
-    mockDb.registration.findUnique.mockResolvedValue({
-      attendee: { email: "jane@x.com", tags: [] },
-    });
+  it("sendEmail:false still enforces the assignment gate (NOT_ASSIGNED blocks)", async () => {
+    primeAssigned([]);
     const res = await issueCertificateBundle(CTX, {
       templateIds: ["tpl-a"],
       registrationId: "reg-1",
       sendEmail: false,
     });
-    expect(res).toMatchObject({ ok: false, code: "NO_MATCHING_TAG", status: 422 });
+    expect(res).toMatchObject({ ok: false, code: "NOT_ASSIGNED", status: 422 });
     expect(mockDb.issuedCertificate.create).not.toHaveBeenCalled();
   });
 });
@@ -609,7 +630,7 @@ describe("collectRunItemCertRows", () => {
 // ── Preview-before-resend ────────────────────────────────────────────────────
 
 describe("preview-before-resend", () => {
-  const ATT_TPL_ROW = { id: "tpl-a", name: "Attendance", category: "ATTENDANCE", autoIssueTag: "delegate", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null };
+  const ATT_TPL_ROW = { id: "tpl-a", name: "Attendance", category: "ATTENDANCE", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null };
   const CERT_ROW = {
     id: "cert-1",
     type: "ATTENDANCE",
@@ -623,7 +644,7 @@ describe("preview-before-resend", () => {
 
   beforeEach(() => {
     mockDb.certificateTemplate.findFirst.mockResolvedValue(ATT_TPL_ROW);
-    mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com", tags: ["delegate"] } });
+    mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com" } });
     mockDb.registration.findFirst.mockResolvedValue({ attendee: { email: "jane@x.com" } });
   });
 

@@ -4151,9 +4151,162 @@ export interface CertTemplateOption {
   id: string;
   name: string;
   category: "ATTENDANCE" | "APPRECIATION";
-  /** The template's tag — decides who receives it on every issue path
-   *  (manual, bulk email, survey auto-issue). Null = matches nobody. */
-  autoIssueTag?: string | null;
+  /** Sent automatically once an assigned person answers the certificate survey. */
+  autoIssueOnSurvey?: boolean;
+  /** `assignments` = the people assigned the template: who receives it on
+   *  every issue path (manual, bulk email, survey auto-issue). 0 = nobody. */
+  _count?: { assignments?: number; issuedCertificates?: number; issueRuns?: number };
+}
+
+/** How many people a template is assigned to (0 while the list has not loaded). */
+export function assignedCountOf(template: Pick<CertTemplateOption, "_count">): number {
+  return template._count?.assignments ?? 0;
+}
+
+// ── Certificate assignments: who receives which certificate ──────────────────
+
+export interface AssignCertificateBody {
+  templateId: string;
+  registrationIds?: string[];
+  speakerIds?: string[];
+  /** A pasted list, matched to the event's registrations (or speakers). */
+  emails?: string[];
+  /** Set once the person has agreed to the number of certificates sent at once. */
+  confirmSendNow?: boolean;
+  /** Work it out and write nothing. */
+  dryRun?: boolean;
+}
+
+export interface AssignCertificateResponse {
+  ok: true;
+  templateName: string;
+  assigned: number;
+  alreadyAssigned: number;
+  skipped: number;
+  /** Certificates the survey auto-issue sends straight away. */
+  sendNow: number;
+  dryRun: boolean;
+  /** From a pasted list: addresses nobody at the event has. */
+  unmatched: string[];
+  /** From a pasted list: addresses whose only registration is cancelled. */
+  cancelled: string[];
+}
+
+/** Every query a change of assignments can make stale. */
+function invalidateCertificateAssignments(queryClient: ReturnType<typeof useQueryClient>, eventId: string) {
+  queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates"] });
+  queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
+  queryClient.invalidateQueries({ queryKey: ["cert-eligibility", eventId] });
+  queryClient.invalidateQueries({ queryKey: ["cert-auto-issue-analytics", eventId] });
+}
+
+/**
+ * Assign a certificate template to people. The server refuses with 409
+ * CONFIRM_SEND_NOW (an ApiError whose `data.sendNow` is the count) when some
+ * of them have already answered the survey and the template sends
+ * automatically; send the same body again with `confirmSendNow: true`.
+ */
+export function useAssignCertificate(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AssignCertificateBody) =>
+      fetchApi<AssignCertificateResponse>(`/api/events/${eventId}/certificates/assignments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (res) => {
+      if (!res.dryRun) invalidateCertificateAssignments(queryClient, eventId);
+    },
+  });
+}
+
+/** Take people off a template's list. Someone who holds the certificate stays (`keptIssued`). */
+export function useUnassignCertificate(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { templateId: string; registrationIds?: string[]; speakerIds?: string[] }) =>
+      fetchApi<{ ok: true; templateName: string; removed: number; keptIssued: number }>(
+        `/api/events/${eventId}/certificates/assignments`,
+        { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      ),
+    onSuccess: () => invalidateCertificateAssignments(queryClient, eventId),
+  });
+}
+
+/** The template ids assigned to ONE registration or speaker (their own card). */
+export function usePersonCertificateAssignments(
+  eventId: string,
+  person: { registrationId?: string; speakerId?: string },
+  enabled = true,
+) {
+  const param = person.registrationId ? `registrationId=${person.registrationId}` : `speakerId=${person.speakerId}`;
+  return useQuery({
+    queryKey: ["events", eventId, "certificates", "assignments", person.registrationId ?? null, person.speakerId ?? null],
+    queryFn: () => fetchApi<{ templateIds: string[] }>(`/api/events/${eventId}/certificates/assignments?${param}`),
+    enabled: enabled && Boolean(person.registrationId || person.speakerId),
+  });
+}
+
+export type CertificateRecipientState =
+  | "SENT"
+  | "ISSUED_NOT_SENT"
+  | "SENDING"
+  | "WAITING_FOR_SURVEY"
+  | "READY"
+  | "FAILED"
+  | "REVOKED"
+  | "CANCELLED";
+
+export interface CertificateRecipientRow {
+  assignmentId: string;
+  templateId: string;
+  templateName: string;
+  category: "ATTENDANCE" | "APPRECIATION";
+  kind: "registration" | "speaker";
+  registrationId: string | null;
+  speakerId: string | null;
+  name: string;
+  email: string | null;
+  registrationType: string | null;
+  source: string;
+  assignedAt: string;
+  assignedByName: string | null;
+  surveyAnsweredAt: string | null;
+  state: CertificateRecipientState;
+  cmeHours: string | null;
+  certificate: { id: string; serial: string; issuedAt: string } | null;
+}
+
+export interface CertificateRecipientsReport {
+  timezone: string;
+  templates: Array<{
+    id: string;
+    name: string;
+    category: "ATTENDANCE" | "APPRECIATION";
+    autoIssueOnSurvey: boolean;
+    assigned: number;
+    counts: Record<CertificateRecipientState, number>;
+  }>;
+  rows: CertificateRecipientRow[];
+  answeredNotAssigned: Array<{
+    registrationId: string;
+    name: string;
+    email: string | null;
+    registrationType: string | null;
+    surveyAnsweredAt: string;
+  }>;
+}
+
+/** The recipients report: who is assigned what, and where each person stands. */
+export function useCertificateRecipients(eventId: string, enabled = true) {
+  return useQuery({
+    queryKey: ["events", eventId, "certificates", "recipients"],
+    queryFn: () => fetchApi<CertificateRecipientsReport>(`/api/events/${eventId}/certificates/recipients`),
+    enabled,
+    // People answer the survey and certificates go out while the page is open.
+    staleTime: 30 * 1000,
+  });
 }
 
 /** List an event's certificate templates (for the single-issue picker). */

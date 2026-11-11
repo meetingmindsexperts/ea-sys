@@ -253,6 +253,10 @@ export const CERT_RUN_A_ID = "tenancy-crun-a";
 export const CERT_RUN_B_ID = "tenancy-crun-b";
 export const CERT_RUN_ITEM_A_ID = "tenancy-critem-a";
 export const CERT_RUN_ITEM_B_ID = "tenancy-critem-b";
+/** CertificateAssignment (Nov 11, 2026): each org's template assigned to its
+ *  own registration. The seed derives the id from the template's. */
+export const CERT_ASSIGNMENT_A_ID = `${CERT_TEMPLATE_A_ID}-asg`;
+export const CERT_ASSIGNMENT_B_ID = `${CERT_TEMPLATE_B_ID}-asg`;
 
 /**
  * Session Proposals sweep (Domain #14). SessionProposal + SessionProposalTheme.

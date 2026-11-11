@@ -17,6 +17,10 @@ const { mockDb, mockLoadCertTemplate, mockCertBulkSend } = vi.hoisted(() => ({
     event: { findFirst: vi.fn() },
     registration: { findMany: vi.fn() },
     survey: { findFirst: vi.fn().mockResolvedValue(null) },
+    // The precheck refuses a template nobody is assigned: here one person is.
+    certificateAssignment: {
+      groupBy: vi.fn().mockResolvedValue([{ certificateTemplateId: "tpl-1", _count: { _all: 1 } }]),
+    },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
   mockLoadCertTemplate: vi.fn(),
@@ -131,7 +135,6 @@ beforeEach(() => {
     id: "tpl-1",
     name: "Attendance",
     category: "ATTENDANCE",
-    autoIssueTag: "attended",
     template: { backgroundPdfUrl: null, textBoxes: [], role: null, cmeHours: null },
   });
   mockCertBulkSend.mockResolvedValue(CERT_RESULT);

@@ -2,8 +2,8 @@
  * executeCertificateBulkSend (bulk-issue.ts) — the Communications → bulk
  * email → certificate path. Bundle primitives (findOrIssue, bundle send) are
  * mocked; we assert the ORCHESTRATION:
- *   - tag routing (a recipient only gets certs whose template tag they hold,
- *     across BOTH person facets — registration + linked speaker)
+ *   - assignment routing (a recipient only gets the certs they are ASSIGNED,
+ *     across BOTH person facets: registration + linked speaker)
  *   - one email per recipient with all applicable certs
  *   - reuse (already-issued) attaches without a new audit row
  *   - per-recipient isolation (zero-match → SKIP, all-fail / send-fail → error)
@@ -24,6 +24,7 @@ const {
   mockDb: {
     registration: { findUnique: vi.fn() },
     speaker: { findUnique: vi.fn() },
+    certificateAssignment: { findMany: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
   mockFindOrIssue: vi.fn(),
@@ -58,14 +59,12 @@ const ATT_TPL: LoadedCertTemplate = {
   id: "tpl-att",
   name: "Attendance",
   category: "ATTENDANCE",
-  autoIssueTag: "attended",
   template: { backgroundPdfUrl: null, textBoxes: [], role: null, cmeHours: null },
 };
 const APP_TPL: LoadedCertTemplate = {
   id: "tpl-app",
   name: "Speaker",
   category: "APPRECIATION",
-  autoIssueTag: "speaker",
   template: { backgroundPdfUrl: null, textBoxes: [], role: null, cmeHours: null },
 };
 
@@ -110,11 +109,20 @@ beforeEach(() => {
   mockLinkedSpeaker.mockResolvedValue(null);
   mockLinkedRegistration.mockResolvedValue(null);
   mockDb.auditLog.create.mockResolvedValue({});
-  // Registration with both tags matched via facets by default.
-  mockDb.registration.findUnique.mockResolvedValue({
-    attendee: { tags: ["attended"], email: "jane@x.com" },
-  });
-  mockDb.speaker.findUnique.mockResolvedValue({ tags: ["speaker"] });
+  mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com" } });
+  mockDb.speaker.findUnique.mockResolvedValue({ email: "jane@x.com", sourceRegistrationId: null });
+  // By default each facet asked about is assigned its category's template:
+  // the registration the attendance one, the linked speaker the speaker one.
+  mockDb.certificateAssignment.findMany.mockImplementation(
+    (args: { where: { OR: Array<{ registrationId?: string; speakerId?: string }> } }) =>
+      Promise.resolve(
+        args.where.OR.map((facet) =>
+          facet.registrationId
+            ? { certificateTemplateId: "tpl-att", registrationId: facet.registrationId, speakerId: null }
+            : { certificateTemplateId: "tpl-app", registrationId: null, speakerId: facet.speakerId },
+        ),
+      ),
+  );
   mockFindOrIssue.mockImplementation((args: { templateId: string }) =>
     Promise.resolve(okCert(args.templateId, args.templateId === "tpl-att" ? "ATT-1" : "APP-1")),
   );
@@ -128,7 +136,7 @@ describe("executeCertificateBulkSend", () => {
     );
   });
 
-  it("bundles cross-category certs into ONE email when both facet tags match", async () => {
+  it("bundles cross-category certs into ONE email when both facets are assigned", async () => {
     mockLinkedSpeaker.mockResolvedValue({ id: "spk-1", linkedBy: "pointer" });
     const res = await executeCertificateBulkSend(BASE);
     expect(res).toMatchObject({ total: 1, successCount: 1, failureCount: 0 });
@@ -155,10 +163,7 @@ describe("executeCertificateBulkSend", () => {
     expect(sent.recipientLastName).toBe("Doe");
   });
 
-  it("tag-filters: recipient with only the attendance tag gets only that cert (the attendance cover email)", async () => {
-    mockDb.registration.findUnique.mockResolvedValue({
-      attendee: { tags: ["attended"], email: "jane@x.com" },
-    });
+  it("filters by assignment: a recipient assigned only the attendance template gets only that cert (the attendance cover email)", async () => {
     mockLinkedSpeaker.mockResolvedValue(null); // no speaker facet at all
     mockLoadCategoryCover.mockImplementation((_e: string, category: string) =>
       Promise.resolve(category === "ATTENDANCE" ? { subject: "Att subject", body: "<p>Att body</p>" } : null),
@@ -174,9 +179,6 @@ describe("executeCertificateBulkSend", () => {
   });
 
   it("a one-certificate email uses the event's Email Template for its category", async () => {
-    mockDb.registration.findUnique.mockResolvedValue({
-      attendee: { tags: ["attended"], email: "jane@x.com" },
-    });
     mockLoadCategoryCover.mockImplementation((_e: string, category: string) =>
       Promise.resolve(
         category === "ATTENDANCE" ? { subject: "Event attendance subject", body: "<p>Event attendance body</p>" } : null,
@@ -192,14 +194,12 @@ describe("executeCertificateBulkSend", () => {
     expect(mockLoadCategoryCover).toHaveBeenCalledTimes(2);
   });
 
-  it("SKIPS (not fails) a recipient when no template tag matches — no tag, no certificate", async () => {
-    mockDb.registration.findUnique.mockResolvedValue({
-      attendee: { tags: ["something-else"], email: "jane@x.com" },
-    });
+  it("SKIPS (not fails) a recipient who is assigned none of the templates: not assigned, no certificate", async () => {
+    mockDb.certificateAssignment.findMany.mockResolvedValue([]);
     const res = await executeCertificateBulkSend(BASE);
-    // Tag routing is the rule, not a delivery failure — the audience may be
-    // ALL registrations with the tags deciding who receives what. The
-    // untagged recipient lands in skippedCount, never in errors.
+    // Assignment is the routing rule, not a delivery failure: the audience
+    // may be ALL registrations, with the assignments deciding who receives
+    // what. The unassigned recipient lands in skippedCount, never in errors.
     expect(res).toMatchObject({ total: 1, successCount: 0, failureCount: 0, skippedCount: 1 });
     expect(res.errors).toHaveLength(0);
     expect(mockBundleSend).not.toHaveBeenCalled();
@@ -261,12 +261,10 @@ describe("executeCertificateBulkSend", () => {
 
   it("anchors on the speaker + linked registration for the speakers recipient type", async () => {
     mockDb.speaker.findUnique.mockResolvedValue({
-      tags: ["speaker"],
       email: "jane@x.com",
       sourceRegistrationId: null,
     });
     mockLinkedRegistration.mockResolvedValue({ id: "reg-9", linkedBy: "email" });
-    mockDb.registration.findUnique.mockResolvedValue({ attendee: { tags: ["attended"] } });
     const res = await executeCertificateBulkSend({
       ...BASE,
       recipientType: "speakers",

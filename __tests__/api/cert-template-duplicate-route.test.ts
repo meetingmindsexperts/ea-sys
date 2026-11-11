@@ -3,7 +3,7 @@
  *   /api/events/[eventId]/certificates/templates/[templateId]/duplicate
  * — the "duplicate certificate template" action.
  *
- * Pins the H4 regression: the clone must carry role / cmeHours / autoIssueTag
+ * Pins the H4 regression: the clone must carry role / cmeHours
  * (a hand-listed field copy silently dropped these), while auto-issue starts
  * PAUSED on the copy (autoIssueOnSurvey: false) so a live clone can't instantly
  * double-issue the source's tag audience — and the response flags that so the
@@ -93,15 +93,18 @@ beforeEach(() => {
 });
 
 describe("POST duplicate certificate template — H4 field copy", () => {
-  it("copies role / cmeHours / autoIssueTag but starts auto-issue PAUSED", async () => {
+  it("copies role / cmeHours, never the retired tag, and starts auto-issue PAUSED with nobody assigned", async () => {
     const res = await POST(req(), params);
     expect(res.status).toBe(201);
 
     const created = mockDb.certificateTemplate.create.mock.calls[0][0].data;
     expect(created.role).toBe("Chairperson");
     expect(created.cmeHours).toBe(6);
-    expect(created.autoIssueTag).toBe("faculty");
-    // Deliberately OFF on the clone (no instant double-issue of the tag audience).
+    // The source's retired tag is not carried (Nov 11, 2026), and the copy is
+    // created on its own: no assignments are written for it.
+    expect(created).not.toHaveProperty("autoIssueTag");
+    expect(created).not.toHaveProperty("assignments");
+    // Deliberately OFF on the clone.
     expect(created.autoIssueOnSurvey).toBe(false);
     // Sanity: the fields that were already copied still are.
     expect(created.name).toBe("Chairman Appreciation (copy)");

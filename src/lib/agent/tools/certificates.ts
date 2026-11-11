@@ -4,14 +4,18 @@
  * v3 multi-template model (2026-06-02). Templates live in the
  * CertificateTemplate Prisma table — an event can have any number of
  * Attendance and Appreciation templates with their own background PDF
- * + positioned text boxes. Eligibility stays category-scoped (one cert
- * per recipient per category per event).
+ * + positioned text boxes. WHO receives a template is the people assigned
+ * it (CertificateAssignment, src/lib/certificates/assignments.ts), never a
+ * tag: assign with assign_certificate.
  *
  * Tools:
  *   - list_certificate_templates    GET  all templates + CME settings
  *   - create_certificate_template   POST a new template row (name + category)
  *   - update_certificate_template   PATCH a specific template by id
  *   - update_cme_settings           PATCH event-level cmeHours + accreditations
+ *   - list_certificate_recipients   GET  who is assigned what, and where each stands
+ *   - assign_certificate            POST people onto a template's list
+ *   - unassign_certificate          POST people off it
  *
  * Asset URLs must be a `/uploads/certificates/...` path or an https
  * Supabase URL (validated by validateBackgroundPdfUrl — path-traversal +
@@ -26,6 +30,14 @@ import { apiLogger } from "@/lib/logger";
 import { updateEventSettings } from "@/lib/event-settings";
 import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 import { CERTIFICATE_FONT_NAMES } from "@/lib/certificates/template-box-schema";
+import { LIVE_ASSIGNMENT_WHERE } from "@/lib/certificates/assignments";
+import { loadRecipientReport } from "@/lib/certificates/recipients-report";
+import {
+  assignCertificate,
+  resolveAssignmentEmails,
+  setTemplateAutoIssue,
+  unassignCertificate,
+} from "@/services/certificate-assignment-service";
 import type { AgentContext, ToolExecutor } from "./_shared";
 
 const CERT_CATEGORIES = ["ATTENDANCE", "APPRECIATION"] as const;
@@ -159,10 +171,16 @@ async function listCertificateTemplates(_input: Record<string, unknown>, ctx: Ag
             role: true,
             cmeHours: true,
             autoIssueOnSurvey: true,
-            autoIssueTag: true,
             createdAt: true,
             updatedAt: true,
-            _count: { select: { issuedCertificates: true, issueRuns: true } },
+            // assignments = the people who receive it (cancelled registrations left out).
+            _count: {
+              select: {
+                issuedCertificates: true,
+                issueRuns: true,
+                assignments: { where: LIVE_ASSIGNMENT_WHERE },
+              },
+            },
           },
         },
       },
@@ -229,20 +247,14 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
     cmeHours = input.cmeHours;
   }
 
-  // Phase 2 survey-gated auto-issue config.
+  // Survey-gated auto-issue. A new template has nobody assigned, so turning
+  // it on here sends nothing until people are assigned (assign_certificate).
   let autoIssueOnSurvey = false;
   if (input.autoIssueOnSurvey !== undefined && input.autoIssueOnSurvey !== null) {
     if (typeof input.autoIssueOnSurvey !== "boolean") {
       return { error: "autoIssueOnSurvey must be a boolean", code: "INVALID_FIELD" };
     }
     autoIssueOnSurvey = input.autoIssueOnSurvey;
-  }
-  let autoIssueTag: string | null = null;
-  if (input.autoIssueTag !== undefined && input.autoIssueTag !== null) {
-    if (typeof input.autoIssueTag !== "string" || input.autoIssueTag.length > 120) {
-      return { error: "autoIssueTag must be a string (max 120 chars)", code: "INVALID_FIELD" };
-    }
-    autoIssueTag = input.autoIssueTag.trim() || null;
   }
 
   // Verify event is in caller's org.
@@ -279,7 +291,6 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
         role,
         cmeHours,
         autoIssueOnSurvey,
-        autoIssueTag,
       },
     });
     }),
@@ -376,29 +387,49 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
       data.cmeHours = input.cmeHours;
     }
   }
-  // Phase 2 survey-gated auto-issue config.
+  // Survey-gated auto-issue. Turning it ON can send certificates at once, so
+  // it goes through setTemplateAutoIssue (the one writer of the switch),
+  // which refuses with CONFIRM_SEND_NOW until confirmSendNow is passed.
+  let switchTo: boolean | undefined;
   if (input.autoIssueOnSurvey !== undefined) {
     if (typeof input.autoIssueOnSurvey !== "boolean") {
       return { error: "autoIssueOnSurvey must be a boolean", code: "INVALID_FIELD" };
     }
-    data.autoIssueOnSurvey = input.autoIssueOnSurvey;
-  }
-  if (input.autoIssueTag !== undefined) {
-    if (input.autoIssueTag === null) {
-      data.autoIssueTag = null;
-    } else if (typeof input.autoIssueTag !== "string" || input.autoIssueTag.length > 120) {
-      return { error: "autoIssueTag must be a string (max 120 chars) or null", code: "INVALID_FIELD" };
-    } else {
-      data.autoIssueTag = input.autoIssueTag.trim() || null;
-    }
+    switchTo = input.autoIssueOnSurvey;
   }
 
-  if (Object.keys(data).length === 0) {
+  if (Object.keys(data).length === 0 && switchTo === undefined) {
     return {
       error:
-        "Nothing to update — provide at least one of name / backgroundPdfUrl / textBoxes / sortOrder / role / cmeHours / autoIssueOnSurvey / autoIssueTag",
+        "Nothing to update: provide at least one of name / backgroundPdfUrl / textBoxes / sortOrder / role / cmeHours / autoIssueOnSurvey",
       code: "NOTHING_TO_UPDATE",
     };
+  }
+
+  // The switch first: if it is refused, nothing else in this call is applied.
+  if (switchTo !== undefined) {
+    const enabled = switchTo;
+    const switched = await runWithTenant(ctx.organizationId, () =>
+      setTemplateAutoIssue({
+        eventId: ctx.eventId,
+        templateId,
+        enabled,
+        userId: ctx.userId,
+        source: ctx.source,
+        confirmSendNow: input.confirmSendNow === true,
+      }),
+    );
+    if (!switched.ok) {
+      // Logged with its code by the service.
+      return {
+        error:
+          switched.code === "CONFIRM_SEND_NOW"
+            ? `${switched.message} Tell the user that number, and call again with confirmSendNow: true only once they agree.`
+            : switched.message,
+        code: switched.code,
+        ...(switched.meta ?? {}),
+      };
+    }
   }
 
   // tenancy: swept CertificateTemplate write runs inside the caller's org.
@@ -408,6 +439,7 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
       data,
     }),
   );
+  const fieldsChangedList = [...Object.keys(data), ...(switchTo !== undefined ? ["autoIssueOnSurvey"] : [])];
 
   db.auditLog
     .create({
@@ -417,7 +449,7 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
         action: "UPDATE",
         entityType: "CertificateTemplate",
         entityId: updated.id,
-        changes: { source: ctx.source, fieldsChanged: Object.keys(data) },
+        changes: { source: ctx.source, fieldsChanged: fieldsChangedList },
       },
     })
     .catch((err) => apiLogger.warn({ err, msg: "cert-template-mcp:audit-failed-update" }));
@@ -427,7 +459,7 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
     eventId: ctx.eventId,
     userId: ctx.userId,
     templateId: updated.id,
-    fieldsChanged: Object.keys(data),
+    fieldsChanged: fieldsChangedList,
   });
 
   return { ok: true, template: updated };
@@ -554,6 +586,155 @@ async function updateCmeSettings(input: Record<string, unknown>, ctx: AgentConte
   };
 }
 
+// ── Tool: list_certificate_recipients ───────────────────────────────────────
+
+const RECIPIENT_ROW_CAP = 500;
+
+async function listCertificateRecipients(input: Record<string, unknown>, ctx: AgentContext) {
+  if (input.templateId !== undefined && (typeof input.templateId !== "string" || input.templateId.length === 0)) {
+    return { error: "templateId must be a string", code: "INVALID_FIELD" };
+  }
+  const templateId = input.templateId as string | undefined;
+  const event = await db.event.findFirst({
+    where: { id: ctx.eventId, organizationId: ctx.organizationId },
+    select: { id: true, timezone: true, cmeHours: true },
+  });
+  if (!event) return { error: "Event not found", code: "EVENT_NOT_FOUND" };
+
+  // tenancy: the report reads swept certificate tables, inside the caller's org.
+  const report = await runWithTenant(ctx.organizationId, () => loadRecipientReport(event, { templateId }));
+  return {
+    eventId: event.id,
+    templates: report.templates,
+    rows: report.rows.slice(0, RECIPIENT_ROW_CAP),
+    truncated: report.rows.length > RECIPIENT_ROW_CAP,
+    totalRows: report.rows.length,
+    answeredNotAssigned: report.answeredNotAssigned.slice(0, RECIPIENT_ROW_CAP),
+    answeredNotAssignedTotal: report.answeredNotAssigned.length,
+  };
+}
+
+// ── Tools: assign_certificate / unassign_certificate ────────────────────────
+
+const AGENT_ASSIGN_CAP = 500;
+
+function readIdList(value: unknown, field: string): { ids: string[] } | { error: string; code: string } {
+  if (value === undefined || value === null) return { ids: [] };
+  if (!Array.isArray(value) || value.some((v) => typeof v !== "string" || v.length === 0)) {
+    return { error: `${field} must be an array of non-empty strings`, code: "INVALID_FIELD" };
+  }
+  if (value.length > AGENT_ASSIGN_CAP) {
+    return { error: `${field} takes at most ${AGENT_ASSIGN_CAP} entries per call`, code: "INVALID_FIELD" };
+  }
+  return { ids: value as string[] };
+}
+
+async function assignCertificateTool(input: Record<string, unknown>, ctx: AgentContext) {
+  if (typeof input.templateId !== "string" || input.templateId.length === 0) {
+    return { error: "templateId is required", code: "INVALID_FIELD" };
+  }
+  const templateId = input.templateId;
+  const regs = readIdList(input.registrationIds, "registrationIds");
+  if ("error" in regs) return regs;
+  const spks = readIdList(input.speakerIds, "speakerIds");
+  if ("error" in spks) return spks;
+  const emails = readIdList(input.emails, "emails");
+  if ("error" in emails) return emails;
+  if ([regs.ids, spks.ids, emails.ids].filter((l) => l.length > 0).length !== 1) {
+    return { error: "Provide exactly one of registrationIds, speakerIds or emails", code: "INVALID_FIELD" };
+  }
+
+  const event = await db.event.findFirst({
+    where: { id: ctx.eventId, organizationId: ctx.organizationId },
+    select: { id: true, organizationId: true },
+  });
+  if (!event) return { error: "Event not found", code: "EVENT_NOT_FOUND" };
+
+  // tenancy: the swept reads and the service's transaction run inside the caller's org.
+  return runWithTenant(ctx.organizationId, async () => {
+    let registrationIds = regs.ids;
+    let speakerIds = spks.ids;
+    let unmatched: string[] = [];
+    let cancelled: string[] = [];
+    if (emails.ids.length > 0) {
+      const template = await db.certificateTemplate.findFirst({
+        where: { id: templateId, eventId: event.id },
+        select: { category: true },
+      });
+      if (!template) {
+        apiLogger.warn({ msg: "cert-assignment-mcp:template-not-found", eventId: event.id, userId: ctx.userId, templateId });
+        return { error: "Certificate template not found. Use list_certificate_templates for valid ids.", code: "TEMPLATE_NOT_FOUND" };
+      }
+      const resolved = await resolveAssignmentEmails({ eventId: event.id, category: template.category, emails: emails.ids });
+      ({ unmatched, cancelled } = resolved);
+      registrationIds = resolved.registrationIds;
+      speakerIds = resolved.speakerIds;
+      if (registrationIds.length + speakerIds.length === 0) {
+        return { ok: true, assigned: 0, alreadyAssigned: 0, skipped: 0, sendNow: 0, unmatched, cancelled };
+      }
+    }
+    const result = await assignCertificate({
+      eventId: event.id,
+      organizationId: event.organizationId,
+      templateId,
+      registrationIds: registrationIds.length > 0 ? registrationIds : undefined,
+      speakerIds: speakerIds.length > 0 ? speakerIds : undefined,
+      userId: ctx.userId,
+      source: ctx.source,
+      assignmentSource: "AGENT",
+      confirmSendNow: input.confirmSendNow === true,
+    });
+    if (!result.ok) {
+      // Logged with its code by the service.
+      return {
+        error:
+          result.code === "CONFIRM_SEND_NOW"
+            ? `${result.message} Tell the user that number, and call again with confirmSendNow: true only once they agree.`
+            : result.message,
+        code: result.code,
+        ...(result.meta ?? {}),
+        unmatched,
+        cancelled,
+      };
+    }
+    return { ...result, unmatched, cancelled };
+  });
+}
+
+async function unassignCertificateTool(input: Record<string, unknown>, ctx: AgentContext) {
+  if (typeof input.templateId !== "string" || input.templateId.length === 0) {
+    return { error: "templateId is required", code: "INVALID_FIELD" };
+  }
+  const templateId = input.templateId;
+  const regs = readIdList(input.registrationIds, "registrationIds");
+  if ("error" in regs) return regs;
+  const spks = readIdList(input.speakerIds, "speakerIds");
+  if ("error" in spks) return spks;
+  if ((regs.ids.length > 0) === (spks.ids.length > 0)) {
+    return { error: "Provide exactly one of registrationIds or speakerIds", code: "INVALID_FIELD" };
+  }
+  const event = await db.event.findFirst({
+    where: { id: ctx.eventId, organizationId: ctx.organizationId },
+    select: { id: true },
+  });
+  if (!event) return { error: "Event not found", code: "EVENT_NOT_FOUND" };
+
+  // tenancy: the service's transaction runs inside the caller's org.
+  const result = await runWithTenant(ctx.organizationId, () =>
+    unassignCertificate({
+      eventId: event.id,
+      templateId,
+      registrationIds: regs.ids,
+      speakerIds: spks.ids,
+      userId: ctx.userId,
+      source: ctx.source,
+    }),
+  );
+  // A rejection is logged with its code by the service.
+  if (!result.ok) return { error: result.message, code: result.code };
+  return result;
+}
+
 // ── Exports ─────────────────────────────────────────────────────────────────
 
 export const CERTIFICATE_EXECUTORS: Record<string, ToolExecutor> = {
@@ -561,4 +742,7 @@ export const CERTIFICATE_EXECUTORS: Record<string, ToolExecutor> = {
   create_certificate_template: createCertificateTemplate,
   update_certificate_template: updateCertificateTemplate,
   update_cme_settings: updateCmeSettings,
+  list_certificate_recipients: listCertificateRecipients,
+  assign_certificate: assignCertificateTool,
+  unassign_certificate: unassignCertificateTool,
 };

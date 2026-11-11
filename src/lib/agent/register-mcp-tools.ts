@@ -353,7 +353,10 @@ export function registerAllMcpTools(
     { name: "get_speaker_agreement_template", description: "Get the uploaded .docx template metadata for speaker agreement mail-merge.", params: {} },
     { name: "list_promo_codes", description: "List all promo codes for the event with usage counts, validity, and linked ticket types.", params: {} },
     { name: "list_scheduled_emails", description: "List scheduled bulk emails (PENDING/PROCESSING/SENT/FAILED/CANCELLED) with schedule time, recipient type, and send stats.", params: {} },
-    { name: "list_certificate_templates", description: "List all CertificateTemplate rows for the event (both ATTENDANCE and APPRECIATION categories) plus event-level CME hours and accreditations. v3 multi-template model (2026-06-02) — N templates per category, each with its own backgroundPdfUrl + textBoxes[] with {{tokens}}. Use the returned template ids with update_certificate_template / delete_certificate_template.", params: {} },
+    { name: "list_certificate_templates", description: "List all CertificateTemplate rows for the event (both ATTENDANCE and APPRECIATION categories) plus event-level CME hours and accreditations. v3 multi-template model (2026-06-02): N templates per category, each with its own backgroundPdfUrl + textBoxes[] with {{tokens}}. Each template's _count.assignments is how many people are assigned it (who receives it); autoIssueOnSurvey says whether it is sent automatically once they answer the certificate survey. Use the returned template ids with update_certificate_template, assign_certificate and list_certificate_recipients.", params: {} },
+    { name: "list_certificate_recipients", description: "The certificate recipients report: everyone assigned a certificate at this event and where each stands. One row per person per certificate with the state (SENT, ISSUED_NOT_SENT, SENDING, WAITING_FOR_SURVEY, READY = needs a manual Issue in the dashboard, FAILED, REVOKED, CANCELLED), when they answered the certificate survey, the certificate number and CME hours. Also returns per-template totals by state and answeredNotAssigned: people who answered the certificate survey and are assigned no certificate. Optional templateId narrows to one certificate. Rows are capped at 500 (truncated says so); the totals always cover everyone.", params: {
+      templateId: z.string().min(1).optional(),
+    }},
     // ─── Accommodation reads ───
     { name: "list_room_types", description: "List active room types for this event (or filter by hotelId). Returns capacity, price per night, and availability (totalRooms - bookedRooms).", params: {
       hotelId: z.string().optional(),
@@ -631,12 +634,13 @@ export function registerAllMcpTools(
       // Static per-template CME hours — drives {{cmeHours}}, overriding the
       // event-level CME hours when set. Entered manually per template.
       cmeHours: z.number().min(0).max(999).nullable().optional(),
-      // Phase 2 survey-gated auto-issue: when true, issued automatically
-      // (rendered + emailed) to survey-completers holding autoIssueTag.
+      // Survey-gated auto-issue: when true, issued automatically (rendered +
+      // emailed) to the people ASSIGNED the template (assign_certificate)
+      // once they answer the certificate survey. Nobody is assigned a new
+      // template, so nothing is sent until people are.
       autoIssueOnSurvey: z.boolean().optional(),
-      autoIssueTag: z.string().max(120).nullable().optional(),
     }},
-    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, sortOrder, role, cmeHours, or survey auto-issue (autoIssueOnSurvey / autoIssueTag). Pass null on role/cmeHours/autoIssueTag to clear. The cover email is not on the template: edit the event's Certificate Delivery email template with update_email_template. Partial — only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
+    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, sortOrder, role, cmeHours, or survey auto-issue (autoIssueOnSurvey). WHO receives the template is the people assigned it (assign_certificate), never a tag. Turning autoIssueOnSurvey ON sends the certificate at once to everyone assigned who has already answered the certificate survey: the call is refused with code CONFIRM_SEND_NOW and a sendNow count until you tell the user that number and they agree, then call again with confirmSendNow: true. Pass null on role/cmeHours to clear. The cover email is not on the template: edit the event's Certificate Delivery email template with update_email_template. Partial: only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
       templateId: z.string().min(1),
       name: z.string().min(1).max(120).optional(),
       backgroundPdfUrl: z.string().nullable().optional(),
@@ -660,7 +664,20 @@ export function registerAllMcpTools(
       role: z.string().max(120).nullable().optional(),
       cmeHours: z.number().min(0).max(999).nullable().optional(),
       autoIssueOnSurvey: z.boolean().optional(),
-      autoIssueTag: z.string().max(120).nullable().optional(),
+      // Only after the user agreed to the sendNow count a CONFIRM_SEND_NOW refusal reported.
+      confirmSendNow: z.boolean().optional(),
+    }},
+    { name: "assign_certificate", description: "Assign a certificate template to people: the assignment is what decides who receives it, on every path (the Issue run, the bulk certificate email, the person's own card and survey auto-issue). An ATTENDANCE template takes registrationIds, an APPRECIATION template takes speakerIds; or pass emails (for example an attendance export from the webinar platform) and they are matched to this event's registrations (or speakers, for an appreciation template), with the addresses nobody has returned in unmatched. Pass exactly one of the three. Already-assigned people are left as they are; a cancelled registration is skipped. If the template auto-issues on the survey and some of these people have ALREADY answered it, their certificates would be emailed at once: the call is then refused with code CONFIRM_SEND_NOW and a sendNow count. Tell the user that number and call again with confirmSendNow: true only once they agree. Assigning alone sends nothing otherwise. Find templateIds via list_certificate_templates and people via list_registrations / list_speakers.", params: {
+      templateId: z.string().min(1),
+      registrationIds: z.array(z.string().min(1)).max(500).optional(),
+      speakerIds: z.array(z.string().min(1)).max(500).optional(),
+      emails: z.array(z.string().max(320)).max(500).optional(),
+      confirmSendNow: z.boolean().optional(),
+    }},
+    { name: "unassign_certificate", description: "Take people off a certificate template's list so they no longer receive it. Pass registrationIds (ATTENDANCE template) or speakerIds (APPRECIATION template). Someone who already HOLDS the certificate stays on the list and is counted in keptIssued: taking a certificate back is revoking it, which is done in the dashboard. A certificate already being rendered or sent still goes out.", params: {
+      templateId: z.string().min(1),
+      registrationIds: z.array(z.string().min(1)).max(500).optional(),
+      speakerIds: z.array(z.string().min(1)).max(500).optional(),
     }},
     { name: "update_cme_settings", description: "Patch event-level CME hours + accrediting bodies. Event-level data consumed via {{cmeHours}} / {{accreditationBody}} / {{accreditationReference}} tokens on either cert type's text boxes (not a separate cert type any more — collapsed 2026-06-02). Provide at least one of cmeHours or accreditations.", params: {
       cmeHours: z.number().min(0).max(999.9).nullable().optional(),

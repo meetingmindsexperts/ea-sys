@@ -115,7 +115,6 @@ const ATT_TEMPLATE_ROW = {
   id: "tpl-att",
   name: "Standard Attendance",
   category: "ATTENDANCE",
-  autoIssueTag: "attended",
   backgroundPdfUrl: "/bg.pdf",
   textBoxes: [],
   role: null,

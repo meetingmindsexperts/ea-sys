@@ -55,6 +55,7 @@ import {
   Send,
   X,
   Tag,
+  Award,
   ArrowRightLeft,
   Mail,
   ListChecks,
@@ -94,6 +95,7 @@ import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { excludedAsNoBalance, excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
 import { BulkTagDialog } from "@/components/bulk-tag-dialog";
+import { AssignCertificateDialog } from "@/components/certificates/assign-certificate-dialog";
 import {
   Dialog,
   DialogContent,
@@ -251,7 +253,9 @@ export default function RegistrationsPage() {
   // Request ID and document (evidence-request route) is a bulk send, so it
   // follows the bulk email key (review of 4d890f35).
   const canRequestEvidence = canSendEmail;
-  const canSelect = canBulk || canSendEmail || canImport;
+  // Who receives a certificate is decided by assigning it to people here.
+  const canAssignCertificate = useCan("certificates.templates.manage", eventId) === "allowed";
+  const canSelect = canBulk || canSendEmail || canImport || canAssignCertificate;
   // Payer column only when someone on this list actually has a third-party
   // payer. It read "-" on nearly every row, and the width is better spent on
   // Country and Paid / Due (organiser request, Sep 10 2026). The payer field
@@ -309,6 +313,7 @@ export default function RegistrationsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [assignCertificateOpen, setAssignCertificateOpen] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
   // "Select by IDs" — paste a list (registration #, full ID, or email) copied
   // from a CSV and have it populate the selection, so the existing bulk
@@ -709,6 +714,16 @@ export default function RegistrationsPage() {
               >
                 <Tag className="mr-2 h-4 w-4" />
                 Manage Tags
+              </Button>
+            )}
+            {canAssignCertificate && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setAssignCertificateOpen(true)}
+              >
+                <Award className="mr-2 h-4 w-4" />
+                Assign certificate
               </Button>
             )}
             {canImport && (
@@ -1268,6 +1283,15 @@ export default function RegistrationsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AssignCertificateDialog
+        eventId={eventId}
+        open={assignCertificateOpen}
+        onOpenChange={setAssignCertificateOpen}
+        kind="registration"
+        ids={[...selectedIds]}
+        onDone={() => setSelectedIds(new Set())}
+      />
 
       {/* Bulk Tag Dialog */}
       <BulkTagDialog

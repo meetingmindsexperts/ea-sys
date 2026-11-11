@@ -22,6 +22,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
+import { setTemplateAutoIssue } from "@/services/certificate-assignment-service";
 import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 import { certificateTextBoxesSchema } from "@/lib/certificates/template-box-schema";
 import { Prisma } from "@prisma/client";
@@ -49,9 +50,12 @@ const patchSchema = z.object({
   // Role/designation ({{role}}) + static per-template CME hours ({{cmeHours}}).
   role: z.string().max(120).trim().nullable().optional(),
   cmeHours: z.number().min(0).max(999).nullable().optional(),
-  // Phase 2 survey-gated auto-issue config.
+  // Survey-gated auto-issue. Turning it ON can send certificates at once (to
+  // everyone assigned who has already answered), so it goes through
+  // setTemplateAutoIssue, which refuses with CONFIRM_SEND_NOW until the
+  // caller passes confirmSendNow. (A retired autoIssueTag is stripped by Zod.)
   autoIssueOnSurvey: z.boolean().optional(),
-  autoIssueTag: z.string().max(120).trim().nullable().optional(),
+  confirmSendNow: z.boolean().optional(),
 });
 
 export async function PATCH(req: Request, { params }: RouteParams) {
@@ -102,6 +106,31 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       );
     }
 
+    // The auto-issue switch first: if it is refused, nothing else in this
+    // request is applied either.
+    if (parsed.data.autoIssueOnSurvey !== undefined) {
+      const enabled = parsed.data.autoIssueOnSurvey;
+      const lockedEventId = eventId;
+      const lockedTemplateId = template.id;
+      const switched = await runWithTenant(orgGuard.orgId, () =>
+        setTemplateAutoIssue({
+          eventId: lockedEventId,
+          templateId: lockedTemplateId,
+          enabled,
+          userId: session.user.id,
+          source: "rest",
+          confirmSendNow: parsed.data.confirmSendNow === true,
+        }),
+      );
+      if (!switched.ok) {
+        // Logged with its code by the service.
+        return NextResponse.json(
+          { error: switched.message, code: switched.code, ...(switched.meta ?? {}) },
+          { status: switched.code === "CONFIRM_SEND_NOW" ? 409 : 404 },
+        );
+      }
+    }
+
     const data: Prisma.CertificateTemplateUpdateInput = {};
     if (parsed.data.name !== undefined) data.name = parsed.data.name;
     if (parsed.data.backgroundPdfUrl !== undefined) {
@@ -113,8 +142,6 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (parsed.data.sortOrder !== undefined) data.sortOrder = parsed.data.sortOrder;
     if (parsed.data.role !== undefined) data.role = parsed.data.role;
     if (parsed.data.cmeHours !== undefined) data.cmeHours = parsed.data.cmeHours;
-    if (parsed.data.autoIssueOnSurvey !== undefined) data.autoIssueOnSurvey = parsed.data.autoIssueOnSurvey;
-    if (parsed.data.autoIssueTag !== undefined) data.autoIssueTag = parsed.data.autoIssueTag;
 
     // tenancy: swept CertificateTemplate write runs inside the session org.
     const updated = await runWithTenant(orgGuard.orgId, () =>
@@ -129,7 +156,10 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       eventId,
       userId: session.user.id,
       templateId,
-      fieldsChanged: Object.keys(data),
+      fieldsChanged: [
+        ...Object.keys(data),
+        ...(parsed.data.autoIssueOnSurvey !== undefined ? ["autoIssueOnSurvey"] : []),
+      ],
     });
 
     return NextResponse.json({ template: updated });

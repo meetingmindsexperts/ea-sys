@@ -114,6 +114,11 @@ export const TOOL_PERMISSIONS: Readonly<Record<string, PermissionKey>> = {
   create_certificate_template: "certificates.templates.manage",
   update_certificate_template: "certificates.templates.manage",
   update_cme_settings: "certificates.templates.manage",
+  list_certificate_recipients: "certificates.read",
+  // Who receives a template is part of the template's setup: the key that set
+  // the tag this replaced. (Not certificates.issue, which no API key holds.)
+  assign_certificate: "certificates.templates.manage",
+  unassign_certificate: "certificates.templates.manage",
   // Webinar, sponsors, RSVP
   get_webinar_info: "webinar.analytics.read",
   list_webinar_attendance: "webinar.analytics.read",

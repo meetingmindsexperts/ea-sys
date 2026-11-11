@@ -51,6 +51,7 @@ import {
   bulkTemplateSlugFor,
 } from "./bulk-email-audience";
 import { loadCertTemplate, type LoadedCertTemplate } from "./certificates/bundle";
+import { countAssignmentsByTemplate } from "./certificates/assignments";
 import { executeCertificateBulkSend } from "./certificates/bulk-issue";
 import { MAX_MANUAL_ATTACHMENTS, type StoredAttachmentRef } from "@/lib/email-attachment-limits";
 import { resolveStoredAttachments } from "@/lib/email-attachments";
@@ -387,9 +388,9 @@ export interface BulkEmailResult {
   successCount: number;
   failureCount: number;
   /**
-   * Certificate sends only — recipients who matched the audience filters
-   * but hold NONE of the selected templates' tags. Per the tag rule ("no
-   * tag, no certificate") they are silently not emailed: expected routing,
+   * Certificate sends only: recipients who matched the audience filters
+   * but are assigned NONE of the selected templates. Per the rule ("not
+   * assigned, no certificate") they are silently not emailed: expected routing,
    * not a failure, so they appear in neither successCount nor failureCount.
    */
   skippedCount?: number;
@@ -1076,12 +1077,15 @@ export async function precheckBulkEmailViability(
       );
     }
     certTemplates = loaded as LoadedCertTemplate[];
-    const untagged = certTemplates.filter((t) => !t.autoIssueTag?.trim());
-    if (untagged.length > 0) {
+    // A template nobody is assigned can reach nobody: refuse it here rather
+    // than queue a send that skips every recipient.
+    const assignedCounts = await countAssignmentsByTemplate(db, certTemplateIds);
+    const unassigned = certTemplates.filter((t) => (assignedCounts.get(t.id) ?? 0) === 0);
+    if (unassigned.length > 0) {
       throw new BulkEmailError(
-        `Certificate template${untagged.length > 1 ? "s" : ""} ${untagged
+        `Nobody is assigned certificate template${unassigned.length > 1 ? "s" : ""} ${unassigned
           .map((t) => `"${t.name}"`)
-          .join(", ")} ha${untagged.length > 1 ? "ve" : "s"} no tag — set a tag on the template first (the tag decides who receives it)`,
+          .join(", ")} yet. Assign the certificate to people first (the assignment decides who receives it)`,
         400,
       );
     }

@@ -250,6 +250,7 @@ model User {
   triggeredEmailLogs        EmailLog[]
   attachedBillingAccounts   EventBillingAccount[]
   issuedCertificates        IssuedCertificate[]
+  certificateAssignments    CertificateAssignment[]
   triggeredCertificateRuns  CertificateIssueRun[]
 
   // CRM module — all SetNull on user delete, so removing a team member never
@@ -628,6 +629,7 @@ model Event {
   eventStats                   EventStats?
   emailLogs                    EmailLog[]
   issuedCertificates           IssuedCertificate[]
+  certificateAssignments       CertificateAssignment[]
   certificateSerialCounters    CertificateSerialCounter[]
   certificateIssueRuns         CertificateIssueRun[]
   certificateTemplates         CertificateTemplate[]

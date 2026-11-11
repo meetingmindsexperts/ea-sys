@@ -1156,8 +1156,8 @@ describe("POST /api/events/[eventId]/clone", () => {
           backgroundPdfUrl: "/uploads/certificates/evt-1/2026/06/bg.pdf",
           textBoxes: [{ id: "b1", text: "{{fullName}}" }],
           sortOrder: 0,
-          autoIssueTag: "delegate",
-          // Auto-issue never comes across live.
+          // The retired tag is not carried, nobody is assigned on the copy,
+          // and auto-issue never comes across live.
           autoIssueOnSurvey: false,
         });
         expect(data[1]).toMatchObject({ name: "Speaker", category: "APPRECIATION", role: "Speaker" });

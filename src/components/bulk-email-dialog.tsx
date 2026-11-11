@@ -55,6 +55,7 @@ import {
   useEventTags,
   useBulkEmailAudienceCount,
   useRsvpCampaigns,
+  assignedCountOf,
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
@@ -900,9 +901,9 @@ export function BulkEmailDialog({
             </Select>
           </div>
 
-          {/* Certificate template multi-select — the tag on each template
-              decides who receives it; tagless templates can't match anyone
-              and are disabled with a pointer to set a tag first. */}
+          {/* Certificate template multi-select. Who is ASSIGNED each template
+              decides who receives it; a template nobody is assigned can reach
+              nobody and is disabled with a pointer to assign people first. */}
           {isCertificate && (
             <div className="space-y-2">
               <Label>Certificate templates</Label>
@@ -915,15 +916,16 @@ export function BulkEmailDialog({
               ) : (
                 <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border p-2.5">
                   {certTemplateOptions.map((t) => {
-                    const tagless = !t.autoIssueTag?.trim();
+                    const assignedCount = assignedCountOf(t);
+                    const nobodyAssigned = assignedCount === 0;
                     return (
                       <div key={t.id} className="flex items-start gap-2 text-sm">
                         <label
-                          className={`flex flex-1 items-start gap-2 ${tagless ? "opacity-50" : "cursor-pointer"}`}
+                          className={`flex flex-1 items-start gap-2 ${nobodyAssigned ? "opacity-50" : "cursor-pointer"}`}
                         >
                           <Checkbox
                             className="mt-0.5"
-                            disabled={tagless || (!certTemplateIds.includes(t.id) && certTemplateIds.length >= 5)}
+                            disabled={nobodyAssigned || (!certTemplateIds.includes(t.id) && certTemplateIds.length >= 5)}
                             checked={certTemplateIds.includes(t.id)}
                             onCheckedChange={(c) => {
                               setCertTemplateIds((prev) =>
@@ -935,17 +937,18 @@ export function BulkEmailDialog({
                             <span className="font-medium">{t.name}</span>
                             <span className="block text-xs text-muted-foreground">
                               {t.category === "ATTENDANCE" ? "Attendance" : "Appreciation"}
-                              {tagless
-                                ? " · no tag — set a tag on the template first"
-                                : ` · tag: ${t.autoIssueTag}`}
+                              {nobodyAssigned
+                                ? " · nobody assigned yet: assign it to people first"
+                                : ` · ${assignedCount} assigned`}
                             </span>
                           </span>
                         </label>
                         {/* Sample-PDF preview (Dr. Sample Attendee, PREVIEW-DRAFT
                             serial) via the existing certificates preview route.
                             Sits OUTSIDE the label so clicking it never toggles
-                            the checkbox; available for tagless templates too —
-                            checking the design is independent of routing. */}
+                            the checkbox; available for a template nobody is
+                            assigned too: checking the design is independent of
+                            who receives it. */}
                         <a
                           href={`/api/events/${eventId}/certificates/preview?templateId=${t.id}#view=Fit`}
                           target="_blank"
@@ -962,9 +965,9 @@ export function BulkEmailDialog({
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                Each recipient receives <strong>only</strong> the certificates whose tag they
-                hold — all in one email, with one PDF per certificate. Recipients holding
-                none of the selected tags are skipped (no email). Already-issued
+                Each recipient receives <strong>only</strong> the certificates they are
+                assigned, all in one email, with one PDF per certificate. Recipients assigned
+                none of the selected certificates are skipped (no email). Already-issued
                 certificates are re-attached (same serial), never duplicated. Any
                 registration status qualifies (check-in not required); cancelled
                 registrations are always excluded.

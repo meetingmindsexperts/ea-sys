@@ -4,7 +4,8 @@
  * applies — enforced end-to-end through the ALS store → SET LOCAL extension →
  * pgbouncer, as the non-owner app_user, across CertificateTemplate +
  * IssuedCertificate + CertificateIssueRun + CertificateSerialCounter (1-hop) +
- * CertificateIssueRunItem (2-hop via CertificateIssueRun).
+ * CertificateIssueRunItem (2-hop via CertificateIssueRun) + CertificateAssignment
+ * (who receives a template, Nov 11, 2026; born with the column).
  *
  * Domain-specific proofs beyond the standard set:
  *   - CertificateTemplate has NO per-org unique field, so BOTH orgs hold a
@@ -42,6 +43,8 @@ import {
   CERT_RUN_A_ID,
   CERT_RUN_B_ID,
   CERT_RUN_ITEM_B_ID,
+  CERT_ASSIGNMENT_A_ID,
+  CERT_ASSIGNMENT_B_ID,
 } from "./constants";
 
 beforeAll(() => {
@@ -160,7 +163,56 @@ describe("Certificate RLS (prisma/rls/certificate.sql) via the SET LOCAL extensi
     }
   });
 
-  it("fail-closed: flag on but NO tenant store → zero rows on all 5 tables", async () => {
+  it("CertificateAssignment is lane-scoped: each org sees only its own rows, by id and through the template", async () => {
+    const a = await runWithTenant(ORG_A_ID, () =>
+      db.certificateAssignment.findMany({ select: { id: true, organizationId: true } }),
+    );
+    const b = await runWithTenant(ORG_B_ID, () => db.certificateAssignment.findMany({ select: { id: true } }));
+    expect(a.map((r) => r.id)).toEqual([CERT_ASSIGNMENT_A_ID]);
+    expect(a.every((r) => r.organizationId === ORG_A_ID)).toBe(true);
+    expect(b.map((r) => r.id)).toEqual([CERT_ASSIGNMENT_B_ID]);
+
+    // B's row by id, and B's template's list, both miss under A's store.
+    const leaked = await runWithTenant(ORG_A_ID, () =>
+      db.certificateAssignment.findUnique({ where: { id: CERT_ASSIGNMENT_B_ID }, select: { id: true } }),
+    );
+    expect(leaked).toBeNull();
+    const viaTemplate = await runWithTenant(ORG_A_ID, () =>
+      db.certificateAssignment.count({ where: { certificateTemplateId: CERT_TEMPLATE_B_ID } }),
+    );
+    expect(viaTemplate).toBe(0);
+  });
+
+  it("WITH CHECK rejects a CertificateAssignment stamped with ANOTHER tenant, and a cross-tenant delete misses", async () => {
+    await expect(
+      runWithTenant(ORG_A_ID, () =>
+        db.certificateAssignment.create({
+          data: {
+            id: "tenancy-casg-smuggled",
+            eventId: EVENT_A_SHARED_ID,
+            organizationId: ORG_B_ID, // tenant A writing into B
+            certificateTemplateId: CERT_TEMPLATE_A_ID,
+            source: "MANUAL",
+          },
+        }),
+      ),
+    ).rejects.toThrow(/row-level security|denied/i);
+
+    const removed = await runWithTenant(ORG_A_ID, () =>
+      db.certificateAssignment.deleteMany({ where: { id: CERT_ASSIGNMENT_B_ID } }),
+    );
+    expect(removed.count).toBe(0);
+    const owner = ownerClient();
+    try {
+      const still = await owner.certificateAssignment.findUnique({ where: { id: CERT_ASSIGNMENT_B_ID }, select: { id: true } });
+      expect(still?.id).toBe(CERT_ASSIGNMENT_B_ID);
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
+  it("fail-closed: flag on but NO tenant store → zero rows on all 6 tables", async () => {
+    expect(await db.certificateAssignment.findMany({ select: { id: true } })).toHaveLength(0);
     expect(await db.certificateTemplate.findMany({ select: { id: true } })).toHaveLength(0);
     expect(await db.issuedCertificate.findMany({ select: { id: true } })).toHaveLength(0);
     expect(await db.certificateIssueRun.findMany({ select: { id: true } })).toHaveLength(0);

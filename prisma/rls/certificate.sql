@@ -62,3 +62,14 @@ CREATE POLICY certificateissuerunitem_tenant_isolation ON "CertificateIssueRunIt
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- CertificateAssignment (Nov 11, 2026): who receives which certificate. Born
+-- with the column (migration 20261111120000), stamped from the template's
+-- event by certificate-assignment-service; the migration's backfill stamps it
+-- the same way.
+ALTER TABLE "CertificateAssignment" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS certificateassignment_tenant_isolation ON "CertificateAssignment";
+CREATE POLICY certificateassignment_tenant_isolation ON "CertificateAssignment"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

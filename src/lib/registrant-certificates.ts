@@ -35,7 +35,9 @@ const PORTAL_FIELDS = {
   event: { select: { id: true, name: true, slug: true, startDate: true, endDate: true, timezone: true, cmeHours: true, bannerImage: true, bannerImageMobile: true } },
 } satisfies Prisma.IssuedCertificateSelect;
 
-const RELEASE_FIELDS = {
+/** What isReleased reads off a certificate. Exported so the organiser's
+ *  recipients report asks the same rule with the same columns. */
+export const RELEASE_FIELDS = {
   eventId: true,
   registrationId: true,
   speakerId: true,
@@ -45,7 +47,7 @@ const RELEASE_FIELDS = {
   issueRunItem: { select: { emailedAt: true, run: { select: { reissue: true } } } },
 } satisfies Prisma.IssuedCertificateSelect;
 
-type ReleaseFacts = Prisma.IssuedCertificateGetPayload<{ select: typeof RELEASE_FIELDS }>;
+export type ReleaseFacts = Prisma.IssuedCertificateGetPayload<{ select: typeof RELEASE_FIELDS }>;
 export type EmailedRunItem = {
   registrationId: string | null;
   speakerId: string | null;
@@ -132,7 +134,21 @@ export async function findReleasedCertificates(scope: RegistrantScope, certifica
  * hours, then the event's.
  */
 export function cmeHoursOf(cert: Pick<PortalCertificate, "cmeHoursSnapshot" | "certificateTemplate" | "event">): string | null {
-  const hours = cert.cmeHoursSnapshot ?? cert.certificateTemplate?.cmeHours ?? cert.event.cmeHours ?? null;
+  return resolveCmeHours(cert.cmeHoursSnapshot, cert.certificateTemplate?.cmeHours, cert.event.cmeHours);
+}
+
+/**
+ * The fallback itself: the certificate's own snapshot, else the template's
+ * hours, else the event's. Separate so the organiser's recipients report can
+ * ask it for a certificate that is not issued yet (no snapshot), with the
+ * same answer the portal will show once it is.
+ */
+export function resolveCmeHours(
+  snapshot: { toString(): string } | null | undefined,
+  templateHours: { toString(): string } | null | undefined,
+  eventHours: { toString(): string } | null | undefined,
+): string | null {
+  const hours = snapshot ?? templateHours ?? eventHours ?? null;
   return hours === null ? null : hours.toString();
 }
 

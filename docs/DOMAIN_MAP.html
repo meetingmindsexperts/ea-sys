@@ -428,26 +428,29 @@
 <!-- 9. CERTIFICATES -->
 <details class="domain">
 <summary><span class="num">9</span> Certificates <span class="chip ok">reviewed jul 13</span> <span class="chip ok">1 blocker + 5 highs + m1–m5 shipped</span>
-<span class="oneliner">PDF-overlay cert system — designer PDF + drag-drop text boxes, per-template covers, tag-driven manual Issue runs, survey-gated auto-issue, bundles, resend with preview.</span></summary>
+<span class="oneliner">PDF-overlay cert system — designer PDF + drag-drop text boxes, who receives one is an ASSIGNMENT (Nov 11, 2026; it replaced a tag), manual Issue runs, survey-gated auto-issue, bundles, resend with preview, a recipients report.</span></summary>
 <div class="kids">
 <details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
-<div class="leaf"><b class="k">UI</b> <code>certificates/</code> (Templates / Issue / analytics tabs, canvas editor with undo) · per-person <code>IssuedCertificatesCard</code> on registration sheet + speaker page</div>
-<div class="leaf"><b class="k">REST</b> <code>api/.../certificates/*</code> (templates CRUD + duplicate, eligible, issue, issue-single, issued list / resend / resend-preview, settings, preview) · <code>upload/pdf</code></div>
-<div class="leaf"><b class="k">MCP</b> <code>tools/certificates.ts</code> — template CRUD + <code>update_cme_settings</code> (Issue flow deliberately NOT exposed)</div>
+<div class="leaf"><b class="k">UI</b> <code>certificates/</code> (Templates / CME / Recipients / Issue tabs, canvas editor with undo) · <code>certificate-recipients-panel.tsx</code> (the report + add from a list of emails) · <code>assign-certificate-dialog.tsx</code> (the bulk action on Registrations and Speakers) · per-person <code>IssuedCertificatesCard</code> on registration sheet + speaker page</div>
+<div class="leaf"><b class="k">REST</b> <code>api/.../certificates/*</code> (templates CRUD + duplicate, <b>assignments</b> (who receives what), <b>recipients</b> (the report + CSV), eligible, issue, issue-single, issued list / resend / resend-preview, settings, preview) · <code>upload/pdf</code></div>
+<div class="leaf"><b class="k">MCP</b> <code>tools/certificates.ts</code> — template CRUD + <code>update_cme_settings</code> + <code>assign_certificate</code> / <code>unassign_certificate</code> / <code>list_certificate_recipients</code> (Issue flow deliberately NOT exposed)</div>
 <div class="leaf"><b class="k">Worker</b> <code>cert-issue</code> (every 3 min — auto-issue sweep + run state machine render → review → send)</div>
 </div></details>
 <details class="sec"><summary><span class="ico">⚙️</span>Core logic (all under <code>lib/certificates/</code>)</summary><div class="kids">
 <div class="leaf"><code>issue-worker.ts</code> — run lifecycle, <code>transitionRunStatus</code> conditional claims (never resurrects a cancelled run)</div>
-<div class="leaf"><code>auto-issue.ts</code> — survey sweep, backoff, tag routing (attendee tags → ATTENDANCE, speaker tags → APPRECIATION)</div>
+<div class="leaf"><code>assignments.ts</code> — <b>THE rule for who receives a certificate</b> (the people assigned it) + the per-event lock; writes in <code>services/certificate-assignment-service.ts</code> (assign, unassign, the auto-issue switch, the send-now confirmation)</div>
+<div class="leaf"><code>auto-issue.ts</code> — survey sweep, backoff, routing by assignment (registration → ATTENDANCE, linked speaker → APPRECIATION); re-opened when a person is assigned or a switch turned on</div>
+<div class="leaf"><code>recipients-report.ts</code> + <code>recipient-states.ts</code> — one row per person per certificate: assigned, survey answered, certificate, one state</div>
 <div class="leaf"><code>render.ts</code> (pdf-lib overlay; placeholder THROWS on real issue paths) · <code>pdf-loader.ts</code> (<code>validateBackgroundPdfUrl</code> — the B1 SSRF/traversal guard) · <code>bulk-issue.ts</code> · <code>bundle.ts</code> (cover-email resolution) · <code>deliver.ts</code> (single/bundle issue + resend) · <code>eligibility.ts</code> ("no tag, no cert") · <code>email-tokens-resolver.ts</code></div>
 </div></details>
 <details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
-<div class="leaf"><code>CertificateTemplate</code> (role, cmeHours, autoIssueOnSurvey/Tag, cover email) · <code>IssuedCertificate</code> (per-template uniqueness, global serial) · <code>CertificateIssueRun</code> · <code>CertificateSerialCounter</code></div>
+<div class="leaf"><code>CertificateTemplate</code> (role, cmeHours, autoIssueOnSurvey; <code>autoIssueTag</code> unread since Nov 11, 2026) · <code>CertificateAssignment</code> (template + registration or speaker, source, who assigned) · <code>IssuedCertificate</code> (per-template uniqueness, global serial) · <code>CertificateIssueRun</code> · <code>CertificateSerialCounter</code></div>
 </div></details>
 <details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
-<div class="gotcha">The TAG is the only issuance gate — check-in does NOT gate certificates; CANCELLED regs never receive one.</div>
+<div class="gotcha">Being ASSIGNED is the only issuance gate (never a tag, since Nov 11, 2026) — check-in does NOT gate certificates; CANCELLED regs never receive one.</div>
+<div class="gotcha">Assigning people who already answered the survey, or turning a template's switch on, can send at once: the service refuses with CONFIRM_SEND_NOW until confirmed. Never write <code>autoIssueOnSurvey</code> on an existing template except through <code>setTemplateAutoIssue</code>.</div>
 <div class="gotcha">A person can hold several role-specific certs (per-template uniqueness, not per-category).</div>
-<div class="gotcha">Auto-issue runs skip the AWAITING_REVIEW gate (no operator); a reg is swept ONCE — flag templates auto-issue BEFORE surveys go out.</div>
+<div class="gotcha">Auto-issue runs skip the AWAITING_REVIEW gate (no operator); a reg is stamped once the sweep has looked at it, and assigning (or the switch) clears the stamp, so order no longer matters.</div>
 </div></details>
 <details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
 <div class="leaf"><b class="k">Report</b> <code>docs/CODE_REVIEW_CERTIFICATES.html</code> (<b>July 13</b>) — 1 BLOCKER (backgroundPdfUrl file-read/SSRF exfil chain) + 5 HIGHs + M1–M5 all shipped same-day</div>

@@ -47,6 +47,7 @@ import {
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus } from "lucide-react";
+import { ApiError } from "@/lib/api-fetch";
 import {
   useIssuedCertificates,
   useReissueCertificate,
@@ -54,6 +55,8 @@ import {
   useIssueSingleCertificate,
   usePreviewResendEmail,
   useCertificateTemplates,
+  useAssignCertificate,
+  usePersonCertificateAssignments,
   type IssuedCertificateRow,
 } from "@/hooks/use-api";
 
@@ -64,14 +67,6 @@ interface IssuedCertificatesCardProps {
   speakerId?: string;
   /** Display name shown in the resend confirm dialog. Falls back to "the recipient". */
   recipientLabel?: string;
-  /**
-   * The person's tags (attendee tags on a registration card, speaker tags on
-   * a speaker card) — drive the Issue dialog's "no tag, no certificate" gate
-   * client-side (non-matching templates disabled with the reason). The
-   * server enforces the same rule regardless, so omitting this only costs
-   * the inline explanation, never correctness.
-   */
-  recipientTags?: string[];
 }
 
 /** Shown only to who may read this event's certificates (the GET asks the same key). */
@@ -85,7 +80,6 @@ function IssuedCertificatesCardBody({
   registrationId,
   speakerId,
   recipientLabel,
-  recipientTags,
 }: IssuedCertificatesCardProps) {
   const { data, isLoading, isError } = useIssuedCertificates({
     eventId,
@@ -152,6 +146,34 @@ function IssuedCertificatesCardBody({
   const facetCategory = speakerId ? "APPRECIATION" : "ATTENDANCE";
   const { data: templatesData } = useCertificateTemplates(eventId, issueOpen);
   const issuableTemplates = (templatesData?.templates ?? []).filter((t) => t.category === facetCategory);
+  // "Not assigned, no certificate": a template can be issued here only once
+  // this person is assigned it (the server enforces the same rule). The
+  // dialog lets whoever may manage templates assign it on the spot.
+  const assignmentsQuery = usePersonCertificateAssignments(eventId, { registrationId, speakerId }, issueOpen);
+  const assignedTemplateIds = new Set(assignmentsQuery.data?.templateIds ?? []);
+  const canAssign = useCan("certificates.templates.manage", eventId) === "allowed";
+  const assignMutation = useAssignCertificate(eventId);
+  /** A template whose assignment would send at once: asked before it is made. */
+  const [confirmAssign, setConfirmAssign] = useState<{ templateId: string; name: string } | null>(null);
+
+  async function handleAssign(templateId: string, name: string, confirmed: boolean) {
+    try {
+      await assignMutation.mutateAsync({
+        templateId,
+        ...(registrationId ? { registrationIds: [registrationId] } : { speakerIds: [speakerId!] }),
+        confirmSendNow: confirmed,
+      });
+      setConfirmAssign(null);
+      setSelectedTemplateIds((prev) => (prev.includes(templateId) ? prev : [...prev, templateId]));
+      toast.success(`"${name}" is now assigned to this person`);
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "CONFIRM_SEND_NOW") {
+        setConfirmAssign({ templateId, name });
+        return;
+      }
+      toast.error(err instanceof Error ? err.message : "Could not assign the certificate");
+    }
+  }
   // Template ids this person already holds a (non-revoked) cert from —
   // selecting one re-attaches the existing cert (same serial) instead of
   // minting a duplicate, so annotate rather than disable.
@@ -478,9 +500,8 @@ function IssuedCertificatesCardBody({
               {speakerId ? "speaker" : "registration"}. With the email option on,
               they go out as <strong>one email</strong>, one PDF per certificate;
               with it off, the certificates are issued silently and you download
-              them from this card. Tags decide who receives what: only templates
-              whose tag this person holds can be issued (&ldquo;no tag, no
-              certificate&rdquo;).
+              them from this card. Only a certificate this person is assigned
+              can be issued to them.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -493,21 +514,18 @@ function IssuedCertificatesCardBody({
               <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-md border p-2.5">
                 {issuableTemplates.map((t) => {
                   const held = heldTemplateIds.has(t.id);
-                  const tag = t.autoIssueTag?.trim();
-                  // "No tag, no certificate" — mirror the server gate so the
-                  // operator sees WHY a template can't be issued instead of
-                  // hitting the 422. When the parent didn't pass tags, leave
-                  // enabled and let the server enforce.
-                  const tagBlocked =
-                    !tag || (recipientTags !== undefined && !recipientTags.includes(tag));
+                  // "Not assigned, no certificate": mirror the server gate so
+                  // the operator sees WHY a template can't be issued instead
+                  // of hitting the 422.
+                  const assigned = assignedTemplateIds.has(t.id);
                   return (
+                    <div key={t.id} className="flex items-start gap-2 text-sm">
                     <label
-                      key={t.id}
-                      className={`flex items-start gap-2 text-sm ${tagBlocked ? "opacity-50" : "cursor-pointer"}`}
+                      className={`flex flex-1 items-start gap-2 ${assigned ? "cursor-pointer" : "opacity-60"}`}
                     >
                       <Checkbox
                         className="mt-0.5"
-                        disabled={tagBlocked}
+                        disabled={!assigned}
                         checked={selectedTemplateIds.includes(t.id)}
                         onCheckedChange={(c) =>
                           setSelectedTemplateIds((prev) =>
@@ -518,26 +536,61 @@ function IssuedCertificatesCardBody({
                       <span>
                         <span className="font-medium">{t.name}</span>
                         <span className="block text-xs text-muted-foreground">
-                          {templateTagNote(tag, tagBlocked)}
+                          {assignmentNote(assigned, assignmentsQuery.isLoading)}
                         </span>
-                        {held && !tagBlocked && (
+                        {held && assigned && (
                           <span className="block text-xs text-amber-600">
-                            Already issued — the existing certificate (same serial) will be re-attached, not duplicated.
+                            Already issued: the existing certificate (same serial) will be re-attached, not duplicated.
                           </span>
                         )}
                       </span>
                     </label>
+                    {!assigned && canAssign && !assignmentsQuery.isLoading && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 shrink-0 text-xs"
+                        disabled={assignMutation.isPending}
+                        onClick={() => handleAssign(t.id, t.name, false)}
+                      >
+                        Assign
+                      </Button>
+                    )}
+                    </div>
                   );
                 })}
               </div>
             )}
-            {recipientTags !== undefined && recipientTags.length === 0 && issuableTemplates.length > 0 && (
+            {confirmAssign && (
+              <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+                <p>
+                  <strong>This person has already answered the survey</strong>, and &ldquo;{confirmAssign.name}&rdquo; is
+                  sent automatically. Assigning it emails their certificate within a few minutes, with no review step.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 text-xs"
+                    disabled={assignMutation.isPending}
+                    onClick={() => handleAssign(confirmAssign.templateId, confirmAssign.name, true)}
+                  >
+                    Assign and send
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => setConfirmAssign(null)}>
+                    Not now
+                  </Button>
+                </div>
+              </div>
+            )}
+            {!assignmentsQuery.isLoading && assignedTemplateIds.size === 0 && issuableTemplates.length > 0 && !canAssign && (
               <p className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
-                This person has <strong>no tags</strong>, so no certificate can be
-                issued to them — tag them first (
+                This person is <strong>not assigned any certificate</strong>, so none can be issued to them. Ask
+                someone who manages certificates to assign one (
                 {facetCategory === "ATTENDANCE"
-                  ? "Registrations → select → Tags"
-                  : "Speakers → select → Tags"}
+                  ? "Registrations, select, Assign certificate"
+                  : "Speakers, select, Assign certificate"}
                 ).
               </p>
             )}
@@ -591,10 +644,9 @@ function IssuedCertificatesCardBody({
   );
 }
 
-function templateTagNote(tag: string | undefined, tagBlocked: boolean): string {
-  if (!tag) return "no tag — set a tag on the template first (the tag decides who receives it)";
-  if (tagBlocked) return `requires tag "${tag}" — this person doesn't have it`;
-  return `tag: ${tag}`;
+function assignmentNote(assigned: boolean, loading: boolean): string {
+  if (loading) return "Checking who it is assigned to";
+  return assigned ? "Assigned to this person" : "Not assigned to this person";
 }
 
 function resendTitle(isRevoked: boolean, pdfUrl: string | null | undefined): string {

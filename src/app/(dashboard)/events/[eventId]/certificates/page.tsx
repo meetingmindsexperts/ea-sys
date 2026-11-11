@@ -3,7 +3,7 @@
 /**
  * Certificates page — v3 multi-template model (2026-06-02).
  *
- * Four tabs:
+ * Five tabs:
  *
  *   1. Templates  — list of CertificateTemplate rows per category
  *                   (ATTENDANCE | APPRECIATION). Each row has its own
@@ -15,10 +15,16 @@
  *                   on either category of template).
  *   3. Preview    — pick a template, render a draft PDF with synthetic
  *                   recipient data.
- *   4. Issue      — pick a template, see the eligible recipient list,
- *                   trigger a CertificateIssueRun. Cron worker drains
- *                   PENDING runs every minute. Run-status polling
- *                   shows render + email progress.
+ *   4. Recipients: who is ASSIGNED each certificate and where each
+ *                   person stands (survey answered, certificate sent),
+ *                   with a CSV export. Being assigned is what decides who
+ *                   receives a certificate (Nov 11, 2026; it replaced a
+ *                   free-text tag). See certificate-recipients-panel.tsx.
+ *   5. Issue:     pick a template, see who it would go to (the people
+ *                   assigned it who do not hold it yet), trigger a
+ *                   CertificateIssueRun. Cron worker drains PENDING runs
+ *                   every minute. Run-status polling shows render + email
+ *                   progress.
  *
  * Design-approval gate removed 2026-06-02 — any ADMIN/ORGANIZER can
  * issue. The PDF-overlay model makes the design tangible enough (canvas
@@ -79,10 +85,13 @@ import {
   RefreshCw,
   Download,
   Sparkles,
+  Users,
 } from "lucide-react";
 import type { CertificateTextBox } from "@/components/certificates/certificate-canvas-editor";
 import { CertEmailEditorDialog } from "@/components/certificates/cert-email-editor-dialog";
 import { AutoIssueAnalyticsCard } from "@/components/certificates/auto-issue-analytics-card";
+import { CertificateRecipientsPanel } from "@/components/certificates/certificate-recipients-panel";
+import { useCan } from "@/hooks/use-can";
 import {
   SYSTEM_DEFAULT_SUBJECT_MULTI,
   SYSTEM_DEFAULT_BODY_MULTI,
@@ -132,13 +141,13 @@ interface CertificateTemplate {
   role: string | null;
   /** Static per-template CME hours ({{cmeHours}}, overrides event-level). */
   cmeHours: number | null;
-  /** Phase 2 survey-gated auto-issue: issue this template automatically to
-   *  survey-completers holding `autoIssueTag`. */
+  /** Survey-gated auto-issue: send this template automatically to the people
+   *  assigned it once they answer the certificate survey. */
   autoIssueOnSurvey: boolean;
-  autoIssueTag: string | null;
   createdAt: string;
   updatedAt: string;
-  _count?: { issuedCertificates: number; issueRuns: number };
+  /** `assignments` = the people assigned this template: who receives it. */
+  _count?: { issuedCertificates: number; issueRuns: number; assignments?: number };
 }
 
 const ACCREDITOR_BODIES = ["DHA", "DOH", "SCFHS", "EACCME", "ACCME", "OTHER"] as const;
@@ -169,8 +178,10 @@ interface MultiEligibilityResp {
     templateId: string;
     templateName: string;
     category: CertCategory;
-    tag: string | null;
+    /** People this run would issue the template to. */
     count: number;
+    /** Everyone assigned it, including those who already hold it. */
+    assigned: number;
   }>;
   sample: Array<{
     registrationId: string | null;
@@ -254,10 +265,9 @@ export default function CertificatesPage() {
   // after tweaking the template.
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
   const [previewBust, setPreviewBust] = useState(0);
-  // Bundle model (2026-07-09): multi-select 1..3 templates. Each template's
-  // STORED tag decides who receives it (no per-action tag picker), and
-  // per-template pools merge per PERSON so one email carries every cert a
-  // person earns.
+  // Bundle model (2026-07-09): multi-select 1..3 templates. Each template
+  // goes to the people ASSIGNED it, and per-template pools merge per PERSON so
+  // one email carries every cert a person earns.
   const [issueTemplateIds, setIssueTemplateIds] = useState<string[]>([]);
   // Email-editor dialog state. The Issue button opens this; on Confirm
   // the issueMutation fires with the dialog-confirmed subject + body.
@@ -265,9 +275,22 @@ export default function CertificatesPage() {
   const [activeRunIds, setActiveRunIds] = useState<Record<string, string>>({});
   // Bulk "resend latest version to everyone" confirm dialog (re-render each
   // already-issued cert for the selected template from the CURRENT template +
-  // re-email). Distinct from Issue (which mints NEW certs for the eligible,
-  // tag-scoped pool) — reissue targets people who ALREADY hold the cert.
+  // re-email). Distinct from Issue (which mints NEW certs for the people
+  // assigned the template); reissue targets people who ALREADY hold the cert.
   const [reissueDialogOpen, setReissueDialogOpen] = useState(false);
+  // The tab shown, and the certificate the Recipients tab is filtered to: a
+  // template's "See recipients" link sets both.
+  const [activeTab, setActiveTab] = useState("templates");
+  const [recipientsTemplate, setRecipientsTemplate] = useState("all");
+  const canManageRecipients = useCan("certificates.templates.manage", eventId) === "allowed";
+  // Turning "send automatically" on for a template whose assigned people have
+  // already answered the survey would email them at once: the server refuses
+  // with CONFIRM_SEND_NOW and this holds the count while the person decides.
+  const [autoIssueConfirm, setAutoIssueConfirm] = useState<{
+    templateId: string;
+    name: string;
+    sendNow: number;
+  } | null>(null);
 
   // ── Settings (CME) ────────────────────────────────────────────────────────
   const settingsQuery = useQuery<SettingsResponse>({
@@ -413,8 +436,6 @@ export default function CertificatesPage() {
         textBoxes?: CertificateTextBox[];
         role?: string | null;
         cmeHours?: number | null;
-        autoIssueOnSurvey?: boolean;
-        autoIssueTag?: string | null;
       };
     }) => {
       const res = await fetch(
@@ -481,13 +502,13 @@ export default function CertificatesPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
-      // The clone deliberately starts with survey auto-issue OFF (a live
-      // auto-issuing copy would instantly double-issue the source's tag
-      // audience). Surface that so the operator knows to re-enable it, rather
-      // than discovering the copy silently never auto-issues.
+      // The clone deliberately starts with survey auto-issue OFF and with
+      // nobody assigned. Surface that so the operator knows to assign people
+      // and re-enable it, rather than discovering the copy silently never
+      // auto-issues.
       if (data.autoIssuePaused) {
         toast.warning(
-          `Duplicated as "${data.template.name}" — auto-issue is OFF on the copy. Turn it back on when the variant is ready.`,
+          `Duplicated as "${data.template.name}". Nobody is assigned the copy and its automatic sending is OFF: assign people and turn it back on when the variant is ready.`,
         );
       } else {
         toast.success(`Duplicated as "${data.template.name}"`);
@@ -572,13 +593,10 @@ export default function CertificatesPage() {
   });
 
   // ── Eligibility + run polling for Issue tab ───────────────────────────────
-  // The eligibility endpoint serves two roles via the same response:
-  //  (a) tag-only — no `tag` param, returns availableTags overview to
-  //      populate the picker. eligibleCount = 0 (intentional).
-  //  (b) tag + count — when issueTag is set, returns the filtered
-  //      recipient list + sample preview so the operator sees who
-  //      gets the cert before clicking Issue.
-  // Re-fetch when either the template or the tag changes.
+  // The eligibility endpoint answers "who would this run send to": for each
+  // selected template, the people assigned it who do not hold it yet, merged
+  // per person, with a sample so the operator sees who gets what before
+  // clicking Issue. Re-fetched when the selection changes.
   // All runs list — both non-terminal (in progress) AND terminal (sent
   // / cancelled / failed). The page's `activeRunIds` state is React-
   // only (lost on refresh) so without this server-backed list, in-
@@ -888,6 +906,54 @@ export default function CertificatesPage() {
     ? templates.find((t) => t.id === editingTemplateId) ?? null
     : null;
 
+  // The "send automatically when the survey is answered" switch. Its own
+  // mutation, not updateTemplateMutation: a refusal here is not an error but
+  // a question (409 CONFIRM_SEND_NOW with the number of certificates that
+  // would go out at once), answered in the dialog further down.
+  const autoIssueMutation = useMutation({
+    mutationFn: async (vars: { templateId: string; name: string; enabled: boolean; confirmSendNow: boolean }) => {
+      const res = await fetch(`/api/events/${eventId}/certificates/templates/${vars.templateId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoIssueOnSurvey: vars.enabled, confirmSendNow: vars.confirmSendNow }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        template?: CertificateTemplate;
+        error?: string;
+        code?: string;
+        sendNow?: number;
+      };
+      if (res.status === 409 && json.code === "CONFIRM_SEND_NOW") {
+        return { kind: "confirm" as const, sendNow: json.sendNow ?? 0, vars };
+      }
+      if (!res.ok || !json.template) throw new Error(json.error ?? `Update failed (${res.status})`);
+      return { kind: "saved" as const, template: json.template, vars };
+    },
+    onSuccess: (result) => {
+      if (result.kind === "confirm") {
+        setAutoIssueConfirm({ templateId: result.vars.templateId, name: result.vars.name, sendNow: result.sendNow });
+        return;
+      }
+      setAutoIssueConfirm(null);
+      queryClient.setQueryData<{ templates: CertificateTemplate[] }>(["cert-templates", eventId], (cur) =>
+        cur
+          ? { templates: cur.templates.map((t) => (t.id === result.template.id ? { ...t, ...result.template } : t)) }
+          : cur,
+      );
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates", "recipients"] });
+      queryClient.invalidateQueries({ queryKey: ["cert-auto-issue-analytics", eventId] });
+      if (result.vars.enabled && result.vars.confirmSendNow) {
+        toast.success(`"${result.vars.name}" now sends automatically. The certificates owed are on their way.`);
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  function openRecipients(templateId: string) {
+    setRecipientsTemplate(templateId);
+    setActiveTab("recipients");
+  }
+
   // Debounced PATCH for the canvas editor. Per the review's B3: the
   // editor emits onChange on every keystroke / drag pixel / color
   // picker tick — a 5-character textbox content edit produced 5
@@ -1000,7 +1066,7 @@ export default function CertificatesPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="templates">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="templates">
             <PenLine className="h-4 w-4 mr-1.5" />
@@ -1009,6 +1075,10 @@ export default function CertificatesPage() {
           <TabsTrigger value="cme">
             <FileText className="h-4 w-4 mr-1.5" />
             CME / CPD
+          </TabsTrigger>
+          <TabsTrigger value="recipients">
+            <Users className="h-4 w-4 mr-1.5" />
+            Recipients
           </TabsTrigger>
           <TabsTrigger value="issue">
             <Send className="h-4 w-4 mr-1.5" />
@@ -1099,56 +1169,57 @@ export default function CertificatesPage() {
                         />
                       </label>
                     </div>
-                    {/* The template's TAG decides who receives this cert on
-                        EVERY issue path — manual Issue, Communications bulk
-                        email, and survey auto-issue (attendee tag for
-                        ATTENDANCE, speaker tag for APPRECIATION). The
-                        auto-issue switch only controls whether survey
-                        completion triggers it automatically. */}
-                    <div className="mt-2 flex flex-wrap items-center gap-4">
-                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        Tag
-                        <Input
-                          defaultValue={editingTemplate.autoIssueTag ?? ""}
-                          placeholder="e.g. speaker"
-                          onBlur={(e) => {
-                            const v = e.target.value.trim() || null;
-                            if (v !== (editingTemplate.autoIssueTag ?? null)) {
-                              updateTemplateMutation.mutate({
-                                templateId: editingTemplate.id,
-                                patch: { autoIssueTag: v },
-                              });
-                            }
-                          }}
-                          className="h-8 w-44"
-                        />
-                        {!editingTemplate.autoIssueTag && (
-                          <span className="text-amber-600">required — no one matches without a tag</span>
-                        )}
-                      </label>
+                    {/* WHO receives this certificate is the people ASSIGNED it,
+                        on EVERY issue path: manual Issue, the Communications
+                        bulk email and survey auto-issue (a registration for
+                        ATTENDANCE, a speaker for APPRECIATION). The switch
+                        only controls whether answering the survey sends it
+                        automatically. */}
+                    <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Users className="h-3.5 w-3.5" />
+                        <span>
+                          <strong className="text-foreground">{editingTemplate._count?.assignments ?? 0}</strong>{" "}
+                          {(editingTemplate._count?.assignments ?? 0) === 1 ? "person" : "people"} assigned
+                        </span>
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs"
+                          onClick={() => openRecipients(editingTemplate.id)}
+                        >
+                          See recipients
+                        </Button>
+                      </div>
                       <label className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Switch
                           checked={editingTemplate.autoIssueOnSurvey}
+                          disabled={autoIssueMutation.isPending}
                           onCheckedChange={(checked) =>
-                            updateTemplateMutation.mutate({
+                            autoIssueMutation.mutate({
                               templateId: editingTemplate.id,
-                              patch: { autoIssueOnSurvey: checked },
+                              name: editingTemplate.name,
+                              enabled: checked,
+                              confirmSendNow: false,
                             })
                           }
                         />
-                        Auto-issue on survey completion
+                        Send automatically when the survey is answered
                       </label>
                     </div>
-                    {editingTemplate.autoIssueOnSurvey && (
+                    {(editingTemplate._count?.assignments ?? 0) === 0 && (
                       <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-                        <strong>Please tag your recipients.</strong> Only people carrying{" "}
-                        {editingTemplate.autoIssueTag ? (
-                          <code className="rounded bg-amber-100 px-1">{editingTemplate.autoIssueTag}</code>
-                        ) : (
-                          "the tag above"
-                        )}{" "}
-                        will receive this certificate when they complete the survey. Make sure your
-                        delegates and faculty are tagged — anyone untagged won&apos;t receive it.
+                        <strong>Nobody is assigned this certificate yet</strong>, so nobody receives it. Select people on
+                        the {editingTemplate.category === "ATTENDANCE" ? "Registrations" : "Speakers"} page and choose
+                        Assign certificate, or add them from a list of emails under Recipients.
+                      </div>
+                    )}
+                    {editingTemplate.autoIssueOnSurvey && (editingTemplate._count?.assignments ?? 0) > 0 && (
+                      <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                        Everyone assigned this certificate receives it by email as soon as they answer the certificate
+                        survey, with no review step. Someone who answers and is not assigned receives nothing: the
+                        Recipients tab lists them.
                       </div>
                     )}
                   </div>
@@ -1257,6 +1328,15 @@ export default function CertificatesPage() {
                               {t.backgroundPdfUrl ? "Background uploaded" : "No background yet"}
                               {" · "}
                               {t.textBoxes.length} text {t.textBoxes.length === 1 ? "box" : "boxes"}
+                              {" · "}
+                              <button
+                                type="button"
+                                className="underline-offset-2 hover:underline"
+                                onClick={() => openRecipients(t.id)}
+                              >
+                                {t._count?.assignments ?? 0} assigned
+                              </button>
+                              {t.autoIssueOnSurvey && " · sent automatically after the survey"}
                               {t._count && t._count.issuedCertificates > 0 && (
                                 <>
                                   {" · "}
@@ -1567,6 +1647,24 @@ export default function CertificatesPage() {
         </TabsContent>
 
         {/* ── ISSUE TAB ─────────────────────────────────────────── */}
+        {/* ── RECIPIENTS TAB ────────────────────────────────────────── */}
+        <TabsContent value="recipients" className="mt-6">
+          {activeTab === "recipients" && (
+            <CertificateRecipientsPanel
+              eventId={eventId}
+              templates={templates.map((t) => ({
+                id: t.id,
+                name: t.name,
+                category: t.category,
+                autoIssueOnSurvey: t.autoIssueOnSurvey,
+              }))}
+              templateFilter={recipientsTemplate}
+              onTemplateFilterChange={setRecipientsTemplate}
+              canManage={canManageRecipients}
+            />
+          )}
+        </TabsContent>
+
         <TabsContent value="issue" className="space-y-6 mt-6">
           {/* Survey-gated auto-issue observability — retry/backoff state +
               delivery counts for certs issued automatically on survey
@@ -1773,9 +1871,9 @@ export default function CertificatesPage() {
               ) : (
                 <>
                   {/* Template multi-select (bundle model): pick up to 3.
-                      Each template's STORED tag decides who receives it —
-                      no per-action tag picker. A person qualifying for
-                      several selected templates gets them all in ONE email. */}
+                      Each template goes to the people ASSIGNED it. A person
+                      assigned several selected templates gets them all in
+                      ONE email. */}
                   <div className="grid gap-2 max-w-2xl">
                     <Label>Templates (up to 3 — recipients get all their certs in one email)</Label>
                     <div className="rounded-md border p-2.5 space-y-1.5 max-h-64 overflow-y-auto">
@@ -1783,16 +1881,17 @@ export default function CertificatesPage() {
                         const tpls = templatesByCategory[cat.key];
                         if (tpls.length === 0) return null;
                         return tpls.map((t) => {
-                          const tagless = !t.autoIssueTag?.trim();
+                          const assignedCount = t._count?.assignments ?? 0;
+                          const nobodyAssigned = assignedCount === 0;
                           const checked = issueTemplateIds.includes(t.id);
                           return (
                             <label
                               key={t.id}
-                              className={`flex items-start gap-2 text-sm ${tagless ? "opacity-50" : "cursor-pointer"}`}
+                              className={`flex items-start gap-2 text-sm ${nobodyAssigned ? "opacity-50" : "cursor-pointer"}`}
                             >
                               <Checkbox
                                 className="mt-0.5"
-                                disabled={tagless || (!checked && issueTemplateIds.length >= 3)}
+                                disabled={nobodyAssigned || (!checked && issueTemplateIds.length >= 3)}
                                 checked={checked}
                                 onCheckedChange={(c) =>
                                   setIssueTemplateIds((prev) =>
@@ -1804,9 +1903,9 @@ export default function CertificatesPage() {
                                 <span className="font-medium">{t.name}</span>
                                 <span className="block text-xs text-muted-foreground">
                                   {cat.label}
-                                  {tagless
-                                    ? " · no tag — set a Tag on the template first (the tag decides who receives it)"
-                                    : ` · tag: ${t.autoIssueTag}`}
+                                  {nobodyAssigned
+                                    ? " · nobody assigned yet: assign it to people first"
+                                    : ` · ${assignedCount} assigned`}
                                 </span>
                               </span>
                             </label>
@@ -1816,9 +1915,8 @@ export default function CertificatesPage() {
                     </div>
                     <p className="text-xs text-muted-foreground">
                       <Info className="h-3.5 w-3.5 inline mr-1" />
-                      Each template goes to the people carrying its tag (set on the
-                      template in the Templates tab). Tag people from the
-                      Registrations / Speakers pages.
+                      Each template goes to the people assigned it. Assign people from the
+                      Registrations and Speakers pages, or under Recipients.
                     </p>
                   </div>
 
@@ -1829,7 +1927,7 @@ export default function CertificatesPage() {
                           CURRENT template + re-email. Use after correcting a
                           template so everyone who already has it gets the fix.
                           Separate from Issue below (which mints NEW certs for the
-                          eligible, tag-scoped pool). Single-template selection
+                          people assigned the template). Single-template selection
                           only — a reissue run targets ONE template's holders. */}
                       {issueTemplateIds.length === 1 && (() => {
                         const issuedN =
@@ -1939,8 +2037,8 @@ export default function CertificatesPage() {
                             <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
                               {eligibilityQuery.data.perTemplate.map((p) => (
                                 <p key={p.templateId}>
-                                  {p.templateName} (tag &quot;{p.tag}&quot;): {p.count}{" "}
-                                  {p.count === 1 ? "recipient" : "recipients"}
+                                  {p.templateName}: {p.count} {p.count === 1 ? "recipient" : "recipients"} now
+                                  {p.assigned > p.count ? ` (${p.assigned} assigned, ${p.assigned - p.count} already hold it)` : ""}
                                 </p>
                               ))}
                               <p>
@@ -2258,6 +2356,46 @@ export default function CertificatesPage() {
         </TabsContent>
       </Tabs>
 
+      {/* "Send automatically" asked to send at once: the count, and a yes or no. */}
+      <Dialog open={autoIssueConfirm !== null} onOpenChange={(open) => !open && !autoIssueMutation.isPending && setAutoIssueConfirm(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send certificates now?</DialogTitle>
+            <DialogDescription>
+              Turning this on sends &ldquo;{autoIssueConfirm?.name}&rdquo; to everyone assigned it who has already
+              answered the certificate survey.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <strong>
+              {autoIssueConfirm?.sendNow} {autoIssueConfirm?.sendNow === 1 ? "person has" : "people have"} already answered.
+            </strong>{" "}
+            {autoIssueConfirm?.sendNow === 1 ? "Their certificate" : "Their certificates"} will be emailed within a few
+            minutes, with no review step. Everyone else assigned receives theirs when they answer.
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAutoIssueConfirm(null)} disabled={autoIssueMutation.isPending}>
+              Leave it off
+            </Button>
+            <Button
+              disabled={autoIssueMutation.isPending}
+              onClick={() =>
+                autoIssueConfirm &&
+                autoIssueMutation.mutate({
+                  templateId: autoIssueConfirm.templateId,
+                  name: autoIssueConfirm.name,
+                  enabled: true,
+                  confirmSendNow: true,
+                })
+              }
+            >
+              {autoIssueMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Turn on and send {autoIssueConfirm?.sendNow} {autoIssueConfirm?.sendNow === 1 ? "certificate" : "certificates"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Preview dialog — opens from the canvas editor's Preview button.
           Renders a draft PDF for the template using the event's real
           data + a synthetic recipient ("Dr. Sample Attendee"). No DB
@@ -2349,7 +2487,7 @@ export default function CertificatesPage() {
                 ? `Sent to everyone receiving "${single.name}", with the certificate PDF attached. Tokens resolve per recipient.`
                 : `Sent ONCE per person with every earned certificate attached (${selected
                     .map((t) => t.name)
-                    .join(", ")}). {{certificateList}} lists each person's certs; recipients may get 1–${selected.length} PDFs depending on their tags.`) +
+                    .join(", ")}). {{certificateList}} lists each person's certs; recipients may get 1–${selected.length} PDFs depending on what they are assigned.`) +
               coverTemplatesNotice
             }
             submitting={issueMutation.isPending}

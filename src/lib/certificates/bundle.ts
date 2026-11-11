@@ -78,10 +78,6 @@ export interface LoadedCertTemplate {
   id: string;
   name: string;
   category: CertificateType;
-  /** The template's tag — decides WHO receives this certificate on every
-   *  issue path (manual, bulk email, survey auto-issue). Column is named
-   *  autoIssueTag for historical reasons; the meaning is general. */
-  autoIssueTag: string | null;
   template: CertificateTemplate;
 }
 
@@ -95,7 +91,6 @@ export async function loadCertTemplate(
       id: true,
       name: true,
       category: true,
-      autoIssueTag: true,
       backgroundPdfUrl: true,
       textBoxes: true,
       role: true,
@@ -107,7 +102,6 @@ export async function loadCertTemplate(
     id: tmpl.id,
     name: tmpl.name,
     category: tmpl.category,
-    autoIssueTag: tmpl.autoIssueTag,
     template: {
       backgroundPdfUrl: tmpl.backgroundPdfUrl,
       textBoxes: tmpl.textBoxes as unknown as CertificateTemplate["textBoxes"],
@@ -1029,8 +1023,8 @@ export async function sendCertificateBundleEmail(args: {
  *
  * Assumes the recipient earns EVERY passed template (the most informative
  * preview of {{certificateList}}); a real recipient may get a subset per
- * their tags. speakerId stays null so {{abstractTitle}} resolves empty —
- * matching an ATTENDANCE-only recipient — rather than leaking a random
+ * what they are assigned. speakerId stays null so {{abstractTitle}} resolves empty
+ * (matching an ATTENDANCE-only recipient) rather than leaking a random
  * speaker's abstract into the sample.
  */
 export async function buildCertCoverEmailPreview(args: {

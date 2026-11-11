@@ -4056,6 +4056,18 @@ MCP session date-validation → the shared `isSessionWithinEventDates`. Deferred
 | **`ATTENDEE_ROLE_VALUES` enum set duplicated in 2 MCP tool files (#7)** | LOW | XS | Re-declared in [tools/speakers.ts](../src/lib/agent/tools/speakers.ts) + [tools/registrations.ts](../src/lib/agent/tools/registrations.ts); `tools/_shared.ts` already holds the sibling enum sets. Move it there. |
 | **`escapeHtml` — 4 more copies repo-wide** | LOW | XS | The 3 cert copies are now shared via [src/lib/html.ts](../src/lib/html.ts); `speaker-agreement.ts`, `email.ts`, `abstract-notifications.ts`, `presenter-agreement.ts` still have local copies. Point them at `@/lib/html` (email.ts's is intentionally private — confirm before touching). |
 
+### Certificate assignments: what was left out (Nov 11, 2026)
+
+Who receives a certificate became a `CertificateAssignment` row (docs/CERTIFICATES.md, last section). Left out on purpose, each independently shippable:
+
+| Item | Size | Notes |
+|---|---|---|
+| **A "Certificate" column in the registrations CSV import** | M | The team's habit was an attendance re-import carrying the tag. The Recipients tab's "Add from a list of emails" does the same job and shows the unmatched addresses first; the import was left alone because it also moves seats and payment status. Build only if the team asks for it after using the email list. |
+| **Fill a list from a fact in one click** ("everyone checked in", "everyone who joined the webinar") | S | Today: filter the Registrations list, select all, Assign certificate. A button on the Recipients tab would save two clicks. Webinar attendance needs Zoom attendance matched to registrations first (0 matched rows on production on Nov 11, 2026). |
+| **Tenancy suite not run locally for the new table** | XS | `tests/tenancy/certificate-rls.test.ts` gained two tests and the seed one row per tenant; the local pooler (:56432) was not up. They run in CI's `tenancy` job. Run `docker compose --profile tenancy up -d` then `npm run test:tenancy` before a push if CI time matters. |
+| **The report loads every row** | S | `loadRecipientReport` returns all assignments for the event and the tab pages them in the browser. Fine at today's sizes (the largest list on production is 439); page it on the server if an event passes a few thousand. |
+| **`CertificateTemplate.autoIssueTag` and the `survey-completed` attendee tag** | XS | Both are now unread by certificate code. The column is never dropped. The `survey-completed` tag is still written on a survey submit (it feeds nothing since Oct 6, 2026); stop writing it in a later change. |
+
 ### Certificate rework — deferred review findings (July 9, 2026)
 
 On-demand single issue + single/bulk **re-render + resend from the CURRENT

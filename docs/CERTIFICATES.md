@@ -235,7 +235,12 @@ Unknown tokens render as empty string + log warn (`cert-template:unknown-token`
 or `cert-email-token:unknown`). Typo'd tokens never print literally
 on a delivered cert — they degrade gracefully.
 
-## Eligibility (tag-driven)
+## Eligibility (tag-driven) [SUPERSEDED Nov 11, 2026]
+
+> **Replaced by assignments.** Who receives a certificate is now a `CertificateAssignment` row,
+> not a tag. Read "Who receives a certificate: assignments, not tags (Nov 11, 2026)" at the end
+> of this file. What follows is the June 2026 design, kept as the record of why the selector
+> was manual in the first place (that part still holds: nothing is eligible automatically).
 
 Per 2026-06-02 evening organizer decision: **no auto-eligibility**.
 Eligibility is operator-controlled via tags:
@@ -881,3 +886,145 @@ operator types on a single Issue run.
   certificate that needs different words (a poster appreciation naming the
   paper) uses `{{abstractTitle}}` in the shared Appreciation email or a
   per-run override.
+
+## Who receives a certificate: assignments, not tags (Nov 11, 2026)
+
+**The rule:** a person receives a certificate template when they are ASSIGNED it, one
+`CertificateAssignment` row per person per template. `src/lib/certificates/assignments.ts`
+is the one place that says so, and every door asks it: the Issue tab (`eligibility.ts`), the
+bulk certificate email (`bulk-issue.ts`), the person's own card (`deliver.ts`), the survey
+auto-issue sweep (`auto-issue.ts`) and the agent. Writes go through
+`src/services/certificate-assignment-service.ts`.
+
+It replaced `CertificateTemplate.autoIssueTag`, a free-text word matched exactly against
+`Attendee.tags` / `Speaker.tags`. The column stays (never dropped, an older image still reads
+it) and nothing reads or writes it; `certificate-assignments.test.ts` fails if code under
+`src/` uses it again.
+
+### Why
+
+Read-only production numbers on Nov 11, 2026, the day of the change:
+
+- The tag was a hand copy of facts the system already held. At the two conferences that used
+  check-in, the `Cme` count equalled the checked-in count exactly (64 and 64, 67 and 67).
+- 804 registrations at finished events carried `Cme` with no certificate, 543 of them at four
+  events with no template at all. Nothing recorded whether they were owed one.
+- Of 859 certificates, 103 came from survey auto-issue; 743 went to registrations with no
+  survey answer.
+- No event-wide list or export of issued certificates existed.
+- A registration was swept once, so tagging someone after they answered sent nothing, silently.
+
+A tag is a word two places must spell the same. An assignment points at the template, so it
+cannot be mistyped, survives a rename, belongs to one registration at one event, records who
+added it and how, and lets one person hold several.
+
+### Model
+
+`CertificateAssignment` (migration `20261111120000_certificate_assignment`): `eventId`,
+`organizationId` (denormalized, RLS policy in `prisma/rls/certificate.sql`),
+`certificateTemplateId`, exactly one of `registrationId` / `speakerId`, `source`
+(`MANUAL` | `EMAIL_LIST` | `AGENT` | `TAG_BACKFILL` | `ISSUED_BACKFILL`, a plain string so a
+new source needs no migration), `assignedByUserId`, `createdAt`.
+`@@unique([certificateTemplateId, registrationId])` and `([certificateTemplateId, speakerId])`.
+Cascades from the event, the template, the registration and the speaker.
+
+Routing is what it was: an ATTENDANCE template is assigned to a registration, an APPRECIATION
+template to a speaker. A cancelled registration keeps its row and every reader leaves it out
+(`LIVE_ASSIGNMENT_WHERE`, `assignedRegistrationWhere`), so reinstating it restores what it had.
+
+A row is a decision, not a delivery. Whether the certificate exists and was sent is read from
+`IssuedCertificate` and the run items, never stored on the assignment.
+
+### Survey auto-issue: order no longer matters
+
+A certificate is owed once a person is assigned AND has answered the certificate survey,
+whichever happens last. The sweep still stamps `Registration.certAutoIssueCheckedAt` so a row
+is not scanned every tick; assigning a person who has already answered, or turning a
+template's switch on, clears that stamp again (`reopenForSweep`), and the next tick issues.
+
+Three writers decide together whether an answered person is owed a certificate: the sweep
+(reads the switch and the assignments, then stamps), `assignCertificate` (adds a row, then
+re-opens) and `setTemplateAutoIssue` (re-opens everyone assigned). At READ COMMITTED they
+race: the sweep reads "not assigned", an assignment commits, the sweep stamps, and nobody
+looks at that person again. So all three take one per-event advisory transaction lock
+(`lockCertificateAssignments`) as the FIRST statement of their transaction and read what they
+decide on after it. Proven on a real Postgres in
+`tests/integration-db/certificate-assignments.db.test.ts` ("the sweep WAITS for an assignment
+that is being written, then sees it").
+
+### The send-now confirmation (owner, Nov 11, 2026)
+
+Survey auto-issue sends with no review step, so two actions can release a batch at once:
+assigning people who have already answered to a template that sends automatically, and
+turning the switch on for a template whose people have already answered. Both are refused
+with `CONFIRM_SEND_NOW` and a `sendNow` count (HTTP 409 on REST) until the caller repeats the
+request with `confirmSendNow: true`. It is enforced in the service, so the dashboard, the
+email list and the agent cannot skip it. `setTemplateAutoIssue` is the one writer of
+`autoIssueOnSurvey` on an existing template.
+
+### Doors
+
+| Door | Where |
+|---|---|
+| Select people, "Assign certificate" (assign or remove) | Registrations and Speakers pages, `assign-certificate-dialog.tsx` |
+| "Add from a list of emails" (a webinar attendance export), with a check step that shows unmatched addresses first | Certificates, Recipients tab |
+| One person | their Certificates card: unassigned templates show "Assign" |
+| Agent / MCP | `assign_certificate`, `unassign_certificate`, `list_certificate_recipients` |
+
+REST: `GET/POST/DELETE /api/events/[eventId]/certificates/assignments` and
+`GET /api/events/[eventId]/certificates/recipients` (`?format=csv` for the export, recorded by
+`recordExport`). Assigning and removing ask `certificates.templates.manage`: who receives a
+template is part of its setup, the key that set the tag and that turns the switch on. It is
+also a key the API key already holds, so the key's reach did not change. Reading asks
+`certificates.read`.
+
+Someone who HOLDS the certificate cannot be unassigned (`keptIssued`): the row is what
+explains the certificate on the report, and taking a certificate back is revoking it.
+
+A request that still carries a tag (`POST .../issue` with `tag`, `GET .../eligible?tag=`) is
+refused with `TAGS_RETIRED`. Reading it as "everyone assigned" would send to a different set
+of people than a stale page showed.
+
+### The Recipients report
+
+`src/lib/certificates/recipients-report.ts`, one row per person per certificate: assigned
+(who, when, how), survey answered, certificate (number, date, hours) and one state from
+`recipient-states.ts` (client-safe, shared by the tab, the CSV and the agent):
+
+| State | Means |
+|---|---|
+| Sent | emailed or handed over (`isReleased`, the rule the portal uses, so "Sent" is what the person can download) |
+| Issued, not sent yet | made, waiting in a run's review step |
+| Sending | a run is in flight, or they answered and the next sweep takes them |
+| Waiting for survey | the template sends automatically and they have not answered |
+| Ready to issue | nothing sends it on its own: the template is manual, or the sweep already passed them |
+| Could not send | auto-issue gave up after its retries |
+| Revoked / Registration cancelled | as named |
+
+Plus `answeredNotAssigned`: answered the certificate survey, not cancelled, assigned nothing.
+
+### The migration and what it does not do
+
+The backfill copied every tag match (exact, as the code matched) and everyone who already held
+a certificate (minus revoked) into rows. Locally, on a copy of production: 399 tag pairs
+became 399 rows, 10 holders with no tag were added, a second run inserted nothing.
+
+It writes rows only. It does NOT clear anyone's sweep stamp, so applying it sends no
+certificate: a backfilled person who had answered before the migration shows as "Ready to
+issue". The migration runs a few minutes before the new code serves, so a tag added in that
+window is picked up by running the same block again:
+
+```
+docker exec ea-sys-worker npx tsx scripts/backfill-certificate-assignments.ts          # dry run
+docker exec ea-sys-worker npx tsx scripts/backfill-certificate-assignments.ts --write
+```
+
+The script reads the statements out of the migration file (between the BACKFILL markers), so
+there is one copy. Rollback: `docs/ROLLBACK.md`.
+
+### Not built
+
+- A "Certificate" column in the registrations CSV import. The email list on the Recipients tab
+  covers the same job without touching an import that moves seats; see `docs/ROADMAP.md`.
+- The tenancy suite gained tests for the new table that have not been run locally (the
+  pooler was not up); they run in CI.

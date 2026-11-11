@@ -19,6 +19,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
+import { LIVE_ASSIGNMENT_WHERE } from "@/lib/certificates/assignments";
 import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 import { certificateTextBoxesSchema } from "@/lib/certificates/template-box-schema";
 import { Prisma } from "@prisma/client";
@@ -47,11 +48,11 @@ const createSchema = z.object({
   // per-template CME hours ({{cmeHours}}, overrides event-level when set).
   role: z.string().max(120).trim().nullable().optional(),
   cmeHours: z.number().min(0).max(999).nullable().optional(),
-  // Phase 2 survey-gated auto-issue: when on, this template is issued
-  // automatically to survey-completers who hold autoIssueTag (attendee
-  // tag for ATTENDANCE, speaker tag for APPRECIATION).
+  // Survey-gated auto-issue: when on, this template is issued automatically
+  // to the people assigned it once they answer the certificate survey. A new
+  // template has nobody assigned, so turning it on here sends nothing yet.
+  // (A client still sending the retired autoIssueTag has it stripped by Zod.)
   autoIssueOnSurvey: z.boolean().optional(),
-  autoIssueTag: z.string().max(120).trim().nullable().optional(),
 });
 
 export async function GET(req: Request, { params }: RouteParams) {
@@ -86,7 +87,14 @@ export async function GET(req: Request, { params }: RouteParams) {
         where: { eventId },
         orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
         include: {
-          _count: { select: { issuedCertificates: true, issueRuns: true } },
+          _count: {
+            select: {
+              issuedCertificates: true,
+              issueRuns: true,
+              // Who receives it: the people assigned (cancelled registrations left out).
+              assignments: { where: LIVE_ASSIGNMENT_WHERE },
+            },
+          },
         },
       }),
     );
@@ -168,7 +176,6 @@ export async function POST(req: Request, { params }: RouteParams) {
           role: data.role ?? null,
           cmeHours: data.cmeHours ?? null,
           autoIssueOnSurvey: data.autoIssueOnSurvey ?? false,
-          autoIssueTag: data.autoIssueTag ?? null,
         },
       });
     }),

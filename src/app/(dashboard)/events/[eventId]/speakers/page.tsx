@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mic, Plus, RefreshCw, ChevronLeft, ChevronRight, Send, X, Search, Filter, Tag } from "lucide-react";
+import { Mic, Plus, RefreshCw, ChevronLeft, ChevronRight, Send, X, Search, Filter, Tag, Award } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { formatAttendeeRole } from "@/lib/schemas";
@@ -42,6 +42,7 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { BulkTagDialog } from "@/components/bulk-tag-dialog";
+import { AssignCertificateDialog } from "@/components/certificates/assign-certificate-dialog";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
@@ -130,7 +131,9 @@ export default function SpeakersPage() {
   const canImportSpeakers = useCan("speakers.import", eventId) === "allowed";
   const canTagSpeakers = useCan("speakers.update", eventId) === "allowed";
   const canSendEmail = useCan("communications.send", eventId) === "allowed";
-  const canSelect = canTagSpeakers || canSendEmail;
+  // Who receives an appreciation certificate is decided by assigning it here.
+  const canAssignCertificate = useCan("certificates.templates.manage", eventId) === "allowed";
+  const canSelect = canTagSpeakers || canSendEmail || canAssignCertificate;
   const abstractsAnswer = useCan("abstracts.read", eventId);
   const proposalsAnswer = useCan("proposals.read", eventId);
 
@@ -139,6 +142,7 @@ export default function SpeakersPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [assignCertificateOpen, setAssignCertificateOpen] = useState(false);
 
   const bulkTagSpeakers = useBulkTagSpeakers(eventId);
   const [searchQuery, setSearchQuery] = useState("");
@@ -315,6 +319,16 @@ export default function SpeakersPage() {
               >
                 <Tag className="mr-2 h-4 w-4" />
                 Manage Tags
+              </Button>
+            )}
+            {canAssignCertificate && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setAssignCertificateOpen(true)}
+              >
+                <Award className="mr-2 h-4 w-4" />
+                Assign certificate
               </Button>
             )}
             {canSendEmail && (
@@ -610,6 +624,15 @@ export default function SpeakersPage() {
             )}
           </div>
         )}
+
+      <AssignCertificateDialog
+        eventId={eventId}
+        open={assignCertificateOpen}
+        onOpenChange={setAssignCertificateOpen}
+        kind="speaker"
+        ids={[...selectedIds]}
+        onDone={() => setSelectedIds(new Set())}
+      />
 
       {/* Bulk Tag Dialog */}
       <BulkTagDialog

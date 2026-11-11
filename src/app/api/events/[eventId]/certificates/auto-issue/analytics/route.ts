@@ -14,7 +14,7 @@
  *
  * Plus auto-run delivery counts by status, total certs auto-issued, the
  * configured-templates summary (incl. a misconfig flag for auto-issue-on
- * templates with no tag), and the most recent errors for triage.
+ * templates nobody is assigned), and the most recent errors for triage.
  *
  * Auth: ADMIN / ORGANIZER (denyReviewer). Event org-bound (404 cross-tenant).
  */
@@ -26,6 +26,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
+import { LIVE_ASSIGNMENT_WHERE } from "@/lib/certificates/assignments";
 import type { Prisma } from "@prisma/client";
 
 interface RouteParams {
@@ -116,7 +117,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
       }),
       db.certificateTemplate.findMany({
         where: { eventId, autoIssueOnSurvey: true },
-        select: { id: true, name: true, category: true, autoIssueTag: true },
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          _count: { select: { assignments: { where: LIVE_ASSIGNMENT_WHERE } } },
+        },
       }),
       db.registration.findMany({
         where: { ...surveyed, certAutoIssueError: { not: null } },
@@ -138,7 +144,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       runStatusCounts[row.status] = row._count._all;
     }
 
-    const templatesMissingTag = templates.filter((t) => !t.autoIssueTag?.trim());
+    // Auto-issue on, and nobody assigned: it can never send to anyone.
+    const templatesWithoutRecipients = templates.filter((t) => t._count.assignments === 0);
 
     const recentErrors = recentErrorsRaw.map((r) => ({
       registrationId: r.id,
@@ -170,8 +177,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       },
       templates: {
         configured: templates.length,
-        missingTag: templatesMissingTag.length,
-        missingTagNames: templatesMissingTag.map((t) => t.name),
+        withoutRecipients: templatesWithoutRecipients.length,
+        withoutRecipientsNames: templatesWithoutRecipients.map((t) => t.name),
       },
       recentErrors,
     });

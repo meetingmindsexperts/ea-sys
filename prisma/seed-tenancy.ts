@@ -764,6 +764,18 @@ async function seedOrg(
         recipientSnapshot: { fullName: "Tenancy Recipient" },
       },
     });
+    // Who receives the template (CertificateAssignment, Nov 11, 2026): the
+    // org's own registration. The id is derived (constants.ts CERT_ASSIGNMENT_*).
+    await db.certificateAssignment.create({
+      data: {
+        id: `${certificates.templateId}-asg`,
+        eventId: certificates.eventId,
+        organizationId: orgId,
+        certificateTemplateId: certificates.templateId,
+        registrationId: certificates.registrationId,
+        source: "MANUAL",
+      },
+    });
   }
   // Session Proposals sweep fixtures. SessionProposalTheme + SessionProposal
   // cascade from Event; the proposal references this org's speaker (seeded

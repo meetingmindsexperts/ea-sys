@@ -161,11 +161,10 @@ export async function POST(_req: Request, { params }: RouteParams) {
           // auto-issue template produced one that silently never auto-issued.
           role: source.role,
           cmeHours: source.cmeHours,
-          autoIssueTag: source.autoIssueTag,
-          // Deliberately NOT copying autoIssueOnSurvey — a live auto-issuing
-          // clone would instantly double-issue the source's tag audience on
-          // the next survey sweep. The copy starts paused; the organizer
-          // re-enables it when the variant is ready (surfaced in the response).
+          // The copy starts with NOBODY assigned (assignments belong to the
+          // source and are not copied) and with auto-issue off: the organizer
+          // assigns people and turns it on when the variant is ready
+          // (surfaced in the response).
           autoIssueOnSurvey: false,
         },
       });

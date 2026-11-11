@@ -1,23 +1,24 @@
 /**
  * POST /api/events/[eventId]/certificates/issue
- *   body (bundle model, 2026-07-09):
- *     { templateIds: string[] (1..3), emailSubject, emailBody }
- *   body (legacy single-template, kept for back-compat):
- *     { templateId: string, tag: string, emailSubject, emailBody }
- *   → 201 { runId, totalCount, status, templateIds, perTemplate }
+ *   body: { templateIds: string[] (1..3), emailSubject, emailBody }
+ *         (`templateId: string` is accepted as one template, the pre-bundle
+ *         spelling)
+ *   returns 201 { runId, totalCount, status, templateIds, perTemplate }
  *
- * Creates a CertificateIssueRun. In the bundle model each selected
- * template's STORED tag decides its recipient pool (no per-action tag),
+ * Creates a CertificateIssueRun. Each selected template goes to the people
+ * ASSIGNED it (src/lib/certificates/assignments.ts) who do not hold it yet,
  * and per-template pools are merged per PERSON (registration + linked
- * speaker) so one run item — and later ONE email — carries every cert
- * the person earns. The legacy shape applies its explicit tag to the
- * single template's pool.
+ * speaker) so one run item, and later ONE email, carries every cert the
+ * person earns.
  *
  * Guards:
  *   - Every template must belong to the (org-bound) event.
- *   - Bundle shape: every template must carry a tag (TEMPLATE_MISSING_TAG).
+ *   - A body carrying `tag` is refused (TAGS_RETIRED): tags stopped deciding
+ *     recipients on Nov 11, 2026, and silently reading such a request as
+ *     "everyone assigned" would send to a different set of people than the
+ *     stale page showed.
  *   - No non-terminal MANUAL run may OVERLAP the requested template set
- *     (same-template double-issue guard). Disjoint sets run concurrently —
+ *     (same-template double-issue guard). Disjoint sets run concurrently:
  *     manual runs park indefinitely at AWAITING_REVIEW, so an event-wide
  *     guard would let one forgotten run block all issuance. Auto-issue +
  *     reissue runs are exempt.
@@ -52,14 +53,13 @@ interface RouteParams {
 
 const bodySchema = z
   .object({
-    // ── Bundle model (2026-07-09): 1..3 templates per run; each template's
-    // STORED tag decides its pool (no per-action tag), entries merged per
-    // PERSON so one email carries all the certs a person earns.
+    // 1..3 templates per run; each goes to the people assigned it, entries
+    // merged per PERSON so one email carries all the certs a person earns.
     templateIds: z.array(z.string().min(1).max(100)).min(1).max(3).optional(),
-    // ── Legacy single-template shape (kept for pre-bundle clients): the
-    // explicit tag overrides the stored one.
+    // The pre-bundle spelling of one template.
     templateId: z.string().min(1).optional(),
-    tag: z.string().min(1).max(100).optional(),
+    // Read only to refuse it (TAGS_RETIRED, see the header).
+    tag: z.unknown().optional(),
     // Cover-email content the operator confirmed at Issue time. Stored
     // as a snapshot on the run row so a later template edit doesn't
     // change emails for an in-flight run. Both required — the dialog
@@ -69,11 +69,11 @@ const bodySchema = z
     emailBody: z.string().min(1).max(10000),
   })
   .superRefine((data, ctx) => {
-    if (!data.templateIds?.length && !(data.templateId && data.tag)) {
+    if (!data.templateIds?.length && !data.templateId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["templateIds"],
-        message: "Provide templateIds (bundle model) or legacy templateId + tag",
+        message: "Provide templateIds (1 to 3 templates)",
       });
     }
   });
@@ -115,7 +115,17 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
-    const { templateId, tag, emailSubject, emailBody } = parsed.data;
+    if (parsed.data.tag !== undefined && parsed.data.tag !== null) {
+      apiLogger.warn({ msg: "cert-issue:tag-refused", eventId, userId: session.user.id });
+      return NextResponse.json(
+        {
+          error: "Tags no longer decide who receives a certificate. Reload the page and assign the certificate to people instead.",
+          code: "TAGS_RETIRED",
+        },
+        { status: 400 },
+      );
+    }
+    const { templateId, emailSubject, emailBody } = parsed.data;
     const requestedTemplateIds = parsed.data.templateIds?.length
       ? parsed.data.templateIds
       : [templateId!];
@@ -129,7 +139,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           eventId,
           event: gate.eventWhere,
         },
-        select: { id: true, category: true, name: true, autoIssueTag: true },
+        select: { id: true, category: true, name: true },
       }),
     );
     if (templates.length !== new Set(requestedTemplateIds).size) {
@@ -142,46 +152,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
-    const isBundleShape = Boolean(parsed.data.templateIds?.length);
 
-    // Bundle model: each template's STORED tag drives its pool, so every
-    // selected template must carry one. (Legacy shape passes an explicit
-    // per-action tag instead.)
-    if (isBundleShape) {
-      const untagged = templates.filter((t) => !t.autoIssueTag?.trim());
-      if (untagged.length > 0) {
-        apiLogger.warn({
-          msg: "cert-issue:template-missing-tag",
-          eventId,
-          userId: session.user.id,
-          untaggedTemplateIds: untagged.map((t) => t.id),
-        });
-        return NextResponse.json(
-          {
-            error: `Template${untagged.length > 1 ? "s" : ""} ${untagged
-              .map((t) => `"${t.name}"`)
-              .join(", ")} ha${untagged.length > 1 ? "ve" : "s"} no tag — set a tag on the template first (the tag decides who receives it).`,
-            code: "TEMPLATE_MISSING_TAG",
-          },
-          { status: 400 },
-        );
-      }
-    }
-
-    // Eligibility — per-template pool (stored tag, minus already-issued for
-    // that template), merged per PERSON so one run item = one email carrying
-    // every cert the person earns. The legacy shape reuses the same merge
-    // with its explicit tag substituted for the stored one.
-    // tenancy: eligibility reads swept cert tables — run inside the session org.
+    // Eligibility: per-template pool (the people assigned it, minus those who
+    // already hold it), merged per PERSON so one run item = one email carrying
+    // every cert the person earns.
+    // tenancy: eligibility reads swept cert tables, run inside the session org.
     const merged = await runWithTenant(orgId, () =>
       eligibleForTemplates(
         p.eventId,
-        templates.map((t) => ({
-          id: t.id,
-          name: t.name,
-          category: t.category,
-          autoIssueTag: isBundleShape ? t.autoIssueTag : tag!,
-        })),
+        templates.map((t) => ({ id: t.id, name: t.name, category: t.category })),
       ),
     );
     const people = merged.people;
@@ -194,11 +173,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         templateIds: requestedTemplateIds,
         perTemplate: merged.perTemplate,
       });
-      const hint = isBundleShape
-        ? `No one qualifies for the selected template${templates.length > 1 ? "s" : ""} — either nobody holds the template tag(s) (${merged.perTemplate
-            .map((p) => `"${p.tag}"`)
-            .join(", ")}) or everyone tagged already holds those certificates.`
-        : `No one in this event has the tag "${tag}" in the ${templates[0].category.toLowerCase()} pool, or everyone tagged already holds this certificate. Tag people first, or pick a different tag.`;
+      const nobodyAssigned = merged.perTemplate.every((t) => t.assigned === 0);
+      const hint = nobodyAssigned
+        ? `Nobody is assigned ${templates.map((t) => `"${t.name}"`).join(", ")} yet. Assign the certificate to people first: select them on the Registrations or Speakers page and choose Assign certificate.`
+        : `Everyone assigned ${templates.map((t) => `"${t.name}"`).join(", ")} already holds it. Assign more people, or use Resend to everyone to send the current version again.`;
       return NextResponse.json(
         {
           error: hint,
@@ -326,7 +304,6 @@ export async function POST(req: Request, { params }: RouteParams) {
             type: runType,
             templateIds: templates.map((t) => t.id),
             templateNames: templates.map((t) => t.name),
-            ...(isBundleShape ? {} : { tag }),
             totalCount: people.length,
             source: "dashboard",
           },

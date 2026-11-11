@@ -29,7 +29,7 @@ import type { CertificateType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { allocateSerial, loadRecipient, isSerialCollision } from "./cert-context";
-import { selectAutoIssueTargets } from "./auto-issue";
+import { loadAssignedTemplateIds, selectAssignedTargets } from "./assignments";
 import {
   loadCertTemplate,
   renderAndUpload,
@@ -401,16 +401,18 @@ export type BundleIssueResult =
  *   - An already-held template is REUSED (re-attached with its existing
  *     serial, same rule as `findOrIssueCertificate` everywhere else)
  *     instead of failing the whole request with ALREADY_ISSUED.
- *   - **Tags are ENFORCED** ("no tag, no certificate" — organizer decision
- *     2026-07-10, closing the tag-bypass the old single-issue flow had): a
- *     selected template is issued only when the recipient holds its tag
- *     (same `selectAutoIssueTargets` predicate as bulk email + survey
- *     auto-issue). Non-matching selections land in `failures[]`; when NO
- *     selection matches, the whole issue is blocked with NO_MATCHING_TAG.
+ *   - **Assignment is ENFORCED** ("not assigned, no certificate"; organizer
+ *     decision 2026-07-10 for the tag this replaced on Nov 11, 2026, closing
+ *     the bypass the old single-issue flow had): a selected template is
+ *     issued only when the recipient is ASSIGNED it (./assignments.ts, the
+ *     same rule as bulk email + survey auto-issue). An explicit selection on
+ *     the person's own card does not bypass it. Unassigned selections land in
+ *     `failures[]`; when NO selection is assigned, the whole issue is blocked
+ *     with NOT_ASSIGNED.
  *   - `sendEmail: false` (organizer request 2026-07-22) issues WITHOUT the
  *     delivery email — the operator downloads the PDFs from the card and
- *     hands them over personally. Everything up to the send step (tag gate,
- *     dedup, audit) is identical; the recipient still needs an email on
+ *     hands them over personally. Everything up to the send step (assignment
+ *     gate, dedup, audit) is identical; the recipient still needs an email on
  *     file only when an email will actually be sent.
  */
 export async function issueCertificateBundle(
@@ -458,19 +460,20 @@ export async function issueCertificateBundle(
     };
   }
 
-  // Email + TAGS in one facet query (tags drive the gate below); name via
-  // the shared loadRecipient.
-  const [facetRow, recipient] = await Promise.all([
+  // Email, the person's assignments (they drive the gate below) and the name
+  // via the shared loadRecipient.
+  const [facetRow, assigned, recipient] = await Promise.all([
     registrationId
       ? db.registration
           .findUnique({
             where: { id: registrationId },
-            select: { attendee: { select: { email: true, tags: true } } },
+            select: { attendee: { select: { email: true } } },
           })
-          .then((r) => (r ? { email: r.attendee.email, tags: r.attendee.tags ?? [] } : null))
+          .then((r) => (r ? { email: r.attendee.email } : null))
       : db.speaker
-          .findUnique({ where: { id: speakerId! }, select: { email: true, tags: true } })
-          .then((s) => (s ? { email: s.email, tags: s.tags ?? [] } : null)),
+          .findUnique({ where: { id: speakerId! }, select: { email: true } })
+          .then((s) => (s ? { email: s.email } : null)),
+    loadAssignedTemplateIds(db, { templateIds, registrationId, speakerId }),
     loadRecipient(registrationId, speakerId),
   ]);
   if (!recipient || !facetRow) {
@@ -485,17 +488,12 @@ export async function issueCertificateBundle(
     return { ok: false, code: "NO_RECIPIENT_EMAIL", error: "Recipient has no email address on file.", status: 409 };
   }
 
-  // Tag gate — "no tag, no certificate", the same routing predicate as
-  // bulk email + survey auto-issue (ATTENDANCE ↔ attendee tags,
-  // APPRECIATION ↔ speaker tags; a tagless template matches nobody). An
-  // explicit operator selection does NOT bypass it (organizer decision
-  // 2026-07-10).
+  // Assignment gate: "not assigned, no certificate", the same routing as
+  // bulk email + survey auto-issue (ATTENDANCE on the registration,
+  // APPRECIATION on the speaker). An explicit operator selection does NOT
+  // bypass it (organizer decision 2026-07-10).
   const matchedIds = new Set(
-    selectAutoIssueTargets(
-      templates,
-      registrationId ? facetRow.tags : [],
-      speakerId ? facetRow.tags : null,
-    ).map((t) => t.templateId),
+    selectAssignedTargets(templates, assigned.registration, assigned.speaker).map((t) => t.templateId),
   );
   const failures: Array<{ templateId: string; templateName: string; error: string }> = [];
   const eligible: typeof templates = [];
@@ -504,28 +502,25 @@ export async function issueCertificateBundle(
       eligible.push(t);
       continue;
     }
-    const reason = t.autoIssueTag?.trim()
-      ? `recipient doesn't hold this template's tag ("${t.autoIssueTag.trim()}") — no tag, no certificate`
-      : "template has no tag — set a tag on the template first (the tag decides who receives it)";
     apiLogger.warn({
-      msg: "cert-deliver:bundle-tag-mismatch",
+      msg: "cert-deliver:bundle-not-assigned",
       eventId: ctx.eventId,
       templateId: t.id,
       templateName: t.name,
-      recipientTags: facetRow.tags,
       registrationId,
       speakerId,
     });
-    failures.push({ templateId: t.id, templateName: t.name, error: reason });
+    failures.push({
+      templateId: t.id,
+      templateName: t.name,
+      error: "this person is not assigned this certificate. Assign it to them first.",
+    });
   }
   if (eligible.length === 0) {
     return {
       ok: false,
-      code: "NO_MATCHING_TAG",
-      error:
-        facetRow.tags.length === 0
-          ? "This person has no tags — tag them first (the tag decides which certificates they receive)."
-          : `This person holds none of the selected templates' tags — ${failures.map((f) => f.templateName).join(", ")} not issued.`,
+      code: "NOT_ASSIGNED",
+      error: `This person is not assigned ${failures.map((f) => `"${f.templateName}"`).join(", ")}. Assign the certificate to them first (select them on the ${speakerId ? "Speakers" : "Registrations"} page and choose Assign certificate).`,
       status: 422,
     };
   }
@@ -568,7 +563,7 @@ export async function issueCertificateBundle(
   }
 
   // "Issue only" — the operator chose to hand the PDFs over personally.
-  // Everything above (tag gate, mint/reuse, audit) already ran; just skip
+  // Everything above (assignment gate, mint/reuse, audit) already ran; just skip
   // the delivery email and report the certs for download.
   if (!shouldSendEmail) {
     apiLogger.info({

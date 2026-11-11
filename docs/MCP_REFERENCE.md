@@ -2,7 +2,7 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** October 30, 2026. **120 tools** across 18 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
+**Last updated:** November 11, 2026. **123 tools** across 18 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
 
 ### July 29, 2026 — Optional registration type + Faculty guard (`0.4.27`)
 
@@ -18,6 +18,8 @@ EA-SYS exposes event management capabilities via the [Model Context Protocol (MC
 - No behavior change when the params are omitted — existing calls are byte-identical.
 
 ### June 25, 2026 — Speaker companion registrations, faculty-aware counts, multi-role certs
+
+**November 11, 2026: certificates go to the people ASSIGNED them, not to a tag.** `autoIssueTag` is gone from `create_certificate_template` / `update_certificate_template` (a client still sending it has it ignored). Three tools were added: `assign_certificate`, `unassign_certificate` and `list_certificate_recipients`; `list_certificate_templates` now returns `_count.assignments` per template. Assigning people who have already answered the certificate survey to an auto-issuing template, or turning `autoIssueOnSurvey` on for a template whose people have already answered, would email certificates at once, so both are refused with `CONFIRM_SEND_NOW` and a `sendNow` count until repeated with `confirmSendNow: true`. All three new tools ask a key the API key already holds (`certificates.read` / `certificates.templates.manage`), so a key's reach is unchanged. Package 0.4.54 → 0.4.55: connected clients reconnect to see the new tools.
 
 **September 21, 2026: `delete_review_criterion` and `delete_certificate_template` were removed from the server** (owner decision with the Event Agent architecture review: deletes happen in the dashboard, where the record and its dependants are in view; the in-app agent lost the same two tools). Connected clients reconnect to drop them from their lists.
 
@@ -124,7 +126,7 @@ Two authentication methods are supported on `/api/mcp`, checked in order:
 
 Both return the same `{ organizationId }` context, so downstream tools don't care which method authenticated the request. Tools are automatically scoped to the authenticated org.
 
-## Tools (120 total)
+## Tools (123 total)
 
 ### Organization-level (6)
 
@@ -294,14 +296,17 @@ No tool opens, edits or deletes a survey, or submits an answer.
 | `list_scheduled_emails` | PENDING/PROCESSING/SENT/FAILED/CANCELLED with send stats |
 | `cancel_scheduled_email` | PENDING → CANCELLED |
 
-### Certificates (4)
+### Certificates (7)
 
 | Tool | Description |
 |---|---|
 | `list_certificate_templates` | All templates per category (ATTENDANCE / APPRECIATION) + event-level CME hours + accreditations. Each template carries `backgroundPdfUrl` and `textBoxes[]` (positioned overlays with `{{tokens}}`). The cover email is the event's Certificate Delivery email template (see `update_email_template`), not a field on the certificate template (the per-template cover was removed Sep 18, 2026). |
-| `create_certificate_template` | New template — `name`, `category`, optional `backgroundPdfUrl` (upload via POST `/api/upload/pdf` first to get a `/uploads/...` URL), optional `textBoxes[]`, optional `role` + `cmeHours`, optional `autoIssueOnSurvey` + `autoIssueTag` (survey-gated auto-issue). PNG/JPG uploads server-convert to single-page PDFs. |
-| `update_certificate_template` | Patch by `templateId` — change name / backgroundPdfUrl / textBoxes / sortOrder / `role` / `cmeHours` / `autoIssueOnSurvey` / `autoIssueTag`. Pass `null` on `role`/`cmeHours`/`autoIssueTag` to clear. The cover email is edited on the event's Certificate Delivery email template (`update_email_template`). Category is immutable post-create. |
+| `create_certificate_template` | New template: `name`, `category`, optional `backgroundPdfUrl` (upload via POST `/api/upload/pdf` first to get a `/uploads/...` URL), optional `textBoxes[]`, optional `role` + `cmeHours`, optional `autoIssueOnSurvey` (survey-gated auto-issue; a new template has nobody assigned, so nothing is sent until people are). PNG/JPG uploads server-convert to single-page PDFs. |
+| `update_certificate_template` | Patch by `templateId`: change name / backgroundPdfUrl / textBoxes / sortOrder / `role` / `cmeHours` / `autoIssueOnSurvey`. Pass `null` on `role`/`cmeHours` to clear. Turning `autoIssueOnSurvey` on is refused with `CONFIRM_SEND_NOW` (and a `sendNow` count) when assigned people have already answered the survey, until the call is repeated with `confirmSendNow: true`. The cover email is edited on the event's Certificate Delivery email template (`update_email_template`). Category is immutable post-create. |
 | `update_cme_settings` | Event-level CME hours + accrediting bodies. Read by the `{{cmeHours}}` / `{{accreditationBody}}` / `{{accreditationReference}}` tokens on either category. |
+| `list_certificate_recipients` | The recipients report: one row per person per certificate with the state (`SENT`, `ISSUED_NOT_SENT`, `SENDING`, `WAITING_FOR_SURVEY`, `READY`, `FAILED`, `REVOKED`, `CANCELLED`), survey date, certificate number and CME hours; per-template totals; and `answeredNotAssigned` (answered the certificate survey, assigned nothing). Optional `templateId`. Rows capped at 500. |
+| `assign_certificate` | Put people on a template's list: `templateId` plus exactly one of `registrationIds` (ATTENDANCE), `speakerIds` (APPRECIATION) or `emails` (matched to the event's people; the rest come back in `unmatched`). The assignment decides who receives the certificate on every path. Refused with `CONFIRM_SEND_NOW` and a `sendNow` count when the template auto-issues and some of them have already answered the survey, until repeated with `confirmSendNow: true`. |
+| `unassign_certificate` | Take people off a template's list (`registrationIds` or `speakerIds`). Someone who holds the certificate stays (`keptIssued`): revoking is done in the dashboard. |
 
 ### Media + misc (1)
 

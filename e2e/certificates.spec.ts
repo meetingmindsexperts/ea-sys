@@ -19,7 +19,9 @@ test.use({ extraHTTPHeaders: async ({ baseURL }, provide) => provide({ Origin: n
  *   2. PDF upload accepts magic-byte-valid PDF + persists URL
  *   3. PDF upload rejects garbage with 400
  *   4. Cover-email defaults round-trip through PATCH
- *   5. Issue body schema rejects missing tag + emailSubject + emailBody
+ *   5. Issue body schema rejects a missing template + emailSubject + emailBody,
+ *      and refuses a body that still carries a tag (tags no longer decide
+ *      who receives a certificate: assignments do, Nov 11, 2026)
  *   6. Template DELETE blocked when an IssuedCertificate references it
  *   7. retry-failed endpoint resets failed items + bumps run status
  *   8. Cross-tenant access patterns return 404 (not 403 — avoid enumeration)
@@ -206,7 +208,7 @@ test.describe("PDF upload", () => {
 // template is the one wording, so there is no per-template default to test.
 
 test.describe("Issue + eligibility contracts", () => {
-  test("issue route rejects body missing tag/emailSubject/emailBody with 400", async ({ page }) => {
+  test("issue route rejects a body missing the template / emailSubject / emailBody, or carrying a tag, with 400", async ({ page }) => {
     await loginAs(page, "ADMIN");
 
     const createRes = await page.request.post(
@@ -215,18 +217,27 @@ test.describe("Issue + eligibility contracts", () => {
     );
     const { template } = (await createRes.json()) as { template: { id: string } };
 
-    // Missing tag
-    const noTag = await page.request.post(
+    // Missing template
+    const noTemplate = await page.request.post(
+      `/api/events/${EVENT_ID}/certificates/issue`,
+      { data: { emailSubject: "x", emailBody: "<p>x</p>" } },
+    );
+    expect(noTemplate.status()).toBe(400);
+
+    // A stale page still sending a tag is refused, never read as "everyone assigned".
+    const withTag = await page.request.post(
       `/api/events/${EVENT_ID}/certificates/issue`,
       {
         data: {
           templateId: template.id,
+          tag: "anytag",
           emailSubject: "x",
           emailBody: "<p>x</p>",
         },
       },
     );
-    expect(noTag.status()).toBe(400);
+    expect(withTag.status()).toBe(400);
+    expect(((await withTag.json()) as { code: string }).code).toBe("TAGS_RETIRED");
 
     // Missing emailSubject
     const noSubject = await page.request.post(
@@ -234,7 +245,6 @@ test.describe("Issue + eligibility contracts", () => {
       {
         data: {
           templateId: template.id,
-          tag: "anytag",
           emailBody: "<p>x</p>",
         },
       },
@@ -247,7 +257,6 @@ test.describe("Issue + eligibility contracts", () => {
       {
         data: {
           templateId: template.id,
-          tag: "anytag",
           emailSubject: "x",
         },
       },
@@ -259,41 +268,45 @@ test.describe("Issue + eligibility contracts", () => {
     );
   });
 
-  test("eligible endpoint returns availableTags overview without tag param", async ({ page }) => {
+  test("eligible endpoint previews who a template would go to: nobody until people are assigned", async ({ page }) => {
     await loginAs(page, "ADMIN");
 
     const createRes = await page.request.post(
       `/api/events/${EVENT_ID}/certificates/templates`,
-      { data: { name: "E2E Tag Overview", category: ATTENDANCE } },
+      { data: { name: "E2E Eligible Preview", category: ATTENDANCE } },
     );
     const { template } = (await createRes.json()) as { template: { id: string } };
 
     const res = await page.request.get(
-      `/api/events/${EVENT_ID}/certificates/eligible?templateId=${template.id}`,
+      `/api/events/${EVENT_ID}/certificates/eligible?templateIds=${template.id}`,
     );
     expect(res.ok()).toBeTruthy();
     const json = (await res.json()) as {
-      availableTags: Array<{ tag: string; count: number }>;
-      eligibleCount: number;
-      tag: string | null;
+      peopleCount: number;
+      perTemplate: Array<{ templateId: string; count: number; assigned: number }>;
     };
-    expect(Array.isArray(json.availableTags)).toBeTruthy();
-    expect(json.tag).toBeNull();
-    // Without an explicit tag, the eligible list is empty by design
-    // (picker mode — the operator hasn't chosen yet).
-    expect(json.eligibleCount).toBe(0);
+    expect(json.peopleCount).toBe(0);
+    expect(json.perTemplate).toEqual([
+      expect.objectContaining({ templateId: template.id, count: 0, assigned: 0 }),
+    ]);
+
+    // The retired tag picker is refused outright.
+    const tagged = await page.request.get(
+      `/api/events/${EVENT_ID}/certificates/eligible?templateId=${template.id}&tag=anytag`,
+    );
+    expect(tagged.status()).toBe(400);
 
     await page.request.delete(
       `/api/events/${EVENT_ID}/certificates/templates/${template.id}`,
     );
   });
 
-  test("issue returns 422 NO_ELIGIBLE_RECIPIENTS for a tag no one has", async ({ page }) => {
+  test("issue returns 422 NO_ELIGIBLE_RECIPIENTS for a template nobody is assigned", async ({ page }) => {
     await loginAs(page, "ADMIN");
 
     const createRes = await page.request.post(
       `/api/events/${EVENT_ID}/certificates/templates`,
-      { data: { name: "E2E Empty Tag", category: ATTENDANCE } },
+      { data: { name: "E2E Nobody Assigned", category: ATTENDANCE } },
     );
     const { template } = (await createRes.json()) as { template: { id: string } };
 
@@ -301,17 +314,16 @@ test.describe("Issue + eligibility contracts", () => {
       `/api/events/${EVENT_ID}/certificates/issue`,
       {
         data: {
-          templateId: template.id,
-          tag: "tag-that-no-attendee-has",
+          templateIds: [template.id],
           emailSubject: "subj",
           emailBody: "<p>body</p>",
         },
       },
     );
     expect(res.status()).toBe(422);
-    const json = (await res.json()) as { code: string; perTemplate: unknown };
+    const json = (await res.json()) as { code: string; error: string; perTemplate: unknown };
     expect(json.code).toBe("NO_ELIGIBLE_RECIPIENTS");
-    // Per template since the Jul 10, 2026 bundle runs (f700ba2f), not a flat tag list.
+    expect(json.error).toContain("Nobody is assigned");
     expect(Array.isArray(json.perTemplate)).toBeTruthy();
 
     await page.request.delete(

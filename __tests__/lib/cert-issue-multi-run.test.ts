@@ -46,7 +46,6 @@ const TPL = (id: string, category: "ATTENDANCE" | "APPRECIATION") => ({
   id,
   name: id,
   category,
-  autoIssueTag: "t",
   template: { backgroundPdfUrl: null, textBoxes: [], role: null, cmeHours: null },
 });
 

@@ -83,6 +83,7 @@ model Speaker {
   accommodation            Accommodation?
   issuedCertificates       IssuedCertificate[]
   certificateIssueRunItems CertificateIssueRunItem[]
+  certificateAssignments   CertificateAssignment[]
   documents                SpeakerDocument[]
   reimbursement            SpeakerReimbursement?
   travelGrant              TravelGrant?

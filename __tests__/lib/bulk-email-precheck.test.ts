@@ -12,7 +12,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockLoadCertTemplate, mockPickAgreementMode } = vi.hoisted(() => ({
-  mockDb: { event: { findFirst: vi.fn() }, rsvpCampaign: { findFirst: vi.fn() } },
+  mockDb: {
+    event: { findFirst: vi.fn() },
+    rsvpCampaign: { findFirst: vi.fn() },
+    certificateAssignment: { groupBy: vi.fn() },
+  },
   mockLoadCertTemplate: vi.fn(),
   mockPickAgreementMode: vi.fn(),
 }));
@@ -264,14 +268,14 @@ describe("precheckBulkEmailViability", () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it("throws 400 when a certificate template has no tag", async () => {
+  it("throws 400 when nobody is assigned a selected certificate template", async () => {
     mockLoadCertTemplate.mockResolvedValue({
       id: "tpl-1",
       name: "Attendance",
       category: "ATTENDANCE",
-      autoIssueTag: "  ", // whitespace-only ⇒ untagged
       template: {},
     });
+    mockDb.certificateAssignment.groupBy.mockResolvedValue([]); // no rows: nobody assigned
     await expect(
       precheckBulkEmailViability({
         eventId: "evt-1",
@@ -279,17 +283,24 @@ describe("precheckBulkEmailViability", () => {
         emailType: "certificate",
         filters: { certificateTemplateIds: ["tpl-1"] },
       }),
-    ).rejects.toMatchObject({ status: 400 });
+    ).rejects.toMatchObject({ status: 400, message: expect.stringContaining("Nobody is assigned") });
+    // The count leaves cancelled registrations out, like every reader.
+    expect(mockDb.certificateAssignment.groupBy.mock.calls[0][0].where).toMatchObject({
+      certificateTemplateId: { in: ["tpl-1"] },
+      OR: [{ speakerId: { not: null } }, { registration: { status: { not: "CANCELLED" } } }],
+    });
   });
 
-  it("returns loaded certTemplates for a tagged certificate send", async () => {
+  it("returns loaded certTemplates for a certificate send that has people assigned", async () => {
     mockLoadCertTemplate.mockResolvedValue({
       id: "tpl-1",
       name: "Attendance",
       category: "ATTENDANCE",
-      autoIssueTag: "attended",
       template: {},
     });
+    mockDb.certificateAssignment.groupBy.mockResolvedValue([
+      { certificateTemplateId: "tpl-1", _count: { _all: 3 } },
+    ]);
     const res = await precheckBulkEmailViability({
       eventId: "evt-1",
       recipientType: "registrations",

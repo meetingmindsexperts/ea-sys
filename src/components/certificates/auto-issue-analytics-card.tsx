@@ -38,7 +38,7 @@ interface AutoIssueAnalytics {
   };
   certsAutoIssued: number;
   autoRuns: { inFlight: number; completed: number; failed: number };
-  templates: { configured: number; missingTag: number; missingTagNames: string[] };
+  templates: { configured: number; withoutRecipients: number; withoutRecipientsNames: string[] };
   recentErrors: Array<{
     registrationId: string;
     name: string;
@@ -113,9 +113,8 @@ export function AutoIssueAnalyticsCard({ eventId }: { eventId: string }) {
                 ))}
             </CardTitle>
             <CardDescription>
-              Certificates issued automatically when a registrant completes the survey.
-              Configure per template in the Templates tab (toggle &ldquo;Auto-issue on
-              survey&rdquo; + a tag).
+              Certificates sent automatically when someone assigned a certificate answers the survey. Turn it on
+              per template in the Templates tab, and assign people from the Registrations or Speakers page.
             </CardDescription>
           </div>
           <Button
@@ -138,20 +137,22 @@ export function AutoIssueAnalyticsCard({ eventId }: { eventId: string }) {
         )}
         {!isLoading && !isError && data && (data.templates.configured === 0 ? (
           <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-            No templates are set to auto-issue on survey completion. Open a template in the
-            Templates tab and enable &ldquo;Auto-issue on survey&rdquo; with a tag to start
-            issuing certificates automatically.
+            No certificate is set to send automatically. Open a template in the Templates tab and
+            turn on &ldquo;Send automatically when the survey is answered&rdquo;: everyone assigned
+            that certificate then receives it once they answer the certificate survey.
           </div>
         ) : (
           <>
-            {data.templates.missingTag > 0 && (
+            {data.templates.withoutRecipients > 0 && (
               <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
                 <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <span>
-                  {data.templates.missingTag} auto-issue{" "}
-                  {data.templates.missingTag === 1 ? "template has" : "templates have"} no tag
-                  set — they will never match anyone. Add a tag in the Templates tab:{" "}
-                  <span className="font-medium">{data.templates.missingTagNames.join(", ")}</span>.
+                  {data.templates.withoutRecipients}{" "}
+                  {data.templates.withoutRecipients === 1 ? "certificate sends" : "certificates send"} automatically
+                  but {data.templates.withoutRecipients === 1 ? "has" : "have"} nobody assigned, so nobody will
+                  receive {data.templates.withoutRecipients === 1 ? "it" : "them"}. Assign people from the
+                  Registrations or Speakers page, or under Recipients:{" "}
+                  <span className="font-medium">{data.templates.withoutRecipientsNames.join(", ")}</span>.
                 </span>
               </div>
             )}

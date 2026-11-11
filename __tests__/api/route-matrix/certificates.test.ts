@@ -32,6 +32,8 @@ vi.mock("@/lib/email", async (importOriginal) => ({
 
 import { domainMatrix, type HandlerCase } from "./harness";
 import { GET as analyticsGET } from "@/app/api/events/[eventId]/certificates/auto-issue/analytics/route";
+import { GET as assignmentsGET, POST as assignmentsPOST, DELETE as assignmentsDELETE } from "@/app/api/events/[eventId]/certificates/assignments/route";
+import { GET as recipientsGET } from "@/app/api/events/[eventId]/certificates/recipients/route";
 import { POST as bulkReissuePOST } from "@/app/api/events/[eventId]/certificates/bulk-reissue/route";
 import { GET as eligibleGET } from "@/app/api/events/[eventId]/certificates/eligible/route";
 import { POST as issueSinglePOST } from "@/app/api/events/[eventId]/certificates/issue-single/route";
@@ -58,6 +60,11 @@ const tpl = { templateId: "ct1" };
 
 const CASES: HandlerCase[] = [
   { name: "GET certificates/auto-issue/analytics", handler: analyticsGET, method: "GET" },
+  // Who receives which certificate (Nov 11, 2026): the list, its writes and the report.
+  { name: "GET certificates/assignments", handler: assignmentsGET, method: "GET", query: "registrationId=r1" },
+  { name: "POST certificates/assignments", handler: assignmentsPOST, method: "POST", body: { templateId: "ct1", registrationIds: ["r1"] } },
+  { name: "DELETE certificates/assignments", handler: assignmentsDELETE, method: "DELETE", body: { templateId: "ct1", registrationIds: ["r1"] } },
+  { name: "GET certificates/recipients", handler: recipientsGET, method: "GET" },
   { name: "GET certificates/templates", handler: templatesGET, method: "GET" },
   { name: "POST certificates/templates", handler: templatesPOST, method: "POST", body: { name: "Attendance", category: "ATTENDANCE" } },
   { name: "PATCH certificates/templates/[templateId]", handler: templatePATCH, method: "PATCH", params: tpl, body: { name: "Attendance 2" } },

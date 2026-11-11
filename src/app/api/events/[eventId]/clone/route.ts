@@ -513,8 +513,9 @@ export async function POST(
               backgroundPdfUrl: ct.backgroundPdfUrl,
               textBoxes: ct.textBoxes as Prisma.InputJsonValue,
               sortOrder: ct.sortOrder,
-              autoIssueTag: ct.autoIssueTag,
-              // Paused on the copy, as the template Duplicate does. Auto-issue
+              // Nobody is assigned on the copy (assignments name the source
+              // event's people), and auto-issue starts paused, as the
+              // template Duplicate does. Auto-issue
               // mails a certificate with nobody clicking Issue, and a cloned
               // design often still carries last edition's dates or venue as
               // plain text. The organizer turns it back on after checking.

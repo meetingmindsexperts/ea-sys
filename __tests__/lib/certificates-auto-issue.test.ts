@@ -1,30 +1,47 @@
 /**
- * Phase 2 — survey-gated certificate auto-issue.
- * Covers the pure routing (constraint C: ATTENDANCE→registration tags,
- * APPRECIATION→speaker tags) and the sweep's enqueue / idempotency /
- * retry-backoff behavior.
+ * Survey-gated certificate auto-issue: the sweep's enqueue / idempotency /
+ * retry-backoff behavior, driven by ASSIGNMENTS since Nov 11, 2026 (the pure
+ * routing rule is pinned in certificate-assignments.test.ts).
+ *
+ * The sweep takes the per-event lock as the FIRST statement of each
+ * registration's transaction and reads the templates, the linked speaker and
+ * the assignments after it; the order test below pins that, because it is
+ * what stops an assignment made at the same moment from being missed.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const registrationFindMany = vi.fn();
 const registrationUpdate = vi.fn();
-const certificateTemplateFindMany = vi.fn();
-const speakerFindFirst = vi.fn();
 
+const calls: string[] = [];
+const txQueryRaw = vi.fn();
+const txTemplateFindMany = vi.fn();
+const txSpeakerFindFirst = vi.fn();
+const txAssignmentFindMany = vi.fn();
 const txIssuedCertFindFirst = vi.fn();
 const txRunItemFindFirst = vi.fn();
 const txRunCreate = vi.fn();
 const txRunItemCreate = vi.fn();
 const txRegistrationUpdate = vi.fn();
 
+const record = <T extends (...a: never[]) => unknown>(name: string, fn: T) =>
+  ((...a: Parameters<T>) => {
+    calls.push(name);
+    return fn(...a);
+  }) as T;
+
 const tx = {
+  $queryRaw: record("lock", (...a: unknown[]) => txQueryRaw(...a)),
+  certificateTemplate: { findMany: record("templates", (...a: unknown[]) => txTemplateFindMany(...a)) },
+  speaker: { findFirst: record("speaker", (...a: unknown[]) => txSpeakerFindFirst(...a)) },
+  certificateAssignment: { findMany: record("assignments", (...a: unknown[]) => txAssignmentFindMany(...a)) },
   issuedCertificate: { findFirst: (...a: unknown[]) => txIssuedCertFindFirst(...a) },
   certificateIssueRunItem: {
     findFirst: (...a: unknown[]) => txRunItemFindFirst(...a),
     create: (...a: unknown[]) => txRunItemCreate(...a),
   },
   certificateIssueRun: { create: (...a: unknown[]) => txRunCreate(...a) },
-  registration: { update: (...a: unknown[]) => txRegistrationUpdate(...a) },
+  registration: { update: record("stamp", (...a: unknown[]) => txRegistrationUpdate(...a)) },
 };
 
 // `dbOperator` is the SAME object as `db` here, which is exactly what it is on
@@ -36,8 +53,6 @@ vi.mock("@/lib/db", () => {
       findMany: (...a: unknown[]) => registrationFindMany(...a),
       update: (...a: unknown[]) => registrationUpdate(...a),
     },
-    certificateTemplate: { findMany: (...a: unknown[]) => certificateTemplateFindMany(...a) },
-    speaker: { findFirst: (...a: unknown[]) => speakerFindFirst(...a) },
     $transaction: (cb: (t: typeof tx) => unknown) => cb(tx),
   };
   return {
@@ -50,84 +65,59 @@ vi.mock("@/lib/db", () => {
 });
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { selectAutoIssueTargets, runAutoIssueSweep } from "@/lib/certificates/auto-issue";
+import { runAutoIssueSweep } from "@/lib/certificates/auto-issue";
 
-const attendanceTpl = {
-  id: "tpl_att",
-  category: "ATTENDANCE" as const,
-  autoIssueTag: "delegate",
-};
-const appreciationTpl = {
-  id: "tpl_app",
-  category: "APPRECIATION" as const,
-  autoIssueTag: "speaker",
-};
+const attendanceTpl = { id: "tpl_att", category: "ATTENDANCE" as const };
+const appreciationTpl = { id: "tpl_app", category: "APPRECIATION" as const };
 
-describe("selectAutoIssueTargets (constraint C routing)", () => {
-  it("ATTENDANCE matches attendee tags → registration recipient", () => {
-    const t = selectAutoIssueTargets([attendanceTpl], ["delegate"], null);
-    expect(t).toEqual([{ templateId: "tpl_att", category: "ATTENDANCE", recipient: "registration" }]);
-  });
+/** Assignment rows as the sweep's one query returns them. */
+const regAssigned = (templateId: string, registrationId: string) => ({
+  certificateTemplateId: templateId,
+  registrationId,
+  speakerId: null,
+});
+const speakerAssigned = (templateId: string, speakerId: string) => ({
+  certificateTemplateId: templateId,
+  registrationId: null,
+  speakerId,
+});
 
-  it("APPRECIATION matches speaker tags → speaker recipient", () => {
-    const t = selectAutoIssueTargets([appreciationTpl], [], ["speaker"]);
-    expect(t).toEqual([{ templateId: "tpl_app", category: "APPRECIATION", recipient: "speaker" }]);
-  });
-
-  it("APPRECIATION never matches when there is no linked speaker", () => {
-    const t = selectAutoIssueTargets([appreciationTpl], ["speaker"], null);
-    expect(t).toEqual([]);
-  });
-
-  it("a person who is both gets both certs routed to the right recipient", () => {
-    const t = selectAutoIssueTargets([attendanceTpl, appreciationTpl], ["delegate"], ["speaker"]);
-    expect(t).toEqual([
-      { templateId: "tpl_att", category: "ATTENDANCE", recipient: "registration" },
-      { templateId: "tpl_app", category: "APPRECIATION", recipient: "speaker" },
-    ]);
-  });
-
-  it("a template with no tag never matches (no mass-issue)", () => {
-    const t = selectAutoIssueTargets(
-      [{ ...attendanceTpl, autoIssueTag: null }],
-      ["delegate"],
-      null,
-    );
-    expect(t).toEqual([]);
-  });
-
-  it("non-matching tag → no target", () => {
-    expect(selectAutoIssueTargets([attendanceTpl], ["vip"], null)).toEqual([]);
-  });
+const candidate = (id: string, attendee: Record<string, unknown>, attempts = 0) => ({
+  id,
+  eventId: "evt_1",
+  organizationId: null,
+  certAutoIssueAttempts: attempts,
+  attendee,
 });
 
 const NOW = new Date("2026-06-25T12:00:00Z");
 
 beforeEach(() => {
+  calls.length = 0;
   [
-    registrationFindMany, registrationUpdate, certificateTemplateFindMany, speakerFindFirst,
-    txIssuedCertFindFirst, txRunItemFindFirst, txRunCreate, txRunItemCreate, txRegistrationUpdate,
+    registrationFindMany, registrationUpdate, txQueryRaw, txTemplateFindMany, txSpeakerFindFirst,
+    txAssignmentFindMany, txIssuedCertFindFirst, txRunItemFindFirst, txRunCreate, txRunItemCreate,
+    txRegistrationUpdate,
   ].forEach((m) => m.mockReset());
+  txQueryRaw.mockResolvedValue([]);
+  txTemplateFindMany.mockResolvedValue([]);
+  txSpeakerFindFirst.mockResolvedValue(null);
+  txAssignmentFindMany.mockResolvedValue([]);
   txIssuedCertFindFirst.mockResolvedValue(null);
   txRunItemFindFirst.mockResolvedValue(null);
   txRunCreate.mockResolvedValue({ id: "run_new" });
   txRunItemCreate.mockResolvedValue({ id: "item_new" });
   txRegistrationUpdate.mockResolvedValue({});
   registrationUpdate.mockResolvedValue({});
-  speakerFindFirst.mockResolvedValue(null);
 });
 
 describe("runAutoIssueSweep", () => {
-  it("enqueues an ATTENDANCE auto-run for a matching registration + stamps checkedAt", async () => {
+  it("enqueues an ATTENDANCE auto-run for an assigned registration + stamps checkedAt", async () => {
     registrationFindMany.mockResolvedValue([
-      {
-        id: "reg_1",
-        eventId: "evt_1",
-        certAutoIssueAttempts: 0,
-        attendee: { title: "DR", firstName: "Jane", lastName: "Doe", email: "j@x.com", tags: ["delegate"] },
-      },
+      candidate("reg_1", { title: "DR", firstName: "Jane", lastName: "Doe", email: "j@x.com" }),
     ]);
-    certificateTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txAssignmentFindMany.mockResolvedValue([regAssigned("tpl_att", "reg_1")]);
 
     const res = await runAutoIssueSweep({ now: NOW });
 
@@ -148,6 +138,69 @@ describe("runAutoIssueSweep", () => {
     );
   });
 
+  it("takes the per-event lock FIRST and reads templates, speaker and assignments after it, then stamps", async () => {
+    registrationFindMany.mockResolvedValue([
+      candidate("reg_1", { title: null, firstName: "A", lastName: "B", email: "a@x.com" }),
+    ]);
+    txTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txAssignmentFindMany.mockResolvedValue([regAssigned("tpl_att", "reg_1")]);
+
+    await runAutoIssueSweep({ now: NOW });
+
+    // An assignment or a switch-on that commits at the same moment takes the
+    // same lock: reading anything before it would let the stamp bury them.
+    expect(calls[0]).toBe("lock");
+    expect(calls.indexOf("templates")).toBeGreaterThan(0);
+    expect(calls.indexOf("assignments")).toBeGreaterThan(calls.indexOf("templates"));
+    expect(calls[calls.length - 1]).toBe("stamp");
+    // Only auto-issue templates of the registration's own event are considered.
+    expect(txTemplateFindMany.mock.calls[0][0].where).toEqual({ eventId: "evt_1", autoIssueOnSurvey: true });
+  });
+
+  it("asks for the assignments of THIS registration and its linked speaker only", async () => {
+    registrationFindMany.mockResolvedValue([
+      candidate("reg_9", { title: null, firstName: "A", lastName: "B", email: "a@x.com" }),
+    ]);
+    txTemplateFindMany.mockResolvedValue([attendanceTpl, appreciationTpl]);
+    txSpeakerFindFirst.mockResolvedValueOnce({ id: "spk_9", title: null, firstName: "A", lastName: "B", email: "a@x.com" });
+
+    await runAutoIssueSweep({ now: NOW });
+
+    expect(txAssignmentFindMany.mock.calls[0][0].where).toEqual({
+      certificateTemplateId: { in: ["tpl_att", "tpl_app"] },
+      OR: [{ registrationId: "reg_9" }, { speakerId: "spk_9" }],
+    });
+  });
+
+  it("sends nothing to a person who answered but is assigned nothing, and still stamps them", async () => {
+    registrationFindMany.mockResolvedValue([
+      candidate("reg_n", { title: null, firstName: "N", lastName: "O", email: "n@x.com" }),
+    ]);
+    txTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txAssignmentFindMany.mockResolvedValue([]);
+
+    const res = await runAutoIssueSweep({ now: NOW });
+
+    expect(res.runsCreated).toBe(0);
+    expect(txRunCreate).not.toHaveBeenCalled();
+    expect(txRegistrationUpdate).toHaveBeenCalled();
+    expect(res.resolved).toBe(1);
+  });
+
+  it("ignores an assignment that belongs to somebody else", async () => {
+    registrationFindMany.mockResolvedValue([
+      candidate("reg_1", { title: null, firstName: "A", lastName: "B", email: "a@x.com" }),
+    ]);
+    txTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    // A wrong row slipping through the query must still not issue.
+    txAssignmentFindMany.mockResolvedValue([regAssigned("tpl_att", "reg_other")]);
+
+    const res = await runAutoIssueSweep({ now: NOW });
+
+    expect(res.runsCreated).toBe(0);
+    expect(txRunCreate).not.toHaveBeenCalled();
+  });
+
   it("excludes CANCELLED registrations from the candidate query (M2)", async () => {
     registrationFindMany.mockResolvedValue([]);
     await runAutoIssueSweep({ now: NOW });
@@ -157,17 +210,13 @@ describe("runAutoIssueSweep", () => {
 
   it("routes APPRECIATION to the linked speaker (companion case)", async () => {
     registrationFindMany.mockResolvedValue([
-      {
-        id: "reg_2",
-        eventId: "evt_1",
-        certAutoIssueAttempts: 0,
-        attendee: { title: null, firstName: "Sam", lastName: "Lee", email: "s@x.com", tags: [] },
-      },
+      candidate("reg_2", { title: null, firstName: "Sam", lastName: "Lee", email: "s@x.com" }),
     ]);
-    certificateTemplateFindMany.mockResolvedValue([appreciationTpl]);
-    speakerFindFirst.mockResolvedValueOnce({
-      id: "spk_2", title: "PROF", firstName: "Sam", lastName: "Lee", email: "s@x.com", tags: ["speaker"],
+    txTemplateFindMany.mockResolvedValue([appreciationTpl]);
+    txSpeakerFindFirst.mockResolvedValueOnce({
+      id: "spk_2", title: "PROF", firstName: "Sam", lastName: "Lee", email: "s@x.com",
     });
+    txAssignmentFindMany.mockResolvedValue([speakerAssigned("tpl_app", "spk_2")]);
 
     const res = await runAutoIssueSweep({ now: NOW });
 
@@ -177,28 +226,40 @@ describe("runAutoIssueSweep", () => {
     expect(itemArg.registrationId).toBeNull();
   });
 
-  it("bundles a committee+speaker person into ONE run + ONE person-keyed item (one email)", async () => {
+  it("an APPRECIATION template assigned to the REGISTRATION does not issue (wrong facet)", async () => {
     registrationFindMany.mockResolvedValue([
-      {
-        id: "reg_5",
-        eventId: "evt_1",
-        certAutoIssueAttempts: 0,
-        attendee: { title: "DR", firstName: "Jane", lastName: "Doe", email: "j@x.com", tags: ["delegate"] },
-      },
+      candidate("reg_2", { title: null, firstName: "Sam", lastName: "Lee", email: "s@x.com" }),
     ]);
-    certificateTemplateFindMany.mockResolvedValue([attendanceTpl, appreciationTpl]);
-    speakerFindFirst.mockResolvedValueOnce({
-      id: "spk_5", title: "DR", firstName: "Jane", lastName: "Doe", email: "j@x.com", tags: ["speaker"],
-    });
+    txTemplateFindMany.mockResolvedValue([appreciationTpl]);
+    txAssignmentFindMany.mockResolvedValue([regAssigned("tpl_app", "reg_2")]);
 
     const res = await runAutoIssueSweep({ now: NOW });
 
-    // ONE run covering both templates — not two 1-template runs.
+    expect(res.runsCreated).toBe(0);
+    expect(txRunCreate).not.toHaveBeenCalled();
+  });
+
+  it("bundles a committee+speaker person into ONE run + ONE person-keyed item (one email)", async () => {
+    registrationFindMany.mockResolvedValue([
+      candidate("reg_5", { title: "DR", firstName: "Jane", lastName: "Doe", email: "j@x.com" }),
+    ]);
+    txTemplateFindMany.mockResolvedValue([attendanceTpl, appreciationTpl]);
+    txSpeakerFindFirst.mockResolvedValueOnce({
+      id: "spk_5", title: "DR", firstName: "Jane", lastName: "Doe", email: "j@x.com",
+    });
+    txAssignmentFindMany.mockResolvedValue([
+      regAssigned("tpl_att", "reg_5"),
+      speakerAssigned("tpl_app", "spk_5"),
+    ]);
+
+    const res = await runAutoIssueSweep({ now: NOW });
+
+    // ONE run covering both templates, not two 1-template runs.
     expect(txRunCreate).toHaveBeenCalledTimes(1);
     const runArg = txRunCreate.mock.calls[0][0].data;
     expect(runArg.templateIds).toEqual(["tpl_att", "tpl_app"]);
     expect(runArg.certificateTemplateId).toBeNull();
-    // Multi bundle → null cover snapshot (send phase uses the MULTI defaults).
+    // Multi bundle: null cover snapshot (send phase uses the MULTI defaults).
     expect(runArg.emailSubject).toBeNull();
     expect(runArg.emailBody).toBeNull();
     // ONE person-keyed item with BOTH facets + the stamped subset.
@@ -212,15 +273,13 @@ describe("runAutoIssueSweep", () => {
 
   it("a single surviving target leaves the run's cover snapshot empty, so the send phase resolves the event's Email Template", async () => {
     registrationFindMany.mockResolvedValue([
-      {
-        id: "reg_6", eventId: "evt_1", certAutoIssueAttempts: 0,
-        attendee: { title: null, firstName: "Sam", lastName: "Lee", email: "s@x.com", tags: [] },
-      },
+      candidate("reg_6", { title: null, firstName: "Sam", lastName: "Lee", email: "s@x.com" }),
     ]);
-    certificateTemplateFindMany.mockResolvedValue([appreciationTpl]);
-    speakerFindFirst.mockResolvedValueOnce({
-      id: "spk_6", title: null, firstName: "Sam", lastName: "Lee", email: "s@x.com", tags: ["speaker"],
+    txTemplateFindMany.mockResolvedValue([appreciationTpl]);
+    txSpeakerFindFirst.mockResolvedValueOnce({
+      id: "spk_6", title: null, firstName: "Sam", lastName: "Lee", email: "s@x.com",
     });
+    txAssignmentFindMany.mockResolvedValue([speakerAssigned("tpl_app", "spk_6")]);
 
     await runAutoIssueSweep({ now: NOW });
 
@@ -233,15 +292,16 @@ describe("runAutoIssueSweep", () => {
 
   it("drops an already-covered target but still bundles the remaining one", async () => {
     registrationFindMany.mockResolvedValue([
-      {
-        id: "reg_7", eventId: "evt_1", certAutoIssueAttempts: 0,
-        attendee: { title: null, firstName: "A", lastName: "B", email: "a@x.com", tags: ["delegate"] },
-      },
+      candidate("reg_7", { title: null, firstName: "A", lastName: "B", email: "a@x.com" }),
     ]);
-    certificateTemplateFindMany.mockResolvedValue([attendanceTpl, appreciationTpl]);
-    speakerFindFirst.mockResolvedValueOnce({
-      id: "spk_7", title: null, firstName: "A", lastName: "B", email: "a@x.com", tags: ["speaker"],
+    txTemplateFindMany.mockResolvedValue([attendanceTpl, appreciationTpl]);
+    txSpeakerFindFirst.mockResolvedValueOnce({
+      id: "spk_7", title: null, firstName: "A", lastName: "B", email: "a@x.com",
     });
+    txAssignmentFindMany.mockResolvedValue([
+      regAssigned("tpl_att", "reg_7"),
+      speakerAssigned("tpl_app", "spk_7"),
+    ]);
     // The ATTENDANCE cert already exists; APPRECIATION survives.
     txIssuedCertFindFirst.mockImplementation((args: { where: { certificateTemplateId: string } }) =>
       Promise.resolve(args.where.certificateTemplateId === "tpl_att" ? { id: "cert_existing" } : null),
@@ -260,12 +320,10 @@ describe("runAutoIssueSweep", () => {
 
   it("skips enqueue when a cert already exists for the (template, recipient)", async () => {
     registrationFindMany.mockResolvedValue([
-      {
-        id: "reg_3", eventId: "evt_1", certAutoIssueAttempts: 0,
-        attendee: { title: null, firstName: "A", lastName: "B", email: "a@x.com", tags: ["delegate"] },
-      },
+      candidate("reg_3", { title: null, firstName: "A", lastName: "B", email: "a@x.com" }),
     ]);
-    certificateTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txAssignmentFindMany.mockResolvedValue([regAssigned("tpl_att", "reg_3")]);
     txIssuedCertFindFirst.mockResolvedValue({ id: "cert_existing" });
 
     const res = await runAutoIssueSweep({ now: NOW });
@@ -279,13 +337,11 @@ describe("runAutoIssueSweep", () => {
 
   it("skips enqueue when a NON-TERMINAL run (manual OR auto) already has a pending item for the target (H3 double-send guard)", async () => {
     registrationFindMany.mockResolvedValue([
-      {
-        id: "reg_h3", eventId: "evt_1", certAutoIssueAttempts: 0,
-        attendee: { title: null, firstName: "A", lastName: "B", email: "a@x.com", tags: ["delegate"] },
-      },
+      candidate("reg_h3", { title: null, firstName: "A", lastName: "B", email: "a@x.com" }),
     ]);
-    certificateTemplateFindMany.mockResolvedValue([attendanceTpl]);
-    txIssuedCertFindFirst.mockResolvedValue(null); // no cert yet — the item guard must catch it
+    txTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txAssignmentFindMany.mockResolvedValue([regAssigned("tpl_att", "reg_h3")]);
+    txIssuedCertFindFirst.mockResolvedValue(null); // no cert yet: the item guard must catch it
     txRunItemFindFirst.mockResolvedValue({ id: "item_from_manual_run" });
 
     const res = await runAutoIssueSweep({ now: NOW });
@@ -305,24 +361,29 @@ describe("runAutoIssueSweep", () => {
 
   it("terminally resolves + counts skippedNoTemplates when the event has no auto-issue templates", async () => {
     registrationFindMany.mockResolvedValue([
-      { id: "reg_4", eventId: "evt_1", certAutoIssueAttempts: 0, attendee: { firstName: "X", lastName: "Y", email: "x@x.com", tags: [] } },
+      candidate("reg_4", { firstName: "X", lastName: "Y", email: "x@x.com" }),
     ]);
-    certificateTemplateFindMany.mockResolvedValue([]);
+    txTemplateFindMany.mockResolvedValue([]);
 
     const res = await runAutoIssueSweep({ now: NOW });
 
     expect(res.skippedNoTemplates).toBe(1);
     expect(res.resolved).toBe(1);
-    expect(registrationUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "reg_4" }, data: { certAutoIssueCheckedAt: NOW } }),
+    // Stamped inside the locked transaction, so a switch turned on at the same
+    // moment either was seen or clears the stamp afterwards.
+    expect(calls).toEqual(["lock", "templates", "stamp"]);
+    expect(txRegistrationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "reg_4" }, data: { certAutoIssueCheckedAt: NOW, certAutoIssueError: null } }),
     );
+    expect(txAssignmentFindMany).not.toHaveBeenCalled();
   });
 
   it("on a transient failure, defers with backoff + increments attempts (does NOT terminally stamp)", async () => {
     registrationFindMany.mockResolvedValue([
-      { id: "reg_5", eventId: "evt_1", certAutoIssueAttempts: 1, attendee: { firstName: "P", lastName: "Q", email: "p@x.com", tags: ["delegate"] } },
+      candidate("reg_5", { firstName: "P", lastName: "Q", email: "p@x.com" }, 1),
     ]);
-    certificateTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txAssignmentFindMany.mockResolvedValue([regAssigned("tpl_att", "reg_5")]);
     txRunCreate.mockRejectedValue(new Error("db blip"));
 
     const res = await runAutoIssueSweep({ now: NOW });
@@ -337,11 +398,25 @@ describe("runAutoIssueSweep", () => {
     expect(upd.data.certAutoIssueCheckedAt).toBeUndefined();
   });
 
+  it("a failure to take the lock is a transient failure like any other", async () => {
+    registrationFindMany.mockResolvedValue([
+      candidate("reg_l", { firstName: "L", lastName: "K", email: "l@x.com" }),
+    ]);
+    txQueryRaw.mockRejectedValue(new Error("lock wait timed out"));
+
+    const res = await runAutoIssueSweep({ now: NOW });
+
+    expect(res.deferred).toBe(1);
+    expect(txRegistrationUpdate).not.toHaveBeenCalled();
+    expect(registrationUpdate.mock.calls[0][0].data.certAutoIssueError).toContain("lock wait");
+  });
+
   it("gives up terminally after exhausting retries", async () => {
     registrationFindMany.mockResolvedValue([
-      { id: "reg_6", eventId: "evt_1", certAutoIssueAttempts: 4, attendee: { firstName: "P", lastName: "Q", email: "p@x.com", tags: ["delegate"] } },
+      candidate("reg_6", { firstName: "P", lastName: "Q", email: "p@x.com" }, 4),
     ]);
-    certificateTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txAssignmentFindMany.mockResolvedValue([regAssigned("tpl_att", "reg_6")]);
     txRunCreate.mockRejectedValue(new Error("still broken"));
 
     const res = await runAutoIssueSweep({ now: NOW });

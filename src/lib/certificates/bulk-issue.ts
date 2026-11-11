@@ -9,12 +9,12 @@
  *      plus its linked counterpart (companion pointer, else email match) —
  *      so one email can bundle an ATTENDANCE cert (registration) with an
  *      APPRECIATION cert (linked speaker).
- *   2. TAG-FILTER the selected templates: a recipient only receives the
- *      certs whose template tag they hold (the template's stored tag is the
- *      single source of truth — same rule as survey auto-issue). Zero
- *      matches → SKIPPED (counted in skippedCount, warn-logged, never a
- *      failure) — the audience may legitimately be ALL registrations with
- *      the tags deciding who receives what ("no tag, no certificate").
+ *   2. FILTER the selected templates by ASSIGNMENT: a recipient only
+ *      receives the certs they are assigned (CertificateAssignment, the rule
+ *      in ./assignments.ts, same as survey auto-issue). Zero matches means
+ *      SKIPPED (counted in skippedCount, warn-logged, never a failure): the
+ *      audience may legitimately be ALL registrations, with the assignments
+ *      deciding who receives what ("not assigned, no certificate").
  *   3. findOrIssueCertificate per matching template — real IssuedCertificate
  *      records (serial, audit, resendable); an already-issued template
  *      reuses the existing cert/PDF instead of minting a duplicate.
@@ -38,7 +38,7 @@ import {
   type BundleCert,
   type LoadedCertTemplate,
 } from "./bundle";
-import { selectAutoIssueTargets } from "./auto-issue";
+import { loadAssignedTemplateIds, selectAssignedTargets } from "./assignments";
 import { formatRecipientName } from "./cert-context";
 import {
   SYSTEM_DEFAULT_SUBJECT_MULTI,
@@ -64,7 +64,7 @@ export interface CertificateBulkSendInput {
   eventId: string;
   recipientType: "registrations" | "speakers";
   recipients: CertificateBulkRecipient[];
-  /** Pre-validated by the caller: all belong to the event, all tagged. */
+  /** Pre-validated by the caller: all belong to the event, all have someone assigned. */
   templates: LoadedCertTemplate[];
   customSubject?: string;
   customMessage?: string;
@@ -99,11 +99,9 @@ export interface CertificateBulkSendInput {
 interface PersonFacets {
   registrationId: string | null;
   speakerId: string | null;
-  attendeeTags: string[];
-  speakerTags: string[] | null;
 }
 
-/** Resolve both facets (+ their tags) of the person behind a recipient row. */
+/** Resolve both facets of the person behind a recipient row. */
 async function resolvePersonFacets(
   eventId: string,
   recipientType: "registrations" | "speakers",
@@ -112,42 +110,23 @@ async function resolvePersonFacets(
   if (recipientType === "registrations") {
     const reg = await db.registration.findUnique({
       where: { id: recipientId },
-      select: { attendee: { select: { tags: true, email: true } } },
+      select: { attendee: { select: { email: true } } },
     });
     if (!reg) return null;
     const linked = await resolveLinkedSpeaker(eventId, {
       id: recipientId,
       attendeeEmail: reg.attendee.email,
     });
-    const speaker = linked
-      ? await db.speaker.findUnique({ where: { id: linked.id }, select: { tags: true } })
-      : null;
-    return {
-      registrationId: recipientId,
-      speakerId: linked?.id ?? null,
-      attendeeTags: reg.attendee.tags,
-      speakerTags: speaker?.tags ?? null,
-    };
+    return { registrationId: recipientId, speakerId: linked?.id ?? null };
   }
 
   const spk = await db.speaker.findUnique({
     where: { id: recipientId },
-    select: { tags: true, email: true, sourceRegistrationId: true },
+    select: { email: true, sourceRegistrationId: true },
   });
   if (!spk) return null;
   const linked = await resolveLinkedRegistration(eventId, spk);
-  const reg = linked
-    ? await db.registration.findUnique({
-        where: { id: linked.id },
-        select: { attendee: { select: { tags: true } } },
-      })
-    : null;
-  return {
-    registrationId: linked?.id ?? null,
-    speakerId: recipientId,
-    attendeeTags: reg?.attendee.tags ?? [],
-    speakerTags: spk.tags,
-  };
+  return { registrationId: linked?.id ?? null, speakerId: recipientId };
 }
 
 /** Event cover emails loaded ONCE per batch: the bundle template and the
@@ -185,8 +164,8 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
   total: number;
   successCount: number;
   failureCount: number;
-  /** Recipients holding NONE of the selected templates' tags — not emailed
-   *  by design ("no tag, no certificate"), so neither success nor failure. */
+  /** Recipients assigned NONE of the selected templates: not emailed by
+   *  design ("not assigned, no certificate"), so neither success nor failure. */
   skippedCount: number;
   /** True when the send stopped early via shouldContinue (C5). */
   aborted?: boolean;
@@ -349,21 +328,26 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       return { ok: false, error: "Recipient no longer exists" };
     }
 
-    // The template's stored tag decides who gets which cert — same routing
-    // predicate as survey auto-issue (ATTENDANCE ↔ attendee tags,
-    // APPRECIATION ↔ linked speaker tags).
-    const targets = selectAutoIssueTargets(templates, facets.attendeeTags, facets.speakerTags);
+    // Assignments decide who gets which cert: the same routing as survey
+    // auto-issue (ATTENDANCE on the registration, APPRECIATION on the linked
+    // speaker).
+    const assigned = await loadAssignedTemplateIds(db, {
+      templateIds: templates.map((t) => t.id),
+      registrationId: facets.registrationId,
+      speakerId: facets.speakerId,
+    });
+    const targets = selectAssignedTargets(templates, assigned.registration, assigned.speaker);
     if (targets.length === 0) {
-      // "No tag, no certificate" is the routing rule, not a delivery
-      // failure — the audience may legitimately be ALL registrations with
-      // the tags deciding who receives what. Count as skipped (still
+      // "Not assigned, no certificate" is the routing rule, not a delivery
+      // failure: the audience may legitimately be ALL registrations, with
+      // the assignments deciding who receives what. Count as skipped (still
       // warn-logged per recipient so the routing is auditable in /logs).
       apiLogger.warn({
         msg: "cert-bulk:no-applicable-certs",
         eventId,
         recipientId: recipient.id,
-        attendeeTags: facets.attendeeTags,
-        speakerTags: facets.speakerTags,
+        registrationId: facets.registrationId,
+        speakerId: facets.speakerId,
         templateIds: templates.map((t) => t.id),
       });
       return { ok: false, skipped: true };
