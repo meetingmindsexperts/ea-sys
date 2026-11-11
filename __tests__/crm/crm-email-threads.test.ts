@@ -160,8 +160,9 @@ describe("recordOutboundEmail", () => {
     tx.crmEmailMessage.create.mockRejectedValue(new Error("db down"));
 
     await expect(recordOutboundEmail({ ...baseRecord, threadId: "t-1" })).resolves.toBeUndefined();
+    // The failed append rolls back whole, so the log line must name the thread.
     expect(apiLogger.error).toHaveBeenCalledWith(
-      expect.objectContaining({ msg: "crm-email-thread:record-outbound-failed" }),
+      expect.objectContaining({ msg: "crm-email-thread:record-outbound-failed", threadId: "t-1" }),
     );
   });
 

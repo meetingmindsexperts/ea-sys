@@ -25,6 +25,15 @@ import { isInternalEmail } from "@/lib/internal-domains";
 const TOKEN_TTL_MS = 180 * 24 * 60 * 60 * 1000;
 
 /**
+ * How long a reply's bookkeeping may wait for a connection, and run. A
+ * transaction's own defaults are 2 s to get a connection and 5 s in all; the
+ * bare statements it replaced waited for the pool (10 s). A blast's concurrent
+ * sends could exceed the defaults, and the reply is already delivered by then:
+ * it has to be recorded.
+ */
+const APPEND_TX_LIMITS = { maxWait: 10_000, timeout: 15_000 };
+
+/**
  * 20 hex chars (~80 bits) — unguessable, safe as an email local part.
  * globalThis.crypto (not node:crypto) per the no-Node-imports-near-client rule.
  */
@@ -137,7 +146,7 @@ export async function recordOutboundEmail(input: RecordOutboundEmailInput): Prom
         if (updated === 0) return false;
         await tx.crmEmailMessage.create({ data: { ...messageData, threadId } });
         return true;
-      });
+      }, APPEND_TX_LIMITS);
       if (!found) {
         apiLogger.warn({
           msg: "crm-email-thread:append-thread-not-found",
@@ -168,6 +177,8 @@ export async function recordOutboundEmail(input: RecordOutboundEmailInput): Prom
       msg: "crm-email-thread:record-outbound-failed",
       organizationId: input.organizationId,
       dealId: input.dealId,
+      // A failed append rolls back whole, so this line is its only trace.
+      threadId: input.threadId ?? null,
       err: err instanceof Error ? err.message : String(err),
     });
   }
