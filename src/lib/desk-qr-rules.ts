@@ -14,8 +14,10 @@ import { eventIsFull, mainRegisterTarget, tierAvailability } from "@/lib/public-
 /**
  * `free` (Nov 11, 2026): the rate the public Register link lands on, while it
  * costs nothing for every registration type. An image from before that day
- * reads a `free` token as malformed and refuses it ("scan again"): closed,
- * never the wrong form.
+ * does not know the kind: its form reads the link as the ordinary public form
+ * (password step and all) and sends no token, and its register route would
+ * refuse the token as malformed if one arrived. Either way nothing registers
+ * wrongly.
  */
 export const DESK_QR_KINDS = ["exhibitor", "complimentary", "free"] as const;
 export type DeskQrKind = (typeof DESK_QR_KINDS)[number];
@@ -152,9 +154,11 @@ export interface FreeDeskRate {
  * null when the event has none.
  *
  * It is the rate the public Register link lands on NOW, asked of the same
- * rule that link uses (`mainRegisterTarget`), so the QR gives nothing the
- * public form does not already give, apart from the password step. That one
- * choice carries the rest: a rate switched off or past its sales end is never
+ * rule that link uses (`mainRegisterTarget`) with the Exhibitor type left out
+ * (so where the link would land on a rate only exhibitors have, this is the
+ * next rate on sale). The QR gives nothing that rate's own public form does
+ * not already give, apart from the password step. That one choice carries the
+ * rest: a rate switched off or past its sales end is never
  * picked (a free Early Bird that gave way to a paid Standard stays closed), a
  * sponsor-code rate is never picked, and registration switched off or the
  * event full means no QR.
@@ -176,6 +180,8 @@ export function freeDeskRate(
   },
   now: Date,
 ): FreeDeskRate | null {
+  // A webinar has no desk (§8.6); the QR route refuses one, so offer none.
+  if (event.eventType === "WEBINAR") return null;
   // The desk registers people in person, so a full event has no QR even where
   // the public link stays open for a hybrid event's virtual attendance.
   if (eventIsFull(event)) return null;

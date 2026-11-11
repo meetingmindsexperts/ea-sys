@@ -236,9 +236,28 @@ describe("a free-registration desk QR", () => {
     expect((await send()).status).toBe(400);
   });
 
-  it("refuses a rate that gained a price after the sheet was printed, or a type that charges on it, before anything is written", async () => {
+  it("a rate that was switched off stays closed: the rate is looked up as an active one, token or not", async () => {
+    // The mock answers whatever it is asked, so pin the question itself: were
+    // this lookup ever relaxed for desk tokens (as the sales end once was for
+    // the other two kinds), a printed free sheet would reopen a closed rate.
+    await send();
+    expect(mockDb.pricingTier.findFirst).toHaveBeenCalledWith({ where: { id: "tier-std-free", ticketTypeId: "tt-phys", isActive: true } });
+    // Switched off: the lookup finds nothing.
+    tx.registration.create.mockClear();
+    on(PHYSICIAN, null);
+    const r = await send();
+    expect(r).toMatchObject({ status: 404, json: { error: "Pricing tier not found or inactive" } });
+    expect(tx.registration.create).not.toHaveBeenCalled();
+  });
+
+  // Refused inside the transaction, before the registration row is made. The
+  // attendee and seat claims before it are undone by the real client's
+  // rollback, which this mock does not have (checked on a real database: the
+  // refusal left no rows and no counter moved).
+  it("refuses a rate that gained a price after the sheet was printed, or a type that charges on it: no registration, account or email", async () => {
     on(PHYSICIAN, { ...FREE_STANDARD, price: 350 });
-    expect((await send()).json.code).toBe("DESK_QR_NOT_FREE");
+    const refused = await send();
+    expect(refused).toMatchObject({ status: 400, json: { code: "DESK_QR_NOT_FREE" } });
     expect(tx.registration.create).not.toHaveBeenCalled();
     expect(ensureAccount).not.toHaveBeenCalled();
     expect(sendConfirmation).not.toHaveBeenCalled();

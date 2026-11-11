@@ -192,6 +192,8 @@ describe("the free rate", () => {
     expect(free(FREE_EVENT, { maxAttendees: 100, seatCount: 100 })).toBeNull();
     // Full on a hybrid event: the public link stays open for virtual, the desk is in person.
     expect(free(FREE_EVENT, { maxAttendees: 100, seatCount: 100, eventType: "HYBRID" })).toBeNull();
+    // A webinar has no desk, however free it is.
+    expect(free(FREE_EVENT, { eventType: "WEBINAR" })).toBeNull();
     expect(free(FREE_EVENT, { mainRegisterTiers: ["onsite"] })).toBeNull();
     expect(free([type("Physician", [{ name: "Workshop" }])])).toBeNull();
     expect(free([type("Physician", [{ name: "Workshop" }])], { mainRegisterTiers: ["workshop"] })).toMatchObject({ slug: "workshop", paidTypes: [] });

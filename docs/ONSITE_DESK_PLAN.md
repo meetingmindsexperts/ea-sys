@@ -492,8 +492,10 @@ rate, so their desks saw "This event has no Complimentary rate" and no QR.
 
 **What it is.** A third QR, **Free registration**: the public Register link
 without the password step. It is for the rate that link lands on now, asked
-of the same rule (`mainRegisterTarget` in `src/lib/public-availability.ts`),
-so it gives nothing the public form does not already give.
+of the same rule (`mainRegisterTarget` in `src/lib/public-availability.ts`)
+with the Exhibitor type left out, so it gives nothing that rate's public form
+does not already give. (Where the link would land on a rate only exhibitors
+have, the QR is for the next rate on sale.)
 
 **Owner decision, Nov 11.** Offered only when that rate costs nothing for
 **every** registration type. On an event where it is free for some types
@@ -516,22 +518,33 @@ walk-in.
 - A free rate that needs approval, or has no seats, for every type gives no
   QR and no tab.
 
-**On the register route** the token's kind is `free`. It keeps three of the
-four relaxations of §8.5 (no password, the desk rate limits, in person) and
-drops the fourth: **a closed rate is never reopened** (`deskQrReopensClosedRate`).
-It takes no code (`deskQrTakesCode`), and the "nothing may be left to pay"
-check is unchanged, so a sheet printed before the organiser put a price on
-the rate is refused for whoever would now owe money (`DESK_QR_NOT_FREE`).
+**On the register route** the token's kind is `free`. Of the four
+relaxations of §8.5 it keeps two (no password, the desk rate limits) and is
+always in person. **A closed rate is never reopened**
+(`deskQrReopensClosedRate`), whether switched off or past its sales end, and
+it takes no code (`deskQrTakesCode`). The "nothing may be left to pay" check
+is unchanged, so a sheet printed before the organiser put a price on the rate
+is refused for whoever would now owe money (`DESK_QR_NOT_FREE`).
 
 **At the desk.** The Walk-in QR dialog gains a **Free** tab, shown only where
 the rate on sale is free for at least one type; a paid event keeps its two
-tabs. One QR per event, valid to the end of its last day, printable, like the
-other two.
+tabs. One QR per event and rate, valid to the end of the event's last day and
+printable. Unlike the other two, **a printed sheet is tied to its rate**: an
+event that moves from a free Standard to a free Onsite gets a new QR, and the
+sheet printed for Standard stops working. The dialog and the guide say so.
 
-**Rollback.** An image from before this change reads a `free` token as
-malformed and answers "This desk QR is not valid. Please scan the QR at the
-desk again." Nothing is registered wrongly; a printed free sheet simply stops
-working until the newer image is back. No migration.
+**Rollback.** An image from before this change does not know the kind: its
+form opens a free QR's link as the ordinary public form, password step
+included, and sends no token, so the sheet still registers people, the slower
+way. (Its register route would refuse the token as not valid if one arrived.)
+Nothing is registered wrongly. No migration.
+
+**Left by the review of `cbb394ca`** (0 BLOCKER, 0 HIGH, 3 MED, 7 LOW; fixes
+in the commit after it): the printed-sheet wording above, a webinar gets no
+free QR, and the register route's test now pins that a switched-off rate
+stays closed. Recorded in docs/ROADMAP.md, not built: the desk rate limits
+now cover every walk-in on a free event, and the token is not re-checked
+against the rate on sale when the form is submitted.
 
 **Not done.** A QR on a partly free event (declined above). The registration
 is saved as `COMPLIMENTARY` with `originalPrice` 0 and `PUBLIC_REGISTER`,

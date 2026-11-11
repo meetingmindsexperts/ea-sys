@@ -2,8 +2,9 @@
 // one of three free forms, exhibitors, complimentary or, on a free event, the
 // rate on sale (§10), and the link carries this token. While it is valid the
 // public register route relaxes four things for that event and that form only
-// (§8.5; three for the free kind, which never reopens a closed rate); without
-// it, or once it expires, the link is the ordinary public form. Signed, never
+// (§8.5; for the free kind only two, the password and the rate limits: it
+// never reopens a closed rate and takes no code); without it, or once it
+// expires, the link is the ordinary public form. Signed, never
 // stored. The desk shows ONE QR per event and kind, valid to the end of the
 // event and printable
 // (owner, Oct 29): minted with `until`, it is the same token every time it is

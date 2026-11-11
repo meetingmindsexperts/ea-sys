@@ -73,6 +73,19 @@ function unavailableReason(kind: Kind, options: Options): string {
   return `${options.free.rateName} is free for some registration types but not for ${options.free.paidTypes.join(", ")}. This QR is offered only when the rate on sale is free for everyone, so nobody who scans it is turned away. Register walk-ins with New walk-in.`;
 }
 
+/**
+ * What keeps a printed sheet working, said under the QR. The Exhibitor and
+ * Complimentary QRs last the event. The free one is for the rate on sale and
+ * never reopens a closed rate, so switching the event from a free Standard to
+ * a free Onsite kills a sheet printed the day before (review of cbb394ca).
+ */
+function printedSheetNote(kind: Kind, options: Options): string {
+  if (kind === "free" && options.free) {
+    return `The same QR while ${options.free.rateName} is the rate on sale, so a printed one keeps working until then. If you switch to another rate, or change the event's dates, print it again.`;
+  }
+  return "The same QR every time, so a printed one keeps working. If you change the event's dates, print it again.";
+}
+
 /** "the end of 1 Dec 2026": the QR runs to the end of the event's last day, in its timezone. */
 function validUntilLabel(iso: string, timeZone: string): string {
   try {
@@ -292,7 +305,7 @@ export function WalkInQrDialog({
                 {/* eslint-disable-next-line @next/next/no-img-element -- a data URL from the API */}
                 <img src={shown.qr} alt={`Scan to register: ${TITLE[kind]}`} className="h-64 w-64 max-w-full sm:h-72 sm:w-72" />
                 <p className="max-w-md text-sm">{INSTRUCTION[kind]}</p>
-                <p className="text-xs text-muted-foreground">Valid until {validUntilLabel(shown.expiresAt, options.timezone)}. The same QR every time, so a printed one keeps working. If you change the event&rsquo;s dates, print it again.</p>
+                <p className="text-xs text-muted-foreground">Valid until {validUntilLabel(shown.expiresAt, options.timezone)}. {printedSheetNote(kind, options)}</p>
                 <div className="flex flex-wrap justify-center gap-2">
                   <Button type="button" variant="outline" className="gap-1.5" onClick={() => printSheet(kind, shown, eventName, options.timezone)}>
                     <Printer className="h-4 w-4" /> Print

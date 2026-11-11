@@ -1377,6 +1377,34 @@ and desk staff hold `dtcm.assign`. What is missing is the desk page:
 | DD-2 | **A desk walk-in with no code says nothing.** `dtcmWalkupWarning` runs on the full-page add form only. The walk-in route returns `dtcm`, the desk panel ignores it, so on a Dubai event the badge prints without the compliance QR and nobody is told. Same class as the spare pool's D-6. |
 | DD-3 | **Production has never called DET.** On Nov 11, 2026: no event had DTCM switched on, no `DtcmOrder` row existed, the spare pool was empty, and the saved credentials pointed at staging. Before the Dubai event: confirm DET has the production box's IP on its list (plan Q2), and whether a production barcode is a UUID (Q7, which decides QR or Code 128 on the badge). The first production purchase should be the bulk run a day or two before, with the desk button for stragglers. |
 
+### Walk-in QR, the free kind: left by the review of cbb394ca (Nov 11, 2026)
+
+Recorded, not built. Both need an owner decision before code.
+
+| # | Sev | Finding |
+|---|-----|---------|
+| FQ-1 | MED | **The desk rate limits now stand at the main door of a free event.** A valid desk token swaps the public per-IP limits for 30 a minute per address and 600 per 30 minutes per QR (`public/events/[slug]/register/route.ts`, the desk branch). One address at its allowed 30 a minute spends the QR's 600 in 20 minutes, so the comment there ("stopped before it can spend the QR's budget for everyone") is not true, and someone looping junk requests with a photographed sheet can make every walk-in's submit answer 429 until the window resets. The limits predate the free kind (they were sized for exhibitors and guests); what changed is who stands behind them. Not fixed because venue Wi-Fi puts the whole queue on one address, so a tighter per-address limit would stop a real queue: the numbers are a tuning decision. Until then the desk's New walk-in form is the way around a blocked QR. |
+| FQ-2 | LOW | **A free token is not re-checked against the rate on sale at submit.** The route re-checks that the rate is on, in its sales window, free, needs no approval and is not a sponsor link, but not that it is still the rate the Register link lands on. So a sheet keeps registering on its rate after the organiser unticks it for the main link, or after another rate sorts ahead. That is the rate's own direct link's behaviour, which stays open too. Decide whether the free QR should follow the main link exactly; if yes, the cleaner shape is a token with no rate in it that the route resolves at submit, which would also keep a printed sheet alive across a change of rate. |
+| FQ-3 | LOW | Smaller, listed once: a free event whose rate needs approval for every type gets no Free tab and no reason; a refused free QR request leaves its tab blank with only a toast; the form's sponsor-code prompt scrolls to a field a free QR does not show if the rate is later marked as a sponsor link (the server refuses either way); the dialog's helpers and the form's desk-mode conditions have no component test. |
+
+### Public register: a type with every rate switched off registers at the type's own price (older defect, found Nov 11, 2026)
+
+Found by the review of cbb394ca, not introduced by it. **Owner to decide.**
+`POST /api/public/events/[slug]/register` requires a rate only when the type
+has an ACTIVE non-presenter rate (`pricing-tier-required`). A type whose rates
+are all switched off (to close it, or never switched on: new events are seeded
+that way), or whose only active rate is a presenter rate, passes that check
+with no `pricingTierId`, is priced from `TicketType.price` (0 on every event
+that prices by rate) and is registered CONFIRMED and COMPLIMENTARY with a
+barcode. The type's id is in the public event API. Code path read, not run.
+**Production on Nov 11, 2026: not exposed.** The four published upcoming
+events have 19 active types and every one has a public rate switched on. It
+opens the day someone closes a type by switching off its rates on a published
+event. The likely fix is to count rates whatever their `isActive`, as
+`grant-companion` already does: a type that HAS rates must be registered on
+one. It is on the public money path, so it wants its own commit, tests and
+review.
+
 ### Session revocation — deliberate carry-overs (Aug 25, 2026)
 
 Web and mobile session revocation both work now (see SESSION_ARCHITECTURE §6).
