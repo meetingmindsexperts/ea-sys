@@ -560,7 +560,7 @@ event a row with no compliance code is labelled **No DTCM code**, and **Get
 DTCM code** on the row opens a panel: **Get code from DET** first (owner, Nov
 11: the desk issues from DET), **Use a spare code** as the alternative while
 the pool has one and DET has nothing live for that person. A walk-in left
-without a code is announced and its row opens on that panel. The row's Edit
+without a code is announced, and once admitted its row opens on that panel. The row's Edit
 has a Mobile number field, since DET needs one. The design, the rules and what was checked are in
 [DTCM_ETICKET_PLAN.md](DTCM_ETICKET_PLAN.md) §5.4; the desk's own decisions
 are `src/lib/desk-dtcm.ts`, the panel is `check-in/desk-dtcm.tsx`.

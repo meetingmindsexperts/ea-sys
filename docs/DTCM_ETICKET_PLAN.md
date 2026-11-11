@@ -256,6 +256,13 @@ the desk team:
   until the DET read has answered. A spare taken in those moments leaves a
   bought ticket nobody holds. The pool route itself still does not know about
   DET orders, so the registration sheet keeps that gap (docs/ROADMAP.md).
+  Second review round (of `db18801d`): the panel's read of DET is taken when
+  it opens and does not poll, so it **asks again when the spare is pressed**;
+  and after a press that got **no answer at all** it holds the spare for 45
+  seconds (`UNANSWERED_PRESS_HOLD_MS`), because the server records a purchase
+  only after its first call to DET. What is left is the moment between that
+  read and the server recording a purchase started elsewhere: only the pool
+  route can close it (DD-7).
 - Opening the panel re-reads the desk's list, and a refused purchase re-reads
   the row, so a person another desk already coded stops being offered one.
 - The desk's Edit dialog has a Mobile number field: DET refuses without one,
@@ -263,8 +270,10 @@ the desk team:
 - **After a walk-in** that was registered and checked in, the walk-in route's
   `dtcm` answer is read (typed `ClaimDtcmOutcome`, pinned by a route test):
   left without a code, the desk says so and opens that row's panel on Get
-  code from DET. A walk-in whose payment did not finish is not sent there.
-  Nothing is bought without a press (D1).
+  code from DET. A walk-in registered but not admitted (its payment or its
+  check-in did not finish) gets the message too, since a desk role that
+  cannot see codes has no label to go by, but its row is not opened on a
+  purchase. Nothing is bought without a press (D1).
 - A desk role that cannot see codes (MEMBER) gets no label and no button,
   since its rows carry no code to read; it gets the walk-in message, worded to
   ask an organiser.

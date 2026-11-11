@@ -381,11 +381,21 @@ export function DeskPanel({
     refresh();
   };
 
-  /** After a walk-in: say so when it was left with no compliance code, and open its panel. */
-  const flagMissingDtcm = (created?: WalkInCreated) => {
+  /**
+   * After a walk-in: say so when it was left with no compliance code, and
+   * (`openPanel`) open its row on Get code from DET.
+   *
+   * The message is for EVERY walk-in, admitted or not: a desk role that cannot
+   * see codes gets no label on the row, so this is the only thing that tells
+   * them (the second review of 243b7136 found it had been dropped for a
+   * walk-in whose payment or check-in did not finish). The panel opens only
+   * for an admitted one: nobody is sent to buy a ticket for someone who has
+   * not paid yet.
+   */
+  const flagMissingDtcm = (created: WalkInCreated | undefined, openPanel: boolean) => {
     if (!created || !walkInLeftWithoutDtcmCode(requiresDtcm, created.dtcm)) return;
     toast.warning(walkInDtcmWarning(created.name, canGetDtcm), { duration: 15000 });
-    if (canGetDtcm) setDtcmForId(created.registrationId);
+    if (openPanel && canGetDtcm) setDtcmForId(created.registrationId);
   };
 
   // People completing their form onsite, polled until they finish (§5.1).
@@ -763,12 +773,13 @@ export function DeskPanel({
         codeRequiredTiers={codeRequiredTiers}
         tax={tax}
         // Registered but not admitted (the payment or the check-in did not
-        // finish), or already registered: the row's own labels say what is
-        // owed, DTCM code included. No opening it on a DET purchase for
-        // someone who has not paid yet.
-        onRegistered={(email) => {
+        // finish), or already registered (then nothing was made). Told about a
+        // missing DTCM code like anyone else, but their row is not opened on a
+        // DET purchase before they have paid.
+        onRegistered={(email, created) => {
           setQuery(email);
           refresh();
+          flagMissingDtcm(created, false);
         }}
         onDone={async (email, created) => {
           // Show the new row once the list has it: "Checked in", with Print
@@ -777,7 +788,7 @@ export function DeskPanel({
           setQuery(email);
           searchRef.current?.focus();
           // On a Dubai event, before that badge: the code it would print without.
-          flagMissingDtcm(created);
+          flagMissingDtcm(created, true);
         }}
       />
 
@@ -939,9 +950,8 @@ function WalkInForm({
   eventSlug: string;
   codeRequiredTiers: readonly string[];
   tax: DeskTax;
-  /** Registered, but a later step did not finish: show them in search. */
-  /** Registered but not admitted, or already registered. */
-  onRegistered: (email: string) => void;
+  /** Registered but a later step did not finish (then `created`), or already registered (nothing was made). */
+  onRegistered: (email: string, created?: WalkInCreated) => void;
   /** Registered and checked in. */
   onDone: (email: string, created: WalkInCreated) => Promise<void>;
 }) {
@@ -1113,7 +1123,7 @@ function WalkInForm({
       const created: WalkInCreated = { registrationId: data.registrationId, name: data.name, dtcm: data.dtcm };
       if (!data.checkedIn) {
         toast.warning(`${data.name} is registered but not checked in: ${data.error}`, { duration: 10000 });
-        onRegistered(email);
+        onRegistered(email, created);
         return;
       }
       toast.success(`${data.name} registered and checked in${data.paymentStatus === "INCLUSIVE" ? " (sponsor-paid)" : ""}`);

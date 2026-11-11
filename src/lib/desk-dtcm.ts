@@ -100,11 +100,23 @@ export function deskDetState(orders: readonly DeskDetOrder[]): DeskDetState {
  * until the DET read has answered: not knowing is not "nothing live".
  *
  * The pool route itself does not know about DET orders, so this is the desk's
- * rule, not the server's (docs/ROADMAP.md, the spare pool and a live order).
+ * rule, not the server's (docs/ROADMAP.md DD-7), and it is only as fresh as
+ * the read it is given: the panel asks DET's side again at the moment the
+ * spare is pressed, and passes that answer here a second time.
  */
 export function deskMayOfferSpare(args: { detKnown: boolean; detState: DeskDetState; buyingHere: boolean; spare: number }): boolean {
   return args.detKnown && args.detState === "none" && !args.buyingHere && args.spare > 0;
 }
+
+/**
+ * How long the desk holds the spare after a "Get code from DET" press that got
+ * NO answer (the network dropped, or a 5xx with no reason). The server records
+ * a purchase only after its first call to DET, which may take up to 30
+ * seconds, so for that long "DET shows nothing live" proves nothing (second
+ * review of 243b7136). After it, the read taken when the spare is pressed
+ * decides.
+ */
+export const UNANSWERED_PRESS_HOLD_MS = 45_000;
 
 /**
  * What to say on a row's DTCM panel when nothing there can issue a code: DET

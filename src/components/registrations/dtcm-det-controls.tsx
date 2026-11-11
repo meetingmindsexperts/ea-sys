@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useIssueDtcmFromDet, useRegistrationDtcmOrders, useResolveDtcmOrder, type DtcmOrderSummary } from "@/hooks/use-api";
+import { ApiError } from "@/lib/api-fetch";
 
 interface Props {
   eventId: string;
@@ -29,9 +30,15 @@ interface Props {
   busy?: boolean;
   /** Put a DET sale's barcode on the registration (the sheet's manual save). */
   onUseCode: (code: string) => Promise<void>;
+  /**
+   * A press on "Get code from DET" ended with no answer from the server (the
+   * network dropped, or a 5xx with no reason). The purchase may still be
+   * running: the server records it only after its first call to DET.
+   */
+  onIssueUnanswered?: () => void;
 }
 
-export function DtcmDetControls({ eventId, registrationId, currentCode, canResolve, onCodeChanged, busy, onUseCode }: Props) {
+export function DtcmDetControls({ eventId, registrationId, currentCode, canResolve, onCodeChanged, busy, onUseCode, onIssueUnanswered }: Props) {
   // The code a press here just put on the registration. The caller's own copy
   // arrives only when its re-read lands, and the order list usually lands
   // first: for that moment the new sale looked like "a ticket DET sold that is
@@ -69,10 +76,17 @@ export function DtcmDetControls({ eventId, registrationId, currentCode, canResol
     } catch (err) {
       console.error("[dtcm] get code from DET failed", err);
       toast.error(err instanceof Error ? err.message : "Could not get a code from DET", { duration: 12000 });
-      // A refusal is often news about the registration itself ("already has a
-      // code": another desk or the bulk run got there first), so re-read it:
-      // otherwise the caller goes on showing a row with no code and the same
-      // press fails the same way (review of 243b7136).
+      // The server said no, with a reason: that is often news about the
+      // registration itself ("already has a code": another desk or the bulk
+      // run got there first), so re-read it, or the caller goes on showing a
+      // row with no code and the same press fails the same way (review of
+      // 243b7136). With NO answer there is nothing to re-read and the network
+      // is probably down: say so to the caller instead, and do not stack a
+      // second failure message on the first.
+      if (!(err instanceof ApiError) || !err.code) {
+        onIssueUnanswered?.();
+        return;
+      }
       try {
         await onCodeChanged();
       } catch (refreshErr) {

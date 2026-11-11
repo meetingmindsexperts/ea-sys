@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Barcode, Loader2, RefreshCw } from "lucide-react";
@@ -9,7 +9,7 @@ import { DtcmDetControls } from "@/components/registrations/dtcm-det-controls";
 import { queryKeys, useClaimSpareDtcmCode, useDtcmPool, useIsIssuingDtcmFromDet, useRegistrationDtcmOrders } from "@/hooks/use-api";
 import { useCan } from "@/hooks/use-can";
 import { ApiError, apiPutJson } from "@/lib/api-fetch";
-import { deskDetState, deskDtcmNoSourceMessage, deskMayOfferSpare } from "@/lib/desk-dtcm";
+import { UNANSWERED_PRESS_HOLD_MS, deskDetState, deskDtcmNoSourceMessage, deskMayOfferSpare } from "@/lib/desk-dtcm";
 
 /**
  * A desk row's DTCM panel (docs/DTCM_ETICKET_PLAN.md §5.4, built Nov 11 2026):
@@ -77,11 +77,25 @@ export function DeskDtcmPanel({
     }
   };
 
+  // A press that got no answer at all: a purchase may be running that DET's
+  // side does not show yet, so the spare is held a while (UNANSWERED_PRESS_HOLD_MS).
+  const [unanswered, setUnanswered] = useState(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+  }, []);
+  const holdAfterUnansweredPress = () => {
+    setUnanswered(true);
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(() => setUnanswered(false), UNANSWERED_PRESS_HOLD_MS);
+  };
+
   const spare = pool?.counts?.spare ?? 0;
   const detState = deskDetState(det?.orders ?? []);
   // Held while either answer is being re-read too: a cached "nothing live" may be minutes old.
   const working = claim.isPending || savingCode || settling || detQuery.isFetching || poolQuery.isFetching;
-  const offerSpare = deskMayOfferSpare({ detKnown: !!det && !detQuery.isError, detState, buyingHere, spare });
+  const offerSpare =
+    !poolQuery.isError && deskMayOfferSpare({ detKnown: !!det && !detQuery.isError, detState, buyingHere: buyingHere || unanswered, spare });
   const noSource = det && pool ? deskDtcmNoSourceMessage({ detReady: det.detReady, detState, spare }) : null;
 
   /** Ask DET and the list again: for a purchase someone else has in flight. */
@@ -90,6 +104,21 @@ export function DeskDtcmPanel({
   };
 
   const assignSpare = async () => {
+    // What this panel knows of DET can be minutes old: it was read when the
+    // panel opened and does not poll, and another desk or the bulk run may
+    // have started a purchase for this person since. Ask again now, and take a
+    // spare only if DET's side still shows nothing (second review of 243b7136).
+    const fresh = await detQuery.refetch();
+    const stillClear = deskMayOfferSpare({
+      detKnown: !fresh.isError && !!fresh.data,
+      detState: deskDetState(fresh.data?.orders ?? []),
+      buyingHere,
+      spare: 1,
+    });
+    if (!stillClear) {
+      toast.warning("DET has something in progress for this person, so no spare code was used. Look at the panel again.", { duration: 10000 });
+      return;
+    }
     try {
       const out = await claim.mutateAsync(registrationId);
       // Refresh FIRST, so the panel is gone before the toast invites a second press.
@@ -129,7 +158,7 @@ export function DeskDtcmPanel({
       {detState === "buying" ? (
         // Not the DET button: the server would refuse it, and not the spare: the ticket being bought would be left unused.
         <div className="space-y-2 text-xs text-amber-900">
-          <p>DET is issuing a ticket for this person right now (another desk, the bulk run, or a press here whose answer was cut off). Wait a few seconds, then check again. Do not use a spare code meanwhile.</p>
+          <p>DET is issuing a ticket for this person right now (another desk, the bulk run, or a press here whose answer was cut off). Wait a few seconds, then check again. Do not use a spare code meanwhile. If this is still here after a few minutes, ask an organiser.</p>
           <Button size="sm" variant="outline" className="h-8 gap-1.5 bg-white" disabled={working} onClick={checkAgain}>
             {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Check again
           </Button>
@@ -143,7 +172,16 @@ export function DeskDtcmPanel({
           busy={working}
           onCodeChanged={reread}
           onUseCode={putDetSaleOnRow}
+          onIssueUnanswered={holdAfterUnansweredPress}
         />
+      )}
+      {unanswered && detState !== "buying" && (
+        <div className="space-y-2 text-xs text-amber-900">
+          <p>That request to DET got no answer, so a ticket may still be on its way. Wait a moment and check again before trying anything else. A spare code is not offered meanwhile.</p>
+          <Button size="sm" variant="outline" className="h-8 gap-1.5 bg-white" disabled={working} onClick={checkAgain}>
+            {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Check again
+          </Button>
+        </div>
       )}
       {noSource && <p className="text-xs text-amber-900">{noSource}</p>}
       <div className="flex flex-wrap items-center gap-2">
