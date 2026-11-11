@@ -161,6 +161,9 @@ const RESULT_DOMAIN_KEYS: Readonly<Record<string, readonly PermissionKey[]>> = {
   get_event_dashboard: ["registrations.read"],
 };
 
+/** The two keys every door asks before a DTCM code is written by hand: assigning one, and holding one at all. */
+export const DTCM_CODE_WRITE_KEYS = ["dtcm.assign", "barcode.view"] as const satisfies readonly PermissionKey[];
+
 function inputPermissions(toolName: string, input: Record<string, unknown>): PermissionKey[] {
   if (toolName === "update_event") {
     return eventFieldPermissions(Object.keys(input).filter((k) => k !== "eventId" && input[k] !== undefined));
@@ -169,8 +172,17 @@ function inputPermissions(toolName: string, input: Record<string, unknown>): Per
     const key = bulkEmailTypePermission(input.emailType);
     return key ? [key] : [];
   }
+  if (toolName === "update_registration") {
+    // Setting or clearing a DTCM code is the code keys', as on the registration
+    // save, the spare pool and the DET purchase (`dtcmCodeWriteRefusal` in
+    // barcode-visibility.ts). The tool calls the service directly, so without
+    // this its only key was `registrations.update` and the save's rule could
+    // be walked around through the agent (review of c9fa26c1).
+    return input.dtcmBarcode !== undefined ? [...DTCM_CODE_WRITE_KEYS] : [];
+  }
   return [];
 }
+
 
 /** JSON with sorted object keys, so a jsonb round trip (which reorders keys) compares equal. */
 function stableJson(value: unknown): string {

@@ -112,28 +112,44 @@ desk allow-list rather than using the desk list alone: `REGISTRATION_DESK_ALLOW`
 answers *who staffs the desk*, which is a different question from *who may hold a
 door credential*.
 
-**Every answer, not only the list (Nov 11, 2026).** The list and the detail
-read stripped the entry barcode and the DTCM code from July 2026, but four
-other staff routes answered with the whole registration row to anyone who
-could call them, and a MEMBER can call all four: the registration save, the
-create, check-in (by id, by scan, the "already checked in" refusal and the
-undo), and the walk-in, which returned the spare code it had just assigned.
-All of them now go through `registrationForCaller` in `barcode-visibility.ts`.
-**A new route that answers with a registration row uses it too.** The create
-adds `hasDtcmCode` and the walk-in keeps `dtcm.status`, so a screen can still
-say "no code was assigned" to someone who may not see the code.
+**The desk's answers, not only the list (Nov 11, 2026).** The list and the
+detail read stripped the entry barcode and the DTCM code from July 2026, but
+four other staff routes answered with the whole registration row, or the code
+just assigned, to anyone who could call them, and a MEMBER can call all four:
+the registration save, the create, check-in (by id, by scan, the "already
+checked in" refusal and the undo), and the walk-in. The first three now go
+through `registrationForCaller` in `barcode-visibility.ts`; the walk-in, which
+returns the pool's outcome and not a row, trims its own answer to the status.
+**A new route that answers with a registration row uses the helper too.** The
+create adds `hasDtcmCode` and the walk-in keeps `dtcm.status`, so a screen can
+still say "no code was assigned" to someone who may not see the code. Two
+older answers only a custom role can reach still carry the codes (the event
+activity feed and the accommodation create: docs/ROADMAP.md DD-13), and a
+printed badge carries both by design: whoever may print badges holds the
+credential on paper, whatever `barcode.view` hides on screen.
 
-**Who can WRITE one.** `dtcm.assign` together with `barcode.view`, on all
-three doors: the spare pool, the DET purchase and, since Nov 11, 2026, the
-registration save (typing a code, or "Use this code"). Before that the save
+**Who can WRITE one by hand.** `dtcm.assign` together with `barcode.view`, on
+every door a person or an agent acting for them uses: the spare pool, the DET
+purchase, since Nov 11, 2026 the registration save (typing a code, or "Use
+this code"), and the agent's `update_registration` tool, which calls the
+service directly and so asks the two keys through `toolInputPermissions`
+(`DTCM_CODE_WRITE_KEYS`). Not covered by that pair, on purpose: the CSV import
+and the DET bulk run (`dtcm.import`, the organisers' key), and an API key with
+no role, which is the organisation's full key and passes no tool gate.
+
+Before Nov 11, 2026 the save
 took `dtcmBarcode` from anyone holding `registrations.update`, and the
 registration sheet sent a blank for it on every save, so **a MEMBER editing
 anything on a registration cleared its DTCM code** (found by review; production
-held no code at the time). The rule is `dtcmCodeWriteRefusal`: from someone
-who may not write it, a value is refused (403 `DTCM_CODE_FORBIDDEN`) and a
+held no code at the time). The rule is `dtcmCodeWriteRefusal`. From someone
+who cannot see codes, a value is refused (403 `DTCM_CODE_FORBIDDEN`) and a
 blank is dropped, so the stored code survives and an old tab can still save.
-The sheet no longer sends the field unless it was changed, and shows its edit
-field only to someone who can see codes.
+From someone who can see codes but may not assign one (a custom role), only
+the code as it stands is let through; a new value or a clear is refused, since
+their blank is a decision and not an accident. The sheet no longer sends the
+field unless it was changed, and shows every DTCM write control (the edit
+field, Assign a spare code, Enter a code, Get code from DET) only to someone
+who holds both keys on the event.
 
 ---
 

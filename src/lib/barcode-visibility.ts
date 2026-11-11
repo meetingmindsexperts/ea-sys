@@ -35,12 +35,14 @@
 // Phase 6, Oct 6, 2026); the role list and `canViewEntryBarcode` are gone.
 
 /**
- * EVERY staff route that answers with a registration row asks this, not only
- * the list and the detail read (review of 243b7136, Nov 11, 2026). The save,
- * the create, the three check-in answers and the walk-in each returned the
- * whole row, or the code just assigned, to anyone who could call them, and a
- * MEMBER can call all four. `registrationForCaller` is that one line; a new
- * route that returns a registration uses it.
+ * A staff route that answers with a registration row asks this, not only the
+ * list and the detail read (review of 243b7136, Nov 11, 2026). The save, the
+ * create and the check-in answers each returned the whole row to anyone who
+ * could call them, and a MEMBER can call all of them; `registrationForCaller`
+ * is their one line, and a new route that returns a registration uses it.
+ * (The walk-in trims its own answer: it returns the pool's outcome, not a
+ * row.) NOT every answer is covered yet: two older ones a custom role can
+ * reach are listed in docs/ROADMAP.md DD-13.
  *
  * WRITING the DTCM code has a rule of its own, `dtcmCodeWriteRefusal`: the
  * registration save accepted `dtcmBarcode` from anyone holding
@@ -66,21 +68,38 @@ export type DtcmCodeWrite =
  *
  * Someone who may write it (both keys): whatever they sent, as before.
  *
- * Someone who may not:
+ * Someone who cannot even SEE it:
  * - a VALUE is refused. They are trying to hand someone a door credential.
  * - a BLANK is dropped, never applied. A screen that cannot see the code holds
  *   an empty field for it, and the registration sheet sent that blank on every
  *   save: a MEMBER correcting a spelling wiped the attendee's compliance code
  *   (found Nov 11, 2026; production held no DTCM code yet). Dropped rather
  *   than refused so a tab opened before this fix can still save its edit.
+ *   For them the stored code is deliberately not compared with what was sent:
+ *   answering differently for a right and a wrong guess would tell a caller
+ *   who cannot see the code what it is.
  *
- * The stored code is deliberately not compared with what was sent: answering
- * differently for a right and a wrong guess would tell a caller who cannot see
- * the code what it is.
+ * Someone who can see it but may not assign one (a custom role): their blank
+ * is not an accident, it is a clear. So for them only the code AS IT STANDS is
+ * let through (dropped: a form sending back what it loaded changes nothing),
+ * and anything else, a new value or a clear, is refused out loud. Comparing is
+ * safe here: they can read the code anyway. Before the review of c9fa26c1
+ * their clear was dropped like a MEMBER's blank, and the save answered
+ * "updated" for something it had not done.
  */
-export function dtcmCodeWriteRefusal(args: { sent: string | null | undefined; mayWrite: boolean; storedCode: string | null }): DtcmCodeWrite {
+export function dtcmCodeWriteRefusal(args: {
+  sent: string | null | undefined;
+  mayWrite: boolean;
+  /** `barcode.view`: whether the caller can read the code at all. */
+  maySee: boolean;
+  storedCode: string | null;
+}): DtcmCodeWrite {
   if (args.sent === undefined || args.mayWrite) return { action: "allow" };
-  if (args.sent !== null && args.sent.trim() !== "") return { action: "refuse" };
+  const sent = (args.sent ?? "").trim();
+  if (args.maySee) {
+    return sent === (args.storedCode ?? "").trim() ? { action: "drop", wouldHaveCleared: false } : { action: "refuse" };
+  }
+  if (sent !== "") return { action: "refuse" };
   return { action: "drop", wouldHaveCleared: Boolean(args.storedCode) };
 }
 

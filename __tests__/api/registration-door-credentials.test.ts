@@ -69,7 +69,10 @@ const ROW = {
 // What `can()` judges an event-scoped key by: the organisation, the type and the assigned desk staff.
 const EVENT = { id: "ev1", settings: {}, taxRate: null, taxLabel: null, organizationId: "org1", eventType: "CONFERENCE", staffAssignments: [{ userId: "onsite1" }] };
 
-const as = (role: string, id = "u1") => mockAuth.mockResolvedValue({ user: { id, role, organizationId: "org1", firstName: "Desk" } });
+// `keys` are a custom role's grants as the session carries them, beside the base role's: `key` for an
+// organisation key, `key@SCOPE` for an event one (an event key with no scope reaches no event).
+const as = (role: string, id = "u1", keys: string[] = []) =>
+  mockAuth.mockResolvedValue({ user: { id, role, organizationId: "org1", firstName: "Desk", procurementPermissions: keys } });
 const save = (body: Record<string, unknown>) =>
   SAVE(new Request("http://x", { method: "PUT", body: JSON.stringify({ expectedUpdatedAt: NOW, ...body }) }), one);
 const hasCodes = (body: Record<string, unknown>) => "qrCode" in body || "dtcmBarcode" in body;
@@ -103,7 +106,7 @@ describe("the save's answer", () => {
     expect(body).toMatchObject({ qrCode: "ENTRY-SECRET", dtcmBarcode: "DTCM-SECRET" });
   });
 
-  it("keeps both for Onsite Staff assigned to the event (they print the badge)", async () => {
+  it("keeps both for Onsite Staff (they print the badge)", async () => {
     as("ONSITE", "onsite1");
     expect(await (await save({ notes: "x" })).json()).toMatchObject({ qrCode: "ENTRY-SECRET", dtcmBarcode: "DTCM-SECRET" });
   });
@@ -157,6 +160,51 @@ describe("writing the DTCM code through the save", () => {
     as("ONSITE", "onsite1");
     expect((await save({ dtcmBarcode: "FROM-A-DET-SALE" })).status).toBe(200);
     expect(mockUpdate.mock.calls[0][0]).toMatchObject({ dtcmBarcode: "FROM-A-DET-SALE" });
+  });
+
+  // The rule is BOTH keys, and `dtcm.assign` on THIS event. Every caller above
+  // holds both or neither, so these are what pin its shape (review of c9fa26c1).
+  describe("one key without the other", () => {
+    it("seeing codes is not being allowed to assign one: a new value and a clear are both refused", async () => {
+      as("MEMBER", "u1", ["barcode.view"]);
+      expect((await save({ dtcmBarcode: "TYPED" })).status).toBe(403);
+      // Their clear is deliberate (they can see the code), so it is refused, not quietly dropped.
+      const cleared = await save({ notes: "x", dtcmBarcode: null });
+      expect(cleared.status).toBe(403);
+      expect(await cleared.json()).toMatchObject({ code: "DTCM_CODE_FORBIDDEN" });
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it("their form sending back the code it loaded is no change: the edit saves, the field is dropped", async () => {
+      as("MEMBER", "u1", ["barcode.view"]);
+      const res = await save({ notes: "spelling fixed", dtcmBarcode: "DTCM-SECRET" });
+      expect(res.status).toBe(200);
+      expect("dtcmBarcode" in (mockUpdate.mock.calls[0][0] as object)).toBe(false);
+      // They can see codes, so the answer keeps them.
+      expect(await res.json()).toMatchObject({ dtcmBarcode: "DTCM-SECRET" });
+    });
+
+    it("being allowed to assign is not seeing: without `barcode.view` a value is still refused", async () => {
+      as("MEMBER", "u1", ["dtcm.assign@ALL"]);
+      expect((await save({ dtcmBarcode: "TYPED" })).status).toBe(403);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it("both keys from a custom role are enough", async () => {
+      as("MEMBER", "u1", ["barcode.view", "dtcm.assign@ALL"]);
+      expect((await save({ dtcmBarcode: "TYPED" })).status).toBe(200);
+      expect(mockUpdate.mock.calls[0][0]).toMatchObject({ dtcmBarcode: "TYPED" });
+    });
+
+    it("`dtcm.assign` is judged on THIS event: Onsite Staff not assigned to it may not write a code", async () => {
+      // The real route answers 404 before this (the event lookup is the grant's own filter, which the
+      // mock ignores). What is pinned here is that the code key is asked with the event's facts.
+      as("ONSITE", "onsite-elsewhere");
+      expect((await save({ dtcmBarcode: "FROM-A-DET-SALE" })).status).toBe(403);
+      expect(mockUpdate).not.toHaveBeenCalled();
+      as("ONSITE", "onsite1");
+      expect((await save({ dtcmBarcode: "FROM-A-DET-SALE" })).status).toBe(200);
+    });
   });
 
   it("a save that does not name the code is untouched by any of this", async () => {

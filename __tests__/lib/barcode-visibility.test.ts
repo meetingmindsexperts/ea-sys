@@ -85,31 +85,56 @@ describe("registrationForCaller", () => {
 
 /** What the registration save does with a `dtcmBarcode` in its request. */
 describe("dtcmCodeWriteRefusal", () => {
+  const blind = { mayWrite: false, maySee: false };
+  const reader = { mayWrite: false, maySee: true };
+
   it("nothing to do when the field is not sent, whoever sends the request", () => {
-    expect(dtcmCodeWriteRefusal({ sent: undefined, mayWrite: false, storedCode: "X" })).toEqual({ action: "allow" });
-    expect(dtcmCodeWriteRefusal({ sent: undefined, mayWrite: true, storedCode: null })).toEqual({ action: "allow" });
+    expect(dtcmCodeWriteRefusal({ sent: undefined, ...blind, storedCode: "X" })).toEqual({ action: "allow" });
+    expect(dtcmCodeWriteRefusal({ sent: undefined, ...reader, storedCode: "X" })).toEqual({ action: "allow" });
+    expect(dtcmCodeWriteRefusal({ sent: undefined, mayWrite: true, maySee: true, storedCode: null })).toEqual({ action: "allow" });
   });
 
   it("someone who may write it sets, replaces and clears", () => {
     for (const sent of ["NEW", "", null]) {
-      expect(dtcmCodeWriteRefusal({ sent, mayWrite: true, storedCode: "OLD" })).toEqual({ action: "allow" });
+      expect(dtcmCodeWriteRefusal({ sent, mayWrite: true, maySee: true, storedCode: "OLD" })).toEqual({ action: "allow" });
     }
   });
 
-  it("a value from someone who may not is refused", () => {
-    expect(dtcmCodeWriteRefusal({ sent: "NEW", mayWrite: false, storedCode: null })).toEqual({ action: "refuse" });
-    expect(dtcmCodeWriteRefusal({ sent: "NEW", mayWrite: false, storedCode: "OLD" })).toEqual({ action: "refuse" });
+  describe("someone who cannot see the code", () => {
+    it("a value is refused", () => {
+      expect(dtcmCodeWriteRefusal({ sent: "NEW", ...blind, storedCode: null })).toEqual({ action: "refuse" });
+      expect(dtcmCodeWriteRefusal({ sent: "NEW", ...blind, storedCode: "OLD" })).toEqual({ action: "refuse" });
+    });
+
+    it("a blank is dropped, and says whether it would have wiped a code", () => {
+      expect(dtcmCodeWriteRefusal({ sent: null, ...blind, storedCode: "OLD" })).toEqual({ action: "drop", wouldHaveCleared: true });
+      expect(dtcmCodeWriteRefusal({ sent: "", ...blind, storedCode: "OLD" })).toEqual({ action: "drop", wouldHaveCleared: true });
+      expect(dtcmCodeWriteRefusal({ sent: "   ", ...blind, storedCode: null })).toEqual({ action: "drop", wouldHaveCleared: false });
+    });
+
+    it("never answers differently for a right guess: the stored code is not compared with what was sent", () => {
+      const right = dtcmCodeWriteRefusal({ sent: "OLD", ...blind, storedCode: "OLD" });
+      const wrong = dtcmCodeWriteRefusal({ sent: "NOPE", ...blind, storedCode: "OLD" });
+      expect(right).toEqual(wrong);
+    });
   });
 
-  it("a blank from someone who may not is dropped, and says whether it would have wiped a code", () => {
-    expect(dtcmCodeWriteRefusal({ sent: null, mayWrite: false, storedCode: "OLD" })).toEqual({ action: "drop", wouldHaveCleared: true });
-    expect(dtcmCodeWriteRefusal({ sent: "", mayWrite: false, storedCode: "OLD" })).toEqual({ action: "drop", wouldHaveCleared: true });
-    expect(dtcmCodeWriteRefusal({ sent: "   ", mayWrite: false, storedCode: null })).toEqual({ action: "drop", wouldHaveCleared: false });
-  });
+  // A custom role with "see entry codes" and without "assign DTCM codes".
+  describe("someone who can see the code but may not assign one", () => {
+    it("the code as it stands is let through as no change (a form sending back what it loaded)", () => {
+      expect(dtcmCodeWriteRefusal({ sent: "OLD", ...reader, storedCode: "OLD" })).toEqual({ action: "drop", wouldHaveCleared: false });
+      expect(dtcmCodeWriteRefusal({ sent: " OLD ", ...reader, storedCode: "OLD" })).toEqual({ action: "drop", wouldHaveCleared: false });
+      expect(dtcmCodeWriteRefusal({ sent: null, ...reader, storedCode: null })).toEqual({ action: "drop", wouldHaveCleared: false });
+    });
 
-  it("never answers differently for a right guess: the stored code is not compared with what was sent", () => {
-    const right = dtcmCodeWriteRefusal({ sent: "OLD", mayWrite: false, storedCode: "OLD" });
-    const wrong = dtcmCodeWriteRefusal({ sent: "NOPE", mayWrite: false, storedCode: "OLD" });
-    expect(right).toEqual(wrong);
+    it("a clear is refused out loud, never quietly ignored: they meant it", () => {
+      expect(dtcmCodeWriteRefusal({ sent: null, ...reader, storedCode: "OLD" })).toEqual({ action: "refuse" });
+      expect(dtcmCodeWriteRefusal({ sent: "", ...reader, storedCode: "OLD" })).toEqual({ action: "refuse" });
+    });
+
+    it("a new value is refused", () => {
+      expect(dtcmCodeWriteRefusal({ sent: "NEW", ...reader, storedCode: "OLD" })).toEqual({ action: "refuse" });
+      expect(dtcmCodeWriteRefusal({ sent: "NEW", ...reader, storedCode: null })).toEqual({ action: "refuse" });
+    });
   });
 });

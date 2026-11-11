@@ -209,6 +209,12 @@ export function RegistrationDetailSheet({
   // barcodes has its payload redacted, so every row looks code-less and the
   // button would otherwise be offered on all of them.
   const canSeeBarcodes = useCan("barcode.view") === "allowed";
+  // Writing a DTCM code (typing one, a spare, a DET purchase) asks a second
+  // key on this event, as the routes do. Seeing a code is not being allowed to
+  // assign one: a custom role with only the first was shown controls that
+  // answered 403, and a field whose clear was quietly ignored (review of c9fa26c1).
+  const canAssignDtcm = useCan("dtcm.assign", eventId) === "allowed";
+  const canWriteDtcmCode = canSeeBarcodes && canAssignDtcm;
   const canResetSurveyHere = useCan("surveys.reset", eventId) === "allowed";
   // Deciding what happened to an uncertain DET sale is the organisers' call.
   const canResolveDtcmOrders = useCan("dtcm.import", eventId) === "allowed";
@@ -1438,9 +1444,10 @@ export function RegistrationDetailSheet({
                         solely for events flagged requiresDtcmBarcode; these
                         codes are normally bulk-imported via CSV, but the field
                         allows a manual correction. */}
-                    {/* Only for someone who can see the code: anyone else would
-                        be shown an empty field for a code that exists. */}
-                    {requiresDtcmBarcode && canSeeBarcodes && (
+                    {/* Only for someone who may write one. Anyone who cannot
+                        even see it would be shown an empty field for a code
+                        that exists. */}
+                    {requiresDtcmBarcode && canWriteDtcmCode && (
                       <div className="space-y-2">
                         <Label htmlFor="edit-dtcmBarcode">DTCM Barcode</Label>
                         <Input
@@ -2968,7 +2975,7 @@ export function RegistrationDetailSheet({
                                   one: assigning a DTCM code hands over a door
                                   credential, and MEMBER staffs the desk but is
                                   deliberately outside that set. */}
-                              {canSeeBarcodes && manualDtcmForId !== selectedRegistration.id && (
+                              {canWriteDtcmCode && manualDtcmForId !== selectedRegistration.id && (
                                 <div className="flex flex-wrap justify-center gap-2">
                                   <Button
                                     size="sm"
@@ -2999,7 +3006,7 @@ export function RegistrationDetailSheet({
                                   </Button>
                                 </div>
                               )}
-                              {canSeeBarcodes && manualDtcmForId === selectedRegistration.id && (
+                              {canWriteDtcmCode && manualDtcmForId === selectedRegistration.id && (
                                 <div className="space-y-2 text-left">
                                   <Input
                                     autoFocus
@@ -3055,7 +3062,7 @@ export function RegistrationDetailSheet({
                               (a desk fallback can leave an uncertain sale behind
                               a pool code). Renders nothing where DET is not set
                               up for this person. */}
-                          {canSeeBarcodes && (
+                          {canWriteDtcmCode && (
                             <DtcmDetControls
                               key={selectedRegistration.id}
                               eventId={eventId}

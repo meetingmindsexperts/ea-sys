@@ -12,7 +12,7 @@ import {
   toolInputPermissions,
 } from "@/lib/permissions/field-permissions";
 import { gateToolCall } from "@/lib/agent/tool-gate";
-import { can, principalFromUser, type Principal } from "@/lib/permissions/can";
+import { can, principalFromUser, type EventFacts, type Principal } from "@/lib/permissions/can";
 import { SYSTEM_ROLES } from "@/lib/permissions/system-roles";
 
 const conference = { organizationId: "org-1", eventType: "CONFERENCE", staffUserIds: [] };
@@ -126,5 +126,43 @@ describe("agent tool gate", () => {
         input: { emailType: "certificate" },
       }).kind,
     ).toBe("run");
+  });
+});
+
+/**
+ * The DTCM code through the agent and MCP door (review of c9fa26c1): the tool
+ * calls the service directly, so the registration save's rule has to be asked
+ * here too, or `registrations.update` alone would set and clear codes.
+ */
+describe("update_registration and the DTCM code", () => {
+  const member = principalFromUser({ id: "m1", role: "MEMBER", organizationId: "org-1" });
+  const organizer = principalFromUser({ id: "o1", role: "ORGANIZER", organizationId: "org-1" });
+  const onsite = principalFromUser({ id: "onsite1", role: "ONSITE", organizationId: "org-1" });
+  const gate = (principal: Principal, input: Record<string, unknown>, event: EventFacts = conference) =>
+    gateToolCall("update_registration", { principal, event, writesSoFar: 0, input }).kind;
+
+  it("asks both code keys only when the call names the code", () => {
+    expect(toolInputPermissions("update_registration", { registrationId: "r1", notes: "x" })).toEqual([]);
+    expect(toolInputPermissions("update_registration", { registrationId: "r1", dtcmBarcode: "X" })).toEqual(["dtcm.assign", "barcode.view"]);
+    // Clearing is a write too.
+    expect(toolInputPermissions("update_registration", { registrationId: "r1", dtcmBarcode: null })).toEqual(["dtcm.assign", "barcode.view"]);
+  });
+
+  it("a Member may still update a registration through the agent, but not set or clear its code", () => {
+    expect(gate(member, { registrationId: "r1", notes: "x" })).toBe("run");
+    expect(gate(member, { registrationId: "r1", dtcmBarcode: "X" })).toBe("refuse");
+    expect(gate(member, { registrationId: "r1", dtcmBarcode: null })).toBe("refuse");
+  });
+
+  it("one key of the two is not enough", () => {
+    expect(gate(holding("registrations.update", "barcode.view"), { registrationId: "r1", dtcmBarcode: "X" })).toBe("refuse");
+    expect(gate(holding("registrations.update", "dtcm.assign"), { registrationId: "r1", dtcmBarcode: "X" })).toBe("refuse");
+    expect(gate(holding("registrations.update", "dtcm.assign", "barcode.view"), { registrationId: "r1", dtcmBarcode: "X" })).toBe("run");
+  });
+
+  it("an organiser is unchanged, and Onsite Staff only on an event they are assigned to", () => {
+    expect(gate(organizer, { registrationId: "r1", dtcmBarcode: "X" })).toBe("run");
+    expect(gate(onsite, { registrationId: "r1", dtcmBarcode: "X" }, { ...conference, staffUserIds: ["onsite1"] })).toBe("run");
+    expect(gate(onsite, { registrationId: "r1", dtcmBarcode: "X" }, conference)).toBe("refuse");
   });
 });

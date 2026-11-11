@@ -404,11 +404,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const eventFacts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
     const maySeeCodes = can(gate.principal, "barcode.view");
     const mayWriteDtcmCode = maySeeCodes && eventFacts !== null && can(gate.principal, "dtcm.assign", { event: eventFacts });
-    const dtcmWrite = dtcmCodeWriteRefusal({ sent: updateFields.dtcmBarcode, mayWrite: mayWriteDtcmCode, storedCode: existingRegistration.dtcmBarcode });
+    const dtcmWrite = dtcmCodeWriteRefusal({ sent: updateFields.dtcmBarcode, mayWrite: mayWriteDtcmCode, maySee: maySeeCodes, storedCode: existingRegistration.dtcmBarcode });
     if (dtcmWrite.action === "refuse") {
       apiLogger.warn({ msg: "registration-update:dtcm-code-forbidden", eventId, registrationId, userId: session.user.id, role: session.user.role });
       return NextResponse.json(
-        { error: "You cannot set a DTCM code. Ask an organiser, or someone on the registration desk who can assign codes.", code: "DTCM_CODE_FORBIDDEN" },
+        { error: "You cannot set or clear a DTCM code. Ask an organiser, or someone on the registration desk who can assign codes.", code: "DTCM_CODE_FORBIDDEN" },
         { status: 403 },
       );
     }
