@@ -1043,6 +1043,31 @@ none of the lists shown and a state means some certificate of theirs is in it. "
 that match" takes every person the filters found, on every page, up to
 `MAX_ASSIGNMENT_BATCH`.
 
+Four rules from the review of the first version (`a5134945`):
+
+- **Who may see everyone.** `certificates.read` is its own key. Listing every attendee needs
+  `registrations.read` on the event, and every speaker `speakers.read`; the route asks both
+  and passes the answer to the loader (`CertificatePeopleAccess`). Without a list's key the
+  caller sees the people already on a certificate's list (plus the answered-on-no-list ones
+  the report has always shown), and the response says so (`everyone`).
+- **Speakers are not all speakers.** An event's speaker records include abstract submitters,
+  session proposers and speakers who declined. Each speaker carries one group
+  (`speakerBucketOf`: declined or cancelled first, else `speakerKindOf`, the Speakers page's
+  own tabs, read through the caller's abstract and proposal keys). The speakers view opens on
+  "Invited speakers" plus anyone already on a list, so "select all" cannot hand an
+  appreciation certificate to every abstract author. The other groups are one choice away.
+- **A link that says "N assigned" lands on those N.** A template's "N assigned" link and the
+  summary cards open the list with Status = Assigned (`initialStatus`); a tab chosen by hand
+  opens on everyone.
+- **The ticks survive a search.** Tick people, search for another, tick them too. The bar says
+  how many ticked people the current list does not show, the dialog is handed only people
+  still at the event (`liveSelection`), and a person dealt with in their own cell is unticked.
+  Switching between attendees and speakers clears the ticks.
+
+The list is sorted by surname, then first name (a title must not decide the order). The
+columns come from the page's own template list, so a certificate created a moment ago is
+there; the report only supplies the counts.
+
 Each row carries: assigned (who, when, how), survey answered, certificate (number, date,
 hours) and one state from `recipient-states.ts` (client-safe, shared by the tab, the CSV and
 the agent):

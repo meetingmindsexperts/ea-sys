@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The Recipients screen: the review of the first version (November 11)
+
+One reviewer read `a5134945` adversarially, and one issue was found before it started. 1 BLOCKER-class, 2 HIGH and 5 MED, all fixed here.
+
+- **"See certificates" no longer shows the whole attendee list (permission)** - the new screen listed every registration and speaker to anyone holding `certificates.read`, which is its own key: a custom role with it and without `registrations.read` saw names and emails it could not see anywhere else. Everyone at the event is now shown only with `registrations.read` (attendees) or `speakers.read` (speakers) on that event; otherwise the people already on a certificate's list, as before the screen existed
+- **The Speakers view listed every abstract author (HIGH)** - an event's speaker records include everyone who submitted an abstract or proposed a session, and speakers who declined. "Select all" then Assign would have sent an appreciation certificate to all of them. It opens on the speakers the organisers invited (and anyone already on a list); the other groups are under "Which speakers"
+- **"12 assigned" opened on all 1,175 people (HIGH)** - a template's link and the cards at the top now open the list on the people assigned that certificate
+- **A search or a filter change wiped the ticks** - they stay, and the bar says how many ticked people are hidden by the current search. A person no longer at the event is never passed to the dialog, and someone dealt with in their own cell is unticked
+- **Sorted by title** - "Dr. ..." sorted before "Prof. ...", and people with no title first. It is surname, then first name
+- **A certificate created a moment ago had no column** - the Recipients list kept its own copy of the templates for up to 30 seconds. The columns now come from the page's list
+- **The guide described the removed list** of people who answered and are assigned nothing; it is a notice with "Show them"
+- **Tests** - the access rule with the real permission tables, the speaker groups, the selection rules, and one end-to-end test that drives the screen (the panel had none)
+
 ### Certificates: one place to see, find and assign (November 11)
 
 Owner: "assigning and viewing and searching can be at one place". The Recipients tab listed only people already assigned, so assigning someone new meant leaving it for the Registrations or Speakers page.

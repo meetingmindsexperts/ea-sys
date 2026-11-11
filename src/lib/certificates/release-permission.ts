@@ -12,15 +12,13 @@
  * No principal (a door that cannot say who is calling) is a no: fail closed.
  */
 
-import { loadEventFacts } from "@/lib/agent/event-facts-loader";
-import { can, type Principal } from "@/lib/permissions/can";
+import type { Principal } from "@/lib/permissions/can";
+import { holdsOnEvent } from "@/lib/permissions/holds-on-event";
 
-export async function mayReleaseCertificates(
+export function mayReleaseCertificates(
   principal: Principal | null | undefined,
   eventId: string,
   organizationId: string,
 ): Promise<boolean> {
-  if (!principal || !can(principal, "certificates.issue")) return false;
-  const facts = await loadEventFacts(eventId, organizationId);
-  return facts !== null && can(principal, "certificates.issue", { event: facts });
+  return holdsOnEvent(principal, "certificates.issue", eventId, organizationId);
 }

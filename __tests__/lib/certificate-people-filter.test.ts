@@ -8,8 +8,13 @@
 import { describe, it, expect } from "vitest";
 import {
   EMPTY_PEOPLE_FILTER,
+  assignmentIdsBody,
+  canRemoveFromList,
+  hiddenSelectionCount,
   isPeopleFilterActive,
+  liveSelection,
   matchesPeopleFilter,
+  speakerBucketOf,
   type FilterablePerson,
   type PeopleFilter,
 } from "@/lib/certificates/people-filter";
@@ -126,5 +131,101 @@ describe("isPeopleFilterActive", () => {
     expect(isPeopleFilterActive({ ...EMPTY_PEOPLE_FILTER, survey: "answered" })).toBe(true);
     expect(isPeopleFilterActive({ ...EMPTY_PEOPLE_FILTER, attendance: "checked-in" })).toBe(true);
     expect(isPeopleFilterActive({ ...EMPTY_PEOPLE_FILTER, registrationType: "Physician" })).toBe(true);
+  });
+});
+
+describe("speakers: the list opens on the organisers' own faculty", () => {
+  const SPEAKER_COLUMNS = ["appreciation"];
+  const spk = (over: Partial<FilterablePerson>): FilterablePerson => ({
+    name: "Prof. Ivan Sokolov",
+    email: "ivan@demo.invalid",
+    registrationType: null,
+    checkedIn: false,
+    surveyAnsweredAt: null,
+    noList: false,
+    speakerBucket: "invited",
+    cells: {},
+    ...over,
+  });
+  const keepSpk = (p: FilterablePerson, f: Partial<PeopleFilter> = {}) =>
+    matchesPeopleFilter(p, { ...EMPTY_PEOPLE_FILTER, ...f }, SPEAKER_COLUMNS);
+
+  it("each speaker is in one group: declined or cancelled first, else who they are to the event", () => {
+    expect(speakerBucketOf("CONFIRMED", "invited")).toBe("invited");
+    expect(speakerBucketOf("INVITED", "submitters")).toBe("submitters");
+    expect(speakerBucketOf("CONFIRMED", "proposers")).toBe("proposers");
+    expect(speakerBucketOf("DECLINED", "invited")).toBe("inactive");
+    expect(speakerBucketOf("CANCELLED", "submitters")).toBe("inactive");
+  });
+
+  it("by default, abstract submitters, session proposers and declined speakers are NOT listed", () => {
+    // The scenario: 30 faculty, 200 abstract authors, "select all", appreciation certificates to 230.
+    expect(keepSpk(spk({ speakerBucket: "invited" }))).toBe(true);
+    expect(keepSpk(spk({ speakerBucket: "submitters" }))).toBe(false);
+    expect(keepSpk(spk({ speakerBucket: "proposers" }))).toBe(false);
+    expect(keepSpk(spk({ speakerBucket: "inactive" }))).toBe(false);
+  });
+
+  it("...unless they are already on a list: the people a certificate's card counts are all shown", () => {
+    const assignedAuthor = spk({ speakerBucket: "submitters", cells: { appreciation: { state: "READY" } } });
+    expect(keepSpk(assignedAuthor)).toBe(true);
+    expect(keepSpk(assignedAuthor, { status: "ASSIGNED" })).toBe(true);
+    // A cell on a certificate that is not a column here does not count.
+    expect(keepSpk(spk({ speakerBucket: "submitters", cells: { attendance: { state: "SENT" } } }))).toBe(false);
+  });
+
+  it("a group chosen on purpose lists exactly that group, and Everyone lists all", () => {
+    expect(keepSpk(spk({ speakerBucket: "submitters" }), { speakers: "submitters" })).toBe(true);
+    expect(keepSpk(spk({ speakerBucket: "invited" }), { speakers: "submitters" })).toBe(false);
+    // On purpose means strictly: an assigned faculty member is not an abstract submitter.
+    expect(keepSpk(spk({ speakerBucket: "invited", cells: { appreciation: { state: "SENT" } } }), { speakers: "submitters" })).toBe(false);
+    expect(keepSpk(spk({ speakerBucket: "inactive" }), { speakers: "inactive" })).toBe(true);
+    for (const bucket of ["invited", "submitters", "proposers", "inactive"] as const) {
+      expect(keepSpk(spk({ speakerBucket: bucket }), { speakers: "all" })).toBe(true);
+    }
+  });
+
+  it("the speakers choice never hides a registration", () => {
+    expect(keep(person({ speakerBucket: null }), { speakers: "submitters" })).toBe(true);
+    expect(keep(person(), { speakers: "inactive" })).toBe(true);
+  });
+
+  it("choosing another group counts as a filter that Clear filters undoes", () => {
+    expect(isPeopleFilterActive({ ...EMPTY_PEOPLE_FILTER, speakers: "invited" })).toBe(false);
+    expect(isPeopleFilterActive({ ...EMPTY_PEOPLE_FILTER, speakers: "all" })).toBe(true);
+    expect(isPeopleFilterActive({ ...EMPTY_PEOPLE_FILTER, speakers: "submitters" })).toBe(true);
+  });
+});
+
+describe("the selection", () => {
+  const everyone = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+
+  it("only people still at the event are handed to the dialog, in the order listed", () => {
+    // "gone" was ticked, then deleted or cancelled while the page was open.
+    expect(liveSelection(new Set(["c", "gone", "a"]), everyone)).toEqual(["a", "c"]);
+    expect(liveSelection(new Set(), everyone)).toEqual([]);
+  });
+
+  it("says how many ticked people the current search or filters do not show", () => {
+    const selected = new Set(["a", "b", "c"]);
+    expect(hiddenSelectionCount(selected, everyone)).toBe(0);
+    // Searched for one more person: the other three ticks are out of sight, and still ticked.
+    expect(hiddenSelectionCount(selected, [{ id: "d" }])).toBe(3);
+    expect(hiddenSelectionCount(selected, [{ id: "a" }, { id: "d" }])).toBe(2);
+    expect(hiddenSelectionCount(new Set(), [{ id: "a" }])).toBe(0);
+  });
+
+  it("attendance certificates take registration ids and appreciation ones speaker ids, never the other way", () => {
+    expect(assignmentIdsBody("ATTENDANCE", ["r1", "r2"])).toEqual({ registrationIds: ["r1", "r2"] });
+    expect(assignmentIdsBody("APPRECIATION", ["s1"])).toEqual({ speakerIds: ["s1"] });
+  });
+
+  it("someone who holds the certificate stays on its list; once it is revoked they can be removed", () => {
+    const cert = { id: "c1" };
+    expect(canRemoveFromList({ state: "WAITING_FOR_SURVEY", certificate: null })).toBe(true);
+    expect(canRemoveFromList({ state: "READY", certificate: null })).toBe(true);
+    expect(canRemoveFromList({ state: "SENT", certificate: cert })).toBe(false);
+    expect(canRemoveFromList({ state: "ISSUED_NOT_SENT", certificate: cert })).toBe(false);
+    expect(canRemoveFromList({ state: "REVOKED", certificate: cert })).toBe(true);
   });
 });

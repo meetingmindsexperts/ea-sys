@@ -282,6 +282,9 @@ export default function CertificatesPage() {
   // template's "See recipients" link sets both.
   const [activeTab, setActiveTab] = useState("templates");
   const [recipientsTemplate, setRecipientsTemplate] = useState("all");
+  // How the Recipients list opens: "ASSIGNED" when reached from a template's
+  // "N assigned" link (those people, not everyone at the event), else everyone.
+  const [recipientsStatus, setRecipientsStatus] = useState<"all" | "ASSIGNED">("all");
   const canManageRecipients = useCan("certificates.templates.manage", eventId) === "allowed";
   // Turning "send automatically" on for a template whose assigned people have
   // already answered the survey would email them at once: the server refuses
@@ -423,8 +426,9 @@ export default function CertificatesPage() {
     },
     onSuccess: (template) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
-      // The Assign dialog and the person card read the list under this key.
-      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates", "templates"] });
+      // Everything else that lists certificates: the Assign dialog, the person
+      // card, and the Recipients list, which has a column per certificate.
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates"] });
       setEditingTemplateId(template.id);
       toast.success(`Created "${template.name}"`);
     },
@@ -506,8 +510,9 @@ export default function CertificatesPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
-      // The Assign dialog and the person card read the list under this key.
-      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates", "templates"] });
+      // Everything else that lists certificates: the Assign dialog, the person
+      // card, and the Recipients list, which has a column per certificate.
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates"] });
       // The clone deliberately starts with survey auto-issue OFF and with
       // nobody assigned. Surface that so the operator knows to assign people
       // and re-enable it, rather than discovering the copy silently never
@@ -548,8 +553,9 @@ export default function CertificatesPage() {
     },
     onSuccess: ({ template, omittedSections }) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
-      // The Assign dialog and the person card read the list under this key.
-      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates", "templates"] });
+      // Everything else that lists certificates: the Assign dialog, the person
+      // card, and the Recipients list, which has a column per certificate.
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates"] });
       setEditingTemplateId(template.id);
       // The starter adapts to the event's configuration, so say what it left
       // out rather than letting the organizer wonder where the CME lines went.
@@ -593,8 +599,9 @@ export default function CertificatesPage() {
     },
     onSuccess: (templateId) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
-      // The Assign dialog and the person card read the list under this key.
-      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates", "templates"] });
+      // Everything else that lists certificates: the Assign dialog, the person
+      // card, and the Recipients list, which has a column per certificate.
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "certificates"] });
       if (editingTemplateId === templateId) setEditingTemplateId(null);
       setIssueTemplateIds((cur) => cur.filter((id) => id !== templateId));
       toast.success("Template deleted");
@@ -967,7 +974,14 @@ export default function CertificatesPage() {
 
   function openRecipients(templateId: string) {
     setRecipientsTemplate(templateId);
+    setRecipientsStatus("ASSIGNED");
     setActiveTab("recipients");
+  }
+
+  /** A tab chosen by hand: Recipients then opens on everyone, not on a link's narrowed view. */
+  function changeTab(tab: string) {
+    setRecipientsStatus("all");
+    setActiveTab(tab);
   }
 
   // Debounced PATCH for the canvas editor. Per the review's B3: the
@@ -1082,7 +1096,7 @@ export default function CertificatesPage() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={changeTab}>
         <TabsList>
           <TabsTrigger value="templates">
             <PenLine className="h-4 w-4 mr-1.5" />
@@ -1675,6 +1689,7 @@ export default function CertificatesPage() {
               templateFilter={recipientsTemplate}
               onTemplateFilterChange={setRecipientsTemplate}
               canManage={canManageRecipients}
+              initialStatus={recipientsStatus}
             />
           )}
         </TabsContent>
@@ -1929,8 +1944,7 @@ export default function CertificatesPage() {
                     </div>
                     <p className="text-xs text-muted-foreground">
                       <Info className="h-3.5 w-3.5 inline mr-1" />
-                      Each template goes to the people assigned it. Assign people from the
-                      Registrations and Speakers pages, or under Recipients.
+                      Each template goes to the people assigned it. Choose who under Recipients.
                     </p>
                   </div>
 

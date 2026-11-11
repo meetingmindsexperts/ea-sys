@@ -137,6 +137,72 @@ test.describe("certificate templates", () => {
   });
 });
 
+test.describe("Recipients tab: one place to see, find and assign", () => {
+  test("lists everyone at the event, assigns and removes in a cell, and keeps the ticks through a search", async ({ page }) => {
+    await loginAs(page, "ADMIN");
+
+    const createRes = await page.request.post(`/api/events/${EVENT_ID}/certificates/templates`, {
+      data: { name: "E2E Recipients CME", category: ATTENDANCE },
+    });
+    expect(createRes.status()).toBe(201);
+    const { template } = (await createRes.json()) as { template: { id: string } };
+
+    type Person = { id: string; name: string; email: string | null; cells: Record<string, { state: string }> };
+    const peopleNow = async () => {
+      const res = await page.request.get(`/api/events/${EVENT_ID}/certificates/recipients?view=people`);
+      expect(res.ok()).toBeTruthy();
+      return (await res.json()) as { registrations: Person[]; everyone: { registrations: boolean; speakers: boolean } };
+    };
+    // The seeded registrant: at the event, on no certificate's list.
+    const before = await peopleNow();
+    expect(before.everyone).toEqual({ registrations: true, speakers: true });
+    const person = before.registrations.find((p) => p.email === "registrant@test.local");
+    expect(person, "the seeded registration is listed although nobody is assigned").toBeDefined();
+    if (!person) throw new Error("seed missing");
+    expect(person.cells[template.id]).toBeUndefined();
+
+    await page.goto(`/events/${EVENT_ID}/certificates`);
+    await page.getByRole("tab", { name: "Recipients" }).click();
+    const search = page.getByLabel("Search people");
+    await search.fill("zzz-nobody-has-this-name");
+    await expect(page.getByText("Nobody matches these filters.")).toBeVisible();
+    await search.fill("registrant@test.local");
+    const row = page.getByRole("row").filter({ hasText: "registrant@test.local" });
+    await expect(row).toBeVisible();
+
+    // One click in the cell puts them on the list (the template does not send automatically: nothing to confirm).
+    await page.getByRole("button", { name: `Assign E2E Recipients CME to ${person.name}` }).click();
+    await expect(row.getByText("Ready to issue")).toBeVisible();
+    expect((await peopleNow()).registrations.find((p) => p.id === person.id)?.cells[template.id]?.state).toBe("READY");
+
+    // And the x takes them off again.
+    await page.getByRole("button", { name: `Remove ${person.name} from E2E Recipients CME` }).click();
+    await expect(page.getByRole("button", { name: `Assign E2E Recipients CME to ${person.name}` })).toBeVisible();
+    expect((await peopleNow()).registrations.find((p) => p.id === person.id)?.cells[template.id]).toBeUndefined();
+
+    // Tick them, then search for someone else: the tick stays, and the bar says it is out of sight.
+    await page.getByLabel(`Select ${person.name}`).check();
+    await expect(page.getByText("1 person selected")).toBeVisible();
+    await search.fill("zzz-nobody-has-this-name");
+    await expect(page.getByText("1 person selected")).toBeVisible();
+    await expect(page.getByText(/1 of them not in the list below/)).toBeVisible();
+
+    // The ticked person is who the dialog acts on.
+    await page.getByRole("button", { name: "Assign or remove a certificate" }).click();
+    await page.getByRole("radio", { name: /E2E Recipients CME/ }).click();
+    await page.getByRole("button", { name: "Assign to 1" }).click();
+    await expect(page.getByText(/Assigned "E2E Recipients CME" to 1 person/)).toBeVisible();
+    expect((await peopleNow()).registrations.find((p) => p.id === person.id)?.cells[template.id]?.state).toBe("READY");
+
+    // Cleanup: off the list, then the template.
+    const off = await page.request.delete(`/api/events/${EVENT_ID}/certificates/assignments`, {
+      data: { templateId: template.id, registrationIds: [person.id] },
+    });
+    expect(off.ok()).toBeTruthy();
+    await page.request.delete(`/api/events/${EVENT_ID}/certificates/templates/${template.id}`);
+  });
+});
+
 test.describe("PDF upload", () => {
   test("accepts a valid PDF and returns a /uploads/... URL", async ({ page }) => {
     await loginAs(page, "ADMIN");

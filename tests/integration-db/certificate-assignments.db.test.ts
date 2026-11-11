@@ -83,7 +83,15 @@ async function registration(
   return row.id;
 }
 
-async function speaker(email: string, over: { sourceRegistrationId?: string; tags?: string[] } = {}): Promise<string> {
+async function speaker(
+  email: string,
+  over: {
+    sourceRegistrationId?: string;
+    tags?: string[];
+    status?: "INVITED" | "CONFIRMED" | "DECLINED" | "CANCELLED";
+    submitterSource?: string;
+  } = {},
+): Promise<string> {
   const row = await db.speaker.create({
     data: { eventId, organizationId: seed.orgId, email, firstName: "Spk", lastName: email.split("@")[0], ...over },
     select: { id: true },
@@ -147,6 +155,9 @@ async function auditLanded(action: string, count = 1): Promise<void> {
   }
   throw new Error(`audit row ${action} never landed`);
 }
+
+/** A caller who may read registrations, speakers, abstracts and proposals on the event. */
+const SEES_EVERYONE = { registrations: true, speakers: true, submissions: { abstracts: true, proposals: true } };
 
 const checkedAt = async (registrationId: string) =>
   (await db.registration.findUniqueOrThrow({ where: { id: registrationId }, select: { certAutoIssueCheckedAt: true } }))
@@ -673,7 +684,7 @@ describe("the readers", () => {
     });
     await db.registration.update({ where: { id: gone }, data: { status: "CANCELLED" } });
 
-    const people = await loadCertificatePeople({ id: eventId, timezone: "Asia/Dubai", cmeHours: 6 });
+    const people = await loadCertificatePeople({ id: eventId, timezone: "Asia/Dubai", cmeHours: 6 }, SEES_EVERYONE);
 
     // Sorted by name; a cancelled registration only while it is still on a list.
     expect(people.registrations.map((p) => p.email)).toEqual([
@@ -708,6 +719,88 @@ describe("the readers", () => {
     const report = await loadRecipientReport({ id: eventId, timezone: "Asia/Dubai", cmeHours: 6 });
     expect(people.templates).toEqual(report.templates);
     expect(people.templates.find((t) => t.id === day1)).toMatchObject({ assigned: 3 });
+  });
+
+  it("the people view is sorted by surname, whatever the title", async () => {
+    await template("CME");
+    for (const [title, firstName, lastName] of [["PROF", "Aaron", "Zed"], [null, "Zoe", "Abel"], ["DR", "Bea", "Mills"], ["DR", "Al", "Mills"]] as const) {
+      const attendee = await db.attendee.create({
+        data: { organizationId: seed.orgId, email: `${firstName}.${lastName}@x.com`.toLowerCase(), title, firstName, lastName },
+        select: { id: true },
+      });
+      await db.registration.create({ data: { eventId, organizationId: seed.orgId, ticketTypeId: typeId, attendeeId: attendee.id, status: "CONFIRMED" } });
+    }
+    const people = await loadCertificatePeople({ id: eventId, timezone: "Asia/Dubai", cmeHours: null }, SEES_EVERYONE);
+    // Not "Zoe Abel" last because she has no title, and not every "Dr." before every "Prof.".
+    expect(people.registrations.map((p) => p.name)).toEqual(["Zoe Abel", "Dr. Al Mills", "Dr. Bea Mills", "Prof. Aaron Zed"]);
+    expect(people.registrations.every((p) => p.statusLabel === null)).toBe(true);
+  });
+
+  it("the people view tags each speaker with a group, so abstract authors and declined speakers are not mistaken for faculty", async () => {
+    const appreciation = await template("Faculty", { category: "APPRECIATION" });
+    const faculty = await speaker("faculty@x.com", { status: "CONFIRMED" });
+    const declined = await speaker("declined@x.com", { status: "DECLINED" });
+    // Signed up through the abstract door and is on no session: an abstract submitter, not faculty.
+    const author = await speaker("author@x.com", { submitterSource: "abstract" });
+    const proposer = await speaker("proposer@x.com", { submitterSource: "proposal" });
+    // Reached through a registration on the same address, not through a companion pointer.
+    await registration("faculty@x.com", { answered: true, swept: true });
+    await db.certificateAssignment.create({
+      data: { eventId, organizationId: seed.orgId, certificateTemplateId: appreciation, speakerId: author, source: "MANUAL" },
+    });
+
+    const people = await loadCertificatePeople({ id: eventId, timezone: "Asia/Dubai", cmeHours: null }, SEES_EVERYONE);
+    const spk = Object.fromEntries(people.speakers.map((p) => [p.id, p]));
+    expect(spk[faculty]).toMatchObject({ speakerBucket: "invited", statusLabel: "Confirmed", surveyAnsweredAt: ANSWERED });
+    expect(spk[declined]).toMatchObject({ speakerBucket: "inactive", statusLabel: "Declined" });
+    expect(spk[author]).toMatchObject({ speakerBucket: "submitters", statusLabel: "Invited" });
+    expect(spk[proposer]).toMatchObject({ speakerBucket: "proposers" });
+    expect(people.registrations.every((p) => p.speakerBucket === null)).toBe(true);
+
+    // A caller who may not read abstracts or proposals is not told who is an author: as on the Speakers page.
+    const blind = await loadCertificatePeople(
+      { id: eventId, timezone: "Asia/Dubai", cmeHours: null },
+      { ...SEES_EVERYONE, submissions: { abstracts: false, proposals: false } },
+    );
+    const blindSpk = Object.fromEntries(blind.speakers.map((p) => [p.id, p]));
+    expect(blindSpk[author].speakerBucket).toBe("invited");
+    expect(blindSpk[proposer].speakerBucket).toBe("invited");
+    expect(blindSpk[declined].speakerBucket).toBe("inactive");
+  });
+
+  it("without the list's own key, the people view shows only who is already on a list (and who answered and is on none)", async () => {
+    const cme = await template("CME");
+    const appreciation = await template("Faculty", { category: "APPRECIATION" });
+    const assigned = await registration("assigned@x.com");
+    const lost = await registration("lost@x.com", { answered: true, swept: true });
+    await registration("stranger@x.com");
+    const onList = await speaker("onlist@x.com");
+    await speaker("other-speaker@x.com");
+    await assign(cme, { registrationIds: [assigned] });
+    await assign(appreciation, { speakerIds: [onList] });
+
+    const everyone = await loadCertificatePeople({ id: eventId, timezone: "Asia/Dubai", cmeHours: null }, SEES_EVERYONE);
+    expect(everyone.everyone).toEqual({ registrations: true, speakers: true });
+    expect(everyone.registrations).toHaveLength(3);
+    expect(everyone.speakers).toHaveLength(2);
+
+    // certificates.read alone: what the report has always shown, and not the event's attendee list.
+    const limited = await loadCertificatePeople(
+      { id: eventId, timezone: "Asia/Dubai", cmeHours: null },
+      { ...SEES_EVERYONE, registrations: false, speakers: false },
+    );
+    expect(limited.everyone).toEqual({ registrations: false, speakers: false });
+    expect(limited.registrations.map((p) => p.id).sort()).toEqual([assigned, lost].sort());
+    expect(limited.registrations.some((p) => p.email === "stranger@x.com")).toBe(false);
+    expect(limited.speakers.map((p) => p.id)).toEqual([onList]);
+
+    // Each list is judged on its own key.
+    const speakersOnly = await loadCertificatePeople(
+      { id: eventId, timezone: "Asia/Dubai", cmeHours: null },
+      { ...SEES_EVERYONE, registrations: false },
+    );
+    expect(speakersOnly.registrations).toHaveLength(2);
+    expect(speakersOnly.speakers).toHaveLength(2);
   });
 
   it("a pasted list of emails resolves whatever the case, and says who it could not find", async () => {

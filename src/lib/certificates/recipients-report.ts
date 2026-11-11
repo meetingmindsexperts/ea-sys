@@ -33,7 +33,10 @@ import { db } from "@/lib/db";
 import { isReleased, RELEASE_FIELDS, resolveCmeHours, type EmailedRunItem } from "@/lib/registrant-certificates";
 import { localDateInTz, resolveTimezone } from "@/lib/event-time";
 import { getTitleLabel } from "@/lib/utils";
+import { speakerKindOf } from "@/lib/speaker-kinds";
+import { withVisibleSubmissions, type SubmissionVisibility } from "@/lib/speaker-submission-visibility";
 import { assignmentSourceLabel } from "./assignments";
+import { speakerBucketOf, type SpeakerBucket } from "./people-filter";
 import { RECIPIENT_STATES, RECIPIENT_STATE_LABELS, recipientState, type RecipientState } from "./recipient-states";
 
 export {
@@ -399,6 +402,14 @@ export interface CertificatePerson {
   checkedIn: boolean;
   /** A cancelled registration is listed only while it is still on a list. */
   cancelled: boolean;
+  /**
+   * What to say beside the name when it matters: a registration that is not
+   * simply confirmed or checked in ("Pending", "Waitlisted", "Cancelled"), a
+   * speaker's status always.
+   */
+  statusLabel: string | null;
+  /** A speaker's group (people-filter.ts); null for a registration. */
+  speakerBucket: SpeakerBucket | null;
   surveyAnsweredAt: Date | null;
   /** Answered the certificate survey and is on no certificate's list (RecipientReport.answeredNotAssigned). */
   noList: boolean;
@@ -413,15 +424,63 @@ export interface CertificatePeopleReport {
   registrations: CertificatePerson[];
   /** Appreciation certificates are assigned to these. */
   speakers: CertificatePerson[];
+  /**
+   * Whether each list is EVERYONE at the event, or only the people already on
+   * a certificate's list (what certificates.read alone has always shown).
+   */
+  everyone: { registrations: boolean; speakers: boolean };
 }
+
+/**
+ * What the caller may be shown beyond the certificates themselves
+ * (review of a5134945). `certificates.read` is its own key: a custom role can
+ * hold it without `registrations.read` or `speakers.read`, and such a role
+ * must not get the event's whole attendee list from this screen. Without the
+ * list's own key, it sees the people already on a certificate's list (and the
+ * answered-on-no-list ones the report has always shown), nobody else.
+ * `submissions` is the Speakers page's own rule for who may know that a
+ * speaker is an abstract author or a session proposer.
+ */
+export interface CertificatePeopleAccess {
+  registrations: boolean;
+  speakers: boolean;
+  submissions: SubmissionVisibility;
+}
+
+const REGISTRATION_STATUS_LABELS: Record<string, string | null> = {
+  CONFIRMED: null,
+  CHECKED_IN: null,
+  PENDING: "Pending",
+  WAITLISTED: "Waitlisted",
+  CANCELLED: "Cancelled",
+};
+
+const SPEAKER_STATUS_LABELS: Record<string, string> = {
+  INVITED: "Invited",
+  CONFIRMED: "Confirmed",
+  DECLINED: "Declined",
+  CANCELLED: "Cancelled",
+};
+
+/** Surname, then first name: a title ("Dr.") must not decide the order. */
+function byPersonName<T extends { sort: string; person: CertificatePerson }>(a: T, b: T): number {
+  return a.sort.localeCompare(b.sort) || a.person.id.localeCompare(b.person.id);
+}
+const sortKey = (p: { firstName?: string | null; lastName?: string | null }) =>
+  `${p.lastName ?? ""}\t${p.firstName ?? ""}`.toLowerCase();
 
 /**
  * Everyone a certificate could be assigned to at the event, with where they
  * stand on each one they hold: every registration that is not cancelled (a
- * cancelled one only while it is still on a list) and every speaker. Sorted
- * by name. Call inside the event's tenant lane.
+ * cancelled one only while it is still on a list) and every speaker record,
+ * each speaker tagged with their group so the screen can open on the
+ * organisers' faculty. Sorted by surname. Narrowed by `access` to what the
+ * caller may see. Call inside the event's tenant lane.
  */
-export async function loadCertificatePeople(event: RecipientReportEvent): Promise<CertificatePeopleReport> {
+export async function loadCertificatePeople(
+  event: RecipientReportEvent,
+  access: CertificatePeopleAccess,
+): Promise<CertificatePeopleReport> {
   const eventId = event.id;
   const [report, registrations, speakers] = await Promise.all([
     loadRecipientReport(event),
@@ -437,7 +496,19 @@ export async function loadCertificatePeople(event: RecipientReportEvent): Promis
     }),
     db.speaker.findMany({
       where: { eventId },
-      select: { id: true, title: true, firstName: true, lastName: true, email: true, sourceRegistrationId: true },
+      select: {
+        id: true,
+        title: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        status: true,
+        sourceRegistrationId: true,
+        submitterSource: true,
+        abstracts: { select: { status: true } },
+        sessionProposals: { select: { status: true } },
+        _count: { select: { sessions: true, topicSpeakers: true } },
+      },
     }),
   ]);
   const surveyBySpeaker = await loadSpeakerSurveyFacts(eventId, speakers);
@@ -458,37 +529,56 @@ export async function loadCertificatePeople(event: RecipientReportEvent): Promis
     cellsByPerson.set(person, cells);
   }
   const noList = new Set(report.answeredNotAssigned.map((r) => r.registrationId));
-  const byName = (a: CertificatePerson, b: CertificatePerson) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+  const onAList = (p: CertificatePerson) => Object.keys(p.cells).length > 0;
 
-  return {
-    timezone: report.timezone,
-    templates: report.templates,
-    registrations: registrations
-      .map((r) => ({
+  const registrationPeople = registrations
+    .map((r) => ({
+      sort: sortKey(r.attendee),
+      person: {
         id: r.id,
         name: personName(r.attendee),
         email: r.attendee.email ?? null,
         registrationType: r.ticketType?.name ?? null,
         checkedIn: r.status === "CHECKED_IN",
         cancelled: r.status === "CANCELLED",
+        statusLabel: REGISTRATION_STATUS_LABELS[r.status] ?? null,
+        speakerBucket: null,
         surveyAnsweredAt: r.surveyCompletedAt,
         noList: noList.has(r.id),
         cells: cellsByPerson.get(r.id) ?? {},
-      }))
-      .sort(byName),
-    speakers: speakers
-      .map((s) => ({
+      } satisfies CertificatePerson,
+    }))
+    .sort(byPersonName)
+    .map((x) => x.person);
+
+  const speakerPeople = speakers
+    .map((s) => ({
+      sort: sortKey(s),
+      person: {
         id: s.id,
         name: personName(s),
         email: s.email ?? null,
         registrationType: null,
         checkedIn: false,
         cancelled: false,
+        statusLabel: SPEAKER_STATUS_LABELS[s.status] ?? null,
+        // The group as THIS caller may know it: without the abstract or the
+        // proposal key, the speaker reads as invited, as on the Speakers page.
+        speakerBucket: speakerBucketOf(s.status, speakerKindOf(withVisibleSubmissions(s, access.submissions))),
         surveyAnsweredAt: surveyBySpeaker.get(s.id)?.surveyAnsweredAt ?? null,
         noList: false,
         cells: cellsByPerson.get(s.id) ?? {},
-      }))
-      .sort(byName),
+      } satisfies CertificatePerson,
+    }))
+    .sort(byPersonName)
+    .map((x) => x.person);
+
+  return {
+    timezone: report.timezone,
+    templates: report.templates,
+    registrations: access.registrations ? registrationPeople : registrationPeople.filter((p) => onAList(p) || p.noList),
+    speakers: access.speakers ? speakerPeople : speakerPeople.filter(onAList),
+    everyone: { registrations: access.registrations, speakers: access.speakers },
   };
 }
 

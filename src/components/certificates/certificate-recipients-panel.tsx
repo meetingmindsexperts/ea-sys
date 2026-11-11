@@ -44,10 +44,17 @@ import { assignmentSourceLabel, MAX_ASSIGNMENT_BATCH } from "@/lib/certificates/
 import {
   EMPTY_PEOPLE_FILTER,
   PEOPLE_FILTER_ALL as ALL,
+  SPEAKER_BUCKET_LABELS,
+  assignmentIdsBody,
+  canRemoveFromList,
+  hiddenSelectionCount,
   isPeopleFilterActive,
+  liveSelection,
   matchesPeopleFilter,
   type PeopleFilter,
   type PeopleStatusFilter,
+  type SpeakerBucket,
+  type SpeakerBucketFilter,
 } from "@/lib/certificates/people-filter";
 import {
   RECIPIENT_STATES,
@@ -101,7 +108,20 @@ interface CertificateRecipientsPanelProps {
   onTemplateFilterChange: (value: string) => void;
   /** May assign and remove (certificates.templates.manage). */
   canManage: boolean;
+  /**
+   * The status the list opens on. A template's "N assigned" link passes
+   * "ASSIGNED", so it lands on those people and not on everyone at the event.
+   */
+  initialStatus?: PeopleStatusFilter;
 }
+
+const NO_COUNTS = Object.fromEntries(RECIPIENT_STATES.map((s) => [s, 0])) as Record<RecipientState, number>;
+
+/** What a speaker's line says about who they are, when they are not the organisers' own faculty. */
+const SPEAKER_GROUP_NOTE: Partial<Record<SpeakerBucket, string>> = {
+  submitters: "Abstract submitter",
+  proposers: "Session proposer",
+};
 
 /** A send-now the server asked about, for one person: who, which certificate, how many, in its words. */
 interface PendingSend {
@@ -117,13 +137,17 @@ export function CertificateRecipientsPanel({
   templateFilter,
   onTemplateFilterChange,
   canManage,
+  initialStatus,
 }: CertificateRecipientsPanelProps) {
   const peopleQuery = useCertificatePeople(eventId);
   const assign = useAssignCertificate(eventId);
   const unassign = useUnassignCertificate(eventId);
 
   const [kindChoice, setKindChoice] = useState<Kind>("registration");
-  const [filters, setFilters] = useState<Omit<PeopleFilter, "templateId">>(EMPTY_PEOPLE_FILTER);
+  const [filters, setFilters] = useState<Omit<PeopleFilter, "templateId">>({
+    ...EMPTY_PEOPLE_FILTER,
+    status: initialStatus ?? ALL,
+  });
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -138,7 +162,15 @@ export function CertificateRecipientsPanel({
   const chosenTemplate = templates.find((t) => t.id === templateFilter) ?? null;
   const kind: Kind = chosenTemplate ? kindOf(chosenTemplate.category) : kindChoice;
   // Plain values: the React Compiler memoizes them, and a manual useMemo here only gets in its way.
-  const columns = (report?.templates ?? []).filter((t) => kindOf(t.category) === kind);
+  // The certificates come from the page's own list (fresh the moment one is
+  // created or deleted); the report only adds the counts.
+  const summaryById = new Map((report?.templates ?? []).map((t) => [t.id, t]));
+  const allTemplates: CertificateRecipientsTemplate[] = templates.map((t) => {
+    const summary = summaryById.get(t.id);
+    // Name and switch from the page (a rename shows at once), counts from the report.
+    return { ...t, assigned: summary?.assigned ?? 0, counts: summary?.counts ?? NO_COUNTS };
+  });
+  const columns = allTemplates.filter((t) => kindOf(t.category) === kind);
   const shownColumns = chosenTemplate ? columns.filter((t) => t.id === chosenTemplate.id) : columns;
   const everyone = (kind === "registration" ? report?.registrations : report?.speakers) ?? [];
   // A certificate that no longer exists (deleted in another tab) reads as "all".
@@ -149,16 +181,23 @@ export function CertificateRecipientsPanel({
   const registrationTypes = [
     ...new Set((report?.registrations ?? []).flatMap((p) => (p.registrationType ? [p.registrationType] : []))),
   ].sort();
+  // The ticked people who are still at the event: what the bar counts and the dialog is handed.
+  const selectedIds = liveSelection(selected, everyone);
+  const hiddenSelected = hiddenSelectionCount(new Set(selectedIds), matching);
 
   const pageCount = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const visible = matching.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-  /** Any change of what is listed starts again from page one with nobody ticked. */
+  /**
+   * A change of what is listed starts again from page one. The ticks STAY
+   * (tick 40 people, search for the 41st): the bar says how many of them the
+   * current list does not show. Only switching between attendees and speakers
+   * clears them, since a registration's tick means nothing among speakers.
+   */
   function relist(apply: () => void) {
     apply();
     setPage(1);
-    setSelected(new Set());
   }
   const setFilter = (patch: Partial<Omit<PeopleFilter, "templateId">>) => relist(() => setFilters((f) => ({ ...f, ...patch })));
 
@@ -168,15 +207,22 @@ export function CertificateRecipientsPanel({
       if (chosenTemplate && kindOf(chosenTemplate.category) !== next) onTemplateFilterChange(ALL);
       setKindChoice(next);
       setFilters(EMPTY_PEOPLE_FILTER);
+      setSelected(new Set());
     });
   }
 
-  function chooseTemplate(value: string) {
+  /** `status`: also set the status (a summary card opens on the people assigned it). */
+  function chooseTemplate(value: string, status?: PeopleStatusFilter) {
     relist(() => {
       const next = templates.find((t) => t.id === value);
       const nextKind = next ? kindOf(next.category) : kind;
-      // The other table has its own filters (a speaker has no registration type).
-      if (nextKind !== kind) setFilters(EMPTY_PEOPLE_FILTER);
+      if (nextKind !== kind) {
+        // The other table has its own filters (a speaker has no registration type) and its own people.
+        setFilters({ ...EMPTY_PEOPLE_FILTER, status: status ?? ALL });
+        setSelected(new Set());
+      } else if (status !== undefined) {
+        setFilters((f) => ({ ...f, status }));
+      }
       setKindChoice(nextKind);
       onTemplateFilterChange(value);
     });
@@ -185,19 +231,31 @@ export function CertificateRecipientsPanel({
   function showNoList() {
     relist(() => {
       onTemplateFilterChange(ALL);
+      if (kind !== "registration") setSelected(new Set());
       setKindChoice("registration");
       setFilters({ ...EMPTY_PEOPLE_FILTER, status: "NO_LIST" });
     });
   }
 
-  const idsBody = (template: { category: "ATTENDANCE" | "APPRECIATION" }, id: string) =>
-    kindOf(template.category) === "registration" ? { registrationIds: [id] } : { speakerIds: [id] };
+  const untick = (id: string) =>
+    setSelected((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
 
   /** `confirmed`: the count the person agreed to send now; the server asks again if it has grown. */
   async function assignOne(person: CertificatePerson, template: CertificateRecipientsTemplate, confirmed?: number) {
     try {
-      const res = await assign.mutateAsync({ templateId: template.id, ...idsBody(template, person.id), confirmSendNow: confirmed });
+      const res = await assign.mutateAsync({
+        templateId: template.id,
+        ...assignmentIdsBody(template.category, [person.id]),
+        confirmSendNow: confirmed,
+      });
       setPendingSend(null);
+      // Dealt with on their own: a tick left behind would carry them into the next bulk action unseen.
+      untick(person.id);
       const sending = res.sendNow > 0 ? ` ${plural(res.sendNow, "certificate is", "certificates are")} being sent now.` : "";
       toast.success(`Assigned "${template.name}" to ${person.name}.${sending}`);
     } catch (err) {
@@ -212,7 +270,8 @@ export function CertificateRecipientsPanel({
 
   async function removeOne(person: CertificatePerson, template: CertificateRecipientsTemplate) {
     try {
-      const res = await unassign.mutateAsync({ templateId: template.id, ...idsBody(template, person.id) });
+      const res = await unassign.mutateAsync({ templateId: template.id, ...assignmentIdsBody(template.category, [person.id]) });
+      untick(person.id);
       if (res.removed === 0) {
         toast.info(`${person.name} already holds "${template.name}", so they stay on its list. Revoke the certificate to take it back.`);
         return;
@@ -267,11 +326,14 @@ export function CertificateRecipientsPanel({
 
   const noListCount = report.registrations.filter((p) => p.noList).length;
   const assignedLines = report.templates.reduce((sum, t) => sum + t.assigned, 0);
-  const showKindSwitch = report.speakers.length > 0 || report.templates.some((t) => t.category === "APPRECIATION");
+  const showKindSwitch = report.speakers.length > 0 || templates.some((t) => t.category === "APPRECIATION");
   const peopleWord = kind === "registration" ? "people" : "speakers";
   const allOnPage = visible.length > 0 && visible.every((p) => selected.has(p.id));
   const someOnPage = visible.some((p) => selected.has(p.id));
-  const tooMany = selected.size > MAX_ASSIGNMENT_BATCH;
+  const moreMatch = matching.some((p) => !selected.has(p.id));
+  const tooMany = selectedIds.length > MAX_ASSIGNMENT_BATCH;
+  // Without the list's own key the caller sees only the people already on a list.
+  const listsEveryone = kind === "registration" ? report.everyone.registrations : report.everyone.speakers;
   const busy = assign.isPending || unassign.isPending;
 
   function togglePage(on: boolean) {
@@ -295,12 +357,13 @@ export function CertificateRecipientsPanel({
   return (
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {report.templates.map((t) => (
+        {allTemplates.map((t) => (
           <TemplateSummary
             key={t.id}
             template={t}
             active={templateFilter === t.id}
-            onClick={() => chooseTemplate(templateFilter === t.id ? ALL : t.id)}
+            // The card says "12 people": it opens on those 12, not on everyone at the event.
+            onClick={() => (templateFilter === t.id ? chooseTemplate(ALL, ALL) : chooseTemplate(t.id, "ASSIGNED"))}
           />
         ))}
       </div>
@@ -393,6 +456,21 @@ export function CertificateRecipientsPanel({
                 </SelectContent>
               </Select>
             )}
+            {kind === "speaker" && (
+              <Select value={filters.speakers} onValueChange={(v) => setFilter({ speakers: v as SpeakerBucketFilter })}>
+                <SelectTrigger className="h-9 w-64" aria-label="Which speakers">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(SPEAKER_BUCKET_LABELS) as SpeakerBucket[]).map((b) => (
+                    <SelectItem key={b} value={b}>
+                      {SPEAKER_BUCKET_LABELS[b]}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={ALL}>Everyone on the speakers list</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
             <Select value={filters.survey} onValueChange={(v) => setFilter({ survey: v as PeopleFilter["survey"] })}>
               <SelectTrigger className="h-9 w-44" aria-label="Survey">
                 <SelectValue />
@@ -444,14 +522,32 @@ export function CertificateRecipientsPanel({
             </span>
           </div>
 
-          {canManage && selected.size > 0 && (
+          {kind === "speaker" && filters.speakers === "invited" && listsEveryone && (
+            <p className="text-xs text-muted-foreground">
+              Showing the speakers you invited, and anyone already on a list. Abstract submitters, session proposers
+              and speakers who declined are under <strong>Which speakers</strong>.
+            </p>
+          )}
+          {!listsEveryone && (
+            <p className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              You are seeing only the people already on a certificate&apos;s list. The full list of{" "}
+              {kind === "registration" ? "attendees needs access to Registrations" : "speakers needs access to Speakers"}.
+            </p>
+          )}
+
+          {canManage && selectedIds.length > 0 && (
             <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-              <span className="font-medium">{plural(selected.size, "person", "people")} selected</span>
-              {allOnPage && selected.size < matching.length && (
+              <span className="font-medium">{plural(selectedIds.length, "person", "people")} selected</span>
+              {hiddenSelected > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {hiddenSelected} of them not in the list below (hidden by the search or the filters)
+                </span>
+              )}
+              {allOnPage && moreMatch && (
                 <button
                   type="button"
                   className="text-primary underline-offset-2 hover:underline"
-                  onClick={() => setSelected(new Set(matching.map((p) => p.id)))}
+                  onClick={() => setSelected((prev) => new Set([...prev, ...matching.map((p) => p.id)]))}
                 >
                   Select all {matching.length} that match
                 </button>
@@ -518,7 +614,7 @@ export function CertificateRecipientsPanel({
         open={bulkOpen}
         onOpenChange={setBulkOpen}
         kind={kind}
-        ids={[...selected]}
+        ids={selectedIds}
         initialTemplateId={chosenTemplate?.id ?? null}
         onDone={() => setSelected(new Set())}
       />
@@ -707,7 +803,9 @@ function PeopleTable({
                 <TableCell>
                   <div className="font-medium">{p.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {[p.email, p.registrationType ?? (kind === "speaker" ? "Speaker" : null)].filter(Boolean).join(" · ")}
+                    {[p.email, p.registrationType, p.statusLabel, p.speakerBucket ? SPEAKER_GROUP_NOTE[p.speakerBucket] : null]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </div>
                 </TableCell>
                 {kind === "registration" && (
@@ -782,7 +880,7 @@ function CertificateCell({
     );
   }
   // Someone who holds the certificate stays on its list: taking it back is revoking it.
-  const holds = cell.certificate !== null && cell.state !== "REVOKED";
+  const holds = !canRemoveFromList(cell);
   return (
     <div className="flex items-center gap-1">
       <div>

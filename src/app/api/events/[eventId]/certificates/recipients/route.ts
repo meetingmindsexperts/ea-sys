@@ -4,7 +4,10 @@
  *   ?format=csv    the same rows as a file (recorded as an export)
  *   ?view=people   one line per PERSON at the event, assigned or not, with a
  *                  cell per certificate: what the Recipients tab shows, so
- *                  assigning, viewing and searching are one place
+ *                  assigning, viewing and searching are one place. Everyone
+ *                  at the event only for a caller who may read that list
+ *                  (registrations.read / speakers.read on the event); with
+ *                  certificates.read alone, the people already on a list
  *
  * The certificate recipients report: every person assigned a certificate at
  * this event and where they stand (assigned, survey answered, certificate
@@ -19,6 +22,9 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
+import { eventFactsOf } from "@/lib/permissions/event-facts";
+import { submissionVisibilityFor } from "@/lib/speaker-submission-visibility";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { toCsv } from "@/lib/csv-escape";
@@ -43,7 +49,16 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, slug: true, timezone: true, cmeHours: true },
+      select: {
+        id: true,
+        slug: true,
+        timezone: true,
+        cmeHours: true,
+        // The facts a second key is judged by, for the people view.
+        organizationId: true,
+        eventType: true,
+        staffAssignments: { select: { userId: true } },
+      },
     });
     if (!event) {
       apiLogger.warn({ msg: "cert-recipients:event-not-found", eventId, userId: session.user.id });
@@ -52,8 +67,17 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const url = new URL(req.url);
     if (url.searchParams.get("view") === "people") {
+      // certificates.read admitted the caller. The event's whole attendee and
+      // speaker lists have their own keys, asked here on this event.
+      const facts = eventFactsOf({ ...event, staffUserIds: event.staffAssignments.map((a) => a.userId) });
+      const holds = (key: "registrations.read" | "speakers.read") => facts !== null && can(gate.principal, key, { event: facts });
+      const access = {
+        registrations: holds("registrations.read"),
+        speakers: holds("speakers.read"),
+        submissions: submissionVisibilityFor(gate.principal, event),
+      };
       // tenancy: the report reads swept certificate tables, inside the session org.
-      const people = await runWithTenant(orgGuard.orgId, () => loadCertificatePeople(event));
+      const people = await runWithTenant(orgGuard.orgId, () => loadCertificatePeople(event, access));
       return NextResponse.json(people);
     }
     const templateId = url.searchParams.get("templateId") || undefined;

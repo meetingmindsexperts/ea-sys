@@ -4315,6 +4315,10 @@ export interface CertificatePerson {
   registrationType: string | null;
   checkedIn: boolean;
   cancelled: boolean;
+  /** Beside the name when it matters: "Pending", "Waitlisted", a speaker's status. */
+  statusLabel: string | null;
+  /** A speaker's group; null for a registration. */
+  speakerBucket: "invited" | "submitters" | "proposers" | "inactive" | null;
   surveyAnsweredAt: string | null;
   /** Answered the certificate survey and is on no certificate's list. */
   noList: boolean;
@@ -4327,6 +4331,8 @@ export interface CertificatePeopleReport {
   templates: CertificateRecipientsTemplate[];
   registrations: CertificatePerson[];
   speakers: CertificatePerson[];
+  /** False when you see only the people already on a list (no access to that list itself). */
+  everyone: { registrations: boolean; speakers: boolean };
 }
 
 /**

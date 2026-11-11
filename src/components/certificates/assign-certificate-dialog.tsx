@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Assign (or remove) a certificate for the people selected on the
- * Registrations or Speakers page. The assignment decides who receives a
- * certificate on every path (src/lib/certificates/assignments.ts); this is
- * the door most people use.
+ * Assign (or remove) a certificate for the people selected on the Recipients
+ * tab (the one place for it), or on the Registrations or Speakers page (the
+ * shortcuts). The assignment decides who receives a certificate on every
+ * path (src/lib/certificates/assignments.ts).
  *
  * Survey auto-issue sends with no review step, so assigning people who have
  * ALREADY answered to a template that sends automatically would email them at
