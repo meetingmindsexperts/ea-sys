@@ -44,6 +44,8 @@ interface AssignCertificateDialogProps {
   ids: string[];
   /** Called after a change was saved (to clear the selection, for instance). */
   onDone?: () => void;
+  /** The certificate to start on (the Recipients tab, when one is chosen there). */
+  initialTemplateId?: string | null;
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -57,7 +59,7 @@ function assignedMessage(res: { templateName: string; assigned: number; alreadyA
   return `${parts.join(". ")}.`;
 }
 
-export function AssignCertificateDialog({ eventId, open, onOpenChange, kind, ids, onDone }: AssignCertificateDialogProps) {
+export function AssignCertificateDialog({ eventId, open, onOpenChange, kind, ids, onDone, initialTemplateId }: AssignCertificateDialogProps) {
   const category = kind === "registration" ? "ATTENDANCE" : "APPRECIATION";
   const peopleWord = kind === "registration" ? plural(ids.length, "registration", "registrations") : plural(ids.length, "speaker", "speakers");
 
@@ -71,7 +73,9 @@ export function AssignCertificateDialog({ eventId, open, onOpenChange, kind, ids
   const [confirmSendNow, setConfirmSendNow] = useState<{ count: number; message: string } | null>(null);
 
   const templates = (templatesQuery.data?.templates ?? []).filter((t) => t.category === category);
-  const selected = templates.find((t) => t.id === templateId) ?? null;
+  // What the person picked, else the certificate the opener started on.
+  const chosenId = templateId ?? initialTemplateId ?? null;
+  const selected = templates.find((t) => t.id === chosenId) ?? null;
   const busy = assign.isPending || unassign.isPending;
 
   function close(next: boolean) {
@@ -158,7 +162,7 @@ export function AssignCertificateDialog({ eventId, open, onOpenChange, kind, ids
               loading={templatesQuery.isLoading}
               templates={templates}
               category={category}
-              templateId={templateId}
+              templateId={chosenId}
               onChoose={setTemplateId}
             />
 

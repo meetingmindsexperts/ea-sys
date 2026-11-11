@@ -114,7 +114,7 @@ export function AutoIssueAnalyticsCard({ eventId }: { eventId: string }) {
             </CardTitle>
             <CardDescription>
               Certificates sent automatically when someone assigned a certificate answers the survey. Turn it on
-              per template in the Templates tab, and assign people from the Registrations or Speakers page.
+              per template in the Templates tab, and choose who receives it under Recipients.
             </CardDescription>
           </div>
           <Button
@@ -150,8 +150,7 @@ export function AutoIssueAnalyticsCard({ eventId }: { eventId: string }) {
                   {data.templates.withoutRecipients}{" "}
                   {data.templates.withoutRecipients === 1 ? "certificate sends" : "certificates send"} automatically
                   but {data.templates.withoutRecipients === 1 ? "has" : "have"} nobody assigned, so nobody will
-                  receive {data.templates.withoutRecipients === 1 ? "it" : "them"}. Assign people from the
-                  Registrations or Speakers page, or under Recipients:{" "}
+                  receive {data.templates.withoutRecipients === 1 ? "it" : "them"}. Assign people under Recipients:{" "}
                   <span className="font-medium">{data.templates.withoutRecipientsNames.join(", ")}</span>.
                 </span>
               </div>

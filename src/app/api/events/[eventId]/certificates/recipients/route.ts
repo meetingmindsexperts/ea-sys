@@ -2,6 +2,9 @@
  * GET /api/events/[eventId]/certificates/recipients
  *   ?templateId=   one certificate only
  *   ?format=csv    the same rows as a file (recorded as an export)
+ *   ?view=people   one line per PERSON at the event, assigned or not, with a
+ *                  cell per certificate: what the Recipients tab shows, so
+ *                  assigning, viewing and searching are one place
  *
  * The certificate recipients report: every person assigned a certificate at
  * this event and where they stand (assigned, survey answered, certificate
@@ -19,7 +22,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { toCsv } from "@/lib/csv-escape";
-import { loadRecipientReport, recipientReportCsv } from "@/lib/certificates/recipients-report";
+import { loadCertificatePeople, loadRecipientReport, recipientReportCsv } from "@/lib/certificates/recipients-report";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -48,6 +51,11 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const url = new URL(req.url);
+    if (url.searchParams.get("view") === "people") {
+      // tenancy: the report reads swept certificate tables, inside the session org.
+      const people = await runWithTenant(orgGuard.orgId, () => loadCertificatePeople(event));
+      return NextResponse.json(people);
+    }
     const templateId = url.searchParams.get("templateId") || undefined;
     // tenancy: the report reads swept certificate tables, inside the session org.
     const report = await runWithTenant(orgGuard.orgId, () => loadRecipientReport(event, { templateId }));

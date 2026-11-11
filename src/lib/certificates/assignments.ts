@@ -30,7 +30,7 @@ type Client = Prisma.TransactionClient;
 /**
  * How an assignment came to be. Stored as a plain string so a new source
  * never needs a migration.
- *  - MANUAL: picked on the Registrations or Speakers page, or on Recipients
+ *  - MANUAL: picked on the Recipients tab, or on the Registrations or Speakers page
  *  - EMAIL_LIST: matched from a pasted list of addresses
  *  - AGENT: added through the agent / MCP tools
  *  - TAG_BACKFILL: copied from the old tag by the migration
@@ -57,6 +57,13 @@ export const CERTIFICATE_ASSIGNMENT_SOURCE_LABELS: Record<CertificateAssignmentS
 export function assignmentSourceLabel(source: string): string {
   return CERTIFICATE_ASSIGNMENT_SOURCE_LABELS[source as CertificateAssignmentSource] ?? source;
 }
+
+/**
+ * Most people one call may assign or remove: larger than any event's audience
+ * so far. Here, not in the service, so the Recipients tab can tell someone
+ * their selection is too large before sending it.
+ */
+export const MAX_ASSIGNMENT_BATCH = 5000;
 
 /** The facet a template's category is assigned to and issued against. */
 export function recipientKindFor(category: CertificateType): "registration" | "speaker" {

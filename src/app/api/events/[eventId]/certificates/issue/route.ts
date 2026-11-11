@@ -175,7 +175,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
       const nobodyAssigned = merged.perTemplate.every((t) => t.assigned === 0);
       const hint = nobodyAssigned
-        ? `Nobody is assigned ${templates.map((t) => `"${t.name}"`).join(", ")} yet. Assign the certificate to people first: select them on the Registrations or Speakers page and choose Assign certificate.`
+        ? `Nobody is assigned ${templates.map((t) => `"${t.name}"`).join(", ")} yet. Assign the certificate to people first, under Certificates, Recipients.`
         : `Everyone assigned ${templates.map((t) => `"${t.name}"`).join(", ")} already holds it. Assign more people, or use Resend to everyone to send the current version again.`;
       return NextResponse.json(
         {

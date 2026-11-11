@@ -41,6 +41,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
   LIVE_ASSIGNMENT_WHERE,
+  MAX_ASSIGNMENT_BATCH,
   lockCertificateAssignments,
   recipientKindFor,
   type CertificateAssignmentSource,
@@ -50,8 +51,7 @@ import { planSurveyReleases, summarizeRelease, type ReleaseSummary } from "@/lib
 type Tx = Prisma.TransactionClient;
 type CallerSource = "rest" | "mcp" | "agent" | "api";
 
-/** Most people one call may assign or remove: larger than any event's audience so far. */
-export const MAX_ASSIGNMENT_BATCH = 5000;
+export { MAX_ASSIGNMENT_BATCH };
 
 /** Audit rows name the people touched, up to this many ids. */
 const AUDIT_ID_CAP = 200;

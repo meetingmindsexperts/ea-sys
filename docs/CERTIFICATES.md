@@ -998,11 +998,15 @@ Three rules, from the review of the first version (`631e95bd`):
 
 ### Doors
 
+The Recipients tab is THE place (owner, Nov 11, 2026: "assigning and viewing and searching
+can be at one place"). The others are shortcuts to the same two calls.
+
 | Door | Where |
 |---|---|
-| Select people, "Assign certificate" (assign or remove) | Registrations and Speakers pages, `assign-certificate-dialog.tsx` |
+| **Everyone at the event, a cell per certificate**: search, filter, tick people or "select all N that match", assign or remove; "Assign" in a cell for one person | Certificates, Recipients tab (`certificate-recipients-panel.tsx`) |
 | "Add from a list of emails" (a webinar attendance export), with a check step that shows unmatched addresses first | Certificates, Recipients tab |
-| One person | their Certificates card: unassigned templates show "Assign" |
+| Shortcut: select people, "Assign certificate" (assign or remove) | Registrations and Speakers pages, `assign-certificate-dialog.tsx`. Kept for filters Recipients does not have (payment, country, documents); the header box there selects one page |
+| Shortcut: one person | their Certificates card: unassigned templates show "Assign" |
 | Agent / MCP | `assign_certificate`, `unassign_certificate`, `list_certificate_recipients` |
 
 REST: `GET/POST/DELETE /api/events/[eventId]/certificates/assignments` and
@@ -1022,9 +1026,26 @@ of people than a stale page showed.
 
 ### The Recipients report
 
-`src/lib/certificates/recipients-report.ts`, one row per person per certificate: assigned
-(who, when, how), survey answered, certificate (number, date, hours) and one state from
-`recipient-states.ts` (client-safe, shared by the tab, the CSV and the agent):
+`src/lib/certificates/recipients-report.ts` gives the same facts in two shapes:
+
+- `loadRecipientReport`: one row per person per certificate. The CSV export and the agent.
+- `loadCertificatePeople`: one row per PERSON at the event, assigned or not (every
+  registration that is not cancelled, a cancelled one only while it is still on a list, and
+  every speaker), with a cell per certificate they hold. The Recipients tab, through
+  `GET .../certificates/recipients?view=people`. It is built from the first, so a state never
+  reads differently on the two.
+
+The tab loads both kinds in one request and filters on the page
+(`src/lib/certificates/people-filter.ts`, pure and tested): search, registration type,
+checked in, survey, certificate, status. A status needs a certificate to be asked about: with
+one chosen it is that certificate's cell; with "All certificates", "Not assigned" means on
+none of the lists shown and a state means some certificate of theirs is in it. "Select all N
+that match" takes every person the filters found, on every page, up to
+`MAX_ASSIGNMENT_BATCH`.
+
+Each row carries: assigned (who, when, how), survey answered, certificate (number, date,
+hours) and one state from `recipient-states.ts` (client-safe, shared by the tab, the CSV and
+the agent):
 
 | State | Means |
 |---|---|

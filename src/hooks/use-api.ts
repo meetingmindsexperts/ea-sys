@@ -4287,51 +4287,57 @@ export type CertificateRecipientState =
   | "REVOKED"
   | "CANCELLED";
 
-export interface CertificateRecipientRow {
-  assignmentId: string;
-  templateId: string;
-  templateName: string;
-  category: "ATTENDANCE" | "APPRECIATION";
-  kind: "registration" | "speaker";
-  registrationId: string | null;
-  speakerId: string | null;
+/** One certificate's summary on the Recipients tab: how many are assigned, by state. */
+export interface CertificateRecipientsTemplate {
+  id: string;
   name: string;
-  email: string | null;
-  registrationType: string | null;
-  source: string;
+  category: "ATTENDANCE" | "APPRECIATION";
+  autoIssueOnSurvey: boolean;
+  assigned: number;
+  counts: Record<CertificateRecipientState, number>;
+}
+
+/** Where one person stands on one certificate they are assigned. */
+export interface CertificatePersonCell {
+  state: CertificateRecipientState;
   assignedAt: string;
   assignedByName: string | null;
-  surveyAnsweredAt: string | null;
-  state: CertificateRecipientState;
+  source: string;
   cmeHours: string | null;
   certificate: { id: string; serial: string; issuedAt: string } | null;
 }
 
-export interface CertificateRecipientsReport {
-  timezone: string;
-  templates: Array<{
-    id: string;
-    name: string;
-    category: "ATTENDANCE" | "APPRECIATION";
-    autoIssueOnSurvey: boolean;
-    assigned: number;
-    counts: Record<CertificateRecipientState, number>;
-  }>;
-  rows: CertificateRecipientRow[];
-  answeredNotAssigned: Array<{
-    registrationId: string;
-    name: string;
-    email: string | null;
-    registrationType: string | null;
-    surveyAnsweredAt: string;
-  }>;
+/** One person at the event: a registration, or a speaker. */
+export interface CertificatePerson {
+  id: string;
+  name: string;
+  email: string | null;
+  registrationType: string | null;
+  checkedIn: boolean;
+  cancelled: boolean;
+  surveyAnsweredAt: string | null;
+  /** Answered the certificate survey and is on no certificate's list. */
+  noList: boolean;
+  /** By template id: only the certificates this person is assigned. */
+  cells: Record<string, CertificatePersonCell>;
 }
 
-/** The recipients report: who is assigned what, and where each person stands. */
-export function useCertificateRecipients(eventId: string, enabled = true) {
+export interface CertificatePeopleReport {
+  timezone: string;
+  templates: CertificateRecipientsTemplate[];
+  registrations: CertificatePerson[];
+  speakers: CertificatePerson[];
+}
+
+/**
+ * The Recipients tab: everyone at the event, assigned or not, with where each
+ * person stands on each certificate. One request for both kinds, so the
+ * search, the filters and "select everyone matching" run on the page.
+ */
+export function useCertificatePeople(eventId: string, enabled = true) {
   return useQuery({
-    queryKey: ["events", eventId, "certificates", "recipients"],
-    queryFn: () => fetchApi<CertificateRecipientsReport>(`/api/events/${eventId}/certificates/recipients`),
+    queryKey: ["events", eventId, "certificates", "people"],
+    queryFn: () => fetchApi<CertificatePeopleReport>(`/api/events/${eventId}/certificates/recipients?view=people`),
     enabled,
     // People answer the survey and certificates go out while the page is open.
     staleTime: 30 * 1000,

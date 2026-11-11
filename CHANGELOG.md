@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Certificates: one place to see, find and assign (November 11)
+
+Owner: "assigning and viewing and searching can be at one place". The Recipients tab listed only people already assigned, so assigning someone new meant leaving it for the Registrations or Speakers page.
+
+- **Recipients lists everyone at the event** - one line per person, one column per certificate, each cell saying where that person stands (Not assigned, Waiting for survey, Sending, Sent, Ready to issue) with the certificate number under a sent one. An Attendees / Speakers switch, since attendance certificates go to registrations and appreciation ones to speakers
+- **Search and filters** - name or email, registration type, checked in, survey answered, certificate, status. "Not assigned" with one certificate chosen means not on that list; with all certificates it means on none
+- **Assign in place** - "Assign" in a cell for one person; tick people for several. The box at the top selects the page, and "Select all N that match" then takes everyone the filters found on every page, which removes the trap where a 300-person list was assigned 20 at a time
+- **People who answered and are on no list** - a notice with the count and "Show them", in place of the separate list below the table
+- **A revoked holder can be removed** from a list on the screen; the button was disabled for them though the server allows it
+- **Unchanged** - how certificates are sent, the confirmation before anything is emailed, the CSV export, the email list. No database change. "Assign certificate" on Registrations and Speakers stays as a shortcut for filters Recipients does not have (payment, country, documents)
+- `GET .../certificates/recipients?view=people` (`loadCertificatePeople`, built from the same report as the export so a state cannot read differently); filter rules in `src/lib/certificates/people-filter.ts`
+
 ### Certificate assignments: the review of the first version (November 11)
 
 Two reviewers read `631e95bd` adversarially. 2 HIGH and 9 MED, all fixed here; the LOWs are listed in the commit.

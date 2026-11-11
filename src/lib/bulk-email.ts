@@ -1085,7 +1085,7 @@ export async function precheckBulkEmailViability(
       throw new BulkEmailError(
         `Nobody is assigned certificate template${unassigned.length > 1 ? "s" : ""} ${unassigned
           .map((t) => `"${t.name}"`)
-          .join(", ")} yet. Assign the certificate to people first (the assignment decides who receives it)`,
+          .join(", ")} yet. Assign the certificate to people first, under Certificates, Recipients (the assignment decides who receives it)`,
         400,
       );
     }

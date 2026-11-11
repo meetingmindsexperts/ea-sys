@@ -28,7 +28,7 @@ import { db } from "@/lib/db";
 import { runAutoIssueSweep } from "@/lib/certificates/auto-issue";
 import { countAssignmentsByTemplate, lockCertificateAssignments } from "@/lib/certificates/assignments";
 import { eligibleForTemplates } from "@/lib/certificates/eligibility";
-import { loadRecipientReport } from "@/lib/certificates/recipients-report";
+import { loadCertificatePeople, loadRecipientReport } from "@/lib/certificates/recipients-report";
 import {
   assignCertificate,
   resolveAssignmentEmails,
@@ -648,6 +648,66 @@ describe("the readers", () => {
     const attendance = await template("CME");
     const narrowed = await loadRecipientReport({ id: eventId, timezone: "Asia/Dubai", cmeHours: null }, { templateId: attendance });
     expect(narrowed.answeredNotAssigned.map((r) => r.email).sort()).toEqual(["forgotten@x.com", "unassigned-speaker@x.com"]);
+  });
+
+  it("the people view lists EVERYONE at the event, assigned or not, with a cell per certificate they hold", async () => {
+    const day1 = await template("CME Day 1", { auto: true });
+    const day2 = await template("CME Day 2");
+    const faculty = await template("Faculty", { category: "APPRECIATION", auto: true });
+    const zara = await registration("zara@x.com", { answered: true, swept: true });
+    const adam = await registration("adam@x.com");
+    await registration("lost@x.com", { answered: true, swept: true });
+    const gone = await registration("gone@x.com");
+    await registration("never-listed@x.com", { status: "CANCELLED" });
+    const companion = await registration("comp@x.com", { answered: true, swept: true });
+    const prof = await speaker("prof@x.com", { sourceRegistrationId: companion });
+    const guest = await speaker("guest@x.com");
+    await db.registration.update({ where: { id: adam }, data: { status: "CHECKED_IN" } });
+    await assign(day1, { registrationIds: [adam, gone] });
+    await db.certificateAssignment.create({
+      data: { eventId, organizationId: seed.orgId, certificateTemplateId: day1, registrationId: zara, source: "TAG_BACKFILL" },
+    });
+    await assign(day2, { registrationIds: [zara] });
+    await db.certificateAssignment.create({
+      data: { eventId, organizationId: seed.orgId, certificateTemplateId: faculty, speakerId: prof, source: "MANUAL" },
+    });
+    await db.registration.update({ where: { id: gone }, data: { status: "CANCELLED" } });
+
+    const people = await loadCertificatePeople({ id: eventId, timezone: "Asia/Dubai", cmeHours: 6 });
+
+    // Sorted by name; a cancelled registration only while it is still on a list.
+    expect(people.registrations.map((p) => p.email)).toEqual([
+      "adam@x.com",
+      "comp@x.com",
+      "gone@x.com",
+      "lost@x.com",
+      "zara@x.com",
+    ]);
+    const reg = Object.fromEntries(people.registrations.map((p) => [p.email, p]));
+    expect(reg["adam@x.com"]).toMatchObject({ id: adam, checkedIn: true, cancelled: false, surveyAnsweredAt: null, noList: false, registrationType: "Physician" });
+    expect(Object.keys(reg["adam@x.com"].cells)).toEqual([day1]);
+    expect(reg["adam@x.com"].cells[day1]).toMatchObject({ state: "WAITING_FOR_SURVEY", source: "MANUAL", cmeHours: "6", certificate: null });
+    // One person, two certificates, two different states.
+    expect(reg["zara@x.com"].cells[day1].state).toBe("READY");
+    expect(reg["zara@x.com"].cells[day2].state).toBe("READY");
+    expect(reg["zara@x.com"].surveyAnsweredAt).toEqual(ANSWERED);
+    expect(reg["gone@x.com"]).toMatchObject({ cancelled: true });
+    expect(reg["gone@x.com"].cells[day1].state).toBe("CANCELLED");
+    // Answered and on no list: flagged. The faculty member's companion is not (their speaker record holds one).
+    expect(reg["lost@x.com"]).toMatchObject({ noList: true, cells: {} });
+    expect(reg["comp@x.com"]).toMatchObject({ noList: false, cells: {} });
+
+    // Speakers: their survey is read through their registration at the event.
+    expect(people.speakers.map((p) => p.email)).toEqual(["guest@x.com", "prof@x.com"]);
+    const spk = Object.fromEntries(people.speakers.map((p) => [p.email, p]));
+    expect(spk["prof@x.com"]).toMatchObject({ id: prof, registrationType: null, surveyAnsweredAt: ANSWERED });
+    expect(spk["prof@x.com"].cells[faculty].state).toBe("READY");
+    expect(spk["guest@x.com"]).toMatchObject({ id: guest, surveyAnsweredAt: null, cells: {} });
+
+    // The summary cards are the report's own: the two views cannot disagree.
+    const report = await loadRecipientReport({ id: eventId, timezone: "Asia/Dubai", cmeHours: 6 });
+    expect(people.templates).toEqual(report.templates);
+    expect(people.templates.find((t) => t.id === day1)).toMatchObject({ assigned: 3 });
   });
 
   it("a pasted list of emails resolves whatever the case, and says who it could not find", async () => {

@@ -1,19 +1,26 @@
 "use client";
 
 /**
- * The Recipients tab of the Certificates page (Nov 11, 2026): everyone
- * assigned a certificate at this event and where each person stands, on one
- * row. Assigned, survey answered, certificate sent. It is the report the old
- * tag could not produce, and the place to see who still needs a click.
+ * The Recipients tab of the Certificates page: the ONE place to see who gets
+ * which certificate, find a person, and assign or remove (owner, Nov 11,
+ * 2026: "assigning and viewing and searching can be at one place").
  *
- * It only reads (GET .../certificates/recipients) and assigns or removes
- * through the same two calls every other door uses. The states and their
- * wording come from src/lib/certificates/recipient-states.ts, shared with the
- * CSV export and the agent.
+ * It lists everyone at the event, assigned or not: one line per person, one
+ * column per certificate, each cell saying where that person stands. Attendance
+ * certificates go to registrations and appreciation ones to speakers, so the
+ * two are two views of the same table. Search and filter, tick people (or
+ * everyone matching), assign.
+ *
+ * It reads one request (GET .../certificates/recipients?view=people) and
+ * filters on the page (src/lib/certificates/people-filter.ts); it assigns and
+ * removes through the same two calls every other door uses, so the "this
+ * would email certificates now" question is the server's. The states and
+ * their wording come from src/lib/certificates/recipient-states.ts, shared
+ * with the CSV export and the agent.
  */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Download, ListPlus, Loader2, Search, UserPlus, X, Zap } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ListPlus, Loader2, Plus, Search, UserPlus, X, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +40,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { downloadExport } from "@/lib/export-download";
-import { assignmentSourceLabel } from "@/lib/certificates/assignments";
+import { assignmentSourceLabel, MAX_ASSIGNMENT_BATCH } from "@/lib/certificates/assignments";
+import {
+  EMPTY_PEOPLE_FILTER,
+  PEOPLE_FILTER_ALL as ALL,
+  isPeopleFilterActive,
+  matchesPeopleFilter,
+  type PeopleFilter,
+  type PeopleStatusFilter,
+} from "@/lib/certificates/people-filter";
 import {
   RECIPIENT_STATES,
   RECIPIENT_STATE_HINTS,
@@ -43,15 +58,15 @@ import {
 import {
   sendNowRefusalOf,
   useAssignCertificate,
-  useCertificateRecipients,
+  useCertificatePeople,
   useUnassignCertificate,
   type AssignCertificateResponse,
-  type CertificateRecipientRow,
-  type CertificateRecipientsReport,
+  type CertificatePerson,
+  type CertificatePersonCell,
+  type CertificateRecipientsTemplate,
 } from "@/hooks/use-api";
 import { AssignCertificateDialog } from "./assign-certificate-dialog";
 
-const ALL = "all";
 const PAGE_SIZE = 50;
 
 const STATE_STYLES: Record<RecipientState, string> = {
@@ -66,6 +81,10 @@ const STATE_STYLES: Record<RecipientState, string> = {
 };
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** Who a certificate is assigned to: attendance ones to registrations, appreciation ones to speakers. */
+type Kind = "registration" | "speaker";
+const kindOf = (category: "ATTENDANCE" | "APPRECIATION"): Kind => (category === "ATTENDANCE" ? "registration" : "speaker");
 
 interface PanelTemplate {
   id: string;
@@ -84,6 +103,14 @@ interface CertificateRecipientsPanelProps {
   canManage: boolean;
 }
 
+/** A send-now the server asked about, for one person: who, which certificate, how many, in its words. */
+interface PendingSend {
+  person: CertificatePerson;
+  template: CertificateRecipientsTemplate;
+  count: number;
+  message: string;
+}
+
 export function CertificateRecipientsPanel({
   eventId,
   templates,
@@ -91,48 +118,106 @@ export function CertificateRecipientsPanel({
   onTemplateFilterChange,
   canManage,
 }: CertificateRecipientsPanelProps) {
-  const reportQuery = useCertificateRecipients(eventId);
+  const peopleQuery = useCertificatePeople(eventId);
+  const assign = useAssignCertificate(eventId);
   const unassign = useUnassignCertificate(eventId);
 
-  const [stateFilter, setStateFilter] = useState<string>(ALL);
-  const [search, setSearch] = useState("");
+  const [kindChoice, setKindChoice] = useState<Kind>("registration");
+  const [filters, setFilters] = useState<Omit<PeopleFilter, "templateId">>(EMPTY_PEOPLE_FILTER);
   const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [emailsOpen, setEmailsOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
 
-  const report = reportQuery.data;
+  const report = peopleQuery.data;
   const day = useMemo(() => dayFormatter(report?.timezone), [report?.timezone]);
 
-  const rows = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return (report?.rows ?? []).filter(
-      (r) =>
-        (templateFilter === ALL || r.templateId === templateFilter) &&
-        (stateFilter === ALL || r.state === stateFilter) &&
-        (needle === "" || r.name.toLowerCase().includes(needle) || (r.email ?? "").toLowerCase().includes(needle)),
-    );
-  }, [report?.rows, templateFilter, stateFilter, search]);
+  // A chosen certificate decides whose table this is: its people.
+  const chosenTemplate = templates.find((t) => t.id === templateFilter) ?? null;
+  const kind: Kind = chosenTemplate ? kindOf(chosenTemplate.category) : kindChoice;
+  // Plain values: the React Compiler memoizes them, and a manual useMemo here only gets in its way.
+  const columns = (report?.templates ?? []).filter((t) => kindOf(t.category) === kind);
+  const shownColumns = chosenTemplate ? columns.filter((t) => t.id === chosenTemplate.id) : columns;
+  const everyone = (kind === "registration" ? report?.registrations : report?.speakers) ?? [];
+  // A certificate that no longer exists (deleted in another tab) reads as "all".
+  const chosenTemplateId = chosenTemplate?.id ?? ALL;
+  const filter: PeopleFilter = { ...filters, templateId: chosenTemplateId };
+  const columnIds = columns.map((c) => c.id);
+  const matching = everyone.filter((p) => matchesPeopleFilter(p, filter, columnIds));
+  const registrationTypes = [
+    ...new Set((report?.registrations ?? []).flatMap((p) => (p.registrationType ? [p.registrationType] : []))),
+  ].sort();
 
-  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
-  const visible = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const visible = matching.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-  function changeFilter(apply: () => void) {
+  /** Any change of what is listed starts again from page one with nobody ticked. */
+  function relist(apply: () => void) {
     apply();
     setPage(1);
+    setSelected(new Set());
+  }
+  const setFilter = (patch: Partial<Omit<PeopleFilter, "templateId">>) => relist(() => setFilters((f) => ({ ...f, ...patch })));
+
+  function changeKind(next: Kind) {
+    relist(() => {
+      // A certificate of the other kind cannot stay chosen.
+      if (chosenTemplate && kindOf(chosenTemplate.category) !== next) onTemplateFilterChange(ALL);
+      setKindChoice(next);
+      setFilters(EMPTY_PEOPLE_FILTER);
+    });
   }
 
-  async function handleRemove(row: CertificateRecipientRow) {
+  function chooseTemplate(value: string) {
+    relist(() => {
+      const next = templates.find((t) => t.id === value);
+      const nextKind = next ? kindOf(next.category) : kind;
+      // The other table has its own filters (a speaker has no registration type).
+      if (nextKind !== kind) setFilters(EMPTY_PEOPLE_FILTER);
+      setKindChoice(nextKind);
+      onTemplateFilterChange(value);
+    });
+  }
+
+  function showNoList() {
+    relist(() => {
+      onTemplateFilterChange(ALL);
+      setKindChoice("registration");
+      setFilters({ ...EMPTY_PEOPLE_FILTER, status: "NO_LIST" });
+    });
+  }
+
+  const idsBody = (template: { category: "ATTENDANCE" | "APPRECIATION" }, id: string) =>
+    kindOf(template.category) === "registration" ? { registrationIds: [id] } : { speakerIds: [id] };
+
+  /** `confirmed`: the count the person agreed to send now; the server asks again if it has grown. */
+  async function assignOne(person: CertificatePerson, template: CertificateRecipientsTemplate, confirmed?: number) {
     try {
-      const res = await unassign.mutateAsync({
-        templateId: row.templateId,
-        ...(row.registrationId ? { registrationIds: [row.registrationId] } : { speakerIds: [row.speakerId!] }),
-      });
-      if (res.removed === 0) {
-        toast.info(`${row.name} already holds "${row.templateName}", so they stay on its list. Revoke the certificate to take it back.`);
+      const res = await assign.mutateAsync({ templateId: template.id, ...idsBody(template, person.id), confirmSendNow: confirmed });
+      setPendingSend(null);
+      const sending = res.sendNow > 0 ? ` ${plural(res.sendNow, "certificate is", "certificates are")} being sent now.` : "";
+      toast.success(`Assigned "${template.name}" to ${person.name}.${sending}`);
+    } catch (err) {
+      const refusal = sendNowRefusalOf(err);
+      if (refusal) {
+        setPendingSend({ person, template, ...refusal });
         return;
       }
-      toast.success(`Removed ${row.name} from "${row.templateName}"`);
+      toast.error(err instanceof Error ? err.message : "Could not assign the certificate");
+    }
+  }
+
+  async function removeOne(person: CertificatePerson, template: CertificateRecipientsTemplate) {
+    try {
+      const res = await unassign.mutateAsync({ templateId: template.id, ...idsBody(template, person.id) });
+      if (res.removed === 0) {
+        toast.info(`${person.name} already holds "${template.name}", so they stay on its list. Revoke the certificate to take it back.`);
+        return;
+      }
+      toast.success(`Removed ${person.name} from "${template.name}"`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not remove them");
     }
@@ -141,7 +226,7 @@ export function CertificateRecipientsPanel({
   async function handleExport() {
     setExporting(true);
     const params = new URLSearchParams({ format: "csv" });
-    if (templateFilter !== ALL) params.set("templateId", templateFilter);
+    if (chosenTemplate) params.set("templateId", chosenTemplate.id);
     const res = await downloadExport({
       url: `/api/events/${eventId}/certificates/recipients?${params.toString()}`,
       filename: "certificate-recipients.csv",
@@ -152,7 +237,7 @@ export function CertificateRecipientsPanel({
     if (!res.ok) toast.error(res.error ?? "Export failed.");
   }
 
-  if (reportQuery.isLoading) {
+  if (peopleQuery.isLoading) {
     return (
       <Card>
         <CardContent className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
@@ -161,7 +246,7 @@ export function CertificateRecipientsPanel({
       </Card>
     );
   }
-  if (reportQuery.isError || !report) {
+  if (peopleQuery.isError || !report) {
     return (
       <Card>
         <CardContent className="py-10 text-sm text-red-700">
@@ -170,144 +255,323 @@ export function CertificateRecipientsPanel({
       </Card>
     );
   }
+  if (templates.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-sm text-muted-foreground">
+          Create a certificate under Templates first. Then come back here to choose who receives it.
+        </CardContent>
+      </Card>
+    );
+  }
 
-  const shownTemplates = report.templates.filter((t) => templateFilter === ALL || t.id === templateFilter);
+  const noListCount = report.registrations.filter((p) => p.noList).length;
+  const assignedLines = report.templates.reduce((sum, t) => sum + t.assigned, 0);
+  const showKindSwitch = report.speakers.length > 0 || report.templates.some((t) => t.category === "APPRECIATION");
+  const peopleWord = kind === "registration" ? "people" : "speakers";
+  const allOnPage = visible.length > 0 && visible.every((p) => selected.has(p.id));
+  const someOnPage = visible.some((p) => selected.has(p.id));
+  const tooMany = selected.size > MAX_ASSIGNMENT_BATCH;
+  const busy = assign.isPending || unassign.isPending;
+
+  function togglePage(on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const p of visible) {
+        if (on) next.add(p.id);
+        else next.delete(p.id);
+      }
+      return next;
+    });
+  }
+  const toggleOne = (id: string, on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
 
   return (
     <div className="space-y-6">
-      {templates.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-sm text-muted-foreground">
-            Create a certificate under Templates first. Then assign it to people here, or from the Registrations and
-            Speakers pages.
-          </CardContent>
-        </Card>
-      ) : (
-        <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {shownTemplates.map((t) => (
-              <TemplateSummary
-                key={t.id}
-                template={t}
-                active={templateFilter === t.id}
-                onClick={() => changeFilter(() => onTemplateFilterChange(templateFilter === t.id ? ALL : t.id))}
-              />
-            ))}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {report.templates.map((t) => (
+          <TemplateSummary
+            key={t.id}
+            template={t}
+            active={templateFilter === t.id}
+            onClick={() => chooseTemplate(templateFilter === t.id ? ALL : t.id)}
+          />
+        ))}
+      </div>
+
+      {noListCount > 0 && filters.status !== "NO_LIST" && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <span>
+            <strong>{noListNotice(noListCount)}</strong>, so nothing is sent to them.
+          </span>
+          <Button variant="outline" size="sm" onClick={showNoList}>
+            Show them
+          </Button>
+        </div>
+      )}
+
+      <Card>
+        <CardHeader className="gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Recipients</CardTitle>
+              <CardDescription className="max-w-xl">
+                Everyone at this event and where they stand on each certificate. Being assigned is what decides who
+                receives one: search, tick the people, assign.
+              </CardDescription>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {canManage && (
+                <Button variant="outline" size="sm" onClick={() => setEmailsOpen(true)}>
+                  <ListPlus className="mr-2 h-4 w-4" />
+                  Add from a list of emails
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting || assignedLines === 0}>
+                {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                Export CSV
+              </Button>
+            </div>
           </div>
 
-          <Card>
-            <CardHeader className="gap-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <CardTitle className="text-base">Recipients</CardTitle>
-                  <CardDescription>
-                    One line per person per certificate. Being on this list is what decides who receives a
-                    certificate.
-                  </CardDescription>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {canManage && (
-                    <Button variant="outline" size="sm" onClick={() => setEmailsOpen(true)}>
-                      <ListPlus className="mr-2 h-4 w-4" />
-                      Add from a list of emails
-                    </Button>
-                  )}
-                  <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting || report.rows.length === 0}>
-                    {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                    Export CSV
-                  </Button>
-                </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {showKindSwitch && (
+              <div className="inline-flex w-fit rounded-md border p-0.5 text-sm" role="group" aria-label="Who to list">
+                {(["registration", "speaker"] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={kind === k}
+                    onClick={() => changeKind(k)}
+                    className={`rounded px-3 py-1 ${kind === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    {k === "registration" ? `Attendees (${report.registrations.length})` : `Speakers (${report.speakers.length})`}
+                  </button>
+                ))}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Select value={templateFilter} onValueChange={(v) => changeFilter(() => onTemplateFilterChange(v))}>
-                  <SelectTrigger className="h-9 w-56" aria-label="Certificate">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL}>All certificates</SelectItem>
-                    {templates.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={stateFilter} onValueChange={(v) => changeFilter(() => setStateFilter(v))}>
-                  <SelectTrigger className="h-9 w-52" aria-label="Status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL}>Any status</SelectItem>
-                    {RECIPIENT_STATES.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {RECIPIENT_STATE_LABELS[s]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    value={search}
-                    onChange={(e) => changeFilter(() => setSearch(e.target.value))}
-                    placeholder="Search name or email"
-                    className="h-9 w-60 pl-8"
-                    aria-label="Search recipients"
-                  />
-                </div>
-                <span className="ml-auto text-xs text-muted-foreground">
-                  {plural(rows.length, "line", "lines")}
-                  {rows.length !== report.rows.length ? ` of ${report.rows.length}` : ""}
-                </span>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {report.rows.length === 0 ? (
-                <p className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-                  Nobody is assigned a certificate yet. Select people on the Registrations page (or the Speakers page,
-                  for an appreciation certificate) and choose <strong>Assign certificate</strong>, or add them here
-                  from a list of emails.
-                </p>
-              ) : (
-                <RecipientsTable
-                  rows={visible}
-                  day={day}
-                  canManage={canManage}
-                  removing={unassign.isPending}
-                  onRemove={handleRemove}
-                />
-              )}
-              {rows.length > PAGE_SIZE && (
-                <div className="mt-3 flex items-center justify-end gap-2 text-sm">
-                  <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>
-                    <ChevronLeft className="h-4 w-4" />
-                    <span className="sr-only">Previous page</span>
-                  </Button>
-                  <span className="text-muted-foreground">
-                    Page {currentPage} of {pageCount}
-                  </span>
-                  <Button variant="outline" size="sm" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>
-                    <ChevronRight className="h-4 w-4" />
-                    <span className="sr-only">Next page</span>
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            )}
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={filters.search}
+                onChange={(e) => setFilter({ search: e.target.value })}
+                placeholder="Search name or email"
+                className="h-9 w-60 pl-8"
+                aria-label="Search people"
+              />
+            </div>
+            {kind === "registration" && registrationTypes.length > 1 && (
+              <Select value={filters.registrationType} onValueChange={(v) => setFilter({ registrationType: v })}>
+                <SelectTrigger className="h-9 w-48" aria-label="Registration type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Any registration type</SelectItem>
+                  {registrationTypes.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {kind === "registration" && (
+              <Select value={filters.attendance} onValueChange={(v) => setFilter({ attendance: v as PeopleFilter["attendance"] })}>
+                <SelectTrigger className="h-9 w-44" aria-label="Checked in">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Checked in or not</SelectItem>
+                  <SelectItem value="checked-in">Checked in</SelectItem>
+                  <SelectItem value="not-checked-in">Not checked in</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            <Select value={filters.survey} onValueChange={(v) => setFilter({ survey: v as PeopleFilter["survey"] })}>
+              <SelectTrigger className="h-9 w-44" aria-label="Survey">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Survey: any</SelectItem>
+                <SelectItem value="answered">Survey answered</SelectItem>
+                <SelectItem value="not-answered">Survey not answered</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={chosenTemplateId} onValueChange={chooseTemplate}>
+              <SelectTrigger className="h-9 w-52" aria-label="Certificate">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All certificates</SelectItem>
+                {templates.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filters.status} onValueChange={(v) => setFilter({ status: v as PeopleStatusFilter })}>
+              <SelectTrigger className="h-9 w-52" aria-label="Status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Any status</SelectItem>
+                <SelectItem value="NOT_ASSIGNED">Not assigned</SelectItem>
+                <SelectItem value="ASSIGNED">Assigned</SelectItem>
+                {kind === "registration" && <SelectItem value="NO_LIST">Answered, on no list</SelectItem>}
+                {RECIPIENT_STATES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {RECIPIENT_STATE_LABELS[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {isPeopleFilterActive(filter) && (
+              <Button variant="ghost" size="sm" onClick={() => relist(() => setFilters(EMPTY_PEOPLE_FILTER))}>
+                Clear filters
+              </Button>
+            )}
+            <span className="ml-auto text-xs text-muted-foreground">
+              {matching.length === everyone.length
+                ? plural(everyone.length, kind === "registration" ? "person" : "speaker", peopleWord)
+                : `${matching.length} of ${everyone.length} ${peopleWord}`}
+            </span>
+          </div>
 
-          <AnsweredNotAssigned eventId={eventId} people={report.answeredNotAssigned} day={day} canManage={canManage} />
-        </>
-      )}
+          {canManage && selected.size > 0 && (
+            <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              <span className="font-medium">{plural(selected.size, "person", "people")} selected</span>
+              {allOnPage && selected.size < matching.length && (
+                <button
+                  type="button"
+                  className="text-primary underline-offset-2 hover:underline"
+                  onClick={() => setSelected(new Set(matching.map((p) => p.id)))}
+                >
+                  Select all {matching.length} that match
+                </button>
+              )}
+              <span className="ml-auto flex items-center gap-2">
+                {tooMany && (
+                  <span className="text-xs text-red-700">At most {MAX_ASSIGNMENT_BATCH} at once: narrow the list.</span>
+                )}
+                <Button size="sm" disabled={tooMany || shownColumns.length === 0} onClick={() => setBulkOpen(true)}>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Assign or remove a certificate
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+                  Clear
+                </Button>
+              </span>
+            </div>
+          )}
+        </CardHeader>
+        <CardContent>
+          {columns.length === 0 ? (
+            <p className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+              {kind === "registration"
+                ? "This event has no certificate of attendance yet. Create one under Templates to assign it to attendees."
+                : "This event has no certificate of appreciation yet. Create one under Templates to assign it to speakers."}
+            </p>
+          ) : (
+            <PeopleTable
+              people={visible}
+              columns={shownColumns}
+              kind={kind}
+              day={day}
+              canManage={canManage}
+              busy={busy}
+              selected={selected}
+              headerChecked={headerState(allOnPage, someOnPage)}
+              onTogglePage={togglePage}
+              onToggle={toggleOne}
+              onAssign={(person, template) => assignOne(person, template)}
+              onRemove={removeOne}
+              empty={everyone.length === 0 ? `No ${peopleWord} at this event yet.` : "Nobody matches these filters."}
+            />
+          )}
+          {matching.length > PAGE_SIZE && (
+            <div className="mt-3 flex items-center justify-end gap-2 text-sm">
+              <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>
+                <ChevronLeft className="h-4 w-4" />
+                <span className="sr-only">Previous page</span>
+              </Button>
+              <span className="text-muted-foreground">
+                Page {currentPage} of {pageCount}
+              </span>
+              <Button variant="outline" size="sm" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>
+                <ChevronRight className="h-4 w-4" />
+                <span className="sr-only">Next page</span>
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <AssignCertificateDialog
+        eventId={eventId}
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        kind={kind}
+        ids={[...selected]}
+        initialTemplateId={chosenTemplate?.id ?? null}
+        onDone={() => setSelected(new Set())}
+      />
+
+      <Dialog open={pendingSend !== null} onOpenChange={(open) => !open && !assign.isPending && setPendingSend(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send certificates now?</DialogTitle>
+            <DialogDescription>
+              &ldquo;{pendingSend?.template.name}&rdquo; is sent automatically once a person has answered the
+              certificate survey, and {pendingSend?.person.name} already has.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <strong>{pendingSend?.message}</strong> They go out within a few minutes, with no review step.
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingSend(null)} disabled={assign.isPending}>
+              Not now
+            </Button>
+            <Button
+              disabled={assign.isPending}
+              onClick={() => pendingSend && assignOne(pendingSend.person, pendingSend.template, pendingSend.count)}
+            >
+              {assign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Assign and send {plural(pendingSend?.count ?? 0, "certificate", "certificates")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AssignFromEmailsDialog
         eventId={eventId}
         open={emailsOpen}
         onOpenChange={setEmailsOpen}
         templates={templates}
-        initialTemplateId={templateFilter === ALL ? null : templateFilter}
+        initialTemplateId={chosenTemplate?.id ?? null}
       />
     </div>
   );
+}
+
+/** "3 people have answered the survey and are on no certificate's list": one string, so no space is lost across lines. */
+function noListNotice(n: number): string {
+  return n === 1
+    ? "1 person has answered the survey and is on no certificate's list"
+    : `${n} people have answered the survey and are on no certificate's list`;
+}
+
+/** The header checkbox: ticked when the whole page is, a dash when part of it is. */
+function headerState(all: boolean, some: boolean): boolean | "indeterminate" {
+  if (all) return true;
+  return some ? "indeterminate" : false;
 }
 
 /** A date as the event's own day. */
@@ -326,7 +590,7 @@ function TemplateSummary({
   active,
   onClick,
 }: {
-  template: CertificateRecipientsReport["templates"][number];
+  template: CertificateRecipientsTemplate;
   active: boolean;
   onClick: () => void;
 }) {
@@ -365,21 +629,38 @@ function TemplateSummary({
   );
 }
 
-function RecipientsTable({
-  rows,
+/** One line per person, one column per certificate. */
+function PeopleTable({
+  people,
+  columns,
+  kind,
   day,
   canManage,
-  removing,
+  busy,
+  selected,
+  headerChecked,
+  onTogglePage,
+  onToggle,
+  onAssign,
   onRemove,
+  empty,
 }: {
-  rows: CertificateRecipientRow[];
+  people: CertificatePerson[];
+  columns: CertificateRecipientsTemplate[];
+  kind: Kind;
   day: (iso: string | null | undefined) => string;
   canManage: boolean;
-  removing: boolean;
-  onRemove: (row: CertificateRecipientRow) => void;
+  busy: boolean;
+  selected: ReadonlySet<string>;
+  headerChecked: boolean | "indeterminate";
+  onTogglePage: (on: boolean) => void;
+  onToggle: (id: string, on: boolean) => void;
+  onAssign: (person: CertificatePerson, template: CertificateRecipientsTemplate) => void;
+  onRemove: (person: CertificatePerson, template: CertificateRecipientsTemplate) => void;
+  empty: string;
 }) {
-  if (rows.length === 0) {
-    return <p className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">Nobody matches these filters.</p>;
+  if (people.length === 0) {
+    return <p className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">{empty}</p>;
   }
   return (
     <TooltipProvider delayDuration={200}>
@@ -387,79 +668,66 @@ function RecipientsTable({
         <Table>
           <TableHeader>
             <TableRow>
+              {canManage && (
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={headerChecked}
+                    onCheckedChange={(c) => onTogglePage(c === true)}
+                    aria-label="Select everyone on this page"
+                  />
+                </TableHead>
+              )}
               <TableHead>Person</TableHead>
-              <TableHead>Certificate</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Survey answered</TableHead>
-              <TableHead>Certificate no.</TableHead>
-              <TableHead className="text-right">CME hours</TableHead>
-              <TableHead>Assigned</TableHead>
-              {canManage && <TableHead className="w-10" />}
+              {kind === "registration" && <TableHead>Checked in</TableHead>}
+              <TableHead>Survey</TableHead>
+              {columns.map((t) => (
+                <TableHead key={t.id} className="min-w-44">
+                  <span className="inline-flex items-center gap-1">
+                    {t.name}
+                    {t.autoIssueOnSurvey && (
+                      <Zap className="h-3 w-3 text-amber-600" aria-label="Sent automatically after the survey" />
+                    )}
+                  </span>
+                </TableHead>
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((r) => (
-              <TableRow key={r.assignmentId}>
-                <TableCell>
-                  <div className="font-medium">{r.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {[r.email, r.registrationType ?? (r.kind === "speaker" ? "Speaker" : null)].filter(Boolean).join(" · ")}
-                  </div>
-                </TableCell>
-                <TableCell>{r.templateName}</TableCell>
-                <TableCell>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="outline" className={`cursor-help font-normal ${STATE_STYLES[r.state]}`}>
-                        {RECIPIENT_STATE_LABELS[r.state]}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-xs">{RECIPIENT_STATE_HINTS[r.state]}</TooltipContent>
-                  </Tooltip>
-                </TableCell>
-                <TableCell>{day(r.surveyAnsweredAt) || <span className="text-muted-foreground">Not yet</span>}</TableCell>
-                <TableCell>
-                  {r.certificate ? (
-                    <>
-                      <div className="font-mono text-xs">{r.certificate.serial}</div>
-                      <div className="text-xs text-muted-foreground">{day(r.certificate.issuedAt)}</div>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">None yet</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">{r.cmeHours ?? ""}</TableCell>
-                <TableCell>
-                  <div className="text-xs">{day(r.assignedAt)}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {r.assignedByName ? `${r.assignedByName} · ` : ""}
-                    {assignmentSourceLabel(r.source)}
-                  </div>
-                </TableCell>
+            {people.map((p) => (
+              <TableRow key={p.id} data-state={selected.has(p.id) ? "selected" : undefined}>
                 {canManage && (
                   <TableCell>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        {/* A span, so the tooltip still shows on a disabled button. */}
-                        <span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            disabled={removing || r.certificate !== null}
-                            onClick={() => onRemove(r)}
-                            aria-label={`Remove ${r.name} from ${r.templateName}`}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {r.certificate ? "They hold the certificate, so they stay on its list" : "Remove from this certificate's list"}
-                      </TooltipContent>
-                    </Tooltip>
+                    <Checkbox
+                      checked={selected.has(p.id)}
+                      onCheckedChange={(c) => onToggle(p.id, c === true)}
+                      aria-label={`Select ${p.name}`}
+                    />
                   </TableCell>
                 )}
+                <TableCell>
+                  <div className="font-medium">{p.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {[p.email, p.registrationType ?? (kind === "speaker" ? "Speaker" : null)].filter(Boolean).join(" · ")}
+                  </div>
+                </TableCell>
+                {kind === "registration" && (
+                  <TableCell className={p.checkedIn ? "" : "text-muted-foreground"}>{p.checkedIn ? "Yes" : "No"}</TableCell>
+                )}
+                <TableCell>{day(p.surveyAnsweredAt) || <span className="text-muted-foreground">Not yet</span>}</TableCell>
+                {columns.map((t) => (
+                  <TableCell key={t.id}>
+                    <CertificateCell
+                      person={p}
+                      template={t}
+                      cell={p.cells[t.id]}
+                      day={day}
+                      canManage={canManage}
+                      busy={busy}
+                      onAssign={() => onAssign(p, t)}
+                      onRemove={() => onRemove(p, t)}
+                    />
+                  </TableCell>
+                ))}
               </TableRow>
             ))}
           </TableBody>
@@ -469,102 +737,95 @@ function RecipientsTable({
   );
 }
 
-/** Answered the certificate survey, and assigned nothing: a tag used to lose these people silently. */
-function AnsweredNotAssigned({
-  eventId,
-  people,
+/** What a cell's tooltip adds to the state: who assigned it and how, and the certificate if there is one. */
+function cellDetail(cell: CertificatePersonCell, day: (iso: string | null | undefined) => string): string {
+  const by = cell.assignedByName ? `${cell.assignedByName}, ` : "";
+  const hours = cell.cmeHours ? ` ${cell.cmeHours} CME hours.` : "";
+  return `Assigned ${day(cell.assignedAt)} (${by}${assignmentSourceLabel(cell.source).toLowerCase()}).${hours}`;
+}
+
+/** One person on one certificate: where they stand, or the button that puts them on its list. */
+function CertificateCell({
+  person,
+  template,
+  cell,
   day,
   canManage,
+  busy,
+  onAssign,
+  onRemove,
 }: {
-  eventId: string;
-  people: CertificateRecipientsReport["answeredNotAssigned"];
+  person: CertificatePerson;
+  template: CertificateRecipientsTemplate;
+  cell: CertificatePersonCell | undefined;
   day: (iso: string | null | undefined) => string;
   canManage: boolean;
+  busy: boolean;
+  onAssign: () => void;
+  onRemove: () => void;
 }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [assignOpen, setAssignOpen] = useState(false);
-  if (people.length === 0) return null;
-
-  const allSelected = people.every((p) => selected.has(p.registrationId));
-  const toggle = (id: string, on: boolean) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-
+  if (!cell) {
+    // A cancelled registration is never assigned (and is only listed while on another list).
+    if (!canManage || person.cancelled) return <span className="text-xs text-muted-foreground">Not assigned</span>;
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+        disabled={busy}
+        onClick={onAssign}
+        aria-label={`Assign ${template.name} to ${person.name}`}
+      >
+        <Plus className="mr-1 h-3 w-3" />
+        Assign
+      </Button>
+    );
+  }
+  // Someone who holds the certificate stays on its list: taking it back is revoking it.
+  const holds = cell.certificate !== null && cell.state !== "REVOKED";
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">Answered the survey, not assigned a certificate ({people.length})</CardTitle>
-            <CardDescription>
-              These people answered the certificate survey and are on no certificate&apos;s list, so nothing is sent
-              to them. Assign a certificate if they should receive one.
-            </CardDescription>
+    <div className="flex items-center gap-1">
+      <div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="outline" className={`cursor-help font-normal ${STATE_STYLES[cell.state]}`}>
+              {RECIPIENT_STATE_LABELS[cell.state]}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <p>{RECIPIENT_STATE_HINTS[cell.state]}</p>
+            <p className="mt-1 opacity-80">{cellDetail(cell, day)}</p>
+          </TooltipContent>
+        </Tooltip>
+        {cell.certificate && (
+          <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+            {cell.certificate.serial} · {day(cell.certificate.issuedAt)}
           </div>
-          {canManage && (
-            <Button size="sm" disabled={selected.size === 0} onClick={() => setAssignOpen(true)}>
-              <UserPlus className="mr-2 h-4 w-4" />
-              Assign certificate{selected.size > 0 ? ` (${selected.size})` : ""}
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="max-h-80 overflow-auto rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {canManage && (
-                  <TableHead className="w-10">
-                    <Checkbox
-                      checked={allSelected}
-                      onCheckedChange={(c) => setSelected(c === true ? new Set(people.map((p) => p.registrationId)) : new Set())}
-                      aria-label="Select everyone"
-                    />
-                  </TableHead>
-                )}
-                <TableHead>Person</TableHead>
-                <TableHead>Registration type</TableHead>
-                <TableHead>Survey answered</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {people.map((p) => (
-                <TableRow key={p.registrationId}>
-                  {canManage && (
-                    <TableCell>
-                      <Checkbox
-                        checked={selected.has(p.registrationId)}
-                        onCheckedChange={(c) => toggle(p.registrationId, c === true)}
-                        aria-label={`Select ${p.name}`}
-                      />
-                    </TableCell>
-                  )}
-                  <TableCell>
-                    <div className="font-medium">{p.name}</div>
-                    <div className="text-xs text-muted-foreground">{p.email}</div>
-                  </TableCell>
-                  <TableCell>{p.registrationType ?? ""}</TableCell>
-                  <TableCell>{day(p.surveyAnsweredAt)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-      <AssignCertificateDialog
-        eventId={eventId}
-        open={assignOpen}
-        onOpenChange={setAssignOpen}
-        kind="registration"
-        ids={[...selected]}
-        onDone={() => setSelected(new Set())}
-      />
-    </Card>
+        )}
+      </div>
+      {canManage && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {/* A span, so the tooltip still shows on a disabled button. */}
+            <span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground"
+                disabled={busy || holds}
+                onClick={onRemove}
+                aria-label={`Remove ${person.name} from ${template.name}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {holds ? "They hold the certificate, so they stay on its list" : "Remove from this certificate's list"}
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   );
 }
 

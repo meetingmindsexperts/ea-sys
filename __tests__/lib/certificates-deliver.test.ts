@@ -476,8 +476,8 @@ describe("issueCertificateBundle", () => {
     expect(res).toMatchObject({ ok: false, code: "NOT_ASSIGNED", status: 422 });
     if (res.ok) throw new Error("unreachable");
     expect(res.error).toContain("not assigned");
-    // It names where to assign, for the facet the card is on.
-    expect(res.error).toContain("Registrations page");
+    // It names where to fix it: the one place people are assigned.
+    expect(res.error).toContain("Certificates, Recipients");
     expect(mockDb.issuedCertificate.create).not.toHaveBeenCalled();
     expect(mockSend).not.toHaveBeenCalled();
   });

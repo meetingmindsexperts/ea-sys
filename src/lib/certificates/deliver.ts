@@ -520,7 +520,7 @@ export async function issueCertificateBundle(
     return {
       ok: false,
       code: "NOT_ASSIGNED",
-      error: `This person is not assigned ${failures.map((f) => `"${f.templateName}"`).join(", ")}. Assign the certificate to them first (select them on the ${speakerId ? "Speakers" : "Registrations"} page and choose Assign certificate).`,
+      error: `This person is not assigned ${failures.map((f) => `"${f.templateName}"`).join(", ")}. Assign the certificate to them first (Certificates, Recipients).`,
       status: 422,
     };
   }

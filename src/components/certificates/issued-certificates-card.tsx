@@ -591,11 +591,7 @@ function IssuedCertificatesCardBody({
             {!assignmentsQuery.isLoading && assignedTemplateIds.size === 0 && issuableTemplates.length > 0 && !canAssign && (
               <p className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
                 This person is <strong>not assigned any certificate</strong>, so none can be issued to them. Ask
-                someone who manages certificates to assign one (
-                {facetCategory === "ATTENDANCE"
-                  ? "Registrations, select, Assign certificate"
-                  : "Speakers, select, Assign certificate"}
-                ).
+                someone who manages certificates to assign one (Certificates, Recipients).
               </p>
             )}
             <label className="flex items-start gap-2 rounded-md border p-2.5 text-sm cursor-pointer">

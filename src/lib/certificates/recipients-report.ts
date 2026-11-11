@@ -19,6 +19,13 @@
  * A speaker's survey is read through their registration at the event (the
  * companion pointer, else the same address), the way the survey sweep reaches
  * them.
+ *
+ * Two shapes of the same facts. loadRecipientReport is one line per
+ * assignment (the CSV, the agent). loadCertificatePeople is one line per
+ * PERSON at the event, assigned or not, with a cell per certificate: what the
+ * Recipients tab shows, so viewing, searching and assigning happen in one
+ * place (owner, Nov 11, 2026). The second is built from the first, so a state
+ * can never read differently on the two.
  */
 
 import type { CertificateType } from "@prisma/client";
@@ -368,6 +375,121 @@ async function loadSpeakerSurveyFacts(
     if (pick) facts.set(s.id, surveyFactsOf(pick));
   }
   return facts;
+}
+
+// ── Everyone at the event, one line per person ───────────────────────────────
+
+/** One person's standing on one certificate they are assigned. */
+export interface CertificatePersonCell {
+  state: RecipientState;
+  assignedAt: Date;
+  assignedByName: string | null;
+  source: string;
+  cmeHours: string | null;
+  certificate: { id: string; serial: string; issuedAt: Date } | null;
+}
+
+export interface CertificatePerson {
+  /** The registration id, or the speaker id. */
+  id: string;
+  name: string;
+  email: string | null;
+  /** The registration type; null for a speaker. */
+  registrationType: string | null;
+  checkedIn: boolean;
+  /** A cancelled registration is listed only while it is still on a list. */
+  cancelled: boolean;
+  surveyAnsweredAt: Date | null;
+  /** Answered the certificate survey and is on no certificate's list (RecipientReport.answeredNotAssigned). */
+  noList: boolean;
+  /** By template id: only the certificates this person is assigned. */
+  cells: Record<string, CertificatePersonCell>;
+}
+
+export interface CertificatePeopleReport {
+  timezone: string;
+  templates: RecipientReportTemplate[];
+  /** Attendance certificates are assigned to these. */
+  registrations: CertificatePerson[];
+  /** Appreciation certificates are assigned to these. */
+  speakers: CertificatePerson[];
+}
+
+/**
+ * Everyone a certificate could be assigned to at the event, with where they
+ * stand on each one they hold: every registration that is not cancelled (a
+ * cancelled one only while it is still on a list) and every speaker. Sorted
+ * by name. Call inside the event's tenant lane.
+ */
+export async function loadCertificatePeople(event: RecipientReportEvent): Promise<CertificatePeopleReport> {
+  const eventId = event.id;
+  const [report, registrations, speakers] = await Promise.all([
+    loadRecipientReport(event),
+    db.registration.findMany({
+      where: { eventId, OR: [{ status: { not: "CANCELLED" } }, { certificateAssignments: { some: {} } }] },
+      select: {
+        id: true,
+        status: true,
+        surveyCompletedAt: true,
+        ticketType: { select: { name: true } },
+        attendee: { select: { title: true, firstName: true, lastName: true, email: true } },
+      },
+    }),
+    db.speaker.findMany({
+      where: { eventId },
+      select: { id: true, title: true, firstName: true, lastName: true, email: true, sourceRegistrationId: true },
+    }),
+  ]);
+  const surveyBySpeaker = await loadSpeakerSurveyFacts(eventId, speakers);
+
+  const cellsByPerson = new Map<string, Record<string, CertificatePersonCell>>();
+  for (const row of report.rows) {
+    const person = row.registrationId ?? row.speakerId;
+    if (!person) continue;
+    const cells = cellsByPerson.get(person) ?? {};
+    cells[row.templateId] = {
+      state: row.state,
+      assignedAt: row.assignedAt,
+      assignedByName: row.assignedByName,
+      source: row.source,
+      cmeHours: row.cmeHours,
+      certificate: row.certificate,
+    };
+    cellsByPerson.set(person, cells);
+  }
+  const noList = new Set(report.answeredNotAssigned.map((r) => r.registrationId));
+  const byName = (a: CertificatePerson, b: CertificatePerson) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+
+  return {
+    timezone: report.timezone,
+    templates: report.templates,
+    registrations: registrations
+      .map((r) => ({
+        id: r.id,
+        name: personName(r.attendee),
+        email: r.attendee.email ?? null,
+        registrationType: r.ticketType?.name ?? null,
+        checkedIn: r.status === "CHECKED_IN",
+        cancelled: r.status === "CANCELLED",
+        surveyAnsweredAt: r.surveyCompletedAt,
+        noList: noList.has(r.id),
+        cells: cellsByPerson.get(r.id) ?? {},
+      }))
+      .sort(byName),
+    speakers: speakers
+      .map((s) => ({
+        id: s.id,
+        name: personName(s),
+        email: s.email ?? null,
+        registrationType: null,
+        checkedIn: false,
+        cancelled: false,
+        surveyAnsweredAt: surveyBySpeaker.get(s.id)?.surveyAnsweredAt ?? null,
+        noList: false,
+        cells: cellsByPerson.get(s.id) ?? {},
+      }))
+      .sort(byName),
+  };
 }
 
 /** The CSV the report exports: one line per assigned person per certificate. */

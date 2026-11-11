@@ -1225,9 +1225,8 @@ export default function CertificatesPage() {
                     </div>
                     {(editingTemplate._count?.assignments ?? 0) === 0 && (
                       <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-                        <strong>Nobody is assigned this certificate yet</strong>, so nobody receives it. Select people on
-                        the {editingTemplate.category === "ATTENDANCE" ? "Registrations" : "Speakers"} page and choose
-                        Assign certificate, or add them from a list of emails under Recipients.
+                        <strong>Nobody is assigned this certificate yet</strong>, so nobody receives it. Choose who does
+                        under Recipients: search, tick the people and assign, or add them from a list of emails.
                       </div>
                     )}
                     {editingTemplate.autoIssueOnSurvey && (editingTemplate._count?.assignments ?? 0) > 0 && (
