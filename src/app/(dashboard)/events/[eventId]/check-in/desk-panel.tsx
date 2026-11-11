@@ -51,6 +51,8 @@ interface DeskRegistration {
     organization?: string | null;
     jobTitle?: string | null;
     country?: string | null;
+    /** DET needs one to issue a DTCM code; the desk's Edit can add it. */
+    phone?: string | null;
   };
   ticketType: { name: string; price?: number | string; currency?: string } | null;
   pricingTier?: { price: number | string; currency?: string } | null;
@@ -337,13 +339,6 @@ export function DeskPanel({
   // The row whose DTCM panel is open. One at a time, like the payment panel.
   const [dtcmForId, setDtcmForId] = useState<string | null>(null);
 
-  /** After a walk-in: say so when it was left with no compliance code, and open its panel. */
-  const flagMissingDtcm = (created?: WalkInCreated) => {
-    if (!created || !walkInLeftWithoutDtcmCode(requiresDtcm, created.dtcm)) return;
-    toast.warning(walkInDtcmWarning(created.name, canGetDtcm), { duration: 15000 });
-    if (canGetDtcm) setDtcmForId(created.registrationId);
-  };
-
   // One payment panel at a time, and it starts clean: a second row must not
   // inherit the first row's card digits (review of 26c17807, LOW 8).
   const openPayment = (id: string | null) => {
@@ -369,6 +364,28 @@ export function DeskPanel({
       console.error("[desk] list refresh failed", err);
       await queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
     }
+  };
+
+  /**
+   * Open (or close) a row's DTCM panel. Opening re-reads the list: another
+   * desk or the bulk run may have given this person a code since this desk
+   * last loaded it, and a row that only LOOKS code-less would otherwise offer
+   * a purchase the server refuses every time (review of 243b7136).
+   */
+  const toggleDtcm = (id: string) => {
+    if (dtcmForId === id) {
+      setDtcmForId(null);
+      return;
+    }
+    setDtcmForId(id);
+    refresh();
+  };
+
+  /** After a walk-in: say so when it was left with no compliance code, and open its panel. */
+  const flagMissingDtcm = (created?: WalkInCreated) => {
+    if (!created || !walkInLeftWithoutDtcmCode(requiresDtcm, created.dtcm)) return;
+    toast.warning(walkInDtcmWarning(created.name, canGetDtcm), { duration: 15000 });
+    if (canGetDtcm) setDtcmForId(created.registrationId);
   };
 
   // People completing their form onsite, polled until they finish (§5.1).
@@ -658,7 +675,7 @@ export function DeskPanel({
                               size="sm"
                               variant="outline"
                               className="h-7 gap-1 border-amber-200 text-xs text-amber-800"
-                              onClick={() => setDtcmForId(dtcmForId === r.id ? null : r.id)}
+                              onClick={() => toggleDtcm(r.id)}
                             >
                               <Barcode className="h-3.5 w-3.5" /> Get DTCM code
                             </Button>
@@ -745,10 +762,13 @@ export function DeskPanel({
         eventSlug={eventSlug}
         codeRequiredTiers={codeRequiredTiers}
         tax={tax}
-        onRegistered={(email, created) => {
+        // Registered but not admitted (the payment or the check-in did not
+        // finish), or already registered: the row's own labels say what is
+        // owed, DTCM code included. No opening it on a DET purchase for
+        // someone who has not paid yet.
+        onRegistered={(email) => {
           setQuery(email);
           refresh();
-          flagMissingDtcm(created);
         }}
         onDone={async (email, created) => {
           // Show the new row once the list has it: "Checked in", with Print
@@ -920,9 +940,10 @@ function WalkInForm({
   codeRequiredTiers: readonly string[];
   tax: DeskTax;
   /** Registered, but a later step did not finish: show them in search. */
-  /** Registered but not admitted, or already registered (then nothing was made, so no `created`). */
-  onRegistered: (email: string, created?: WalkInCreated) => void;
-  onDone: (email: string, created?: WalkInCreated) => Promise<void>;
+  /** Registered but not admitted, or already registered. */
+  onRegistered: (email: string) => void;
+  /** Registered and checked in. */
+  onDone: (email: string, created: WalkInCreated) => Promise<void>;
 }) {
   const { data: ticketTypes = [] } = useTickets(eventId);
   const types = useMemo(
@@ -1092,7 +1113,7 @@ function WalkInForm({
       const created: WalkInCreated = { registrationId: data.registrationId, name: data.name, dtcm: data.dtcm };
       if (!data.checkedIn) {
         toast.warning(`${data.name} is registered but not checked in: ${data.error}`, { duration: 10000 });
-        onRegistered(email, created);
+        onRegistered(email);
         return;
       }
       toast.success(`${data.name} registered and checked in${data.paymentStatus === "INCLUSIVE" ? " (sponsor-paid)" : ""}`);

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import type { StoredAttachmentRef } from "@/lib/email-attachment-limits";
 import { ApiError, errorMessageFor } from "@/lib/api-fetch";
@@ -2793,9 +2793,25 @@ export function useRegistrationDtcmOrders(eventId: string, registrationId: strin
   });
 }
 
+/** One DET purchase per registration is one mutation key, so other components can see it in flight. */
+function dtcmIssueMutationKey(eventId: string, registrationId: string) {
+  return ["dtcm-issue-from-det", eventId, registrationId] as const;
+}
+
+/**
+ * Whether a "Get code from DET" press for this registration is still in
+ * flight, from any component (the button lives inside `DtcmDetControls`). The
+ * onsite desk holds its spare-code button on it: a spare taken while DET is
+ * selling leaves a bought ticket nobody holds (review of 243b7136).
+ */
+export function useIsIssuingDtcmFromDet(eventId: string, registrationId: string): boolean {
+  return useIsMutating({ mutationKey: dtcmIssueMutationKey(eventId, registrationId) }) > 0;
+}
+
 export function useIssueDtcmFromDet(eventId: string, registrationId: string) {
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: dtcmIssueMutationKey(eventId, registrationId),
     mutationFn: () =>
       fetchApi<{ source: "det" | "pool"; barcode: string; detError?: string }>(
         `/api/events/${eventId}/registrations/${registrationId}/dtcm-eticket`,

@@ -19,6 +19,7 @@ import {
 } from "@/lib/identity-evidence";
 import { SUPPORTING_DOCUMENT_POLICY_SELECT, resolveSupportingDocument } from "@/lib/supporting-document";
 import { createRegistration } from "@/services/registration-service";
+import type { ClaimDtcmOutcome } from "@/lib/dtcm-pool";
 import { MANUAL_PAYMENT_EVENT_SELECT, recordManualPayment } from "@/services/payment-service";
 import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import { walkInPaymentAllowed, walkInPaymentChoices } from "@/lib/desk-walkin-payment";
@@ -319,7 +320,13 @@ interface WalkInSummary {
   name: string;
   ticketTypeName: string | null;
   paymentStatus: string;
-  dtcm: unknown;
+  /**
+   * The spare pool's answer for the new registration. The desk reads
+   * `dtcm.status` to say when a walk-in was left with no compliance code
+   * (src/lib/desk-dtcm.ts), so the shape is part of this route's contract:
+   * keep it an object with `status`, whatever else is trimmed from it.
+   */
+  dtcm: ClaimDtcmOutcome;
 }
 
 /** Record the payment when there is one to collect, then check in through the door's own gate. */

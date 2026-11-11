@@ -32,7 +32,14 @@ interface Props {
 }
 
 export function DtcmDetControls({ eventId, registrationId, currentCode, canResolve, onCodeChanged, busy, onUseCode }: Props) {
-  const hasCode = Boolean(currentCode);
+  // The code a press here just put on the registration. The caller's own copy
+  // arrives only when its re-read lands, and the order list usually lands
+  // first: for that moment the new sale looked like "a ticket DET sold that is
+  // not on this registration", with a button to put it there (review of
+  // 243b7136). Knowing the code at once closes that.
+  const [issuedCode, setIssuedCode] = useState<string | null>(null);
+  const knownCode = currentCode ?? issuedCode;
+  const hasCode = Boolean(knownCode);
   const { data } = useRegistrationDtcmOrders(eventId, registrationId);
   const issue = useIssueDtcmFromDet(eventId, registrationId);
 
@@ -41,7 +48,7 @@ export function DtcmDetControls({ eventId, registrationId, currentCode, canResol
   // A ticket DET sold for this person whose barcode is not the one on the
   // registration (cleared by hand, or a code arrived another way during the
   // sale). Buying again would be refused, so say what exists instead.
-  const orphan = open ? undefined : data.orders.find((o) => o.status === "PURCHASED" && o.barcode && o.barcode !== currentCode);
+  const orphan = open ? undefined : data.orders.find((o) => o.status === "PURCHASED" && o.barcode && o.barcode !== knownCode);
   // Only a sale from the environment in use now may go on the registration: a
   // sandbox order outlives the switch to production, and its barcode would
   // print on a badge DTCM's gate rejects.
@@ -50,6 +57,7 @@ export function DtcmDetControls({ eventId, registrationId, currentCode, canResol
   const handleIssue = async () => {
     try {
       const out = await issue.mutateAsync();
+      if (out.barcode) setIssuedCode(out.barcode);
       // Refresh FIRST: a success toast over a sheet still showing the button
       // invites a second click (which the server refuses, but should not be offered).
       await onCodeChanged();
@@ -61,6 +69,15 @@ export function DtcmDetControls({ eventId, registrationId, currentCode, canResol
     } catch (err) {
       console.error("[dtcm] get code from DET failed", err);
       toast.error(err instanceof Error ? err.message : "Could not get a code from DET", { duration: 12000 });
+      // A refusal is often news about the registration itself ("already has a
+      // code": another desk or the bulk run got there first), so re-read it:
+      // otherwise the caller goes on showing a row with no code and the same
+      // press fails the same way (review of 243b7136).
+      try {
+        await onCodeChanged();
+      } catch (refreshErr) {
+        console.error("[dtcm] re-read after a refused DET purchase failed", refreshErr);
+      }
     }
   };
 

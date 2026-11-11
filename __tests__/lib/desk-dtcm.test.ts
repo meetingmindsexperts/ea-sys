@@ -5,7 +5,7 @@
  * tests (dtcm-eticket-*, dtcm-pool); these are the desk's decisions.
  */
 import { describe, it, expect } from "vitest";
-import { deskDtcmNoSourceMessage, deskRowNeedsDtcmCode, walkInDtcmWarning, walkInLeftWithoutDtcmCode } from "@/lib/desk-dtcm";
+import { deskDetState, deskDtcmNoSourceMessage, deskMayOfferSpare, deskRowNeedsDtcmCode, walkInDtcmWarning, walkInLeftWithoutDtcmCode } from "@/lib/desk-dtcm";
 import { lacksDtcmCode } from "@/lib/dtcm-walkup";
 
 const DUBAI = { requiresDtcm: true, canSeeCodes: true };
@@ -77,17 +77,65 @@ describe("a walk-in's answer", () => {
   });
 });
 
+const order = (status: string, unresolved = false) => ({ status, unresolved });
+
+describe("where a person stands with DET", () => {
+  it("nothing live: no orders, or only ones that failed or were reversed", () => {
+    expect(deskDetState([])).toBe("none");
+    expect(deskDetState([order("FAILED"), order("REVERSED")])).toBe("none");
+  });
+
+  it("buying: a fresh PENDING order, whoever pressed", () => {
+    expect(deskDetState([order("PENDING")])).toBe("buying");
+    // It wins over an older order that needs a person: the first thing to say is "wait".
+    expect(deskDetState([order("UNCERTAIN", true), order("PENDING")])).toBe("buying");
+  });
+
+  it("attention: an uncertain sale, a PENDING left by a crash, or a ticket sold whose code is not on the row", () => {
+    expect(deskDetState([order("UNCERTAIN", true)])).toBe("attention");
+    expect(deskDetState([order("PENDING", true)])).toBe("attention");
+    expect(deskDetState([order("PURCHASED")])).toBe("attention");
+    expect(deskDetState([order("REVERSED"), order("PURCHASED")])).toBe("attention");
+  });
+});
+
+describe("when the desk may offer a spare code", () => {
+  const ok = { detKnown: true, detState: "none" as const, buyingHere: false, spare: 2 };
+
+  it("the pool has one and DET has nothing live for this person", () => {
+    expect(deskMayOfferSpare(ok)).toBe(true);
+    expect(deskMayOfferSpare({ ...ok, spare: 0 })).toBe(false);
+  });
+
+  // The HIGH of the review: a spare taken beside a purchase leaves a bought ticket nobody holds.
+  it("never while a DET purchase is in flight, pressed here or seen at DET", () => {
+    expect(deskMayOfferSpare({ ...ok, buyingHere: true })).toBe(false);
+    expect(deskMayOfferSpare({ ...ok, detState: "buying" })).toBe(false);
+  });
+
+  it("never beside a sale that needs an organiser: the purchase route leaves that decision to them", () => {
+    expect(deskMayOfferSpare({ ...ok, detState: "attention" })).toBe(false);
+  });
+
+  it("never before the DET read has answered: not knowing is not 'nothing live'", () => {
+    expect(deskMayOfferSpare({ ...ok, detKnown: false })).toBe(false);
+  });
+});
+
 describe("when nothing can issue a code", () => {
-  it("says so, and what an organiser has to do", () => {
-    const message = deskDtcmNoSourceMessage({ detReady: false, hasDetOrderToShow: false, spare: 0 });
+  it("says so, without blaming one cause, and sends the desk to an organiser", () => {
+    const message = deskDtcmNoSourceMessage({ detReady: false, detState: "none", spare: 0 });
     expect(message).toContain("no spare codes");
     expect(message).toContain("Ask an organiser");
+    // DET can be unready for reasons other than the type's mapping (no credentials, a stale mapping).
+    expect(message).toContain("not set up for this event, or this registration type has no DET section");
   });
 
   it("stays quiet while the desk has something to press or read", () => {
-    expect(deskDtcmNoSourceMessage({ detReady: true, hasDetOrderToShow: false, spare: 0 })).toBeNull();
-    expect(deskDtcmNoSourceMessage({ detReady: false, hasDetOrderToShow: false, spare: 3 })).toBeNull();
-    // DET cannot sell now, but a sale of theirs is waiting on someone: the panel shows that instead.
-    expect(deskDtcmNoSourceMessage({ detReady: false, hasDetOrderToShow: true, spare: 0 })).toBeNull();
+    expect(deskDtcmNoSourceMessage({ detReady: true, detState: "none", spare: 0 })).toBeNull();
+    expect(deskDtcmNoSourceMessage({ detReady: false, detState: "none", spare: 3 })).toBeNull();
+    // DET cannot sell now, but a sale of theirs is live or waiting on someone: the panel shows that instead.
+    expect(deskDtcmNoSourceMessage({ detReady: false, detState: "attention", spare: 0 })).toBeNull();
+    expect(deskDtcmNoSourceMessage({ detReady: false, detState: "buying", spare: 0 })).toBeNull();
   });
 });

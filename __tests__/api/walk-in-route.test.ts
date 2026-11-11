@@ -83,7 +83,7 @@ beforeEach(() => {
   mockCreate.mockResolvedValue({
     ok: true,
     registration: { id: "reg-1", serialId: 7, paymentStatus: "UNASSIGNED", attendee: { firstName: "Walk", lastName: "In" }, ticketType: { name: "Physician" } },
-    dtcm: "not-applicable",
+    dtcm: { status: "not-applicable" },
   });
   mockRecordPayment.mockResolvedValue({ ok: true, summary: { fullyPaid: true } });
   mockExecuteCheckIn.mockResolvedValue({ id: "reg-1" });
@@ -120,6 +120,27 @@ describe("POST walk-in", () => {
     );
     expect(mockRecordPayment).not.toHaveBeenCalled();
     expect(mockExecuteCheckIn).toHaveBeenCalledWith(expect.objectContaining({ registrationId: "reg-1", auditExtras: expect.objectContaining({ deskWalkIn: true }) }));
+  });
+
+  // The desk reads `dtcm.status` to say when a walk-in was left with no
+  // compliance code (src/lib/desk-dtcm.ts). The shape is the contract: an
+  // answer trimmed to a bare string would silence that warning with every
+  // other test still green (review of 243b7136).
+  it("answers with the spare pool's outcome as an object with `status`, on every path that made a registration", async () => {
+    const created = {
+      ok: true,
+      registration: { id: "reg-1", serialId: 7, paymentStatus: "UNASSIGNED", attendee: { firstName: "Walk", lastName: "In" }, ticketType: { name: "Physician" } },
+      dtcm: { status: "pool-empty" },
+    };
+    // Registered and checked in (a comp on the Complimentary rate).
+    mockCreate.mockResolvedValueOnce(created);
+    mockDb.ticketType.findFirst.mockResolvedValueOnce(COMP_TYPE);
+    mockDb.registration.findFirst.mockResolvedValue(freshRow("COMPLIMENTARY"));
+    expect(await (await post({ ...base, payment: "complimentary" })).json()).toMatchObject({ checkedIn: true, dtcm: { status: "pool-empty" } });
+    // Registered, the payment step failed.
+    mockCreate.mockResolvedValueOnce(created);
+    mockRecordPayment.mockResolvedValueOnce({ ok: false, code: "ZERO_AMOUNT", message: "Amount must be greater than zero." });
+    expect(await (await post({ ...base, payment: "cash" })).json()).toMatchObject({ registered: true, checkedIn: false, step: "payment", dtcm: { status: "pool-empty" } });
   });
 
   it("cash: the capture defers its documents, names the operator, and the confirmation email is suppressed", async () => {
@@ -293,7 +314,7 @@ describe("POST walk-in", () => {
     mockCreate.mockResolvedValue({
       ok: true,
       registration: { id: "reg-1", serialId: 7, paymentStatus: "INCLUSIVE", attendee: { firstName: "Walk", lastName: "In" }, ticketType: { name: "Physician" } },
-      dtcm: "not-applicable",
+      dtcm: { status: "not-applicable" },
     });
     mockDb.registration.findFirst.mockResolvedValue(freshRow("INCLUSIVE"));
     const res = await post({ ...base, payment: "inclusive", promoCode: "PFIZER10", expectedPrice: 0 });
@@ -337,7 +358,7 @@ describe("POST walk-in", () => {
     mockCreate.mockResolvedValue({
       ok: true,
       registration: { id: "reg-1", serialId: 7, paymentStatus: "COMPLIMENTARY", attendee: { firstName: "Walk", lastName: "In" }, ticketType: { name: "Physician" } },
-      dtcm: "not-applicable",
+      dtcm: { status: "not-applicable" },
     });
     mockDb.registration.findFirst.mockResolvedValue(freshRow("COMPLIMENTARY"));
     const res = await post({ ...base, payment: "covered", promoCode: "FREE100", expectedPrice: 0 });

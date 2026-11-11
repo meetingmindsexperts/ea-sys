@@ -132,6 +132,6 @@ door credential*.
 - [src/lib/dtcm-performance-code.ts](../src/lib/dtcm-performance-code.ts) - the performance code rule
 - [src/lib/dtcm-pool.ts](../src/lib/dtcm-pool.ts) — the pool, the claim, the counts
 - [src/lib/dtcm-walkup.ts](../src/lib/dtcm-walkup.ts) — the desk warning, and `lacksDtcmCode`, the one condition for "should carry a code and does not"
-- [src/lib/desk-dtcm.ts](../src/lib/desk-dtcm.ts) - the onsite desk's side (Nov 11, 2026): which rows it flags "No DTCM code", the walk-in message, and what it says when nothing can issue a code. At the desk DET leads and a spare code is the alternative (owner)
+- [src/lib/desk-dtcm.ts](../src/lib/desk-dtcm.ts) - the onsite desk's side (Nov 11, 2026): which rows it flags "No DTCM code", the walk-in message, and what it says when nothing can issue a code, and when a spare may be offered at all (`deskMayOfferSpare`: never beside a live DET order). On the desk's panel DET leads and a spare code is the alternative (owner). That is the panel only: a new registration still takes a spare by itself in `createRegistration` when the pool has one
 - [src/lib/barcode-visibility.ts](../src/lib/barcode-visibility.ts) — who may see one
 - user-guide § Check-in and badges — the operator-facing version

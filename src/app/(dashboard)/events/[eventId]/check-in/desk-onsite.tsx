@@ -446,12 +446,17 @@ export interface EditablePerson {
     organization?: string | null;
     jobTitle?: string | null;
     country?: string | null;
+    phone?: string | null;
   };
 }
 
 /**
  * Fix what prints on the badge before it prints: name, title, organisation,
  * position, country. Email has its own route (Change Email) and stays out.
+ *
+ * And the mobile number (Nov 11, 2026): it prints nowhere, but DET will not
+ * issue a DTCM code without one, and someone imported without a number would
+ * otherwise be a dead end at the desk (review of 243b7136).
  */
 export function EditDetailsDialog({
   eventId,
@@ -464,7 +469,7 @@ export function EditDetailsDialog({
   onSaved: () => void;
   onClose: () => void;
 }) {
-  const [fields, setFields] = useState({ title: "", firstName: "", lastName: "", organization: "", jobTitle: "", country: "" });
+  const [fields, setFields] = useState({ title: "", firstName: "", lastName: "", organization: "", jobTitle: "", country: "", phone: "" });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -477,6 +482,7 @@ export function EditDetailsDialog({
       organization: a.organization ?? "",
       jobTitle: a.jobTitle ?? "",
       country: a.country ?? "",
+      phone: a.phone ?? "",
     });
   }, [person]);
 
@@ -501,6 +507,8 @@ export function EditDetailsDialog({
             organization: fields.organization.trim(),
             jobTitle: fields.jobTitle.trim(),
             country: fields.country,
+            // Only when it was changed here: a number this desk never loaded must not be blanked by a save.
+            ...(fields.phone.trim() !== (person.attendee.phone ?? "").trim() && { phone: fields.phone.trim() }),
           },
         }),
       });
@@ -533,7 +541,7 @@ export function EditDetailsDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Edit details</DialogTitle>
-          <DialogDescription>What prints on the badge. To change the email, use the registration page.</DialogDescription>
+          <DialogDescription>What prints on the badge, and the mobile number a DTCM code needs. To change the email, use the registration page.</DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-3">
           <div className="grid grid-cols-[110px_1fr_1fr] gap-3">
@@ -562,6 +570,10 @@ export function EditDetailsDialog({
             <div className="space-y-1 sm:col-span-2">
               <Label>Country</Label>
               <CountrySelect value={fields.country} onChange={(v) => setFields((f) => ({ ...f, country: v }))} />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label htmlFor="edit-phone">Mobile number</Label>
+              <Input id="edit-phone" type="tel" value={fields.phone} onChange={set("phone")} placeholder="+971 50 000 0000" autoComplete="off" />
             </div>
           </div>
           <DialogFooter>

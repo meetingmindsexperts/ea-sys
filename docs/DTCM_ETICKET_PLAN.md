@@ -237,12 +237,33 @@ the desk team:
   panel in the row (`check-in/desk-dtcm.tsx`). The panel is the sheet's own
   `DtcmDetControls`, so the button, an uncertain sale, a sale with its barcode
   unread and the pool fallback are one piece of code in both places.
-- **DET leads; a spare code is the alternative** (owner, Nov 11): "Use a spare
-  code" shows beside it while the pool has one, and is the only offer for a
-  type with no DET section. No route changed: the desk calls the two routes
-  the sheet calls, both already open to `dtcm.assign` with `barcode.view`.
-- **After a walk-in** the walk-in route's `dtcm` answer is read: left without
-  a code, the desk says so and opens that row's panel on Get code from DET.
+- **On the panel DET leads; a spare code is the alternative** (owner, Nov 11):
+  "Use a spare code" shows beside it while the pool has one, and is the only
+  offer for a type with no DET section. No route changed: the desk calls the
+  routes the sheet calls (the DET purchase and the pool, open to `dtcm.assign`
+  with `barcode.view`; the registration save for "Use this code", which needs
+  `registrations.update`; and the order route for an organiser at the desk).
+  This is the panel's order only. A NEW registration still takes a spare by
+  itself when the pool has one (`createRegistration`, since August), before
+  the desk is asked anything, so an event meant to issue every walk-in from
+  DET should import no spares; whether a mapped event should skip that
+  automatic claim is an open owner decision (docs/ROADMAP.md).
+- **A spare is never offered beside a live DET order** (`deskMayOfferSpare`,
+  review of `243b7136`): not while a press here is in flight, not while DET
+  shows a fresh PENDING order for the person (another desk, the bulk run, or a
+  press whose answer a gateway timeout cut off; the panel then says to wait
+  and offers Check again), not beside an uncertain or unread sale, and not
+  until the DET read has answered. A spare taken in those moments leaves a
+  bought ticket nobody holds. The pool route itself still does not know about
+  DET orders, so the registration sheet keeps that gap (docs/ROADMAP.md).
+- Opening the panel re-reads the desk's list, and a refused purchase re-reads
+  the row, so a person another desk already coded stops being offered one.
+- The desk's Edit dialog has a Mobile number field: DET refuses without one,
+  and an imported attendee with no number was a dead end at the desk.
+- **After a walk-in** that was registered and checked in, the walk-in route's
+  `dtcm` answer is read (typed `ClaimDtcmOutcome`, pinned by a route test):
+  left without a code, the desk says so and opens that row's panel on Get
+  code from DET. A walk-in whose payment did not finish is not sent there.
   Nothing is bought without a press (D1).
 - A desk role that cannot see codes (MEMBER) gets no label and no button,
   since its rows carry no code to read; it gets the walk-in message, worded to
