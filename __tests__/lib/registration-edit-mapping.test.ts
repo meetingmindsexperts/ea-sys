@@ -216,6 +216,21 @@ describe("toServerPayload", () => {
     expect(att.photo).toBeNull(); // `?? null` (deliberate clear semantic)
   });
 
+  // A role that cannot see door credentials loads "" for the DTCM code. Sent
+  // on every save, that blank cleared the attendee's compliance code (found
+  // Nov 11, 2026): the code is a changed-only field now.
+  it("the DTCM code is sent only when it was changed on the form", () => {
+    const loaded = toEditData(makeReg({ dtcmBarcode: null }));
+    // Untouched (what a MEMBER's save looks like: their row has the code stripped): not sent at all.
+    expect("dtcmBarcode" in toServerPayload({ ...loaded, notes: "spelling fixed" }, UPDATED, loaded)).toBe(false);
+    // Typed: sent, trimmed.
+    expect(toServerPayload({ ...loaded, dtcmBarcode: "  9f2c-uuid " }, UPDATED, loaded).dtcmBarcode).toBe("9f2c-uuid");
+    // Cleared on purpose by someone who could see it: sent as null.
+    const withCode = toEditData(makeReg({ dtcmBarcode: "9f2c-uuid" }));
+    expect(toServerPayload({ ...withCode, dtcmBarcode: "" }, UPDATED, withCode).dtcmBarcode).toBeNull();
+    expect("dtcmBarcode" in toServerPayload(withCode, UPDATED, withCode)).toBe(false);
+  });
+
   it("attendee.firstName / lastName pass through (required, never coerced)", () => {
     const out = toServerPayload(
       { ...EMPTY_REGISTRATION_EDIT_DATA, firstName: "John", lastName: "Smith" },

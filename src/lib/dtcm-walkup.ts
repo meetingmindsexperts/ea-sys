@@ -22,6 +22,13 @@ interface DtcmCodeFacts {
   attendanceMode?: string | null;
   /** The code on the row the server just returned. */
   dtcmBarcode?: string | null;
+  /**
+   * Whether the row has a code, from a server that will not show it: the
+   * create route strips `dtcmBarcode` for a caller without `barcode.view` and
+   * sends `hasDtcmCode` to everyone. When present it decides, so a stripped
+   * row is never read as "no code".
+   */
+  hasCode?: boolean | null;
 }
 
 /**
@@ -36,6 +43,7 @@ interface DtcmCodeFacts {
 export function lacksDtcmCode(args: DtcmCodeFacts): boolean {
   if (!args.requiresDtcm) return false;
   if (args.attendanceMode === "VIRTUAL") return false;
+  if (typeof args.hasCode === "boolean") return !args.hasCode;
   return !args.dtcmBarcode;
 }
 

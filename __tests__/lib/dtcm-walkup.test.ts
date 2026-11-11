@@ -80,3 +80,23 @@ describe("lacksDtcmCode", () => {
     }
   });
 });
+
+// The create route strips the code for a caller without `barcode.view` and
+// sends `hasDtcmCode` to everyone, so a stripped row is not read as "no code".
+describe("a row whose code was stripped", () => {
+  const stripped = { requiresDtcm: true, attendanceMode: "IN_PERSON" };
+
+  it("is not warned about when the server says a code was assigned", () => {
+    expect(lacksDtcmCode({ ...stripped, hasCode: true })).toBe(false);
+    expect(dtcmWalkupWarning({ ...stripped, hasCode: true })).toBeNull();
+  });
+
+  it("is warned about when the server says none was", () => {
+    expect(lacksDtcmCode({ ...stripped, hasCode: false })).toBe(true);
+  });
+
+  it("falls back to the code itself when an older server sends no flag", () => {
+    expect(lacksDtcmCode({ ...stripped, dtcmBarcode: "DTCM-1" })).toBe(false);
+    expect(lacksDtcmCode({ ...stripped, hasCode: null, dtcmBarcode: null })).toBe(true);
+  });
+});

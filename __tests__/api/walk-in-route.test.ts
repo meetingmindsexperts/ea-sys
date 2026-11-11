@@ -143,6 +143,28 @@ describe("POST walk-in", () => {
     expect(await (await post({ ...base, payment: "cash" })).json()).toMatchObject({ registered: true, checkedIn: false, step: "payment", dtcm: { status: "pool-empty" } });
   });
 
+  // The code the pool just assigned is a door credential: a MEMBER may register
+  // walk-ins but may not hold one. The outcome still reaches them.
+  it("the assigned spare code goes only to someone who may hold a door credential", async () => {
+    const created = {
+      ok: true,
+      registration: { id: "reg-1", serialId: 7, paymentStatus: "UNASSIGNED", attendee: { firstName: "Walk", lastName: "In" }, ticketType: { name: "Physician" } },
+      dtcm: { status: "assigned", code: "DTCM-SECRET" },
+    };
+    mockDb.registration.findFirst.mockResolvedValue(freshRow("COMPLIMENTARY"));
+    // The desk's admin: the whole outcome.
+    mockCreate.mockResolvedValueOnce(created);
+    mockDb.ticketType.findFirst.mockResolvedValueOnce(COMP_TYPE);
+    expect((await (await post({ ...base, payment: "complimentary" })).json()).dtcm).toEqual({ status: "assigned", code: "DTCM-SECRET" });
+    // A MEMBER at the desk: the status only.
+    mockAuth.mockResolvedValue({ user: { ...session.user, id: "member-1", role: "MEMBER" } });
+    mockCreate.mockResolvedValueOnce(created);
+    mockDb.ticketType.findFirst.mockResolvedValueOnce(COMP_TYPE);
+    const answer = await (await post({ ...base, payment: "complimentary" })).json();
+    expect(answer).toMatchObject({ registered: true, checkedIn: true });
+    expect(answer.dtcm).toEqual({ status: "assigned" });
+  });
+
   it("cash: the capture defers its documents, names the operator, and the confirmation email is suppressed", async () => {
     mockDb.registration.findFirst.mockResolvedValue(freshRow("PAID"));
     const res = await post({ ...base, payment: "cash" });

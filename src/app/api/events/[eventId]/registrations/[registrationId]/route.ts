@@ -20,7 +20,8 @@ import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { redactFinancialFields } from "@/lib/finance-visibility";
-import { redactBarcodeFields } from "@/lib/barcode-visibility";
+import { dtcmCodeWriteRefusal, redactBarcodeFields, registrationForCaller } from "@/lib/barcode-visibility";
+import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { redactSupportingDocumentFields } from "@/lib/supporting-document";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { MANUAL_PAYMENT_STATUSES } from "@/lib/registration-payment-policy";
@@ -329,8 +330,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
         // taxRate/taxLabel feed the recomputed `financials` attached to the
         // PUT response so the detail sheet's Payment Summary refreshes after an
         // inline edit (e.g. a pricing-tier re-classification) without a
-        // separate GET round-trip.
-        select: { id: true, settings: true, taxRate: true, taxLabel: true },
+        // separate GET round-trip. The organisation, type and assigned staff
+        // are what `dtcm.assign` is judged by (the DTCM code's own key, below).
+        select: { id: true, settings: true, taxRate: true, taxLabel: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
       }),
       db.registration.findFirst({
         where: { id: registrationId, eventId },
@@ -395,6 +397,28 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const { expectedUpdatedAt: _lockToken, ...updateFields } = validated.data;
     void _lockToken;
+
+    // The DTCM code is a door credential with its own two keys, the ones the
+    // spare pool and the DET purchase ask. `registrations.update` alone is not
+    // enough to write it (see `dtcmCodeWriteRefusal`).
+    const eventFacts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
+    const maySeeCodes = can(gate.principal, "barcode.view");
+    const mayWriteDtcmCode = maySeeCodes && eventFacts !== null && can(gate.principal, "dtcm.assign", { event: eventFacts });
+    const dtcmWrite = dtcmCodeWriteRefusal({ sent: updateFields.dtcmBarcode, mayWrite: mayWriteDtcmCode, storedCode: existingRegistration.dtcmBarcode });
+    if (dtcmWrite.action === "refuse") {
+      apiLogger.warn({ msg: "registration-update:dtcm-code-forbidden", eventId, registrationId, userId: session.user.id, role: session.user.role });
+      return NextResponse.json(
+        { error: "You cannot set a DTCM code. Ask an organiser, or someone on the registration desk who can assign codes.", code: "DTCM_CODE_FORBIDDEN" },
+        { status: 403 },
+      );
+    }
+    if (dtcmWrite.action === "drop") {
+      delete updateFields.dtcmBarcode;
+      // Worth a line only when it mattered: the blank would have wiped a code.
+      if (dtcmWrite.wouldHaveCleared) {
+        apiLogger.warn({ msg: "registration-update:dtcm-blank-dropped", eventId, registrationId, userId: session.user.id, role: session.user.role, detail: "A blank DTCM code from a caller who may not write it was ignored; the stored code is kept" });
+      }
+    }
 
     // Domain logic — the sponsor invariant, billing-account/ticket-type
     // validation, shared repricing, seat/promo transition, optimistic lock,
@@ -468,7 +492,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       ? withFinancials
       : redactFinancialFields(withFinancials);
 
-    return NextResponse.json(payload);
+    // And the entry barcode and DTCM code exactly like the GET does: the save
+    // answered with them for anyone who could save (a MEMBER can).
+    return NextResponse.json(registrationForCaller(maySeeCodes, payload));
     });
   } catch (error) {
     // Domain failures (STALE_WRITE / CAPACITY_EXCEEDED / P2002 / repricing)

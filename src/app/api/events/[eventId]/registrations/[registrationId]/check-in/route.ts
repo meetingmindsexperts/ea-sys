@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
+import { registrationForCaller } from "@/lib/barcode-visibility";
 import { getClientIp } from "@/lib/security";
 import { checkInGate, executeCheckIn, undoCheckIn, CheckInCancelledError } from "@/lib/check-in";
 import { scannedEntryCodeCandidates } from "@/lib/barcode";
@@ -154,7 +156,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
     });
 
-    return NextResponse.json(updatedRegistration);
+    return NextResponse.json(registrationForCaller(can(access.principal, "barcode.view"), updatedRegistration));
     });
   } catch (error) {
     if (error instanceof CheckInCancelledError) {
@@ -316,7 +318,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           code: gate.code,
           ...(gate.checkedInAt && { checkedInAt: gate.checkedInAt }),
           // The scanner UI shows who the badge belongs to on a double scan.
-          ...(gate.code === "ALREADY_CHECKED_IN" && { registration }),
+          ...(gate.code === "ALREADY_CHECKED_IN" && { registration: registrationForCaller(can(access.principal, "barcode.view"), registration) }),
           // The desk opens Record payment for the person it refused, instead
           // of asking for their name. The id only: the caller already holds
           // registrations.checkin on this event.
@@ -337,7 +339,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       auditExtras: { qrCode: scanned, ip: getClientIp(req), ...(isKiosk && { kiosk: true }) },
     });
 
-    return NextResponse.json(updatedRegistration);
+    return NextResponse.json(registrationForCaller(can(access.principal, "barcode.view"), updatedRegistration));
     });
   } catch (error) {
     if (error instanceof CheckInCancelledError) {
@@ -402,7 +404,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: result.message, code: result.code }, { status: 409 });
     }
 
-    return NextResponse.json(result.registration);
+    return NextResponse.json(registrationForCaller(can(access.principal, "barcode.view"), result.registration));
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error undoing check-in" });

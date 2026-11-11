@@ -34,6 +34,56 @@
 // WHO may see barcodes is `barcode.view`, asked through `can()` (custom roles
 // Phase 6, Oct 6, 2026); the role list and `canViewEntryBarcode` are gone.
 
+/**
+ * EVERY staff route that answers with a registration row asks this, not only
+ * the list and the detail read (review of 243b7136, Nov 11, 2026). The save,
+ * the create, the three check-in answers and the walk-in each returned the
+ * whole row, or the code just assigned, to anyone who could call them, and a
+ * MEMBER can call all four. `registrationForCaller` is that one line; a new
+ * route that returns a registration uses it.
+ *
+ * WRITING the DTCM code has a rule of its own, `dtcmCodeWriteRefusal`: the
+ * registration save accepted `dtcmBarcode` from anyone holding
+ * `registrations.update`, while the two routes built to assign a code (the
+ * spare pool and the DET purchase) both ask `dtcm.assign` AND `barcode.view`.
+ */
+
+/** A registration (or a list, or an object holding one) as this caller may see it. */
+export function registrationForCaller<T>(maySeeCodes: boolean, value: T): T {
+  return maySeeCodes ? value : redactBarcodeFields(value);
+}
+
+export type DtcmCodeWrite =
+  /** The field is not in the request, or the caller may write it: nothing to do. */
+  | { action: "allow" }
+  /** A blank from someone who cannot write it: leave the stored code alone. */
+  | { action: "drop"; wouldHaveCleared: boolean }
+  /** A code from someone who cannot write it. */
+  | { action: "refuse" };
+
+/**
+ * What the registration save does with a `dtcmBarcode` in its request.
+ *
+ * Someone who may write it (both keys): whatever they sent, as before.
+ *
+ * Someone who may not:
+ * - a VALUE is refused. They are trying to hand someone a door credential.
+ * - a BLANK is dropped, never applied. A screen that cannot see the code holds
+ *   an empty field for it, and the registration sheet sent that blank on every
+ *   save: a MEMBER correcting a spelling wiped the attendee's compliance code
+ *   (found Nov 11, 2026; production held no DTCM code yet). Dropped rather
+ *   than refused so a tab opened before this fix can still save its edit.
+ *
+ * The stored code is deliberately not compared with what was sent: answering
+ * differently for a right and a wrong guess would tell a caller who cannot see
+ * the code what it is.
+ */
+export function dtcmCodeWriteRefusal(args: { sent: string | null | undefined; mayWrite: boolean; storedCode: string | null }): DtcmCodeWrite {
+  if (args.sent === undefined || args.mayWrite) return { action: "allow" };
+  if (args.sent !== null && args.sent.trim() !== "") return { action: "refuse" };
+  return { action: "drop", wouldHaveCleared: Boolean(args.storedCode) };
+}
+
 /** The credential columns on a registration payload. */
 export const BARCODE_KEYS = ["qrCode", "dtcmBarcode"] as const;
 

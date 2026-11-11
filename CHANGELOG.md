@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Entry barcodes and DTCM codes: every answer, and who may write one (November 11)
+
+Found by the review of the onsite desk's DTCM work, in code older than it. A Member runs the desk but may not hold a door credential (`barcode.view`); the list and the detail read have stripped the entry barcode and the DTCM code for them since July.
+
+- **A Member's edit wiped the DTCM code** - The registration sheet sent a blank DTCM code on every save, because it holds a blank for a role that cannot see the code, and the save applied it. So a Member correcting a spelling on a Dubai event cleared that attendee's compliance code, and the badge would then print without its QR. Production held no DTCM code when this was found, so nothing was lost
+- **Writing a DTCM code needs the code keys** - The registration save took `dtcmBarcode` from anyone holding `registrations.update`. It now asks what the spare pool and the DET purchase ask, `dtcm.assign` with `barcode.view` (`dtcmCodeWriteRefusal` in `src/lib/barcode-visibility.ts`). From anyone else a value is refused (403 `DTCM_CODE_FORBIDDEN`) and a blank is dropped, so the stored code survives and a tab opened before the fix can still save. Organisers, admins and Onsite Staff on their events are unchanged
+- **The sheet sends the code only when it was changed**, like its other registration fields, and shows the DTCM edit field only to someone who can see codes
+- **Four answers no longer carry the codes** to a caller without `barcode.view`: the registration save, the create, check-in (by id, by scan, the "already checked in" refusal, the undo) and the walk-in, which returned the spare code it had just assigned. One helper, `registrationForCaller`; a new route that answers with a registration uses it. The create adds `hasDtcmCode` and the walk-in keeps `dtcm.status`, so the screens still say truthfully when no code was assigned
+- **Tests** - `registration-door-credentials.test.ts` runs the real permission grants against all four routes; each test was checked to fail with its fix removed
+
 ### CRM inbox: Sent lists only what was sent (November 11)
 
 Reported by the owner: the Sent folder showed 50 conversations, the same ones as the Inbox.

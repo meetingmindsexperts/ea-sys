@@ -17,7 +17,7 @@ import {
   computeRegistrationFinancials,
   readRegistrationBasePrice,
 } from "@/lib/registration-financials";
-import { redactBarcodeFields } from "@/lib/barcode-visibility";
+import { redactBarcodeFields, registrationForCaller } from "@/lib/barcode-visibility";
 import { redactSupportingDocumentFields } from "@/lib/supporting-document";
 import { MISSING_EVIDENCE_WHERE, missingEvidenceFields } from "@/lib/type-evidence";
 import { rateLimited } from "@/lib/api-errors";
@@ -886,7 +886,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    return NextResponse.json(result.registration, { status: 201 });
+    // The new row carries its entry barcode and, on a Dubai event, the DTCM
+    // code it was just handed: stripped for a caller who may not hold one (a
+    // MEMBER adds registrations). `hasDtcmCode` is not a credential: it lets
+    // the add screen say "no code was assigned" truthfully for them too.
+    return NextResponse.json(
+      {
+        ...registrationForCaller(can(gate.principal, "barcode.view"), result.registration),
+        hasDtcmCode: Boolean(result.registration.dtcmBarcode),
+      },
+      { status: 201 },
+    );
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating registration" });

@@ -112,6 +112,29 @@ desk allow-list rather than using the desk list alone: `REGISTRATION_DESK_ALLOW`
 answers *who staffs the desk*, which is a different question from *who may hold a
 door credential*.
 
+**Every answer, not only the list (Nov 11, 2026).** The list and the detail
+read stripped the entry barcode and the DTCM code from July 2026, but four
+other staff routes answered with the whole registration row to anyone who
+could call them, and a MEMBER can call all four: the registration save, the
+create, check-in (by id, by scan, the "already checked in" refusal and the
+undo), and the walk-in, which returned the spare code it had just assigned.
+All of them now go through `registrationForCaller` in `barcode-visibility.ts`.
+**A new route that answers with a registration row uses it too.** The create
+adds `hasDtcmCode` and the walk-in keeps `dtcm.status`, so a screen can still
+say "no code was assigned" to someone who may not see the code.
+
+**Who can WRITE one.** `dtcm.assign` together with `barcode.view`, on all
+three doors: the spare pool, the DET purchase and, since Nov 11, 2026, the
+registration save (typing a code, or "Use this code"). Before that the save
+took `dtcmBarcode` from anyone holding `registrations.update`, and the
+registration sheet sent a blank for it on every save, so **a MEMBER editing
+anything on a registration cleared its DTCM code** (found by review; production
+held no code at the time). The rule is `dtcmCodeWriteRefusal`: from someone
+who may not write it, a value is refused (403 `DTCM_CODE_FORBIDDEN`) and a
+blank is dropped, so the stored code survives and an old tab can still save.
+The sheet no longer sends the field unless it was changed, and shows its edit
+field only to someone who can see codes.
+
 ---
 
 ## 5. Known gaps

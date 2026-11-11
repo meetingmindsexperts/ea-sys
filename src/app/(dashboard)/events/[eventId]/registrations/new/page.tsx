@@ -220,6 +220,8 @@ export default function NewRegistrationPage() {
           requiresDtcm: eventData?.requiresDtcmBarcode,
           attendanceMode: created?.attendanceMode,
           dtcmBarcode: created?.dtcmBarcode,
+          // The code itself is stripped for someone who may not hold one; this is not.
+          hasCode: created?.hasDtcmCode,
         });
         if (dtcmWarning) toast.warning(dtcmWarning, { duration: 12000 });
         // The page we are about to land on shows the spare count, and a

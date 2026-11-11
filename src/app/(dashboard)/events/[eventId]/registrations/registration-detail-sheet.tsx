@@ -1438,7 +1438,9 @@ export function RegistrationDetailSheet({
                         solely for events flagged requiresDtcmBarcode; these
                         codes are normally bulk-imported via CSV, but the field
                         allows a manual correction. */}
-                    {requiresDtcmBarcode && (
+                    {/* Only for someone who can see the code: anyone else would
+                        be shown an empty field for a code that exists. */}
+                    {requiresDtcmBarcode && canSeeBarcodes && (
                       <div className="space-y-2">
                         <Label htmlFor="edit-dtcmBarcode">DTCM Barcode</Label>
                         <Input

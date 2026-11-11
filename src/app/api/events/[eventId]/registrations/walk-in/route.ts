@@ -5,6 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -286,7 +287,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         name,
         ticketTypeName: registration.ticketType?.name ?? null,
         paymentStatus: registration.paymentStatus,
-        dtcm: created.dtcm,
+        // The outcome for everyone (the desk says so when a walk-in was left
+        // with no code); the code itself only for someone who may hold one.
+        dtcm: can(createGate.principal, "barcode.view") ? created.dtcm : { status: created.dtcm.status },
       };
       // A code can leave nothing to pay: then no payment is taken.
       const collect = paid && registration.paymentStatus === "UNASSIGNED";
@@ -324,9 +327,10 @@ interface WalkInSummary {
    * The spare pool's answer for the new registration. The desk reads
    * `dtcm.status` to say when a walk-in was left with no compliance code
    * (src/lib/desk-dtcm.ts), so the shape is part of this route's contract:
-   * keep it an object with `status`, whatever else is trimmed from it.
+   * always an object with `status`. Its `code` is a door credential and goes
+   * only to a caller who holds `barcode.view`.
    */
-  dtcm: ClaimDtcmOutcome;
+  dtcm: ClaimDtcmOutcome | { status: ClaimDtcmOutcome["status"] };
 }
 
 /** Record the payment when there is one to collect, then check in through the door's own gate. */

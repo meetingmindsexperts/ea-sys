@@ -233,7 +233,11 @@ export function toServerPayload(
     ...(changed("paymentStatus") ? { paymentStatus: d.paymentStatus || undefined } : {}),
     ...(changed("sponsorId") ? { sponsorId: d.sponsorId || null } : {}),
     notes: d.notes || undefined,
-    dtcmBarcode: d.dtcmBarcode.trim() || null,
+    // Only when it was changed here. A role that cannot see door credentials
+    // loads a blank for this field, and sending that blank on every save
+    // cleared the attendee's compliance code (found Nov 11, 2026). The server
+    // drops such a blank too; this keeps it from being sent at all.
+    ...(changed("dtcmBarcode") ? { dtcmBarcode: d.dtcmBarcode.trim() || null } : {}),
     taxNumber: d.taxNumber.trim() || null,
     billingFirstName: d.billingFirstName.trim() || null,
     billingLastName: d.billingLastName.trim() || null,

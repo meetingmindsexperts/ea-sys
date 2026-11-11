@@ -5,7 +5,7 @@
  * barcode (sponsor-side observer) while ONSITE MUST (desk staff print badges).
  */
 import { describe, it, expect } from "vitest";
-import { redactBarcodeFields, BARCODE_KEYS } from "@/lib/barcode-visibility";
+import { dtcmCodeWriteRefusal, redactBarcodeFields, registrationForCaller, BARCODE_KEYS } from "@/lib/barcode-visibility";
 import { canViewEntryBarcode } from "../helpers/role-can";
 
 describe("canViewEntryBarcode", () => {
@@ -66,5 +66,50 @@ describe("redactBarcodeFields", () => {
 
   it("covers exactly the documented credential keys", () => {
     expect([...BARCODE_KEYS].sort()).toEqual(["dtcmBarcode", "qrCode"]);
+  });
+});
+
+describe("registrationForCaller", () => {
+  const row = { id: "r1", qrCode: "ENTRY", dtcmBarcode: "DTCM", attendee: { firstName: "A" } };
+
+  it("is the row itself for someone who may hold a door credential", () => {
+    expect(registrationForCaller(true, row)).toBe(row);
+  });
+
+  it("drops both codes for anyone else, wherever the row sits in the answer", () => {
+    expect(registrationForCaller(false, row)).toEqual({ id: "r1", attendee: { firstName: "A" } });
+    expect(registrationForCaller(false, { code: "ALREADY_CHECKED_IN", registration: row })).toEqual({ code: "ALREADY_CHECKED_IN", registration: { id: "r1", attendee: { firstName: "A" } } });
+    expect(registrationForCaller(false, [row])).toEqual([{ id: "r1", attendee: { firstName: "A" } }]);
+  });
+});
+
+/** What the registration save does with a `dtcmBarcode` in its request. */
+describe("dtcmCodeWriteRefusal", () => {
+  it("nothing to do when the field is not sent, whoever sends the request", () => {
+    expect(dtcmCodeWriteRefusal({ sent: undefined, mayWrite: false, storedCode: "X" })).toEqual({ action: "allow" });
+    expect(dtcmCodeWriteRefusal({ sent: undefined, mayWrite: true, storedCode: null })).toEqual({ action: "allow" });
+  });
+
+  it("someone who may write it sets, replaces and clears", () => {
+    for (const sent of ["NEW", "", null]) {
+      expect(dtcmCodeWriteRefusal({ sent, mayWrite: true, storedCode: "OLD" })).toEqual({ action: "allow" });
+    }
+  });
+
+  it("a value from someone who may not is refused", () => {
+    expect(dtcmCodeWriteRefusal({ sent: "NEW", mayWrite: false, storedCode: null })).toEqual({ action: "refuse" });
+    expect(dtcmCodeWriteRefusal({ sent: "NEW", mayWrite: false, storedCode: "OLD" })).toEqual({ action: "refuse" });
+  });
+
+  it("a blank from someone who may not is dropped, and says whether it would have wiped a code", () => {
+    expect(dtcmCodeWriteRefusal({ sent: null, mayWrite: false, storedCode: "OLD" })).toEqual({ action: "drop", wouldHaveCleared: true });
+    expect(dtcmCodeWriteRefusal({ sent: "", mayWrite: false, storedCode: "OLD" })).toEqual({ action: "drop", wouldHaveCleared: true });
+    expect(dtcmCodeWriteRefusal({ sent: "   ", mayWrite: false, storedCode: null })).toEqual({ action: "drop", wouldHaveCleared: false });
+  });
+
+  it("never answers differently for a right guess: the stored code is not compared with what was sent", () => {
+    const right = dtcmCodeWriteRefusal({ sent: "OLD", mayWrite: false, storedCode: "OLD" });
+    const wrong = dtcmCodeWriteRefusal({ sent: "NOPE", mayWrite: false, storedCode: "OLD" });
+    expect(right).toEqual(wrong);
   });
 });
