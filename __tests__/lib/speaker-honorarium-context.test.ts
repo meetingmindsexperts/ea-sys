@@ -37,6 +37,7 @@ function speakerRow(honorariumAmount: unknown, honorariumCurrency: string | null
       {
         role: "SPEAKER",
         session: {
+          id: "s-keynote",
           name: "Opening Keynote",
           startTime: new Date("2026-03-05T05:00:00Z"),
           endTime: new Date("2026-03-05T06:00:00Z"),

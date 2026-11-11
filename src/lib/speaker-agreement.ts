@@ -185,9 +185,9 @@ export interface SpeakerEmailContext {
   // Pre-rendered HTML/text blocks for email templates
   presentationDetails: string;
   presentationDetailsText: string;
-  // Moderator view — the sessions this speaker MODERATES, each with its full
-  // topic run-sheet (topic, speakers, duration, computed start–end from the
-  // session start + cumulative topic durations). Empty for non-moderators.
+  // Moderator view — the sessions this speaker MODERATES or CHAIRS, each with
+  // its topic run-sheet (Topic | Presented by; no topic times since July 30,
+  // 2026). Empty for people who run no session.
   moderatorDetails: string;
   moderatorDetailsText: string;
 }
@@ -206,6 +206,7 @@ interface SpeakerEmailContextRow {
     sessions: Array<{
       role: string;
       session: {
+        id: string;
         name: string;
         startTime: Date;
         endTime: Date;
@@ -226,9 +227,11 @@ interface SpeakerEmailContextRow {
         title: string;
         duration: number | null;
         session: {
+          id: string;
           name: string;
           startTime: Date;
           endTime: Date;
+          location: string | null;
           track: { name: string } | null;
           // Ordered sibling topics — needed to compute THIS topic's start
           // time by stacking preceding durations from the session start.
@@ -269,6 +272,7 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
             role: true,
             session: {
               select: {
+                id: true,
                 name: true,
                 startTime: true,
                 endTime: true,
@@ -301,9 +305,11 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
                 duration: true,
                 session: {
                   select: {
+                    id: true,
                     name: true,
                     startTime: true,
                     endTime: true,
+                    location: true,
                     track: { select: { name: true } },
                     // Ordered siblings — this topic's start time is computed
                     // by stacking preceding topic durations from the session
@@ -504,16 +510,8 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   //
   // The scalar docx merge tokens ({sessionTitles}/{topicTitles}/{trackNames}/
   // {role}/{sessionDateTime}) cover ALL engagements and stay format-stable.
-  const sessionKey = (s: { name: string; startTime: Date }) =>
-    `${s.name}|${new Date(s.startTime).getTime()}`;
   const speakingSessionRows = sessionRows.filter(
     (s) => s.role !== "MODERATOR" && s.role !== "CHAIRPERSON",
-  );
-  // The topic query carries no room, so a session reached only through a topic
-  // borrows it from the person's own session row when they hold one (the
-  // moderated session here), and both blocks name the same room.
-  const locationByKey = new Map<string, string | null>(
-    sessionRows.map((s) => [sessionKey(s.session), s.session.location ?? null]),
   );
 
   const sessionTitles = sessionRows.map((s) => s.session.name).join("\n");
@@ -533,8 +531,9 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
 
   // Per-topic display groups — the topic title plus, when the topic has a
   // duration, its own computed start–end line. The topic's start time is
-  // computed by stacking preceding sibling durations from the session start,
-  // exactly like the moderator run-sheet; an untimed sibling holds the clock.
+  // computed by stacking preceding sibling durations from the session start
+  // (the convention of computeTopicTimes in topic-times.ts); an untimed
+  // sibling holds the clock.
   // Duration itself is NOT displayed (organizer removed it, July 30 2026) —
   // it only drives the clock. The `topicTitles` scalar (docx {topicTitles}
   // token) stays titles-only and format-stable.
@@ -586,12 +585,15 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
     topicsHtml: string[];
     topicsText: string[];
   };
-  const groupKey = sessionKey;
+  // Grouped by the session's ID (review of 69c84961, Nov 11 2026). The key was
+  // name + start time, so two different sessions sharing both (parallel
+  // "Workshop" rooms at 10:00) became one table, and a topic in one could show
+  // under the other's room and time window.
   const groups = new Map<string, SessionGroup>();
   // Speaking roles only: a moderated/chaired session gets a group here only
   // through a topic this person presents in it (the loop below).
   for (const s of speakingSessionRows) {
-    const k = groupKey(s.session);
+    const k = s.session.id;
     if (!groups.has(k)) {
       groups.set(k, {
         name: s.session.name,
@@ -607,13 +609,15 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   // speakers — several topics can share one session, so the key dedups).
   topicRows.forEach((t, i) => {
     const s = t.topic.session;
-    const k = groupKey(s);
+    const k = s.id;
     if (!groups.has(k)) {
+      // The room comes from the topic's own session, so a person who is on a
+      // topic without a session role sees it too (they saw none before).
       groups.set(k, {
         name: s.name,
         startTime: s.startTime,
         endTime: s.endTime ?? null,
-        location: locationByKey.get(k) ?? null,
+        location: s.location ?? null,
         topicsHtml: [],
         topicsText: [],
       });

@@ -36,6 +36,7 @@ function speakerRow() {
       {
         role: "SPEAKER",
         session: {
+          id: "s-keynote",
           name: "Opening Keynote",
           startTime: SESSION_START,
           endTime: new Date("2026-03-05T15:00:00Z"),
@@ -53,6 +54,7 @@ function moderatedSession(topics: unknown[] = [], role = "MODERATOR") {
   return {
     role,
     session: {
+      id: "s-panel",
       name: "Structural Heart Panel",
       // 16:00–17:30 UTC = 11:00 AM – 12:30 PM in New York.
       startTime: new Date("2026-03-05T16:00:00Z"),
@@ -119,6 +121,7 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
         session: {
           // Deliberately the LATER session listed first — output must sort
           // by start time.
+          id: "s-valve",
           name: "Valve Workshop",
           startTime: new Date("2026-03-05T16:00:00Z"), // 11:00 AM EST
           endTime: new Date("2026-03-05T17:30:00Z"),
@@ -130,6 +133,7 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
       {
         role: "SPEAKER",
         session: {
+          id: "s-keynote",
           name: "Opening Keynote",
           startTime: SESSION_START, // 9:00 AM EST
           endTime: new Date("2026-03-05T15:00:00Z"),
@@ -240,9 +244,11 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
             title: OWN_TOPIC.title,
             duration: OWN_TOPIC.duration,
             session: {
+              id: moderated.session.id,
               name: moderated.session.name,
               startTime: moderated.session.startTime,
               endTime: moderated.session.endTime,
+              location: moderated.session.location as string | null,
               track: null,
               // The 45m topic runs first: 11:00 + 45m = 11:45 – 12:05 PM.
               topics: [
@@ -313,11 +319,13 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     // mutation that the tests above let through.
 
     it("takes the room of ITS OWN session, never another row's (a later row with a different room)", async () => {
+      // Since the review the room is read from the topic's own session.
       const row = moderatorWhoPresents();
       // A second, later speaking session in another room, listed LAST.
       row.sessions.push({
         role: "SPEAKER",
         session: {
+          id: "s-closing",
           name: "Closing Plenary",
           startTime: new Date("2026-03-05T19:00:00Z"), // 2:00 PM EST
           endTime: new Date("2026-03-05T20:00:00Z"),
@@ -337,6 +345,8 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     it("a moderated session with no room renders the bare session name", async () => {
       const row = moderatorWhoPresents();
       row.sessions[0].session.location = null;
+      const [own] = row.topicSpeakers as unknown as Array<{ topic: { session: { location: string | null } } }>;
+      own.topic.session.location = null;
       mockDb.speaker.findFirst.mockResolvedValue(row);
       const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
       expect(ctx?.presentationDetails).toContain("Structural Heart Panel</td>");
@@ -377,6 +387,77 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
       );
     });
 
+    // Review of 69c84961, LOW 2: the group key was name + start time, so two
+    // DIFFERENT sessions sharing both were one table.
+    describe("two different sessions with the same name and start (parallel rooms)", () => {
+      const START = new Date("2026-03-05T15:00:00Z"); // 10:00 AM EST
+      const workshop = (id: string, location: string, end: string) => ({
+        id,
+        name: "Workshop",
+        startTime: START,
+        endTime: new Date(end),
+        location,
+        track: null,
+      });
+      const HALL_A = workshop("s-a", "Hall A", "2026-03-05T15:30:00Z"); // to 10:30
+      const HALL_B = workshop("s-b", "Hall B", "2026-03-05T17:00:00Z"); // to 12:00
+      const topicInB = [
+        {
+          topic: {
+            id: "tb",
+            title: "My B-topic",
+            duration: 30,
+            session: { ...HALL_B, topics: [{ id: "tb", duration: 30 }] },
+          },
+        },
+      ] as unknown as ReturnType<typeof speakerRow>["topicSpeakers"];
+
+      it("moderates one, presents a topic in the OTHER: the topic shows under its own room", async () => {
+        const row = speakerRow();
+        row.sessions = [{ role: "MODERATOR", session: { ...HALL_A, topics: [] } }];
+        row.topicSpeakers = topicInB;
+        mockDb.speaker.findFirst.mockResolvedValue(row);
+        const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+        const html = ctx?.presentationDetails ?? "";
+        expect(html).toContain("Workshop · Hall B");
+        expect(html).not.toContain("Hall A");
+        expect(html).toContain("My B-topic<br/>10:00 AM – 10:30 AM (EST)");
+        expect(html).toContain("10:00 AM – 12:00 PM (EST)");
+      });
+
+      it("speaks in one, presents a topic in the other: two tables, the topic in its own", async () => {
+        const row = speakerRow();
+        row.sessions = [
+          { role: "SPEAKER", session: { ...HALL_A, topics: [] } },
+          { role: "MODERATOR", session: { ...HALL_B, topics: [] } },
+        ];
+        row.topicSpeakers = topicInB;
+        mockDb.speaker.findFirst.mockResolvedValue(row);
+        const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+        const html = ctx?.presentationDetails ?? "";
+        expect(html.match(/<table/g)?.length).toBe(2);
+        const [first, second] = html.split("</table>");
+        expect(first).toContain("Workshop · Hall A");
+        expect(first).toContain("10:00 AM – 10:30 AM (EST)");
+        expect(first).not.toContain("My B-topic");
+        expect(second).toContain("Workshop · Hall B");
+        expect(second).toContain("My B-topic");
+        expect(second).toContain("10:00 AM – 12:00 PM (EST)");
+      });
+    });
+
+    it("a topic-only speaker (no session role) sees the session's room too", async () => {
+      // Review LOW 3: the room showed for a moderator who presents and not for
+      // the speaker beside them on the same session.
+      const row = moderatorWhoPresents();
+      row.sessions = [];
+      mockDb.speaker.findFirst.mockResolvedValue(row);
+      const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+      expect(ctx?.presentationDetails).toContain("Structural Heart Panel · Hall B");
+      expect(ctx?.presentationDetailsText).toContain("Session: Structural Heart Panel · Hall B");
+      expect(ctx?.moderatorDetails).toBe("");
+    });
+
     it("sorts by start time when the moderated session comes BEFORE the speaking one", async () => {
       const row = moderatorWhoPresents();
       // Speaking row listed FIRST but starting later (2:00 PM EST): groups are
@@ -384,6 +465,7 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
       row.sessions.unshift({
         role: "SPEAKER",
         session: {
+          id: "s-closing",
           name: "Closing Plenary",
           startTime: new Date("2026-03-05T19:00:00Z"),
           endTime: new Date("2026-03-05T20:00:00Z"),
@@ -532,9 +614,11 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
           title: "Valve Repair Update",
           duration: 30,
           session: {
+            id: "s-keynote",
             name: "Opening Keynote",
             startTime: SESSION_START, // 9:00 AM in New York
             endTime: new Date("2026-03-05T15:00:00Z"),
+            location: null,
             track: null,
             // A 20m sibling precedes this speaker's topic → 9:20 – 9:50 AM.
             topics: [
@@ -562,9 +646,11 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
           title: "Welcome Remarks",
           duration: null,
           session: {
+            id: "s-keynote",
             name: "Opening Keynote",
             startTime: SESSION_START,
             endTime: new Date("2026-03-05T15:00:00Z"),
+            location: null,
             track: null,
             topics: [{ id: "t1", duration: null }],
           },

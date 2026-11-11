@@ -1793,7 +1793,7 @@ export function getSamplePreviewVariables(
       "Your Presentation Details:\nSession: Opening Keynote\nTopic: Advances in Interventional Cardiology, 9:00 AM – 9:30 AM (GMT+4)\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM (GMT+4)",
     // {{moderatorDetails}} preview — representative run-sheet in the exact
     // markup buildModeratorBlocks() emits (labeled Session / Date & Time
-    // table, then the Time | Topic | Presented by run-sheet — no role/track/
+    // table, then the Topic | Presented by run-sheet — no times/role/track/
     // duration, organizer decision July 30 2026); real sends render the
     // sessions the RECIPIENT moderates OR chairs (empty otherwise). Raw-HTML key.
     moderatorDetails: `<p style="margin:16px 0 4px 0;font-weight:700; color:#111827; font-size:16px;">Your Moderation Details:</p>
