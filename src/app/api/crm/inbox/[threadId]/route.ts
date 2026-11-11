@@ -37,6 +37,8 @@ export async function GET(
         counterpartyName: true,
         hasUnread: true,
         lastMessageAt: true,
+        // Null until a sponsor writes: such a thread is not in the Inbox folder.
+        lastInboundAt: true,
         archivedAt: true,
         // Set when the deal was archived: the thread can no longer be replied to.
         revokedAt: true,

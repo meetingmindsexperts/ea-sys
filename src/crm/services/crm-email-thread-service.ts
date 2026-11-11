@@ -15,7 +15,7 @@
  * `recordOutboundEmail` NEVER throws: the email already left when it runs, so
  * a bookkeeping failure must not turn a delivered send into a reported error.
  */
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { isInternalEmail } from "@/lib/internal-domains";
 
@@ -119,24 +119,32 @@ export async function recordOutboundEmail(input: RecordOutboundEmailInput): Prom
       // join the thread's forward list, in one statement so two replies at
       // once keep both; an EXTERNAL address copied once never does, or it
       // would quietly receive every later answer on the thread.
+      //
+      // One tenant transaction for both statements (Nov 11, 2026). A raw
+      // statement on the bare client carries no tenant setting, so under
+      // row-level security it matched no thread and the reply was sent but
+      // never recorded. Together they also cannot leave a thread moved to the
+      // top with no message on it.
       const add = dedupeLower(input.notifyEmails).filter((e) => isInternalEmail(e));
-      const updated = await db.$executeRaw`
-        UPDATE "CrmEmailThread"
-        SET "lastMessageAt" = ${now},
-            "expiresAt" = ${expiresAt},
-            "notifyEmails" = ARRAY(SELECT DISTINCT e FROM unnest("notifyEmails" || ${add}::text[]) AS e)
-        WHERE "id" = ${input.threadId} AND "organizationId" = ${input.organizationId}`;
-      if (updated === 0) {
+      const threadId = input.threadId;
+      const found = await tenantTransaction(async (tx) => {
+        const updated = await tx.$executeRaw`
+          UPDATE "CrmEmailThread"
+          SET "lastMessageAt" = ${now},
+              "expiresAt" = ${expiresAt},
+              "notifyEmails" = ARRAY(SELECT DISTINCT e FROM unnest("notifyEmails" || ${add}::text[]) AS e)
+          WHERE "id" = ${threadId} AND "organizationId" = ${input.organizationId}`;
+        if (updated === 0) return false;
+        await tx.crmEmailMessage.create({ data: { ...messageData, threadId } });
+        return true;
+      });
+      if (!found) {
         apiLogger.warn({
           msg: "crm-email-thread:append-thread-not-found",
-          threadId: input.threadId,
+          threadId,
           organizationId: input.organizationId,
         });
-        return;
       }
-      await db.crmEmailMessage.create({
-        data: { ...messageData, threadId: input.threadId },
-      });
       return;
     }
 

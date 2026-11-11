@@ -464,7 +464,8 @@ export function CrmInbox() {
               {thread.archivedAt ? (
                 <Button type="button" variant="ghost" size="sm" onClick={() => setArchived(false)} disabled={update.isPending}>
                   <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
-                  Move to Inbox
+                  {/* The Inbox holds only conversations a sponsor has written on. */}
+                  {thread.lastInboundAt ? "Move to Inbox" : "Unarchive"}
                 </Button>
               ) : (
                 <Button type="button" variant="ghost" size="sm" onClick={() => setArchived(true)} disabled={update.isPending}>

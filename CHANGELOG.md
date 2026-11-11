@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM: three older defects the Sent review turned up (November 11)
+
+Found by the review of `2870ddb1`, in code older than it; the owner asked for them fixed.
+
+- **Erasing or exporting a contact could reach another person's emails** - `crm-privacy-service.ts` picked a person's conversations with `{ equals: address, mode: "insensitive" }`, which Prisma compiles to ILIKE, where `_` is any character. Erasing `john_smith@` also deleted the conversations of `john.smith@` and their messages on shared threads, for good, and the export handed them over. Both now use `equalsIgnoringCase`. No erasure has ever run on production (no `CRM_CONTACT_ERASED` audit row), so nothing was lost. Proven on Postgres in `tests/integration-db/crm-erasure-wildcard.db.test.ts`, which fails on the old match
+- **A reply sent from the inbox would not be recorded under row-level security** - `recordOutboundEmail` ran its thread update as `db.$executeRaw`. The tenant extension wraps model operations only, so on the platform instance the statement matched no thread: the email went out and nothing was stored. Master was never affected (it applies no policies). The update and the message now run in one `tenantTransaction`, so a thread can also no longer move to the top with no message on it. Proven against the real policies in `tests/tenancy/crm-email-append-rls.test.ts`, which fails on the old code
+- **"Move to Inbox" on a conversation that was never in the Inbox** - An archived conversation nobody had replied to went back to Sent when the button was pressed: the Inbox holds only conversations a sponsor has written on. The button now reads **Unarchive** for those and **Move to Inbox** for the rest (the thread detail returns `lastInboundAt`)
+- **Left as it is, for the owner** - An outside address copied on a first send receives the forward of every later sponsor reply. The guide says a reply is copied to "anyone you put in CC or BCC" and a worker test covers it, so it is the documented behaviour. Changing who receives a sponsor's reply is a decision, not a fix
+
 ### Entry barcodes and DTCM codes: every answer, and who may write one (November 11)
 
 Found by the review of the onsite desk's DTCM work, in code older than it. A Member runs the desk but may not hold a door credential (`barcode.view`); the list and the detail read have stripped the entry barcode and the DTCM code for them since July.

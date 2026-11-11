@@ -66,6 +66,39 @@ beforeEach(() => {
   db.crmEmailMessage.findMany.mockResolvedValue([{ id: "m-elsewhere", attachments: [{ filename: "x.pdf", size: 1, mimeType: "application/pdf", path: "/uploads/crm-email-attachments/t-9/x.pdf" }] }]);
 });
 
+// Nov 11, 2026. Prisma compiles { equals, mode: "insensitive" } to ILIKE, where
+// "_" is any character, so john_smith@ also matched john.smith@: the export
+// handed over another person's conversations and the erasure deleted them.
+// Proven on Postgres in tests/integration-db/crm-erasure-wildcard.db.test.ts.
+describe("an address with an underscore is matched literally", () => {
+  const underscored = { ...contact, id: "c-2", email: "John_Smith@Abbott.com", emailKey: "john_smith@abbott.com" };
+
+  it("the export asks for the escaped address", async () => {
+    db.crmContact.findFirst.mockResolvedValue(underscored);
+    await exportCrmContactData({ organizationId: ORG, crmContactId: "c-2" });
+    expect(db.crmEmailThread.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { organizationId: ORG, OR: [{ crmContactId: "c-2" }, { counterpartyEmail: { equals: "John\\_Smith@Abbott.com", mode: "insensitive" } }] },
+      }),
+    );
+  });
+
+  it("the erasure asks for the escaped address, for their threads and for their messages elsewhere", async () => {
+    db.crmContact.findFirst.mockResolvedValue(underscored);
+    await eraseCrmContact({ organizationId: ORG, crmContactId: "c-2", userId: "u-1", confirmEmail: "john_smith@abbott.com", source: "rest" });
+    expect(db.crmEmailThread.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { organizationId: ORG, OR: [{ crmContactId: "c-2" }, { counterpartyEmail: { equals: "John\\_Smith@Abbott.com", mode: "insensitive" } }] },
+      }),
+    );
+    expect(db.crmEmailMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { organizationId: ORG, fromEmail: { equals: "john\\_smith@abbott.com", mode: "insensitive" }, threadId: { notIn: ["t-1"] } },
+      }),
+    );
+  });
+});
+
 describe("exportCrmContactData", () => {
   it("collects the contact, deals, notes, the threads with them by link OR address, and their quotes", async () => {
     const res = await exportCrmContactData({ organizationId: ORG, crmContactId: "c-1" });

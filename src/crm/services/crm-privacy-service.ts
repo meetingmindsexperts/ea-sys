@@ -35,6 +35,7 @@
 import { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 import { crmStorage } from "@/crm/integrations/storage";
 
 type Fail = { ok: false; code: "CONTACT_NOT_FOUND" | "CONFIRMATION_MISMATCH" | "UNKNOWN"; message: string };
@@ -44,11 +45,18 @@ interface Ctx {
   crmContactId: string;
 }
 
-/** Threads with this person: linked to the contact, or with their address as the counterparty. */
+/**
+ * Threads with this person: linked to the contact, or with their address as the counterparty.
+ *
+ * The address is matched with equalsIgnoringCase, never a bare
+ * `{ equals, mode: "insensitive" }`: that compiles to ILIKE, where `_` is any
+ * character, so erasing john_smith@ also took john.smith@'s conversations, and
+ * the export handed them over (found Nov 11, 2026, before any erasure had run).
+ */
 function threadWhere(organizationId: string, contact: { id: string; email: string }): Prisma.CrmEmailThreadWhereInput {
   return {
     organizationId,
-    OR: [{ crmContactId: contact.id }, { counterpartyEmail: { equals: contact.email, mode: "insensitive" } }],
+    OR: [{ crmContactId: contact.id }, { counterpartyEmail: equalsIgnoringCase(contact.email) }],
   };
 }
 
@@ -248,7 +256,7 @@ export async function eraseCrmContact(
         const threadIds = threads.map((t) => t.id);
         // Their own messages on OTHER people's threads (a reply-all, a CC'd reply).
         const elsewhere = await tx.crmEmailMessage.findMany({
-          where: { organizationId: ctx.organizationId, fromEmail: { equals: address, mode: "insensitive" }, threadId: { notIn: threadIds } },
+          where: { organizationId: ctx.organizationId, fromEmail: equalsIgnoringCase(address), threadId: { notIn: threadIds } },
           select: { id: true, attachments: true },
         });
         const files = [

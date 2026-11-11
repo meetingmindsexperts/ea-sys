@@ -24,6 +24,10 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
+// The transaction client is its OWN object, so a test can tell a statement run
+// inside the tenant transaction from one run on the bare client.
+const { tx } = vi.hoisted(() => ({ tx: { $executeRaw: vi.fn(), crmEmailMessage: { create: vi.fn() } } }));
+
 vi.mock("@/lib/db", () => ({
   db: {
     event: { findFirst: vi.fn() },
@@ -33,6 +37,8 @@ vi.mock("@/lib/db", () => ({
     crmEmailMessage: { create: vi.fn() },
     $executeRaw: vi.fn(),
   },
+  // tenantTransaction with the flag off IS db.$transaction: hand over the tx.
+  tenantTransaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
 }));
 
 vi.mock("@/lib/email", () => ({
@@ -85,6 +91,7 @@ beforeEach(() => {
   vi.mocked(db.crmEmailThread.create).mockResolvedValue({} as never);
   vi.mocked(db.crmEmailThread.updateMany).mockResolvedValue({ count: 1 } as never);
   vi.mocked(db.crmEmailMessage.create).mockResolvedValue({} as never);
+  tx.crmEmailMessage.create.mockResolvedValue({});
 });
 
 describe("env dormancy contract", () => {
@@ -120,18 +127,46 @@ describe("recordOutboundEmail", () => {
   });
 
   it("append mode is ORG-BOUND — a foreign threadId records nothing", async () => {
-    vi.mocked(db.$executeRaw).mockResolvedValue(0 as never);
+    tx.$executeRaw.mockResolvedValue(0);
 
     await recordOutboundEmail({ ...baseRecord, threadId: "other-orgs-thread" });
 
-    const values = vi.mocked(db.$executeRaw).mock.calls[0]!.slice(1);
+    const values = tx.$executeRaw.mock.calls[0]!.slice(1);
     expect(values).toContain("other-orgs-thread");
     expect(values).toContain(ORG);
+    expect(tx.crmEmailMessage.create).not.toHaveBeenCalled();
+    expect(apiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "crm-email-thread:append-thread-not-found", threadId: "other-orgs-thread" }),
+    );
+  });
+
+  // Nov 11, 2026: the update ran as db.$executeRaw. A raw statement on the bare
+  // client carries no tenant setting, so under row-level security it matched no
+  // thread: the reply went out and was never recorded. Proven against the
+  // policies in tests/tenancy/crm-email-append-rls.test.ts; this pins the shape.
+  it("append mode runs the update AND the message inside the tenant transaction, never on the bare client", async () => {
+    tx.$executeRaw.mockResolvedValue(1);
+
+    await recordOutboundEmail({ ...baseRecord, threadId: "t-1" });
+
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.crmEmailMessage.create).toHaveBeenCalledTimes(1);
+    expect(db.$executeRaw).not.toHaveBeenCalled();
     expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
   });
 
+  it("append mode: a message that will not save is logged, and nothing is thrown at the sender", async () => {
+    tx.$executeRaw.mockResolvedValue(1);
+    tx.crmEmailMessage.create.mockRejectedValue(new Error("db down"));
+
+    await expect(recordOutboundEmail({ ...baseRecord, threadId: "t-1" })).resolves.toBeUndefined();
+    expect(apiLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "crm-email-thread:record-outbound-failed" }),
+    );
+  });
+
   it("append mode appends the message with its Message-ID; only INTERNAL colleagues a reply copied join the forward list", async () => {
-    vi.mocked(db.$executeRaw).mockResolvedValue(1 as never);
+    tx.$executeRaw.mockResolvedValue(1);
     await recordOutboundEmail({
       ...baseRecord,
       threadId: "t-1",
@@ -140,10 +175,10 @@ describe("recordOutboundEmail", () => {
     });
 
     // One statement (no read-then-write race); the external address is dropped.
-    const values = vi.mocked(db.$executeRaw).mock.calls[0]!.slice(1);
+    const values = tx.$executeRaw.mock.calls[0]!.slice(1);
     expect(values).toContainEqual(["boss@meetingmindsdubai.com"]);
     expect(JSON.stringify(values)).not.toContain("agency@outside.example");
-    expect(db.crmEmailMessage.create).toHaveBeenCalledWith(
+    expect(tx.crmEmailMessage.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           threadId: "t-1",
