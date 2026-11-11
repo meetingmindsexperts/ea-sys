@@ -7,6 +7,29 @@
 
 ---
 
+## CRM inbox, Sent folder: what the Nov 11 review left (recorded Nov 11, 2026): not started
+
+Review of `2870ddb1` (Sent lists only conversations holding an email we sent): no BLOCKER, no
+HIGH. Two MED are recorded here instead of fixed, because both turn on the Microsoft 365 setup.
+
+- **No answer written in Outlook has ever been filed on production (owner check).** Read on
+  Nov 11, 2026: all 5 outgoing messages on record were sent in the CRM. None came from the
+  mailbox copy, and `SystemLog` holds no `crm-inbound:unmatched` line in 30 days, so none was
+  refused either: they never arrived. In the same period 60 conversations that sponsors started
+  came in through `partnerships@`, none on a deal, 50 still unread, none with an answer on
+  record. Either the second mail-flow rule (`CRM capture: mail from partnerships`,
+  docs/CRM_INBOX_SETUP.md section 1, step 3) is off, or answers go out from reps' own mailboxes,
+  which are never captured (owner ruling). Until one of those changes, Sent holds only what was
+  sent in the CRM. The check is the owner's: Exchange admin center, Mail flow, Rules, then
+  verify step 2 of that document.
+- **A machine-sent email from the mailbox would count as sent.** `processCapture` files any copy
+  whose From is the mailbox as OUTBOUND, and asks `isAutomatedMail` of incoming mail only. With
+  the second rule on, an out-of-office or automatic acknowledgement on `partnerships@` would add
+  an outgoing message to every sponsor's conversation, and Sent would repeat the Inbox again.
+  It cannot happen while no outgoing copies arrive. Fix when the rule is confirmed on: do not
+  file an automated outgoing copy, with a worker test built from the mailbox's real headers.
+  Not done now: it changes what the capture path files, and those headers are not in hand.
+
 ## Reviewer emails and the portal: what the Nov 10 reviews left (recorded Nov 10, 2026): not started
 
 Two reviews on Nov 10, 2026 (of the portal fixes `ed074639` / `2be7c0d7` and of the reviewer email
