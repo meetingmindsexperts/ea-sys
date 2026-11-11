@@ -26,9 +26,15 @@ Workspace or Microsoft 365 (Option B) is out of scope.
 ### Phase 1: mailbox layout (about 1 day)
 
 - **Folders**: Inbox (a sponsor replied, not archived), Sent (every
-  conversation we started), Archived. The unread count sits on Inbox. (BUILT
-  Oct 27, 2026. "All" became Archived: every thread starts with our email, so
-  All would have repeated Sent.)
+  conversation holding an email we sent), Archived. The unread count sits on
+  Inbox. (BUILT Oct 27, 2026. "All" became Archived: every thread then started
+  with our email, so All would have repeated Sent.)
+  **Corrected Nov 11, 2026:** Sent had no filter at all, on that same
+  reasoning. The partnerships mailbox capture (below) files mail a sponsor
+  sent first, so in production 60 of 63 threads held nothing we had sent and
+  Sent listed the Inbox again, with the 3 real ones behind "Load more". Sent
+  now asks the messages (`folderWhere` in `crm-inbox-filters.ts`); a captured
+  thread joins it once someone answers.
 - **Filters**: Unread only, Mine (deals I own), and a deal filter set by
   clicking a conversation's deal chip (search already matches deal names).
 - **Search** over subject, counterparty name and email, and deal name.

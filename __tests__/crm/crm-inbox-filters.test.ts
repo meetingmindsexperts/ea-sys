@@ -1,7 +1,8 @@
 /**
  * The CRM inbox folders and filters (Oct 27, 2026, docs/CRM_INBOX_PLAN.md
- * phase 1): Inbox = replied and not archived, Sent = everything, Archived =
- * archived; Mine never widens for an API key; search is every-word-must-match.
+ * phase 1): Inbox = replied and not archived, Sent = holds an email we sent,
+ * Archived = archived; Mine never widens for an API key; search is
+ * every-word-must-match.
  */
 import { describe, it, expect } from "vitest";
 import { afterCursor, encodeInboxCursor, inboxWhere, unreadWhere } from "@/crm/lib/crm-inbox-filters";
@@ -15,10 +16,19 @@ describe("inboxWhere", () => {
     }
   });
 
-  it("Inbox holds replied, unarchived threads; Sent holds all; Archived holds archived", () => {
+  it("Inbox holds replied, unarchived threads; Sent holds threads with an email we sent; Archived holds archived", () => {
     expect(and(inboxWhere("o", "u", { folder: "inbox" }))[1]).toEqual({ lastInboundAt: { not: null }, archivedAt: null });
-    expect(and(inboxWhere("o", "u", { folder: "sent" }))[1]).toEqual({});
+    expect(and(inboxWhere("o", "u", { folder: "sent" }))[1]).toEqual({ messages: { some: { direction: "OUTBOUND" } } });
     expect(and(inboxWhere("o", "u", { folder: "archived" }))[1]).toEqual({ archivedAt: { not: null } });
+  });
+
+  // Nov 11, 2026: Sent was `{}` (every thread) and this test pinned it. The
+  // partnerships mailbox capture files mail a sponsor sent first, so Sent
+  // repeated the Inbox. No folder may ever be the unfiltered list again.
+  it("no folder is the whole thread table", () => {
+    for (const folder of ["inbox", "sent", "archived"] as const) {
+      expect(Object.keys(and(inboxWhere("o", "u", { folder }))[1])).not.toHaveLength(0);
+    }
   });
 
   it("adds Unread, Mine and the deal filter", () => {

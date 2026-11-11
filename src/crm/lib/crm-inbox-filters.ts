@@ -4,8 +4,13 @@
  * a database.
  *
  *   Inbox     a sponsor has replied, and nobody archived it
- *   Sent      every conversation we started (each one starts with our email)
+ *   Sent      every conversation holding at least one email we sent
  *   Archived  archived from the inbox; a new reply brings it back
+ *
+ * Sent was "every thread" until Nov 11, 2026, on the grounds that each thread
+ * starts with our email. The partnerships mailbox capture ended that: it files
+ * mail a sponsor sent first, so in production 60 of 63 threads held nothing we
+ * had sent and Sent showed the Inbox again.
  *
  * Read state and visibility stay shared (owner decisions): every CRM user sees
  * every thread, "Mine" is only a filter.
@@ -29,7 +34,9 @@ export interface InboxFilters {
 function folderWhere(folder: InboxFolder): Prisma.CrmEmailThreadWhereInput {
   if (folder === "inbox") return { lastInboundAt: { not: null }, archivedAt: null };
   if (folder === "archived") return { archivedAt: { not: null } };
-  return {};
+  // Asked of the messages, never of the thread: a captured thread a sponsor
+  // started belongs here only once someone has answered it.
+  return { messages: { some: { direction: "OUTBOUND" } } };
 }
 
 /** Every typed word must match the subject, the person, their email or the deal. */

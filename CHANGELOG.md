@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM inbox: Sent lists only what was sent (November 11)
+
+Reported by the owner: the Sent folder showed 50 conversations, the same ones as the Inbox.
+
+- **The cause** - Sent had no filter at all. On October 27 every thread started with an email of ours, so "every thread" and "sent" were one list and `folderWhere` returned `{}` for it. The partnerships mailbox capture shipped the same day and files mail a sponsor sent first. Production on November 11: 63 threads, 60 of them holding nothing we sent. Sent showed the newest 50 of those, and the 3 real ones sat behind Load more
+- **The rule now** - Sent is every conversation holding at least one email we sent (`messages: { some: { direction: "OUTBOUND" } }` in `src/crm/lib/crm-inbox-filters.ts`). A conversation a sponsor started joins it once someone answers, from the CRM or from the partnerships mailbox in Outlook. Inbox and Archived are unchanged, and no data changed
+- **Tests** - The unit test had pinned the empty filter, so it passed while the folder was wrong; it now pins the rule and refuses a folder with no filter. `tests/integration-db/inbox.db.test.ts` proves it on Postgres with a captured thread, and fails on the old rule
+
 ### DTCM codes on the onsite desk (November 11)
 
 Asked for by the desk team: get a DTCM code at the onsite desk. Buying one code from DET was built on November 3, but only on the registration sheet in the Registrations page; the desk page had no button, and a desk walk-in left without a code produced no message, so the badge printed without its compliance QR and nobody was told.

@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import { resetCrm, seedDeal, type CrmSeed } from "./helper";
 import { recordOutboundEmail } from "@/crm/services/crm-email-thread-service";
 import { setDealArchived, addDealContact } from "@/crm/services/deal-service";
+import { inboxWhere } from "@/crm/lib/crm-inbox-filters";
 
 let seed: CrmSeed;
 
@@ -86,6 +87,53 @@ describe("recordOutboundEmail (real DB)", () => {
     });
     const count = await db.crmEmailMessage.count({ where: { threadId: thread!.id } });
     expect(count).toBe(1); // still just the original — the cross-org append was dropped
+  });
+});
+
+describe("the Sent folder (real rows)", () => {
+  /** A thread the partnerships mailbox capture filed: the sponsor wrote first. */
+  async function capturedThread(replyToken: string, answered: boolean): Promise<string> {
+    const thread = await db.crmEmailThread.create({
+      data: {
+        organizationId: seed.orgId,
+        subject: "Enquiry",
+        replyToken,
+        counterpartyEmail: "sam@pfizer.com",
+        hasUnread: true,
+        lastInboundAt: new Date(),
+        messages: { create: { organizationId: seed.orgId, direction: "INBOUND", fromEmail: "sam@pfizer.com" } },
+      },
+      select: { id: true },
+    });
+    if (answered) await outbound({ threadId: thread.id });
+    return thread.id;
+  }
+
+  async function folderTokens(folder: "inbox" | "sent" | "archived"): Promise<string[]> {
+    const rows = await db.crmEmailThread.findMany({
+      where: inboxWhere(seed.orgId, seed.userId, { folder }),
+      select: { replyToken: true },
+    });
+    return rows.map((r) => r.replyToken).sort();
+  }
+
+  it("holds only threads with an email we sent: a captured, unanswered thread stays out", async () => {
+    await outbound({ replyToken: "tok-we-sent" });
+    await capturedThread("tok-they-wrote", false);
+    await capturedThread("tok-they-wrote-we-answered", true);
+
+    // Until Nov 11, 2026 this was all three: Sent had no filter, so in
+    // production it listed 60 incoming emails ahead of the 3 we had sent.
+    expect(await folderTokens("sent")).toEqual(["tok-they-wrote-we-answered", "tok-we-sent"]);
+    expect(await folderTokens("inbox")).toEqual(["tok-they-wrote", "tok-they-wrote-we-answered"]);
+  });
+
+  it("a thread appears once however many emails we sent on it", async () => {
+    await outbound({ replyToken: "tok-twice" });
+    const thread = await db.crmEmailThread.findUnique({ where: { replyToken: "tok-twice" }, select: { id: true } });
+    await outbound({ threadId: thread!.id });
+
+    expect(await folderTokens("sent")).toEqual(["tok-twice"]);
   });
 });
 
