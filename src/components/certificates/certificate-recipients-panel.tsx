@@ -120,8 +120,6 @@ interface CertificateRecipientsPanelProps {
   initialStatus?: PeopleStatusFilter;
 }
 
-const NOBODY: ReadonlySet<string> = new Set();
-
 const NO_COUNTS = Object.fromEntries(RECIPIENT_STATES.map((s) => [s, 0])) as Record<RecipientState, number>;
 
 /** What a speaker's line says about who they are, when they are not the organisers' own faculty. */
@@ -157,8 +155,13 @@ export function CertificateRecipientsPanel({
   });
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  // People brought to the top of the list on request (Select by IDs, "Show
-  // them first"): a snapshot, so ticking a box never moves a row.
+  // People held at the top of the list. The ORDER OF THE LIST CHANGES ONLY ON
+  // A CLICK THAT SAYS SO: Select by IDs, "Show them first", "Back to the normal
+  // order", or switching between attendees and speakers. Never because a box
+  // was ticked or unticked, a certificate assigned in a cell, or a selection
+  // cleared: any of those reordering the rows would put a different person
+  // under the cursor for the next click (review of 4f4c29a2, where the set was
+  // only ignored while nothing was ticked, and came back on the next tick).
   const [broughtFirst, setBroughtFirst] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [emailsOpen, setEmailsOpen] = useState(false);
@@ -194,18 +197,18 @@ export function CertificateRecipientsPanel({
   ].sort();
   // The ticked people who are still at the event: what the bar counts and the dialog is handed.
   const selectedIds = liveSelection(selected, everyone);
-  // Nobody ticked any more: nothing is held at the top.
-  const first = selectedIds.length === 0 ? NOBODY : broughtFirst;
-  const listed = listFirst(everyone, matching, first);
+  const listed = listFirst(everyone, matching, broughtFirst);
+  const heldFirst = everyone.filter((p) => broughtFirst.has(p.id)).length;
+  const matchingIds = new Set(matching.map((p) => p.id));
   const hiddenSelected = hiddenSelectionCount(new Set(selectedIds), listed);
   // Offered while some ticked person is not already held at the top (one hidden by a filter is one of those).
-  const canBringFirst = selectedIds.some((id) => !first.has(id));
+  const canBringFirst = selectedIds.some((id) => !broughtFirst.has(id));
 
   const pageCount = Math.max(1, Math.ceil(listed.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const visible = listed.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-  /** List these people first, from page one. */
+  /** List these people first, from page one. An empty list puts the normal order back. */
   function bringFirst(ids: readonly string[]) {
     setBroughtFirst(new Set(ids));
     setPage(1);
@@ -230,6 +233,7 @@ export function CertificateRecipientsPanel({
       setKindChoice(next);
       setFilters(EMPTY_PEOPLE_FILTER);
       setSelected(new Set());
+      setBroughtFirst(new Set());
     });
   }
 
@@ -242,6 +246,7 @@ export function CertificateRecipientsPanel({
         // The other table has its own filters (a speaker has no registration type) and its own people.
         setFilters({ ...EMPTY_PEOPLE_FILTER, status: status ?? ALL });
         setSelected(new Set());
+        setBroughtFirst(new Set());
       } else if (status !== undefined) {
         setFilters((f) => ({ ...f, status }));
       }
@@ -253,7 +258,10 @@ export function CertificateRecipientsPanel({
   function showNoList() {
     relist(() => {
       onTemplateFilterChange(ALL);
-      if (kind !== "registration") setSelected(new Set());
+      if (kind !== "registration") {
+        setSelected(new Set());
+        setBroughtFirst(new Set());
+      }
       setKindChoice("registration");
       setFilters({ ...EMPTY_PEOPLE_FILTER, status: "NO_LIST" });
     });
@@ -350,8 +358,13 @@ export function CertificateRecipientsPanel({
   const assignedLines = report.templates.reduce((sum, t) => sum + t.assigned, 0);
   const showKindSwitch = report.speakers.length > 0 || templates.some((t) => t.category === "APPRECIATION");
   const peopleWord = kind === "registration" ? "people" : "speakers";
-  const allOnPage = visible.length > 0 && visible.every((p) => selected.has(p.id));
-  const someOnPage = visible.some((p) => selected.has(p.id));
+  // The header box speaks for the rows the FILTERS produced. A person held at
+  // the top from outside them was chosen one by one and is ticked one by one:
+  // "everyone on this page" must not pull in someone the filters exclude (an
+  // abstract author in the invited-speakers view, say).
+  const pageMatching = visible.filter((p) => matchingIds.has(p.id));
+  const allOnPage = pageMatching.length > 0 && pageMatching.every((p) => selected.has(p.id));
+  const someOnPage = pageMatching.some((p) => selected.has(p.id));
   const moreMatch = matching.some((p) => !selected.has(p.id));
   const tooMany = selectedIds.length > MAX_ASSIGNMENT_BATCH;
   // Without the list's own key the caller sees only the people already on a list.
@@ -361,7 +374,7 @@ export function CertificateRecipientsPanel({
   function togglePage(on: boolean) {
     setSelected((prev) => {
       const next = new Set(prev);
-      for (const p of visible) {
+      for (const p of pageMatching) {
         if (on) next.add(p.id);
         else next.delete(p.id);
       }
@@ -543,7 +556,7 @@ export function CertificateRecipientsPanel({
                 Clear filters
               </Button>
             )}
-            <PeopleCount shown={listed.length} total={everyone.length} noun={kind === "registration" ? "person" : "speaker"} nouns={peopleWord} />
+            <PeopleCount shown={matching.length} total={everyone.length} noun={kind === "registration" ? "person" : "speaker"} nouns={peopleWord} />
           </div>
 
           {kind === "speaker" && filters.speakers === "invited" && listsEveryone && (
@@ -567,15 +580,6 @@ export function CertificateRecipientsPanel({
                   {hiddenSelected} of them not in the list below (hidden by the search or the filters)
                 </span>
               )}
-              {canBringFirst && (
-                <button
-                  type="button"
-                  className="text-primary underline-offset-2 hover:underline"
-                  onClick={() => bringFirst(selectedIds)}
-                >
-                  Show them first
-                </button>
-              )}
               {allOnPage && moreMatch && (
                 <button
                   type="button"
@@ -583,6 +587,16 @@ export function CertificateRecipientsPanel({
                   onClick={() => setSelected((prev) => new Set([...prev, ...matching.map((p) => p.id)]))}
                 >
                   Select all {matching.length} that match
+                </button>
+              )}
+              {/* Last of the links: when it goes, nothing slides into its place under a second click. */}
+              {canBringFirst && (
+                <button
+                  type="button"
+                  className="text-primary underline-offset-2 hover:underline"
+                  onClick={() => bringFirst(selectedIds)}
+                >
+                  Show them first
                 </button>
               )}
               <span className="ml-auto flex items-center gap-2">
@@ -597,6 +611,16 @@ export function CertificateRecipientsPanel({
                   Clear
                 </Button>
               </span>
+            </div>
+          )}
+          {heldFirst > 0 && (
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground" data-testid="listed-first-note">
+              <span>
+                {plural(heldFirst, "person is", "people are")} listed first, whatever the search and filters show.
+              </span>
+              <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={() => bringFirst([])}>
+                Back to the normal order
+              </button>
             </div>
           )}
         </CardHeader>
@@ -621,6 +645,7 @@ export function CertificateRecipientsPanel({
               onToggle={toggleOne}
               onAssign={(person, template) => assignOne(person, template)}
               onRemove={removeOne}
+              outsideFilters={new Set(listed.filter((p) => !matchingIds.has(p.id)).map((p) => p.id))}
               empty={everyone.length === 0 ? `No ${peopleWord} at this event yet.` : "Nobody matches these filters."}
             />
           )}
@@ -687,10 +712,9 @@ export function CertificateRecipientsPanel({
         listsEveryone={listsEveryone}
         alreadyTicked={selectedIds.length}
         onSelect={(ids) => {
-          const all = [...new Set([...selectedIds, ...ids])];
-          setSelected(new Set(all));
-          // What was just pasted is what the person wants to look at: page one, ticked.
-          bringFirst(all);
+          setSelected(new Set([...selectedIds, ...ids]));
+          // What was just pasted is what the person wants to look at: those people, page one, ticked.
+          bringFirst(ids);
         }}
       />
 
@@ -726,8 +750,8 @@ function PeopleCount({ shown, total, noun, nouns }: { shown: number; total: numb
     );
   }
   return (
-    <span className="ml-auto rounded-full bg-primary/10 px-3 py-1 text-sm text-primary" data-testid="people-count">
-      <strong className="text-base font-bold">{shown}</strong> of {total} {nouns}
+    <span className="ml-auto rounded-full bg-primary/10 px-3 py-1 text-sm text-foreground" data-testid="people-count">
+      <strong className="text-base font-bold text-primary">{shown}</strong> of {total} {nouns}
     </span>
   );
 }
@@ -807,6 +831,7 @@ function PeopleTable({
   onToggle,
   onAssign,
   onRemove,
+  outsideFilters,
   empty,
 }: {
   people: CertificatePerson[];
@@ -821,6 +846,8 @@ function PeopleTable({
   onToggle: (id: string, on: boolean) => void;
   onAssign: (person: CertificatePerson, template: CertificateRecipientsTemplate) => void;
   onRemove: (person: CertificatePerson, template: CertificateRecipientsTemplate) => void;
+  /** People listed first although the search and filters would not show them. */
+  outsideFilters: ReadonlySet<string>;
   empty: string;
 }) {
   if (people.length === 0) {
@@ -838,6 +865,7 @@ function PeopleTable({
                     checked={headerChecked}
                     onCheckedChange={(c) => onTogglePage(c === true)}
                     aria-label="Select everyone on this page"
+                    title="Ticks the people on this page that the search and filters show"
                   />
                 </TableHead>
               )}
@@ -877,7 +905,13 @@ function PeopleTable({
                 <TableCell>
                   <div className="font-medium">{p.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {[p.email, p.registrationType, p.statusLabel, p.speakerBucket ? SPEAKER_GROUP_NOTE[p.speakerBucket] : null]
+                    {[
+                      p.email,
+                      p.registrationType,
+                      p.statusLabel,
+                      p.speakerBucket ? SPEAKER_GROUP_NOTE[p.speakerBucket] : null,
+                      outsideFilters.has(p.id) ? "outside the current filters" : null,
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </div>

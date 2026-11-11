@@ -206,7 +206,8 @@ test.describe("Recipients tab: one place to see, find and assign", () => {
     await search.fill(`#${known}`);
     await expect(page.getByRole("row").filter({ hasText: "@" })).toHaveCount(1);
     // The count beside the filters says what they produced.
-    await expect(page.getByTestId("people-count")).toContainText(/^1 of \d+ people$/);
+    // ("1 person" when the seeded registration is the only one at the event: this spec run on its own.)
+    await expect(page.getByTestId("people-count")).toContainText(/^1 (of \d+ people|person)$/);
     await page.getByRole("button", { name: "Clear filters" }).click();
     await page.getByRole("button", { name: "Select by IDs" }).click();
     await page.locator("#cert-select-ids").fill(`${known}\nzzz-not-a-registration`);
@@ -218,6 +219,22 @@ test.describe("Recipients tab: one place to see, find and assign", () => {
     await expect(page.getByLabel(`Select ${person.name}`)).toBeChecked();
     // And listed first: the pasted person is the top row of page one, whoever else is at the event.
     await expect(page.getByRole("row").filter({ hasText: "@" }).first()).toContainText("registrant@test.local");
+    const heldFirst = page.getByTestId("listed-first-note");
+    await expect(heldFirst).toContainText("1 person is listed first");
+    // The order changes only on a click that says so: unticking (even the last tick) and ticking leave it alone.
+    await page.getByLabel(`Select ${person.name}`).uncheck();
+    await expect(page.getByText(/\d+ (person|people) selected/)).toHaveCount(0);
+    await expect(heldFirst).toContainText("1 person is listed first");
+    await page.getByLabel(`Select ${person.name}`).check();
+    await expect(heldFirst).toContainText("1 person is listed first");
+    // "Back to the normal order" releases it, and keeps the tick.
+    await page.getByRole("button", { name: "Back to the normal order" }).click();
+    await expect(heldFirst).toHaveCount(0);
+    await expect(page.getByLabel(`Select ${person.name}`)).toBeChecked();
+    // "Show them first" holds the ticked person at the top again.
+    await page.getByRole("button", { name: "Show them first" }).click();
+    await expect(heldFirst).toContainText("1 person is listed first");
+    await expect(page.getByRole("button", { name: "Show them first" })).toHaveCount(0);
 
     // Cleanup: off the list, then the template.
     const off = await page.request.delete(`/api/events/${EVENT_ID}/certificates/assignments`, {
