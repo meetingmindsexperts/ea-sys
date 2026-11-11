@@ -75,6 +75,8 @@ const ZOOM_ROW = {
   recordingUrl: "https://zoom.us/rec/REC",
   recordingPassword: "recpass",
   recordingStatus: "NOT_REQUESTED",
+  // Zoom's own answer to the create call, stored whole. It repeats the host link and the passcode.
+  zoomResponse: { host_id: "h1", start_url: "https://zoom.us/s/1?zak=RAW_HOST_SECRET", password: "rawpass" },
 };
 const req = () => new Request("http://localhost/x");
 const webinarParams = { params: Promise.resolve({ eventId: "ev1" }) };
@@ -130,5 +132,15 @@ describe("GET /sessions/[id]/zoom — host-credential redaction", () => {
     expect(body.startUrl).toBe("https://zoom.us/s/1?zak=HOST_SECRET");
     expect(body.streamKey).toBe("rtmp-secret");
     expect(body.passcode).toBe("hunter2");
+  });
+
+  // Review of 66cafec1 (Nov 11, 2026): the route returned the whole row, and the redaction nulled
+  // three named columns, so the stored Zoom response handed the host link to MEMBER and ONSITE.
+  it.each([...NON_HOST, ...HOST])("never returns Zoom's stored response to %s", async (role) => {
+    mockAuth.mockResolvedValue(user(role));
+    const body = await (await ZOOM_GET(req(), zoomParams)).json();
+    expect(body).not.toHaveProperty("zoomResponse");
+    expect(JSON.stringify(body)).not.toContain("RAW_HOST_SECRET");
+    expect(JSON.stringify(body)).not.toContain("rawpass");
   });
 });

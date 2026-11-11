@@ -62,6 +62,21 @@ export function redactZoomHostFields<
   return { ...session, zoomMeeting };
 }
 
+/**
+ * A ZoomMeeting row without `zoomResponse`, for any API response (review of 66cafec1, Nov 11, 2026).
+ *
+ * `zoomResponse` is Zoom's own answer to the create call, stored whole. It repeats `start_url`
+ * (the host link) and `password`, under Zoom's names, so the named-column redaction above never
+ * saw them: the session Zoom GET returned the whole row and handed the host link to MEMBER and
+ * ONSITE. No client reads the column, so it is dropped for every caller, host roles included.
+ * A route that returns a whole ZoomMeeting row must pass it through here.
+ */
+export function withoutZoomResponse<T extends { zoomResponse?: unknown }>(row: T): Omit<T, "zoomResponse"> {
+  const copy = { ...row };
+  delete copy.zoomResponse;
+  return copy;
+}
+
 /** Convenience for a list response. */
 export function redactZoomHostFieldsFromSessions<
   T extends { zoomMeeting?: Partial<Record<ZoomHostKey, unknown>> | null },

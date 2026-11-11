@@ -9,7 +9,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { webinarSecondRoomViolation, readWebinarSettings } from "@/lib/webinar";
-import { redactZoomHostFields } from "@/lib/zoom-visibility";
+import { redactZoomHostFields, withoutZoomResponse } from "@/lib/zoom-visibility";
 import {
   isZoomConfigured,
   createZoomMeeting,
@@ -93,10 +93,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // without this a read-only MEMBER (org-wide event access) gets the raw
     // startUrl (host link) + streamKey (RTMP publish key). Session-only route,
     // so isApiKey is false. Mirrors the sessions-LIST redaction (B1).
+    // Zoom's stored response repeats the host link and passcode under Zoom's own names, so it
+    // is dropped for everyone before the named columns are redacted (withoutZoomResponse).
+    const row = withoutZoomResponse(zoomMeeting);
     return NextResponse.json(
       can(gate.principal, "zoomHost.view")
-        ? zoomMeeting
-        : redactZoomHostFields({ zoomMeeting }).zoomMeeting,
+        ? row
+        : redactZoomHostFields({ zoomMeeting: row }).zoomMeeting,
     );
     });
   } catch (error) {
@@ -347,7 +350,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       "zoom:meeting-created",
     );
 
-    return NextResponse.json(zoomMeeting, { status: 201 });
+    return NextResponse.json(withoutZoomResponse(zoomMeeting), { status: 201 });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:meeting-create-failed");
@@ -421,7 +424,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     apiLogger.info({ zoomMeetingId: zoomMeeting.zoomMeetingId, sessionId }, "zoom:meeting-updated");
-    return NextResponse.json(updated);
+    return NextResponse.json(withoutZoomResponse(updated));
     });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:meeting-update-failed");

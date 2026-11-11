@@ -7,7 +7,7 @@
  * event access by linkage.
  */
 import { describe, it, expect } from "vitest";
-import { redactZoomHostFields, redactZoomHostFieldsFromSessions, ZOOM_HOST_KEYS } from "@/lib/zoom-visibility";
+import { redactZoomHostFields, redactZoomHostFieldsFromSessions, withoutZoomResponse, ZOOM_HOST_KEYS } from "@/lib/zoom-visibility";
 import { canViewZoomHostCredentials } from "../helpers/role-can";
 
 describe("canViewZoomHostCredentials", () => {
@@ -84,5 +84,18 @@ describe("redactZoomHostFields", () => {
       expect(s.zoomMeeting.startUrl).toBeNull();
       expect(s.zoomMeeting.streamKey).toBeNull();
     }
+  });
+});
+
+describe("withoutZoomResponse", () => {
+  it("drops Zoom's stored response and keeps every other column", () => {
+    const row = { id: "z1", joinUrl: "https://zoom.us/j/1", zoomResponse: { start_url: "https://zoom.us/s/1?zak=RAW" } };
+    expect(withoutZoomResponse(row)).toEqual({ id: "z1", joinUrl: "https://zoom.us/j/1" });
+  });
+
+  it("does not change the row it was given", () => {
+    const row = { id: "z1", zoomResponse: { start_url: "x" } };
+    withoutZoomResponse(row);
+    expect(row.zoomResponse).toEqual({ start_url: "x" });
   });
 });
