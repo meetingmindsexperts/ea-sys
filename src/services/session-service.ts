@@ -334,7 +334,7 @@ async function validate(
     if (conflictingSpeakerId) {
       return fail(
         "DUPLICATE_SPEAKER_ID",
-        "A speaker is listed under two different roles — a speaker can hold one role per session. Remove the duplicate row and save again.",
+        "One person is listed under two roles, and a person can hold one role per session. Keep one row for them and save again. To make a moderator or chairperson a speaker as well, add them as the speaker on a topic in this session.",
         { speakerId: conflictingSpeakerId },
       );
     }
