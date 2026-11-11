@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Speaker emails: a moderator who also speaks in their own session (November 11)
+
+Owner: "can one person be setup as moderator and speaker in session role. also email should pick up". Session Roles holds one role per person per session, so the way to do it is the Moderator (or Chairperson) role plus a topic in the same session. That saved fine, but the email only half followed.
+
+- **`{{presentationDetails}}` now lists a topic the person presents in a session they also moderate or chair**, with its own time slot, under the session and its room. Before, the session was left out of that block (the July 31 "one engagement, one block" rule), so a template using only `{{presentationDetails}}` said nothing about it and the time of their own talk appeared nowhere, the run-sheet having no topic times. The topic still appears on the `{{moderatorDetails}}` run-sheet as well
+- Unchanged: a session a person only moderates or chairs stays in `{{moderatorDetails}}` alone, and Session Roles still takes one role per person per session
+- One builder (`buildPresentationBlocks` in `src/lib/speaker-agreement.ts`) feeds the single send, bulk email, the preview and the agreement page, so all four follow. On the local copy of production this changes the email for 2 people on 2 events
+
 ### Recipients: Select by IDs (November 11)
 
 Owner: "why there is no bulk assign by id in certificates/recipients". The tab could take a pasted list of emails and nothing else, and did not show the registration number at all.

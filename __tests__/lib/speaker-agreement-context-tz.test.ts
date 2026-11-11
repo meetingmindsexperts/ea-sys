@@ -178,7 +178,7 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     expect(ctx?.sessionDateTime).not.toContain("(1h)");
   });
 
-  it("dual-role person: each engagement in exactly ONE block — speaking session in presentationDetails, moderated session ONLY in moderatorDetails (July 31, 2026)", async () => {
+  it("dual-role person across two sessions: speaking session in presentationDetails, a session they only moderate ONLY in moderatorDetails (July 31, 2026)", async () => {
     const row = speakerRow();
     row.sessions.push(moderatedSession());
     mockDb.speaker.findFirst.mockResolvedValue(row);
@@ -211,6 +211,103 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
     expect(ctx?.presentationDetails).toBe("");
     expect(ctx?.moderatorDetails).toContain("Your Moderation Details:");
+  });
+
+  // Owner, Nov 11 2026. One person holds one session-level role, so "moderator
+  // and speaker in the same session" is a MODERATOR role plus a topic. Before
+  // this the topic was dropped from the presentation block, so a template with
+  // only {{presentationDetails}} said nothing and the slot's time showed nowhere.
+  describe("moderator who also presents a topic in the session they moderate", () => {
+    const OWN_TOPIC = {
+      title: "TAVR Outcomes",
+      duration: 20,
+      speakers: [{ speaker: { title: "DR", firstName: "Jane", lastName: "Doe" } }],
+    };
+    const OTHER_TOPIC = {
+      title: "Mitral Repair Debate",
+      duration: 45,
+      speakers: [{ speaker: { title: "PROF", firstName: "John", lastName: "Smith" } }],
+    };
+
+    function moderatorWhoPresents(role = "MODERATOR") {
+      const row = speakerRow();
+      const moderated = moderatedSession([OTHER_TOPIC, OWN_TOPIC], role);
+      row.sessions = [moderated];
+      row.topicSpeakers = [
+        {
+          topic: {
+            id: "own",
+            title: OWN_TOPIC.title,
+            duration: OWN_TOPIC.duration,
+            session: {
+              name: moderated.session.name,
+              startTime: moderated.session.startTime,
+              endTime: moderated.session.endTime,
+              track: null,
+              // The 45m topic runs first: 11:00 + 45m = 11:45 – 12:05 PM.
+              topics: [
+                { id: "other", duration: 45 },
+                { id: "own", duration: 20 },
+              ],
+            },
+          },
+        },
+      ] as unknown as ReturnType<typeof speakerRow>["topicSpeakers"];
+      return row;
+    }
+
+    beforeEach(() => {
+      mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
+    });
+
+    it("presentationDetails lists their own topic with its time slot, under the session and its room", async () => {
+      mockDb.speaker.findFirst.mockResolvedValue(moderatorWhoPresents());
+      const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+      const html = ctx?.presentationDetails ?? "";
+      expect(html).toContain("Your Presentation Details:");
+      // The room comes from their session row: the topic query carries none.
+      expect(html).toContain("Structural Heart Panel · Hall B");
+      expect(html).toContain("TAVR Outcomes<br/>11:45 AM – 12:05 PM (EST)");
+      expect(html).toContain("11:00 AM – 12:30 PM (EST)");
+      // Only what THEY present: the other speaker's topic is not theirs.
+      expect(html).not.toContain("Mitral Repair Debate");
+      // One session, one table.
+      expect(html.match(/<table/g)?.length).toBe(1);
+
+      expect(ctx?.presentationDetailsText).toContain("Session: Structural Heart Panel · Hall B");
+      expect(ctx?.presentationDetailsText).toContain("Topic: TAVR Outcomes, 11:45 AM – 12:05 PM (EST)");
+    });
+
+    it("moderatorDetails still carries the whole run-sheet, their own topic included", async () => {
+      mockDb.speaker.findFirst.mockResolvedValue(moderatorWhoPresents());
+      const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+      expect(ctx?.moderatorDetails).toContain("Your Moderation Details:");
+      expect(ctx?.moderatorDetails).toContain("Mitral Repair Debate");
+      expect(ctx?.moderatorDetails).toContain("TAVR Outcomes");
+      expect(ctx?.moderatorDetails).toContain("Dr. Jane Doe");
+      // The session is still ONE entry in the moderator block.
+      expect(ctx?.moderatorDetails.match(/Structural Heart Panel/g)?.length).toBe(1);
+    });
+
+    it("a CHAIRPERSON who presents a topic gets the same", async () => {
+      mockDb.speaker.findFirst.mockResolvedValue(moderatorWhoPresents("CHAIRPERSON"));
+      const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+      expect(ctx?.presentationDetails).toContain("TAVR Outcomes<br/>11:45 AM – 12:05 PM (EST)");
+      expect(ctx?.moderatorDetails).toContain("TAVR Outcomes");
+    });
+
+    it("alongside a separate speaking session: two tables in start-time order, the moderated one second", async () => {
+      const row = moderatorWhoPresents();
+      row.sessions.unshift(speakerRow().sessions[0]); // Opening Keynote, 9:00 AM
+      mockDb.speaker.findFirst.mockResolvedValue(row);
+      const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+      const html = ctx?.presentationDetails ?? "";
+      expect(html.match(/<table/g)?.length).toBe(2);
+      const [first, second] = html.split("</table>");
+      expect(first).toContain("Opening Keynote");
+      expect(second).toContain("Structural Heart Panel");
+      expect(second).toContain("TAVR Outcomes");
+    });
   });
 });
 

@@ -488,24 +488,32 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   const sessionRows = row.speaker.sessions;
   const topicRows = row.speaker.topicSpeakers;
 
-  // Each engagement lives in exactly ONE block (organizer, July 31 2026): a
-  // session this person MODERATES or CHAIRS renders in {{moderatorDetails}}
-  // only — the presentation block below shows SPEAKING engagements only
-  // (SPEAKER / PANELIST roles + topic assignments in non-moderated sessions).
-  // A topic they present inside a session they ALSO moderate already appears
-  // on that session's moderator run-sheet, so nothing is lost. The scalar
-  // docx merge tokens ({sessionTitles}/{topicTitles}/{trackNames}/{role}/
-  // {sessionDateTime}) deliberately keep covering ALL engagements —
-  // format-stable and the agreement document lists everything.
+  // The presentation block shows what this person PRESENTS (organizer, July 31
+  // 2026): SPEAKER / PANELIST session roles plus every topic they are the
+  // speaker on. A MODERATOR / CHAIRPERSON role alone puts nothing here: the
+  // session renders in {{moderatorDetails}}.
+  //
+  // A topic they present inside a session they ALSO moderate renders in BOTH
+  // blocks (owner, Nov 11 2026): the run-sheet lists it like any other topic,
+  // and this block lists it with its own time slot. Until then it was left out
+  // here, so a moderator who also spoke got nothing from a template that used
+  // only {{presentationDetails}}, and their own slot's time appeared nowhere
+  // (the run-sheet carries no topic times). One person holds one session-level
+  // role (SessionSpeaker's key), so "moderator and speaker in one session" is
+  // always a moderator role plus a topic.
+  //
+  // The scalar docx merge tokens ({sessionTitles}/{topicTitles}/{trackNames}/
+  // {role}/{sessionDateTime}) cover ALL engagements and stay format-stable.
   const sessionKey = (s: { name: string; startTime: Date }) =>
     `${s.name}|${new Date(s.startTime).getTime()}`;
-  const moderatedKeys = new Set(
-    sessionRows
-      .filter((s) => s.role === "MODERATOR" || s.role === "CHAIRPERSON")
-      .map((s) => sessionKey(s.session)),
-  );
   const speakingSessionRows = sessionRows.filter(
     (s) => s.role !== "MODERATOR" && s.role !== "CHAIRPERSON",
+  );
+  // The topic query carries no room, so a session reached only through a topic
+  // borrows it from the person's own session row when they hold one (the
+  // moderated session here), and both blocks name the same room.
+  const locationByKey = new Map<string, string | null>(
+    sessionRows.map((s) => [sessionKey(s.session), s.session.location ?? null]),
   );
 
   const sessionTitles = sessionRows.map((s) => s.session.name).join("\n");
@@ -580,8 +588,8 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   };
   const groupKey = sessionKey;
   const groups = new Map<string, SessionGroup>();
-  // Speaking sessions only — moderated/chaired ones render in the moderator
-  // block instead (see the split at the top of this function).
+  // Speaking roles only: a moderated/chaired session gets a group here only
+  // through a topic this person presents in it (the loop below).
   for (const s of speakingSessionRows) {
     const k = groupKey(s.session);
     if (!groups.has(k)) {
@@ -599,16 +607,13 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   // speakers — several topics can share one session, so the key dedups).
   topicRows.forEach((t, i) => {
     const s = t.topic.session;
-    // A topic inside a session this person moderates/chairs belongs to the
-    // moderator run-sheet, not here (each engagement in exactly one block).
-    if (moderatedKeys.has(groupKey(s))) return;
     const k = groupKey(s);
     if (!groups.has(k)) {
       groups.set(k, {
         name: s.name,
         startTime: s.startTime,
         endTime: s.endTime ?? null,
-        location: null,
+        location: locationByKey.get(k) ?? null,
         topicsHtml: [],
         topicsText: [],
       });
@@ -657,7 +662,8 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   // "Your Presentation Details:" heading baked into the variable (organizer,
   // July 31 2026) — same bold/16px style as the moderation heading. Only when
   // the block has content: an empty block must STAY empty so the token remains
-  // safe to include in any template (moderator-only people see nothing here).
+  // safe to include in any template (a moderator who presents no topic sees
+  // nothing here).
   const presentationHeading =
     '<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Presentation Details:</p>';
   // Explicit spacer between consecutive session tables (organizer, July 31
