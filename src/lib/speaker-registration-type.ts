@@ -21,7 +21,7 @@
  * person's recorded profession, when there is one. A second way of naming it
  * here would put the two pages out of step again (review of 4da1db66).
  */
-import { displayRegistrationType } from "@/lib/faculty-filter";
+import { SPEAKER_API_REGISTRATION_TYPE, displayRegistrationType } from "@/lib/faculty-filter";
 
 export interface SpeakerLinkedRegistration {
   serialId?: number | null;
@@ -89,6 +89,33 @@ export function speakerRegistrationTypeView(
     serial: registration.serialId != null ? String(registration.serialId).padStart(3, "0") : null,
     note: noteFor(registration),
   };
+}
+
+/**
+ * What the speakers API serves as `registrationType` (owner, Nov 12, 2026:
+ * "check why ... reg type is PHYSICIAN instead of faculty, whereas they are
+ * marked reg type as faculty in production ... in the api, when I fetch it").
+ *
+ * The API served the speaker's own text. For someone whose registration is on
+ * a Faculty type that text could say anything: 12 speakers on the Middle East
+ * Heart Failure Conference read "Physician" (typed on Oct 20) and 31 were
+ * empty, while their registration, and the screen, said Faculty. The website
+ * sync copies this field.
+ *
+ *   - a live registration on a Faculty type: the plain word "Faculty"
+ *     (SPEAKER_API_REGISTRATION_TYPE, never the type's own name or the longer
+ *     picker label: the website shows it)
+ *   - anyone else: the speaker's own text, exactly as stored. A speaker whose
+ *     registration is on a delegate type keeps what the organiser saved for
+ *     the website; the API never starts saying "Physician" for them.
+ */
+export function speakerApiRegistrationType(
+  ownType: string | null | undefined,
+  registration: { status: string; ticketType?: { isFaculty?: boolean | null } | null } | null | undefined,
+): string | null {
+  const live = !!registration && registration.status !== "CANCELLED";
+  if (live && registration.ticketType?.isFaculty === true) return SPEAKER_API_REGISTRATION_TYPE;
+  return ownType ?? null;
 }
 
 /** The one line an export or a list prints: the registration's type when there is a live one, else the speaker's own text. */

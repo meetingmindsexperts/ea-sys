@@ -6,6 +6,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { speakerApiRegistrationType } from "@/lib/speaker-registration-type";
 import { normalizeTag } from "@/lib/utils";
 import { isTeamRole } from "@/lib/auth-guards";
 import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
@@ -190,8 +191,10 @@ export async function GET(req: Request, { params }: RouteParams) {
           // Registration # so a speaker's attendee facet is findable from
           // the list (organizer request Aug 4, 2026). serialId is not a
           // credential (unlike qrCode — never select that here).
+          // status and isFaculty decide the `registrationType` this API
+          // serves (speakerApiRegistrationType); neither is sent on.
           sourceRegistration: {
-            select: { serialId: true },
+            select: { serialId: true, status: true, ticketType: { select: { isFaculty: true } } },
           },
         },
         orderBy: { createdAt: "desc" },
@@ -209,7 +212,19 @@ export async function GET(req: Request, { params }: RouteParams) {
     // (owner, Oct 27): a Sales or Onsite custom role lists speakers without seeing what they submitted. A
     // submitter's own row keeps its own submissions. An API key is judged on its keys like anyone else.
     const visibility = ownSpeakerOnly ? { abstracts: true, proposals: true } : submissionVisibilityFor(gate.principal, event);
-    const visible = speakers.map((s) => withVisibleSubmissions(s, visibility));
+    const visible = speakers.map((s) =>
+      withVisibleSubmissions(
+        {
+          ...s,
+          // "Faculty" for a speaker whose registration is on a Faculty type,
+          // else the speaker's own text as stored. The website sync reads it.
+          registrationType: speakerApiRegistrationType(s.registrationType, s.sourceRegistration),
+          // Only the number leaves, as before.
+          sourceRegistration: s.sourceRegistration ? { serialId: s.sourceRegistration.serialId } : null,
+        },
+        visibility,
+      ),
+    );
     const response = NextResponse.json(canSeeHonorarium ? visible : visible.map(stripHonorariumFields));
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;

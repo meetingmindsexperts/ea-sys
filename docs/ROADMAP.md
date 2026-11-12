@@ -247,10 +247,12 @@ dropdown wrote. So that dropdown was not only misleading: on the speaker page it
 also how the team set what the website shows ("Faculty"). Since `4da1db66` a speaker
 who has a registration shows the registration's type and that text cannot be edited on
 screen (it is still stored and served). New speakers get "Faculty" written for them
-(`SPEAKER_API_REGISTRATION_TYPE`). Open, for the owner: an existing speaker whose text
-is wrong for the website (on the Heart Failure Conference 144 are empty and 40 carry a
-delegate type's name) can be corrected only by a speakers CSV import or the API; a
-"shown on the website as" field, or the API deriving the value, would be the fix.
+(`SPEAKER_API_REGISTRATION_TYPE`). **Done the same day: the API derives it.** A speaker
+whose registration is on a Faculty type is served "Faculty" whatever the stored text
+(`speakerApiRegistrationType`; INC-007 in `docs/INCIDENTS.md`). Still open: a speaker
+with no Faculty registration (an abstract presenter on a delegate type, or no
+registration at all) is served the stored text, which only a speakers CSV import or
+the API can correct once they have a registration.
 **Never change what that API field returns without checking the Webflow sync.**
 
 **From the review of `9a57f2a5` (0 BLOCKER, 0 HIGH, 2 MED, 9 LOW; the merge script).**

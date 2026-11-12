@@ -6,6 +6,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { speakerApiRegistrationType } from "@/lib/speaker-registration-type";
 import { normalizeTag } from "@/lib/utils";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
@@ -175,6 +176,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const { sourceRegistration, ...rest } = speaker;
     const withoutCode = {
       ...rest,
+      // The same value the list serves (speakerApiRegistrationType): "Faculty"
+      // for a registration on a Faculty type, else the speaker's own text.
+      registrationType: speakerApiRegistrationType(speaker.registrationType, sourceRegistration),
       sourceRegistration: sourceRegistration
         ? (({ qrCode, ...reg }) => ({ ...reg, hasEntryBarcode: Boolean(qrCode) }))(sourceRegistration)
         : null,

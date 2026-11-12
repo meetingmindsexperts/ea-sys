@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Speakers API: `registrationType` says "Faculty" for a Faculty registration (November 12)
+
+Owner: "check why ahmad turk, ammar chaudhary reg type is PHYSICIAN instead of faculty, whereas they are marked reg type as faculty in production ... in the api, when I fetch it."
+
+- **`GET /api/events/{id}/speakers` and `GET /api/events/{id}/speakers/{speakerId}` now serve `registrationType: "Faculty"` for a speaker whose registration is on a Faculty type**, whatever the speaker's own text says. It served that text, which had been typed by hand: on the Middle East Heart Failure Conference 12 such speakers read "Physician" (changed on Oct 20) and 31 were empty, while the registration and, since this morning, the screen said Faculty. The website sync (n8n to Webflow) copies this field
+- **Everyone else is unchanged**: a speaker with no registration, a cancelled one, or one on a delegate type gets the stored text as before. The three GCC Hub speakers on a Physician registration keep "Faculty"
+- 47 speakers on upcoming events change value: 43 on the Heart Failure Conference, 3 on HEMNET, 1 on the GCC Hub. The plain word, never the longer label shown on screen. No stored data was edited; `role` ("PHYSICIAN") is untouched. One rule, `speakerApiRegistrationType`
+- The list still sends only the registration's number; the status and type flag it reads to decide are not sent on
+- The whole episode is written up as INC-007 in `docs/INCIDENTS.md`
+- **For API consumers**: these speakers' `updatedAt` did not move, so a client that pulls only changed rows will not see the new value until it pulls everything once
+
 ### Bulk email: "Those who owe us", and Chase Unpaid goes by the balance (November 12)
 
 Owner: "Filter recipients, Payment Status: UNPAID will not work to chase unpaid registration because it would include those with promocode 100%. What is the alternative?" A payment reminder has skipped anyone who owes nothing since this morning; a Custom email filtered on Unpaid, and the Chase Unpaid tile that sends one, did not.

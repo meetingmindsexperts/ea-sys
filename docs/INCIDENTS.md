@@ -16,6 +16,97 @@ rotating `NEXTAUTH_SECRET` breaks).
 
 ---
 
+## INC-007: Faculty billed as delegates, and the website fed the wrong registration type: one label meant three things (2026-10-16 to 2026-11-12)
+
+**Impact.** No money was taken, no email went to the wrong person and nothing was
+lost. What was wrong, and for how long:
+- Three faculty on the 4th GCC Hematology Hub (registrations 028, 043, 044) sat on
+  the Physician type at USD 150, Unpaid, from 16 Oct. They counted as delegates and a
+  payment reminder would have billed them.
+- The speakers API, which the n8n workflow copies to the public website (Webflow),
+  served "Physician" for 12 faculty and nothing for 31 on the Middle East Heart
+  Failure Conference, nothing for 3 on HEMNET and 1 on the GCC Hub, while their
+  registrations were on the Faculty type.
+- Two events (GCC Hub, HEMNET) held two Faculty types, and on HEMNET and Big Sky
+  "Add Registration, Faculty" was refused ("type not found or inactive").
+- On 12 Nov, while fixing the above, two changes of that day would have sent the
+  website an empty type for every new speaker and a contact's own category for a
+  speaker imported from Contacts. The second was live for about three hours and
+  reached one speaker on a sandbox event. The owner caught both the same day.
+
+**Cause.** "Registration type" was three stored things under one name:
+1. the registration's type (`Registration.ticketTypeId`), which decides the price,
+   the Faculty count and whether confirming a speaker settles the registration;
+2. a text copy of it on the attendee (`Attendee.registrationType`), which for a
+   Faculty registration doubles as "profession";
+3. the speaker's OWN text (`Speaker.registrationType`), served as `registrationType`
+   by `GET /api/events/{id}/speakers`, and so what the website shows.
+
+The speaker screens offered the third as a dropdown of the first's names. People
+used it for three different purposes: to "fix" a registration (it never touched
+one), to set what the website shows, and to show a profession on the Registrations
+list (the user guide told them to). Since July that text was changed to "Faculty"
+46 times by hand and away from it 33 times, 19 of those on one afternoon (20 Oct).
+Nothing kept the three in step.
+
+Two things fed it. A contact could become a speaker only through Registrations,
+Import from Contacts, which demands a delegate type and a rate (the Speakers page
+lost its own contact import in March 2026, before the Faculty type existed): that is
+how three of 21 people added on 16 Oct came out as Physician at 150. And an event
+created with an ordinary "Faculty" type got a second, built-in one beside it.
+
+**How it was found.** The owner read the Registrations summary card for the GCC Hub
+on 12 Nov ("these numbers are off"), then a speaker page and the registration sheet
+side by side, then the API. Each question was answered from the audit log, which
+held every edit to the speaker's text with who and when.
+
+**What went wrong in the fix (12 Nov).** The speaker's dropdown was treated as only
+misleading and was replaced with the registration's real type, without first asking
+what reads the column behind it. The speakers API does, and the website through it.
+Three changes followed the same day to put that right. The rule that would have
+prevented it: before changing how a field is shown or written, list everything that
+reads the column (API, exports, integrations), not only the screens.
+
+**Fix (all 12 Nov).**
+- The speaker page shows the registration's own type, read-only, with its number.
+- The speakers API serves "Faculty" for anyone whose registration is on a Faculty
+  type, whatever the speaker's own text says, and the stored text for everyone else
+  (`speakerApiRegistrationType`). Add Speaker and Speakers, Import from Contacts
+  save "Faculty" themselves.
+- Speakers has Import from Contacts again; Registrations, Import from Contacts has a
+  "Faculty (speakers and committee)" choice; Add Speaker states the Faculty type and
+  offers nothing to pick.
+- A Faculty type that is switched off no longer refuses Faculty registrations.
+- A move to Confirmed settles the speaker's Faculty registration; a payment reminder
+  and "Those who owe us" go by the balance, so nobody who owes nothing is chased.
+- One-off scripts: `adopt-ordinary-faculty-type.ts` (run 12 Nov) and
+  `merge-faculty-types.ts` (one Faculty type per event; not yet run).
+
+**Recognise it next time.**
+- Symptom: a person reads one type on the Speakers page and another on
+  Registrations, or the website shows a type the dashboard does not.
+- Check: `Speaker.registrationType` beside the registration's `ticketType.name` and
+  `isFaculty`; the audit log (`entityType = 'Speaker'`, `action = 'UPDATE'`) shows who
+  changed the text and when.
+- Any new field that is a COPY of another one will drift. Prefer deriving it where
+  it is read.
+
+**Action items.**
+- [x] Speaker screens, both imports, Add Speaker and the API as above (12 Nov).
+- [x] `docs/ROLLBACK.md`, ROADMAP and CHANGELOG record each change and what it left.
+- [ ] Owner: registrations 028, 043, 044 are still on Physician, Unpaid. Set them
+  Complimentary by hand, or decide on moving a speaker's registration to Faculty
+  (ROADMAP).
+- [ ] Owner: run `merge-faculty-types.ts --all` on production, dry run first.
+- [ ] Owner: the website picks up the corrected API values on its next full sync.
+  If the n8n workflow skips rows whose "last modified" has not moved, run it once in
+  full: these speakers' rows did not change, only what the API says about them.
+- [ ] The agent's `create_speaker`, `create_speakers_bulk` and the speakers CSV import
+  still write the speaker's own text; it now matters only for a speaker with no
+  Faculty registration.
+
+---
+
 ## INC-006: Sidebar lost HR, Budgets, CRM and Invoices: the session cookie outgrew nginx's header buffer (2026-09-30)
 
 **Impact.** An admin (and likely a second person) saw the sidebar without HR,
