@@ -64,10 +64,18 @@ export function newStreamKey(): string {
  */
 export const STREAM_PUBLISH_USER = "publisher";
 
-export function streamPublishPassword(streamKey: string): string {
+/**
+ * `version` is a partner's key only (ExternalStream.secretVersion, Nov 12,
+ * 2026): replacing that key adds one, so the password the partner holds stops
+ * matching while the key, and the address attendees watch on, stays. Our own
+ * Zoom's password has no version and is unchanged, so no Zoom webinar needs
+ * its settings sent again.
+ */
+export function streamPublishPassword(streamKey: string, version?: number): string {
   const secret = process.env.STREAM_PUBLISH_SECRET || process.env.NEXTAUTH_SECRET;
   if (!secret) throw new Error("STREAM_PUBLISH_SECRET or NEXTAUTH_SECRET must be set to sign stream publishes");
-  return createHmac("sha256", secret).update(`stream-publish:${streamKey}`).digest("hex").slice(0, 40);
+  const subject = version === undefined ? `stream-publish:${streamKey}` : `stream-publish:${streamKey}:v${version}`;
+  return createHmac("sha256", secret).update(subject).digest("hex").slice(0, 40);
 }
 
 /** What Zoom is told to push to after the RTMP address: key plus credentials. */
@@ -76,9 +84,9 @@ export function zoomPublishKey(streamKey: string): string {
 }
 
 /** Constant-time check of a publish password presented to MediaMTX. */
-export function isValidPublishPassword(streamKey: string, presented: string | undefined | null): boolean {
+export function isValidPublishPassword(streamKey: string, presented: string | undefined | null, version?: number): boolean {
   if (!presented) return false;
-  const expected = Buffer.from(streamPublishPassword(streamKey));
+  const expected = Buffer.from(streamPublishPassword(streamKey, version));
   const given = Buffer.from(presented);
   return expected.length === given.length && timingSafeEqual(expected, given);
 }

@@ -1,6 +1,6 @@
 # A partner streams into our webinar, and pre-recorded webinars
 
-**Status: IN BUILD (Nov 12, 2026): part A step 1 of 8 built, nothing visible yet; part B not started.** Owner, Nov 12: "giving our RTMP key to
+**Status: IN BUILD (Nov 12, 2026): part A steps 1 and 2 of 8 built, nothing visible yet; part B not started.** Owner, Nov 12: "giving our RTMP key to
 someone else so that they can stream into our platform, be it Zoom or something else", as
 BigMarker allowed for the Mounjaro and Lilly Omvoh webinars; and afterwards "people will
 register and sign in only to see a pre-recorded webinar". Nothing below is built. Section 9
@@ -304,7 +304,7 @@ attendance there is, so it needs:
 |---|---|---|
 | 0 | Checks with no code: that MediaMTX's control API disconnects a publisher and cannot be reached from outside, and a heavy 1080p feed watched on a phone. The key form needs no test for Zoom. | half a day |
 | 1 | **BUILT Nov 12, 2026.** The `ExternalStream` table and `session-stream.ts`; every reader moved to it. No visible change. Tests pin that Zoom webinars behave as before. | 1.5 days |
-| 2 | The publish check learns the version, the period and the switch; refusals logged with reasons. Issue, replace and switch off a key, with audit entries. Not offered in the console yet. The table's isolation test in `tests/tenancy/` is written here, with the first writer. | 1 day |
+| 2 | **BUILT Nov 12, 2026.** The publish check learns the version, the period and the switch; refusals logged with reasons. Issue, replace and switch off a key, with audit entries (`src/services/external-stream-service.ts`). Not offered in the console yet. Issuing is refused until `STREAM_PUBLISH_SECRET` is set. The table's isolation test is `tests/tenancy/externalstream-rls.test.ts` (runs in CI; not run locally, the harness was not up). | 1 day |
 | 3 | Cut the feed: the control API, the app's call, disconnect on replace, switch off and expiry, the config test. Owner recreates MediaMTX. | 1 day |
 | 4 | The source: chosen at creation; the provisioner, "Run provisioner", the Zoom form and the agent refuse a Zoom webinar for an external source. The attendee's join call and page work with no Zoom webinar. | 1.5 days |
 | 5 | The console: the Partner stream card, the Zoom-only controls hidden, room opening, the watchdog's alert, the safety net and the thank-you hold for a room with no Zoom webinar. Webinar emails checked. | 2.5 days |

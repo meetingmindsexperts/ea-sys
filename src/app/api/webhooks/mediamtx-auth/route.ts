@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { externalPublishDecision } from "@/lib/webinar/external-stream";
 import { isValidPublishPassword } from "@/lib/webinar/livestream";
-import { streamKeyOwner } from "@/lib/webinar/session-stream";
+import { streamKeyOwner, type StreamKeyOwner } from "@/lib/webinar/session-stream";
 
 /**
  * MediaMTX publish authorisation (Oct 1, 2026).
@@ -14,7 +16,8 @@ import { streamKeyOwner } from "@/lib/webinar/session-stream";
  * allows it, anything else refuses. A publish is allowed only on
  * `live/<streamKey>` where the key belongs to a stream we know
  * (session-stream.ts): a Zoom meeting with live streaming switched on, or a
- * partner's external stream. Reading stays open as before (playback is gated by
+ * partner's external stream, which must also be switched on and inside its
+ * period (external-stream.ts). Reading stays open as before (playback is gated by
  * the key's secrecy and by the stream-status route that hands it out).
  *
  * Lives under /api/webhooks/ because MediaMTX calls it server to server with
@@ -47,6 +50,22 @@ function presentedPassword(body: { password?: string; query?: string }): string 
 }
 
 const READ_ACTIONS = new Set(["read", "playback"]);
+
+/**
+ * A partner's key was let in: note when and from where, for the console's
+ * "last received" line. Never blocks the publish: a failed note is logged and
+ * the stream goes ahead.
+ */
+async function notePartnerPublish(owner: Extract<StreamKeyOwner, { source: "external" }>, publisherIp: string | undefined) {
+  try {
+    await db.externalStream.updateMany({
+      where: { id: owner.id, eventId: owner.eventId },
+      data: { lastPublishAt: new Date(), lastPublisherIp: publisherIp?.slice(0, 64) ?? null },
+    });
+  } catch (err) {
+    apiLogger.error({ err, eventId: owner.eventId }, "mediamtx-auth:external-publish-note-failed");
+  }
+}
 const STREAM_KEY = /^live\/([a-f0-9]{32})$/;
 
 export async function POST(req: Request) {
@@ -91,15 +110,21 @@ export async function POST(req: Request) {
       apiLogger.warn({ ip, publisherIp: parsed.ip }, "mediamtx-auth:publish-unknown-key");
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    // A partner's key needs its own check (its period, its switch, its password
-    // version), which is the next step of the plan. Until that exists no such
-    // row can be created, and one that somehow is refuses here: fail closed.
+    // A partner's key has its own rule: the password of its current version,
+    // switched on, inside its period. The reason goes to the log only, so "it
+    // does not work" can be answered from there; MediaMTX hears 403 for all.
     if (meeting.source === "external") {
-      apiLogger.warn(
-        { ip, publisherIp: parsed.ip, eventId: meeting.eventId },
-        "mediamtx-auth:publish-external-not-supported-yet",
-      );
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const decision = externalPublishDecision({ ...meeting, streamKey: match[1] }, presentedPassword(parsed), new Date());
+      if (!decision.allowed) {
+        apiLogger.warn(
+          { ip, publisherIp: parsed.ip, eventId: meeting.eventId, reason: decision.reason },
+          "mediamtx-auth:publish-external-refused",
+        );
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      await notePartnerPublish(meeting, parsed.ip);
+      apiLogger.info({ eventId: meeting.eventId, publisherIp: parsed.ip }, "mediamtx-auth:publish-external-allowed");
+      return NextResponse.json({ ok: true });
     }
     if (!isValidPublishPassword(match[1], presentedPassword(parsed))) {
       apiLogger.warn(

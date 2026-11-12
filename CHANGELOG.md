@@ -23,7 +23,17 @@ Owner: "giving our RTMP key to someone else so that they can stream into our pla
 
 - **`src/lib/webinar/session-stream.ts` answers "what is this session's stream, and whose is it"**: our own Zoom webinar's (live streaming on and a key, the rule every reader applied before) or a partner's external stream. The attendee's stream status and join calls, the publish check, the room route, the console's preview and settings save, the stream watchdog and the overrun rule now ask it. A test lists every file that names the stream key, so a new one fails until someone decides it may. The status check every player polls keeps its answer for three seconds, so a burst of 5,000 players reads the database once, not 5,000 times
 - **A new table, `ExternalStream`** (additive migration `20261112120000`, with its row level security policy), where a partner's key will live. Nothing writes to it yet, so every webinar behaves as before
-- Ready for the next steps: a partner's stream is watched and its drops recorded but never restarted (it is not ours to restart), the room opens and closes without asking Zoom, and a partner's key is refused outright until its own check exists
+- Ready for the next steps: a partner's stream is watched and its drops recorded but never restarted (it is not ours to restart), and the room opens and closes without asking Zoom
+
+### External streams, step 2: a partner's key and when it is accepted (November 12)
+
+Still nothing in the console: this is the rule and the operations the console will call.
+
+- **A partner's key is accepted only with the password of its current version, switched on, and inside its period** (`src/lib/webinar/external-stream.ts`, asked by the publish check). The period runs from issue until 24 hours after the session's scheduled end, read at the moment of the check, so moving the webinar moves it; a key can also carry its own end date. Every refusal is logged with its reason (`mediamtx-auth:publish-external-refused`: bad password, switched off, not yet valid, expired), so "it does not work" can be answered from the log
+- **Replace the key** adds one to its version: the value the partner holds stops working at their next connection, and the address attendees watch on does not change. Our own Zoom's password is untouched, so no Zoom webinar needs its settings sent again
+- **`src/services/external-stream-service.ts`**: issue, replace, switch on or off, change who it was given to or its end date, each written to the audit log without the key or its password. Issuing is refused on a session that has our Zoom webinar (one source or the other), and **until `STREAM_PUBLISH_SECRET` is set on the server**: a key signed with the sign-in secret would die silently when that is rotated
+- What a partner is handed is the same two values Zoom's custom live streaming takes: the server address and `key?user=publisher&pass=...`
+- Not yet: replacing or switching off does not end a connection that is already running (MediaMTX asks only when a stream starts). That is "cut the feed", the next step, and no key can be issued from the console before it
 
 ### Speaker emails: a moderator who also speaks in their own session (November 11)
 

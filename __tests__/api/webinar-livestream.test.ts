@@ -235,18 +235,58 @@ describe("MediaMTX publish authorisation webhook", () => {
     expect((await call({ action: "publish", path: `live/${KEY}`, password: streamPublishPassword("f".repeat(32)) })).status).toBe(403);
   });
 
-  it("refuses a partner's key for now, whatever password comes with it: its own check is the next step (fail closed)", async () => {
-    mockDb.externalStream.findFirst.mockResolvedValue({
-      id: "x1", eventId: "ev1", sessionId: "s1", secretVersion: 1, enabled: true,
-      validFrom: new Date(0), validUntil: null, session: { endTime: new Date(Date.now() + 3600_000) },
+  describe("a partner's key", () => {
+    const partner = (extra: Record<string, unknown> = {}) => ({
+      id: "x1", eventId: "ev1", sessionId: "s1", secretVersion: 2, enabled: true,
+      validFrom: new Date(Date.now() - 3600_000), validUntil: null, session: { endTime: new Date(Date.now() + 3600_000) },
+      ...extra,
     });
-    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
-    const res = await call({ action: "publish", path: `live/${KEY}`, user: "publisher", password: streamPublishPassword(KEY) });
-    expect(res.status).toBe(403);
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ eventId: "ev1" }),
-      "mediamtx-auth:publish-external-not-supported-yet",
-    );
+    const publish = (password: string) => call({ action: "publish", path: `live/${KEY}`, user: "publisher", password, ip: "203.0.113.9" });
+    beforeEach(() => {
+      mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+      mockDb.externalStream.findFirst.mockResolvedValue(partner());
+      mockDb.externalStream.updateMany.mockResolvedValue({ count: 1 });
+    });
+
+    it("is let in with the password of its current version, and when and from where is noted", async () => {
+      expect((await publish(streamPublishPassword(KEY, 2))).status).toBe(200);
+      expect(mockDb.externalStream.updateMany).toHaveBeenCalledWith({
+        where: { id: "x1", eventId: "ev1" },
+        data: { lastPublishAt: expect.any(Date), lastPublisherIp: "203.0.113.9" },
+      });
+      expect(mockLogger.info).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "mediamtx-auth:publish-external-allowed");
+    });
+
+    it("is refused with the bare key, a replaced password, or the password our Zoom would hold, each logged as a bad password", async () => {
+      expect((await call({ action: "publish", path: `live/${KEY}` })).status).toBe(403);
+      expect((await publish(streamPublishPassword(KEY, 1))).status).toBe(403);
+      expect((await publish(streamPublishPassword(KEY))).status).toBe(403);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: "ev1", reason: "BAD_PASSWORD" }),
+        "mediamtx-auth:publish-external-refused",
+      );
+      expect(mockDb.externalStream.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("is refused when switched off or past its period, with the reason in the log", async () => {
+      mockDb.externalStream.findFirst.mockResolvedValue(partner({ enabled: false }));
+      expect((await publish(streamPublishPassword(KEY, 2))).status).toBe(403);
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ reason: "SWITCHED_OFF" }), "mediamtx-auth:publish-external-refused");
+      mockDb.externalStream.findFirst.mockResolvedValue(partner({ session: { endTime: new Date(Date.now() - 25 * 3600_000) } }));
+      expect((await publish(streamPublishPassword(KEY, 2))).status).toBe(403);
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ reason: "EXPIRED" }), "mediamtx-auth:publish-external-refused");
+    });
+
+    it("a failed note never blocks the publish", async () => {
+      mockDb.externalStream.updateMany.mockRejectedValue(new Error("db blip"));
+      expect((await publish(streamPublishPassword(KEY, 2))).status).toBe(200);
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.anything(), "mediamtx-auth:external-publish-note-failed");
+    });
+
+    it("a database error on the lookup refuses (fail closed)", async () => {
+      mockDb.externalStream.findFirst.mockRejectedValue(new Error("db down"));
+      expect((await publish(streamPublishPassword(KEY, 2))).status).toBe(503);
+    });
   });
 
   it("refuses a publish on an unknown key", async () => {

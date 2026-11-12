@@ -235,6 +235,8 @@ describe("SESSION_HAS_STREAM", () => {
 describe("every file that names the stream key is known", () => {
   const ALLOWED = new Map<string, string>([
     ["src/lib/webinar/session-stream.ts", "the resolver"],
+    ["src/lib/webinar/external-stream.ts", "a partner's key: its publish rule and the credentials handed over"],
+    ["src/services/external-stream-service.ts", "issues, replaces and shows a partner's key to staff"],
     ["src/lib/webinar/livestream.ts", "tells OUR Zoom where to push, and signs publish passwords: Zoom-only"],
     ["src/lib/zoom/meetings.ts", "sends the key to Zoom's API"],
     ["src/lib/webinar/stream-probe.ts", "asks MediaMTX about a key it is handed"],
