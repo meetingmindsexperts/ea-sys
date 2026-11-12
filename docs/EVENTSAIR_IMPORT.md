@@ -131,20 +131,26 @@ Upload a CSV file to bulk-import schedule sessions.
 
 **Required columns**: `name`, `startTime`, `endTime`
 
-**Optional columns**: `description`, `location`, `capacity`, `track`, `speakerEmails` (semicolon-separated), `status` (DRAFT/SCHEDULED/LIVE/COMPLETED/CANCELLED)
+**Optional columns**: `description`, `location`, `capacity`, `track`, `speakerEmails`, `moderatorEmails`, `chairEmails` (each semicolon-separated), `status` (DRAFT/SCHEDULED/LIVE/COMPLETED/CANCELLED), `type`, `topicTitle`, `topicDuration` (minutes), `topicSpeakerEmails` (semicolon-separated)
 
 **Behavior**:
 - Tracks are auto-created if a track name doesn't exist for the event
 - Speakers are linked by email lookup (must exist as speakers for this event)
 - Multiple speakers separated by semicolons: `alice@ex.com;bob@ex.com`
 - Session status defaults to `SCHEDULED`
+- A person holds one role per session: the same email under two of `speakerEmails`, `moderatorEmails` and `chairEmails` is a row error and the session is not imported
+- **Topics (Nov 12, 2026)**: rows sharing a `name` and `startTime` are one session. Each row with a `topicTitle` adds one topic to it, in file order; the session's own columns are read from its first row, so later rows need only `name`, `startTime` and the topic columns
+- A session already on the event (same name and start time) is never changed. Topics it does not hold yet are added after its existing ones, matched by title and counted, so a repeated "Discussion" is kept and the same file imported twice adds nothing
+- Break items (`type` REGISTRATION, BREAK, LUNCH, NETWORKING) cannot have speakers or topics
 - Max 5,000 rows per file
 
 **Example CSV**:
 ```csv
-name,startTime,endTime,track,location,speakerEmails
-Keynote: Future of AI,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,Main Stage,Hall A,alice@example.com
-Panel Discussion,2026-03-15T10:30:00Z,2026-03-15T12:00:00Z,Workshops,Room B,alice@example.com;bob@example.com
+name,startTime,endTime,track,location,speakerEmails,moderatorEmails,topicTitle,topicDuration,topicSpeakerEmails
+Keynote: Future of AI,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,Main Stage,Hall A,alice@example.com,,,,
+Plenary 1,2026-03-15T10:30:00Z,2026-03-15T12:00:00Z,Main Stage,Hall A,,carol@example.com,Heart failure update,20,alice@example.com
+Plenary 1,2026-03-15T10:30:00Z,,,,,,New lipid targets,15,bob@example.com
+Plenary 1,2026-03-15T10:30:00Z,,,,,,Panel discussion,25,alice@example.com;bob@example.com
 ```
 
 ### Abstracts CSV

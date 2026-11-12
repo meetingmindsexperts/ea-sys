@@ -1,4 +1,4 @@
-import { db, tenantTransaction } from "@/lib/db";
+import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import type { ToolExecutor } from "./_shared";
@@ -10,6 +10,7 @@ import {
 } from "@prisma/client";
 import {
   addSessionSpeaker as addSessionSpeakerService,
+  appendSessionTopics as appendSessionTopicsService,
   createSession as createSessionService,
   removeSessionSpeaker as removeSessionSpeakerService,
   replaceSessionRoster as replaceSessionRosterService,
@@ -17,7 +18,7 @@ import {
   type SessionRole,
   type SessionStatus,
 } from "@/services/session-service";
-import { BREAK_SESSION_TYPES, isBreakSessionType } from "@/lib/session-enums";
+import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
 
 // Derived from the Prisma enums so a new value can't silently drift out of
 // the agent's whitelists (the session-enums.ts pattern).
@@ -184,76 +185,39 @@ const addTopicToSession: ToolExecutor = async (input, ctx) => {
     if (!sessionId) return { error: "sessionId is required" };
     if (!title) return { error: "Topic title is required" };
 
-    // Verify session belongs to this event
-    const session = await db.eventSession.findFirst({
-      where: { id: sessionId, eventId: ctx.eventId },
-      select: { id: true, name: true, type: true },
-    });
-    if (!session) return { error: `Session ${sessionId} not found in this event` };
-    // H1 (break-items review): this executor bypasses the session service, so
-    // it must enforce the break-item invariant itself.
-    if (isBreakSessionType(session.type)) {
-      return {
-        error:
-          "This is a break item (registration/coffee/lunch/networking) — it cannot have topics. Convert it to a program type (SESSION/WORKSHOP/SYMPOSIUM) first via update_session.",
-        code: "BREAK_ITEM_HAS_PROGRAM",
-      };
-    }
-
     const rawSpeakerIds = Array.isArray(input.speakerIds)
       ? (input.speakerIds as string[]).slice(0, 20)
       : [];
 
-    // Validate speakers
-    if (rawSpeakerIds.length > 0) {
-      const valid = await db.speaker.findMany({
-        where: { id: { in: rawSpeakerIds }, eventId: ctx.eventId },
-        select: { id: true },
-      });
-      const validIds = new Set(valid.map((s) => s.id));
-      const invalid = rawSpeakerIds.filter((id) => !validIds.has(id));
-      if (invalid.length > 0) {
-        return { error: `Speaker IDs not found: ${invalid.join(", ")}` };
+    // The append (break-item gate, speaker check, position, audit row) lives in
+    // the session service, shared with the agenda CSV import.
+    const result = await appendSessionTopicsService({
+      eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
+      sessionId,
+      actorUserId: ctx.userId,
+      source: ctx.source,
+      topics: [{ title, duration: input.duration ? Number(input.duration) : null, speakerIds: rawSpeakerIds }],
+    });
+    if (!result.ok) {
+      if (result.code === "BREAK_ITEM_HAS_PROGRAM") {
+        return {
+          error:
+            "This is a break item (registration/coffee/lunch/networking) — it cannot have topics. Convert it to a program type (SESSION/WORKSHOP/SYMPOSIUM) first via update_session.",
+          code: result.code,
+        };
       }
+      return { error: result.message, code: result.code };
     }
 
-    // Append-at-end sortOrder is computed INSIDE the same transaction as the
-    // create so two concurrent add_topic calls (MCP/n8n) can't read the same
-    // count and tie (M10, program/agenda review — same shape as the
-    // certificate templates fix). max+1 instead of count() so a payload that
-    // supplied explicit sortOrders earlier still appends after them.
-    const topic = await tenantTransaction(async (tx) => {
-      const maxOrder = await tx.sessionTopic.aggregate({
-        where: { sessionId },
-        _max: { sortOrder: true },
-      });
-      return tx.sessionTopic.create({
-        data: {
-          sessionId,
-          organizationId: ctx.organizationId,
-          title,
-          duration: input.duration ? Number(input.duration) : null,
-          sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
-          speakers: rawSpeakerIds.length > 0
-            ? { create: rawSpeakerIds.map((sid) => ({ speakerId: sid, organizationId: ctx.organizationId })) }
-            : undefined,
-        },
-        select: {
-          id: true,
-          title: true,
-          duration: true,
-          speakers: { select: { speaker: { select: { firstName: true, lastName: true } } } },
-        },
-      });
-    });
-
+    const [topic] = result.added;
     return {
       success: true,
       topic: {
         ...topic,
         speakers: topic.speakers.map((ts) => `${ts.speaker.firstName} ${ts.speaker.lastName}`),
       },
-      session: session.name,
+      session: result.sessionName,
     };
     });
   } catch (err) {

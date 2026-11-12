@@ -1866,7 +1866,7 @@ export function useCSVImport(eventId: string, entityType: "registrations" | "spe
       if (defaultTicketTypeId) formData.append("defaultTicketTypeId", defaultTicketTypeId);
       // `uncategorised` = rows imported with no registration type (registrations
       // entity only) — the dialog surfaces it as the cue to send completion forms.
-      return fetchApi<{ created: number; updated?: number; unchanged?: number; skipped?: number; skippedRows?: string[]; updatedRows?: string[]; tracksCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] }>(
+      return fetchApi<{ created: number; updated?: number; unchanged?: number; skipped?: number; skippedRows?: string[]; updatedRows?: string[]; tracksCreated?: number; topicsCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] }>(
         `/api/events/${eventId}/import/${entityType}`,
         { method: "POST", body: formData }
       );
@@ -1879,6 +1879,9 @@ export function useCSVImport(eventId: string, entityType: "registrations" | "spe
         abstracts: queryKeys.abstracts(eventId),
       };
       queryClient.invalidateQueries({ queryKey: keyMap[entityType] });
+      // An agenda import creates the tracks its rows name; without this the
+      // Tracks count and the track filter stay on the list from before it.
+      if (entityType === "sessions") queryClient.invalidateQueries({ queryKey: queryKeys.tracks(eventId) });
     },
   });
 }

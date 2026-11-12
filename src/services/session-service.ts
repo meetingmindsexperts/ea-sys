@@ -1259,3 +1259,177 @@ export async function replaceSessionRoster(
     return rosterFail("UNKNOWN", "Failed to replace session speakers");
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Appending topics to a session that already exists (Nov 12, 2026)
+//
+// Two callers: the agent's `add_topic_to_session` (one topic) and the agenda
+// CSV import, which adds the topics a re-imported file carries for a session
+// already on the event. The create itself used to live in the agent executor,
+// with no audit row; it lives here now so the second caller is not a copy.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const topicTitleKey = (title: string) => title.trim().toLowerCase().replace(/\s+/g, " ");
+
+/**
+ * Which of `incoming` are not on the session yet, matched by title
+ * (case and spacing ignored) and COUNTED: a programme repeats titles such as
+ * "Discussion" after each talk, so two on the session and three in the file
+ * means one to add. Order of `incoming` is kept.
+ */
+export function selectTopicsToAppend<T extends { title: string }>(existingTitles: string[], incoming: T[]): T[] {
+  const remaining = new Map<string, number>();
+  for (const title of existingTitles) {
+    const key = topicTitleKey(title);
+    remaining.set(key, (remaining.get(key) ?? 0) + 1);
+  }
+  const toAdd: T[] = [];
+  for (const topic of incoming) {
+    const key = topicTitleKey(topic.title);
+    const left = remaining.get(key) ?? 0;
+    if (left > 0) {
+      remaining.set(key, left - 1);
+      continue;
+    }
+    toAdd.push(topic);
+  }
+  return toAdd;
+}
+
+export interface AppendSessionTopicInput {
+  title: string;
+  duration?: number | null;
+  speakerIds?: string[];
+}
+
+const APPENDED_TOPIC_SELECT = {
+  id: true,
+  title: true,
+  duration: true,
+  speakers: { select: { speaker: { select: { firstName: true, lastName: true } } } },
+};
+
+type AppendedTopic = Prisma.SessionTopicGetPayload<{ select: typeof APPENDED_TOPIC_SELECT }>;
+
+export type AppendSessionTopicsResult =
+  | {
+      ok: true;
+      sessionName: string;
+      added: AppendedTopic[];
+      /** Topics left out because the session already holds them (`onlyMissingTitles`). */
+      alreadyPresent: number;
+    }
+  | { ok: false; code: SessionRosterErrorCode; message: string; meta?: Record<string, unknown> };
+
+/**
+ * Adds topics after the ones the session already has. Never changes or removes
+ * an existing topic. With `onlyMissingTitles` (the import) a topic the session
+ * already holds is left out, so sending the same list twice adds nothing.
+ *
+ * The transaction opens by touching the session row. That takes its row lock,
+ * so two appends cannot both read the same last position or both find a title
+ * missing, and it moves `updatedAt`, so an edit dialog opened before the
+ * append saves into STALE_WRITE instead of replacing the topic list with one
+ * that never had the new topics.
+ */
+export async function appendSessionTopics(
+  input: RosterOpBase & {
+    requestIp?: string | null;
+    topics: AppendSessionTopicInput[];
+    onlyMissingTitles?: boolean;
+  },
+): Promise<AppendSessionTopicsResult> {
+  const { eventId, sessionId, organizationId, source } = input;
+  try {
+    const session = await db.eventSession.findFirst({
+      where: { id: sessionId, eventId },
+      select: { id: true, name: true, type: true },
+    });
+    if (!session) {
+      apiLogger.warn({ msg: "session-topics:append-rejected", code: "SESSION_NOT_FOUND", eventId, sessionId, source });
+      return rosterFail("SESSION_NOT_FOUND", `Session ${sessionId} not found in this event`);
+    }
+    if (isBreakSessionType(session.type)) {
+      apiLogger.warn({ msg: "session-topics:append-rejected", code: "BREAK_ITEM_HAS_PROGRAM", eventId, sessionId, type: session.type, source });
+      return rosterFail("BREAK_ITEM_HAS_PROGRAM", BREAK_ITEM_ROSTER_MESSAGE);
+    }
+
+    const speakerIds = [...new Set(input.topics.flatMap((t) => t.speakerIds ?? []))];
+    if (speakerIds.length > 0) {
+      const found = await db.speaker.findMany({
+        where: { id: { in: speakerIds }, eventId },
+        select: { id: true },
+      });
+      const foundIds = new Set(found.map((s) => s.id));
+      const missing = speakerIds.filter((id) => !foundIds.has(id));
+      if (missing.length > 0) {
+        apiLogger.warn({ msg: "session-topics:append-rejected", code: "SPEAKER_NOT_FOUND", eventId, sessionId, missing, source });
+        return rosterFail("SPEAKER_NOT_FOUND", `Speaker IDs not found: ${missing.join(", ")}`, {
+          missingSpeakerIds: missing,
+        });
+      }
+    }
+
+    const { added, alreadyPresent } = await tenantTransaction(async (tx) => {
+      await tx.eventSession.update({
+        where: { id: sessionId },
+        data: { updatedAt: new Date() },
+        select: { id: true },
+      });
+      const existing = await tx.sessionTopic.findMany({
+        where: { sessionId },
+        select: { title: true, sortOrder: true },
+      });
+      const toAdd = input.onlyMissingTitles
+        ? selectTopicsToAppend(existing.map((t) => t.title), input.topics)
+        : input.topics;
+      // max+1, not count(): topics saved with explicit positions still sort first.
+      let nextOrder = existing.reduce((max, t) => Math.max(max, t.sortOrder), -1) + 1;
+      const rows: AppendedTopic[] = [];
+      for (const topic of toAdd) {
+        rows.push(
+          await tx.sessionTopic.create({
+            data: {
+              sessionId,
+              organizationId,
+              title: topic.title,
+              duration: topic.duration || null,
+              sortOrder: nextOrder++,
+              speakers:
+                topic.speakerIds && topic.speakerIds.length > 0
+                  ? { create: [...new Set(topic.speakerIds)].map((speakerId) => ({ speakerId, organizationId })) }
+                  : undefined,
+            },
+            select: APPENDED_TOPIC_SELECT,
+          }),
+        );
+      }
+      return { added: rows, alreadyPresent: input.topics.length - toAdd.length };
+    });
+
+    if (added.length === 0) return { ok: true, sessionName: session.name, added, alreadyPresent };
+
+    apiLogger.info({ msg: "session-topics:appended", eventId, sessionId, source, added: added.length, alreadyPresent });
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: input.actorUserId,
+          action: "CREATE",
+          entityType: "SessionTopic",
+          entityId: sessionId,
+          changes: {
+            source,
+            topics: added.map((t) => ({ id: t.id, title: t.title })),
+            ...(input.requestIp ? { ip: input.requestIp } : {}),
+          },
+        },
+      })
+      .catch((err) => apiLogger.error({ err, eventId, sessionId }, "session-topics:append audit-log-failed"));
+
+    return { ok: true, sessionName: session.name, added, alreadyPresent };
+  } catch (err) {
+    apiLogger.error({ err, msg: "session-topics:append-failed", eventId, sessionId, source });
+    return rosterFail("UNKNOWN", "Failed to add topics to the session");
+  }
+}

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Agenda CSV import: topics, moderators and chairpersons (November 12)
+
+Owner: "program or agenda import is not handling topics, sessions should have topics under it". The import created sessions only; every topic had to be typed into the session dialog.
+
+- **One row per topic.** Rows sharing a `name` and `startTime` are one session, and each row with a `topicTitle` adds one topic to it, in file order, with optional `topicDuration` (minutes) and `topicSpeakerEmails`. The session's own columns are read from its first row, so later rows need only the name, the start time and the topic. Files without the new columns import exactly as before
+- **A session already on the event is never changed.** Its missing topics are added after the ones it has, matched by title and counted (a programme repeats "Discussion" after each talk), so the same file imported twice adds nothing and an agenda imported before today can be given its topics by importing the file again. Two sessions sharing a name and start time, or a break item, refuse topics with a row error
+- **`moderatorEmails` and `chairEmails`** beside `speakerEmails`. The same person under two of them is a row error and that session is not imported (a person holds one role per session); a moderator who also presents goes in `topicSpeakerEmails`
+- A bad duration or an unknown topic speaker is a row error and the topic still imports without that value, the way an unknown session speaker never cost the session
+- The result line shows topics added and sessions updated; the template has sample topic rows; the Tracks count and filter refresh after an import (they stayed on the old list)
+- **One append path**: `appendSessionTopics` in `src/services/session-service.ts` now backs both the import and the agent's `add_topic_to_session` (which wrote no audit row). It opens by touching the session row: two appends cannot take the same position, and an edit dialog opened before the append saves into "changed by someone else" instead of replacing the topic list. For the agent this means `update_session` with an `expectedUpdatedAt` read BEFORE adding topics now answers STALE_WRITE
+
 ### External streams, step 4: a webinar's video source (November 12)
 
 Built and switched off: nothing is visible yet. The choice below stays hidden, and the events route refuses it, until a partner's key can be issued from the console (step 5), because a partner-produced webinar is fixed at creation and cannot stream without one (review of `8bcf9cf8`; the switch is `PARTNER_STREAM_CHOICE_OFFERED` in `src/lib/webinar/partner-stream-availability.ts`).

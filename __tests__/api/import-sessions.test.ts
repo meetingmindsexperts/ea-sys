@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, mockCreateSession, mockNotify, mockApiLogger } = vi.hoisted(() => ({
+const { mockDb, mockAuth, mockCreateSession, mockAppendTopics, mockNotify, mockApiLogger } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     track: { findMany: vi.fn() },
@@ -23,6 +23,7 @@ const { mockDb, mockAuth, mockCreateSession, mockNotify, mockApiLogger } = vi.ho
   },
   mockAuth: vi.fn(),
   mockCreateSession: vi.fn(),
+  mockAppendTopics: vi.fn(),
   mockNotify: vi.fn(),
   mockApiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -50,7 +51,10 @@ vi.mock("@/lib/security", () => ({
 }));
 vi.mock("@/lib/event-access", () => ({ buildEventAccessWhere: () => ({ id: "ev1" }) }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotify }));
-vi.mock("@/services/session-service", () => ({ createSession: mockCreateSession }));
+vi.mock("@/services/session-service", () => ({
+  createSession: mockCreateSession,
+  appendSessionTopics: mockAppendTopics,
+}));
 vi.mock("@/lib/audit-data-transfer", () => ({ recordImport: vi.fn() }));
 
 import { POST } from "@/app/api/events/[eventId]/import/sessions/route";
@@ -99,7 +103,11 @@ describe("agenda CSV import delegates to session-service", () => {
       requestIp: "1.2.3.4",
       name: "Keynote",
       trackId: "trk-main",
-      speakerIds: ["spk-1", "spk-2"],
+      sessionRoles: [
+        { speakerId: "spk-1", role: "SPEAKER" },
+        { speakerId: "spk-2", role: "SPEAKER" },
+      ],
+      topics: [],
       capacity: 100,
       status: "SCHEDULED",
       suppressAdminNotification: true,
@@ -203,7 +211,7 @@ describe("agenda CSV import delegates to session-service", () => {
 
     expect(body.created).toBe(1);
     expect(body.errors[0]).toContain('speaker "ghost@example.com" not found');
-    expect(mockCreateSession.mock.calls[0][0].speakerIds).toEqual(["spk-1"]);
+    expect(mockCreateSession.mock.calls[0][0].sessionRoles).toEqual([{ speakerId: "spk-1", role: "SPEAKER" }]);
   });
 
   it("optional type column: aliases map (\"Coffee Break\" \u2192 BREAK) and default is SESSION", async () => {
@@ -258,7 +266,7 @@ describe("agenda CSV import delegates to session-service", () => {
     expect(call.type).toBe("LUNCH");
     expect(call.trackId).toBeNull();
     expect(call.capacity).toBeNull();
-    expect(call.speakerIds).toEqual(["spk-1"]);
+    expect(call.sessionRoles).toEqual([{ speakerId: "spk-1", role: "SPEAKER" }]);
   });
 });
 
@@ -293,7 +301,7 @@ describe("multi-day programme correctness — timezone + re-import dedup", () =>
 
   it("re-importing skips rows already on the event (name + startTime, case-insensitive) instead of duplicating", async () => {
     mockDb.eventSession.findMany.mockResolvedValue([
-      { name: "KEYNOTE", startTime: new Date("2026-03-15T05:00:00.000Z") },
+      { id: "s-key", type: "SESSION", name: "KEYNOTE", startTime: new Date("2026-03-15T05:00:00.000Z") },
     ]);
     const csv = [
       "name,startTime,endTime",
@@ -324,5 +332,242 @@ describe("multi-day programme correctness — timezone + re-import dedup", () =>
     expect(body.created).toBe(1);
     expect(body.skipped).toBe(1);
     expect(mockCreateSession).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Topics (Nov 12, 2026). Rows sharing a name + start time are ONE session and
+ * each row's topicTitle adds a topic to it. A session already on the event is
+ * never rewritten: its missing topics go through `appendSessionTopics`.
+ */
+describe("topics: one row per topic under its session", () => {
+  const HEAD = "name,startTime,endTime,track,speakerEmails,topicTitle,topicDuration,topicSpeakerEmails";
+
+  it("rows sharing name + startTime become ONE session with its topics in file order", async () => {
+    const csv = [
+      HEAD,
+      "Plenary 1,2026-03-15T09:00:00Z,2026-03-15T10:30:00Z,Main,,Heart failure update,20,jane@example.com",
+      "Plenary 1,2026-03-15T09:00:00Z,2026-03-15T10:30:00Z,Main,,New lipid targets,15,jane@example.com;john@example.com",
+      "Plenary 1,2026-03-15T09:00:00Z,,,,Panel discussion,,",
+      "Coffee,2026-03-15T10:30:00Z,2026-03-15T11:00:00Z,,,,,",
+    ].join("\n");
+
+    const res = await POST(csvRequest(csv), params);
+    const body = await res.json();
+
+    expect(body).toMatchObject({ created: 2, skipped: 0, topicsCreated: 3, errors: [] });
+    expect(mockCreateSession).toHaveBeenCalledTimes(2);
+    expect(mockCreateSession.mock.calls[0][0].topics).toEqual([
+      { title: "Heart failure update", duration: 20, speakerIds: ["spk-1"], sortOrder: 0 },
+      { title: "New lipid targets", duration: 15, speakerIds: ["spk-1", "spk-2"], sortOrder: 1 },
+      { title: "Panel discussion", duration: null, speakerIds: [], sortOrder: 2 },
+    ]);
+    expect(mockCreateSession.mock.calls[1][0].topics).toEqual([]);
+    expect(mockAppendTopics).not.toHaveBeenCalled();
+  });
+
+  it("a session row with no topic followed by topic rows: the first row is the session, not a duplicate", async () => {
+    const csv = [
+      HEAD,
+      "Plenary 1,2026-03-15T09:00:00Z,2026-03-15T10:30:00Z,Main,jane@example.com,,,",
+      "Plenary 1,2026-03-15T09:00:00Z,,,,Talk A,10,",
+      "Plenary 1,2026-03-15T09:00:00Z,,,,Talk B,10,",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body).toMatchObject({ created: 1, skipped: 0, topicsCreated: 2 });
+    const call = mockCreateSession.mock.calls[0][0];
+    expect(call.sessionRoles).toEqual([{ speakerId: "spk-1", role: "SPEAKER" }]);
+    expect(call.topics.map((t: { title: string }) => t.title)).toEqual(["Talk A", "Talk B"]);
+  });
+
+  it("a repeated topic title in one session is kept (\"Discussion\" after each talk)", async () => {
+    const csv = [
+      HEAD,
+      "S,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,,,Talk A,,",
+      "S,2026-03-15T09:00:00Z,,,,Discussion,,",
+      "S,2026-03-15T09:00:00Z,,,,Talk B,,",
+      "S,2026-03-15T09:00:00Z,,,,Discussion,,",
+    ].join("\n");
+
+    await POST(csvRequest(csv), params);
+    expect(mockCreateSession.mock.calls[0][0].topics.map((t: { title: string }) => t.title)).toEqual([
+      "Talk A", "Discussion", "Talk B", "Discussion",
+    ]);
+  });
+
+  it("a bad duration or an unknown topic speaker is a row error and the topic still imports", async () => {
+    const csv = [
+      HEAD,
+      "S,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,,,Talk A,soon,ghost@example.com;john@example.com",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.created).toBe(1);
+    expect(body.errors).toHaveLength(2);
+    expect(body.errors.join(" | ")).toContain('topicDuration "soon"');
+    expect(body.errors.join(" | ")).toContain('speaker "ghost@example.com" not found');
+    expect(mockCreateSession.mock.calls[0][0].topics).toEqual([
+      { title: "Talk A", duration: null, speakerIds: ["spk-2"], sortOrder: 0 },
+    ]);
+  });
+
+  it("topic cells without a topicTitle are a row error, never a nameless topic", async () => {
+    const csv = [HEAD, "S,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,,,,15,jane@example.com"].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.errors[0]).toContain("need a topicTitle");
+    expect(mockCreateSession.mock.calls[0][0].topics).toEqual([]);
+  });
+
+  it("a rejected session reports its lost topics on the session's row", async () => {
+    mockCreateSession.mockResolvedValueOnce({ ok: false, code: "OUTSIDE_EVENT_DATES", message: "Session must fall within event dates" });
+    const csv = [
+      HEAD,
+      "S,2025-03-15T09:00:00Z,2025-03-15T10:00:00Z,,,Talk A,,",
+      "S,2025-03-15T09:00:00Z,,,,Talk B,,",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body).toMatchObject({ created: 0, topicsCreated: 0 });
+    expect(body.errors).toEqual(["Row 2: Session must fall within event dates (its 2 topics were not imported)"]);
+  });
+
+  it("a new session whose first row has no endTime is a row error", async () => {
+    const csv = [HEAD, "S,2026-03-15T09:00:00Z,,,,Talk A,,"].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.created).toBe(0);
+    expect(body.errors[0]).toContain("Row 2: missing required fields");
+    expect(mockCreateSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("topics on a session already on the event", () => {
+  const HEAD = "name,startTime,endTime,speakerEmails,topicTitle,topicDuration,topicSpeakerEmails";
+  const existing = (over: Record<string, unknown> = {}) => ({
+    id: "s-plen",
+    type: "SESSION",
+    name: "Plenary 1",
+    startTime: new Date("2026-03-15T09:00:00.000Z"),
+    ...over,
+  });
+
+  it("adds only the missing topics through appendSessionTopics and never recreates the session", async () => {
+    mockDb.eventSession.findMany.mockResolvedValue([existing()]);
+    mockAppendTopics.mockResolvedValue({ ok: true, sessionName: "Plenary 1", added: [{ id: "t-new" }], alreadyPresent: 1 });
+    const csv = [
+      HEAD,
+      "plenary 1,2026-03-15T09:00:00Z,2026-03-15T10:30:00Z,ghost@example.com,Talk A,20,jane@example.com",
+      "plenary 1,2026-03-15T09:00:00Z,,,Talk B,,",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    // The session's own columns (the unknown speaker) are not read for a session that exists.
+    expect(body).toMatchObject({ created: 0, updated: 1, skipped: 1, topicsCreated: 1, errors: [] });
+    expect(mockCreateSession).not.toHaveBeenCalled();
+    expect(mockAppendTopics).toHaveBeenCalledTimes(1);
+    expect(mockAppendTopics.mock.calls[0][0]).toMatchObject({
+      eventId: "ev1",
+      organizationId: "org1",
+      sessionId: "s-plen",
+      actorUserId: "u1",
+      source: "rest",
+      onlyMissingTitles: true,
+      topics: [
+        { title: "Talk A", duration: 20, speakerIds: ["spk-1"] },
+        { title: "Talk B", duration: null, speakerIds: [] },
+      ],
+    });
+    // No session was created, so no "Agenda Imported" notification.
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  it("the same file again adds nothing: every row counts as skipped", async () => {
+    mockDb.eventSession.findMany.mockResolvedValue([existing()]);
+    mockAppendTopics.mockResolvedValue({ ok: true, sessionName: "Plenary 1", added: [], alreadyPresent: 2 });
+    const csv = [
+      HEAD,
+      "Plenary 1,2026-03-15T09:00:00Z,2026-03-15T10:30:00Z,,Talk A,,",
+      "Plenary 1,2026-03-15T09:00:00Z,,,Talk B,,",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body).toMatchObject({ created: 0, updated: 0, skipped: 2, topicsCreated: 0, errors: [] });
+  });
+
+  it("an existing break item refuses topics with a row error, without calling the service", async () => {
+    mockDb.eventSession.findMany.mockResolvedValue([existing({ type: "LUNCH" })]);
+    const csv = [HEAD, "Plenary 1,2026-03-15T09:00:00Z,2026-03-15T10:30:00Z,,Talk A,,"].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.errors[0]).toContain("is a break item on the event and cannot have topics");
+    expect(mockAppendTopics).not.toHaveBeenCalled();
+  });
+
+  it("two sessions sharing the name and start time: topics are refused, never added to a guess", async () => {
+    mockDb.eventSession.findMany.mockResolvedValue([existing(), existing({ id: "s-plen-2" })]);
+    const csv = [HEAD, "Plenary 1,2026-03-15T09:00:00Z,2026-03-15T10:30:00Z,,Talk A,,"].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.errors[0]).toContain("2 sessions on the event are named");
+    expect(mockAppendTopics).not.toHaveBeenCalled();
+    expect(mockCreateSession).not.toHaveBeenCalled();
+  });
+
+  it("a service refusal becomes a row error naming the session", async () => {
+    mockDb.eventSession.findMany.mockResolvedValue([existing()]);
+    mockAppendTopics.mockResolvedValue({ ok: false, code: "UNKNOWN", message: "Failed to add topics to the session" });
+    const csv = [HEAD, "Plenary 1,2026-03-15T09:00:00Z,2026-03-15T10:30:00Z,,Talk A,,"].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.errors).toEqual(['Row 2: Failed to add topics to the session (topics for "Plenary 1" were not added)']);
+    expect(body.topicsCreated).toBe(0);
+  });
+});
+
+describe("moderatorEmails and chairEmails", () => {
+  it("each column maps to its session role", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([
+      { id: "spk-1", email: "jane@example.com" },
+      { id: "spk-2", email: "john@example.com" },
+      { id: "spk-3", email: "mona@example.com" },
+    ]);
+    const csv = [
+      "name,startTime,endTime,speakerEmails,moderatorEmails,chairEmails",
+      "S,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,jane@example.com,MONA@example.com,john@example.com",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.errors).toEqual([]);
+    expect(mockCreateSession.mock.calls[0][0].sessionRoles).toEqual([
+      { speakerId: "spk-1", role: "SPEAKER" },
+      { speakerId: "spk-3", role: "MODERATOR" },
+      { speakerId: "spk-2", role: "CHAIRPERSON" },
+    ]);
+  });
+
+  it("one person under two role columns: row error, session not imported", async () => {
+    const csv = [
+      "name,startTime,endTime,speakerEmails,moderatorEmails",
+      "S,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,jane@example.com,jane@example.com",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.created).toBe(0);
+    expect(body.errors[0]).toContain('"jane@example.com" is listed as both speaker and moderator');
+    expect(mockCreateSession).not.toHaveBeenCalled();
   });
 });

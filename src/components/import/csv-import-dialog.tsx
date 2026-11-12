@@ -49,6 +49,33 @@ interface CSVImportDialogProps {
  */
 type CsvColumn = { name: string; sample: string; required?: boolean };
 
+/**
+ * Extra rows for the sessions template: a session's topics are one row each,
+ * repeating its name and start time, and a single sample row cannot show that.
+ * Keyed by column name; a column left out is blank.
+ */
+const SESSION_TEMPLATE_EXTRA_ROWS: Record<string, string>[] = [
+  {
+    name: "Opening Keynote",
+    startTime: "2026-06-15T09:00:00",
+    topicTitle: "The next five years",
+    topicDuration: "25",
+    topicSpeakerEmails: "john@example.com",
+  },
+  {
+    name: "Opening Keynote",
+    startTime: "2026-06-15T09:00:00",
+    topicTitle: "Questions and answers",
+    topicDuration: "15",
+  },
+  {
+    name: "Coffee Break",
+    startTime: "2026-06-15T10:00:00",
+    endTime: "2026-06-15T10:30:00",
+    type: "BREAK",
+  },
+];
+
 const ENTITY_COLUMNS: Record<"registrations" | "speakers" | "sessions" | "abstracts", CsvColumn[]> = {
   registrations: [
     { name: "title", sample: "Dr" },
@@ -109,8 +136,13 @@ const ENTITY_COLUMNS: Record<"registrations" | "speakers" | "sessions" | "abstra
     { name: "capacity", sample: "500" },
     { name: "track", sample: "Plenary" },
     { name: "speakerEmails", sample: "jane@example.com;john@example.com" },
+    { name: "moderatorEmails", sample: "mona@example.com" },
+    { name: "chairEmails", sample: "" },
     { name: "status", sample: "SCHEDULED" },
     { name: "type", sample: "SESSION" },
+    { name: "topicTitle", sample: "Welcome address" },
+    { name: "topicDuration", sample: "20" },
+    { name: "topicSpeakerEmails", sample: "jane@example.com" },
   ],
   abstracts: [
     { name: "title", sample: "AI in Cardiology", required: true },
@@ -146,7 +178,7 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string[][] | null>(null);
   const [previewHeaders, setPreviewHeaders] = useState<string[] | null>(null);
-  const [result, setResult] = useState<{ created: number; updated?: number; unchanged?: number; skipped?: number; skippedRows?: string[]; updatedRows?: string[]; tracksCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] } | null>(null);
+  const [result, setResult] = useState<{ created: number; updated?: number; unchanged?: number; skipped?: number; skippedRows?: string[]; updatedRows?: string[]; tracksCreated?: number; topicsCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] } | null>(null);
   // Update-or-create (Oct 2, 2026): speakers and registrations only, on by
   // default; unticked keeps the old skip-existing behaviour.
   const supportsUpdate = entityType === "speakers" || entityType === "registrations";
@@ -254,7 +286,11 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
       v.includes(",") || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
     );
     const sampleRow = sampleValues.join(",");
-    const csv = headerRow + "\n" + sampleRow + "\n";
+    const extraRows =
+      entityType === "sessions"
+        ? SESSION_TEMPLATE_EXTRA_ROWS.map((row) => allColumns.map((c) => row[c] ?? "").join(","))
+        : [];
+    const csv = [headerRow, sampleRow, ...extraRows].join("\n") + "\n";
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -279,14 +315,26 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
                 {" "}Dates must be ISO 8601 format (e.g. 2026-06-15T09:00:00) —
                 times without a timezone suffix are read as the{" "}
                 <strong>event&#39;s local time</strong> (add <code>Z</code> or{" "}
-                <code>+04:00</code> only if you mean an explicit zone). Rows
+                <code>+04:00</code>{" "}
+                only if you mean an explicit zone). Rows
                 matching an existing session&#39;s name + start time are skipped,
                 so re-importing a corrected file never duplicates the agenda.
-                Separate multiple speaker emails with semicolons. Optional{" "}
+                Separate multiple speaker emails with semicolons;{" "}
+                <code>moderatorEmails</code> and <code>chairEmails</code> work
+                the same way, and a person holds one role per session.{" "}
+                <strong>Topics:</strong>{" "}
+                give each topic its own row, repeating
+                the session&#39;s <code>name</code> and <code>startTime</code>,
+                with <code>topicTitle</code>, and optionally{" "}
+                <code>topicDuration</code> (minutes) and{" "}
+                <code>topicSpeakerEmails</code>. The session&#39;s other columns
+                are read from its first row. A session already on the event is
+                not changed: only topics it does not have yet are added,
+                matched by title. Optional{" "}
                 <code>type</code> column: <code>SESSION</code> (default) or a
                 break item — <code>REGISTRATION</code>, <code>BREAK</code>{" "}
                 (&quot;Coffee Break&quot; works too), <code>LUNCH</code>,{" "}
-                <code>NETWORKING</code>. Break rows can&#39;t have speakers, and
+                <code>NETWORKING</code>. Break rows can&#39;t have speakers or topics, and
                 their track/capacity values are ignored.
               </>
             )}
@@ -454,6 +502,9 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
                 )}
                 {result.tracksCreated !== undefined && result.tracksCreated > 0 && (
                   <span className="text-muted-foreground">({result.tracksCreated} tracks created)</span>
+                )}
+                {result.topicsCreated !== undefined && result.topicsCreated > 0 && (
+                  <span className="text-muted-foreground">({result.topicsCreated} topics added)</span>
                 )}
                 {result.uncategorised !== undefined && result.uncategorised > 0 && (
                   <span className="text-amber-600">
