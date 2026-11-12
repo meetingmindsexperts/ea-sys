@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Downloads named after an event no longer fail on a non-English letter (November 12)
+
+Found while checking the registrations export: the certificate **Recipients** tab's Export CSV answered "failed" for the one event whose web address holds a Greek letter (`AβTC2026`).
+
+- **Cause**: the file's name is built from the event's slug or code, and a download's name may only be sent as plain characters. Anything else made the server refuse its own answer after doing all the work
+- **Fixed for every download named that way** (`contentDisposition` in `src/lib/download-filename.ts`): the certificate recipients CSV, the certificates ZIP of an issue run, the event's data ZIP, the event's invoices CSV and ZIP, the venue floor plan PDF (staff and exhibitor link) and the room set-up sheet. The file keeps its real name in current browsers; an older one sees `_` in place of the letter
+- A test lists every download that names a slug or a code in its header, so a new one cannot bring the fault back
+
 ### Speakers: "Registration Type" shows the registration's own type (November 12)
 
 Owner: "looks like reg type in registration and speakers are not in sync". On the 4th GCC Hematology Hub three speakers (registrations 028, 043, 044) read "Faculty" on the Speakers page while their registration was Physician at 150, Unpaid. Each was imported from Contacts with Physician and the Early Bird rate picked (18 others that day were given Faculty), and the organiser then changed "Registration Type" on the speaker to Faculty, believing that fixed it.
@@ -16,6 +24,22 @@ Owner: "looks like reg type in registration and speakers are not in sync". On th
 - A speaker with no registration (or only a cancelled one) keeps the old field: there is no registration to read
 - **The speakers export's "Registration Type" column** prints the registration's type the same way; it printed the label
 - Not changed: the Add Speaker form still offers the field (no registration exists yet; the one it makes is a Faculty one), and the agent's `update_speaker` and a speaker CSV import still write the label, which is now shown only while the speaker has no registration. Still no way to move an existing registration onto a Faculty type: in ROADMAP, waiting on the owner
+
+### Abstracts: assign reviewers in bulk, from ticked rows, pasted numbers or the chair's sheet (November 12)
+
+Asked by the events team: the Middle East Heart Failure Conference has 173 abstracts and almost none had a reviewer; two reviewers each was about 350 assignments, one abstract at a time.
+
+- **Tick boxes on the Abstracts page**, with **Select all** for the rows shown and two filters that make selecting quick: **by theme** and **No reviewer yet**. Ticks survive a change of filter, so several themes can be collected
+- **Select by IDs**: paste abstract numbers and those rows are ticked. Numbers are read loosely: 012, 12 and A-012 all mean A-012
+- **Assign reviewers**: pick one or more people from the event's reviewer pool (the list has a **search** by name or email) and every ticked abstract gets each of them. **Remove reviewer** is the undo for a wrong bulk assign; it never takes an assignment whose reviewer has already submitted a review
+- **Paste reviewer sheet**: for a list that says which abstract goes to whom. Copy the abstract number column and the reviewer column (a second reviewer column works) and paste. Each distinct NAME is shown against the person on the pool it was matched to ("Dr Rahman", "A. Rahman" and "Rahman, Aisha" all find Aisha Rahman). A name that fits nobody, or several people, is never guessed: the organiser picks the person or leaves the name out. Unknown abstract numbers are listed. Nothing is saved before the check. Typed lines work too: "012, Dr Rahman", "A-001 goes to Dr Rahman"
+- **A result line** after each change: how many new assignments, how many were already assigned, and which were skipped and why (their own abstract, a draft or withdrawn abstract, not on the pool, a review already submitted)
+- **Same rules as assigning one by one**: no email is sent (the invitation still goes from the Reviewers page), an author is never given their own abstract, and running it twice changes nothing. Single and bulk now ask one rule, `reviewerAssignmentRefusal` in `abstract-service.ts`
+- **What differs on purpose**: only people on the reviewer pool can be bulk assigned, everyone is added with the default role, and the sheet only adds (a corrected sheet does not undo the first one)
+- **Fixed on the way: the abstracts list no longer comes from the browser's cache.** After reviewers were assigned the browser answered the page's refetch with the old list for up to 30 seconds, so the count on each Reviewers button, and now the "No reviewer yet" filter, stayed wrong. Found in the browser; the reviewers list had the same fault on November 10
+- **No database change.** New: `POST` and `DELETE /api/events/[id]/abstracts/reviewer-assignments` (60 an hour per person, up to 5,000 assignments a request), `assignReviewersBulk` and `unassignReviewersBulk` in the service, `src/lib/abstract-reviewer-sheet.ts` for the reading and the name matching
+- **Before it is useful on an event**: the committee has to be on the Reviewers page. That event has one reviewer on its pool today
+- **Not included**: automatic distribution (even split, or by theme), choosing a role in bulk, and the same action for the AI agent (ROADMAP)
 
 ### Registrations export: which certificate each person is assigned, and whether it was issued (November 12)
 

@@ -259,6 +259,7 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/events/[eventId]/abstracts/[abstractId]/submissions/route.ts"           # Abstract — dual/resource-org (July 31, 2026)
   "src/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/route.ts"             # Abstract (July 31, 2026)
   "src/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/[userId]/route.ts"    # Abstract (July 31, 2026)
+  "src/app/api/events/[eventId]/abstracts/reviewer-assignments/route.ts"               # Abstract, bulk reviewer assignment (Nov 12, 2026)
   "src/app/api/events/[eventId]/abstracts/[abstractId]/presenter-agreement/email/route.ts" # Abstract — resource-org (July 31, 2026)
   "src/app/api/events/[eventId]/abstracts/my-profile/route.ts"                         # Abstract — resource-org (July 31, 2026)
   # Sessions/Tracks sweep (July 31, 2026) — Domain #12. RESOURCE-org routes

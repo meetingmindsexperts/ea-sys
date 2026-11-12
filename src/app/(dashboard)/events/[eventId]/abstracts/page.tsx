@@ -76,6 +76,11 @@ import {
   abstractStatusLabel,
 } from "./abstract-enums";
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { AbstractReviewerToolbar, ALL_THEMES, NO_THEME } from "@/components/abstracts/abstract-reviewer-toolbar";
+import { BulkReviewersDialog, type BulkReviewerMode } from "@/components/abstracts/bulk-reviewers-dialog";
+import { ReviewerSheetDialog } from "@/components/abstracts/reviewer-sheet-dialog";
+import { SelectAbstractsByIdsDialog } from "@/components/abstracts/select-abstracts-by-ids-dialog";
 
 function presentationTypeLabel(type: string): string {
   if (type === "ORAL") return "Oral";
@@ -84,7 +89,6 @@ function presentationTypeLabel(type: string): string {
   return "Workshop";
 }
 
-/** Strip HTML tags for display (handles legacy HTML content) */
 /** The list's heading and empty text: a reviewer sees only what is assigned to them (Nov 10, 2026). */
 function listWording(isSubmitter: boolean, isReviewer: boolean): { heading: string; empty: string } {
   if (isSubmitter) return { heading: "Your Abstracts", empty: "You haven't submitted any abstracts yet. Click \"Submit Abstract\" to get started." };
@@ -92,6 +96,26 @@ function listWording(isSubmitter: boolean, isReviewer: boolean): { heading: stri
   return { heading: "All Abstracts", empty: "No abstracts yet. Click \"Add Abstract\" to get started." };
 }
 
+/** Whether the reviewer filters show this abstract: its theme, and "no reviewer yet". */
+function matchesReviewerFilters(
+  abstract: { theme: { id: string } | null; assignedReviewerCount?: number },
+  themeFilter: string,
+  unassignedOnly: boolean,
+): boolean {
+  if (unassignedOnly && (abstract.assignedReviewerCount ?? 0) > 0) return false;
+  if (themeFilter === ALL_THEMES) return true;
+  if (themeFilter === NO_THEME) return !abstract.theme;
+  return abstract.theme?.id === themeFilter;
+}
+
+/** How many of the shown rows are ticked, as the "select all" box shows it. */
+function shownSelectionState(shownIds: string[], selected: Set<string>): "all" | "some" | "none" {
+  const ticked = shownIds.filter((id) => selected.has(id)).length;
+  if (ticked === 0) return "none";
+  return ticked === shownIds.length ? "all" : "some";
+}
+
+/** Strip HTML tags for display (handles legacy HTML content) */
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
@@ -159,6 +183,9 @@ export default function AbstractsPage() {
   // gate still showed those buttons to the read-only MEMBER, who then got a 403
   // on click. Gate on the actual write boundary instead.
   const canManage    = useCan("abstracts.update", eventId) === "allowed";
+  // Bulk reviewer assignment (Nov 12, 2026): the reviewers routes' own key, so
+  // the tick boxes and the route cannot drift.
+  const canAssignReviewers = useCan("abstracts.reviewers.assign", eventId) === "allowed";
 
   const [copied, setCopied] = useState(false);
 
@@ -186,7 +213,7 @@ export default function AbstractsPage() {
   const { data: tracksData = [] } = useTracks(eventId);
   // Cache read (same key as the theme picker) — the form needs to know whether
   // the event offers themes, because that is what makes one required.
-  const { data: themes = [] } = useAbstractThemes(eventId) as { data: Array<{ id: string }> };
+  const { data: themes = [] } = useAbstractThemes(eventId) as { data: Array<{ id: string; name: string }> };
   const { data: event } = useEvent(eventId);
 
   const abstracts = abstractsData as Abstract[];
@@ -203,6 +230,15 @@ export default function AbstractsPage() {
   const [selectedAbstract, setSelectedAbstract] = useState<Abstract | null>(null);
   // Per-abstract reviewer-assignment dialog target.
   const [reviewersForAbstract, setReviewersForAbstract] = useState<Abstract | null>(null);
+
+  // Bulk reviewer assignment: the ticked rows, the two filters that make
+  // ticking quick, and which of the three dialogs is open.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [themeFilter, setThemeFilter] = useState<string>(ALL_THEMES);
+  const [unassignedOnly, setUnassignedOnly] = useState(false);
+  const [bulkMode, setBulkMode] = useState<BulkReviewerMode | null>(null);
+  const [selectByIdsOpen, setSelectByIdsOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   // Per-row resend of the submission confirmation (Sep 8, 2026). Until now
   // the only resend lived on the speaker page and quick-view sheet, so an
@@ -412,6 +448,48 @@ export default function AbstractsPage() {
   };
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
+
+  // The filters belong to whoever assigns reviewers; everyone else sees the whole list.
+  const shownAbstracts = canAssignReviewers
+    ? abstracts.filter((a) => matchesReviewerFilters(a, themeFilter, unassignedOnly))
+    : abstracts;
+  const shownIds = shownAbstracts.map((a) => a.id);
+  // From the list, not the id set: an abstract deleted since it was ticked drops out.
+  const selectedAbstracts = abstracts.filter((a) => selectedIds.has(a.id));
+  const shownSelection = shownSelectionState(shownIds, selectedIds);
+
+  const toggleSelected = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // "Select all" works on the SHOWN rows only, so a theme can be ticked whole
+  // without losing what was ticked under another filter.
+  const toggleAllShown = () =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of shownIds) {
+        if (shownSelection === "all") next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+
+  const applyPastedSelection = (result: { matched: string[]; unmatched: string[] }) => {
+    if (result.matched.length === 0) {
+      toast.error("No abstracts found for those numbers.");
+      return;
+    }
+    setSelectedIds(new Set(result.matched));
+    setSelectByIdsOpen(false);
+    toast.success(
+      `Selected ${result.matched.length} abstract${result.matched.length === 1 ? "" : "s"}` +
+        (result.unmatched.length ? `, ${result.unmatched.length} not found` : ""),
+    );
+  };
 
   if (loading) {
     return (
@@ -951,7 +1029,8 @@ export default function AbstractsPage() {
         open={!!reviewersForAbstract}
         onOpenChange={(open) => !open && setReviewersForAbstract(null)}
       >
-        <DialogContent className="max-w-lg">
+        {/* No description: the abstract's title under the heading says what this is. */}
+        <DialogContent className="max-w-lg" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle className="text-base">
               Assign reviewers
@@ -973,6 +1052,52 @@ export default function AbstractsPage() {
         <h2 className="text-lg font-semibold mb-4">
           {listWording(isSubmitter, isReviewer).heading}
         </h2>
+        {canAssignReviewers && abstracts.length > 0 && (
+          <>
+            <AbstractReviewerToolbar
+              themes={themes}
+              themeFilter={themeFilter}
+              onThemeFilter={setThemeFilter}
+              unassignedOnly={unassignedOnly}
+              onUnassignedOnly={setUnassignedOnly}
+              shownCount={shownAbstracts.length}
+              totalCount={abstracts.length}
+              shownSelection={shownSelection}
+              onToggleAllShown={toggleAllShown}
+              selectedCount={selectedAbstracts.length}
+              selectedHiddenCount={selectedAbstracts.filter((a) => !shownIds.includes(a.id)).length}
+              onSelectByIds={() => setSelectByIdsOpen(true)}
+              onPasteSheet={() => setSheetOpen(true)}
+              onAssign={() => setBulkMode("assign")}
+              onRemove={() => setBulkMode("remove")}
+              onClear={() => setSelectedIds(new Set())}
+            />
+            <BulkReviewersDialog
+              eventId={eventId}
+              mode={bulkMode ?? "assign"}
+              abstracts={selectedAbstracts}
+              open={bulkMode !== null}
+              onOpenChange={(open) => !open && setBulkMode(null)}
+              onDone={() => setSelectedIds(new Set())}
+            />
+            <SelectAbstractsByIdsDialog
+              abstracts={abstracts}
+              open={selectByIdsOpen}
+              onOpenChange={setSelectByIdsOpen}
+              onSelect={applyPastedSelection}
+            />
+            <ReviewerSheetDialog eventId={eventId} abstracts={abstracts} open={sheetOpen} onOpenChange={setSheetOpen} />
+          </>
+        )}
+        {abstracts.length > 0 && shownAbstracts.length === 0 && (
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-muted-foreground text-center py-8">
+                No abstracts match these filters.
+              </p>
+            </CardContent>
+          </Card>
+        )}
         {abstracts.length === 0 ? (
           <Card>
             <CardContent className="pt-6">
@@ -983,14 +1108,22 @@ export default function AbstractsPage() {
           </Card>
         ) : (
           <div className="space-y-4">
-            {abstracts.map((abstract) => (
+            {shownAbstracts.map((abstract) => (
               <Card
                 key={abstract.id}
-                className="transition-all duration-200 hover:border-primary/50 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.04)] hover:-translate-y-0.5"
+                className={`transition-all duration-200 hover:border-primary/50 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.04)] hover:-translate-y-0.5 ${selectedIds.has(abstract.id) ? "border-primary/60 bg-primary/[0.03]" : ""}`}
               >
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3 flex-1">
+                    {canAssignReviewers && (
+                      <Checkbox
+                        className="mt-1.5"
+                        checked={selectedIds.has(abstract.id)}
+                        onCheckedChange={() => toggleSelected(abstract.id)}
+                        aria-label={`Select abstract ${formatAbstractSerial(abstract.serialId)}`}
+                      />
+                    )}
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         {abstract.serialId != null && (

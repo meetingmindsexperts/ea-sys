@@ -34,7 +34,7 @@ import {
   readRequiredReviewCount,
 } from "@/lib/abstract-review";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
-import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
+import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOwnAbstract, mustConfirmEmailToReview, reviewerPoolIds } from "@/lib/abstract-reviewer-access";
 import { recommendableFormats, type RecommendedFormatValue } from "@/lib/recommended-formats";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
@@ -774,6 +774,30 @@ export type AssignReviewerResult =
     }
   | { ok: false; code: AssignReviewerErrorCode; message: string };
 
+/** Why a reviewer cannot be put on an abstract. */
+export type ReviewerAssignmentRefusal = "NOT_REVIEWABLE" | "OWN_ABSTRACT";
+
+/**
+ * THE rule for one (abstract, reviewer) pair, asked by the single assign above
+ * and the bulk assign below so the two cannot drift (the H6 and H8 class):
+ *
+ *  1. An abstract that is not up for review (a draft, withdrawn, decided)
+ *     takes no reviewer, and an existing assignment on it cannot be edited.
+ *  2. A pair that is already assigned is never refused beyond that: the row
+ *     exists, so it can still be flagged, changed or left alone.
+ *  3. Nobody is NEWLY assigned their own abstract (abstract-reviewer-access.ts):
+ *     the portal hides it and the review service refuses it.
+ */
+export function reviewerAssignmentRefusal(
+  abstract: { status: string; speaker?: { userId?: string | null; email?: string | null } | null },
+  user: { id: string; email?: string | null },
+  alreadyAssigned: boolean,
+): ReviewerAssignmentRefusal | null {
+  if (!REVIEWABLE_ABSTRACT_STATUSES.has(abstract.status)) return "NOT_REVIEWABLE";
+  if (alreadyAssigned) return null;
+  return isOwnAbstract(abstract.speaker, { id: user.id, email: user.email }) ? "OWN_ABSTRACT" : null;
+}
+
 export async function assignReviewer(input: AssignReviewerInput): Promise<AssignReviewerResult> {
   const { eventId, abstractId, reviewerUserId } = input;
   try {
@@ -805,11 +829,9 @@ export async function assignReviewer(input: AssignReviewerInput): Promise<Assign
       return { ok: false, code: "USER_NOT_FOUND", message: "User not found" };
     }
 
-    // H6: don't assign a reviewer onto an abstract that isn't up for review —
-    // a DRAFT (author's private WIP), a WITHDRAWN, or an already-decided
-    // abstract. An assignment only makes sense while the
-    // abstract can actually be scored (parity with the scoring gate).
-    if (!REVIEWABLE_ABSTRACT_STATUSES.has(abstract.status)) {
+    // The pair's rule (reviewerAssignmentRefusal), shared with the bulk path.
+    // H6: an abstract that isn't up for review takes no reviewer at all.
+    if (reviewerAssignmentRefusal(abstract, user, false) === "NOT_REVIEWABLE") {
       apiLogger.warn({ msg: "abstract-reviewer:assign-rejected", code: "NOT_REVIEWABLE", eventId, abstractId, status: abstract.status, source: input.source });
       return {
         ok: false,
@@ -882,7 +904,7 @@ export async function assignReviewer(input: AssignReviewerInput): Promise<Assign
     // nobody is newly assigned it either: the portal hides it, the review
     // service refuses it, and the assignment email would list an abstract its
     // reader cannot open. An existing row can still be edited or flagged above.
-    if (isOwnAbstract(abstract.speaker, { id: user.id, email: user.email })) {
+    if (reviewerAssignmentRefusal(abstract, user, false) === "OWN_ABSTRACT") {
       apiLogger.warn({ msg: "abstract-reviewer:assign-rejected", code: "OWN_ABSTRACT", eventId, abstractId, targetUserId: reviewerUserId, source: input.source });
       return { ok: false, code: "OWN_ABSTRACT", message: "This is their own abstract, so they cannot review it." };
     }
@@ -1013,5 +1035,368 @@ export async function unassignReviewer(input: UnassignReviewerInput): Promise<Un
   } catch (err) {
     apiLogger.error({ err, msg: "unassign-reviewer:failed", eventId, abstractId, source: input.source });
     return { ok: false, code: "UNKNOWN", message: "Failed to unassign reviewer" };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bulk reviewer assignment (Nov 12, 2026).
+//
+// A committee chair says "abstract 012 goes to Dr X" for a few hundred
+// abstracts; one by one that was two clicks each. The Abstracts page now sends
+// many (abstract, reviewer) pairs at once: from ticked rows, from pasted
+// abstract numbers, or from a pasted sheet (src/lib/abstract-reviewer-sheet.ts).
+//
+// Same rules as the single assign, because both ask reviewerAssignmentRefusal:
+// no email, no own abstract, nothing on a draft or a withdrawn abstract, and
+// running it twice changes nothing. Two things differ on purpose:
+//
+//  - Only people on the event's REVIEWER POOL can be bulk assigned. The single
+//    assign takes anyone (the agent uses that); in bulk a wrong id would land
+//    on hundreds of abstracts, so the pool is the fence.
+//  - Bulk never changes an existing assignment's role or conflict flag, and
+//    bulk remove never takes an assignment whose reviewer has already
+//    submitted a review. Those stay one-by-one decisions.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One reviewer and the abstracts they are to be put on (or taken off). */
+export interface BulkReviewerGroup {
+  reviewerUserId: string;
+  abstractIds: string[];
+}
+
+/** The most pairs one request may carry: 1,500 abstracts with three reviewers each, with room. */
+export const MAX_BULK_REVIEWER_PAIRS = 5000;
+
+/** Rows per write statement, well under Postgres's bind-parameter ceiling. */
+const BULK_REVIEWER_CHUNK = 500;
+
+export interface BulkReviewerInput {
+  eventId: string;
+  organizationId: string;
+  groups: BulkReviewerGroup[];
+  actorUserId: string;
+  source: "rest" | "mcp" | "agent";
+  ip?: string | null;
+}
+
+export type BulkAssignSkipReason = "ABSTRACT_NOT_FOUND" | "NOT_ON_POOL" | ReviewerAssignmentRefusal;
+export type BulkUnassignSkipReason = "HAS_REVIEW";
+
+export interface BulkReviewerSkip<Reason extends string> {
+  abstractId: string;
+  reviewerUserId: string;
+  reason: Reason;
+}
+
+export type BulkReviewerErrorCode = "EVENT_NOT_FOUND" | "NO_PAIRS" | "TOO_MANY" | "UNKNOWN";
+
+export type BulkAssignReviewersResult =
+  | {
+      ok: true;
+      /** New assignments written by this call. */
+      assigned: number;
+      /** Pairs that were assigned already: left exactly as they were. */
+      alreadyAssigned: number;
+      skipped: BulkReviewerSkip<BulkAssignSkipReason>[];
+    }
+  | { ok: false; code: BulkReviewerErrorCode; message: string };
+
+export type BulkUnassignReviewersResult =
+  | {
+      ok: true;
+      removed: number;
+      /** Pairs with no assignment to remove. */
+      notAssigned: number;
+      skipped: BulkReviewerSkip<BulkUnassignSkipReason>[];
+    }
+  | { ok: false; code: BulkReviewerErrorCode; message: string };
+
+const pairKey = (abstractId: string, reviewerUserId: string) => `${abstractId}:${reviewerUserId}`;
+
+/** The request as distinct pairs: a pair named twice (two sheet rows) counts once. */
+function distinctReviewerPairs(groups: BulkReviewerGroup[]) {
+  const byReviewer = new Map<string, Set<string>>();
+  for (const group of groups) {
+    const ids = byReviewer.get(group.reviewerUserId) ?? new Set<string>();
+    for (const abstractId of group.abstractIds) ids.add(abstractId);
+    byReviewer.set(group.reviewerUserId, ids);
+  }
+  const abstractIds = new Set<string>();
+  let count = 0;
+  for (const ids of byReviewer.values()) {
+    count += ids.size;
+    for (const id of ids) abstractIds.add(id);
+  }
+  return { byReviewer, reviewerIds: [...byReviewer.keys()], abstractIds: [...abstractIds], count };
+}
+
+/** Refuse a request that names nothing, or more than one request should carry. */
+function bulkPairsRefusal(count: number): { ok: false; code: BulkReviewerErrorCode; message: string } | null {
+  if (count === 0) return { ok: false, code: "NO_PAIRS", message: "Choose at least one abstract and one reviewer." };
+  if (count > MAX_BULK_REVIEWER_PAIRS) {
+    return {
+      ok: false,
+      code: "TOO_MANY",
+      message: `That is ${count} assignments in one go; the most is ${MAX_BULK_REVIEWER_PAIRS}. Do it in smaller batches.`,
+    };
+  }
+  return null;
+}
+
+function chunksOf<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
+function countByReason(skipped: { reason: string }[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const s of skipped) counts[s.reason] = (counts[s.reason] ?? 0) + 1;
+  return counts;
+}
+
+/** What happens to one pair of a bulk assign. */
+function bulkAssignOutcome(
+  abstract: { status: string; speaker?: { userId?: string | null; email?: string | null } | null } | undefined,
+  poolUser: { id: string; email: string } | undefined,
+  alreadyAssigned: boolean,
+): BulkAssignSkipReason | "ALREADY" | "CREATE" {
+  if (!poolUser) return "NOT_ON_POOL";
+  if (!abstract) return "ABSTRACT_NOT_FOUND";
+  const refusal = reviewerAssignmentRefusal(abstract, poolUser, alreadyAssigned);
+  if (refusal) return refusal;
+  return alreadyAssigned ? "ALREADY" : "CREATE";
+}
+
+/** One audit row per assignment written or removed, in the single paths' shape plus `bulk`. */
+async function auditBulkReviewerRows(
+  input: BulkReviewerInput,
+  action: "ASSIGN" | "UNASSIGN",
+  rows: { id: string; abstractId: string; userId: string }[],
+): Promise<void> {
+  try {
+    for (const chunk of chunksOf(rows, BULK_REVIEWER_CHUNK)) {
+      await db.auditLog.createMany({
+        data: chunk.map((row) => ({
+          eventId: input.eventId,
+          userId: input.actorUserId,
+          // Explicit: without it the audit stamp looks the event up once per row.
+          organizationId: input.organizationId,
+          action,
+          entityType: "AbstractReviewer",
+          entityId: row.id,
+          changes: {
+            source: input.source,
+            bulk: true,
+            abstractId: row.abstractId,
+            reviewerUserId: row.userId,
+            ...(input.ip ? { ip: input.ip } : {}),
+          },
+        })),
+      });
+    }
+  } catch (err) {
+    apiLogger.error({ err, eventId: input.eventId, action, rows: rows.length }, "bulk-reviewers:audit-log-failed");
+  }
+}
+
+/**
+ * Put each group's reviewer on each of its abstracts. Additive and idempotent:
+ * an existing assignment is left as it is (role and conflict flag included),
+ * and every pair that cannot be assigned comes back in `skipped` with why.
+ * All the new rows are written in one transaction, so a failure assigns nothing.
+ */
+export async function assignReviewersBulk(input: BulkReviewerInput): Promise<BulkAssignReviewersResult> {
+  const { eventId } = input;
+  try {
+    const pairs = distinctReviewerPairs(input.groups);
+    const refusal = bulkPairsRefusal(pairs.count);
+    if (refusal) {
+      apiLogger.warn({ msg: "abstract-reviewer:bulk-assign-rejected", code: refusal.code, eventId, pairs: pairs.count, source: input.source });
+      return refusal;
+    }
+
+    const [event, abstracts, users, existing] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId, organizationId: input.organizationId },
+        select: { id: true, settings: true },
+      }),
+      db.abstract.findMany({
+        where: { eventId, id: { in: pairs.abstractIds } },
+        select: { id: true, status: true, speaker: { select: { userId: true, email: true } } },
+      }),
+      db.user.findMany({
+        where: { id: { in: pairs.reviewerIds } },
+        select: { id: true, email: true },
+      }),
+      db.abstractReviewer.findMany({
+        where: { abstract: { eventId }, abstractId: { in: pairs.abstractIds }, userId: { in: pairs.reviewerIds } },
+        select: { abstractId: true, userId: true },
+      }),
+    ]);
+    if (!event) {
+      apiLogger.warn({ msg: "abstract-reviewer:bulk-assign-rejected", code: "EVENT_NOT_FOUND", eventId, source: input.source });
+      return { ok: false, code: "EVENT_NOT_FOUND", message: "Event not found" };
+    }
+
+    const pool = new Set(reviewerPoolIds(event.settings));
+    const poolUsers = new Map(users.filter((u) => pool.has(u.id)).map((u) => [u.id, u]));
+    const abstractsById = new Map(abstracts.map((a) => [a.id, a]));
+    const assignedKeys = new Set(existing.map((row) => pairKey(row.abstractId, row.userId)));
+
+    const skipped: BulkReviewerSkip<BulkAssignSkipReason>[] = [];
+    const toCreate: { abstractId: string; userId: string }[] = [];
+    let alreadyAssigned = 0;
+    for (const [reviewerUserId, abstractIds] of pairs.byReviewer) {
+      const poolUser = poolUsers.get(reviewerUserId);
+      for (const abstractId of abstractIds) {
+        const outcome = bulkAssignOutcome(
+          abstractsById.get(abstractId),
+          poolUser,
+          assignedKeys.has(pairKey(abstractId, reviewerUserId)),
+        );
+        if (outcome === "CREATE") toCreate.push({ abstractId, userId: reviewerUserId });
+        else if (outcome === "ALREADY") alreadyAssigned++;
+        else skipped.push({ abstractId, reviewerUserId, reason: outcome });
+      }
+    }
+
+    // One transaction: "Failed" then means nothing was assigned. skipDuplicates
+    // covers a pair somebody else assigned between the read above and here.
+    const created = toCreate.length === 0
+      ? []
+      : await tenantTransaction(async (tx) => {
+          const rows: { id: string; abstractId: string; userId: string }[] = [];
+          for (const chunk of chunksOf(toCreate, BULK_REVIEWER_CHUNK)) {
+            const written = await tx.abstractReviewer.createManyAndReturn({
+              data: chunk.map((pair) => ({
+                abstractId: pair.abstractId,
+                organizationId: input.organizationId, // tenancy: the abstract's event's org
+                userId: pair.userId,
+                assignedById: input.actorUserId,
+              })),
+              skipDuplicates: true,
+              select: { id: true, abstractId: true, userId: true },
+            });
+            rows.push(...written);
+          }
+          return rows;
+        }, { timeout: 30_000 });
+    alreadyAssigned += toCreate.length - created.length;
+
+    apiLogger.info({
+      msg: "abstract-reviewer:bulk-assigned",
+      eventId,
+      assigned: created.length,
+      alreadyAssigned,
+      skipped: skipped.length,
+      reviewers: pairs.reviewerIds.length,
+      abstracts: pairs.abstractIds.length,
+      source: input.source,
+    });
+    if (skipped.length > 0) {
+      apiLogger.warn({ msg: "abstract-reviewer:bulk-assign-skipped", eventId, byReason: countByReason(skipped), source: input.source });
+    }
+    await auditBulkReviewerRows(input, "ASSIGN", created);
+
+    // No email here, as with the single assign: the organiser sends the
+    // Reviewer Invitation from the Reviewers page.
+    return { ok: true, assigned: created.length, alreadyAssigned, skipped };
+  } catch (err) {
+    apiLogger.error({ err, msg: "bulk-assign-reviewers:failed", eventId, source: input.source });
+    return { ok: false, code: "UNKNOWN", message: "Failed to assign reviewers" };
+  }
+}
+
+/**
+ * Take each group's reviewer off each of its abstracts: the undo for a wrong
+ * bulk assign. An assignment whose reviewer has already submitted a review is
+ * never removed here (skipped as HAS_REVIEW); that stays a one-by-one decision
+ * on the abstract's own Reviewers card.
+ */
+export async function unassignReviewersBulk(input: BulkReviewerInput): Promise<BulkUnassignReviewersResult> {
+  const { eventId } = input;
+  try {
+    const pairs = distinctReviewerPairs(input.groups);
+    const refusal = bulkPairsRefusal(pairs.count);
+    if (refusal) {
+      apiLogger.warn({ msg: "abstract-reviewer:bulk-unassign-rejected", code: refusal.code, eventId, pairs: pairs.count, source: input.source });
+      return refusal;
+    }
+
+    const [event, assignments, reviews] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId, organizationId: input.organizationId },
+        select: { id: true },
+      }),
+      db.abstractReviewer.findMany({
+        where: { abstract: { eventId }, abstractId: { in: pairs.abstractIds }, userId: { in: pairs.reviewerIds } },
+        select: { id: true, abstractId: true, userId: true },
+      }),
+      db.abstractReviewSubmission.findMany({
+        where: { abstract: { eventId }, abstractId: { in: pairs.abstractIds }, reviewerUserId: { in: pairs.reviewerIds } },
+        select: { abstractId: true, reviewerUserId: true },
+      }),
+    ]);
+    if (!event) {
+      apiLogger.warn({ msg: "abstract-reviewer:bulk-unassign-rejected", code: "EVENT_NOT_FOUND", eventId, source: input.source });
+      return { ok: false, code: "EVENT_NOT_FOUND", message: "Event not found" };
+    }
+
+    const assignmentByKey = new Map(assignments.map((row) => [pairKey(row.abstractId, row.userId), row]));
+    const reviewedKeys = new Set(reviews.map((row) => pairKey(row.abstractId, row.reviewerUserId)));
+
+    const skipped: BulkReviewerSkip<BulkUnassignSkipReason>[] = [];
+    const toRemove: { id: string; abstractId: string; userId: string }[] = [];
+    let notAssigned = 0;
+    for (const [reviewerUserId, abstractIds] of pairs.byReviewer) {
+      for (const abstractId of abstractIds) {
+        const key = pairKey(abstractId, reviewerUserId);
+        const row = assignmentByKey.get(key);
+        if (!row) notAssigned++;
+        else if (reviewedKeys.has(key)) skipped.push({ abstractId, reviewerUserId, reason: "HAS_REVIEW" });
+        else toRemove.push(row);
+      }
+    }
+
+    // A review can land between the read above and the delete. The delete
+    // itself refuses a row a review hangs on, and whatever survived is
+    // reported as skipped, so the count and the audit say what happened.
+    const removed = toRemove.length === 0
+      ? []
+      : await tenantTransaction(async (tx) => {
+          const ids = toRemove.map((row) => row.id);
+          for (const chunk of chunksOf(ids, BULK_REVIEWER_CHUNK)) {
+            await tx.abstractReviewer.deleteMany({ where: { id: { in: chunk }, submissions: { none: {} } } });
+          }
+          const survivors = new Set(
+            (await tx.abstractReviewer.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((row) => row.id),
+          );
+          return toRemove.filter((row) => !survivors.has(row.id));
+        }, { timeout: 30_000 });
+    const removedIds = new Set(removed.map((row) => row.id));
+    for (const row of toRemove) {
+      if (!removedIds.has(row.id)) skipped.push({ abstractId: row.abstractId, reviewerUserId: row.userId, reason: "HAS_REVIEW" });
+    }
+
+    apiLogger.info({
+      msg: "abstract-reviewer:bulk-unassigned",
+      eventId,
+      removed: removed.length,
+      notAssigned,
+      skipped: skipped.length,
+      reviewers: pairs.reviewerIds.length,
+      abstracts: pairs.abstractIds.length,
+      source: input.source,
+    });
+    if (skipped.length > 0) {
+      apiLogger.warn({ msg: "abstract-reviewer:bulk-unassign-skipped", eventId, byReason: countByReason(skipped), source: input.source });
+    }
+    await auditBulkReviewerRows(input, "UNASSIGN", removed);
+
+    return { ok: true, removed: removed.length, notAssigned, skipped };
+  } catch (err) {
+    apiLogger.error({ err, msg: "bulk-unassign-reviewers:failed", eventId, source: input.source });
+    return { ok: false, code: "UNKNOWN", message: "Failed to remove reviewers" };
   }
 }

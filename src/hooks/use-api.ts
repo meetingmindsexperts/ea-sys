@@ -958,6 +958,66 @@ export function useUnassignAbstractReviewer(eventId: string, abstractId: string)
   });
 }
 
+// ── Bulk reviewer assignment (the Abstracts page) ──────────────────────────
+
+/** One reviewer and the abstracts to put them on, or take them off. */
+export interface BulkReviewerGroup {
+  reviewerUserId: string;
+  abstractIds: string[];
+}
+
+/** A pair the server left alone, and why (codes from abstract-service). */
+export interface BulkReviewerSkip {
+  abstractId: string;
+  reviewerUserId: string;
+  reason: "ABSTRACT_NOT_FOUND" | "NOT_ON_POOL" | "NOT_REVIEWABLE" | "OWN_ABSTRACT" | "HAS_REVIEW";
+}
+
+export interface BulkAssignReviewersResponse {
+  assigned: number;
+  alreadyAssigned: number;
+  skipped: BulkReviewerSkip[];
+}
+
+export interface BulkUnassignReviewersResponse {
+  removed: number;
+  notAssigned: number;
+  skipped: BulkReviewerSkip[];
+}
+
+/** Everything a bulk reviewer change makes stale: the list, each abstract's Reviewers card, the pool's counts. */
+function invalidateAfterBulkReviewers(queryClient: ReturnType<typeof useQueryClient>, eventId: string) {
+  // The abstracts key is a prefix of every abstract's reviewers key.
+  queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+  queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
+}
+
+export function useBulkAssignAbstractReviewers(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (groups: BulkReviewerGroup[]) =>
+      fetchApi<BulkAssignReviewersResponse>(`/api/events/${eventId}/abstracts/reviewer-assignments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groups }),
+      }),
+    onSuccess: () => invalidateAfterBulkReviewers(queryClient, eventId),
+  });
+}
+
+export function useBulkUnassignAbstractReviewers(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (groups: BulkReviewerGroup[]) =>
+      fetchApi<BulkUnassignReviewersResponse>(`/api/events/${eventId}/abstracts/reviewer-assignments`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groups }),
+      }),
+    onSuccess: () => invalidateAfterBulkReviewers(queryClient, eventId),
+  });
+}
+
 // ============ CONTACTS ============
 export function useContacts(filters?: Record<string, string | string[]>) {
   const queryString = buildQueryString(filters);

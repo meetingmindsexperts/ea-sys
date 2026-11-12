@@ -7,6 +7,17 @@
 
 ---
 
+## Bulk reviewer assignment: what the first version left out (recorded Nov 12, 2026): not started
+
+Built Nov 12, 2026 (CHANGELOG): tick boxes, Select by IDs, the theme and "No reviewer yet" filters, Assign and Remove for the selection, and the pasted reviewer sheet. Left out on purpose, in the order they are likely to be asked for:
+
+- **The same action for the AI agent.** `assignReviewersBulk` already takes `source: "mcp" | "agent"`; what is missing is the tool (`assign_reviewers_bulk`) and its permission line in `tool-permissions.ts`. Until then the agent assigns one pair per call, and `/api/mcp` allows 100 calls an hour, so 350 assignments is most of a working day
+- **A role or a conflict flag in bulk.** Everyone is added with the default role (Secondary); a role or a conflict flag is set on the abstract's own Reviewers card. Add a role choice to the dialog only if a committee really works with Primary and Secondary
+- **Automatic distribution.** An even split, or a split by theme, with a cap per reviewer. The organiser decides who gets what today; the theme filter makes that quick. Build only when someone asks with a real committee's rule in hand
+- **A theme name in the sheet.** "Heart failure devices, Dr Rahman" as a row meaning every abstract of that theme. Today that instruction is the theme filter, Select all, Assign
+- **Search on the abstracts list** by title or author. The page has none; Select by IDs and the two filters cover the cases seen so far
+- **The sheet as the whole truth.** The sheet only adds. A mode that also removes what the sheet leaves out would need a preview of the removals and must keep assignments with a submitted review
+
 ## Agenda CSV import with topics: what the Nov 12 review left (recorded Nov 12, 2026)
 
 From the review of `5029717c` (0 BLOCKER, 0 HIGH, 5 MED, 10 LOW). M1, M2, M4 and M5

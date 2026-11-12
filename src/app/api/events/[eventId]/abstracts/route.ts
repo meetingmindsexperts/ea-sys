@@ -348,9 +348,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       };
     });
 
-    // Add cache headers for better performance
+    // Never from the browser's cache (Nov 12, 2026): the page refetches this
+    // right after reviewers are assigned, and with stale-while-revalidate the
+    // browser answered that refetch with the OLD list for up to 30 seconds. A
+    // bulk assign then still showed every abstract under "No reviewer yet" with
+    // no count on its Reviewers button, which invites assigning them again
+    // (found in the browser; the reviewers list had the same fault on Nov 10).
+    // React Query is the cache here.
     const response = NextResponse.json(enriched);
-    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    response.headers.set("Cache-Control", "private, no-store");
     return response;
     });
   } catch (error) {

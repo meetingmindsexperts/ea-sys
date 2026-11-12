@@ -145,3 +145,16 @@ describe("abstracts export: the file", () => {
     expect(recordExport).not.toHaveBeenCalled();
   });
 });
+
+describe("abstracts list (no export)", () => {
+  it("is never served from the browser's cache: the page refetches it right after reviewers are assigned", async () => {
+    // With stale-while-revalidate the browser answered that refetch with the
+    // old list for up to 30 seconds, so a bulk assign still showed every
+    // abstract under "No reviewer yet" (Nov 12, 2026).
+    mockAuth.mockResolvedValue(user("ADMIN"));
+    const res = await GET(req(""), params);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    expect((await res.json())[0]).toMatchObject({ id: "abs-1", assignedReviewerCount: 2 });
+  });
+});

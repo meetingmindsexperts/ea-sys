@@ -42,6 +42,7 @@ import { POST as reviewerResendPOST } from "@/app/api/events/[eventId]/reviewers
 import { POST as reviewerSendInvitationsPOST } from "@/app/api/events/[eventId]/reviewers/send-invitations/route";
 import { GET as absReviewersGET, POST as absReviewersPOST } from "@/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/route";
 import { DELETE as absReviewerDELETE } from "@/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/[userId]/route";
+import { POST as bulkReviewersPOST, DELETE as bulkReviewersDELETE } from "@/app/api/events/[eventId]/abstracts/reviewer-assignments/route";
 import { POST as resendConfirmationPOST } from "@/app/api/events/[eventId]/abstracts/[abstractId]/resend-confirmation/route";
 import { POST as presenterAgreementPOST } from "@/app/api/events/[eventId]/abstracts/[abstractId]/presenter-agreement/email/route";
 import { GET as sharesGET, PUT as sharesPUT, POST as sharesPOST } from "@/app/api/events/[eventId]/submission-shares/route";
@@ -76,6 +77,8 @@ const CASES: HandlerCase[] = [
   { name: "GET abstracts/[abstractId]/reviewers", handler: absReviewersGET, method: "GET", params: abs },
   { name: "POST abstracts/[abstractId]/reviewers", handler: absReviewersPOST, method: "POST", params: abs, body: { userId: "u-rev1" } },
   { name: "DELETE abstracts/[abstractId]/reviewers/[userId]", handler: absReviewerDELETE, method: "DELETE", params: { abstractId: "ab1", userId: "u-rev1" } },
+  { name: "POST abstracts/reviewer-assignments", handler: bulkReviewersPOST, method: "POST", body: { groups: [{ reviewerUserId: "u-rev1", abstractIds: ["ab1"] }] } },
+  { name: "DELETE abstracts/reviewer-assignments", handler: bulkReviewersDELETE, method: "DELETE", body: { groups: [{ reviewerUserId: "u-rev1", abstractIds: ["ab1"] }] } },
   { name: "POST abstracts/[abstractId]/resend-confirmation", handler: resendConfirmationPOST, method: "POST", params: abs, body: {} },
   { name: "POST abstracts/[abstractId]/presenter-agreement/email", handler: presenterAgreementPOST, method: "POST", params: abs, body: {} },
   { name: "GET submission-shares", handler: sharesGET, method: "GET", query: "kind=ABSTRACTS" },
