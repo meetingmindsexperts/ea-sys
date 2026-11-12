@@ -26,6 +26,7 @@ const {
   mockCancelRegistration,
   mockRunOptimisticUpdate,
   mockSyncSpeakerTags,
+  mockSettle,
 } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
@@ -40,6 +41,7 @@ const {
   mockCancelRegistration: vi.fn(),
   mockRunOptimisticUpdate: vi.fn(),
   mockSyncSpeakerTags: vi.fn(),
+  mockSettle: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -47,7 +49,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: mockSyncToContact }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: mockRefreshStats }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotifyAdmins }));
-vi.mock("@/lib/speaker-companion", () => ({ ensureSpeakerCompanionRegistration: vi.fn() }));
+vi.mock("@/lib/speaker-companion", () => ({ ensureSpeakerCompanionRegistration: vi.fn(), settleFacultyRegistration: mockSettle }));
 vi.mock("@/services/payment-service", () => ({ cancelRegistration: mockCancelRegistration }));
 vi.mock("@/lib/optimistic-lock", () => ({
   runOptimisticUpdate: (args: unknown) => mockRunOptimisticUpdate(args),
@@ -114,6 +116,7 @@ beforeEach(() => {
   mockSyncToContact.mockResolvedValue(undefined);
   mockSyncSpeakerTags.mockResolvedValue(undefined);
   mockCancelRegistration.mockResolvedValue({ ok: true });
+  mockSettle.mockResolvedValue({ outcome: "settled", registrationId: "reg-1" });
 });
 
 describe("H4 — the contact sync carries the FULL profile (was name+email on MCP)", () => {
@@ -350,5 +353,61 @@ describe("decline cascade", () => {
     expect(mockCancelRegistration).toHaveBeenCalledWith(
       expect.objectContaining({ registrationId: "reg-1", refund: false }),
     );
+  });
+});
+
+// Owner, Nov 12, 2026: "once a speaker is confirmed ... it should auto change
+// reg status to confirmed and payment status to complimentary". What the
+// registration rule does is tested with it (faculty-registration-settle.test);
+// here, that the status write hands over at the right moment and no other.
+describe("confirm: the speaker's Faculty registration follows", () => {
+  it("fires on a move INTO confirmed, with the speaker's linked registration", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ ...EXISTING, status: "INVITED", sourceRegistrationId: "reg-1" });
+    const res = await updateSpeaker({ ...BASE, fields: { status: "CONFIRMED" } });
+    expect(mockSettle).toHaveBeenCalledTimes(1);
+    expect(mockSettle).toHaveBeenCalledWith({
+      eventId: "evt-1",
+      registrationId: "reg-1",
+      reason: "speaker-confirmed",
+      speakerId: "spk-1",
+      source: "mcp",
+      actorUserId: "user-1",
+    });
+    expect(res.ok && res.registrationSettle).toEqual({ outcome: "settled", registrationId: "reg-1" });
+  });
+
+  it.each(["DECLINED", "CANCELLED"])("fires when a %s speaker is confirmed again", async (from) => {
+    mockDb.speaker.findFirst.mockResolvedValue({ ...EXISTING, status: from, sourceRegistrationId: "reg-1" });
+    await updateSpeaker({ ...BASE, fields: { status: "CONFIRMED" } });
+    expect(mockSettle).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire when the speaker was already confirmed", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ ...EXISTING, status: "CONFIRMED", sourceRegistrationId: "reg-1" });
+    const res = await updateSpeaker({ ...BASE, fields: { status: "CONFIRMED", phone: "+971500000000" } });
+    expect(mockSettle).not.toHaveBeenCalled();
+    expect(res.ok && res.registrationSettle).toBeNull();
+  });
+
+  it("does not fire on an edit that leaves the status alone, or on a move to invited", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ ...EXISTING, status: "INVITED", sourceRegistrationId: "reg-1" });
+    await updateSpeaker({ ...BASE, fields: { phone: "+971500000000" } });
+    mockDb.speaker.findFirst.mockResolvedValue({ ...EXISTING, status: "CONFIRMED", sourceRegistrationId: "reg-1" });
+    await updateSpeaker({ ...BASE, fields: { status: "INVITED" } });
+    expect(mockSettle).not.toHaveBeenCalled();
+  });
+
+  it("does not fire when the write was refused as stale", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ ...EXISTING, status: "INVITED", sourceRegistrationId: "reg-1" });
+    mockRunOptimisticUpdate.mockResolvedValue({ ok: false, reason: "STALE_WRITE" });
+    await updateSpeaker({ ...BASE, fields: { status: "CONFIRMED" } });
+    expect(mockSettle).not.toHaveBeenCalled();
+  });
+
+  it("records the outcome on the speaker's audit row", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ ...EXISTING, status: "INVITED", sourceRegistrationId: "reg-1" });
+    mockSettle.mockResolvedValue({ outcome: "not-faculty", registrationId: "reg-1" });
+    await updateSpeaker({ ...BASE, fields: { status: "CONFIRMED" } });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes.registrationSettle).toBe("not-faculty");
   });
 });

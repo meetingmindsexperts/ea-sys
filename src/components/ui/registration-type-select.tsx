@@ -29,9 +29,10 @@ export function RegistrationTypeSelect({
   const { data: orgTypes = [] } = useRegistrationTypes();
 
   // Use event-specific ticket types if eventId provided, otherwise all org types
-  const options: string[] = eventId
-    ? tickets.map((t: { name: string }) => t.name)
-    : orgTypes;
+  // One entry per NAME: the value saved is the name, and an event can hold two
+  // types of one name (two "Faculty" types), which listed the name twice under
+  // one React key.
+  const options: string[] = [...new Set<string>(eventId ? tickets.map((t: { name: string }) => t.name) : orgTypes)];
 
   return (
     <Select

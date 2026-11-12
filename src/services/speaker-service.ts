@@ -27,7 +27,7 @@ import { apiLogger } from "@/lib/logger";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
+import { ensureSpeakerCompanionRegistration, settleFacultyRegistration, type FacultyRegistrationSettleResult } from "@/lib/speaker-companion";
 import { runOptimisticUpdate } from "@/lib/optimistic-lock";
 import { syncSpeakerTagsToRegistrations, computeTagDelta } from "@/lib/person-tag-sync";
 import { computeDetailsDelta, syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
@@ -371,6 +371,11 @@ export async function createSpeaker(
 /** Statuses that mean "this speaker is out". */
 export const SPEAKER_OUT_STATUSES = new Set<string>(["DECLINED", "CANCELLED"]);
 
+/** True when this status write is a transition INTO confirmed. */
+export function isSpeakerConfirmTransition(prevStatus: string, nextStatus: string | undefined): boolean {
+  return nextStatus === "CONFIRMED" && prevStatus !== "CONFIRMED";
+}
+
 /** True when this status write is a transition INTO declined/cancelled. */
 export function isSpeakerDeclineTransition(prevStatus: string, nextStatus: string | undefined): boolean {
   return (
@@ -568,6 +573,8 @@ export type UpdateSpeakerResult =
       speaker: SpeakerWithCounts;
       /** Present only when this write was a transition into DECLINED/CANCELLED. */
       companionCascade: SpeakerDeclineCascadeResult | null;
+      /** Present only when this write was a transition into CONFIRMED. */
+      registrationSettle: FacultyRegistrationSettleResult | null;
     }
   | {
       ok: false;
@@ -700,6 +707,21 @@ export async function updateSpeaker(
       });
     }
 
+    // Speaker moved INTO confirmed: their Faculty registration follows
+    // (confirmed, complimentary). Faculty type only; rules in
+    // settleFacultyRegistration (owner, Nov 12, 2026).
+    let registrationSettle: FacultyRegistrationSettleResult | null = null;
+    if (isSpeakerConfirmTransition(existing.status, fields.status)) {
+      registrationSettle = await settleFacultyRegistration({
+        eventId,
+        registrationId: existing.sourceRegistrationId,
+        reason: "speaker-confirmed",
+        speakerId,
+        source: source === "api" ? "rest" : source,
+        actorUserId,
+      });
+    }
+
     const speaker = await db.speaker.findUniqueOrThrow({
       where: { id: speakerId },
       include: { _count: { select: { sessions: true, abstracts: true } } },
@@ -757,6 +779,7 @@ export async function updateSpeaker(
             after: speaker,
             fieldsChanged: Object.keys(data),
             ...(companionCascade && { companionCascade: companionCascade.companion }),
+            ...(registrationSettle && { registrationSettle: registrationSettle.outcome }),
             ...(requestIp && { ip: requestIp }),
           } as unknown as Prisma.InputJsonValue,
         },
@@ -765,7 +788,7 @@ export async function updateSpeaker(
         apiLogger.error({ err, msg: "speaker-update:audit-write-failed", speakerId, source }),
       );
 
-    return { ok: true, speaker, companionCascade };
+    return { ok: true, speaker, companionCascade, registrationSettle };
   } catch (err) {
     apiLogger.error({ err, msg: "speaker-update:unknown-failure", speakerId, eventId, source });
     return {

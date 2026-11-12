@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### A confirmed speaker's Faculty registration is confirmed and complimentary (November 12)
+
+Owner: "once a speaker is confirmed ... it should auto change reg status to confirmed and payment status to complimentary". On the 4th GCC Hematology Hub 19 confirmed speakers held a registration that read Pending and Unpaid: the rows had been imported onto an ordinary type, took the database defaults, and nothing tied them to the speaker's status.
+
+- **Setting a speaker to Confirmed now settles their Faculty registration**: Pending (or waitlisted) becomes Confirmed, and Unpaid (or Unassigned) becomes Complimentary. From the speaker page, the speaker sheet and the agent's `update_speaker`: one rule, `settleFacultyRegistration` in `src/lib/speaker-companion.ts`, called by `updateSpeaker`. An audit row (`FACULTY_REGISTRATION_SETTLED`) records before and after; no email is sent and no seat moves
+- **Only a registration on a Faculty type.** A speaker whose registration is on a delegate type (an abstract presenter, a delegate invited to speak later) keeps it exactly as it is, and the organiser is told so: that registration is the person's own (the July 11 ruling for a declined speaker), and making it free would waive a fee nobody decided to waive
+- **Money is never relabelled**: a paid, pending-payment, failed, refunded or sponsor-paid registration keeps its payment status. A cancelled registration is not brought back
+- **One-off script for an event that holds two "Faculty" types**, `scripts/adopt-ordinary-faculty-type.ts` (dry run by default): marks the ordinary "Faculty" type as a Faculty type under the same guard the automatic adoption uses (free, no money on it), then settles each registration on it, and cancels the registration of a speaker who declined. Run on the local copy of GCC Hub: 24 settled, 1 cancelled with its seat released, a second run changes nothing. **Not yet run on production: the owner runs it**
+- The registration type dropdown on a speaker listed a name twice when an event held two types of one name (a duplicate React key); it lists each name once
+- Not covered: the status given to a registration when it is imported or added (still Pending and Unpaid on a typed import, the owner's July 28 ruling), and the three GCC Hub speakers on the Physician type, who stay Unpaid at 150 until someone changes them
+
 ### CME hours to two decimals (November 12)
 
 Owner: "cme should handle 2 digits 3.75 or 5.25". Until now 3.75 was saved as 3.8 without a word, and a certificate printed one decimal whatever was stored.

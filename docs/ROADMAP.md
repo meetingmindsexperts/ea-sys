@@ -75,14 +75,19 @@ nothing. The first two are HIGH and waiting on the owner.**
   charged to another account is still reminded personally (needs the owner's ruling). A
   retry whose remaining audience now owes nothing is recorded as sent to 0.
 
-**Decision waiting on the owner: an event with BOTH an ordinary "Faculty" type and the
-built-in one.** An ordinary type named exactly "Faculty" becomes the built-in type by
-itself only while the event has none (`ensureFacultyTicketType`). GCC Hub has both: 33
-registrations sit on the ordinary one (32 of them linked to speaker records) and count
-as delegates, and the bulk type change and the sheet refuse the move on purpose
-(Oct 22). Ten of 48 events hold an ordinary "Faculty" or "Speaker" type. Proposed: a
-"Move to Faculty" bulk action for unpaid and complimentary rows, which frees their
-seats and marks them complimentary.
+**~~Decision waiting on the owner: an event with BOTH an ordinary "Faculty" type and the
+built-in one.~~ DECIDED Nov 12, 2026: no "Move to Faculty" feature.** The ordinary type
+itself is made a Faculty type by a one-off script, `scripts/adopt-ordinary-faculty-type.ts`
+(dry run by default), which also settles the registrations on it and cancels those of
+speakers who declined. **Waiting on the owner: run it on production for the 4th GCC
+Hematology Hub** (`docker exec ea-sys-worker npx tsx scripts/adopt-ordinary-faculty-type.ts
+--event cmr948otw0001s401fcy5wlnr`, then again with `--write`). From then on a speaker
+set to Confirmed settles their Faculty registration by itself (`settleFacultyRegistration`).
+Left for the owner by hand: three GCC Hub speakers sit on the Physician type, Unpaid at
+150 (reg 028, 043, 044); the rule does not touch a delegate type, the door will refuse
+them and a payment reminder will bill them. Not built: settling on a move to Confirmed
+covers the status CHANGE only; a registration imported onto a Faculty type for a
+speaker who is already confirmed stays as imported until the script, or an edit.
 
 **LOW, listed only.**
 - "Added by staff" also covers Import from Contacts and API-key creates; a phone

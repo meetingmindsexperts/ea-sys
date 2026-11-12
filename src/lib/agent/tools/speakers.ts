@@ -1,3 +1,4 @@
+import { registrationSettleNotice } from "@/lib/speaker-registration-messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -319,7 +320,7 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
       return { error: result.message, code: result.code };
     }
 
-    const { speaker, companionCascade } = result;
+    const { speaker, companionCascade, registrationSettle } = result;
 
     return {
       success: true,
@@ -339,6 +340,14 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
           outcome: companionCascade.companion,
           registrationId: companionCascade.registrationId ?? null,
           note: companionCascadeNote(companionCascade.companion),
+        },
+      }),
+      // A move to CONFIRMED: what it did to their Faculty registration.
+      ...(registrationSettle && {
+        facultyRegistration: {
+          outcome: registrationSettle.outcome,
+          registrationId: registrationSettle.registrationId ?? null,
+          note: registrationSettleNotice(registrationSettle.outcome)?.text,
         },
       }),
     };

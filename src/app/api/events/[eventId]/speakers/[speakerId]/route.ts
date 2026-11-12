@@ -302,7 +302,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { speaker, companionCascade } = result;
+    const { speaker, companionCascade, registrationSettle } = result;
 
     // `companionCascade` tells the UI what happened to the companion
     // registration on a decline (cancelled / kept / real-registration / …).
@@ -311,7 +311,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // And, like the GET, without the abstract count for a caller who may not read abstracts (review LOW, Oct 27).
     const withHonorarium = can(gate.principal, "honorarium.view") ? speaker : stripHonorariumFields(speaker);
     const visible = withVisibleSubmissions(withHonorarium, submissionVisibilityFor(gate.principal, event));
-    return NextResponse.json(companionCascade ? { ...visible, companionCascade } : visible);
+    // `registrationSettle` says what a move to Confirmed did to their Faculty registration.
+    return NextResponse.json({
+      ...visible,
+      ...(companionCascade ? { companionCascade } : {}),
+      ...(registrationSettle ? { registrationSettle } : {}),
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating speaker" });

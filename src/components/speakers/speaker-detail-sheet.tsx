@@ -78,6 +78,7 @@ import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { EmailLogCard } from "@/components/communications/email-log-card";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { registrationSettleNotice } from "@/lib/speaker-registration-messages";
 import { MAX_MANUAL_CC, parseEmailList } from "@/lib/email-address-list";
 
 const statusColors: Record<string, string> = {
@@ -420,9 +421,13 @@ export function SpeakerDetailSheet({
         } else {
           toast.success("Speaker updated");
         }
+        // A move to Confirmed settles their Faculty registration (or says why not).
+        const settle = registrationSettleNotice((data as { registrationSettle?: { outcome?: string } })?.registrationSettle?.outcome);
+        if (settle?.kind === "error") toast.error(settle.text);
+        if (settle?.kind === "info") toast.info(settle.text);
         // The PUT response has no sourceRegistration include — refetch so the
         // Registration block reflects a cascade-cancelled companion.
-        if (cascade === "cancelled") fetchSpeaker();
+        if (cascade === "cancelled" || settle) fetchSpeaker();
         queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
       } else {
         const data = await res.json();

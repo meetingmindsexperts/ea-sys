@@ -17,6 +17,7 @@ import { generateBarcode } from "@/lib/utils";
 import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { completedAtOnCreate } from "@/lib/registration-completion";
+import { refreshEventStats } from "@/lib/event-stats";
 import { Prisma, type Title, type AttendeeRole, type SpeakerStatus } from "@prisma/client";
 
 /** The speakers' type's name when an ordinary "Faculty" already exists and cannot be adopted. */
@@ -34,7 +35,7 @@ const MONEY_PAYMENT_STATUSES = ["PAID", "PENDING", "REFUNDED", "FAILED", "INCLUS
  * delegates, so it is only done when the type is free (type, virtual and every
  * tier at 0) and no registration on it carries money.
  */
-async function adoptableFacultyType(eventId: string): Promise<{ id: string } | { blocked: string } | null> {
+export async function adoptableFacultyType(eventId: string): Promise<{ id: string } | { blocked: string } | null> {
   const leftover = await db.ticketType.findFirst({
     where: { eventId, isFaculty: false, name: { equals: "Faculty", mode: "insensitive" } },
     select: {
@@ -646,4 +647,136 @@ export async function upsertEventSpeaker(
     select: { id: true },
   });
   return created.id;
+}
+
+// ── A Faculty registration is settled: confirmed and complimentary ───────────
+//
+// Owner, Nov 12, 2026: "once a speaker is confirmed ... it should auto change
+// reg status to confirmed and payment status to complimentary". On the 4th GCC
+// Hematology Hub 19 confirmed speakers held a registration that still read
+// Pending and Unpaid: the rows had been imported onto an ordinary type and took
+// the database defaults, and nothing tied them to the speaker's status.
+//
+// What it will and will not touch, and why:
+//  - ONLY a registration on a Faculty type (`TicketType.isFaculty`). A speaker
+//    linked to a registration on a delegate type is a delegate who also speaks
+//    (an abstract presenter, someone who registered and paid before being
+//    invited): that registration is the person's own, the July 11, 2026 ruling
+//    for the decline cascade, and making it complimentary would give away a
+//    fee nobody decided to waive. The caller is told ("not-faculty").
+//  - Payment: only UNPAID and UNASSIGNED become COMPLIMENTARY. Anything that
+//    says money moved or is moving (PAID, PENDING, FAILED, REFUNDED) or that a
+//    sponsor covers (INCLUSIVE) is left alone, the same line the Faculty type's
+//    adoption draws (MONEY_PAYMENT_STATUSES).
+//  - Status: only PENDING and WAITLISTED become CONFIRMED. A CANCELLED
+//    registration is never brought back from here (that claims a seat and is
+//    the registration sheet's job) and its payment is left as it is; a
+//    CHECKED_IN one already says more than CONFIRMED.
+//
+// No seat moves (a pending registration holds its seat as a confirmed one
+// does) and no email is sent: a speaker hears from the speaker emails.
+//
+// ONE implementation, for the speaker-status write (updateSpeaker, behind the
+// REST PUT and the agent's update_speaker) and for the one-off script that
+// brings an event's older rows into line. Never throws.
+
+export type FacultyRegistrationSettleOutcome =
+  /** No linked registration, or it is not on this event. */
+  | "none"
+  /** On a delegate type: the person's own registration, left alone. */
+  | "not-faculty"
+  /** Nothing to change: already confirmed and settled, or cancelled, or money is involved. */
+  | "unchanged"
+  /** Confirmed and/or made complimentary by this call. */
+  | "settled"
+  /** The write failed; logged. */
+  | "failed";
+
+export interface FacultyRegistrationSettleResult {
+  outcome: FacultyRegistrationSettleOutcome;
+  registrationId?: string;
+}
+
+const SETTLE_FROM_STATUSES = ["PENDING", "WAITLISTED"] as const;
+const SETTLE_FROM_PAYMENT_STATUSES = ["UNPAID", "UNASSIGNED"] as const;
+
+/**
+ * What settling would change on a Faculty registration in this state: the rule
+ * itself, pure, so the one-off script's dry run shows exactly what the write
+ * will do instead of describing it a second way.
+ */
+export function planFacultySettle(reg: { status: string; paymentStatus: string }): { confirm: boolean; comp: boolean } {
+  if (reg.status === "CANCELLED") return { confirm: false, comp: false };
+  return {
+    confirm: (SETTLE_FROM_STATUSES as readonly string[]).includes(reg.status),
+    comp: (SETTLE_FROM_PAYMENT_STATUSES as readonly string[]).includes(reg.paymentStatus),
+  };
+}
+
+export async function settleFacultyRegistration(input: {
+  eventId: string;
+  registrationId: string | null;
+  /** Why: written to the audit row and the log. */
+  reason: "speaker-confirmed" | "faculty-type-adopted";
+  speakerId?: string | null;
+  source: "rest" | "mcp" | "agent" | "script";
+  actorUserId?: string | null;
+}): Promise<FacultyRegistrationSettleResult> {
+  const { eventId, registrationId, reason, speakerId, source, actorUserId } = input;
+  if (!registrationId) return { outcome: "none" };
+  try {
+    const reg = await db.registration.findFirst({
+      where: { id: registrationId, eventId },
+      select: { id: true, status: true, paymentStatus: true, ticketType: { select: { isFaculty: true } } },
+    });
+    if (!reg) return { outcome: "none" };
+    if (!reg.ticketType?.isFaculty) {
+      apiLogger.info({ msg: "faculty-registration:settle-skipped-not-faculty", eventId, registrationId: reg.id, speakerId: speakerId ?? null, reason, source });
+      return { outcome: "not-faculty", registrationId: reg.id };
+    }
+    const { confirm, comp } = planFacultySettle(reg);
+    if (!confirm && !comp) return { outcome: "unchanged", registrationId: reg.id };
+
+    // Bound to the state that was read: a change made in between (a payment
+    // recorded, a cancel) wins, and this call changes nothing.
+    const written = await db.registration.updateMany({
+      where: { id: reg.id, eventId, status: reg.status, paymentStatus: reg.paymentStatus },
+      data: {
+        ...(confirm ? { status: "CONFIRMED" as const } : {}),
+        ...(comp ? { paymentStatus: "COMPLIMENTARY" as const } : {}),
+      },
+    });
+    if (written.count === 0) {
+      apiLogger.warn({ msg: "faculty-registration:settle-lost-race", eventId, registrationId: reg.id, reason, source });
+      return { outcome: "unchanged", registrationId: reg.id };
+    }
+
+    apiLogger.info({
+      msg: "faculty-registration:settled",
+      eventId, registrationId: reg.id, speakerId: speakerId ?? null, reason, source,
+      statusFrom: reg.status, statusTo: confirm ? "CONFIRMED" : reg.status,
+      paymentFrom: reg.paymentStatus, paymentTo: comp ? "COMPLIMENTARY" : reg.paymentStatus,
+    });
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: actorUserId ?? null,
+          action: "FACULTY_REGISTRATION_SETTLED",
+          entityType: "Registration",
+          entityId: reg.id,
+          changes: {
+            source, reason, speakerId: speakerId ?? null,
+            before: { status: reg.status, paymentStatus: reg.paymentStatus },
+            after: { status: confirm ? "CONFIRMED" : reg.status, paymentStatus: comp ? "COMPLIMENTARY" : reg.paymentStatus },
+          },
+        },
+      })
+      .catch((err) => apiLogger.warn({ err, msg: "faculty-registration:settle-audit-failed", registrationId: reg.id }));
+    refreshEventStats(eventId);
+    return { outcome: "settled", registrationId: reg.id };
+  } catch (err) {
+    apiLogger.error({ err, msg: "faculty-registration:settle-failed", eventId, registrationId, reason, source });
+    return { outcome: "failed", registrationId };
+  }
 }
